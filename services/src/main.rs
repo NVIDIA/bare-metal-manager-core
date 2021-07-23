@@ -1,0 +1,53 @@
+mod cfg;
+mod daemons;
+
+#[allow(unused_imports)]
+use log::{debug, error, info, trace, warn, LevelFilter};
+
+use cfg::{Options, ServiceSubCommand, TopLevelSubCommand};
+
+#[tokio::main]
+async fn main() -> Result<(), color_eyre::Report> {
+    color_eyre::install()?;
+
+    let config = Options::load();
+
+    pretty_env_logger::formatted_timed_builder()
+        .filter_level(match config.debug {
+            0 => LevelFilter::Info,
+            1 => {
+                // command line overrides config file
+                std::env::set_var("RUST_BACKTRACE", "1");
+                LevelFilter::Debug
+            }
+            _ => {
+                std::env::set_var("RUST_BACKTRACE", "1");
+                LevelFilter::Trace
+            }
+        })
+        .init();
+
+    match config.subcmd {
+        TopLevelSubCommand::Migrate(ref m) => {
+            let pool = carbide::Datastore::pool_from_url(&m.datastore[..]).await?;
+
+            // Clone an instance of the database pool
+            let pool_instance = pool.clone();
+
+            let report = carbide::Datastore::migrate(pool_instance).await?;
+
+            for migration in report.applied_migrations() {
+                info!("Migration applied {0}", migration)
+            }
+        }
+        TopLevelSubCommand::Run(ref s) => {
+            match s.service {
+                ServiceSubCommand::Api(ref config) => {
+                    daemons::Api::run(&s, &config).await?;
+                }
+                _ => unreachable!(),
+            };
+        }
+    }
+    Ok(())
+}

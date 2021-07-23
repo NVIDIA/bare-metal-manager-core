@@ -1,0 +1,40 @@
+[package]
+name = "carbide"
+version = "1.0.0"
+edition = "2018"
+description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
+readme = "README.md"
+
+
+[dependencies]
+log = { version = "*", features = ["serde"] }
+refinery = { version = "0.6.0", features = ["tokio-postgres"] }
+tokio = { version = "1.9", features = ["full"] }
+tokio-postgres = { version = "*" }
+tokio-stream = "*"
+futures = "0.3"
+
+postgres-types = "*"
+serde = {version = "1.0", features = ["derive"] }
+
+postgres = { version = "0.19.1", features = ["with-uuid-0_8", "with-time-0_2", "with-eui48-0_4"] }
+
+itertools = "*"
+tonic = "0.5"
+prost = "0.8"
+prost-types = "*"
+thiserror = "1.0"
+bb8 = "*"
+bb8-postgres = "*"
+uuid = { version = "0.8", features = ["v4", "serde"] }
+ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
+
+eui48 = "0.4.0"
+
+[build-dependencies]
+tonic-build = "0.5"
+
+[dev-dependencies]
+rand = "*"
+pretty_env_logger = "*"
+rstest = "*"

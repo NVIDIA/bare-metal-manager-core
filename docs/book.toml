@@ -1,0 +1,14 @@
+[book]
+title = "Oxidizer Documentation"
+author = "Andrew Forgue"
+
+[rust]
+edition = "2018"
+
+[preprocessor]
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output]
+[output.html]
+additional-js = ["mermaid.min.js", "mermaid-init.js"]

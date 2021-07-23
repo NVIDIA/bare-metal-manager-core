@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+package carbide;
+
+// Primitives
+message UUID {
+  string value = 1;
+}
+
+// Event subscription API
+message EventRequest {};
+message EventMessage {
+  google.protobuf.Timestamp emitted = 1;
+  oneof event {
+    EventMachineAdded machine_added = 2;
+    EventMachineDeleted machine_deleted = 3;
+    EventMachineStateChanged machine_state_changed = 4;
+  };
+}
+message EventMachineAdded {
+  UUID id = 1;
+};
+message EventMachineDeleted {
+  UUID id = 1;
+}
+message EventMachineStateChanged {
+  UUID id = 1;
+}
+
+// Machines API
+message MachineList {
+  repeated Machine machines = 1;
+}
+
+message MachineEvent {
+  UUID   id = 1;
+  UUID   machine_id = 2;
+  uint32 event = 3;
+  uint32 version = 4;
+  
+  google.protobuf.Timestamp time = 5;
+}
+
+message Machine {
+  UUID id = 1;
+  string fqdn = 2;
+
+  google.protobuf.Timestamp created = 3;
+  google.protobuf.Timestamp modified = 4;
+
+//  repeated MachineEvent events = 5;
+
+//  repeated Interface interfaces = 3;
+//
+//  enum State {
+//    NEW = 0;
+//    ADOPTED = 1;
+//    TESTED = 2;
+//    ASSIGNED = 3;
+//    BROKEN = 4;
+//    DECOMMISSIONED = 5; 
+//  }
+//
+//  State current_state = 4;
+
+
+  // TODO(ajf): hardware discovery
+  // TODO(ajf): os selection
+  // TODO(ajf): bmc configuration
+  // TODO(ajf): machine labels/tags
+  // TODO(ajf): test results
+  // TODO(ajf): storage
+}
+
+message MachineQuery {
+  UUID id = 1;
+  string fqdn = 2;
+}
+
+// API service
+service Carbide {
+  // Events API
+//  rpc Events(EventRequest) returns (stream EventMessage);
+
+  // Machines API
+  rpc GetMachines(MachineQuery) returns (MachineList);
+
+  // Network Segments API
+  // Boot Configuration API
+}
+
+// IPMI Service (power on/off machines, change boot order, etc)
+service IPMI {
+  //TODO(ajf): rpc GetDesiredMachinePowerState(Machine) returns (MachineState);
+  //TODO(ajf): rpc SetDesiredMachinePowerState(Machine, MachineState) returns (MachineState);
+  //TODO(ajf): rpc GetActualMachinePowerState(Machine, State) returns (MachineState);
+  //TODO(ajf): rpc MachineConsole(stream MachineConsoleInput) returns (stream MachineConsoleOutput)
+}

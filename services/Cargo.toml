@@ -1,0 +1,27 @@
+[package]
+name = "services"
+version = "1.0.0"
+edition = "2018"
+description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
+readme = "README.md"
+default-run = "carbide-server"
+
+[[bin]]
+name = "carbide-server"
+path = "src/main.rs"
+
+[dependencies]
+carbide = { path = "../carbide" }
+tokio = { version = "1.9", features = ["full"] }
+clap = "3.0.0-beta.2"
+log = { version = "*", features = ["serde"] }
+pretty_env_logger = "*"
+color-eyre = "0.5.11"
+serde = {version = "1.0", features = ["derive"] }
+tokio-stream = "*"
+
+futures = "0.3"
+tonic = "0.5"
+
+[build-dependencies]
+tonic-build = "0.5"
