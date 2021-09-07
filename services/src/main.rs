@@ -1,5 +1,7 @@
-mod cfg;
 mod daemons;
+mod cfg;
+
+use carbide::db;
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
@@ -29,12 +31,12 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     match config.subcmd {
         TopLevelSubCommand::Migrate(ref m) => {
-            let pool = carbide::Datastore::pool_from_url(&m.datastore[..]).await?;
+            let pool = db::Datastore::pool_from_url(&m.datastore[..]).await?;
 
             // Clone an instance of the database pool
             let pool_instance = pool.clone();
 
-            let report = carbide::Datastore::migrate(pool_instance).await?;
+            let report = db::Datastore::migrate(pool_instance).await?;
 
             for migration in report.applied_migrations() {
                 info!("Migration applied {0}", migration)

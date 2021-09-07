@@ -104,10 +104,10 @@ CREATE TABLE machines (
 );
 
 CREATE TABLE machine_events (
-	id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	machine_id uuid NOT NULL,
 	action machine_action NOT NULL,
-	version integer NOT NULL DEFAULT machine_state_machine_current_version(),
+	version INTEGER NOT NULL DEFAULT machine_state_machine_current_version(),
 	timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	FOREIGN KEY (version) REFERENCES machine_state_machine_versions(version),
 	FOREIGN KEY (machine_id) REFERENCES machines(id)

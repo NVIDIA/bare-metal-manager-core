@@ -1,17 +1,30 @@
 [package]
-name = "services"
+name = "carbide"
 version = "1.0.0"
 edition = "2018"
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
-readme = "README.md"
-default-run = "carbide-server"
+#readme = "README.md"
 
 [[bin]]
-name = "carbide-server"
+name = "carbide"
 path = "src/main.rs"
 
 [dependencies]
-carbide = { path = "../carbide" }
+# protobufs/rpc interface
+rpc = { path = "../rpc" }
+
+# grpc
+tonic = "0.5"
+
+# databases
+refinery = { version = "0.6.0", features = ["tokio-postgres"] }
+tokio-postgres = { version = "*" }
+postgres-types = "*"
+postgres = { version = "0.19.1", features = ["with-uuid-0_8", "with-time-0_2", "with-eui48-0_4"] }
+bb8 = "*"
+bb8-postgres = "*"
+
+# async
 tokio = { version = "1.9", features = ["full"] }
 clap = "3.0.0-beta.2"
 log = { version = "*", features = ["serde"] }
@@ -19,9 +32,20 @@ pretty_env_logger = "*"
 color-eyre = "0.5.11"
 serde = {version = "1.0", features = ["derive"] }
 tokio-stream = "*"
-
 futures = "0.3"
-tonic = "0.5"
+
+# data types
+uuid = { version = "0.8", features = ["v4", "serde"] }
+ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
+eui48 = "0.4.0"
+
+# misc
+itertools = "*"
+thiserror = "1.0"
 
 [build-dependencies]
 tonic-build = "0.5"
+
+[dev-dependencies]
+rand = "*"
+rstest = "*"

@@ -1,17 +1,17 @@
-use crate::cfg;
 use color_eyre::Report;
-use carbide::protos;
-use carbide::CarbideError;
-use protos::carbide_server::Carbide;
+use tonic::{Code, Request, Response, Status};
 
-use futures::TryFutureExt;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
-use tonic::{Code, Request, Response, Status};
+
+use carbide::db::{Datastore, Machine, NetworkSegment, Pool};
+use rpc::carbide_server::Carbide;
+
+use crate::cfg;
 
 #[derive(Debug)]
 pub struct Api {
-    database_pool: carbide::Pool,
+    database_pool: Pool,
     database_url: String, // Hack because bb8 and tokio-postgres wind up hiding the connection polling API
 }
 
@@ -19,34 +19,183 @@ pub struct Api {
 impl Carbide for Api {
     async fn get_machines(
         &self,
-        _request: Request<protos::MachineQuery>,
-    ) -> Result<Response<protos::MachineList>, Status> {
-//        let x = self.database_pool
-//            .get()
-//            .map_err(|e| CarbideError::GenericError(String::from("foo") )
-//            .and_then(|pool| pool.transaction().err_into() )
-//            .and_then(|txn| carbide::models::Machine::find(&txn));
-//
-//        let y = x
-//            .await
-//            .map(protos::MachineList::from)
-//            .map(Response::new);
-//
-        Ok(Response::new(protos::MachineList::from(vec![])))
+        request: Request<rpc::MachineQuery>,
+    ) -> Result<Response<rpc::MachineList>, Status> {
+        info!("Starting get_machines for request: {:?}", request);
 
-        //.map(async |pool| pool.transaction().await
-        //    .map(async |txn| carbide::models::Machine::find(&txn).await
-        //        .map(protos::MachineList::from)
-        //        .map(Response::new)
-        //    )
-        //).map_err(|err| Status::new(Code::Internal, err.to_string()))
+        match self.database_pool.get().await {
+            Ok(mut pool) => {
+                info!("Retrieved connection from the database pool");
+                match pool.transaction().await {
+                    Ok(txn) => {
+                        info!("Opened transaction");
+
+                        let machines = Machine::find(&txn)
+                            .await
+                            .map(|machine| rpc::MachineList {
+                                machines: machine.into_iter().map(rpc::Machine::from).collect(),
+                            })
+                            .map(Response::new)
+                            .map_err(|e| Status::new(Code::Internal, format!("{:?}", e)));
+
+                        info!("Machines: {:?}", machines);
+
+                        machines
+                    }
+                    Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+                }
+            }
+            Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+        }
     }
 
-    //    type EventsStream = ReceiverStream<Result<protos::EventMessage, Status>>;
+    async fn discover_machine(
+        &self,
+        request: Request<rpc::MachineDiscovery>,
+    ) -> Result<Response<rpc::Machine>, Status> {
+        info!("Starting discover_machine for request: {:?}", request);
+
+        match self.database_pool.get().await {
+            Ok(mut pool) => {
+                info!("Retrieved connection from the database pool");
+                match pool.transaction().await {
+                    Ok(txn) => {
+                        info!("Opened transaction");
+
+                        let rpc::MachineDiscovery {
+                            mac_address,
+                            relay_address,
+                        } = request.into_inner();
+
+                        let machine = Machine::discover(
+                            &txn,
+                            mac_address.parse().unwrap(),
+                            relay_address.parse().unwrap(),
+                        )
+                        .await
+                        .map(rpc::Machine::from)
+                        .map(Response::new)
+                        .map_err(|e| Status::new(Code::Internal, format!("{:?}", e)));
+
+                        info!("Machine = {:?}", machine);
+
+                        txn.commit().await;
+
+                        machine
+                    }
+                    Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+                }
+            }
+            Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+        }
+    }
+
+    async fn get_network_segments(
+        &self,
+        request: Request<rpc::NetworkSegmentQuery>,
+    ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+        match self.database_pool.get().await {
+            Ok(mut pool) => {
+                info!("Retrieved connection from the database pool");
+                match pool.transaction().await {
+                    Ok(txn) => {
+                        info!("Opened transaction");
+
+                        let network = NetworkSegment::find(&txn)
+                            .await
+                            .map(|network| rpc::NetworkSegmentList {
+                                network_segments: network
+                                    .into_iter()
+                                    .map(rpc::NetworkSegment::from)
+                                    .collect(),
+                            })
+                            .map(rpc::NetworkSegmentList::from)
+                            .map(Response::new)
+                            .map_err(|e| Status::new(Code::Internal, format!("{:?}", e)));
+
+                        info!("Network = {:?}", network);
+
+                        network
+                    }
+                    Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+                }
+            }
+            Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+        }
+    }
+
+    async fn create_network_segment(
+        &self,
+        request: Request<rpc::NetworkSegment>,
+    ) -> Result<Response<rpc::NetworkSegment>, Status> {
+        match self.database_pool.get().await {
+            Ok(mut pool) => {
+                info!("Retrieved connection from the database pool");
+                match pool.transaction().await {
+                    Ok(txn) => {
+                        info!("Opened transaction");
+
+                        let rpc::NetworkSegment {
+                            id: _,
+                            name,
+                            subdomain,
+                            mtu,
+                            subnet_ipv4,
+                            subnet_ipv6,
+                        } = request.into_inner();
+
+                        let segment = NetworkSegment::create(
+                            &txn,
+                            &name,
+                            &subdomain,
+                            &mtu,
+                            subnet_ipv4.map(|ip| ip.parse().unwrap()),
+                            subnet_ipv6.map(|ip| ip.parse().unwrap()),
+                        )
+                        .await
+                        .map(rpc::NetworkSegment::from)
+                        .map(Response::new)
+                        .map_err(|e| Status::new(Code::Internal, format!("{:?}", e)));
+
+                        info!("NetworkSegment = {:?}", segment);
+
+                        txn.commit().await.unwrap();
+
+                        segment
+                    }
+                    Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+                }
+            }
+            Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+        }
+    }
+    async fn delete_network_segment(
+        &self,
+        request: Request<rpc::Uuid>,
+    ) -> Result<Response<rpc::NetworkSegmentDeletion>, Status> {
+        match self.database_pool.get().await {
+            Ok(mut pool) => {
+                info!("Retrieved connection from the database pool");
+                match pool.transaction().await {
+                    Ok(txn) => {
+                        info!("Opened transaction");
+
+                        //    carbide::models::NetworkSegment::find_by_id(&txn);
+
+                        Ok(Response::new(rpc::NetworkSegmentDeletion {}))
+                    }
+                    Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+                }
+            }
+            Err(e) => Err(Status::new(Code::Internal, e.to_string())),
+        }
+    }
+
+    //    type EventsStream = ReceiverStream<Result<rpc::EventMessage, Status>>;
     //
     //    async fn events(
     //        &self,
-    //        request: Request<protos::EventRequest>,
+    //        request: Request<rpc::EventRequest>,
     //    ) -> Result<Response<Self::EventsStream>, Status> {
     //        info!("Got a request: {:?}", request);
     //
@@ -72,11 +221,11 @@ impl Carbide for Api {
     //
     //        //        tokio::spawn(async move {
     //        //            for number in numbers {
-    //        //                let out_message = protos::EventMessage {
+    //        //                let out_message = rpc::EventMessage {
     //        //                    emitted: Some(SystemTime::now().into()),
-    //        //                    event: Some(protos::event_message::Event::MachineAdded(
-    //        //                        protos::EventMachineAdded {
-    //        //                            id: Some(protos::Uuid {
+    //        //                    event: Some(rpc::event_message::Event::MachineAdded(
+    //        //                        rpc::EventMachineAdded {
+    //        //                            id: Some(rpc::Uuid {
     //        //                                value: number.to_string(),
     //        //                            }),
     //        //                        },
@@ -92,7 +241,7 @@ impl Carbide for Api {
 }
 
 impl Api {
-    pub fn new(datastore: carbide::Pool, database_url: &str) -> Self {
+    pub fn new(datastore: Pool, database_url: &str) -> Self {
         Self {
             database_pool: datastore,
             database_url: String::from(database_url),
@@ -106,12 +255,12 @@ impl Api {
         info!("Starting API server on {:?}", service_config.listen[0]);
 
         let api_service = Api::new(
-            carbide::Datastore::pool_from_url(&api_config.datastore).await?,
+            Datastore::pool_from_url(&api_config.datastore).await?,
             &api_config.datastore,
         );
 
         tonic::transport::Server::builder()
-            .add_service(protos::carbide_server::CarbideServer::new(api_service))
+            .add_service(rpc::carbide_server::CarbideServer::new(api_service))
             .serve(service_config.listen[0])
             .await?;
 

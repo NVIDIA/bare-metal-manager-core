@@ -1,11 +1,12 @@
 use carbide::CarbideResult;
+use carbide::db::{Pool, Datastore};
 use rand::prelude::*;
 use std::str::FromStr;
 
 pub struct TestDatabaseManager {
     #[allow(dead_code)]
-    template_pool: carbide::Pool,
-    pub pool: carbide::Pool,
+    template_pool: Pool,
+    pub pool: Pool,
 }
 
 impl TestDatabaseManager {
@@ -37,8 +38,8 @@ impl TestDatabaseManager {
         )
         .unwrap();
 
-        let real_pool = carbide::Datastore::pool_from_config(real_config).await?;
-        let template_pool = carbide::Datastore::pool_from_config(template_config).await?;
+        let real_pool = Datastore::pool_from_config(real_config).await?;
+        let template_pool = Datastore::pool_from_config(template_config).await?;
 
         let p = template_pool.clone();
         let p2 = real_pool.clone();
@@ -52,7 +53,7 @@ impl TestDatabaseManager {
                 .await
                 .unwrap();
 
-            carbide::Datastore::migrate(p2).await.unwrap();
+            Datastore::migrate(p2).await.unwrap();
         })
         .await
         .unwrap();

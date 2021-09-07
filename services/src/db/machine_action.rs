@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
 pub enum MachineAction {
+    Discover,
     Adopt,
     Test,
     Commission,
@@ -29,6 +30,7 @@ impl ToSql for MachineAction {
         }
 
         let f = match self {
+            Self::Discover => "discover",
             Self::Adopt => "adopt",
             Self::Test => "test",
             Self::Commission => "commission",
@@ -57,6 +59,7 @@ impl FromStr for MachineAction {
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
+            "discover" => Ok(Self::Discover),
             "adopt" => Ok(Self::Adopt),
             "test" => Ok(Self::Test),
             "commission" => Ok(Self::Commission),
@@ -79,8 +82,8 @@ impl FromSql<'_> for MachineAction {
         db_type: &Type,
         raw: &[u8],
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        match &*db_type {
-            &Type::VARCHAR => Ok(std::str::from_utf8(raw)?.parse()?),
+        match &*db_type.name() {
+            "machine_action" => Ok(std::str::from_utf8(raw)?.parse()?),
             t => Err(Box::new(CarbideError::DatabaseTypeConversionError(
                 format!("Could not convert type {0} into MachineAction", &t),
             ))),
@@ -88,7 +91,24 @@ impl FromSql<'_> for MachineAction {
     }
 
     fn accepts(db_type: &Type) -> bool {
-        *db_type == Type::VARCHAR
+        db_type.name() == "machine_action"
+    }
+}
+
+impl From<MachineAction> for rpc::MachineAction {
+    fn from(action: MachineAction) -> rpc::MachineAction {
+        match action {
+            MachineAction::Discover => rpc::MachineAction::Discover,
+            MachineAction::Adopt => rpc::MachineAction::Adopt,
+            MachineAction::Test => rpc::MachineAction::Test,
+            MachineAction::Commission => rpc::MachineAction::Commission,
+            MachineAction::Assign => rpc::MachineAction::Assign,
+            MachineAction::Fail => rpc::MachineAction::Fail,
+            MachineAction::Decommission => rpc::MachineAction::Decommission,
+            MachineAction::Recommission => rpc::MachineAction::Recommission,
+            MachineAction::Unassign => rpc::MachineAction::Unassign,
+            MachineAction::Release => rpc::MachineAction::Release,
+        }
     }
 }
 
@@ -96,6 +116,15 @@ impl FromSql<'_> for MachineAction {
 mod tests {
     use super::*;
     use rstest::rstest;
+
+    fn machine_action() -> Type {
+        Type::new(
+            String::from("machine_action"),
+            0,
+            postgres::types::Kind::Simple,
+            String::from("test"),
+        )
+    }
 
     #[rstest]
     #[case("adopt", MachineAction::Adopt)]
@@ -115,7 +144,7 @@ mod tests {
 
     #[test]
     fn test_sql_to_acceptable_type() {
-        assert!(<MachineAction as FromSql>::accepts(&Type::VARCHAR))
+        assert!(<MachineAction as FromSql>::accepts(&machine_action()))
     }
 
     #[test]

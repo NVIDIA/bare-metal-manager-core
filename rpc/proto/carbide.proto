@@ -36,12 +36,26 @@ message MachineList {
 }
 
 message MachineEvent {
-  UUID   id = 1;
-  UUID   machine_id = 2;
-  uint32 event = 3;
-  uint32 version = 4;
+  int64 id = 1;
+  UUID  machine_id = 2;
+  MachineAction event = 3;
+  int32 version = 4;
   
   google.protobuf.Timestamp time = 5;
+}
+
+enum MachineAction {
+  UNKNOWN = 0;
+  DISCOVER = 1;
+  ADOPT = 2;
+  TEST = 3;
+  COMMISSION = 4;
+  ASSIGN = 5;
+  FAIL = 6;
+  DECOMMISSION = 7;
+  RECOMMISSION = 8;
+  UNASSIGN = 9;
+  RELEASE = 10;
 }
 
 message Machine {
@@ -50,6 +64,8 @@ message Machine {
 
   google.protobuf.Timestamp created = 3;
   google.protobuf.Timestamp modified = 4;
+
+  repeated MachineEvent events = 5;
 
 //  repeated MachineEvent events = 5;
 
@@ -75,9 +91,35 @@ message Machine {
   // TODO(ajf): storage
 }
 
+message MachineDiscovery {
+  string mac_address = 1;
+  string relay_address = 2;
+}
+
+message NetworkSegment {
+  UUID id = 1;
+  string name = 2;
+  string subdomain = 3;
+  int32 mtu = 4;
+  
+  optional string subnet_ipv4 = 5;
+  optional string subnet_ipv6 = 6;
+}
+
+message NetworkSegmentList {
+  repeated NetworkSegment network_segments = 1;
+}
+
+message NetworkSegmentQuery {
+  string name = 1;
+}
+
 message MachineQuery {
   UUID id = 1;
   string fqdn = 2;
+}
+
+message NetworkSegmentDeletion {
 }
 
 // API service
@@ -87,6 +129,12 @@ service Carbide {
 
   // Machines API
   rpc GetMachines(MachineQuery) returns (MachineList);
+  rpc DiscoverMachine(MachineDiscovery) returns (Machine);
+  
+  rpc GetNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
+  rpc CreateNetworkSegment(NetworkSegment) returns (NetworkSegment);
+  rpc DeleteNetworkSegment(UUID) returns (NetworkSegmentDeletion);
+
 
   // Network Segments API
   // Boot Configuration API

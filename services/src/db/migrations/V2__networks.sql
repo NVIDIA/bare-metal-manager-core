@@ -1,20 +1,16 @@
--- 576 is the RFC lowest possible IPv4 MTU (IPv6 is 1280)
-DROP DOMAIN IF EXISTS mtu_int;
-CREATE DOMAIN mtu_int AS SMALLINT CHECK(VALUE >= 576 AND VALUE <= 9000);
-
 DROP TABLE IF EXISTS network_segments;
 CREATE TABLE network_segments(
 	id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
 	name VARCHAR NOT NULL UNIQUE,
 	subdomain VARCHAR NOT NULL,
 
-	mtu mtu_int NOT NULL DEFAULT 1500,
+	mtu INTEGER NOT NULL DEFAULT 1500 CHECK(mtu >= 576 AND mtu <= 9000),
 
 	subnet_ipv4 cidr CHECK (family(subnet_ipv4) = 4),
-	reserve_first_ipv4 SMALLINT NOT NULL DEFAULT 1, -- always a gateway address
+	reserve_first_ipv4 INTEGER NOT NULL DEFAULT 1, -- always a gateway address
 
 	subnet_ipv6 cidr CHECK (family(subnet_ipv6) = 6),
-	reserve_first_ipv6 SMALLINT NOT NULL DEFAULT 0 -- not always a gateway address (i.e. link-local)
+	reserve_first_ipv6 INTEGER NOT NULL DEFAULT 0 -- not always a gateway address (i.e. link-local)
 );
 
 DROP TABLE IF EXISTS machine_interfaces;

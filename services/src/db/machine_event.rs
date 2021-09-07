@@ -2,7 +2,7 @@ use super::MachineAction;
 use crate::{CarbideError, CarbideResult};
 use itertools::Itertools;
 use std::collections::HashMap;
-use tokio_postgres::types::ToSql;
+use log::info;
 
 #[derive(Debug)]
 pub struct MachineEvent {
@@ -25,19 +25,36 @@ impl From<tokio_postgres::Row> for MachineEvent {
     }
 }
 
+impl From<MachineEvent> for rpc::MachineEvent {
+    fn from(event: MachineEvent) -> rpc::MachineEvent {
+        let mut proto_event = rpc::MachineEvent {
+            id: event.id.into(),
+            machine_id: Some(event.machine_id.into()),
+            time: Some(event.timestamp.into()),
+            version: event.version,
+            event: 0,
+        };
+
+        proto_event.set_event(event.action.into());
+
+        info!("proto {:?}", &proto_event);
+        proto_event
+    }
+}
+
 impl MachineEvent {
     pub async fn find_by_machine_ids(
-        db: &tokio_postgres::Transaction<'_>,
+        txn: &tokio_postgres::Transaction<'_>,
         ids: Vec<&uuid::Uuid>,
     ) -> CarbideResult<HashMap<uuid::Uuid, Vec<Self>>> {
-        let machine_list = &[&ids as &(dyn ToSql + Sync)];
+        let events = txn.query(
+            "SELECT * FROM machine_events WHERE machine_id=ANY($1)",
+            &[&ids],
+        ).await;
 
-        db.query(
-            "SELECT * FROM machine_events WHERE machine_id IN $1",
-            machine_list,
-        )
-        .await
-        .map(|result| {
+        info!("events = {:?}", &events);
+
+        events.map(|result| {
             result
                 .into_iter()
                 .map(MachineEvent::from)

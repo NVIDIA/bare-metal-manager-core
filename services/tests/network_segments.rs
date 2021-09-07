@@ -6,6 +6,8 @@ use log::info;
 use eui48::MacAddress;
 use std::net::{IpAddr, SocketAddr};
 
+use carbide::db::{Machine, NetworkSegment};
+
 use log::LevelFilter;
 
 #[tokio::test]
@@ -20,10 +22,11 @@ async fn test_create_segment() {
 
     let txn = connection.transaction().await.unwrap();
 
-    let segment = carbide::models::NetworkSegment::create(
+    let segment = NetworkSegment::create(
         &txn,
-        String::from("integration_test"),
-        String::from("m.nvmetal.net"),
+        "integration_test",
+        "m.nvmetal.net",
+        &1500i32,
         Some(Ipv4Network::from_str_truncate("192.0.2.1/24").expect("can't parse network")),
         Some(Ipv6Network::from_str_truncate("2001:db8:f::/64").expect("can't parse network")),
     )
@@ -31,7 +34,7 @@ async fn test_create_segment() {
     .expect("Unable to create segment");
 
     // Discovered a machine with Mac address 0-0-0-0-0-0 by relay 192.0.2.0/24
-    let machine = carbide::models::Machine::discover(
+    let machine = Machine::discover(
         &txn,
         "00:00:00:00:00:00".parse::<MacAddress>().unwrap(),
         "2001:db8:f::".parse::<std::net::IpAddr>().unwrap(),

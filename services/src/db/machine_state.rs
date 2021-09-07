@@ -1,12 +1,11 @@
 use postgres::types::{FromSql, Type};
-use prost::Enumeration;
 
 use crate::{CarbideError, CarbideResult};
 use std::str::FromStr;
 
 use super::Machine;
 
-#[derive(Debug, Enumeration, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum MachineState {
     Init = 0,
     New = 1,

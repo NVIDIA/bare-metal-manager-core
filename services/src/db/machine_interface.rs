@@ -1,6 +1,8 @@
-use crate::{models::Machine, models::NetworkSegment, CarbideResult};
+use super::{Machine, NetworkSegment};
+use crate::CarbideResult;
 use eui48::MacAddress;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use tokio_postgres::Transaction;
 
 pub struct MachineInterface {
     id: uuid::Uuid,
@@ -50,10 +52,10 @@ impl From<tokio_postgres::Row> for MachineInterface {
 
 impl MachineInterface {
     pub async fn find_by_mac_address(
-        dbc: &crate::DatabaseConnection<'_>,
+        txn: &Transaction<'_>,
         macaddr: MacAddress,
     ) -> CarbideResult<Vec<MachineInterface>> {
-        Ok(dbc
+        Ok(txn
             .query(
                 "SELECT * FROM machine_interfaces WHERE mac_address = $1::macaddr RETURNING *",
                 &[&macaddr],
@@ -65,7 +67,7 @@ impl MachineInterface {
     }
 
     pub async fn create(
-        dbc: &crate::DatabaseConnection<'_>,
+        txn: &Transaction<'_>,
         machine: &Machine,
         segment: &NetworkSegment,
         macaddr: &MacAddress,
@@ -73,7 +75,7 @@ impl MachineInterface {
         address_v6: Option<Ipv6Addr>,
     ) -> CarbideResult<Self> {
         Ok(MachineInterface::from(
-                dbc
+                txn
                 .query_one("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::inet, $5::inet) RETURNING *", &[&machine.id(), &segment.id(), &macaddr, &address_v4.and_then(|a| Some(IpAddr::from(a))), &address_v6.and_then(|a| Some(IpAddr::from(a)))])
                 .await?,
         ))

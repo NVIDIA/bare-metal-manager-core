@@ -1,8 +1,5 @@
-use crate::models;
-use crate::protos;
 use crate::{CarbideError, CarbideResult};
 use log::{debug, info, warn};
-use models::MachineEvent;
 
 use std::collections::HashMap;
 use std::convert::From;
@@ -10,10 +7,13 @@ use std::str;
 
 use eui48::MacAddress;
 
+use tokio_postgres::Transaction;
+
 use super::MachineAction;
 use super::MachineInterface;
 use super::MachineState;
 use super::NetworkSegment;
+use super::MachineEvent;
 use std::net::IpAddr;
 
 #[derive(Debug)]
@@ -22,29 +22,22 @@ pub struct Machine {
     fqdn: String,
     created: std::time::SystemTime,
     modified: std::time::SystemTime,
-    events: Vec<models::MachineEvent>,
+    events: Vec<MachineEvent>,
 }
 
-impl From<uuid::Uuid> for protos::Uuid {
-    fn from(uuid: uuid::Uuid) -> Self {
-        protos::Uuid {
-            value: uuid.to_string(),
-        }
-    }
-}
-
-impl From<models::Machine> for protos::Machine {
-    fn from(machine: models::Machine) -> Self {
-        protos::Machine {
+impl From<Machine> for rpc::Machine {
+    fn from(machine: Machine) -> Self {
+        rpc::Machine {
             id: Some(machine.id.into()),
             fqdn: machine.fqdn,
             created: Some(machine.created.into()),
             modified: Some(machine.modified.into()),
+            events: machine.events.into_iter().map(|event| event.into()).collect(),
         }
     }
 }
 
-impl From<tokio_postgres::Row> for models::Machine {
+impl From<tokio_postgres::Row> for Machine {
     fn from(row: tokio_postgres::Row) -> Self {
         Self {
             id: row.get("id"),
@@ -56,16 +49,11 @@ impl From<tokio_postgres::Row> for models::Machine {
     }
 }
 
-impl From<Vec<models::Machine>> for protos::MachineList {
-    fn from(machines: Vec<models::Machine>) -> Self {
-        protos::MachineList {
-            machines: machines.into_iter().map(protos::Machine::from).collect(),
-        }
-    }
-}
-
 impl Machine {
-    pub async fn create(dbc: &tokio_postgres::Transaction<'_>, fqdn: String) -> CarbideResult<Self> {
+    pub async fn create(
+        dbc: &tokio_postgres::Transaction<'_>,
+        fqdn: String,
+    ) -> CarbideResult<Self> {
         Ok(Machine::from(
             dbc.query_one(
                 "INSERT INTO machines (fqdn) VALUES ($1) RETURNING *",
@@ -77,11 +65,14 @@ impl Machine {
 
     // TODO(ajf): doesn't belong here
     pub fn generate_hostname_from_uuid(mut id: u128) -> String {
-        let alpha_upper = b'A'..= b'Z';
-        let alpha_lower = b'a'..= b'z';
-        let numeric = b'0'..= b'9';
+        let alpha_upper = b'A'..=b'Z';
+        let alpha_lower = b'a'..=b'z';
+        let numeric = b'0'..=b'9';
 
-        let space = alpha_upper.chain(alpha_lower).chain(numeric).collect::<Vec<u8>>();
+        let space = alpha_upper
+            .chain(alpha_lower)
+            .chain(numeric)
+            .collect::<Vec<u8>>();
 
         assert_eq!(space.len(), 62);
 
@@ -172,10 +163,10 @@ impl Machine {
 
     pub async fn update_fqdn(
         &mut self,
-        dbc: &crate::DatabaseConnection<'_>,
+        txn: &Transaction<'_>,
         new_fqdn: &str,
     ) -> CarbideResult<&Machine> {
-        let result = dbc
+        let result = txn
             .query_one(
                 "UPDATE machines SET fqdn=$1 RETURNING fqdn,modified",
                 &[&new_fqdn],
@@ -212,18 +203,18 @@ impl Machine {
         Ok(true)
     }
 
-    pub async fn fail(&self, dbc: &tokio_postgres::Transaction<'_>) -> CarbideResult<bool> {
-        self.advance(dbc, MachineAction::Fail).await
+    pub async fn fail(&self, txn: &tokio_postgres::Transaction<'_>) -> CarbideResult<bool> {
+        self.advance(txn, MachineAction::Fail).await
     }
 
-    pub async fn commission(&self, dbc: &tokio_postgres::Transaction<'_>) -> CarbideResult<bool> {
-        self.advance(dbc, MachineAction::Commission).await
+    pub async fn commission(&self, txn: &tokio_postgres::Transaction<'_>) -> CarbideResult<bool> {
+        self.advance(txn, MachineAction::Commission).await
     }
 
-    pub async fn find(dbc: &tokio_postgres::Transaction<'_>) -> CarbideResult<Vec<Machine>> {
+    pub async fn find(txn: &tokio_postgres::Transaction<'_>) -> CarbideResult<Vec<Machine>> {
         // TODO(ajf): write a query langauge???
 
-        let mut machines = dbc
+        let mut machines = txn
             .query("SELECT * FROM machines", &[])
             .await?
             .into_iter()
@@ -238,7 +229,7 @@ impl Machine {
             .collect::<HashMap<uuid::Uuid, Machine>>();
 
         let mut events_for_machine =
-            MachineEvent::find_by_machine_ids(&dbc, machines.keys().collect()).await?;
+            MachineEvent::find_by_machine_ids(&txn, machines.keys().collect()).await?;
 
         let hint_length = machines.len();
 
@@ -258,6 +249,5 @@ impl Machine {
         Ok(final_machine_list)
     }
 }
-
 #[cfg(test)]
 mod test {}

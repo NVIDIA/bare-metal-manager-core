@@ -1,0 +1,14 @@
+[package]
+name = "rpc"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+tonic = "0.5"
+prost = "0.8"
+prost-types = "*"
+uuid = "*"
+
+[build-dependencies]
+tonic-build = "0.5"
+
