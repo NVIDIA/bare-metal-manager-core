@@ -1,10 +1,5 @@
 image: "rust:latest"
 
-default:
-  before_script:
-    - rustc --version
-    - cargo --version
-
 stages:
   - License Scan
   - test
