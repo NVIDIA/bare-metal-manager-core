@@ -16,31 +16,31 @@ variables:
   CARGO_HOME: $CI_PROJECT_DIR/cargo
   APT_CACHE_DIR: $CI_PROJECT_DIR/apt
 
-    #test-code:
-    #  stage: test
-    #  script:
-    #    - rustup component add rustfmt
-    #    - cargo test --lib
-    #    - cargo test --doc
-    #    - cargo test --examples
-    #
-    #lint-code:
-    #  stage: test
-    #  script:
-    #    - rustup component add clippy rustfmt
-    #    - cargo clippy
-    #
-    #format-code:
-    #  stage: test
-    #  script:
-    #    - rustup component add rustfmt
-    #    - cargo fmt -- --check
-    #
-    #audit-code:
-    #  stage: test
-    #  script:
-    #    - cargo install cargo-audit
-    #    - cargo audit
+test-code:
+  stage: test
+  script:
+    - rustup component add rustfmt
+    - cargo test --lib
+    - cargo test --doc
+    - cargo test --examples
+
+lint-code:
+  stage: test
+  script:
+    - rustup component add clippy rustfmt
+    - cargo clippy
+
+format-code:
+  stage: test
+  script:
+    - rustup component add rustfmt
+    - cargo fmt -- --check
+
+audit-code:
+  stage: test
+  script:
+    - cargo install cargo-audit
+    - cargo audit
 
 pages:
   stage: doc
