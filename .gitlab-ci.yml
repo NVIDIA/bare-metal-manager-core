@@ -41,9 +41,13 @@ audit-code:
 
 pages:
   stage: doc
+  before_script:
+    - export PATH="$PATH:$CARGO_HOME/bin"
+    - mdbook --version || cargo install mdbook
   script:
     - cargo doc --no-deps
-    - mv target/doc public
+    - mdbook build book
+    - mv target/doc public/api
   artifacts:
     paths:
       - public
