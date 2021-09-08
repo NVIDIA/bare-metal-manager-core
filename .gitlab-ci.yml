@@ -6,7 +6,6 @@ default:
     - cargo --version
 
 stages:
-  #  - test
   - doc
 
 variables:
