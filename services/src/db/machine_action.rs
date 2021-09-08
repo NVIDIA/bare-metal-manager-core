@@ -3,6 +3,22 @@ use postgres::types::{FromSql, ToSql, Type};
 use postgres_types::{private::BytesMut, to_sql_checked, IsNull};
 use std::str::FromStr;
 
+/// Representing actions that can be performed on Machines.
+///
+/// Note that the operations that are valid for a given machine state are checked by the PostgreSQL
+/// database schema, not in this software.  This is to prevent manupulating state to invalid states
+/// when not using the API to enforce database consistency.
+///
+/// In order to add a new Action to a machine, a migration must be created that adds the new state
+/// transition to the `machine_actions` table.  If the state transition is incompatible with an
+/// existing state transition (e.g. a state transition is deleted) a new version of the state
+/// machine must be created and the correct states and actions must be created.  This is to
+/// maintain backward compatibility with the existing machines while supporting a new state machine
+/// graph.
+///
+/// Unfortunately the Rust code doesn't distinguish between versions so having multiple state
+/// machine versions with the same MachineAction enum.
+///
 #[derive(Debug, PartialEq)]
 pub enum MachineAction {
     Discover,
@@ -17,6 +33,7 @@ pub enum MachineAction {
     Release,
 }
 
+/// Conversion for a MachineAction into it's PostgreSQL equivalent representation (a VARCHAR)
 impl ToSql for MachineAction {
     fn to_sql(
         &self,
@@ -95,6 +112,7 @@ impl FromSql<'_> for MachineAction {
     }
 }
 
+/// Conversion from a MachineAction instance into a protobuf representation for the same type.
 impl From<MachineAction> for rpc::MachineAction {
     fn from(action: MachineAction) -> rpc::MachineAction {
         match action {

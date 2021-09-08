@@ -1,5 +1,5 @@
-mod daemons;
 mod cfg;
+mod daemons;
 
 use carbide::db;
 

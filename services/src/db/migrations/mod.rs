@@ -2,10 +2,10 @@ mod migrator;
 
 pub struct Migrator;
 
-use log::info;
-use refinery::Report;
 use super::Pool;
 use crate::CarbideResult;
+use log::info;
+use refinery::Report;
 
 mod embedded {
     use refinery::embed_migrations;

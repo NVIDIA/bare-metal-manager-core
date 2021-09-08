@@ -63,7 +63,10 @@ impl From<tokio_postgres::Row> for MachineState {
 }
 
 impl MachineState {
-    pub async fn for_machine(machine: &Machine, dbc: &tokio_postgres::Transaction<'_>) -> CarbideResult<Self> {
+    pub async fn for_machine(
+        machine: &Machine,
+        dbc: &tokio_postgres::Transaction<'_>,
+    ) -> CarbideResult<Self> {
         let row = dbc.query_one(
                 "SELECT machine_state_machine(action, version) OVER (PARTITION BY machine_id ORDER BY ID) FROM machine_events WHERE machine_id=$1::uuid;",
                 &[&machine.id()],

@@ -1,5 +1,5 @@
+use carbide::db::{Datastore, Pool};
 use carbide::CarbideResult;
-use carbide::db::{Pool, Datastore};
 use rand::prelude::*;
 use std::str::FromStr;
 

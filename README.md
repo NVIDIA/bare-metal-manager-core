@@ -1,5 +1,4 @@
-Carbide
-=======
+# Carbide
 
 Marketing Name: **Base Command Metal**
 

@@ -3,8 +3,28 @@ use std::net::IpAddr;
 
 pub mod db;
 
+/// Special user-defined code for PostgreSQL level state transition violation
+///
+/// This error code is generated when we attempt to move a machine to a new desired state that is
+/// an invalid transition (e.g. transitioning from `adopted` to `allocated` is impossible because
+/// it requires hardware testing and validation first)
+///
 const SQL_STATE_TRANSITION_VIOLATION_CODE: &str = "T0100";
 
+/// Represents various Errors that can occur throughout the system.
+///
+/// CarbideError is a way to represent and enrich lower-level errors with specific business logic
+/// that can be handled (e.g. MachineStateTransitionViolation).
+///
+/// It uses `thiserror` to adapt lower-level errors to this type.
+///
+/// # Examples
+/// ```
+/// let error = carbide::CarbideError::GenericError(String::from("unable to yeet foo into the sun"));
+///
+/// assert_eq!(error.to_string(), "Generic error: unable to yeet foo into the sun");
+/// ```
+///
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideError {
     #[error("unable to instanciate datastore connection pool")]
@@ -31,10 +51,16 @@ pub enum CarbideError {
     #[error("Unable to generate ephemeral hostname from uuid")]
     HostnameGenerationError(String),
 
-    #[error("Generic error")]
+    #[error("Generic error: {0}")]
     GenericError(String),
 }
 
+/// Convert a tokio_postgres::Error to a CarbideError
+///
+/// This conversion will intercept an SQL State code of T0100 to catch the invalid state change of
+/// a machine instead of just returning a raw SqlError.  This requires not deriving `from` for the
+/// enum variant.
+///
 impl From<tokio_postgres::Error> for CarbideError {
     fn from(error: tokio_postgres::Error) -> CarbideError {
         info!("Error: {:?}", error);
@@ -59,4 +85,17 @@ impl From<tokio_postgres::Error> for CarbideError {
     }
 }
 
+/// Result type for the return type of Carbide functions
+///
+/// Wraps `CarbideError` into `CarbideResult<T>`
+///
+/// # Examples
+/// ```
+/// use carbide::{CarbideError, CarbideResult};
+///
+/// pub fn do_something() -> CarbideResult<u8> {
+///   Err(CarbideError::GenericError(String::from("can't make u8")))
+/// }
+/// assert!(matches!(do_something(), Err(CarbideError::GenericError(_))));
+/// ```
 pub type CarbideResult<T> = Result<T, CarbideError>;

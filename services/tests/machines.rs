@@ -32,9 +32,18 @@ async fn test_find_all_machines_when_there_arent_any() {
         .filter_level(LevelFilter::Debug)
         .init();
 
-    let db = common::TestDatabaseManager::new().await.expect("Could not create a database pool");
-    let mut dbc = db.pool.get().await.expect("Could not get a DB pool connection");
-    let txn = dbc.transaction().await.expect("Could not create new transaction");
+    let db = common::TestDatabaseManager::new()
+        .await
+        .expect("Could not create a database pool");
+    let mut dbc = db
+        .pool
+        .get()
+        .await
+        .expect("Could not get a DB pool connection");
+    let txn = dbc
+        .transaction()
+        .await
+        .expect("Could not create new transaction");
 
     let machines = Machine::find(&txn).await.unwrap();
 
