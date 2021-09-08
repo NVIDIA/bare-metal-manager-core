@@ -51,6 +51,7 @@ pages:
     - mv target/doc public/api
     - mdbook build book
     - mv book/book public/book
+    - find public
   artifacts:
     paths:
       - public
