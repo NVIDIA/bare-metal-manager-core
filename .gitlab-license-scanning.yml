@@ -43,6 +43,7 @@ license_scanning:
   allow_failure: true
   needs: []
   script:
+    - sed -i -e "s#next if line.include?(project_path.to_s)#next if (!line.include?(SENTINEL) || line.include?(project_path.to_s))" /opt/gitlab/embedded/lib/ruby/gems/2.7.0/gems/license-management-3.31.4/lib/license/finder/ext/cargo.rb
     - /run.sh analyze .
   artifacts:
     reports:
