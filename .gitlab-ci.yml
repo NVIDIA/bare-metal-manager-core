@@ -2,12 +2,16 @@ image: "rust:latest"
 
 default:
   before_script:
-    - rustc --version 
+    - rustc --version
     - cargo --version
 
 stages:
   - doc
     #  - test
+
+include:
+  - template: Security/License-Scanning.gitlab-ci.yml
+
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/cargo
@@ -26,7 +30,7 @@ variables:
     #  script:
     #    - rustup component add clippy rustfmt
     #    - cargo clippy
-    #    
+    #
     #format-code:
     #  stage: test
     #  script:
