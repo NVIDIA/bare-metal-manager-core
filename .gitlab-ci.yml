@@ -7,6 +7,11 @@ default:
 
 stages:
   - test
+  - doc
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/cargo
+  APT_CACHE_DIR: $CI_PROJECT_DIR/apt
 
 test-code:
   stage: test
@@ -19,7 +24,7 @@ test-code:
 lint-code:
   stage: test
   script:
-    - rustup component add clippy
+    - rustup component add clippy rustfmt
     - cargo clippy -- -D warnings
     
 format-code:
@@ -33,3 +38,20 @@ audit-code:
   script:
     - cargo install cargo-audit
     - cargo audit
+
+pages:
+  stage: doc
+  script:
+    - cargo docs --nodeps
+    - mv target/doc public
+  artifacts:
+    paths:
+      - public
+    only:
+      - trunk
+
+cache:
+  paths:
+    - apt/
+    - cargo/
+    - target/
