@@ -6,17 +6,18 @@ default:
     - cargo --version
 
 stages:
+  - License Scan
   - test
   - doc
 
 include:
-  - template: Security/License-Scanning.gitlab-ci.yml
+  - .gitlab-license-scanning.yml
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/cargo
   APT_CACHE_DIR: $CI_PROJECT_DIR/apt
 
-test-code:
+.test-code:
   stage: test
   script:
     - rustup component add rustfmt
@@ -24,19 +25,19 @@ test-code:
     - cargo test --doc
     - cargo test --examples
 
-lint-code:
+.lint-code:
   stage: test
   script:
     - rustup component add clippy rustfmt
     - cargo clippy
 
-format-code:
+.format-code:
   stage: test
   script:
     - rustup component add rustfmt
     - cargo fmt -- --check
 
-audit-code:
+.audit-code:
   stage: test
   script:
     - cargo install cargo-audit
