@@ -45,9 +45,11 @@ pages:
     - export PATH="$PATH:$CARGO_HOME/bin"
     - mdbook --version || cargo install mdbook
   script:
+    - mkdir public
     - cargo doc --no-deps
-    - mdbook build book
     - mv target/doc public/api
+    - mdbook build book
+    - mv book/book public/book
   artifacts:
     paths:
       - public
