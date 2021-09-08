@@ -25,7 +25,7 @@ lint-code:
   stage: test
   script:
     - rustup component add clippy rustfmt
-    - cargo clippy -- -D warnings
+    - cargo clippy
     
 format-code:
   stage: test
