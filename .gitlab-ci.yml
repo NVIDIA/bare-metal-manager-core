@@ -43,7 +43,8 @@ pages:
   stage: doc
   before_script:
     - export PATH="$PATH:$CARGO_HOME/bin"
-    - mdbook --version || cargo install mdbook mdbook-mermaid
+    - mdbook --version || cargo install mdbook
+    - mdbook-mermaid --version || cargo install mdbook-mermaid
   script:
     - mkdir public
     - cargo doc --no-deps
