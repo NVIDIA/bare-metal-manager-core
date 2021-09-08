@@ -11,6 +11,7 @@ stages:
 test-code:
   stage: test
   script:
+    - rustup component add rustfmt
     - cargo test
     - cargo install cargo-tarpaulin
     - cargo tarpaulin --ignore-tests
