@@ -6,7 +6,7 @@ default:
     - cargo --version
 
 stages:
-  - test
+  #  - test
   - doc
 
 variables:
@@ -42,11 +42,10 @@ audit-code:
 pages:
   stage: doc
   script:
-    - cargo docs --nodeps
-    - mv target/doc public
+    - cargo doc --no-deps
   artifacts:
     paths:
-      - public
+      - target/doc
   only:
     - trunk
 
