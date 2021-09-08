@@ -48,10 +48,8 @@ license_scanning:
     reports:
       license_scanning: gl-license-scanning-report.json
   dependencies: []
-  rules:
-    - if: $LICENSE_MANAGEMENT_DISABLED
-      when: never
-    - if: $CI_COMMIT_BRANCH &&
-          $GITLAB_FEATURES =~ /\blicense_scanning\b/
-
-
+#  rules:
+#    - if: $LICENSE_MANAGEMENT_DISABLED
+#      when: never
+#    - if: $CI_COMMIT_BRANCH &&
+#          $GITLAB_FEATURES =~ /\blicense_scanning\b/
