@@ -47,8 +47,8 @@ pages:
   artifacts:
     paths:
       - public
-    only:
-      - trunk
+  only:
+    - trunk
 
 cache:
   paths:
