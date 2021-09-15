@@ -3,147 +3,206 @@ syntax = "proto3";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
-package carbide;
+package carbide.v0;
 
 // Primitives
 message UUID {
-  string value = 1;
+	string value = 1;
 }
 
 // Event subscription API
 message EventRequest {};
 message EventMessage {
-  google.protobuf.Timestamp emitted = 1;
-  oneof event {
-    EventMachineAdded machine_added = 2;
-    EventMachineDeleted machine_deleted = 3;
-    EventMachineStateChanged machine_state_changed = 4;
-  };
+	google.protobuf.Timestamp emitted = 1;
+	oneof event {
+		EventMachineAdded machine_added = 2;
+		EventMachineDeleted machine_deleted = 3;
+		EventMachineStateChanged machine_state_changed = 4;
+	};
 }
 message EventMachineAdded {
-  UUID id = 1;
+	UUID id = 1;
 };
 message EventMachineDeleted {
-  UUID id = 1;
+	UUID id = 1;
 }
 message EventMachineStateChanged {
-  UUID id = 1;
+	UUID id = 1;
 }
 
 // Machines API
 message MachineList {
-  repeated Machine machines = 1;
+	repeated Machine machines = 1;
 }
 
 message MachineEvent {
-  int64 id = 1;
-  UUID  machine_id = 2;
-  MachineAction event = 3;
-  int32 version = 4;
-  
-  google.protobuf.Timestamp time = 5;
+	int64 id = 1;
+	UUID  machine_id = 2;
+	MachineAction event = 3;
+	int32 version = 4;
+
+	google.protobuf.Timestamp time = 5;
 }
 
 enum MachineAction {
-  UNKNOWN = 0;
-  DISCOVER = 1;
-  ADOPT = 2;
-  TEST = 3;
-  COMMISSION = 4;
-  ASSIGN = 5;
-  FAIL = 6;
-  DECOMMISSION = 7;
-  RECOMMISSION = 8;
-  UNASSIGN = 9;
-  RELEASE = 10;
+	UNKNOWN = 0;
+	DISCOVER = 1;
+	ADOPT = 2;
+	TEST = 3;
+	COMMISSION = 4;
+	ASSIGN = 5;
+	FAIL = 6;
+	DECOMMISSION = 7;
+	RECOMMISSION = 8;
+	UNASSIGN = 9;
+	RELEASE = 10;
 }
 
 message Machine {
-  UUID id = 1;
-  string fqdn = 2;
+	UUID id = 1;
+	string fqdn = 2;
 
-  google.protobuf.Timestamp created = 3;
-  google.protobuf.Timestamp modified = 4;
+	google.protobuf.Timestamp created = 3;
+	google.protobuf.Timestamp modified = 4;
 
-  repeated MachineEvent events = 5;
+	repeated MachineEvent events = 5;
 
-//  repeated MachineEvent events = 5;
+	//  repeated Interface interfaces = 3;
+	//
+	//  enum State {
+	//    NEW = 0;
+	//    ADOPTED = 1;
+	//    TESTED = 2;
+	//    ASSIGNED = 3;
+	//    BROKEN = 4;
+	//    DECOMMISSIONED = 5;
+	//  }
+	//
+	State current_state = 4;
+	State desired_state = 5;
 
-//  repeated Interface interfaces = 3;
-//
-//  enum State {
-//    NEW = 0;
-//    ADOPTED = 1;
-//    TESTED = 2;
-//    ASSIGNED = 3;
-//    BROKEN = 4;
-//    DECOMMISSIONED = 5; 
-//  }
-//
-//  State current_state = 4;
+	repeated StateTransitionEvent = 6;  // Logs of the state transition result (Similar to kubectl events)
 
-
-  // TODO(ajf): hardware discovery
-  // TODO(ajf): os selection
-  // TODO(ajf): bmc configuration
-  // TODO(ajf): machine labels/tags
-  // TODO(ajf): test results
-  // TODO(ajf): storage
+	// TODO(ajf): hardware discovery
+	// TODO(ajf): os selection
+	// TODO(ajf): bmc configuration
+	// TODO(ajf): machine labels/tags
+	// TODO(ajf): test results
+	// TODO(ajf): storage
 }
 
 message MachineDiscovery {
-  string mac_address = 1;
-  string relay_address = 2;
+	string mac_address = 1;
+	string relay_address = 2;
 }
 
 message NetworkSegment {
-  UUID id = 1;
-  string name = 2;
-  string subdomain = 3;
-  int32 mtu = 4;
-  
-  optional string subnet_ipv4 = 5;
-  optional string subnet_ipv6 = 6;
+	UUID id = 1;
+	string name = 2;
+	string subdomain = 3;
+	int32 mtu = 4;
+
+	optional string subnet_ipv4 = 5;
+	optional string subnet_ipv6 = 6;
 }
 
 message NetworkSegmentList {
-  repeated NetworkSegment network_segments = 1;
+	repeated NetworkSegment network_segments = 1;
 }
 
 message NetworkSegmentQuery {
-  string name = 1;
+	string name = 1;
 }
 
 message MachineQuery {
-  UUID id = 1;
-  string fqdn = 2;
+	UUID id = 1;
+	string fqdn = 2;
 }
 
-message NetworkSegmentDeletion {
-}
+message NetworkSegmentDeletion { }
+message ProjectDeletion{ }
+
+message OperatingSystemUpdate { }
+message OperatingSystemUpdateResult { }
 
 // API service
 service Carbide {
-  // Events API
-//  rpc Events(EventRequest) returns (stream EventMessage);
+	// TODO: User Identity: Starfleet, JWTs, etc
+	// TODO: Authentication endpoints
+	// TODO: Infiniband
 
-  // Machines API
-  rpc GetMachines(MachineQuery) returns (MachineList);
-  rpc DiscoverMachine(MachineDiscovery) returns (Machine);
-  
-  rpc GetNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
-  rpc CreateNetworkSegment(NetworkSegment) returns (NetworkSegment);
-  rpc DeleteNetworkSegment(UUID) returns (NetworkSegmentDeletion);
+	// Project API
+	/* Create a project, a project has a network */
+	rpc CreateProject(ProjectCreation) returns (Project);
 
+	/* Delete a project, fails if there's machines bound to it */
+	rpc DeleteProject(UUID) returns (ProjectDeletion);
 
-  // Network Segments API
-  // Boot Configuration API
+	// Machines API
+	/* Discover or create a machine based on Mac Address & DHCP Relay IP */
+	rpc DiscoverMachine(MachineDiscovery) returns (Machine);
+
+	/*
+	 * Find and filter a list of the currently available machines:
+	 *
+	 * A query can be:
+	 *   - type of hardware model or presence of certain hardware (i.e. # of GPUs and their model)
+	 *   - connected to a specific NetworkSegment
+	 *   - connected to a specific IB Island
+	 *   - Belonging to a specific project / tenant / etc
+	 *   - NOT a specific type of hardware (i.e. No GPUs)
+	 */
+	rpc FindMachines(MachineQuery) returns (MachineList);
+
+	/* Return a single machine object */
+	rpc GetMachine(UUID) returns (Machine);
+
+	/* Reteurn a single machine's console (IPMI) information */
+	rpc GetMachineConsoleConfiguration(UUID) returns (MachineIPMI);
+
+	/* Associate a machine with a project */
+	rpc BindMachineToProject(MachineProjectBinding) returns (MachineProjectBindingResult);
+
+	/* Do something to a machine, fails if the state transition is invalid */
+	rpc PerformMachineAction(MachineAction) returns (MachineStateUpdate);
+
+	/* Update the desired operating system, if this is successful PerformMachineAction of Reprovision is necessary */
+	rpc UpdateMachineOperatingSystem(OperatingSystemUpdate) returns (OperatingSystemUpdateResult);
+
+	/* Release the machine back to the pool for the tenant */
+	rpc ReleaseMachine(UUID);
+
+	/* Reset the machine to initial state (wipe all drives, reset firmware, etc) */
+	rpc ResetMachine(UUID);
+
+	// Network Segment APIs (all privileged operations)
+	/* Create a network segment (VLAN/Subnet/VXLan) with some metadata */
+	rpc CreateNetworkSegment(NetworkSegment) returns (NetworkSegment);
+
+	/* Return the list of networks that exist */
+	rpc GetNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
+
+	/* Delete a network, fails if it's bound to a project or there's machine's on it */
+	rpc DeleteNetworkSegment(UUID) returns (NetworkSegmentDeletion);
+
+	/* Associate a network segment (overlay) to a project (tenant) */
+	rpc BindNetworkSegmentToProject(NetworkSegmentBinding) returns (??);
+
+	// OperatingSystem API - standard CRUD operations
+	rpc CreateOperatingSystem(OperatingSystem) returns (OperatingSystem);
+	rpc FindOperatingSystems(OperatingSystemQuery) returns (OperatingSystemList);
+	rpc UpdateOperatingSystem(OperatingSystemUpdate) returns (OperatingSystem);
+	rpc DeleteOperatingSystem(OperatingSystem) returns (OperatingSystemDelete);
+
+	// Events API
+	rpc StreamEvents(EventRequestFilter) returns (stream EventMessage);
+
 }
 
 // IPMI Service (power on/off machines, change boot order, etc)
 service IPMI {
-  //TODO(ajf): rpc GetDesiredMachinePowerState(Machine) returns (MachineState);
-  //TODO(ajf): rpc SetDesiredMachinePowerState(Machine, MachineState) returns (MachineState);
-  //TODO(ajf): rpc GetActualMachinePowerState(Machine, State) returns (MachineState);
-  //TODO(ajf): rpc MachineConsole(stream MachineConsoleInput) returns (stream MachineConsoleOutput)
+	//TODO(ajf): rpc GetDesiredMachinePowerState(Machine) returns (MachineState);
+	//TODO(ajf): rpc SetDesiredMachinePowerState(Machine, MachineState) returns (MachineState);
+	//TODO(ajf): rpc GetActualMachinePowerState(Machine, State) returns (MachineState);
+	//TODO(ajf): rpc MachineConsole(stream MachineConsoleInput) returns (stream MachineConsoleOutput)
 }

@@ -2,6 +2,9 @@
 
 Marketing Name: **Base Command Metal**
 
+* [Carbide GitLab project](https://gitlab-master.nvidia.com/aforgue/carbide)
+* [Base Command Metal - JIRA](https://jirasw.nvidia.com/projects/NSVIS/summary) (BC Metal Component)
+
 Carbide is a bare metal provisioning system written in Rust that uses gRPC and PostgreSQL to maintain machine lifecycle.
 
 Carbide manages a machine with no prior knowledge of the machine and moves it through a state machine to perform tasks on the machine such as:
@@ -19,7 +22,7 @@ Carbide manages a machine with no prior knowledge of the machine and moves it th
 
 * Minimal footprint for deployment (single, low-power machine)
 * Minimal configuration of the managed environment (no pre-configuring hosts, IP addresses, or other inventory)
-* Great confidence the machine is ready to be used when it's provisionable
+* Confidence the machine is ready to be used when it's provisionable
 * Knowledge of broken/unavailable machines and integration with existing DC workflows
 * Wide variety of Hardware platforms including DGX, EGX, amd64 compute and ARM platforms
 * Expose NVIDIA specific infrastructure technologies with an API for other NVIDIA platforms
@@ -58,3 +61,24 @@ PXE
 
 Events
 : A gRPC event stream that logs events happening to machines to consume for application specific purposes
+
+
+```mermaid
+journey
+	title Create a new project
+	section
+```
+```mermaid
+journey
+    title New rack of hardware
+    section Datacenter
+      Rack moved into place: 6: DC Ops
+      Power connected: 6: DC Ops
+      Uplinks from ToRs: 6: DC Ops
+      Provision networks: 5: NetEng
+      Machines powered on: 6: DC Ops
+    section BC Metal
+      DHCP: 1: BCMetal
+      Inventory / Testing: 1: BCMetal
+      Assign to an Organization: 1: BCMetal
+```
