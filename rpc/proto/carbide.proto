@@ -133,10 +133,11 @@ service Carbide {
 
 	// Project API
 	/* Create a project, a project has a network */
-	rpc CreateProject(ProjectCreation) returns (Project);
+	rpc CreateProject(ProjectSpec) returns (ProjectCreationResult);
+	rpc UpdateProject(ProjectSpec) returns (ProjectUpdateResult);
 
 	/* Delete a project, fails if there's machines bound to it */
-	rpc DeleteProject(UUID) returns (ProjectDeletion);
+	rpc DeleteProject(UUID) returns (ProjectDeletionResult);
 
 	// Machines API
 	/* Discover or create a machine based on Mac Address & DHCP Relay IP */
@@ -164,6 +165,13 @@ service Carbide {
 	rpc BindMachineToProject(MachineProjectBinding) returns (MachineProjectBindingResult);
 
 	/* Do something to a machine, fails if the state transition is invalid */
+	/* 
+	 * Examples:
+	 *   - Adopt
+	 *   - Commission
+	 *   - Release
+	 *   - Decommission / Recycle
+	 */
 	rpc PerformMachineAction(MachineAction) returns (MachineStateUpdate);
 
 	/* Update the desired operating system, if this is successful PerformMachineAction of Reprovision is necessary */
@@ -197,6 +205,49 @@ service Carbide {
 	// Events API
 	rpc StreamEvents(EventRequestFilter) returns (stream EventMessage);
 
+}
+
+service Hydrazine {
+	/*
+	 * Create a project on the network fabric
+	 * 
+	 * Expected Input:
+	 *   - Tenant Identifier
+	 *   - Project Subnet
+	 * 
+	 * Returns: handle for checking result success/failure
+	 */
+	rpc CreateProject(ProjectSpec) returns (ProjectCreationResult);
+
+	/*
+	 * Update project
+	 */
+	rpc UpdateProject(ProjectSpec) returns (ProjectUpdateResult);
+
+	/*
+	 * Delete a project by UUID
+	 */
+	rpc DeleteProject(UUID) returns (ProjectDeletionResult);
+
+	/*
+	 * Create a Resource
+	 *
+	 * A resource is a network-attached object like a NetApp SVM.
+	 * 
+	 */
+	rpc CreateResource(ResourceSpec) returns (ResourceResult);
+
+	/*
+	 * Assign a resource to a project
+	 * 
+	 * Makes the resource available to this project (tenant)
+	 */
+	rpc BindResourceToProject(ResourceBinding) returns (ResourceBindingResult);
+
+	/*
+	 * Unassign a resource from a project
+	 */
+	rpc UnbindResourceFromProject(ResourceBinding) returns (ResourceBindingResult);
 }
 
 // IPMI Service (power on/off machines, change boot order, etc)
