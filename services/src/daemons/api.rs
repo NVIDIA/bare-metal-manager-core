@@ -5,7 +5,9 @@ use tonic::{Code, Request, Response, Status};
 use log::{debug, error, info, trace, warn, LevelFilter};
 
 use carbide::db::{Datastore, Machine, NetworkSegment, Pool};
-use rpc::carbide_server::Carbide;
+
+use rpc::v0 as rpc;
+use self::rpc::carbide_server::Carbide;
 
 use crate::cfg;
 
@@ -17,7 +19,7 @@ pub struct Api {
 
 #[tonic::async_trait]
 impl Carbide for Api {
-    async fn get_machines(
+    async fn find_machines(
         &self,
         request: Request<rpc::MachineQuery>,
     ) -> Result<Response<rpc::MachineList>, Status> {

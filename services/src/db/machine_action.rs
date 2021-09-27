@@ -3,6 +3,8 @@ use postgres::types::{FromSql, ToSql, Type};
 use postgres_types::{private::BytesMut, to_sql_checked, IsNull};
 use std::str::FromStr;
 
+use rpc::v0 as rpc;
+
 /// Representing actions that can be performed on Machines.
 ///
 /// Note that the operations that are valid for a given machine state are checked by the PostgreSQL

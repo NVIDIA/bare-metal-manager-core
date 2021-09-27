@@ -19,6 +19,8 @@ use super::MachineState;
 use super::NetworkSegment;
 use std::net::IpAddr;
 
+use rpc::v0 as rpc;
+
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
 ///

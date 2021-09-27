@@ -4,6 +4,8 @@ use itertools::Itertools;
 use log::info;
 use std::collections::HashMap;
 
+use rpc::v0 as rpc;
+
 /// Representation of an event (state transition) on a machine.
 ///
 /// The database stores a list of the events (and not state changes).  The state machine in the

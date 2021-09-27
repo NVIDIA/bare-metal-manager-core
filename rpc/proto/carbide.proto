@@ -11,29 +11,24 @@ message UUID {
 }
 
 // Event subscription API
-message EventRequest {};
-message EventMessage {
-	google.protobuf.Timestamp emitted = 1;
-	oneof event {
-		EventMachineAdded machine_added = 2;
-		EventMachineDeleted machine_deleted = 3;
-		EventMachineStateChanged machine_state_changed = 4;
-	};
-}
-message EventMachineAdded {
-	UUID id = 1;
-};
-message EventMachineDeleted {
-	UUID id = 1;
-}
-message EventMachineStateChanged {
-	UUID id = 1;
-}
-
-// Machines API
-message MachineList {
-	repeated Machine machines = 1;
-}
+//message EventRequest {};
+//message EventMessage {
+//	google.protobuf.Timestamp emitted = 1;
+//	oneof event {
+//		EventMachineAdded machine_added = 2;
+//		EventMachineDeleted machine_deleted = 3;
+//		EventMachineStateChanged machine_state_changed = 4;
+//	};
+//}
+//message EventMachineAdded {
+//	UUID id = 1;
+//};
+//message EventMachineDeleted {
+//	UUID id = 1;
+//}
+//message EventMachineStateChanged {
+//	UUID id = 1;
+//}
 
 message MachineEvent {
 	int64 id = 1;
@@ -42,6 +37,11 @@ message MachineEvent {
 	int32 version = 4;
 
 	google.protobuf.Timestamp time = 5;
+}
+
+// Machines API
+message MachineList {
+	repeated Machine machines = 1;
 }
 
 enum MachineAction {
@@ -78,10 +78,10 @@ message Machine {
 	//    DECOMMISSIONED = 5;
 	//  }
 	//
-	State current_state = 4;
-	State desired_state = 5;
+//	State current_state = 4;
+//	State desired_state = 5;
 
-	repeated StateTransitionEvent = 6;  // Logs of the state transition result (Similar to kubectl events)
+//	repeated StateTransitionEvent = 6;  // Logs of the state transition result (Similar to kubectl events)
 
 	// TODO(ajf): hardware discovery
 	// TODO(ajf): os selection
@@ -133,11 +133,11 @@ service Carbide {
 
 	// Project API
 	/* Create a project, a project has a network */
-	rpc CreateProject(ProjectSpec) returns (ProjectCreationResult);
-	rpc UpdateProject(ProjectSpec) returns (ProjectUpdateResult);
+//TOOD:	rpc CreateProject(ProjectSpec) returns (ProjectCreationResult);
+//TOOD:	rpc UpdateProject(ProjectSpec) returns (ProjectUpdateResult);
 
 	/* Delete a project, fails if there's machines bound to it */
-	rpc DeleteProject(UUID) returns (ProjectDeletionResult);
+//TOOD:	rpc DeleteProject(UUID) returns (ProjectDeletionResult);
 
 	// Machines API
 	/* Discover or create a machine based on Mac Address & DHCP Relay IP */
@@ -156,13 +156,13 @@ service Carbide {
 	rpc FindMachines(MachineQuery) returns (MachineList);
 
 	/* Return a single machine object */
-	rpc GetMachine(UUID) returns (Machine);
+//TODO:	rpc GetMachine(UUID) returns (Machine);
 
 	/* Reteurn a single machine's console (IPMI) information */
-	rpc GetMachineConsoleConfiguration(UUID) returns (MachineIPMI);
+//TODO:	rpc GetMachineConsoleConfiguration(UUID) returns (MachineIPMI);
 
 	/* Associate a machine with a project */
-	rpc BindMachineToProject(MachineProjectBinding) returns (MachineProjectBindingResult);
+//TODO:	rpc BindMachineToProject(MachineProjectBinding) returns (MachineProjectBindingResult);
 
 	/* Do something to a machine, fails if the state transition is invalid */
 	/* 
@@ -172,16 +172,16 @@ service Carbide {
 	 *   - Release
 	 *   - Decommission / Recycle
 	 */
-	rpc PerformMachineAction(MachineAction) returns (MachineStateUpdate);
+//TODO:	rpc PerformMachineAction(MachineAction) returns (MachineStateUpdate);
 
 	/* Update the desired operating system, if this is successful PerformMachineAction of Reprovision is necessary */
-	rpc UpdateMachineOperatingSystem(OperatingSystemUpdate) returns (OperatingSystemUpdateResult);
+//TODO:	rpc UpdateMachineOperatingSystem(OperatingSystemUpdate) returns (OperatingSystemUpdateResult);
 
 	/* Release the machine back to the pool for the tenant */
-	rpc ReleaseMachine(UUID);
+//TODO:	rpc ReleaseMachine(UUID);
 
 	/* Reset the machine to initial state (wipe all drives, reset firmware, etc) */
-	rpc ResetMachine(UUID);
+//TODO:	rpc ResetMachine(UUID);
 
 	// Network Segment APIs (all privileged operations)
 	/* Create a network segment (VLAN/Subnet/VXLan) with some metadata */
@@ -194,66 +194,14 @@ service Carbide {
 	rpc DeleteNetworkSegment(UUID) returns (NetworkSegmentDeletion);
 
 	/* Associate a network segment (overlay) to a project (tenant) */
-	rpc BindNetworkSegmentToProject(NetworkSegmentBinding) returns (??);
+//TODO:	rpc BindNetworkSegmentToProject(NetworkSegmentBinding) returns (??);
 
 	// OperatingSystem API - standard CRUD operations
-	rpc CreateOperatingSystem(OperatingSystem) returns (OperatingSystem);
-	rpc FindOperatingSystems(OperatingSystemQuery) returns (OperatingSystemList);
-	rpc UpdateOperatingSystem(OperatingSystemUpdate) returns (OperatingSystem);
-	rpc DeleteOperatingSystem(OperatingSystem) returns (OperatingSystemDelete);
+//TODO:	rpc CreateOperatingSystem(OperatingSystem) returns (OperatingSystem);
+//TODO:	rpc FindOperatingSystems(OperatingSystemQuery) returns (OperatingSystemList);
+//TODO:	rpc UpdateOperatingSystem(OperatingSystemUpdate) returns (OperatingSystem);
+//TODO:	rpc DeleteOperatingSystem(OperatingSystem) returns (OperatingSystemDelete);
 
 	// Events API
-	rpc StreamEvents(EventRequestFilter) returns (stream EventMessage);
-
-}
-
-service Hydrazine {
-	/*
-	 * Create a project on the network fabric
-	 * 
-	 * Expected Input:
-	 *   - Tenant Identifier
-	 *   - Project Subnet
-	 * 
-	 * Returns: handle for checking result success/failure
-	 */
-	rpc CreateProject(ProjectSpec) returns (ProjectCreationResult);
-
-	/*
-	 * Update project
-	 */
-	rpc UpdateProject(ProjectSpec) returns (ProjectUpdateResult);
-
-	/*
-	 * Delete a project by UUID
-	 */
-	rpc DeleteProject(UUID) returns (ProjectDeletionResult);
-
-	/*
-	 * Create a Resource
-	 *
-	 * A resource is a network-attached object like a NetApp SVM.
-	 * 
-	 */
-	rpc CreateResource(ResourceSpec) returns (ResourceResult);
-
-	/*
-	 * Assign a resource to a project
-	 * 
-	 * Makes the resource available to this project (tenant)
-	 */
-	rpc BindResourceToProject(ResourceBinding) returns (ResourceBindingResult);
-
-	/*
-	 * Unassign a resource from a project
-	 */
-	rpc UnbindResourceFromProject(ResourceBinding) returns (ResourceBindingResult);
-}
-
-// IPMI Service (power on/off machines, change boot order, etc)
-service IPMI {
-	//TODO(ajf): rpc GetDesiredMachinePowerState(Machine) returns (MachineState);
-	//TODO(ajf): rpc SetDesiredMachinePowerState(Machine, MachineState) returns (MachineState);
-	//TODO(ajf): rpc GetActualMachinePowerState(Machine, State) returns (MachineState);
-	//TODO(ajf): rpc MachineConsole(stream MachineConsoleInput) returns (stream MachineConsoleOutput)
+//TODO:	rpc StreamEvents(EventRequestFilter) returns (stream EventMessage);
 }

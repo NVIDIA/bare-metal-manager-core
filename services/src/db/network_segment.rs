@@ -3,6 +3,8 @@ use ip_network::{Ipv4Network, Ipv6Network};
 use std::convert::From;
 use std::net::IpAddr;
 
+use rpc::v0 as rpc;
+
 #[derive(Debug)]
 pub struct NetworkSegment {
     id: uuid::Uuid,
