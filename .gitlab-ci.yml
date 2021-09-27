@@ -44,6 +44,7 @@ pages:
     - export PATH="$PATH:$CARGO_HOME/bin"
     - mdbook --version || cargo install mdbook
     - mdbook-mermaid --version || cargo install mdbook-mermaid
+    - rustfmt --version || rustup component add rustfmt
   script:
     - mkdir public
     - cargo doc --no-deps
