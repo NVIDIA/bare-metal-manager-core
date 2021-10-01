@@ -90,11 +90,9 @@ impl MachineEvent {
             )
             .await;
 
-        info!("events = {:?}", &events);
-
         events
-            .map(|result| {
-                result
+            .map(|rows| {
+                rows
                     .into_iter()
                     .map(MachineEvent::from)
                     .into_group_map_by(|event| event.machine_id)

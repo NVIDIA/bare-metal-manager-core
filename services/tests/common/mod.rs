@@ -20,7 +20,10 @@ impl TestDatabaseManager {
                 .map(char::from)
                 .collect::<String>()
                 .to_lowercase(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros()
         );
 
         let username = env!("LOGNAME");
@@ -54,7 +57,10 @@ impl TestDatabaseManager {
             let connection = p.get().await.unwrap();
 
             connection
-                .query(format!("CREATE DATABASE {0} TEMPLATE template0", db).as_str(), &[])
+                .query(
+                    format!("CREATE DATABASE {0} TEMPLATE template0", db).as_str(),
+                    &[],
+                )
                 .await
                 .unwrap();
 

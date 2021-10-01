@@ -50,6 +50,22 @@ pub struct Machine {
     ///
     /// [event]: crate::db::MachineEvent
     events: Vec<MachineEvent>,
+
+    /// A list of [MachineInterface][interface]s that this machine owns
+    ///
+    /// [event]: crate::db::MachineInterface
+    interfaces: Vec<MachineInterface>,
+}
+
+///
+/// A parameter to find() to filter machines by Uuid;
+/// 
+pub enum MachineIdsFilter<'a> {
+    /// Don't filter by uuid
+    All,
+
+    /// Filter by a list of uuids
+    List(Vec<&'a uuid::Uuid>),
 }
 
 ///
@@ -83,6 +99,7 @@ impl From<tokio_postgres::Row> for Machine {
             created: row.get("created"),
             modified: row.get("modified"),
             events: Vec::new(),
+            interfaces: Vec::new(),
         }
     }
 }
@@ -192,10 +209,7 @@ impl Machine {
 
                         let machine = Machine::create(&txn, generated_fqdn).await?;
 
-                        //
-                        //let machine_interface = MachineInterface::create(&dbc, &machine, &segment, &macaddr,
-
-                        Ok(machine)
+                        Ok(Self::find(&txn, MachineIdsFilter::List(vec![&machine.id])).await?.remove(0))
                     }
                     None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
                 }
@@ -228,6 +242,11 @@ impl Machine {
     /// Returns the list of Events the machine has experienced
     pub fn events(&self) -> &Vec<MachineEvent> {
         &self.events
+    }
+
+    /// Returns the list of Interfaces this machine owns
+    pub fn interfaces(&self) -> &Vec<MachineInterface> {
+        &self.interfaces
     }
 
     /// Update this machine's FQDN
@@ -323,17 +342,22 @@ impl Machine {
 
     /// Find machines given a set of criteria, right now just returns all machines because there's
     /// no way to filter the machines.
+    /// 
+    /// TODO(ajf): write a query langauge???
     ///
     /// Arguments:
     ///
     /// * `txn` - A reference to a currently open database transaction
     ///
-    pub async fn find(txn: &tokio_postgres::Transaction<'_>) -> CarbideResult<Vec<Machine>> {
-        // TODO(ajf): write a query langauge???
+    pub async fn find(txn: &tokio_postgres::Transaction<'_>, id_filter: MachineIdsFilter<'_> ) -> CarbideResult<Vec<Machine>> {
+        let query = match id_filter {
+            MachineIdsFilter::All            => txn.query("SELECT * FROM machines", &[]).await,
+            MachineIdsFilter::List(ref list) => {
+                txn.query("SELECT * FROM machines WHERE id=ANY($1)", &[&list]).await
+            }
+        }?;
 
-        let mut machines = txn
-            .query("SELECT * FROM machines", &[])
-            .await?
+        let mut machines = query
             .into_iter()
             .fold(HashMap::new(), |mut accumulator, row| {
                 let machine = Machine::from(row);
@@ -345,8 +369,16 @@ impl Machine {
             .into_iter()
             .collect::<HashMap<uuid::Uuid, Machine>>();
 
-        let mut events_for_machine =
-            MachineEvent::find_by_machine_ids(&txn, machines.keys().collect()).await?;
+        let events_future =
+            MachineEvent::find_by_machine_ids(&txn, machines.keys().collect());
+
+        let interfaces_future =
+            MachineInterface::find_by_machine_ids(&txn, machines.keys().collect());
+
+        let (events_for_machine_result, interfaces_for_machine_result) = futures::join!(events_future, interfaces_future);
+
+        let mut events_for_machine = events_for_machine_result?;
+        let mut interfaces_for_machine = interfaces_for_machine_result?;
 
         let hint_length = machines.len();
 
@@ -358,6 +390,12 @@ impl Machine {
                 } else {
                     warn!("Machine {0} ({1}) has no events", machine.id, machine.fqdn);
                 }
+                
+                if let Some(interfaces) = interfaces_for_machine.remove(&uuid) {
+                    machine.interfaces = interfaces;
+                } else {
+                    warn!("Machine {0} ({1}) has no interfaces", machine.id, machine.fqdn);
+                }
                 accumulator.push(machine);
                 accumulator
             },
@@ -366,5 +404,6 @@ impl Machine {
         Ok(final_machine_list)
     }
 }
+
 #[cfg(test)]
 mod test {}

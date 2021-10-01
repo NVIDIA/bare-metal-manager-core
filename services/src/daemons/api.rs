@@ -4,7 +4,7 @@ use tonic::{Code, Request, Response, Status};
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
 
-use carbide::db::{Datastore, Machine, NetworkSegment, Pool};
+use carbide::db::{Datastore, Machine, NetworkSegment, Pool, MachineIdsFilter};
 
 use self::rpc::carbide_server::Carbide;
 use rpc::v0 as rpc;
@@ -32,7 +32,7 @@ impl Carbide for Api {
                     Ok(txn) => {
                         info!("Opened transaction");
 
-                        let machines = Machine::find(&txn)
+                        let machines = Machine::find(&txn, MachineIdsFilter::All)
                             .await
                             .map(|machine| rpc::MachineList {
                                 machines: machine.into_iter().map(rpc::Machine::from).collect(),

@@ -1,5 +1,6 @@
 mod common;
 
+use carbide::db::MachineIdsFilter;
 use carbide::db::Machine;
 use carbide::db::MachineState;
 use carbide::CarbideError;
@@ -37,23 +38,23 @@ async fn test_machine_rename() {
         .await
         .expect("Could not create new transaction");
 
-
-    let mut machine =
-        Machine::create(&txn, String::from("peppersmacker.nvidia.com"))
-            .await
-            .expect("Unable to create machine");
+    let mut machine = Machine::create(&txn, String::from("peppersmacker.nvidia.com"))
+        .await
+        .expect("Unable to create machine");
 
     let original_modified = machine.modified();
 
     txn.commit().await.unwrap();
-    
-    let txn2 = dbc.transaction().await.expect("Could not create new (second) transaction");
+
+    let txn2 = dbc
+        .transaction()
+        .await
+        .expect("Could not create new (second) transaction");
 
     machine
         .update_fqdn(&txn2, "peppersmacker2.nvidia.com")
         .await
         .expect("Could not update FQDN");
-
 
     txn2.commit().await.unwrap();
 
@@ -79,7 +80,7 @@ async fn test_find_all_machines_when_there_arent_any() {
         .await
         .expect("Could not create new transaction");
 
-    let machines = Machine::find(&txn).await.unwrap();
+    let machines = Machine::find(&txn, MachineIdsFilter::All).await.unwrap();
 
     assert!(machines.is_empty());
 }
@@ -101,17 +102,16 @@ async fn test_new_machine_state() {
         .await
         .expect("Could not create new transaction");
 
-    let machine = Machine::create(
-        &txn,
-        String::from("peppersmacker.nvidia.com"),
-    )
-    .await
-    .expect("Unable to create machine");
+    let machine = Machine::create(&txn, String::from("peppersmacker.nvidia.com"))
+        .await
+        .expect("Unable to create machine");
 
-    assert_eq!(machine.current_state(&txn).await.unwrap(), MachineState::New);
+    assert_eq!(
+        machine.current_state(&txn).await.unwrap(),
+        MachineState::New
+    );
 
     txn.commit().await.unwrap();
-
 }
 
 #[tokio::test]
@@ -131,45 +131,9 @@ async fn test_fsm_invalid_advance() {
         .await
         .expect("Could not create new transaction");
 
-    let machine = Machine::create(
-        &txn,
-        String::from("peppersmacker.nvidia.com"),
-    )
-    .await
-    .expect("Unable to create machine");
-
-    // Can't commission from new
-    assert!(matches!(
-        machine.commission(&txn).await.unwrap_err(),
-        CarbideError::MachineStateTransitionViolation { .. }
-    ));
-
-    txn.commit().await.unwrap();
-}
-
-#[tokio::test]
-async fn test_machine_discover() {
-    setup();
-
-    let db = common::TestDatabaseManager::new()
+    let machine = Machine::create(&txn, String::from("peppersmacker.nvidia.com"))
         .await
-        .expect("Could not create a database pool");
-    let mut dbc = db
-        .pool
-        .get()
-        .await
-        .expect("Could not get a DB pool connection");
-    let txn = dbc
-        .transaction()
-        .await
-        .expect("Could not create new transaction");
-
-    let machine = Machine::create(
-        &txn,
-        String::from("peppersmacker.nvidia.com"),
-    )
-    .await
-    .expect("Unable to create machine");
+        .expect("Unable to create machine");
 
     // Can't commission from new
     assert!(matches!(

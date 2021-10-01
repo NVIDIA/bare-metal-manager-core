@@ -1,9 +1,12 @@
 use super::{Machine, NetworkSegment};
-use crate::CarbideResult;
+use crate::{CarbideError, CarbideResult};
 use eui48::MacAddress;
+use itertools::Itertools;
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use tokio_postgres::Transaction;
 
+#[derive(Debug)]
 pub struct MachineInterface {
     id: uuid::Uuid,
 
@@ -66,6 +69,26 @@ impl MachineInterface {
             .collect::<Vec<MachineInterface>>())
     }
 
+    pub async fn find_by_machine_ids(
+        txn: &Transaction<'_>,
+        ids: Vec<&uuid::Uuid>,
+    ) -> CarbideResult<HashMap<uuid::Uuid, Vec<MachineInterface>>> {
+        let interfaces_result = txn
+            .query(
+                "SELECT * FROM machine_interfaces WHERE machine_id=ANY($1)",
+                &[&ids],
+            )
+            .await;
+
+        interfaces_result
+            .map(|rows| {
+                rows.into_iter()
+                    .map(MachineInterface::from)
+                    .into_group_map_by(|interface| interface.machine_id)
+            })
+            .map_err(CarbideError::from)
+    }
+
     pub async fn create(
         txn: &Transaction<'_>,
         machine: &Machine,
@@ -79,6 +102,11 @@ impl MachineInterface {
                 .query_one("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::inet, $5::inet) RETURNING *", &[&machine.id(), &segment.id(), &macaddr, &address_v4.and_then(|a| Some(IpAddr::from(a))), &address_v6.and_then(|a| Some(IpAddr::from(a)))])
                 .await?,
         ))
+    }
+
+    // Instance methods
+    pub fn address_ipv4(&self) -> Option<&Ipv4Addr> {
+        self.address_ipv4.as_ref()
     }
 }
 
