@@ -51,8 +51,8 @@ async fn test_machine_discovery() {
         Some(Ipv4Network::from_str_truncate("10.0.0.0/24").unwrap()),
         None,
     )
-    .await.expect("unable to create network");
-
+    .await
+    .expect("unable to create network");
 
     let machine = Machine::discover(
         &mut txn,

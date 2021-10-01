@@ -4,7 +4,7 @@ use tonic::{Code, Request, Response, Status};
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
 
-use carbide::db::{Datastore, Machine, NetworkSegment, Pool, MachineIdsFilter};
+use carbide::db::{Datastore, Machine, MachineIdsFilter, NetworkSegment, Pool};
 
 use self::rpc::carbide_server::Carbide;
 use rpc::v0 as rpc;

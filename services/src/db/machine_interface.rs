@@ -1,4 +1,4 @@
-use super::{Machine, NetworkSegment, AddressSelectionStrategy};
+use super::{AddressSelectionStrategy, Machine, NetworkSegment};
 use crate::{CarbideError, CarbideResult};
 use eui48::MacAddress;
 use itertools::Itertools;
@@ -76,16 +76,16 @@ impl MachineInterface {
         txn: &Transaction<'_>,
         segment: &NetworkSegment,
     ) -> CarbideResult<Vec<MachineInterface>> {
-        Ok(
-            txn
-            .query("SELECT * FROM machine_interfaces mi WHERE mi.segment_id = $1", &[&segment.id()])
+        Ok(txn
+            .query(
+                "SELECT * FROM machine_interfaces mi WHERE mi.segment_id = $1",
+                &[&segment.id()],
+            )
             .await?
             .into_iter()
             .map(MachineInterface::from)
-            .collect()
-        )
+            .collect())
     }
-
 
     pub async fn find_by_machine_ids(
         txn: &Transaction<'_>,
@@ -104,7 +104,7 @@ impl MachineInterface {
                     .map(MachineInterface::from)
                     .into_group_map_by(|interface| interface.machine_id)
             })
-        .map_err(CarbideError::from)
+            .map_err(CarbideError::from)
     }
 
     pub fn address_ipv4(&self) -> Option<&Ipv4Addr> {
@@ -115,7 +115,6 @@ impl MachineInterface {
         self.address_ipv6.as_ref()
     }
 
-
     pub async fn create(
         txn: &Transaction<'_>,
         machine: &Machine,
@@ -125,7 +124,9 @@ impl MachineInterface {
         address_v6: &AddressSelectionStrategy<Ipv6Addr>,
     ) -> CarbideResult<Self> {
         // If either requested addresses are auto-generated, we lock the entire table.
-        if matches!(address_v4, AddressSelectionStrategy::Automatic(_) ) || matches!(address_v6, AddressSelectionStrategy::Automatic(_)) {
+        if matches!(address_v4, AddressSelectionStrategy::Automatic(_))
+            || matches!(address_v6, AddressSelectionStrategy::Automatic(_))
+        {
             //inner_txn.query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE", &[]).await?;
         };
 
@@ -137,15 +138,21 @@ impl MachineInterface {
             AddressSelectionStrategy::Automatic(ignore_absent) => {
                 match segment.next_ipv4(
                     interfaces
-                    .iter()
-                    .filter(|interface| interface.address_ipv4().is_some() )
-                    .map(|interface| interface.address_ipv4().unwrap() )) {
-                    Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_)) if *ignore_absent => None,
+                        .iter()
+                        .filter(|interface| interface.address_ipv4().is_some())
+                        .map(|interface| interface.address_ipv4().unwrap()),
+                ) {
+                    Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
+                        if *ignore_absent =>
+                    {
+                        None
+                    }
                     Err(x) => return Err(x),
                     Ok(addr) => Some(addr),
                 }
             }
-        }.map(IpAddr::from); // IpAddr implements ToSql but the variants don't
+        }
+        .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
 
         let new_ipv6 = match address_v6 {
             AddressSelectionStrategy::Empty => None,
@@ -153,21 +160,26 @@ impl MachineInterface {
             AddressSelectionStrategy::Automatic(ignore_absent) => {
                 match segment.next_ipv6(
                     interfaces
-                    .iter()
-                    .filter(|interface| interface.address_ipv6().is_some() )
-                    .map(|interface| interface.address_ipv6().unwrap() )) {
-                    Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_)) if *ignore_absent => None,
+                        .iter()
+                        .filter(|interface| interface.address_ipv6().is_some())
+                        .map(|interface| interface.address_ipv6().unwrap()),
+                ) {
+                    Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
+                        if *ignore_absent =>
+                    {
+                        None
+                    }
                     Err(x) => return Err(x),
                     Ok(addr) => Some(addr),
                 }
             }
-        }.map(IpAddr::from); // IpAddr implements ToSql but the variants don't
+        }
+        .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
 
         Ok(MachineInterface::from(
                 txn
                 .query_one("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::inet, $5::inet) RETURNING *", &[&machine.id(), &segment.id(), &macaddr, &new_ipv4, &new_ipv6])
                 .await?,
         ))
-
     }
 }

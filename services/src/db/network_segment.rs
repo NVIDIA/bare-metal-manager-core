@@ -1,9 +1,9 @@
 use crate::{CarbideError, CarbideResult};
 use ip_network::{Ipv4Network, Ipv6Network};
-use std::convert::From;
-use std::net::{Ipv4Addr, Ipv6Addr, IpAddr};
-use std::borrow::Borrow;
 use patricia_tree::PatriciaMap;
+use std::borrow::Borrow;
+use std::convert::From;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use rpc::v0 as rpc;
 
@@ -82,28 +82,48 @@ impl NetworkSegment {
         self.subnet_ipv6.as_ref()
     }
 
-    pub fn next_ipv4<'a>(&self, used_ips: impl Iterator<Item = &'a Ipv4Addr>) -> CarbideResult<Ipv4Addr> {
+    pub fn next_ipv4<'a>(
+        &self,
+        used_ips: impl Iterator<Item = &'a Ipv4Addr>,
+    ) -> CarbideResult<Ipv4Addr> {
         self.subnet_ipv4()
-            .ok_or( CarbideError::NetworkSegmentMissingAddressFamilyError(String::from("IPv4")))
+            .ok_or(CarbideError::NetworkSegmentMissingAddressFamilyError(
+                String::from("IPv4"),
+            ))
             .and_then(|subnet| {
                 let mut map: PatriciaMap<()> = PatriciaMap::new();
                 map.extend(used_ips.map(|ip| (ip.octets(), ())));
 
-                subnet.hosts().into_iter().find(|host| map.get(host.octets()).is_none())
-                    .ok_or(CarbideError::NetworkSegmentExhaustedAddressFamily(String::from("huh")))
+                subnet
+                    .hosts()
+                    .into_iter()
+                    .find(|host| map.get(host.octets()).is_none())
+                    .ok_or(CarbideError::NetworkSegmentExhaustedAddressFamily(
+                        String::from("huh"),
+                    ))
             })
     }
 
-    pub fn next_ipv6<'a>(&self, used_ips: impl Iterator<Item = &'a Ipv6Addr>) -> CarbideResult<Ipv6Addr> {
+    pub fn next_ipv6<'a>(
+        &self,
+        used_ips: impl Iterator<Item = &'a Ipv6Addr>,
+    ) -> CarbideResult<Ipv6Addr> {
         self.subnet_ipv6()
-            .ok_or( CarbideError::NetworkSegmentMissingAddressFamilyError(String::from("IPv6")))
+            .ok_or(CarbideError::NetworkSegmentMissingAddressFamilyError(
+                String::from("IPv6"),
+            ))
             .and_then(|subnet| {
                 let mut map: PatriciaMap<()> = PatriciaMap::new();
                 map.extend(used_ips.map(|ip| (ip.octets(), ())));
 
-                subnet.subnets_with_prefix(128).into_iter().find(|network| map.get(network.network_address().octets()).is_none())
-                    .ok_or(CarbideError::NetworkSegmentExhaustedAddressFamily(String::from("huh")))
-                    .map(|network| network.network_address() )
+                subnet
+                    .subnets_with_prefix(128)
+                    .into_iter()
+                    .find(|network| map.get(network.network_address().octets()).is_none())
+                    .ok_or(CarbideError::NetworkSegmentExhaustedAddressFamily(
+                        String::from("huh"),
+                    ))
+                    .map(|network| network.network_address())
             })
     }
 
@@ -155,9 +175,9 @@ impl NetworkSegment {
 mod tests {
     use super::*;
     use crate::CarbideError;
-    use uuid::Uuid;
     use ip_network::Ipv4Network;
     use std::str::FromStr;
+    use uuid::Uuid;
 
     #[test]
     fn test_unused_ipv4_address() -> Result<(), String> {
@@ -173,7 +193,10 @@ mod tests {
 
         usedips.extend((1..=200).map(|i| Ipv4Addr::new(10, 0, 0, i)));
 
-        assert_eq!(segment.next_ipv4(usedips.iter()).unwrap(), Ipv4Addr::from_str("10.0.0.201").unwrap());
+        assert_eq!(
+            segment.next_ipv4(usedips.iter()).unwrap(),
+            Ipv4Addr::from_str("10.0.0.201").unwrap()
+        );
         Ok(())
     }
 
@@ -188,14 +211,14 @@ mod tests {
             subnet_ipv6: None,
         };
         let mut usedips: Vec<Ipv4Addr> = vec![];
-        
+
         let address_list = (1..=255).map(|i| Ipv4Addr::new(10, 0, 0, i));
 
         usedips.extend(address_list);
 
         assert!(matches!(
-                segment.next_ipv4(usedips.iter()),
-                Err(CarbideError::NetworkSegmentExhaustedAddressFamily(_))
+            segment.next_ipv4(usedips.iter()),
+            Err(CarbideError::NetworkSegmentExhaustedAddressFamily(_))
         ));
         Ok(())
     }

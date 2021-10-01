@@ -1,7 +1,7 @@
 mod common;
 
-use carbide::db::MachineIdsFilter;
 use carbide::db::Machine;
+use carbide::db::MachineIdsFilter;
 use carbide::db::MachineState;
 use carbide::CarbideError;
 

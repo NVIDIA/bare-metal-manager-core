@@ -92,8 +92,7 @@ impl MachineEvent {
 
         events
             .map(|rows| {
-                rows
-                    .into_iter()
+                rows.into_iter()
                     .map(MachineEvent::from)
                     .into_group_map_by(|event| event.machine_id)
                     .into_iter()
