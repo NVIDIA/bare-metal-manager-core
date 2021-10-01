@@ -127,7 +127,7 @@ impl MachineInterface {
         if matches!(address_v4, AddressSelectionStrategy::Automatic(_))
             || matches!(address_v6, AddressSelectionStrategy::Automatic(_))
         {
-            //inner_txn.query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE", &[]).await?;
+            txn.query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE", &[]).await?;
         };
 
         let interfaces = Self::find_by_network_segment(&txn, segment).await?;

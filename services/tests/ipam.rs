@@ -22,7 +22,7 @@ fn setup() {
 
 fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Debug)
+        .filter_level(LevelFilter::Warn)
         .init();
 }
 

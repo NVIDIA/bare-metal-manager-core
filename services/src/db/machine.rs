@@ -213,7 +213,8 @@ impl Machine {
 
                         let machine =
                             Machine::create(&machine_create_transaction, generated_fqdn).await?;
-                        let machine_interface = MachineInterface::create(
+
+                        let _ = MachineInterface::create(
                             &machine_create_transaction,
                             &machine,
                             &segment,
