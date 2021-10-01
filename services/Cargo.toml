@@ -37,6 +37,7 @@ futures = "0.3"
 # data types
 uuid = { version = "0.8", features = ["v4", "serde"] }
 ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
+patricia_tree = "0.3.1"
 eui48 = "0.4.0"
 
 # misc

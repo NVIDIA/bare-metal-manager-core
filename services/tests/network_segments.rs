@@ -33,15 +33,7 @@ async fn test_create_segment() {
     .await
     .expect("Unable to create segment");
 
-    // Discovered a machine with Mac address 0-0-0-0-0-0 by relay 192.0.2.0/24
-    let machine = Machine::discover(
-        &txn,
-        "00:00:00:00:00:00".parse::<MacAddress>().unwrap(),
-        "2001:db8:f::".parse::<std::net::IpAddr>().unwrap(),
-    )
-    .await;
-
     txn.commit().await;
 
-    info!("Segment {:?}, machine: {:?}", segment, machine);
+    info!("Segment {:?}", segment);
 }

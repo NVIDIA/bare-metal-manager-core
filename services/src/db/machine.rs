@@ -17,6 +17,8 @@ use super::MachineEvent;
 use super::MachineInterface;
 use super::MachineState;
 use super::NetworkSegment;
+use super::AddressSelectionStrategy;
+
 use std::net::IpAddr;
 
 use rpc::v0 as rpc;
@@ -159,7 +161,7 @@ impl Machine {
     /// * `macaddr` - The eui48::MacAddress of the booting machine
     /// * `relay` - The IP address of the DHCP relay servicing the request.
     pub async fn discover(
-        txn: &tokio_postgres::Transaction<'_>,
+        txn: &mut tokio_postgres::Transaction<'_>,
         macaddr: MacAddress,
         relay: IpAddr,
     ) -> CarbideResult<Self> {
@@ -207,7 +209,12 @@ impl Machine {
 
                         debug!("Generated hostname {}", generated_fqdn);
 
-                        let machine = Machine::create(&txn, generated_fqdn).await?;
+                        let machine_create_transaction = txn.transaction().await?;
+
+                        let machine = Machine::create(&machine_create_transaction, generated_fqdn).await?;
+                        let machine_interface = MachineInterface::create(&machine_create_transaction, &machine, &segment, &macaddr, &AddressSelectionStrategy::Automatic(true), &AddressSelectionStrategy::Automatic(true)).await?;
+
+                        machine_create_transaction.commit().await?;
 
                         Ok(Self::find(&txn, MachineIdsFilter::List(vec![&machine.id])).await?.remove(0))
                     }

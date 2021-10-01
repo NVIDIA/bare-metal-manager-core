@@ -61,7 +61,7 @@ impl Carbide for Api {
             Ok(mut pool) => {
                 info!("Retrieved connection from the database pool");
                 match pool.transaction().await {
-                    Ok(txn) => {
+                    Ok(mut txn) => {
                         info!("Opened transaction");
 
                         let rpc::MachineDiscovery {
@@ -70,7 +70,7 @@ impl Carbide for Api {
                         } = request.into_inner();
 
                         let machine = Machine::discover(
-                            &txn,
+                            &mut txn,
                             mac_address.parse().unwrap(),
                             relay_address.parse().unwrap(),
                         )

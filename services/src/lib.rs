@@ -51,6 +51,14 @@ pub enum CarbideError {
     #[error("Unable to generate ephemeral hostname from uuid")]
     HostnameGenerationError(String),
 
+        #[error("Attempted to retrieve the next IP from a network segment without a subnet for that address family: {0}")]
+    NetworkSegmentMissingAddressFamilyError(String),
+
+    #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
+    NetworkSegmentExhaustedAddressFamily(String),
+
+
+
     #[error("Generic error: {0}")]
     GenericError(String),
 }

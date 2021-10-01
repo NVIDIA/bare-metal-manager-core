@@ -6,6 +6,7 @@ mod machine_event;
 mod machine_interface;
 mod machine_state;
 mod network_segment;
+mod address_selection_strategy;
 
 pub mod migrations;
 
@@ -18,6 +19,7 @@ pub use machine_interface::MachineInterface;
 pub use machine_state::MachineState;
 pub use network_segment::NetworkSegment;
 pub use machine::MachineIdsFilter;
+pub use address_selection_strategy::AddressSelectionStrategy;
 
 use super::CarbideResult;
 

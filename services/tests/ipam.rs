@@ -38,7 +38,7 @@ async fn test_machine_discovery() {
         .get()
         .await
         .expect("Could not get a DB pool connection");
-    let txn = dbc
+    let mut txn = dbc
         .transaction()
         .await
         .expect("Could not create new transaction");
@@ -55,7 +55,7 @@ async fn test_machine_discovery() {
 
 
     let machine = Machine::discover(
-        &txn,
+        &mut txn,
         MacAddress::parse_str("ff:ff:ff:ff:ff:ff").unwrap(),
         "10.0.0.1".parse().unwrap(),
     )
