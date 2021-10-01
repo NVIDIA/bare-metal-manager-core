@@ -137,8 +137,7 @@ CREATE FUNCTION update_machine_modified_trigger() RETURNS TRIGGER
 LANGUAGE plpgsql as $$
 BEGIN
 	NEW.modified := NOW();
-
-	RETURN new;
+	RETURN NEW;
 END
 $$;
 
@@ -146,7 +145,6 @@ CREATE FUNCTION set_machine_state_to_new() RETURNS TRIGGER
 LANGUAGE plpgsql as $$
 BEGIN
 	INSERT INTO machine_events (machine_id, action) VALUES (NEW.id, 'discover');
-
 	RETURN NEW;
 END
 $$;

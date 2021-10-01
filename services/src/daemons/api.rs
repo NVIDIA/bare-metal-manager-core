@@ -6,8 +6,8 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 
 use carbide::db::{Datastore, Machine, NetworkSegment, Pool};
 
-use rpc::v0 as rpc;
 use self::rpc::carbide_server::Carbide;
+use rpc::v0 as rpc;
 
 use crate::cfg;
 

@@ -12,21 +12,22 @@ pub struct TestDatabaseManager {
 impl TestDatabaseManager {
     pub(crate) async fn new() -> CarbideResult<Self> {
         let temporary_database_name = format!(
-            "{0}_integrationtests_{1}",
+            "{0}_integrationtests_{1}_{2}",
             env!("CARGO_PKG_NAME"),
             rand::thread_rng()
                 .sample_iter(&rand::distributions::Alphanumeric)
                 .take(7)
                 .map(char::from)
                 .collect::<String>()
-                .to_lowercase()
+                .to_lowercase(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros()
         );
 
         let username = env!("LOGNAME");
 
         let real_config = tokio_postgres::config::Config::from_str(
             format!(
-                "postgres://{0}@localhost/{1}",
+                "postgres://{0}@%2Fvar%2Frun%2Fpostgresql/{1}",
                 username, temporary_database_name
             )
             .as_str(),
@@ -34,7 +35,11 @@ impl TestDatabaseManager {
         .unwrap();
 
         let template_config = tokio_postgres::config::Config::from_str(
-            format!("postgres://{0}@localhost/template1", username).as_str(),
+            format!(
+                "postgres://{0}@%2Fvar%2Frun%2Fpostgresql/template1",
+                username
+            )
+            .as_str(),
         )
         .unwrap();
 
@@ -49,7 +54,7 @@ impl TestDatabaseManager {
             let connection = p.get().await.unwrap();
 
             connection
-                .query(format!("CREATE DATABASE {0}", db).as_str(), &[])
+                .query(format!("CREATE DATABASE {0} TEMPLATE template0", db).as_str(), &[])
                 .await
                 .unwrap();
 

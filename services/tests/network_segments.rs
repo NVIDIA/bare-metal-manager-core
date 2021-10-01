@@ -13,7 +13,7 @@ use log::LevelFilter;
 #[tokio::test]
 async fn test_create_segment() {
     pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Debug)
+        .filter_level(LevelFilter::Warn)
         .init();
 
     let db = common::TestDatabaseManager::new().await.unwrap();
