@@ -6,8 +6,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use tokio_postgres::Transaction;
 
-#[cfg(test)]
-mod test {}
+use rpc::v0 as rpc;
 
 #[derive(Debug)]
 pub struct MachineInterface {
@@ -52,6 +51,20 @@ impl From<tokio_postgres::Row> for MachineInterface {
 
             address_ipv4,
             address_ipv6,
+        }
+    }
+}
+
+impl From<MachineInterface> for rpc::MachineInterface {
+    fn from(machine_interface: MachineInterface) -> rpc::MachineInterface {
+        rpc::MachineInterface {
+            id: Some(machine_interface.id.into()),
+            machine_id: Some(machine_interface.machine_id.into()),
+            segment_id: Some(machine_interface.segment_id.into()),
+
+            mac_address: machine_interface.mac_address.to_string(eui48::MacAddressFormat::HexString),
+            address_ipv4: machine_interface.address_ipv4.map(|a| a.to_string() ),
+            address_ipv6: machine_interface.address_ipv6.map(|a| a.to_string() ),
         }
     }
 }
@@ -183,3 +196,6 @@ impl MachineInterface {
         ))
     }
 }
+
+#[cfg(test)]
+mod test {}

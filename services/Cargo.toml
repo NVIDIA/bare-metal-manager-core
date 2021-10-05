@@ -15,6 +15,7 @@ rpc = { path = "../rpc" }
 
 # grpc
 tonic = "0.5"
+tonic-reflection = "0.2"
 
 # databases
 refinery = { version = "0.6.0", features = ["tokio-postgres"] }

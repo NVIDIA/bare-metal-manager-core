@@ -64,6 +64,8 @@ async fn test_machine_discovery() {
 
     txn.commit().await.unwrap();
 
+    println!("{:#?}", machine);
+
     assert_eq!(
         machine
             .interfaces()

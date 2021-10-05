@@ -86,6 +86,12 @@ impl From<Machine> for rpc::Machine {
                 .into_iter()
                 .map(|event| event.into())
                 .collect(),
+            interfaces: machine
+                .interfaces
+                .into_iter()
+                .map(|interface| interface.into())
+                .collect(),
+
         }
     }
 }

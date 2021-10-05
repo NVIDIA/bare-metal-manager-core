@@ -7,9 +7,11 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 use carbide::db::{Datastore, Machine, MachineIdsFilter, NetworkSegment, Pool};
 
 use self::rpc::carbide_server::Carbide;
+use ip_network::{Ipv4Network, Ipv6Network, IpNetworkParseError};
 use rpc::v0 as rpc;
 
 use crate::cfg;
+use tonic_reflection::server::Builder;
 
 #[derive(Debug)]
 pub struct Api {
@@ -77,7 +79,7 @@ impl Carbide for Api {
                         .await
                         .map(rpc::Machine::from)
                         .map(Response::new)
-                        .map_err(|e| Status::new(Code::Internal, format!("{:?}", e)));
+                        .map_err(|e| Status::new(Code::Internal, format!("{}", e)));
 
                         info!("Machine = {:?}", machine);
 
@@ -142,17 +144,39 @@ impl Carbide for Api {
                             name,
                             subdomain,
                             mtu,
-                            subnet_ipv4,
-                            subnet_ipv6,
+                            subnet_ipv4: maybe_subnet_ipv4,
+                            subnet_ipv6: maybe_subnet_ipv6,
                         } = request.into_inner();
+
+                        let subnet_ipv4: Option<Result<Ipv4Network, Status>> = maybe_subnet_ipv4
+                            .map(|ip| {
+                                ip.parse().map_err(|e: IpNetworkParseError| {
+                                    Status::new(Code::InvalidArgument, format!("Unable to parse IPv4 network subnet: {0}", e.to_string()))
+                                })
+                            });
+
+                        if let Some(Err(parse_error)) = subnet_ipv4 {
+                            return Err(parse_error);
+                        }
+
+                        let subnet_ipv6: Option<Result<Ipv6Network, Status>> = maybe_subnet_ipv6
+                            .map(|ip| {
+                                ip.parse().map_err(|e: IpNetworkParseError| {
+                                    Status::new(Code::InvalidArgument, format!("Unable to parse IPv6 network subnet: {0}", e.to_string()))
+                                })
+                            });
+
+                        if let Some(Err(parse_error)) = subnet_ipv6 {
+                            return Err(parse_error);
+                        }
 
                         let segment = NetworkSegment::create(
                             &txn,
                             &name,
                             &subdomain,
                             &mtu,
-                            subnet_ipv4.map(|ip| ip.parse().unwrap()),
-                            subnet_ipv6.map(|ip| ip.parse().unwrap()),
+                            subnet_ipv4.map(|result| result.unwrap()),
+                            subnet_ipv6.map(|result| result.unwrap()),
                         )
                         .await
                         .map(rpc::NetworkSegment::from)
@@ -261,8 +285,13 @@ impl Api {
             &api_config.datastore,
         );
 
+        let reflection_service = Builder::configure()
+            .register_encoded_file_descriptor_set(rpc::REFLECTION_SERVICE_DESCRIPTOR)
+            .build()?;
+
         tonic::transport::Server::builder()
             .add_service(rpc::carbide_server::CarbideServer::new(api_service))
+            .add_service(reflection_service)
             .serve(service_config.listen[0])
             .await?;
 

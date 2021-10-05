@@ -66,8 +66,8 @@ message Machine {
 	google.protobuf.Timestamp modified = 4;
 
 	repeated MachineEvent events = 5;
+	repeated MachineInterface interfaces = 6;
 
-	//  repeated Interface interfaces = 3;
 	//
 	//  enum State {
 	//    NEW = 0;
@@ -89,6 +89,17 @@ message Machine {
 	// TODO(ajf): machine labels/tags
 	// TODO(ajf): test results
 	// TODO(ajf): storage
+}
+
+message MachineInterface {
+	UUID id = 1;
+	UUID machine_id = 2;
+	UUID segment_id = 3;
+
+	string mac_address = 4;
+
+	optional string address_ipv4 = 5;
+	optional string address_ipv6 = 6;
 }
 
 message MachineDiscovery {

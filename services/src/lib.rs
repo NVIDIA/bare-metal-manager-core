@@ -30,7 +30,7 @@ pub enum CarbideError {
     #[error("unable to instanciate datastore connection pool")]
     DatabaseError(tokio_postgres::Error),
 
-    #[error("Invalid machine state transition")]
+    #[error("Invalid machine state transition: {0}")]
     MachineStateTransitionViolation(String, Option<String>),
 
     #[error("unable to perform database migrations")]
@@ -39,16 +39,16 @@ pub enum CarbideError {
     #[error("Database type conversion error")]
     DatabaseTypeConversionError(String),
 
-    #[error("Database Pool (bb8) error")]
+    #[error("Database Pool (bb8) error: {0}")]
     DatabasePoolError(#[from] bb8::RunError<tokio_postgres::Error>),
 
-    #[error("Multiple network segments defined for relay address")]
+    #[error("Multiple network segments defined for relay address: {0}")]
     MultipleNetworkSegmentsForRelay(IpAddr),
 
-    #[error("No network segment defined for relay address")]
+    #[error("No network segment defined for relay address: {0}")]
     NoNetworkSegmentsForRelay(IpAddr),
 
-    #[error("Unable to generate ephemeral hostname from uuid")]
+    #[error("Unable to generate ephemeral hostname from uuid: {0}")]
     HostnameGenerationError(String),
 
     #[error("Attempted to retrieve the next IP from a network segment without a subnet for that address family: {0}")]
