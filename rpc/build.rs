@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::env;
+use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reflection = PathBuf::from(env::var("OUT_DIR").unwrap()).join("carbide.v0.bin");

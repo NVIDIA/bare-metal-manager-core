@@ -15,6 +15,8 @@ pub struct NetworkSegment {
     mtu: i32,
     subnet_ipv4: Option<Ipv4Network>,
     subnet_ipv6: Option<Ipv6Network>,
+    reserve_first_ipv4: i32,
+    reserve_first_ipv6: i32,
 }
 
 impl From<tokio_postgres::Row> for NetworkSegment {
@@ -26,6 +28,8 @@ impl From<tokio_postgres::Row> for NetworkSegment {
             mtu: row.get("mtu"),
             subnet_ipv4: row.get("subnet_ipv4"),
             subnet_ipv6: row.get("subnet_ipv6"),
+            reserve_first_ipv4: row.get("reserve_first_ipv4"),
+            reserve_first_ipv6: row.get("reserve_first_ipv6"),
         }
     }
 }
@@ -53,10 +57,12 @@ impl NetworkSegment {
         mtu: &i32,
         subnet_ipv4: Option<Ipv4Network>,
         subnet_ipv6: Option<Ipv6Network>,
+        reserve_first_ipv4: &i32,
+        reserve_first_ipv6: &i32,
     ) -> CarbideResult<Self> {
         Ok(
             Self::from(
-                dbc.query_one("INSERT INTO network_segments (name, subdomain, mtu, subnet_ipv4, subnet_ipv6) VALUES ($1, $2, $3, $4, $5) RETURNING *", &[&name, &subdomain, mtu, &subnet_ipv4, &subnet_ipv6]).await?))
+                dbc.query_one("INSERT INTO network_segments (name, subdomain, mtu, subnet_ipv4, subnet_ipv6, reserve_first_ipv4, reserve_first_ipv6) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *", &[&name, &subdomain, mtu, &subnet_ipv4, &subnet_ipv6, &reserve_first_ipv4, &reserve_first_ipv6]).await?))
     }
 
     pub async fn delete(self, dbc: &tokio_postgres::Transaction<'_>) -> CarbideResult<()> {
@@ -92,6 +98,7 @@ impl NetworkSegment {
             ))
             .and_then(|subnet| {
                 let mut map: PatriciaMap<()> = PatriciaMap::new();
+
                 map.extend(used_ips.map(|ip| (ip.octets(), ())));
 
                 subnet
@@ -114,6 +121,7 @@ impl NetworkSegment {
             ))
             .and_then(|subnet| {
                 let mut map: PatriciaMap<()> = PatriciaMap::new();
+
                 map.extend(used_ips.map(|ip| (ip.octets(), ())));
 
                 subnet
@@ -188,6 +196,8 @@ mod tests {
             mtu: 1500,
             subnet_ipv4: Some(Ipv4Network::from_str("10.0.0.0/24").unwrap()),
             subnet_ipv6: None,
+            reserve_first_ipv4: 3,
+            reserve_first_ipv6: 0,
         };
         let mut usedips: Vec<Ipv4Addr> = vec![];
 
@@ -209,6 +219,8 @@ mod tests {
             mtu: 1500,
             subnet_ipv4: Some(Ipv4Network::from_str("10.0.0.0/24").unwrap()),
             subnet_ipv6: None,
+            reserve_first_ipv4: 3,
+            reserve_first_ipv6: 0,
         };
         let mut usedips: Vec<Ipv4Addr> = vec![];
 

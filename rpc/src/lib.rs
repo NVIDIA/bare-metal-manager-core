@@ -4,9 +4,9 @@
 //! interact with the API Service
 //!
 pub mod v0 {
+    use prost::Message;
     use std::convert::From;
     use std::convert::TryFrom;
-    use prost::Message;
 
     tonic::include_proto!("carbide.v0");
 

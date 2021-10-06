@@ -7,7 +7,7 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 use carbide::db::{Datastore, Machine, MachineIdsFilter, NetworkSegment, Pool};
 
 use self::rpc::carbide_server::Carbide;
-use ip_network::{Ipv4Network, Ipv6Network, IpNetworkParseError};
+use ip_network::{IpNetworkParseError, Ipv4Network, Ipv6Network};
 use rpc::v0 as rpc;
 
 use crate::cfg;
@@ -151,7 +151,13 @@ impl Carbide for Api {
                         let subnet_ipv4: Option<Result<Ipv4Network, Status>> = maybe_subnet_ipv4
                             .map(|ip| {
                                 ip.parse().map_err(|e: IpNetworkParseError| {
-                                    Status::new(Code::InvalidArgument, format!("Unable to parse IPv4 network subnet: {0}", e.to_string()))
+                                    Status::new(
+                                        Code::InvalidArgument,
+                                        format!(
+                                            "Unable to parse IPv4 network subnet: {0}",
+                                            e.to_string()
+                                        ),
+                                    )
                                 })
                             });
 
@@ -162,7 +168,13 @@ impl Carbide for Api {
                         let subnet_ipv6: Option<Result<Ipv6Network, Status>> = maybe_subnet_ipv6
                             .map(|ip| {
                                 ip.parse().map_err(|e: IpNetworkParseError| {
-                                    Status::new(Code::InvalidArgument, format!("Unable to parse IPv6 network subnet: {0}", e.to_string()))
+                                    Status::new(
+                                        Code::InvalidArgument,
+                                        format!(
+                                            "Unable to parse IPv6 network subnet: {0}",
+                                            e.to_string()
+                                        ),
+                                    )
                                 })
                             });
 
@@ -177,6 +189,8 @@ impl Carbide for Api {
                             &mtu,
                             subnet_ipv4.map(|result| result.unwrap()),
                             subnet_ipv6.map(|result| result.unwrap()),
+                            &3,
+                            &3,
                         )
                         .await
                         .map(rpc::NetworkSegment::from)

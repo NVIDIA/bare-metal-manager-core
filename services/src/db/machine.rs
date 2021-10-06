@@ -91,7 +91,6 @@ impl From<Machine> for rpc::Machine {
                 .into_iter()
                 .map(|interface| interface.into())
                 .collect(),
-
         }
     }
 }
@@ -135,21 +134,17 @@ impl Machine {
 
     // TODO(ajf): doesn't belong here
     pub fn generate_hostname_from_uuid(mut id: u128) -> String {
-        let alpha_upper = b'A'..=b'Z';
         let alpha_lower = b'a'..=b'z';
         let numeric = b'0'..=b'9';
 
-        let space = alpha_upper
-            .chain(alpha_lower)
-            .chain(numeric)
-            .collect::<Vec<u8>>();
+        let space = alpha_lower.chain(numeric).collect::<Vec<u8>>();
 
-        assert_eq!(space.len(), 62);
+        assert_eq!(space.len(), 36);
 
         let mut output = Vec::with_capacity(std::mem::size_of::<u8>() * 22);
         while id > 0 {
-            output.push(space[(id % 62) as usize]);
-            id = id.checked_div(62).unwrap();
+            output.push(space[(id % 36) as usize]);
+            id = id.checked_div(36).unwrap();
         }
         String::from(str::from_utf8(&output).unwrap())
     }

@@ -62,9 +62,11 @@ impl From<MachineInterface> for rpc::MachineInterface {
             machine_id: Some(machine_interface.machine_id.into()),
             segment_id: Some(machine_interface.segment_id.into()),
 
-            mac_address: machine_interface.mac_address.to_string(eui48::MacAddressFormat::HexString),
-            address_ipv4: machine_interface.address_ipv4.map(|a| a.to_string() ),
-            address_ipv6: machine_interface.address_ipv6.map(|a| a.to_string() ),
+            mac_address: machine_interface
+                .mac_address
+                .to_string(eui48::MacAddressFormat::HexString),
+            address_ipv4: machine_interface.address_ipv4.map(|a| a.to_string()),
+            address_ipv6: machine_interface.address_ipv6.map(|a| a.to_string()),
         }
     }
 }
@@ -140,7 +142,11 @@ impl MachineInterface {
         if matches!(address_v4, AddressSelectionStrategy::Automatic(_))
             || matches!(address_v6, AddressSelectionStrategy::Automatic(_))
         {
-            txn.query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE", &[]).await?;
+            txn.query(
+                "LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE",
+                &[],
+            )
+            .await?;
         };
 
         let interfaces = Self::find_by_network_segment(&txn, segment).await?;
