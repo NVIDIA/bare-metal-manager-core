@@ -1,3 +1,4 @@
+use eui48::MacAddress;
 use log::info;
 use std::net::IpAddr;
 
@@ -10,6 +11,7 @@ pub mod db;
 /// it requires hardware testing and validation first)
 ///
 const SQL_STATE_TRANSITION_VIOLATION_CODE: &str = "T0100";
+const SQL_STATE_UNIQUE_CONSTRAINT_VIOLATION: &str = "E23505";
 
 /// Represents various Errors that can occur throughout the system.
 ///
@@ -53,6 +55,9 @@ pub enum CarbideError {
 
     #[error("Attempted to retrieve the next IP from a network segment without a subnet for that address family: {0}")]
     NetworkSegmentMissingAddressFamilyError(String),
+
+    #[error("Duplicate MAC address for network: {0}")]
+    NetworkSegmentDuplicateMacAddress(MacAddress),
 
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
     NetworkSegmentExhaustedAddressFamily(String),

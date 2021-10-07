@@ -1,12 +1,12 @@
 mod common;
 
+use carbide::db::AddressSelectionStrategy;
 use carbide::db::Machine;
-use carbide::db::MachineState;
+use carbide::db::MachineInterface;
 use carbide::db::NetworkSegment;
 use carbide::CarbideError;
+
 use ip_network::Ipv4Network;
-use std::net::{IpAddr, Ipv4Addr};
-use std::str::FromStr;
 
 use log::LevelFilter;
 
@@ -22,12 +22,12 @@ fn setup() {
 
 fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Warn)
+        .filter_level(LevelFilter::Error)
         .init();
 }
 
 #[tokio::test]
-async fn test_machine_discovery() {
+async fn prevent_duplicate_mac_addresses() {
     setup();
 
     let db = common::TestDatabaseManager::new()
@@ -43,36 +43,37 @@ async fn test_machine_discovery() {
         .await
         .expect("Could not create new transaction");
 
-    let _ = NetworkSegment::create(
+    let new_segment = NetworkSegment::create(
         &txn,
         "test-network",
         "test.example.com",
         &1500,
         Some(Ipv4Network::from_str_truncate("10.0.0.0/24").unwrap()),
         None,
+        &3,
+        &0,
     )
     .await
     .expect("unable to create network");
 
-    let machine = Machine::discover(
-        &mut txn,
-        MacAddress::parse_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        "10.0.0.1".parse().unwrap(),
+    let test_mac = MacAddress::parse_str("ff:ff:ff:ff:ff:ff").unwrap();
+
+    let new_machine = Machine::discover(&mut txn, test_mac.clone(), "10.0.0.1".parse().unwrap())
+        .await
+        .expect("Unable to create machine");
+
+    let duplicate_interface = MachineInterface::create(
+        &txn,
+        &new_machine,
+        &new_segment,
+        &test_mac,
+        &AddressSelectionStrategy::Automatic(false),
+        &AddressSelectionStrategy::Empty,
     )
-    .await
-    .expect("Unable to create machine");
+    .await;
 
-    txn.commit().await.unwrap();
-
-    println!("{:#?}", machine);
-
-    assert_eq!(
-        machine
-            .interfaces()
-            .into_iter()
-            .filter(|interface| interface.address_ipv4().is_some())
-            .map(|interface| interface.address_ipv4().unwrap())
-            .collect::<Vec<&Ipv4Addr>>(),
-        vec![&Ipv4Addr::from_str("10.0.0.1").unwrap()]
-    );
+    assert!(matches!(
+        duplicate_interface,
+        Err(CarbideError::NetworkSegmentDuplicateMacAddress(_))
+    ));
 }

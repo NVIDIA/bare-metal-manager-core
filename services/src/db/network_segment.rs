@@ -1,7 +1,6 @@
 use crate::{CarbideError, CarbideResult};
 use ip_network::{Ipv4Network, Ipv6Network};
 use patricia_tree::PatriciaMap;
-use std::borrow::Borrow;
 use std::convert::From;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 

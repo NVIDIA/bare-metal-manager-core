@@ -8,6 +8,8 @@ use tokio_postgres::Transaction;
 
 use rpc::v0 as rpc;
 
+const SQL_VIOLATION_DUPLICATE_MAC: &str = "prevent_duplicate_mac_for_network";
+
 #[derive(Debug)]
 pub struct MachineInterface {
     id: uuid::Uuid,
@@ -195,13 +197,15 @@ impl MachineInterface {
         }
         .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
 
-        Ok(MachineInterface::from(
-                txn
-                .query_one("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::inet, $5::inet) RETURNING *", &[&machine.id(), &segment.id(), &macaddr, &new_ipv4, &new_ipv6])
-                .await?,
-        ))
+        txn
+            .query_one("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::inet, $5::inet) RETURNING *", &[&machine.id(), &segment.id(), &macaddr, &new_ipv4, &new_ipv6])
+            .await
+            .map(MachineInterface::from)
+            .map_err(|err| {
+                match err.as_db_error() {
+                    Some(db_error) if db_error.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr),
+                    _ => err.into()
+                }
+            })
     }
 }
-
-#[cfg(test)]
-mod test {}

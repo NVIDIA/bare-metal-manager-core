@@ -188,16 +188,7 @@ impl Machine {
             .map(Machine::from)
             .collect::<Vec<Machine>>();
 
-        // It should always be 0 or 1 rows or else we have multiple networks on the same subnet.
-        //
-        // Which is technically possible if we do NAT correctly, but makes machine deployment
-        // extremely difficult.
-        //
-        // Maybe a todo item.
-        //
-        assert!((0..1).contains(&results.len()));
-
-        match results.len() {
+        match &results.len() {
             0 => {
                 info!("No existing machine with mac address {} using network with relay: {}, creating one.", macaddr, relay);
 
@@ -235,7 +226,13 @@ impl Machine {
                 }
             }
             1 => Ok(results.remove(0)),
-            _ => unreachable!(),
+            _ => {
+                warn!(
+                    "More than one mac address ({0}) for network segment (relay ip: {1})",
+                    &macaddr, &relay
+                );
+                Err(CarbideError::NetworkSegmentDuplicateMacAddress(macaddr))
+            }
         }
     }
 
