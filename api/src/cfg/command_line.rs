@@ -15,64 +15,22 @@ pub(crate) struct Options {
     pub config: String,
 
     #[clap(subcommand)]
-    pub subcmd: TopLevelSubCommand,
+    pub subcmd: Command,
 }
 
 #[derive(Clap)]
 #[clap(setting = AppSettings::ColoredHelp)]
-pub(crate) enum TopLevelSubCommand {
+pub(crate) enum Command {
     #[clap(about = "Performs database migrations")]
     Migrate(Migrate),
 
-    #[clap(about = "Run an Carbide service")]
-    Run(Service),
-}
-
-#[derive(Clap)]
-#[clap(setting = AppSettings::ColoredHelp)]
-pub struct ApiService {
-    #[clap(long, require_equals(true), default_value = DEFAULT_DATASTORE)]
-    pub datastore: String,
-}
-
-#[derive(Clap)]
-#[clap(setting = AppSettings::ColoredHelp)]
-pub struct DhcpService;
-
-#[derive(Clap)]
-#[clap(setting = AppSettings::ColoredHelp)]
-pub struct IpmiService;
-
-#[derive(Clap)]
-#[clap(setting = AppSettings::ColoredHelp)]
-pub struct DnsService;
-
-#[derive(Clap)]
-#[clap(setting = AppSettings::ColoredHelp)]
-pub struct PxeService;
-
-#[derive(Clap)]
-#[clap(setting = AppSettings::ColoredHelp)]
-pub enum ServiceSubCommand {
     #[clap(about = "Run the API service")]
-    Api(ApiService),
-
-    #[clap(about = "Run the DHCP service")]
-    Dhcp(DhcpService),
-
-    #[clap(about = "Run the DNS service")]
-    Dns(DnsService),
-
-    #[clap(about = "Run the IPMI service")]
-    Ipmi(IpmiService),
-
-    #[clap(about = "Run the PXE service")]
-    Pxe(PxeService),
+    Run(Daemon),
 }
 
 #[derive(Clap)]
 #[clap(setting = AppSettings::ColoredHelp)]
-pub struct Service {
+pub struct Daemon {
     #[clap(
         short,
         long,
@@ -83,8 +41,8 @@ pub struct Service {
     )]
     pub listen: Vec<std::net::SocketAddr>,
 
-    #[clap(subcommand)]
-    pub service: ServiceSubCommand,
+    #[clap(long, require_equals(true), default_value = DEFAULT_DATASTORE)]
+    pub datastore: String,
 }
 
 #[derive(Clap)]

@@ -288,15 +288,12 @@ impl Api {
         }
     }
 
-    pub async fn run(
-        service_config: &cfg::Service,
-        api_config: &cfg::ApiService,
-    ) -> Result<(), Report> {
-        info!("Starting API server on {:?}", service_config.listen[0]);
+    pub async fn run(daemon_config: &cfg::Daemon) -> Result<(), Report> {
+        info!("Starting API server on {:?}", daemon_config.listen[0]);
 
         let api_service = Api::new(
-            Datastore::pool_from_url(&api_config.datastore).await?,
-            &api_config.datastore,
+            Datastore::pool_from_url(&daemon_config.datastore).await?,
+            &daemon_config.datastore,
         );
 
         let reflection_service = Builder::configure()
@@ -306,7 +303,7 @@ impl Api {
         tonic::transport::Server::builder()
             .add_service(rpc::carbide_server::CarbideServer::new(api_service))
             .add_service(reflection_service)
-            .serve(service_config.listen[0])
+            .serve(daemon_config.listen[0])
             .await?;
 
         Ok(())

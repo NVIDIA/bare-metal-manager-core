@@ -1,12 +1,12 @@
+mod api;
 mod cfg;
-mod daemons;
 
 use carbide::db;
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
 
-use cfg::{Options, ServiceSubCommand, TopLevelSubCommand};
+use cfg::{Command, Options};
 
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::Report> {
@@ -30,7 +30,7 @@ async fn main() -> Result<(), color_eyre::Report> {
         .init();
 
     match config.subcmd {
-        TopLevelSubCommand::Migrate(ref m) => {
+        Command::Migrate(ref m) => {
             let pool = db::Datastore::pool_from_url(&m.datastore[..]).await?;
 
             // Clone an instance of the database pool
@@ -42,14 +42,7 @@ async fn main() -> Result<(), color_eyre::Report> {
                 info!("Migration applied {0}", migration)
             }
         }
-        TopLevelSubCommand::Run(ref s) => {
-            match s.service {
-                ServiceSubCommand::Api(ref config) => {
-                    daemons::Api::run(&s, &config).await?;
-                }
-                _ => unreachable!(),
-            };
-        }
+        Command::Run(ref config) => api::Api::run(&config).await?,
     }
     Ok(())
 }
