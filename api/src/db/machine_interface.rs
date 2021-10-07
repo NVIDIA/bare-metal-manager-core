@@ -202,8 +202,9 @@ impl MachineInterface {
             .await
             .map(MachineInterface::from)
             .map_err(|err| {
+                // This is ugly
                 match err.as_db_error() {
-                    Some(db_error) if db_error.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr),
+                    Some(db_error) if db_error.code() == &tokio_postgres::error::SqlState::UNIQUE_VIOLATION && db_error.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr),
                     _ => err.into()
                 }
             })

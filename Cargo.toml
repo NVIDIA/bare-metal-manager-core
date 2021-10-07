@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
-  "services",
+  "api",
+  "pxe",
   "rpc",
 ]
