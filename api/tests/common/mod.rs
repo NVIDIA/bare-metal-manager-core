@@ -13,7 +13,7 @@ impl TestDatabaseManager {
     pub(crate) async fn new() -> CarbideResult<Self> {
         let temporary_database_name = format!(
             "{0}_integrationtests_{1}_{2}",
-            env!("CARGO_PKG_NAME"),
+            env!("CARGO_CRATE_NAME"),
             rand::thread_rng()
                 .sample_iter(&rand::distributions::Alphanumeric)
                 .take(7)

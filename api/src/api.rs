@@ -13,6 +13,10 @@ use rpc::v0 as rpc;
 use crate::cfg;
 use tonic_reflection::server::Builder;
 
+//use tonic::transport::{ServerTlsConfig, Server, Identity};
+use hashicorp_vault::Client as VaultClient;
+//use hashicorp_vault::client::EndpointResponse;
+
 #[derive(Debug)]
 pub struct Api {
     database_pool: Pool,
@@ -83,7 +87,8 @@ impl Carbide for Api {
 
                         info!("Machine = {:?}", machine);
 
-                        txn.commit().await;
+                        txn.commit().await
+                            .map_err(|e| Status::new(Code::Internal, format!("{}", e)))?;
 
                         machine
                     }
@@ -96,7 +101,7 @@ impl Carbide for Api {
 
     async fn get_network_segments(
         &self,
-        request: Request<rpc::NetworkSegmentQuery>,
+        _request: Request<rpc::NetworkSegmentQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
         match self.database_pool.get().await {
             Ok(mut pool) => {
@@ -211,13 +216,13 @@ impl Carbide for Api {
     }
     async fn delete_network_segment(
         &self,
-        request: Request<rpc::Uuid>,
+        _request: Request<rpc::Uuid>,
     ) -> Result<Response<rpc::NetworkSegmentDeletion>, Status> {
         match self.database_pool.get().await {
             Ok(mut pool) => {
                 info!("Retrieved connection from the database pool");
                 match pool.transaction().await {
-                    Ok(txn) => {
+                    Ok(_txn) => {
                         info!("Opened transaction");
 
                         //    carbide::models::NetworkSegment::find_by_id(&txn);
@@ -300,7 +305,21 @@ impl Api {
             .register_encoded_file_descriptor_set(rpc::REFLECTION_SERVICE_DESCRIPTOR)
             .build()?;
 
+//       let _vault_client = VaultClient::new(
+//           &daemon_config.vault_api,
+//           &daemon_config.vault_token,
+//       )?;
+//
+//        let response: EndpointResponse<String> = vault_client.call_endpoint(
+//            hashicorp_vault::client::HttpVerb::PUT,
+//            "pki/issue/carbide-api-server",
+//            None,
+//            Some("{\"name\": \"carbide-api.example.com\", \"common_name\": \"carbide-api.example.com\" }"))?;
+//
+//        info!("{:#?}", response); 
+
         tonic::transport::Server::builder()
+//            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
             .add_service(rpc::carbide_server::CarbideServer::new(api_service))
             .add_service(reflection_service)
             .serve(daemon_config.listen[0])

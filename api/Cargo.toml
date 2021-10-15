@@ -1,12 +1,15 @@
 [package]
-name = "carbide"
+name = "carbide-api"
 version = "1.0.0"
 edition = "2018"
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
 #readme = "README.md"
 
-[[bin]]
+[lib]
 name = "carbide"
+
+[[bin]]
+name = "carbide-api"
 path = "src/main.rs"
 
 [dependencies]
@@ -14,8 +17,11 @@ path = "src/main.rs"
 rpc = { path = "../rpc" }
 
 # grpc
-tonic = "0.5"
+tonic = { version = "0.5", features = ["tls"] }
 tonic-reflection = "0.2"
+
+# secrets & certs
+hashicorp_vault = "2.1.0"
 
 # databases
 refinery = { version = "0.6.0", features = ["tokio-postgres"] }

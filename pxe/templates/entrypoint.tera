@@ -1,0 +1,6 @@
+#!ipxe
+
+# Boot file for {{ hostname }}
+dhcp
+
+chain {{ kernel }}

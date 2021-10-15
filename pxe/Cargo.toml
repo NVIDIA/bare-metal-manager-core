@@ -1,8 +1,40 @@
 [package]
-name = "pxe"
-version = "0.1.0"
+name = "carbide-pxe"
+version = "1.0.0"
 edition = "2018"
+description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
+#readme = "README.md"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "carbide"
+path = "src/main.rs"
 
 [dependencies]
+# protobufs/rpc interface
+rpc = { path = "../rpc" }
+tonic = "0.5"
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+
+# webserver
+rocket = "0.5.0-rc.1"
+
+# data types
+uuid = { version = "0.8", features = ["v4", "serde"] }
+ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
+eui48 = "0.4.0"
+
+# misc
+itertools = "*"
+thiserror = "1.0"
+
+[build-dependencies]
+tonic-build = "0.5"
+
+[dev-dependencies]
+rand = "*"
+rstest = "*"
+
+[dependencies.rocket_dyn_templates]
+version = "0.1.0-rc.1"
+features = ["tera"]

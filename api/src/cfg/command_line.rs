@@ -3,6 +3,7 @@ use clap::{AppSettings, Clap};
 // TODO(ajf): always look at crate root
 static DEFAULT_CONFIG_PATH: &str = ".config.toml";
 static DEFAULT_DATASTORE: &str = "postgres://carbide_development@localhost";
+static DEFAULT_VAULT: &str = "http://localhost:8100";
 
 #[derive(Clap)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
@@ -37,12 +38,18 @@ pub struct Daemon {
         multiple_values(true),
         require_equals(true),
         about = "List of listening endpoints",
-        default_value = "[::]:8080"
+        default_value = "[::]:1079"
     )]
     pub listen: Vec<std::net::SocketAddr>,
 
     #[clap(long, require_equals(true), default_value = DEFAULT_DATASTORE)]
     pub datastore: String,
+
+    #[clap(long, require_equals(true), default_value = DEFAULT_VAULT)]
+    pub vault_api: String,
+
+    #[clap(long, require_equals(true))]
+    pub vault_token: String,
 }
 
 #[derive(Clap)]
