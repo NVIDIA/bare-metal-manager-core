@@ -160,7 +160,7 @@ impl MachineInterface {
                 match segment.next_ipv4(
                     interfaces
                         .iter()
-                        .filter_map(|interface| interface.address_ipv4())
+                        .filter_map(|interface| interface.address_ipv4()),
                 ) {
                     Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
                         if *ignore_absent =>
@@ -181,7 +181,7 @@ impl MachineInterface {
                 match segment.next_ipv6(
                     interfaces
                         .iter()
-                        .filter_map(|interface| interface.address_ipv6())
+                        .filter_map(|interface| interface.address_ipv6()),
                 ) {
                     Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
                         if *ignore_absent =>

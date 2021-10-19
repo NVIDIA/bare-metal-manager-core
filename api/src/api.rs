@@ -20,7 +20,8 @@ use tonic_reflection::server::Builder;
 #[derive(Debug)]
 pub struct Api {
     database_pool: Pool,
-    #[allow(dead_code)] database_url: String, // Hack because bb8 and tokio-postgres wind up hiding the connection polling API
+    #[allow(dead_code)]
+    database_url: String, // Hack because bb8 and tokio-postgres wind up hiding the connection polling API
 }
 
 #[tonic::async_trait]
