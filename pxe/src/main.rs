@@ -4,8 +4,12 @@
 
 mod routes;
 
-use rpc::v0::carbide_client::CarbideClient;
 use rocket_dyn_templates::Template;
+
+use rpc::v0 as rpc;
+
+use crate::rpc::carbide_client::CarbideClient;
+use crate::rpc::{MachineQuery, MachineState};
 
 #[derive(serde::Serialize)]
 pub struct BootInstructionGenerator<'a> {
@@ -13,12 +17,13 @@ pub struct BootInstructionGenerator<'a> {
     pub kernel: String,
     pub initrd: String,
     pub command_line: String,
+    pub state: &'a str,
 }
 
 #[get("/")]
 async fn entrypoint() -> Template {
     let mut client = CarbideClient::connect("https://[::1]:1079").await.unwrap();
-    let request = tonic::Request::new( rpc::v0::MachineQuery { id: None, fqdn: "".to_string() } );
+    let request = tonic::Request::new( rpc::MachineQuery { id: None, fqdn: "".to_string() } );
     let response = client.find_machines(request).await.unwrap();
 
     let machine = &response.into_inner().machines[0];
@@ -26,6 +31,7 @@ async fn entrypoint() -> Template {
         hostname: &machine.fqdn,
         kernel: "vmlinuz".to_string(),
         initrd: "initrd".to_string(),
+        state: &machine.state.as_ref().unwrap().state,
         command_line: "console=ttyS0,115200,8n1".to_string()
     };
 

@@ -1,6 +1,9 @@
 #!ipxe
-
+#
 # Boot file for {{ hostname }}
-dhcp
-
-chain {{ kernel }}
+# 
+ifstat
+echo ==== Toms own MaaS ====
+echo hostname: {{ hostname }}
+echo machine_state: {{ state }}
+shell

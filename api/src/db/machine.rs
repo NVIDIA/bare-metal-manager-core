@@ -48,6 +48,9 @@ pub struct Machine {
     /// When the machine record was last modified
     modified: std::time::SystemTime,
 
+    /// The current state of the machine
+    state: MachineState,
+
     /// A list of [MachineEvent][event]s that this machine has experienced
     ///
     /// [event]: crate::db::MachineEvent
@@ -68,6 +71,9 @@ pub enum MachineIdsFilter<'a> {
 
     /// Filter by a list of uuids
     List(Vec<&'a uuid::Uuid>),
+
+    /// Retrieve a single machine
+    One(&'a uuid::Uuid),
 }
 
 ///
@@ -81,6 +87,7 @@ impl From<Machine> for rpc::Machine {
             fqdn: machine.fqdn,
             created: Some(machine.created.into()),
             modified: Some(machine.modified.into()),
+            state: Some(machine.state.into()),
             events: machine
                 .events
                 .into_iter()
@@ -105,6 +112,7 @@ impl From<tokio_postgres::Row> for Machine {
             fqdn: row.get("fqdn"),
             created: row.get("created"),
             modified: row.get("modified"),
+            state: row.get("state"),
             events: Vec::new(),
             interfaces: Vec::new(),
         }
@@ -123,13 +131,30 @@ impl Machine {
         txn: &tokio_postgres::Transaction<'_>,
         fqdn: String,
     ) -> CarbideResult<Self> {
-        Ok(Machine::from(
-            txn.query_one(
-                "INSERT INTO machines (fqdn) VALUES ($1) RETURNING *",
+        let created_machine_row = txn
+            .query_one(
+                "INSERT INTO machines (fqdn) VALUES ($1) RETURNING id",
                 &[&fqdn],
             )
-            .await?,
-        ))
+            .await?;
+
+        let created_id = created_machine_row.get("id");
+        match Machine::find_one(&txn, created_id).await {
+            Ok(Some(x)) => Ok(x),
+            Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(created_id)),
+            Err(x) => Err(x),
+        }
+    }
+
+    pub async fn find_one(
+        txn: &tokio_postgres::Transaction<'_>,
+        uuid: uuid::Uuid,
+    ) -> CarbideResult<Option<Self>> {
+        Self::find(&txn, MachineIdsFilter::One(&uuid))
+            .await
+            .and_then(|v| {
+                Ok(v.into_iter().nth(0))
+            })
     }
 
     // TODO(ajf): doesn't belong here
@@ -169,7 +194,7 @@ impl Machine {
         // Find machines that have the mac address on the subnet being relayed
         // It's possible to have duplicate mac addresses on different subnets.
         let sql = r#"
-        SELECT m.* FROM
+        SELECT m.id FROM
             machines m
             INNER JOIN machine_interfaces mi
                 ON m.id = mi.machine_id
@@ -185,8 +210,8 @@ impl Machine {
             .query(sql, &[&macaddr, &relay])
             .await?
             .into_iter()
-            .map(Machine::from)
-            .collect::<Vec<Machine>>();
+            .map(|row| row.get::<&str, uuid::Uuid>("id") )
+            .collect::<Vec<uuid::Uuid>>();
 
         match &results.len() {
             0 => {
@@ -225,7 +250,17 @@ impl Machine {
                     None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
                 }
             }
-            1 => Ok(results.remove(0)),
+            1 => {
+                let id = results.remove(0);
+                Machine::find_one(&txn, id).await
+                    .and_then(|machine| {
+                        if let Some(machine) = machine {
+                            Ok(machine)
+                        } else {
+                            Err(CarbideError::DatabaseInconsistencyOnMachineCreate(id))
+                        }
+                    })
+            }
             _ => {
                 warn!(
                     "More than one mac address ({0}) for network segment (relay ip: {1})",
@@ -370,11 +405,26 @@ impl Machine {
         txn: &tokio_postgres::Transaction<'_>,
         id_filter: MachineIdsFilter<'_>,
     ) -> CarbideResult<Vec<Machine>> {
+        let base_query = "SELECT m.*,machine_state_machine(me.action,me.version) AS state FROM machines m JOIN machine_events me ON me.machine_id=m.id ";
+
         let query = match id_filter {
-            MachineIdsFilter::All => txn.query("SELECT * FROM machines", &[]).await,
-            MachineIdsFilter::List(ref list) => {
-                txn.query("SELECT * FROM machines WHERE id=ANY($1)", &[&list])
+            MachineIdsFilter::All => {
+                txn.query(&format!("{0} GROUP BY m.id", &base_query[..])[..], &[])
                     .await
+            }
+            MachineIdsFilter::One(ref uuid) => {
+                txn.query(
+                    &format!("{0} WHERE m.id=$1 GROUP BY m.id", &base_query[..])[..],
+                    &[&uuid],
+                )
+                .await
+            }
+            MachineIdsFilter::List(ref list) => {
+                txn.query(
+                    &format!("{0} WHERE m.id=ANY($1) GROUP BY m.id", &base_query[..])[..],
+                    &[&list],
+                )
+                .await
             }
         }?;
 

@@ -62,6 +62,9 @@ pub enum CarbideError {
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
     NetworkSegmentExhaustedAddressFamily(String),
 
+    #[error("A machine that was just created, failed to return any rows: {0}")]
+    DatabaseInconsistencyOnMachineCreate(uuid::Uuid),
+
     #[error("Generic error: {0}")]
     GenericError(String),
 }

@@ -68,6 +68,7 @@ message Machine {
 	repeated MachineEvent events = 5;
 	repeated MachineInterface interfaces = 6;
 
+	MachineState state = 7;
 	//
 	//  enum State {
 	//    NEW = 0;
@@ -90,6 +91,11 @@ message Machine {
 	// TODO(ajf): test results
 	// TODO(ajf): storage
 }
+
+message MachineState {
+	string state = 1;
+}
+
 
 message MachineInterface {
 	UUID id = 1;

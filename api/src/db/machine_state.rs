@@ -5,6 +5,10 @@ use std::str::FromStr;
 
 use super::Machine;
 
+use rpc::v0 as rpc;
+
+use std::fmt::{Formatter, Display};
+
 #[derive(Debug, PartialEq)]
 pub enum MachineState {
     Init = 0,
@@ -15,6 +19,21 @@ pub enum MachineState {
     Assigned = 5,
     Broken = 6,
     Decommissioned = 7,
+}
+
+impl Display for MachineState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Self::Init => "init",
+            Self::New => "new",
+            Self::Adopted => "adopted",
+            Self::Tested => "tested",
+            Self::Ready => "ready",
+            Self::Assigned => "assigned",
+            Self::Broken => "broken",
+            Self::Decommissioned => "decommissioned",
+        })
+    }
 }
 
 impl FromSql<'_> for MachineState {
@@ -59,6 +78,14 @@ impl FromStr for MachineState {
 impl From<tokio_postgres::Row> for MachineState {
     fn from(row: tokio_postgres::Row) -> Self {
         row.get("machine_state_machine")
+    }
+}
+
+impl From<MachineState> for rpc::MachineState {
+    fn from(machine_state: MachineState) -> rpc::MachineState {
+        rpc::MachineState {
+            state: machine_state.to_string()
+        }
     }
 }
 
