@@ -1,5 +1,19 @@
-# Oxidizer
+# Carbide
 
 - [Introduction](README.md)
-
-
+- [Roadmap](status.md)
+- [Architecture](architecture.md)
+- [Usage]()
+    - [gRPC interface]()
+    - [Command Line]()
+- [Components]()
+    - [API Service]()
+    - [PXE Service]()
+    - [DHCP Service]()
+    - [DNS Service]()
+- [Development]()
+    - [Contributing]()
+    - [Local Development]()
+    - [Data Model]()
+        - [Machine]()
+        - [MachineInterface]()

@@ -65,11 +65,6 @@ Events
 
 ```mermaid
 journey
-	title Create a new project
-	section
-```
-```mermaid
-journey
     title New rack of hardware
     section Datacenter
       Rack moved into place: 6: DC Ops
