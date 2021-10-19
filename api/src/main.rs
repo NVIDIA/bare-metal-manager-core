@@ -42,7 +42,7 @@ async fn main() -> Result<(), color_eyre::Report> {
                 info!("Migration applied {0}", migration)
             }
         }
-        Command::Run(ref config) => api::Api::run(&config).await?,
+        Command::Run(ref config) => api::Api::run(config).await?,
     }
     Ok(())
 }

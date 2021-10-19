@@ -28,7 +28,7 @@ impl From<tokio_postgres::Row> for MachineInterface {
         let id: uuid::Uuid = row.get("id");
 
         let address_ipv4 = match row.get("address_ipv4") {
-            Some(IpAddr::V4(x)) => Some(Ipv4Addr::from(x)),
+            Some(IpAddr::V4(x)) => Some(x),
             Some(IpAddr::V6(_)) => panic!(
                 "Found an IPv6 address in the address_ipv4 field for machine {}",
                 &id
@@ -37,7 +37,7 @@ impl From<tokio_postgres::Row> for MachineInterface {
         };
 
         let address_ipv6 = match row.get("address_ipv6") {
-            Some(IpAddr::V6(x)) => Some(Ipv6Addr::from(x)),
+            Some(IpAddr::V6(x)) => Some(x),
             Some(IpAddr::V4(_)) => panic!(
                 "Found an IPv4 address in the address_ipv4 field for machine {}",
                 &id
@@ -151,7 +151,7 @@ impl MachineInterface {
             .await?;
         };
 
-        let interfaces = Self::find_by_network_segment(&txn, segment).await?;
+        let interfaces = Self::find_by_network_segment(txn, segment).await?;
 
         let new_ipv4 = match address_v4 {
             AddressSelectionStrategy::Empty => None,
@@ -160,8 +160,7 @@ impl MachineInterface {
                 match segment.next_ipv4(
                     interfaces
                         .iter()
-                        .filter(|interface| interface.address_ipv4().is_some())
-                        .map(|interface| interface.address_ipv4().unwrap()),
+                        .filter_map(|interface| interface.address_ipv4())
                 ) {
                     Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
                         if *ignore_absent =>
@@ -182,8 +181,7 @@ impl MachineInterface {
                 match segment.next_ipv6(
                     interfaces
                         .iter()
-                        .filter(|interface| interface.address_ipv6().is_some())
-                        .map(|interface| interface.address_ipv6().unwrap()),
+                        .filter_map(|interface| interface.address_ipv6())
                 ) {
                     Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
                         if *ignore_absent =>

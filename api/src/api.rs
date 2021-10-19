@@ -14,13 +14,13 @@ use crate::cfg;
 use tonic_reflection::server::Builder;
 
 //use tonic::transport::{ServerTlsConfig, Server, Identity};
-use hashicorp_vault::Client as VaultClient;
+// use hashicorp_vault::Client as VaultClient;
 //use hashicorp_vault::client::EndpointResponse;
 
 #[derive(Debug)]
 pub struct Api {
     database_pool: Pool,
-    database_url: String, // Hack because bb8 and tokio-postgres wind up hiding the connection polling API
+    #[allow(dead_code)] database_url: String, // Hack because bb8 and tokio-postgres wind up hiding the connection polling API
 }
 
 #[tonic::async_trait]
@@ -152,6 +152,8 @@ impl Carbide for Api {
                             mtu,
                             subnet_ipv4: maybe_subnet_ipv4,
                             subnet_ipv6: maybe_subnet_ipv6,
+                            reserve_first_ipv4,
+                            reserve_first_ipv6,
                         } = request.into_inner();
 
                         let subnet_ipv4: Option<Result<Ipv4Network, Status>> = maybe_subnet_ipv4
@@ -195,8 +197,8 @@ impl Carbide for Api {
                             &mtu,
                             subnet_ipv4.map(|result| result.unwrap()),
                             subnet_ipv6.map(|result| result.unwrap()),
-                            &3,
-                            &3,
+                            &reserve_first_ipv4,
+                            &reserve_first_ipv6,
                         )
                         .await
                         .map(rpc::NetworkSegment::from)

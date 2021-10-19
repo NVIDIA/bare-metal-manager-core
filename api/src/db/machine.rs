@@ -139,7 +139,7 @@ impl Machine {
             .await?;
 
         let created_id = created_machine_row.get("id");
-        match Machine::find_one(&txn, created_id).await {
+        match Machine::find_one(txn, created_id).await {
             Ok(Some(x)) => Ok(x),
             Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(
                 created_id,
@@ -152,9 +152,9 @@ impl Machine {
         txn: &tokio_postgres::Transaction<'_>,
         uuid: uuid::Uuid,
     ) -> CarbideResult<Option<Self>> {
-        Self::find(&txn, MachineIdsFilter::One(&uuid))
+        Self::find(txn, MachineIdsFilter::One(&uuid))
             .await
-            .and_then(|v| Ok(v.into_iter().nth(0)))
+            .map(|v| v.into_iter().next())
     }
 
     // TODO(ajf): doesn't belong here
@@ -217,7 +217,7 @@ impl Machine {
             0 => {
                 info!("No existing machine with mac address {} using network with relay: {}, creating one.", macaddr, relay);
 
-                match NetworkSegment::for_relay(&txn, relay).await? {
+                match NetworkSegment::for_relay(txn, relay).await? {
                     Some(segment) => {
                         let generated_hostname =
                             Self::generate_hostname_from_uuid(uuid::Uuid::new_v4().as_u128());
@@ -243,7 +243,7 @@ impl Machine {
 
                         machine_create_transaction.commit().await?;
 
-                        Ok(Self::find(&txn, MachineIdsFilter::List(vec![&machine.id]))
+                        Ok(Self::find(txn, MachineIdsFilter::List(vec![&machine.id]))
                             .await?
                             .remove(0))
                     }
@@ -252,7 +252,7 @@ impl Machine {
             }
             1 => {
                 let id = results.remove(0);
-                Machine::find_one(&txn, id).await.and_then(|machine| {
+                Machine::find_one(txn, id).await.and_then(|machine| {
                     if let Some(machine) = machine {
                         Ok(machine)
                     } else {
@@ -341,7 +341,7 @@ impl Machine {
         &self,
         txn: &tokio_postgres::Transaction<'_>,
     ) -> CarbideResult<MachineState> {
-        MachineState::for_machine(self, &txn).await
+        MachineState::for_machine(self, txn).await
     }
 
     /// Perform an arbitrary action to a Machine and advance it to the next state given the last
@@ -408,19 +408,19 @@ impl Machine {
 
         let query = match id_filter {
             MachineIdsFilter::All => {
-                txn.query(&format!("{0} GROUP BY m.id", &base_query[..])[..], &[])
+                txn.query(&format!("{0} GROUP BY m.id", base_query)[..], &[])
                     .await
             }
             MachineIdsFilter::One(ref uuid) => {
                 txn.query(
-                    &format!("{0} WHERE m.id=$1 GROUP BY m.id", &base_query[..])[..],
+                    &format!("{0} WHERE m.id=$1 GROUP BY m.id", base_query)[..],
                     &[&uuid],
                 )
                 .await
             }
             MachineIdsFilter::List(ref list) => {
                 txn.query(
-                    &format!("{0} WHERE m.id=ANY($1) GROUP BY m.id", &base_query[..])[..],
+                    &format!("{0} WHERE m.id=ANY($1) GROUP BY m.id", base_query)[..],
                     &[&list],
                 )
                 .await
@@ -439,10 +439,10 @@ impl Machine {
             .into_iter()
             .collect::<HashMap<uuid::Uuid, Machine>>();
 
-        let events_future = MachineEvent::find_by_machine_ids(&txn, machines.keys().collect());
+        let events_future = MachineEvent::find_by_machine_ids(txn, machines.keys().collect());
 
         let interfaces_future =
-            MachineInterface::find_by_machine_ids(&txn, machines.keys().collect());
+            MachineInterface::find_by_machine_ids(txn, machines.keys().collect());
 
         let (events_for_machine_result, interfaces_for_machine_result) =
             futures::join!(events_future, interfaces_future);

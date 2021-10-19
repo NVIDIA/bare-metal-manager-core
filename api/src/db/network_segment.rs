@@ -43,12 +43,16 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
             // TODO(ajf) get a better IPv4 / IPv6 type
             subnet_ipv4: network_segment.subnet_ipv4.map(|s| s.to_string()),
             subnet_ipv6: network_segment.subnet_ipv6.map(|s| s.to_string()),
+
+            reserve_first_ipv4: network_segment.reserve_first_ipv4,
+            reserve_first_ipv6: network_segment.reserve_first_ipv6,
             mtu: network_segment.mtu,
         }
     }
 }
 
 impl NetworkSegment {
+    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         dbc: &tokio_postgres::Transaction<'_>,
         name: &str,
@@ -92,9 +96,9 @@ impl NetworkSegment {
         used_ips: impl Iterator<Item = &'a Ipv4Addr>,
     ) -> CarbideResult<Ipv4Addr> {
         self.subnet_ipv4()
-            .ok_or(CarbideError::NetworkSegmentMissingAddressFamilyError(
-                String::from("IPv4"),
-            ))
+            .ok_or_else(|| {
+                CarbideError::NetworkSegmentMissingAddressFamilyError(String::from("IPv4"))
+            })
             .and_then(|subnet| {
                 let mut map: PatriciaMap<()> = PatriciaMap::new();
 
@@ -104,9 +108,9 @@ impl NetworkSegment {
                     .hosts()
                     .into_iter()
                     .find(|host| map.get(host.octets()).is_none())
-                    .ok_or(CarbideError::NetworkSegmentExhaustedAddressFamily(
-                        String::from("huh"),
-                    ))
+                    .ok_or_else(|| {
+                        CarbideError::NetworkSegmentExhaustedAddressFamily(String::from("huh"))
+                    })
             })
     }
 
@@ -115,9 +119,9 @@ impl NetworkSegment {
         used_ips: impl Iterator<Item = &'a Ipv6Addr>,
     ) -> CarbideResult<Ipv6Addr> {
         self.subnet_ipv6()
-            .ok_or(CarbideError::NetworkSegmentMissingAddressFamilyError(
-                String::from("IPv6"),
-            ))
+            .ok_or_else(|| {
+                CarbideError::NetworkSegmentMissingAddressFamilyError(String::from("IPv6"))
+            })
             .and_then(|subnet| {
                 let mut map: PatriciaMap<()> = PatriciaMap::new();
 
@@ -127,9 +131,9 @@ impl NetworkSegment {
                     .subnets_with_prefix(128)
                     .into_iter()
                     .find(|network| map.get(network.network_address().octets()).is_none())
-                    .ok_or(CarbideError::NetworkSegmentExhaustedAddressFamily(
-                        String::from("huh"),
-                    ))
+                    .ok_or_else(|| {
+                        CarbideError::NetworkSegmentExhaustedAddressFamily(String::from("huh"))
+                    })
                     .map(|network| network.network_address())
             })
     }

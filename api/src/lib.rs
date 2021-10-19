@@ -11,7 +11,6 @@ pub mod db;
 /// it requires hardware testing and validation first)
 ///
 const SQL_STATE_TRANSITION_VIOLATION_CODE: &str = "T0100";
-const SQL_STATE_UNIQUE_CONSTRAINT_VIOLATION: &str = "E23505";
 
 /// Represents various Errors that can occur throughout the system.
 ///

@@ -10,7 +10,7 @@ use rocket_dyn_templates::Template;
 use rpc::v0 as rpc;
 
 use crate::rpc::carbide_client::CarbideClient;
-use crate::rpc::{MachineQuery, MachineState};
+//use crate::rpc::{MachineQuery, MachineState};
 
 #[derive(serde::Serialize)]
 pub struct BootInstructionGenerator<'a> {

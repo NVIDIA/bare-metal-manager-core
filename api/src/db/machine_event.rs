@@ -54,7 +54,7 @@ impl From<tokio_postgres::Row> for MachineEvent {
 impl From<MachineEvent> for rpc::MachineEvent {
     fn from(event: MachineEvent) -> rpc::MachineEvent {
         let mut proto_event = rpc::MachineEvent {
-            id: event.id.into(),
+            id: event.id,
             machine_id: Some(event.machine_id.into()),
             time: Some(event.timestamp.into()),
             version: event.version,

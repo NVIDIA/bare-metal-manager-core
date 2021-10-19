@@ -69,27 +69,12 @@ message Machine {
 	repeated MachineInterface interfaces = 6;
 
 	MachineState state = 7;
-	//
-	//  enum State {
-	//    NEW = 0;
-	//    ADOPTED = 1;
-	//    TESTED = 2;
-	//    ASSIGNED = 3;
-	//    BROKEN = 4;
-	//    DECOMMISSIONED = 5;
-	//  }
-	//
-//	State current_state = 4;
-//	State desired_state = 5;
-
-//	repeated StateTransitionEvent = 6;  // Logs of the state transition result (Similar to kubectl events)
-
-	// TODO(ajf): hardware discovery
-	// TODO(ajf): os selection
-	// TODO(ajf): bmc configuration
-	// TODO(ajf): machine labels/tags
-	// TODO(ajf): test results
-	// TODO(ajf): storage
+// TODO(ajf): hardware discovery
+// TODO(ajf): os selection
+// TODO(ajf): bmc configuration
+// TODO(ajf): machine labels/tags
+// TODO(ajf): test results
+// TODO(ajf): storage
 }
 
 message MachineState {
@@ -121,6 +106,9 @@ message NetworkSegment {
 
 	optional string subnet_ipv4 = 5;
 	optional string subnet_ipv6 = 6;
+
+	int32 reserve_first_ipv4 = 7;
+	int32 reserve_first_ipv6 = 8;
 }
 
 message NetworkSegmentList {
