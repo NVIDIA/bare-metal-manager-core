@@ -1,4 +1,4 @@
-image: "rustlang/rust:nightly"
+image: "rustlang/rust:nightly-bullseye-slim"
 
 stages:
   - License Scan
