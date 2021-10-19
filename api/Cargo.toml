@@ -1,6 +1,6 @@
 [package]
 name = "carbide-api"
-version = "1.0.0"
+version = "0.0.1"
 edition = "2018"
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
 #readme = "README.md"
@@ -21,10 +21,10 @@ tonic = { version = "0.5", features = ["tls"] }
 tonic-reflection = "0.2"
 
 # secrets & certs
-hashicorp_vault = "2.1.0"
+# hashicorp_vault = "2.1.0"
 
 # databases
-refinery = { version = "0.6.0", features = ["tokio-postgres"] }
+refinery = { version = "0.7", features = ["tokio-postgres"] }
 tokio-postgres = { version = "*" }
 postgres-types = "*"
 postgres = { version = "0.19.1", features = ["with-uuid-0_8", "with-time-0_2", "with-eui48-0_4"] }

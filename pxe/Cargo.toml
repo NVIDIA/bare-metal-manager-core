@@ -1,6 +1,6 @@
 [package]
 name = "carbide-pxe"
-version = "1.0.0"
+version = "0.0.1"
 edition = "2018"
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
 #readme = "README.md"
@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 # protobufs/rpc interface
 rpc = { path = "../rpc" }
-tonic = "0.5"
+tonic = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 
@@ -29,7 +29,7 @@ itertools = "*"
 thiserror = "1.0"
 
 [build-dependencies]
-tonic-build = "0.5"
+tonic-build = "*"
 
 [dev-dependencies]
 rand = "*"
@@ -37,4 +37,4 @@ rstest = "*"
 
 [dependencies.rocket_dyn_templates]
 version = "0.1.0-rc.1"
-features = ["tera"]
+features = ["handlebars"]

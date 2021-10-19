@@ -5,12 +5,12 @@ edition = "2018"
 
 [dependencies]
 tonic = "0.5"
-tonic-reflection = "0.2"
-prost = "0.8"
-prost-types = "*"
+tonic-reflection = "0.2.0"
+prost = "0.8.0"
+prost-types = "0.8.0"
+prost-build = "0.8.0"
 uuid = "*"
 serde = { version = "*", features = ["derive"] }
 
 [build-dependencies]
 tonic-build = "0.5"
-
