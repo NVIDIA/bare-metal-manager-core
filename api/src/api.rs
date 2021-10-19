@@ -87,7 +87,8 @@ impl Carbide for Api {
 
                         info!("Machine = {:?}", machine);
 
-                        txn.commit().await
+                        txn.commit()
+                            .await
                             .map_err(|e| Status::new(Code::Internal, format!("{}", e)))?;
 
                         machine
@@ -305,21 +306,21 @@ impl Api {
             .register_encoded_file_descriptor_set(rpc::REFLECTION_SERVICE_DESCRIPTOR)
             .build()?;
 
-//       let _vault_client = VaultClient::new(
-//           &daemon_config.vault_api,
-//           &daemon_config.vault_token,
-//       )?;
-//
-//        let response: EndpointResponse<String> = vault_client.call_endpoint(
-//            hashicorp_vault::client::HttpVerb::PUT,
-//            "pki/issue/carbide-api-server",
-//            None,
-//            Some("{\"name\": \"carbide-api.example.com\", \"common_name\": \"carbide-api.example.com\" }"))?;
-//
-//        info!("{:#?}", response); 
+        //       let _vault_client = VaultClient::new(
+        //           &daemon_config.vault_api,
+        //           &daemon_config.vault_token,
+        //       )?;
+        //
+        //        let response: EndpointResponse<String> = vault_client.call_endpoint(
+        //            hashicorp_vault::client::HttpVerb::PUT,
+        //            "pki/issue/carbide-api-server",
+        //            None,
+        //            Some("{\"name\": \"carbide-api.example.com\", \"common_name\": \"carbide-api.example.com\" }"))?;
+        //
+        //        info!("{:#?}", response);
 
         tonic::transport::Server::builder()
-//            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
+            //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
             .add_service(rpc::carbide_server::CarbideServer::new(api_service))
             .add_service(reflection_service)
             .serve(daemon_config.listen[0])

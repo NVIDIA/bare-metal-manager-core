@@ -141,7 +141,9 @@ impl Machine {
         let created_id = created_machine_row.get("id");
         match Machine::find_one(&txn, created_id).await {
             Ok(Some(x)) => Ok(x),
-            Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(created_id)),
+            Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(
+                created_id,
+            )),
             Err(x) => Err(x),
         }
     }
@@ -152,9 +154,7 @@ impl Machine {
     ) -> CarbideResult<Option<Self>> {
         Self::find(&txn, MachineIdsFilter::One(&uuid))
             .await
-            .and_then(|v| {
-                Ok(v.into_iter().nth(0))
-            })
+            .and_then(|v| Ok(v.into_iter().nth(0)))
     }
 
     // TODO(ajf): doesn't belong here
@@ -210,7 +210,7 @@ impl Machine {
             .query(sql, &[&macaddr, &relay])
             .await?
             .into_iter()
-            .map(|row| row.get::<&str, uuid::Uuid>("id") )
+            .map(|row| row.get::<&str, uuid::Uuid>("id"))
             .collect::<Vec<uuid::Uuid>>();
 
         match &results.len() {
@@ -252,14 +252,13 @@ impl Machine {
             }
             1 => {
                 let id = results.remove(0);
-                Machine::find_one(&txn, id).await
-                    .and_then(|machine| {
-                        if let Some(machine) = machine {
-                            Ok(machine)
-                        } else {
-                            Err(CarbideError::DatabaseInconsistencyOnMachineCreate(id))
-                        }
-                    })
+                Machine::find_one(&txn, id).await.and_then(|machine| {
+                    if let Some(machine) = machine {
+                        Ok(machine)
+                    } else {
+                        Err(CarbideError::DatabaseInconsistencyOnMachineCreate(id))
+                    }
+                })
             }
             _ => {
                 warn!(

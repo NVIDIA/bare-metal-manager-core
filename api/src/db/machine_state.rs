@@ -7,7 +7,7 @@ use super::Machine;
 
 use rpc::v0 as rpc;
 
-use std::fmt::{Formatter, Display};
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, PartialEq)]
 pub enum MachineState {
@@ -23,16 +23,20 @@ pub enum MachineState {
 
 impl Display for MachineState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            Self::Init => "init",
-            Self::New => "new",
-            Self::Adopted => "adopted",
-            Self::Tested => "tested",
-            Self::Ready => "ready",
-            Self::Assigned => "assigned",
-            Self::Broken => "broken",
-            Self::Decommissioned => "decommissioned",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Init => "init",
+                Self::New => "new",
+                Self::Adopted => "adopted",
+                Self::Tested => "tested",
+                Self::Ready => "ready",
+                Self::Assigned => "assigned",
+                Self::Broken => "broken",
+                Self::Decommissioned => "decommissioned",
+            }
+        )
     }
 }
 
@@ -84,7 +88,7 @@ impl From<tokio_postgres::Row> for MachineState {
 impl From<MachineState> for rpc::MachineState {
     fn from(machine_state: MachineState) -> rpc::MachineState {
         rpc::MachineState {
-            state: machine_state.to_string()
+            state: machine_state.to_string(),
         }
     }
 }
