@@ -45,7 +45,7 @@ async fn entrypoint() -> Template {
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
     rocket::build()
-        .mount("/api/v0/entrypoint", routes![entrypoint])
+        .mount("/api/v0/pxe", routes![entrypoint])
         .attach(Template::fairing())
         .ignite()
         .await?

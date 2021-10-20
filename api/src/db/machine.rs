@@ -19,6 +19,8 @@ use super::MachineInterface;
 use super::MachineState;
 use super::NetworkSegment;
 
+use crate::human_hash;
+
 use std::net::IpAddr;
 
 use rpc::v0 as rpc;
@@ -157,21 +159,8 @@ impl Machine {
             .map(|v| v.into_iter().next())
     }
 
-    // TODO(ajf): doesn't belong here
-    pub fn generate_hostname_from_uuid(mut id: u128) -> String {
-        let alpha_lower = b'a'..=b'z';
-        let numeric = b'0'..=b'9';
-
-        let space = alpha_lower.chain(numeric).collect::<Vec<u8>>();
-
-        assert_eq!(space.len(), 36);
-
-        let mut output = Vec::with_capacity(std::mem::size_of::<u8>() * 22);
-        while id > 0 {
-            output.push(space[(id % 36) as usize]);
-            id = id.checked_div(36).unwrap();
-        }
-        String::from(str::from_utf8(&output).unwrap())
+    pub fn generate_hostname_from_uuid(uuid: &uuid::Uuid) -> String {
+        human_hash::humanize(uuid, 2)
     }
 
     /// Discovery of a machine
@@ -220,7 +209,7 @@ impl Machine {
                 match NetworkSegment::for_relay(txn, relay).await? {
                     Some(segment) => {
                         let generated_hostname =
-                            Self::generate_hostname_from_uuid(uuid::Uuid::new_v4().as_u128());
+                            Self::generate_hostname_from_uuid(&uuid::Uuid::new_v4());
                         let generated_fqdn =
                             format!("{}.{}", generated_hostname, segment.subdomain());
 

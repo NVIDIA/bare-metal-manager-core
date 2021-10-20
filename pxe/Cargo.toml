@@ -37,4 +37,4 @@ rstest = "*"
 
 [dependencies.rocket_dyn_templates]
 version = "0.1.0-rc.1"
-features = ["handlebars"]
+features = ["tera"]

@@ -6,14 +6,19 @@
 # backwards compatibility). Please don't change it unless you know what
 # you're doing.
 Vagrant.configure("2") do |config|
+  config.vagrant.plugins = %w[vagrant-env vagrant-cloudinit]
+
 #  config.vm.box_check_update = false
+  config.env.enable
 
   config.vm.define :relay do |relay|
-    relay.vm.box = "debian/bullseye64"
+    relay.vm.box = "ubuntu/impish64"
     relay.vm.hostname = "relay"
 
-    relay.vm.network "public_network", bridge: "enp47s0f0"
+    relay.vm.network :public_network, bridge: "enp47s0f0"
     relay.vm.network :private_network, ip: "192.168.0.1", virtualbox__intnet: true
+
+    relay.vm.cloud_init :user_data, content_type: "text/cloud-config", path: "dev/relay.yml"
 
     relay.vm.provider :virtualbox do |vb, config|
       # TODO - make EFI work
