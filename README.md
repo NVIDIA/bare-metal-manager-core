@@ -2,10 +2,10 @@
 
 ![pipeline status](https://gitlab-master.nvidia.com/aforgue/carbide/badges/trunk/pipeline.svg)
 
-## TODO List
+## Introduction
 
-- [ ] Figure out integration tests that don't need to maintain state between each test
-- [ ] Build a vagrant based dev environment
-- [ ] Tenancy
-- [ ] IP allocations based on MachineInterface creation (table locking etc)
-- [ ] Improve desired vs actual state
+Carbide is a bare metal provisioning system used to manage the lifecycle of bare metal machines.
+
+Please see [The Book](https://bcmetal.gitlab-master-pages.nvidia.com/carbide/book/index.html) for more detail about roadmap & architecture.
+
+Discussion happens on #nsv-bcmetal slack channel.
