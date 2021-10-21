@@ -2,8 +2,8 @@ use eui48::MacAddress;
 use log::info;
 use std::net::IpAddr;
 
-mod human_hash;
 pub mod db;
+mod human_hash;
 
 /// Special user-defined code for PostgreSQL level state transition violation
 ///
