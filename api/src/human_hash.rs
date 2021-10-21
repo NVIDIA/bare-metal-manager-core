@@ -2,8 +2,6 @@
 //!
 //! Based on https://github.com/zacharyvoase/humanhash
 //! Should be compatible
-
-extern crate uuid;
 use uuid::Uuid;
 
 /// Class for custom humanhashers
@@ -59,8 +57,9 @@ pub const DEFAULT_WORDLIST: Wordlist = &[
 /// Human Hasher
 impl HumanHasher {
     /// Create a new hasher with a custom wordlist
+    #[allow(dead_code)]
     pub fn new(words: Wordlist) -> HumanHasher {
-        HumanHasher { words: words }
+        HumanHasher { words }
     }
 
     /// Create a human readable digest for a UUID. Makes the collision space worse,
