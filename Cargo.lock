@@ -475,6 +475,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dhcp"
+version = "0.0.1"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "digest"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
