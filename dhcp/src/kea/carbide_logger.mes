@@ -1,0 +1,10 @@
+$NAMESPACE isc::log
+
+% LOG_CARBIDE_INITIALIZATION Carbide Kea shim loading
+The Carbide hook provider for Kea is starting the load() routine
+
+% LOG_CARBIDE_PKT4_RECEIVE Carbide hook called for DHCPv4 packet receive from %1
+Carbide received DHCPv4 (Receive) hook from Kea
+
+% LOG_CARBIDE_PKT4_SEND Carbide hook called for DHCPv4 packet send from %1
+Carbide received DHCPv4 (Send) hook from Kea
