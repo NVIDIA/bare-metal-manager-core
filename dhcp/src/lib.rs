@@ -1,8 +1,5 @@
-use eui48::{MacAddress, MacAddressFormat};
-use std::net::{IpAddr, Ipv4Addr};
-use std::ptr;
-
-use rpc::v0 as rpc;
+use eui48::MacAddress;
+use std::net::Ipv4Addr;
 
 /// cbindgen:ignore
 mod kea {
@@ -56,11 +53,18 @@ pub extern "C" fn discover_allocate() -> *mut MachineDiscovery {
     Box::into_raw(Box::new(MachineDiscovery::default()))
 }
 
+/// Fill the `relay` portion of the MachineDiscovery object with an IP(v4) address
+///
+/// # Safety
+///
+/// This function deferences a pointer to a MachineDiscovery object which is an opaque pointer
+/// consumed in C code.
+///
 #[no_mangle]
-pub extern "C" fn discover_set_relay(ctx: *mut MachineDiscovery, relay: u32) -> bool {
+pub unsafe extern "C" fn discover_set_relay(ctx: *mut MachineDiscovery, relay: u32) -> bool {
     assert!(!ctx.is_null());
 
-    let mut discovery = unsafe { Box::from_raw(ctx) };
+    let mut discovery = Box::from_raw(ctx);
 
     discovery.relay_address = Some(Ipv4Addr::from(relay.to_be_bytes()));
 
@@ -68,17 +72,27 @@ pub extern "C" fn discover_set_relay(ctx: *mut MachineDiscovery, relay: u32) -> 
     true
 }
 
+/// Fill the `macaddress` portion of the MachineDiscovery object with an IP(v4) address
+///
+/// # Safety
+///
+/// This function deferences a pointer to a MachineDiscovery object which is an opaque pointer
+/// consumed in C code.
+///
+/// This function constructs a mac address from a *const u8 which is dangerous.  Assertion error if
+/// we get passed an array that's not 6 elements
+///
 #[no_mangle]
-pub extern "C" fn discover_set_client_macaddress(
+pub unsafe extern "C" fn discover_set_client_macaddress(
     ctx: *mut MachineDiscovery,
     raw_parts: *const u8,
     size: usize,
 ) -> bool {
     assert!(!ctx.is_null());
+    assert!(size == 6);
 
-    let mut discovery = unsafe { Box::from_raw(ctx) };
-    let mac_address =
-        MacAddress::from_bytes(unsafe { std::slice::from_raw_parts(raw_parts, size) });
+    let mut discovery = Box::from_raw(ctx);
+    let mac_address = MacAddress::from_bytes(std::slice::from_raw_parts(raw_parts, size));
 
     discovery.mac_address = Some(mac_address.unwrap());
 
@@ -86,10 +100,19 @@ pub extern "C" fn discover_set_client_macaddress(
     true
 }
 
+/// Invoke the discovery processs
+///
+/// # Safety
+///
+/// This function deferences a pointer to a MachineDiscovery object which is an opaque pointer
+/// consumed in C code.
+///
+/// TODO: make sure required fields got set by `discover_set_*`
+///
 #[no_mangle]
-pub extern "C" fn discover_invoke(ctx: *mut MachineDiscovery) -> u32 {
+pub unsafe extern "C" fn discover_invoke(ctx: *mut MachineDiscovery) -> u32 {
     assert!(!ctx.is_null());
-    let mut discovery = unsafe { Box::from_raw(ctx) };
+    let mut discovery = Box::from_raw(ctx);
 
     eprintln!("{:#?}", discovery);
     let ret = discovery.invoke().into();
@@ -98,32 +121,23 @@ pub extern "C" fn discover_invoke(ctx: *mut MachineDiscovery) -> u32 {
     ret
 }
 
+/// Free the MachineDiscovery object.
+///
+/// # Safety
+///
+/// This function deferences a pointer to a MachineDiscovery object which is an opaque pointer
+/// consumed in C code.
+///
+/// This does not forget the memory afterwards, so the opaque pointer in the C code is now
+/// unusable.
+///
 #[no_mangle]
-pub extern "C" fn discover_free(ctx: *mut MachineDiscovery) {
+pub unsafe extern "C" fn discover_free(ctx: *mut MachineDiscovery) {
     eprintln!("Calling discover_free");
 
     if ctx.is_null() {
         return;
     }
 
-    unsafe {
-        Box::from_raw(ctx);
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn machine_discover(discover: *mut MachineDiscovery) -> *const MachineDiscovery {
-    unsafe {
-        if discover.is_null() {
-            return std::ptr::null();
-        }
-
-        let discover: Box<MachineDiscovery> = Box::from_raw(discover);
-
-        eprintln!("{:#?}", discover);
-
-        std::mem::forget(discover);
-    }
-
-    std::ptr::null()
+    Box::from_raw(ctx);
 }
