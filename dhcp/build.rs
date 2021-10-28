@@ -12,6 +12,12 @@ fn main() {
         .arg(format!("{}/carbide_logger.mes", kea_shim_root))
         .status().unwrap();
 
+    cbindgen::Builder::new()
+        .with_crate(env!("CARGO_MANIFEST_DIR"))
+        .generate()
+        .expect("Unable to generate bindings")
+        .write_to_file(format!("{}/carbide_rust.h", kea_shim_root));
+
     cc::Build::new()
         .cpp(true)
         .file(format!("{}/shim.cc", kea_shim_root))
@@ -20,8 +26,8 @@ fn main() {
         .shared_flag(false)
         .static_flag(false)
         .pic(true)
-        .compile("libkeashim.o");
+        .compile("keashim");
 
-    println!("cargo:rerun-if-changed=src/kea/shim.c++");
+    println!("cargo:rerun-if-changed=src/kea/shim.cc");
     println!("cargo:rustc-link-lib=keashim");
 }

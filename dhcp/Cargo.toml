@@ -8,6 +8,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 libc = "*"
+eui48 = "0.4.0"
+rpc = { path = "../rpc" }
 
 [build-dependencies]
 cc = "1.0"
+cbindgen = "*"
