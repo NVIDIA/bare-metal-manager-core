@@ -1,4 +1,4 @@
-use rocket::{Route, http::Method};
+use rocket::{http::Method, Route};
 use rocket_dyn_templates::Template;
 use std::collections::HashMap;
 

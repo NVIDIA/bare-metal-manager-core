@@ -69,11 +69,16 @@ pub extern "C" fn discover_set_relay(ctx: *mut MachineDiscovery, relay: u32) -> 
 }
 
 #[no_mangle]
-pub extern "C" fn discover_set_client_macaddress(ctx: *mut MachineDiscovery, raw_parts: *const u8, size: usize) -> bool {
+pub extern "C" fn discover_set_client_macaddress(
+    ctx: *mut MachineDiscovery,
+    raw_parts: *const u8,
+    size: usize,
+) -> bool {
     assert!(!ctx.is_null());
 
     let mut discovery = unsafe { Box::from_raw(ctx) };
-    let mac_address = MacAddress::from_bytes(unsafe { std::slice::from_raw_parts(raw_parts, size) });
+    let mac_address =
+        MacAddress::from_bytes(unsafe { std::slice::from_raw_parts(raw_parts, size) });
 
     discovery.mac_address = Some(mac_address.unwrap());
 
@@ -107,9 +112,7 @@ pub extern "C" fn discover_free(ctx: *mut MachineDiscovery) {
 }
 
 #[no_mangle]
-pub extern "C" fn machine_discover(
-    discover: *mut MachineDiscovery
-) -> *const MachineDiscovery {
+pub extern "C" fn machine_discover(discover: *mut MachineDiscovery) -> *const MachineDiscovery {
     unsafe {
         if discover.is_null() {
             return std::ptr::null();
@@ -121,7 +124,6 @@ pub extern "C" fn machine_discover(
 
         std::mem::forget(discover);
     }
-
 
     std::ptr::null()
 }
