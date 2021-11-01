@@ -525,7 +525,11 @@ dependencies = [
  "cc",
  "eui48",
  "libc",
+ "once_cell",
  "rpc",
+ "tokio",
+ "tonic",
+ "uuid",
 ]
 
 [[package]]

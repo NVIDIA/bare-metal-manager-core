@@ -316,7 +316,7 @@ pub fn humanize(uuid: &Uuid, words_out: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::uuid::Uuid;
+    use uuid::Uuid;
     use super::DEFAULT_WORDLIST;
     use super::{humanize, HumanHasher};
 
