@@ -424,9 +424,7 @@ impl Machine {
                 accumulator.insert(machine.id, machine);
 
                 accumulator
-            })
-            .into_iter()
-            .collect::<HashMap<uuid::Uuid, Machine>>();
+            });
 
         let events_future = MachineEvent::find_by_machine_ids(txn, machines.keys().collect());
 

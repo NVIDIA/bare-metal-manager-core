@@ -9,6 +9,7 @@
 isc::log::Logger loader_logger("kea-shim-loader");
 
 using namespace isc::hooks;
+using namespace isc::data;
 
 extern "C" {
 	int shim_version() {
@@ -18,9 +19,15 @@ extern "C" {
 	int shim_load(LibraryHandle &handle) {
 		LOG_INFO(loader_logger, isc::log::LOG_CARBIDE_INITIALIZATION);
 
-		auto api_endpoint = handle.getParameter("carbide_api_url");
-		if (!api_endpoint) {
-			carbide_set_config_api(api_endpoint.get()->str().c_str());
+		ConstElementPtr api_endpoint = handle.getParameter("carbide-api-url");
+		if (api_endpoint) {
+			if(api_endpoint->getType() != Element::string) {
+				// TODO: handle invalid data type for carbide-api-url
+				return (1);
+			} else {
+				// TOOD: proper logging
+				carbide_set_config_api(api_endpoint->stringValue().c_str());
+			}
 		}
 
 		handle.registerCallout("pkt4_receive", pkt4_receive);

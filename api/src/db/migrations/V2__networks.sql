@@ -8,6 +8,7 @@ CREATE TABLE network_segments(
 
 	subnet_ipv4 cidr CHECK (family(subnet_ipv4) = 4),
 	reserve_first_ipv4 INTEGER NOT NULL DEFAULT 1, -- always a gateway address
+	gateway_ipv4 cidr CHECK (family(gateway_ipv4) = 4),
 
 	subnet_ipv6 cidr CHECK (family(subnet_ipv6) = 6),
 	reserve_first_ipv6 INTEGER NOT NULL DEFAULT 0 -- not always a gateway address (i.e. link-local)
@@ -28,4 +29,12 @@ CREATE TABLE machine_interfaces(
 
 	FOREIGN KEY (machine_id) REFERENCES machines(id),
 	FOREIGN KEY (segment_id) REFERENCES network_segments(id)
+);
+
+DROP VIEW IF EXISTS machine_dhcp_responses;
+CREATE VIEW machine_dhcp_responses AS (
+	SELECT m.id as machine_id, n.id as segment_id, mi.mac_address, mi.address_ipv4, mi.address_ipv6, n.subdomain, n.mtu, n.gateway_ipv4, m.fqdn
+	FROM machines m 
+	INNER JOIN machine_interfaces mi ON mi.machine_id = m.id
+	INNER JOIN network_segments n ON mi.segment_id = n.id
 );

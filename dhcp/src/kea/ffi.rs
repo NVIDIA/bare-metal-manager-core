@@ -1,5 +1,3 @@
-use crate::CarbideDhcpContext;
-
 #[repr(C)]
 pub struct OpaquePointer {
     _private: [u8; 0],
@@ -19,8 +17,6 @@ pub unsafe extern "C" fn version() -> libc::c_int {
 
 #[no_mangle]
 pub unsafe extern "C" fn load(a: *mut OpaquePointer) -> libc::c_int {
-    CarbideDhcpContext::get();
-
     shim_load(a)
 }
 

@@ -10,6 +10,7 @@ prost = "0.8.0"
 prost-types = "0.8.0"
 prost-build = "0.8.0"
 uuid = "*"
+eui48 = "*"
 serde = { version = "*", features = ["derive"] }
 
 [build-dependencies]

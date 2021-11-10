@@ -74,6 +74,7 @@ impl Carbide for Api {
                         let rpc::MachineDiscovery {
                             mac_address,
                             relay_address,
+                            ..
                         } = request.into_inner();
 
                         let machine = Machine::discover(

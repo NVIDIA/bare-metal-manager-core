@@ -6,12 +6,13 @@ use crate::machine::Machine;
 use crate::CarbideDhcpContext;
 
 use rpc::v0 as rpc;
+use crate::CONFIG;
 
 #[derive(Debug, Default)]
 pub struct Discovery {
-    relay_address: Option<Ipv4Addr>,
-    mac_address: Option<MacAddress>,
-    vendor_string: Option<String>,
+    pub(crate) relay_address: Option<Ipv4Addr>,
+    pub(crate) mac_address: Option<MacAddress>,
+    pub(crate) vendor_string: Option<String>,
 }
 
 /// Allocate a new struct to fill in the discovery information from the DHCP packet in Kea
@@ -81,21 +82,24 @@ pub unsafe extern "C" fn discovery_fetch_machine(ctx: *mut Discovery) -> *mut Ma
     let discovery = Box::from_raw(ctx);
 
     let machine = runtime.block_on(async move {
-        let api = CarbideDhcpContext::get().api_url();
-        let mut client = rpc::carbide_client::CarbideClient::connect(api)
+        let config = CONFIG.read().unwrap(); 
+        let x = config.api_endpoint.clone();
+
+        let mut client = rpc::carbide_client::CarbideClient::connect(x)
             .await
             .unwrap();
 
         let request = tonic::Request::new(rpc::MachineDiscovery {
             mac_address: discovery.mac_address.unwrap().to_hex_string(),
             relay_address: discovery.relay_address.unwrap().to_string(),
+            vendor_string: discovery.vendor_string.unwrap().to_string(),
         });
 
         let response = client.discover_machine(request).await.unwrap().into_inner();
 
         Box::new(Machine {
             inner: response,
-            discovery_info: Some(discovery),
+            discovery_info: discovery,
         })
     });
 
