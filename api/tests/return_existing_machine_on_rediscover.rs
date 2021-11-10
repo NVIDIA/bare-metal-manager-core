@@ -54,12 +54,12 @@ async fn return_existing_machine_on_rediscover() {
 
     let test_mac = MacAddress::parse_str("ff:ff:ff:ff:ff:ff").unwrap();
 
-    let new_machine = Machine::discover(&mut txn, test_mac.clone(), "10.0.0.1".parse().unwrap())
+    let new_machine = Machine::discover(&mut txn, test_mac, "10.0.0.1".parse().unwrap())
         .await
         .expect("Unable to create machine");
 
     let existing_machine =
-        Machine::discover(&mut txn, test_mac.clone(), "10.0.0.1".parse().unwrap())
+        Machine::discover(&mut txn, test_mac, "10.0.0.1".parse().unwrap())
             .await
             .expect("Unable to re-discover machine with same mac address");
 

@@ -61,7 +61,7 @@ pub mod v0 {
     impl MachineInterface {
         pub fn parsed_address_ipv4(&self) -> Result<Option<Ipv4Addr>, AddrParseError> {
             if let Some(addr) = &self.address_ipv4 {
-                Ok(Some(Ipv4Addr::from_str(&addr)?))
+                Ok(Some(Ipv4Addr::from_str(addr)?))
             } else {
                 Ok(None)
             }
@@ -69,7 +69,7 @@ pub mod v0 {
 
         pub fn parsed_address_ipv6(&self) -> Result<Option<Ipv6Addr>, AddrParseError> {
             if let Some(addr) = &self.address_ipv6 {
-                Ok(Some(Ipv6Addr::from_str(&addr)?))
+                Ok(Some(Ipv6Addr::from_str(addr)?))
             } else {
                 Ok(None)
             }

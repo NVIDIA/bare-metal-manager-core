@@ -58,7 +58,7 @@ async fn prevent_duplicate_mac_addresses() {
 
     let test_mac = MacAddress::parse_str("ff:ff:ff:ff:ff:ff").unwrap();
 
-    let new_machine = Machine::discover(&mut txn, test_mac.clone(), "10.0.0.1".parse().unwrap())
+    let new_machine = Machine::discover(&mut txn, test_mac, "10.0.0.1".parse().unwrap())
         .await
         .expect("Unable to create machine");
 

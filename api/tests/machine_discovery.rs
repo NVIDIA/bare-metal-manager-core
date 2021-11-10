@@ -67,9 +67,8 @@ async fn test_machine_discovery() {
     assert_eq!(
         machine
             .interfaces()
-            .into_iter()
-            .filter(|interface| interface.address_ipv4().is_some())
-            .map(|interface| interface.address_ipv4().unwrap())
+            .iter()
+            .filter_map(|interface| interface.address_ipv4())
             .collect::<Vec<&Ipv4Addr>>(),
         vec![&Ipv4Addr::from_str("10.0.0.1").unwrap()]
     );

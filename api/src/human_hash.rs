@@ -320,7 +320,7 @@ mod tests {
     use super::DEFAULT_WORDLIST;
     use super::{humanize, HumanHasher};
 
-    const TEST_UUID: &'static str = "bc0f47f93dd046578d7eee645999b95e";
+    const TEST_UUID: &str = "bc0f47f93dd046578d7eee645999b95e";
 
     #[test]
     fn it_works() {
@@ -341,7 +341,7 @@ mod tests {
     fn class_works() {
         let tuid = Uuid::parse_str(TEST_UUID).unwrap();
 
-        let hzr = HumanHasher::new(&DEFAULT_WORDLIST);
+        let hzr = HumanHasher::new(DEFAULT_WORDLIST);
 
         assert_eq!(humanize(&tuid, 4), hzr.humanize(&tuid, 4));
     }
