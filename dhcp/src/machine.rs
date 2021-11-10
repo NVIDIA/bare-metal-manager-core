@@ -125,7 +125,7 @@ pub unsafe extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) ->
     let machine = Box::from_raw(ctx);
 
     // TODO: handle some errors
-    let ret = u32::from_be_bytes(machine.booting_subnet_mask().unwrap().unwrap().octets());
+    let ret = u32::from_be_bytes(machine.booting_interface_subnet_mask().unwrap().unwrap().octets());
 
     std::mem::forget(machine);
     ret
@@ -221,6 +221,6 @@ mod tests {
 
         let desired_ip: Ipv4Addr = Ipv4Addr::from_str("192.168.0.1").unwrap();
 
-        assert_eq!(machine.(), Ok(Some(desired_ip)));
+        assert_eq!(machine.booting_router_address_v4(), Ok(Some(desired_ip)));
     }
 }

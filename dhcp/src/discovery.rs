@@ -92,7 +92,7 @@ pub unsafe extern "C" fn discovery_fetch_machine(ctx: *mut Discovery) -> *mut Ma
         let request = tonic::Request::new(rpc::MachineDiscovery {
             mac_address: discovery.mac_address.unwrap().to_hex_string(),
             relay_address: discovery.relay_address.unwrap().to_string(),
-            vendor_string: discovery.vendor_string.unwrap().to_string(),
+            //vendor_string: discovery.vendor_string.unwrap().to_string(),
         });
 
         let response = client.discover_machine(request).await.unwrap().into_inner();
