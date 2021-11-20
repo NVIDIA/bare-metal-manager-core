@@ -6,24 +6,16 @@ use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
-use sqlx::Acquire;
-use sqlx::Executor;
-use sqlx::FromRow;
-use sqlx::Postgres;
-use sqlx::Row;
-use sqlx::Transaction;
+use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use std::collections::HashMap;
 use std::convert::From;
 use std::str;
 
-use super::AddressSelectionStrategy;
-use super::MachineAction;
-use super::MachineEvent;
-use super::MachineInterface;
-use super::MachineState;
-use super::NetworkSegment;
+use super::{
+    AddressSelectionStrategy, MachineAction, MachineEvent, MachineInterface, MachineState,
+    NetworkSegment,
+};
 
 use chrono::prelude::*;
 
@@ -396,7 +388,7 @@ impl Machine {
     ) -> CarbideResult<Vec<Machine>> {
         let base_query = "SELECT m.*,machine_state_machine(me.action,me.version) AS state FROM machines m JOIN machine_events me ON me.machine_id=m.id {where} GROUP BY m.id".to_owned();
 
-        let all_machines: Vec<Machine> = match id_filter {
+        let mut all_machines: Vec<Machine> = match id_filter {
             MachineIdsFilter::All => {
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
@@ -416,57 +408,32 @@ impl Machine {
             }
         };
 
-        let final_hint_length = all_machines.len();
+        let all_uuids = all_machines.iter().map(|m| m.id()).collect();
 
-        let mut grouped_machines =
-            all_machines
-                .into_iter()
-                .fold(HashMap::new(), |mut accumulator, machine| {
-                    accumulator.insert(machine.id(), machine);
-                    accumulator
-                });
+        let mut events_for_machine =
+            MachineEvent::find_by_machine_ids(&mut *txn, &all_uuids).await?;
 
-        let mut events_for_machine = MachineEvent::find_by_machine_ids(
-            &mut *txn,
-            grouped_machines
-                .keys()
-                .map(|uuid| uuid.to_owned())
-                .collect(),
-        )
-        .await?;
+        let mut interfaces_for_machine =
+            MachineInterface::find_by_machine_ids(&mut *txn, &all_uuids).await?;
 
-        let mut interfaces_for_machine = MachineInterface::find_by_machine_ids(
-            &mut *txn,
-            grouped_machines
-                .keys()
-                .map(|uuid| uuid.to_owned())
-                .collect(),
-        )
-        .await?;
+        all_machines.iter_mut().for_each(|machine| {
+            if let Some(events) = events_for_machine.remove(&machine.id) {
+                machine.events = events;
+            } else {
+                warn!("Machine {0} ({1}) has no events", machine.id, machine.fqdn);
+            }
 
-        let final_machine_list = grouped_machines.drain().fold(
-            Vec::with_capacity(final_hint_length),
-            move |mut accumulator, (uuid, mut machine)| {
-                if let Some(events) = events_for_machine.remove(&uuid) {
-                    machine.events = events;
-                } else {
-                    warn!("Machine {0} ({1}) has no events", machine.id, machine.fqdn);
-                }
+            if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
+                machine.interfaces = interfaces;
+            } else {
+                warn!(
+                    "Machine {0} ({1}) has no interfaces",
+                    machine.id, machine.fqdn
+                );
+            }
+        });
 
-                if let Some(interfaces) = interfaces_for_machine.remove(&uuid) {
-                    machine.interfaces = interfaces;
-                } else {
-                    warn!(
-                        "Machine {0} ({1}) has no interfaces",
-                        machine.id, machine.fqdn
-                    );
-                }
-                accumulator.push(machine);
-                accumulator
-            },
-        );
-
-        Ok(final_machine_list)
+        Ok(all_machines)
     }
 }
 

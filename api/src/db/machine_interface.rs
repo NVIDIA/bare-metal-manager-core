@@ -2,7 +2,7 @@ use super::{AddressSelectionStrategy, Machine, NetworkSegment};
 use crate::{CarbideError, CarbideResult};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use log::error;
+
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row, Transaction};
@@ -111,7 +111,7 @@ impl MachineInterface {
 
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
-        ids: Vec<uuid::Uuid>,
+        ids: &Vec<uuid::Uuid>,
     ) -> CarbideResult<HashMap<uuid::Uuid, Vec<MachineInterface>>> {
         let interfaces: Vec<MachineInterface> =
             sqlx::query_as("SELECT * FROM machine_interfaces mi WHERE mi.machine_id=ANY($1)")
