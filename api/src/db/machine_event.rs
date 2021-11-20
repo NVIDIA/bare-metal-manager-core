@@ -67,7 +67,7 @@ impl MachineEvent {
     ///
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
-        ids: &Vec<uuid::Uuid>,
+        ids: &[uuid::Uuid],
     ) -> CarbideResult<HashMap<uuid::Uuid, Vec<Self>>> {
         Ok(
             sqlx::query_as::<_, Self>("SELECT * FROM machine_events WHERE machine_id=ANY($1)")

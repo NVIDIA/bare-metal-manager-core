@@ -408,13 +408,13 @@ impl Machine {
             }
         };
 
-        let all_uuids = all_machines.iter().map(|m| m.id()).collect();
+        let all_uuids = all_machines.iter().map(|m| m.id()).collect::<Vec<Uuid>>();
 
         let mut events_for_machine =
-            MachineEvent::find_by_machine_ids(&mut *txn, &all_uuids).await?;
+            MachineEvent::find_by_machine_ids(&mut *txn, all_uuids.as_slice()).await?;
 
         let mut interfaces_for_machine =
-            MachineInterface::find_by_machine_ids(&mut *txn, &all_uuids).await?;
+            MachineInterface::find_by_machine_ids(&mut *txn, all_uuids.as_slice()).await?;
 
         all_machines.iter_mut().for_each(|machine| {
             if let Some(events) = events_for_machine.remove(&machine.id) {

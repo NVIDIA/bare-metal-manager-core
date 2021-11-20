@@ -6,9 +6,9 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row, Transaction};
-use uuid::Uuid;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use uuid::Uuid;
 
 use rpc::v0 as rpc;
 
@@ -112,7 +112,7 @@ impl MachineInterface {
 
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
-        ids: &Vec<uuid::Uuid>,
+        ids: &[uuid::Uuid],
     ) -> CarbideResult<HashMap<uuid::Uuid, Vec<MachineInterface>>> {
         let interfaces: Vec<MachineInterface> =
             sqlx::query_as("SELECT * FROM machine_interfaces mi WHERE mi.machine_id=ANY($1)")

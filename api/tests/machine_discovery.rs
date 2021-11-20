@@ -62,11 +62,12 @@ async fn test_machine_discovery() {
     .await
     .expect("Unable to create machine");
 
-    let interface = machine.interfaces().iter().find(|i| i.segment_id() == segment.id).unwrap();
-    assert_eq!(
-        interface.address_ipv4(),
-        Some(&Ipv4Addr::new(10, 0, 0, 4))
-    );
+    let interface = machine
+        .interfaces()
+        .iter()
+        .find(|i| i.segment_id() == segment.id)
+        .unwrap();
+    assert_eq!(interface.address_ipv4(), Some(&Ipv4Addr::new(10, 0, 0, 4)));
 
     assert_eq!(
         interface.address_ipv6(),
