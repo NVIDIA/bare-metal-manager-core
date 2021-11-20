@@ -22,20 +22,17 @@ fn init_logger() {
 async fn test_machine_rename() {
     setup();
 
-    let db = common::TestDatabaseManager::new()
+    let pool = common::TestDatabaseManager::new()
         .await
-        .expect("Could not create a database pool");
-    let mut dbc = db
-        .pool
-        .get()
-        .await
-        .expect("Could not get a DB pool connection");
-    let txn = dbc
-        .transaction()
-        .await
-        .expect("Could not create new transaction");
+        .expect("Could not create database manager")
+        .pool;
 
-    let mut machine = Machine::create(&txn, String::from("peppersmacker.nvidia.com"))
+    let mut txn = pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let mut machine = Machine::create(&mut txn, String::from("peppersmacker.nvidia.com"))
         .await
         .expect("Unable to create machine");
 
@@ -43,19 +40,16 @@ async fn test_machine_rename() {
 
     txn.commit().await.unwrap();
 
-    let txn2 = dbc
-        .transaction()
+    let mut txn2 = pool
+        .begin()
         .await
-        .expect("Could not create new (second) transaction");
+        .expect("Unable to create transaction on database pool");
 
     machine
-        .update_fqdn(&txn2, "peppersmacker2.nvidia.com")
+        .update_fqdn(&mut txn2, "peppersmacker2.nvidia.com")
         .await
         .expect("Could not update FQDN");
 
-    txn2.commit().await.unwrap();
-
     assert_ne!(original_modified, machine.modified());
-    //assert!(original_modified < machine.modified());
     assert_eq!(machine.fqdn(), "peppersmacker2.nvidia.com");
 }

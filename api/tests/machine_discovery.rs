@@ -2,13 +2,16 @@ mod common;
 
 use carbide::db::Machine;
 use carbide::db::NetworkSegment;
-use ip_network::Ipv4Network;
+use carbide::db::NewNetworkSegment;
+use carbide::CarbideResult;
+use ipnetwork::Ipv4Network;
+use ipnetwork::Ipv6Network;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
 use log::LevelFilter;
 
-use eui48::MacAddress;
+use mac_address::MacAddress;
 
 use std::sync::Once;
 
@@ -20,7 +23,7 @@ fn setup() {
 
 fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
+        .filter_level(LevelFilter::Debug)
         .init();
 }
 
@@ -28,41 +31,35 @@ fn init_logger() {
 async fn test_machine_discovery() {
     setup();
 
-    let db = common::TestDatabaseManager::new()
+    let mut txn = common::TestDatabaseManager::new()
         .await
-        .expect("Could not create a database pool");
-    let mut dbc = db
+        .expect("Could not create database manager")
         .pool
-        .get()
+        .begin()
         .await
-        .expect("Could not get a DB pool connection");
-    let mut txn = dbc
-        .transaction()
-        .await
-        .expect("Could not create new transaction");
+        .expect("Unable to create transaction on database pool");
 
-    let _ = NetworkSegment::create(
-        &txn,
-        "test-network",
-        "test.example.com",
-        &1500,
-        Some(Ipv4Network::from_str_truncate("10.0.0.0/24").unwrap()),
-        None,
-        &3,
-        &0,
-    )
+    let _segment: NetworkSegment = NewNetworkSegment {
+        name: "integration_test".to_string(),
+        subdomain: "m.nvmetal.net".to_string(),
+        mtu: Some(1500i32),
+        subnet_ipv4: Some(Ipv4Network::from_str("10.0.0.0/24").expect("can't parse network")),
+        subnet_ipv6: Some(Ipv6Network::from_str("2001:db8:f::/64").expect("can't parse network")),
+        gateway_ipv4: Some("192.168.0.1/32".parse().unwrap()),
+        reserve_first_ipv4: Some(3),
+        reserve_first_ipv6: Some(3),
+    }
+    .persist(&mut txn)
     .await
-    .expect("unable to create network");
+    .expect("Unable to create network segment");
 
     let machine = Machine::discover(
         &mut txn,
-        MacAddress::parse_str("ff:ff:ff:ff:ff:ff").unwrap(),
+        MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         "10.0.0.1".parse().unwrap(),
     )
     .await
     .expect("Unable to create machine");
-
-    txn.commit().await.unwrap();
 
     assert_eq!(
         machine
@@ -70,6 +67,6 @@ async fn test_machine_discovery() {
             .iter()
             .filter_map(|interface| interface.address_ipv4())
             .collect::<Vec<&Ipv4Addr>>(),
-        vec![&Ipv4Addr::from_str("10.0.0.1").unwrap()]
+        vec![&Ipv4Addr::from_str("10.0.0.4").unwrap()]
     );
 }

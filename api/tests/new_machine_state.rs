@@ -23,25 +23,20 @@ fn init_logger() {
 async fn test_new_machine_state() {
     setup();
 
-    let db = common::TestDatabaseManager::new()
+    let mut txn = common::TestDatabaseManager::new()
         .await
-        .expect("Could not create a database pool");
-    let mut dbc = db
+        .expect("Could not create database manager")
         .pool
-        .get()
+        .begin()
         .await
-        .expect("Could not get a DB pool connection");
-    let txn = dbc
-        .transaction()
-        .await
-        .expect("Could not create new transaction");
+        .expect("Unable to create transaction on database pool");
 
-    let machine = Machine::create(&txn, String::from("peppersmacker.nvidia.com"))
+    let machine = Machine::create(&mut txn, String::from("peppersmacker.nvidia.com"))
         .await
         .expect("Unable to create machine");
 
     assert_eq!(
-        machine.current_state(&txn).await.unwrap(),
+        machine.current_state(&mut txn).await.unwrap(),
         MachineState::New
     );
 

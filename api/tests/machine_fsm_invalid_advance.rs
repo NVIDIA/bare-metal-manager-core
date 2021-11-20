@@ -15,7 +15,7 @@ fn setup() {
 
 fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
+        .filter_level(LevelFilter::Debug)
         .init();
 }
 
@@ -23,26 +23,21 @@ fn init_logger() {
 async fn test_fsm_invalid_advance() {
     setup();
 
-    let db = common::TestDatabaseManager::new()
+    let mut txn = common::TestDatabaseManager::new()
         .await
-        .expect("Could not create a database pool");
-    let mut dbc = db
+        .expect("Could not create database manager")
         .pool
-        .get()
+        .begin()
         .await
-        .expect("Could not get a DB pool connection");
-    let txn = dbc
-        .transaction()
-        .await
-        .expect("Could not create new transaction");
+        .expect("Unable to create transaction on database pool");
 
-    let machine = Machine::create(&txn, String::from("peppersmacker.nvidia.com"))
+    let machine = Machine::create(&mut txn, String::from("peppersmacker.nvidia.com"))
         .await
         .expect("Unable to create machine");
 
     // Can't commission from new
     assert!(matches!(
-        machine.commission(&txn).await.unwrap_err(),
+        machine.commission(&mut txn).await.unwrap_err(),
         CarbideError::MachineStateTransitionViolation { .. }
     ));
 

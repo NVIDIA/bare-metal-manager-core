@@ -1,8 +1,9 @@
 use super::MachineAction;
-use crate::{CarbideError, CarbideResult};
+use crate::CarbideResult;
 use itertools::Itertools;
-use log::info;
+use sqlx::{Postgres, Transaction};
 use std::collections::HashMap;
+use chrono::prelude::*;
 
 use rpc::v0 as rpc;
 
@@ -13,7 +14,7 @@ use rpc::v0 as rpc;
 /// instance, creating an event called `adopt` on a Machine where the last event is `discover` will
 /// result in a MachineState of `adopted`
 ///
-#[derive(Debug)]
+#[derive(Debug, sqlx::FromRow)]
 pub struct MachineEvent {
     /// The numeric identifier of the event, this should not be exposed to consumers of this API,
     /// it is not secure.
@@ -30,23 +31,7 @@ pub struct MachineEvent {
     version: i32,
 
     /// The timestamp of the event
-    timestamp: std::time::SystemTime,
-}
-
-/// Conversion from a tokio_postgres::Row into a MachineEvent
-///
-/// Panics if the schema is changed in a backward incompatible way
-///
-impl From<tokio_postgres::Row> for MachineEvent {
-    fn from(row: tokio_postgres::Row) -> Self {
-        Self {
-            id: row.get("id"),
-            machine_id: row.get("machine_id"),
-            action: row.get("action"),
-            version: row.get("version"),
-            timestamp: row.get("timestamp"),
-        }
-    }
+    timestamp: DateTime<Utc>,
 }
 
 /// Conversion from a MachineEvent object into a Protocol buffer representation for transmission
@@ -56,14 +41,12 @@ impl From<MachineEvent> for rpc::MachineEvent {
         let mut proto_event = rpc::MachineEvent {
             id: event.id,
             machine_id: Some(event.machine_id.into()),
-            time: Some(event.timestamp.into()),
+            time: Some( rpc::Timestamp { seconds: event.timestamp.timestamp(), nanos: 0 }),
             version: event.version,
             event: 0, // 0 is usually null in protobuf I guess
         };
 
         proto_event.set_event(event.action.into());
-
-        info!("proto {:?}", &proto_event);
 
         proto_event
     }
@@ -80,24 +63,16 @@ impl MachineEvent {
     /// * `txn` - A reference to an open Transaction
     ///
     pub async fn find_by_machine_ids(
-        txn: &tokio_postgres::Transaction<'_>,
-        ids: Vec<&uuid::Uuid>,
+        txn: &mut Transaction<'_, Postgres>,
+        ids: Vec<uuid::Uuid>,
     ) -> CarbideResult<HashMap<uuid::Uuid, Vec<Self>>> {
-        let events = txn
-            .query(
-                "SELECT * FROM machine_events WHERE machine_id=ANY($1)",
-                &[&ids],
-            )
-            .await;
-
-        events
-            .map(|rows| {
-                rows.into_iter()
-                    .map(MachineEvent::from)
-                    .into_group_map_by(|event| event.machine_id)
-                    .into_iter()
-                    .collect::<HashMap<uuid::Uuid, Vec<MachineEvent>>>()
-            })
-            .map_err(CarbideError::from)
+        Ok(
+            sqlx::query_as::<_, Self>("SELECT * FROM machine_events WHERE machine_id=ANY($1)")
+                .bind(ids)
+                .fetch_all(&mut *txn)
+                .await?
+                .into_iter()
+                .into_group_map_by(|event| event.machine_id),
+        )
     }
 }

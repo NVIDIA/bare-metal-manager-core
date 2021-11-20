@@ -20,16 +20,8 @@ rpc = { path = "../rpc" }
 tonic = { version = "0.5", features = ["tls"] }
 tonic-reflection = "0.2"
 
-# secrets & certs
-# hashicorp_vault = "2.1.0"
-
 # databases
-refinery = { version = "0.7", features = ["tokio-postgres"] }
-tokio-postgres = { version = "*" }
-postgres-types = "*"
-postgres = { version = "0.19.1", features = ["with-uuid-0_8", "with-time-0_2", "with-eui48-0_4"] }
-bb8 = "*"
-bb8-postgres = "*"
+sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros" ] }
 
 # async
 tokio = { version = "1.9", features = ["full"] }
@@ -43,9 +35,10 @@ futures = "0.3"
 
 # data types
 uuid = { version = "0.8", features = ["v4", "serde"] }
-ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
-patricia_tree = "0.3.1"
-eui48 = "0.4.0"
+ipnetwork = { version = "^0.17.0", features = ["serde"] }
+patricia_tree = "^0"
+mac_address = "1.1.2"
+chrono = "0.4.19"
 
 # misc
 itertools = "*"

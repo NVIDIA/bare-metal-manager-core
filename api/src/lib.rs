@@ -1,6 +1,9 @@
-use eui48::MacAddress;
+use ipnetwork::IpNetworkError;
 use log::info;
-use std::net::IpAddr;
+use mac_address::MacAddress;
+use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
+use std::net::{AddrParseError, IpAddr};
+use tonic::Status;
 
 pub mod db;
 mod human_hash;
@@ -29,20 +32,23 @@ const SQL_STATE_TRANSITION_VIOLATION_CODE: &str = "T0100";
 ///
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideError {
-    #[error("unable to instanciate datastore connection pool")]
-    DatabaseError(tokio_postgres::Error),
+    #[error("Unable to parse string into IP Network: {0}")]
+    NetworkParseError(#[from] ipnetwork::IpNetworkError),
+
+    #[error("Unable to parse string into IP Address: {0}")]
+    AddressParseError(#[from] AddrParseError),
+
+    #[error("Database Query Error: {0}")]
+    DatabaseError(sqlx::Error),
 
     #[error("Invalid machine state transition: {0}")]
     MachineStateTransitionViolation(String, Option<String>),
 
-    #[error("unable to perform database migrations")]
-    RefineryError(#[from] refinery::Error),
-
     #[error("Database type conversion error")]
     DatabaseTypeConversionError(String),
 
-    #[error("Database Pool (bb8) error: {0}")]
-    DatabasePoolError(#[from] bb8::RunError<tokio_postgres::Error>),
+    #[error("Database migration error: {0}")]
+    DatabaseMigrationError(#[from] MigrateError),
 
     #[error("Multiple network segments defined for relay address: {0}")]
     MultipleNetworkSegmentsForRelay(IpAddr),
@@ -69,35 +75,38 @@ pub enum CarbideError {
     GenericError(String),
 }
 
-/// Convert a tokio_postgres::Error to a CarbideError
+impl From<CarbideError> for tonic::Status {
+    fn from(from: CarbideError) -> Self {
+        match from {
+            _ => Status::internal(from.to_string()),
+        }
+    }
+}
+
+/// Convert a sqlx::Error to a CarbideError
 ///
 /// This conversion will intercept an SQL State code of T0100 to catch the invalid state change of
 /// a machine instead of just returning a raw SqlError.  This requires not deriving `from` for the
 /// enum variant.
 ///
-impl From<tokio_postgres::Error> for CarbideError {
-    fn from(error: tokio_postgres::Error) -> CarbideError {
+impl From<sqlx::Error> for CarbideError {
+    fn from(error: sqlx::Error) -> CarbideError {
         info!("Error: {:?}", error);
 
-        if let Some(sql_error) = error.code() {
-            match sql_error.code() {
-                SQL_STATE_TRANSITION_VIOLATION_CODE => {
-                    if let Some(db_error) = error.as_db_error() {
-                        Self::MachineStateTransitionViolation(
-                            String::from(db_error.message()),
-                            db_error.hint().map(String::from),
-                        )
-                    } else {
-                        Self::DatabaseError(error)
-                    }
-                }
-                _ => Self::DatabaseError(error),
+        if let Some(sql_error) = error.as_database_error() {
+            let postgres_error: &PgDatabaseError = sql_error.downcast_ref();
+            if postgres_error.code() == SQL_STATE_TRANSITION_VIOLATION_CODE {
+                return Self::MachineStateTransitionViolation(
+                    postgres_error.message().to_string(),
+                    postgres_error.hint().map(String::from),
+                );
             }
-        } else {
-            Self::DatabaseError(error)
         }
+        Self::DatabaseError(error)
     }
 }
+
+// Database(PgDatabaseError { severity: Error, code: "T0100", message: "invalid state transision from new using commission", detail: None, hint: Some("Possible transitions from new are adopt, fail"), position: None, where: Some("PL/pgSQL function machine_action_trigger() line 27 at RAISE"), schema: None, table: None, column: None, data_type: None, constraint: None, file: Some("pl_exec.c"), line: Some(3871), routine: Some("exec_stmt_raise") })
 
 /// Result type for the return type of Carbide functions
 ///

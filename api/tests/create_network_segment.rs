@@ -1,8 +1,10 @@
 mod common;
 
-use ip_network::{Ipv4Network, Ipv6Network};
+use std::str::FromStr;
 
-use carbide::db::NetworkSegment;
+use ipnetwork::{Ipv4Network, Ipv6Network};
+
+use carbide::{CarbideResult, db::{NetworkSegment, NewNetworkSegment}};
 
 use log::LevelFilter;
 
@@ -12,23 +14,29 @@ async fn test_create_segment() {
         .filter_level(LevelFilter::Error)
         .init();
 
-    let db = common::TestDatabaseManager::new().await.unwrap();
+    let db = common::TestDatabaseManager::new()
+        .await
+        .expect("Could not create database manager");
 
-    let mut connection = db.pool.get().await.unwrap();
+    let mut txn = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
 
-    let txn = connection.transaction().await.unwrap();
-
-    let segment = NetworkSegment::create(
-        &txn,
-        "integration_test",
-        "m.nvmetal.net",
-        &1500i32,
-        Some(Ipv4Network::from_str_truncate("192.0.2.1/24").expect("can't parse network")),
-        Some(Ipv6Network::from_str_truncate("2001:db8:f::/64").expect("can't parse network")),
-        &3,
-        &0,
-    )
+    let segment: CarbideResult<NetworkSegment> = NewNetworkSegment {
+        name: "integration_test".to_string(),
+        subdomain: "m.nvmetal.net".to_string(),
+        mtu: Some(1500i32),
+        subnet_ipv4: Some(Ipv4Network::from_str("192.0.2.1/24").expect("can't parse network")),
+        subnet_ipv6: Some(Ipv6Network::from_str("2001:db8:f::/64").expect("can't parse network")),
+        gateway_ipv4: Some("192.168.0.1/32".parse().unwrap()),
+        reserve_first_ipv4: Some(3),
+        reserve_first_ipv6: Some(3),
+    }
+    .persist(&mut txn)
     .await;
 
     assert!(segment.is_ok());
+    assert_eq!(segment.unwrap().mtu, 1500);
 }

@@ -109,7 +109,22 @@ message NetworkSegment {
 
 	int32 reserve_first_ipv4 = 7;
 	int32 reserve_first_ipv6 = 8;
+
+	optional string gateway_ipv4 = 9;
 }
+
+message NewNetworkSegment {
+	string name = 2;
+	string subdomain = 3;
+
+	optional int32 mtu = 4;
+	optional string subnet_ipv4 = 5;
+	optional string subnet_ipv6 = 6;
+	optional int32 reserve_first_ipv4 = 7;
+	optional int32 reserve_first_ipv6 = 8;
+	optional string gateway_ipv4 = 9;
+}
+
 
 message NetworkSegmentList {
 	repeated NetworkSegment network_segments = 1;
@@ -170,7 +185,7 @@ service Carbide {
 //TODO:	rpc BindMachineToProject(MachineProjectBinding) returns (MachineProjectBindingResult);
 
 	/* Do something to a machine, fails if the state transition is invalid */
-	/* 
+	/*
 	 * Examples:
 	 *   - Adopt
 	 *   - Commission
@@ -190,7 +205,7 @@ service Carbide {
 
 	// Network Segment APIs (all privileged operations)
 	/* Create a network segment (VLAN/Subnet/VXLan) with some metadata */
-	rpc CreateNetworkSegment(NetworkSegment) returns (NetworkSegment);
+	rpc CreateNetworkSegment(NewNetworkSegment) returns (NetworkSegment);
 
 	/* Return the list of networks that exist */
 	rpc GetNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);

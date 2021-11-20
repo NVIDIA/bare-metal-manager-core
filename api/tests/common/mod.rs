@@ -1,12 +1,11 @@
-use carbide::db::{Datastore, Pool};
 use carbide::CarbideResult;
 use rand::prelude::*;
-use std::str::FromStr;
+use sqlx::PgPool;
 
 pub struct TestDatabaseManager {
     #[allow(dead_code)]
-    template_pool: Pool,
-    pub pool: Pool,
+    template_pool: PgPool,
+    pub pool: PgPool,
 }
 
 impl TestDatabaseManager {
@@ -27,47 +26,28 @@ impl TestDatabaseManager {
         );
 
         let username = env!("LOGNAME");
-
-        let real_config = tokio_postgres::config::Config::from_str(
-            format!(
-                "postgres://{0}@%2Fvar%2Frun%2Fpostgresql/{1}",
-                username, temporary_database_name
-            )
-            .as_str(),
-        )
-        .unwrap();
-
-        let template_config = tokio_postgres::config::Config::from_str(
+        let template_pool = sqlx::PgPool::connect(
             format!(
                 "postgres://{0}@%2Fvar%2Frun%2Fpostgresql/template1",
                 username
             )
             .as_str(),
-        )
-        .unwrap();
+        ).await?;
 
-        let real_pool = Datastore::pool_from_config(real_config).await?;
-        let template_pool = Datastore::pool_from_config(template_config).await?;
+        let pool = template_pool.clone();
 
-        let p = template_pool.clone();
-        let p2 = real_pool.clone();
-        let db = temporary_database_name.clone();
+        sqlx::query(format!("CREATE DATABASE {0} TEMPLATE template0", temporary_database_name).as_str())
+            .execute(&pool).await.expect(format!("Failed to create test database: {0}", temporary_database_name).as_str());
 
-        tokio::spawn(async move {
-            let connection = p.get().await.unwrap();
+        let mut real_pool = sqlx::PgPool::connect(
+            format!(
+                "postgres://{0}@%2Fvar%2Frun%2Fpostgresql/{1}",
+                username, temporary_database_name
+            )
+            .as_str(),
+        ).await?;
 
-            connection
-                .query(
-                    format!("CREATE DATABASE {0} TEMPLATE template0", db).as_str(),
-                    &[],
-                )
-                .await
-                .unwrap();
-
-            Datastore::migrate(p2).await.unwrap();
-        })
-        .await
-        .unwrap();
+        carbide::db::migrations::migrate(&mut real_pool).await.unwrap();
 
         Ok(Self {
             template_pool,

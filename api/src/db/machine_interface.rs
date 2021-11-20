@@ -1,10 +1,13 @@
 use super::{AddressSelectionStrategy, Machine, NetworkSegment};
 use crate::{CarbideError, CarbideResult};
-use eui48::MacAddress;
+use ipnetwork::IpNetwork;
 use itertools::Itertools;
+use log::error;
+use mac_address::MacAddress;
+use sqlx::postgres::PgRow;
+use sqlx::{Postgres, Row, Transaction};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use tokio_postgres::Transaction;
 
 use rpc::v0 as rpc;
 
@@ -23,37 +26,45 @@ pub struct MachineInterface {
     address_ipv6: Option<Ipv6Addr>,
 }
 
-impl From<tokio_postgres::Row> for MachineInterface {
-    fn from(row: tokio_postgres::Row) -> Self {
-        let id: uuid::Uuid = row.get("id");
+impl<'r> sqlx::FromRow<'r, PgRow> for MachineInterface {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let possible_address_ipv4: Option<IpNetwork> = row.try_get("address_ipv4")?;
+        let possible_address_ipv6: Option<IpNetwork> = row.try_get("address_ipv6")?;
 
-        let address_ipv4 = match row.get("address_ipv4") {
-            Some(IpAddr::V4(x)) => Some(x),
-            Some(IpAddr::V6(_)) => panic!(
-                "Found an IPv6 address in the address_ipv4 field for machine {}",
-                &id
-            ),
-            None => None,
-        };
+        let address_ipv4 = match possible_address_ipv4 {
+            Some(IpNetwork::V4(network)) if network.prefix() == 32 => Ok(Some(network.ip())),
+            Some(IpNetwork::V4(network)) => Err(sqlx::Error::Protocol(format!(
+                "IP address field in address_ipv4 ({}) is not a single host",
+                network
+            ))),
+            Some(IpNetwork::V6(network)) => Err(sqlx::Error::Protocol(format!(
+                "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
+                network
+            ))),
+            None => Ok(None),
+        }?;
 
-        let address_ipv6 = match row.get("address_ipv6") {
-            Some(IpAddr::V6(x)) => Some(x),
-            Some(IpAddr::V4(_)) => panic!(
-                "Found an IPv4 address in the address_ipv4 field for machine {}",
-                &id
-            ),
-            None => None,
-        };
+        let address_ipv6 = match possible_address_ipv6 {
+            Some(IpNetwork::V6(network)) if network.prefix() == 128 => Ok(Some(network.ip())),
+            Some(IpNetwork::V6(network)) => Err(sqlx::Error::Protocol(format!(
+                "IP address field in address_ipv4 ({}) is not a single host",
+                network
+            ))),
+            Some(IpNetwork::V4(network)) => Err(sqlx::Error::Protocol(format!(
+                "IP address field in address_ipv4 ({}) is not an IPv6 subnet",
+                network
+            ))),
+            None => Ok(None),
+        }?;
 
-        Self {
-            id: row.get("id"),
-            machine_id: row.get("machine_id"),
-            segment_id: row.get("segment_id"),
-            mac_address: row.get("mac_address"),
-
+        Ok(MachineInterface {
+            id: row.try_get("id")?,
+            machine_id: row.try_get("machine_id")?,
+            segment_id: row.try_get("segment_id")?,
+            mac_address: row.try_get("mac_address")?,
             address_ipv4,
             address_ipv6,
-        }
+        })
     }
 }
 
@@ -64,9 +75,7 @@ impl From<MachineInterface> for rpc::MachineInterface {
             machine_id: Some(machine_interface.machine_id.into()),
             segment_id: Some(machine_interface.segment_id.into()),
 
-            mac_address: machine_interface
-                .mac_address
-                .to_string(eui48::MacAddressFormat::HexString),
+            mac_address: machine_interface.mac_address.to_string(),
             address_ipv4: machine_interface.address_ipv4.map(|a| a.to_string()),
             address_ipv6: machine_interface.address_ipv6.map(|a| a.to_string()),
         }
@@ -75,53 +84,44 @@ impl From<MachineInterface> for rpc::MachineInterface {
 
 impl MachineInterface {
     pub async fn find_by_mac_address(
-        txn: &Transaction<'_>,
+        txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
     ) -> CarbideResult<Vec<MachineInterface>> {
-        Ok(txn
-            .query(
+        Ok(
+            sqlx::query_as(
                 "SELECT * FROM machine_interfaces mi WHERE mi.mac_address = $1::macaddr",
-                &[&macaddr],
             )
-            .await?
-            .into_iter()
-            .map(MachineInterface::from)
-            .collect::<Vec<MachineInterface>>())
+            .bind(macaddr)
+            .fetch_all(txn)
+            .await?,
+        )
     }
 
     pub async fn find_by_network_segment(
-        txn: &Transaction<'_>,
+        txn: &mut Transaction<'_, Postgres>,
         segment: &NetworkSegment,
     ) -> CarbideResult<Vec<MachineInterface>> {
-        Ok(txn
-            .query(
-                "SELECT * FROM machine_interfaces mi WHERE mi.segment_id = $1",
-                &[&segment.id()],
-            )
-            .await?
-            .into_iter()
-            .map(MachineInterface::from)
-            .collect())
+        Ok(
+            sqlx::query_as("SELECT * FROM machine_interfaces mi WHERE mi.segment_id = $1")
+                .bind(segment.id())
+                .fetch_all(txn)
+                .await?,
+        )
     }
 
     pub async fn find_by_machine_ids(
-        txn: &Transaction<'_>,
-        ids: Vec<&uuid::Uuid>,
+        txn: &mut Transaction<'_, Postgres>,
+        ids: Vec<uuid::Uuid>,
     ) -> CarbideResult<HashMap<uuid::Uuid, Vec<MachineInterface>>> {
-        let interfaces_result = txn
-            .query(
-                "SELECT * FROM machine_interfaces mi WHERE mi.machine_id=ANY($1)",
-                &[&ids],
-            )
-            .await;
+        let interfaces: Vec<MachineInterface> =
+            sqlx::query_as("SELECT * FROM machine_interfaces mi WHERE mi.machine_id=ANY($1)")
+                .bind(ids)
+                .fetch_all(&mut *txn)
+                .await?;
 
-        interfaces_result
-            .map(|rows| {
-                rows.into_iter()
-                    .map(MachineInterface::from)
-                    .into_group_map_by(|interface| interface.machine_id)
-            })
-            .map_err(CarbideError::from)
+        Ok(interfaces
+            .into_iter()
+            .into_group_map_by(|interface| interface.machine_id))
     }
 
     pub fn address_ipv4(&self) -> Option<&Ipv4Addr> {
@@ -133,7 +133,7 @@ impl MachineInterface {
     }
 
     pub async fn create(
-        txn: &Transaction<'_>,
+        txn: &mut Transaction<'_, Postgres>,
         machine: &Machine,
         segment: &NetworkSegment,
         macaddr: &MacAddress,
@@ -144,14 +144,12 @@ impl MachineInterface {
         if matches!(address_v4, AddressSelectionStrategy::Automatic(_))
             || matches!(address_v6, AddressSelectionStrategy::Automatic(_))
         {
-            txn.query(
-                "LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE",
-                &[],
-            )
-            .await?;
+            sqlx::query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE")
+                .execute(&mut *txn)
+                .await?;
         };
 
-        let interfaces = Self::find_by_network_segment(txn, segment).await?;
+        let interfaces = Self::find_by_network_segment(&mut *txn, segment).await?;
 
         let new_ipv4 = match address_v4 {
             AddressSelectionStrategy::Empty => None,
@@ -195,16 +193,16 @@ impl MachineInterface {
         }
         .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
 
-        txn
-            .query_one("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::inet, $5::inet) RETURNING *", &[&machine.id(), &segment.id(), &macaddr, &new_ipv4, &new_ipv6])
-            .await
-            .map(MachineInterface::from)
+        Ok(sqlx::query_as("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::inet, $5::inet) RETURNING *")
+            .bind(machine.id())
+            .bind(segment.id)
+            .bind(macaddr)
+            .bind(new_ipv4.map(|m| IpNetwork::from(m) ))
+            .bind(new_ipv6.map(|m| IpNetwork::from(m) ))
+            .fetch_one(&mut *txn).await
             .map_err(|err| {
-                // This is ugly
-                match err.as_db_error() {
-                    Some(db_error) if db_error.code() == &tokio_postgres::error::SqlState::UNIQUE_VIOLATION && db_error.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr),
-                    _ => err.into()
-                }
-            })
+                error!("TODO: convert to proper errror {:#?}", err);
+                err
+            })?)
     }
 }

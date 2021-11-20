@@ -2,15 +2,21 @@
 //! Machine - represents a database-backed Machine object
 //!
 use crate::{CarbideError, CarbideResult};
+use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
+use mac_address::MacAddress;
+use sqlx::postgres::PgRow;
+use sqlx::Acquire;
+use sqlx::Executor;
+use sqlx::FromRow;
+use sqlx::Postgres;
+use sqlx::Row;
+use sqlx::Transaction;
+use uuid::Uuid;
 
 use std::collections::HashMap;
 use std::convert::From;
 use std::str;
-
-use eui48::MacAddress;
-
-use tokio_postgres::Transaction;
 
 use super::AddressSelectionStrategy;
 use super::MachineAction;
@@ -18,6 +24,8 @@ use super::MachineEvent;
 use super::MachineInterface;
 use super::MachineState;
 use super::NetworkSegment;
+
+use chrono::prelude::*;
 
 use crate::human_hash;
 
@@ -45,10 +53,10 @@ pub struct Machine {
     fqdn: String,
 
     /// When this machine record was created
-    created: std::time::SystemTime,
+    created: DateTime<Utc>,
 
     /// When the machine record was last modified
-    modified: std::time::SystemTime,
+    modified: DateTime<Utc>,
 
     /// The current state of the machine
     state: MachineState,
@@ -64,18 +72,32 @@ pub struct Machine {
     interfaces: Vec<MachineInterface>,
 }
 
+impl<'r> FromRow<'r, PgRow> for Machine {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Machine {
+            id: row.try_get("id")?,
+            fqdn: row.try_get("fqdn")?,
+            created: row.try_get("created")?,
+            modified: row.try_get("modified")?,
+            state: row.try_get("state")?,
+            events: Vec::new(),
+            interfaces: Vec::new(),
+        })
+    }
+}
+
 ///
 /// A parameter to find() to filter machines by Uuid;
 ///
-pub enum MachineIdsFilter<'a> {
+pub enum MachineIdsFilter {
     /// Don't filter by uuid
     All,
 
     /// Filter by a list of uuids
-    List(Vec<&'a uuid::Uuid>),
+    List(Vec<uuid::Uuid>),
 
     /// Retrieve a single machine
-    One(&'a uuid::Uuid),
+    One(uuid::Uuid),
 }
 
 ///
@@ -87,8 +109,14 @@ impl From<Machine> for rpc::Machine {
         rpc::Machine {
             id: Some(machine.id.into()),
             fqdn: machine.fqdn,
-            created: Some(machine.created.into()),
-            modified: Some(machine.modified.into()),
+            created: Some(rpc::Timestamp {
+                seconds: machine.created.timestamp(),
+                nanos: 0,
+            }),
+            modified: Some(rpc::Timestamp {
+                seconds: machine.created.timestamp(),
+                nanos: 0,
+            }),
             state: Some(machine.state.into()),
             events: machine
                 .events
@@ -104,23 +132,6 @@ impl From<Machine> for rpc::Machine {
     }
 }
 
-///
-/// Implements conversion from a PostgreSQL row struct into a machine.
-///
-impl From<tokio_postgres::Row> for Machine {
-    fn from(row: tokio_postgres::Row) -> Self {
-        Self {
-            id: row.get("id"),
-            fqdn: row.get("fqdn"),
-            created: row.get("created"),
-            modified: row.get("modified"),
-            state: row.get("state"),
-            events: Vec::new(),
-            interfaces: Vec::new(),
-        }
-    }
-}
-
 impl Machine {
     /// Create a machine object in the database
     ///
@@ -129,32 +140,24 @@ impl Machine {
     /// * `txn` - A reference to a currently open database transaction
     /// * `fqdn` - initial hostname used to identify this host
     ///
-    pub async fn create(
-        txn: &tokio_postgres::Transaction<'_>,
-        fqdn: String,
-    ) -> CarbideResult<Self> {
-        let created_machine_row = txn
-            .query_one(
-                "INSERT INTO machines (fqdn) VALUES ($1) RETURNING id",
-                &[&fqdn],
-            )
+    pub async fn create(txn: &mut Transaction<'_, Postgres>, fqdn: String) -> CarbideResult<Self> {
+        let row: (Uuid,) = sqlx::query_as("INSERT INTO machines (fqdn) VALUES ($1) RETURNING id")
+            .bind(&fqdn)
+            .fetch_one(&mut *txn)
             .await?;
 
-        let created_id = created_machine_row.get("id");
-        match Machine::find_one(txn, created_id).await {
+        match Machine::find_one(&mut *txn, row.0).await {
             Ok(Some(x)) => Ok(x),
-            Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(
-                created_id,
-            )),
+            Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),
             Err(x) => Err(x),
         }
     }
 
     pub async fn find_one(
-        txn: &tokio_postgres::Transaction<'_>,
+        txn: &mut Transaction<'_, Postgres>,
         uuid: uuid::Uuid,
     ) -> CarbideResult<Option<Self>> {
-        Self::find(txn, MachineIdsFilter::One(&uuid))
+        Self::find(txn, MachineIdsFilter::One(uuid))
             .await
             .map(|v| v.into_iter().next())
     }
@@ -176,7 +179,7 @@ impl Machine {
     /// * `macaddr` - The eui48::MacAddress of the booting machine
     /// * `relay` - The IP address of the DHCP relay servicing the request.
     pub async fn discover(
-        txn: &mut tokio_postgres::Transaction<'_>,
+        txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
         relay: IpAddr,
     ) -> CarbideResult<Self> {
@@ -195,14 +198,13 @@ impl Machine {
                 (($2::inet <<= ns.subnet_ipv4) OR ($2::inet <<= ns.subnet_ipv6));
         "#;
 
-        let mut results = txn
-            .query(sql, &[&macaddr, &relay])
-            .await?
-            .into_iter()
-            .map(|row| row.get::<&str, uuid::Uuid>("id"))
-            .collect::<Vec<uuid::Uuid>>();
+        let mut machine_ids: Vec<(Uuid,)> = sqlx::query_as(sql)
+            .bind(macaddr)
+            .bind(IpNetwork::from(relay))
+            .fetch_all(&mut *txn)
+            .await?;
 
-        match &results.len() {
+        match &machine_ids.len() {
             0 => {
                 info!("No existing machine with mac address {} using network with relay: {}, creating one.", macaddr, relay);
 
@@ -215,13 +217,14 @@ impl Machine {
 
                         debug!("Generated hostname {}", generated_fqdn);
 
-                        let machine_create_transaction = txn.transaction().await?;
+                        let mut txn2 = txn.begin().await?;
 
                         let machine =
-                            Machine::create(&machine_create_transaction, generated_fqdn).await?;
+                            Machine::create(&mut txn2, generated_fqdn)
+                                .await?;
 
                         let _ = MachineInterface::create(
-                            &machine_create_transaction,
+                            &mut txn2,
                             &machine,
                             &segment,
                             &macaddr,
@@ -230,9 +233,9 @@ impl Machine {
                         )
                         .await?;
 
-                        machine_create_transaction.commit().await?;
+                        txn2.commit().await?;
 
-                        Ok(Self::find(txn, MachineIdsFilter::List(vec![&machine.id]))
+                        Ok(Self::find(txn, MachineIdsFilter::List(vec![machine.id()]))
                             .await?
                             .remove(0))
                     }
@@ -240,12 +243,12 @@ impl Machine {
                 }
             }
             1 => {
-                let id = results.remove(0);
-                Machine::find_one(txn, id).await.and_then(|machine| {
+                let id = machine_ids.remove(0);
+                Machine::find_one(txn, id.0).await.and_then(|machine| {
                     if let Some(machine) = machine {
                         Ok(machine)
                     } else {
-                        Err(CarbideError::DatabaseInconsistencyOnMachineCreate(id))
+                        Err(CarbideError::DatabaseInconsistencyOnMachineCreate(id.0))
                     }
                 })
             }
@@ -265,12 +268,12 @@ impl Machine {
     }
 
     /// Returns the std::time::SystemTime for when the machine was initially discovered
-    pub fn created(&self) -> std::time::SystemTime {
+    pub fn created(&self) -> chrono::DateTime<Utc> {
         self.created
     }
 
     /// Returns the std::time::SystemTime for when the machine was last updated
-    pub fn modified(&self) -> std::time::SystemTime {
+    pub fn modified(&self) -> chrono::DateTime<Utc> {
         self.modified
     }
 
@@ -300,18 +303,17 @@ impl Machine {
     /// * `new_fqdn` - The new FQDN, which is subject to DNS validation rules (todo!())
     pub async fn update_fqdn(
         &mut self,
-        txn: &Transaction<'_>,
+        txn: &mut Transaction<'_, Postgres>,
         new_fqdn: &str,
     ) -> CarbideResult<&Machine> {
-        let result = txn
-            .query_one(
-                "UPDATE machines SET fqdn=$1 RETURNING fqdn,modified",
-                &[&new_fqdn],
-            )
-            .await?;
+        let (fqdn, timestamp) =
+            sqlx::query_as("UPDATE machines SET fqdn=$1 RETURNING fqdn,modified")
+                .bind(new_fqdn)
+                .fetch_one(txn)
+                .await?;
 
-        self.fqdn = result.get("fqdn");
-        self.modified = result.get("modified");
+        self.fqdn = fqdn;
+        self.modified = timestamp;
 
         Ok(self)
     }
@@ -328,7 +330,7 @@ impl Machine {
     ///
     pub async fn current_state(
         &self,
-        txn: &tokio_postgres::Transaction<'_>,
+        txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<MachineState> {
         MachineState::for_machine(self, txn).await
     }
@@ -343,17 +345,18 @@ impl Machine {
     ///
     pub async fn advance(
         &self,
-        dbc: &tokio_postgres::Transaction<'_>,
+        txn: &mut Transaction<'_, Postgres>,
         action: &MachineAction,
     ) -> CarbideResult<bool> {
-        let row = dbc
-            .query_one(
-                "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING id",
-                &[&self.id(), &action],
-            )
-            .await?;
+        let id: (Uuid,) = sqlx::query_as(
+            "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING id",
+        )
+        .bind(self.id())
+        .bind(action)
+        .fetch_one(txn)
+        .await?;
 
-        log::info!("Event ID is {}", row.get::<&str, uuid::Uuid>("id"));
+        log::info!("Event ID is {}", id.0);
 
         Ok(true)
     }
@@ -365,7 +368,7 @@ impl Machine {
     ///
     /// * `txn` - A reference to a currently open database transaction
     ///
-    pub async fn fail(&self, txn: &tokio_postgres::Transaction<'_>) -> CarbideResult<bool> {
+    pub async fn fail(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<bool> {
         self.advance(txn, &MachineAction::Fail).await
     }
 
@@ -376,7 +379,7 @@ impl Machine {
     ///
     /// * `txn` - A reference to a currently open database transaction
     ///
-    pub async fn commission(&self, txn: &tokio_postgres::Transaction<'_>) -> CarbideResult<bool> {
+    pub async fn commission(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<bool> {
         self.advance(txn, &MachineAction::Commission).await
     }
 
@@ -390,57 +393,61 @@ impl Machine {
     /// * `txn` - A reference to a currently open database transaction
     ///
     pub async fn find(
-        txn: &tokio_postgres::Transaction<'_>,
-        id_filter: MachineIdsFilter<'_>,
+        txn: &mut Transaction<'_, Postgres>,
+        id_filter: MachineIdsFilter,
     ) -> CarbideResult<Vec<Machine>> {
-        let base_query = "SELECT m.*,machine_state_machine(me.action,me.version) AS state FROM machines m JOIN machine_events me ON me.machine_id=m.id ";
+        let base_query = "SELECT m.*,machine_state_machine(me.action,me.version) AS state FROM machines m JOIN machine_events me ON me.machine_id=m.id {where} GROUP BY m.id".to_owned();
 
-        let query = match id_filter {
+        let all_machines: Vec<Machine> = match id_filter {
             MachineIdsFilter::All => {
-                txn.query(&format!("{0} GROUP BY m.id", base_query)[..], &[])
-                    .await
+                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", ""))
+                    .fetch_all(&mut *txn)
+                    .await?
             }
-            MachineIdsFilter::One(ref uuid) => {
-                txn.query(
-                    &format!("{0} WHERE m.id=$1 GROUP BY m.id", base_query)[..],
-                    &[&uuid],
-                )
-                .await
+            MachineIdsFilter::One(uuid) => {
+                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=$1"))
+                    .bind(uuid)
+                    .fetch_all(&mut *txn)
+                    .await?
             }
-            MachineIdsFilter::List(ref list) => {
-                txn.query(
-                    &format!("{0} WHERE m.id=ANY($1) GROUP BY m.id", base_query)[..],
-                    &[&list],
-                )
-                .await
+            MachineIdsFilter::List(list) => {
+                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
+                    .bind(list)
+                    .fetch_all(&mut *txn)
+                    .await?
             }
-        }?;
+        };
 
-        let mut machines = query
-            .into_iter()
-            .fold(HashMap::new(), |mut accumulator, row| {
-                let machine = Machine::from(row);
+        let final_hint_length = all_machines.len();
 
-                accumulator.insert(machine.id, machine);
+        let mut grouped_machines =
+            all_machines
+                .into_iter()
+                .fold(HashMap::new(), |mut accumulator, machine| {
+                    accumulator.insert(machine.id(), machine);
+                    accumulator
+                });
 
-                accumulator
-            });
+        let mut events_for_machine = MachineEvent::find_by_machine_ids(
+            &mut *txn,
+            grouped_machines
+                .keys()
+                .map(|uuid| uuid.to_owned())
+                .collect(),
+        )
+        .await?;
 
-        let events_future = MachineEvent::find_by_machine_ids(txn, machines.keys().collect());
+        let mut interfaces_for_machine = MachineInterface::find_by_machine_ids(
+            &mut *txn,
+            grouped_machines
+                .keys()
+                .map(|uuid| uuid.to_owned())
+                .collect(),
+        )
+        .await?;
 
-        let interfaces_future =
-            MachineInterface::find_by_machine_ids(txn, machines.keys().collect());
-
-        let (events_for_machine_result, interfaces_for_machine_result) =
-            futures::join!(events_future, interfaces_future);
-
-        let mut events_for_machine = events_for_machine_result?;
-        let mut interfaces_for_machine = interfaces_for_machine_result?;
-
-        let hint_length = machines.len();
-
-        let final_machine_list = machines.drain().fold(
-            Vec::with_capacity(hint_length),
+        let final_machine_list = grouped_machines.drain().fold(
+            Vec::with_capacity(final_hint_length),
             move |mut accumulator, (uuid, mut machine)| {
                 if let Some(events) = events_for_machine.remove(&uuid) {
                     machine.events = events;

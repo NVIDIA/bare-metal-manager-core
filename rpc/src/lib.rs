@@ -12,6 +12,8 @@ pub mod v0 {
     use std::fmt::Display;
     use eui48::{ParseError, MacAddress};
 
+    pub use prost_types::Timestamp;
+
     tonic::include_proto!("carbide.v0");
 
     pub const REFLECTION_SERVICE_DESCRIPTOR: &[u8] =
