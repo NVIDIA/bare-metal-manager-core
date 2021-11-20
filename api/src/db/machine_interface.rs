@@ -197,8 +197,8 @@ impl MachineInterface {
             .bind(machine.id())
             .bind(segment.id)
             .bind(macaddr)
-            .bind(new_ipv4.map(|m| IpNetwork::from(m) ))
-            .bind(new_ipv6.map(|m| IpNetwork::from(m) ))
+            .bind(new_ipv4.map(IpNetwork::from ))
+            .bind(new_ipv6.map(IpNetwork::from ))
             .fetch_one(&mut *txn).await
             .map_err(|err| {
                 error!("TODO: convert to proper errror {:#?}", err);

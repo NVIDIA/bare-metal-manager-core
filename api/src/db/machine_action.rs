@@ -19,8 +19,7 @@ use rpc::v0 as rpc;
 /// Unfortunately the Rust code doesn't distinguish between versions so having multiple state
 /// machine versions with the same MachineAction enum.
 ///
-#[derive(Debug, PartialEq)]
-#[derive(sqlx::Type)]
+#[derive(Debug, PartialEq, sqlx::Type)]
 #[sqlx(type_name = "machine_action")]
 #[sqlx(rename_all = "lowercase")]
 pub enum MachineAction {

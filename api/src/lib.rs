@@ -1,4 +1,3 @@
-use ipnetwork::IpNetworkError;
 use log::info;
 use mac_address::MacAddress;
 use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
@@ -77,9 +76,7 @@ pub enum CarbideError {
 
 impl From<CarbideError> for tonic::Status {
     fn from(from: CarbideError) -> Self {
-        match from {
-            _ => Status::internal(from.to_string()),
-        }
+        Status::internal(from.to_string())
     }
 }
 

@@ -1,13 +1,10 @@
 mod common;
 
 use carbide::db::Machine;
-use carbide::db::NetworkSegment;
+
 use carbide::db::NewNetworkSegment;
-use ipnetwork::Ipv4Network;
 
 use log::LevelFilter;
-
-use mac_address::MacAddress;
 
 use std::sync::Once;
 

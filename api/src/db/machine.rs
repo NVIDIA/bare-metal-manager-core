@@ -219,9 +219,7 @@ impl Machine {
 
                         let mut txn2 = txn.begin().await?;
 
-                        let machine =
-                            Machine::create(&mut txn2, generated_fqdn)
-                                .await?;
+                        let machine = Machine::create(&mut txn2, generated_fqdn).await?;
 
                         let _ = MachineInterface::create(
                             &mut txn2,

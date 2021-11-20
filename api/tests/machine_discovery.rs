@@ -3,7 +3,7 @@ mod common;
 use carbide::db::Machine;
 use carbide::db::NetworkSegment;
 use carbide::db::NewNetworkSegment;
-use carbide::CarbideResult;
+
 use ipnetwork::Ipv4Network;
 use ipnetwork::Ipv6Network;
 use std::net::Ipv4Addr;

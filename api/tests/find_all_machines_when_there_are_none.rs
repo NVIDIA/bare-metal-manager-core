@@ -32,7 +32,9 @@ async fn test_find_all_machines_when_there_arent_any() {
         .await
         .expect("Could create a transaction on database pool");
 
-    let machines = Machine::find(&mut txn, MachineIdsFilter::All).await.unwrap();
+    let machines = Machine::find(&mut txn, MachineIdsFilter::All)
+        .await
+        .unwrap();
 
     assert!(machines.is_empty());
 }

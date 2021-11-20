@@ -32,12 +32,26 @@ impl TestDatabaseManager {
                 username
             )
             .as_str(),
-        ).await?;
+        )
+        .await?;
 
         let pool = template_pool.clone();
 
-        sqlx::query(format!("CREATE DATABASE {0} TEMPLATE template0", temporary_database_name).as_str())
-            .execute(&pool).await.expect(format!("Failed to create test database: {0}", temporary_database_name).as_str());
+        sqlx::query(
+            format!(
+                "CREATE DATABASE {0} TEMPLATE template0",
+                temporary_database_name
+            )
+            .as_str(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to create test database: {0}",
+                temporary_database_name
+            )
+        });
 
         let mut real_pool = sqlx::PgPool::connect(
             format!(
@@ -45,9 +59,12 @@ impl TestDatabaseManager {
                 username, temporary_database_name
             )
             .as_str(),
-        ).await?;
+        )
+        .await?;
 
-        carbide::db::migrations::migrate(&mut real_pool).await.unwrap();
+        carbide::db::migrations::migrate(&mut real_pool)
+            .await
+            .unwrap();
 
         Ok(Self {
             template_pool,

@@ -1,9 +1,9 @@
 use super::MachineAction;
 use crate::CarbideResult;
+use chrono::prelude::*;
 use itertools::Itertools;
 use sqlx::{Postgres, Transaction};
 use std::collections::HashMap;
-use chrono::prelude::*;
 
 use rpc::v0 as rpc;
 
@@ -41,7 +41,10 @@ impl From<MachineEvent> for rpc::MachineEvent {
         let mut proto_event = rpc::MachineEvent {
             id: event.id,
             machine_id: Some(event.machine_id.into()),
-            time: Some( rpc::Timestamp { seconds: event.timestamp.timestamp(), nanos: 0 }),
+            time: Some(rpc::Timestamp {
+                seconds: event.timestamp.timestamp(),
+                nanos: 0,
+            }),
             version: event.version,
             event: 0, // 0 is usually null in protobuf I guess
         };

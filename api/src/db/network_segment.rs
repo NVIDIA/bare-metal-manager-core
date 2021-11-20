@@ -160,7 +160,7 @@ impl NetworkSegment {
 
         match results.len() {
             0 => Ok(None),
-            1 => Ok(Some(Self::from(results.remove(0)))),
+            1 => Ok(Some(results.remove(0))),
             _ => Err(CarbideError::MultipleNetworkSegmentsForRelay(relay)),
         }
     }
@@ -202,11 +202,16 @@ impl NetworkSegment {
                 map.extend(std::iter::once((subnet.network().octets(), ())));
 
                 if let Some(gateway) = self.gateway_ipv4 {
-                    map.extend(std::iter::once( (gateway.octets(), ()) ));
+                    map.extend(std::iter::once((gateway.octets(), ())));
                 }
 
-                map.extend(subnet.iter().skip(1).take(self.reserve_first_ipv4 as usize)
-                    .map(|ip| (ip.octets(), ())));
+                map.extend(
+                    subnet
+                        .iter()
+                        .skip(1)
+                        .take(self.reserve_first_ipv4 as usize)
+                        .map(|ip| (ip.octets(), ())),
+                );
 
                 subnet
                     .iter()

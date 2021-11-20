@@ -1,8 +1,6 @@
 mod api;
 mod cfg;
 
-use carbide::db;
-
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
 
@@ -14,7 +12,6 @@ async fn main() -> Result<(), color_eyre::Report> {
     color_eyre::install()?;
 
     let config = Options::load();
-
 
     pretty_env_logger::formatted_timed_builder()
         .filter_level(match config.debug {

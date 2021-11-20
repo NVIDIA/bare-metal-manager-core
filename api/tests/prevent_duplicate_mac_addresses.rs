@@ -11,8 +11,6 @@ use ipnetwork::Ipv4Network;
 
 use log::LevelFilter;
 
-use mac_address::MacAddress;
-
 use std::str::FromStr;
 use std::sync::Once;
 

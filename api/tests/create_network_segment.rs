@@ -4,7 +4,10 @@ use std::str::FromStr;
 
 use ipnetwork::{Ipv4Network, Ipv6Network};
 
-use carbide::{CarbideResult, db::{NetworkSegment, NewNetworkSegment}};
+use carbide::{
+    db::{NetworkSegment, NewNetworkSegment},
+    CarbideResult,
+};
 
 use log::LevelFilter;
 
