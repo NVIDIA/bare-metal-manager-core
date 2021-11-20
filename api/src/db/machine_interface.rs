@@ -200,9 +200,11 @@ impl MachineInterface {
             .bind(new_ipv4.map(IpNetwork::from ))
             .bind(new_ipv6.map(IpNetwork::from ))
             .fetch_one(&mut *txn).await
-            .map_err(|err| {
-                error!("TODO: convert to proper errror {:#?}", err);
-                err
+            .map_err(|err: sqlx::Error| {
+                match err {
+                    sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr),
+                    _ => CarbideError::from(err)
+                }
             })?)
     }
 }
