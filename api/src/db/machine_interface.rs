@@ -6,6 +6,7 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row, Transaction};
+use uuid::Uuid;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -206,5 +207,10 @@ impl MachineInterface {
                     _ => CarbideError::from(err)
                 }
             })?)
+    }
+
+    /// Get a reference to the machine interface's segment id.
+    pub fn segment_id(&self) -> Uuid {
+        self.segment_id
     }
 }

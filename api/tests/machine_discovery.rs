@@ -7,6 +7,7 @@ use carbide::db::NewNetworkSegment;
 use ipnetwork::Ipv4Network;
 use ipnetwork::Ipv6Network;
 use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 use std::str::FromStr;
 
 use log::LevelFilter;
@@ -39,7 +40,7 @@ async fn test_machine_discovery() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let _segment: NetworkSegment = NewNetworkSegment {
+    let segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain: "m.nvmetal.net".to_string(),
         mtu: Some(1500i32),
@@ -47,7 +48,7 @@ async fn test_machine_discovery() {
         subnet_ipv6: Some(Ipv6Network::from_str("2001:db8:f::/64").expect("can't parse network")),
         gateway_ipv4: Some("192.168.0.1/32".parse().unwrap()),
         reserve_first_ipv4: Some(3),
-        reserve_first_ipv6: Some(3),
+        reserve_first_ipv6: Some(4096),
     }
     .persist(&mut txn)
     .await
@@ -61,12 +62,14 @@ async fn test_machine_discovery() {
     .await
     .expect("Unable to create machine");
 
+    let interface = machine.interfaces().iter().find(|i| i.segment_id() == segment.id).unwrap();
     assert_eq!(
-        machine
-            .interfaces()
-            .iter()
-            .filter_map(|interface| interface.address_ipv4())
-            .collect::<Vec<&Ipv4Addr>>(),
-        vec![&Ipv4Addr::from_str("10.0.0.4").unwrap()]
+        interface.address_ipv4(),
+        Some(&Ipv4Addr::new(10, 0, 0, 4))
+    );
+
+    assert_eq!(
+        interface.address_ipv6(),
+        Some(&Ipv6Addr::from_str("2001:db8:f::1000").unwrap())
     );
 }

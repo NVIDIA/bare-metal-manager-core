@@ -235,6 +235,13 @@ impl NetworkSegment {
 
                 map.extend(used_ips.map(|ip| (ip.octets(), ())));
 
+                map.extend(
+                    subnet
+                        .iter()
+                        .take(self.reserve_first_ipv6 as usize)
+                        .map(|ip| (ip.octets(), ())),
+                );
+
                 subnet
                     .iter()
                     .find(|address| map.get(address.octets()).is_none())
