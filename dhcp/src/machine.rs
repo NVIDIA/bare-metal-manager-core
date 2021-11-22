@@ -23,7 +23,7 @@ impl Machine {
             match address_assignment {
                 rpc::v0::AddressAssignmentV4 {
                     gateway: Some(x), ..
-                } => Ok(Some(Ipv4Addr::from_str(&x)?)),
+                } => Ok(Some(Ipv4Addr::from_str(x)?)),
                 _ => Ok(None),
             }
         } else {
@@ -139,10 +139,10 @@ pub unsafe extern "C" fn machine_free(ctx: *mut Machine) {
 mod tests {
     use super::Discovery;
     use mac_address::MacAddress;
-    use rpc::v0::{Machine, MachineAction, MachineEvent, MachineInterface, MachineState};
+
     use std::net::Ipv4Addr;
     use std::str::FromStr;
-    use std::time::SystemTime;
+
 
     use crate::machine::Machine as DhcpMachine;
 
