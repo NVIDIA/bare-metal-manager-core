@@ -1,10 +1,11 @@
 use std::convert::TryFrom;
 
 use carbide::{
-    db::{Machine, MachineIdsFilter, NetworkSegment, NewNetworkSegment},
+    db::{DhcpRecord, Machine, MachineIdsFilter, NetworkSegment, NewNetworkSegment},
     CarbideError,
 };
 use color_eyre::Report;
+use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
 
 #[allow(unused_imports)]
@@ -44,7 +45,7 @@ impl Carbide for Api {
     async fn discover_machine(
         &self,
         request: Request<rpc::MachineDiscovery>,
-    ) -> Result<Response<rpc::Machine>, Status> {
+    ) -> Result<Response<rpc::DhcpRecord>, Status> {
         let mut txn = self
             .database_connection
             .begin()
@@ -57,15 +58,25 @@ impl Carbide for Api {
             ..
         } = request.into_inner();
 
-        Ok(Machine::discover(
-            &mut txn,
-            mac_address.parse().unwrap(),
-            relay_address.parse().unwrap(),
-        )
-        .await
-        .map(rpc::Machine::from)
-        .map(Response::new)
-        .map_err(CarbideError::from)?)
+        let parsed_mac: MacAddress = mac_address
+            .parse::<MacAddress>()
+            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+        Machine::discover(&mut txn, parsed_mac, relay_address.parse().unwrap()).await?;
+
+        let network = NetworkSegment::for_relay(&mut txn, relay_address.parse().unwrap())
+            .await?
+            .unwrap();
+
+        let response = Ok(Response::new(
+            DhcpRecord::find_by_id_ipv4(&mut txn, &parsed_mac, network.id())
+                .await?
+                .into(),
+        ));
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn get_network_segments(
@@ -101,18 +112,22 @@ impl Carbide for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        Ok(NewNetworkSegment::try_from(request.into_inner())?
+        let response = Ok(NewNetworkSegment::try_from(request.into_inner())?
             .persist(&mut txn)
             .await
             .map(rpc::NetworkSegment::from)
-            .map(Response::new)?)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn delete_network_segment(
         &self,
         _request: Request<rpc::Uuid>,
     ) -> Result<Response<rpc::NetworkSegmentDeletion>, Status> {
-        let _txn = self
+        let txn = self
             .database_connection
             .begin()
             .await
@@ -120,7 +135,11 @@ impl Carbide for Api {
 
         //    carbide::models::NetworkSegment::find_by_id(&txn);
 
-        Ok(Response::new(rpc::NetworkSegmentDeletion {}))
+        let response = Ok(Response::new(rpc::NetworkSegmentDeletion {}));
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 }
 

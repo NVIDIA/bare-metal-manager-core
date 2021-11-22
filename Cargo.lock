@@ -549,8 +549,8 @@ version = "0.0.1"
 dependencies = [
  "cbindgen",
  "cc",
- "eui48",
  "libc",
+ "mac_address",
  "once_cell",
  "rpc",
  "tokio",

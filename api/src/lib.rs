@@ -1,7 +1,8 @@
+use ipnetwork::IpNetwork;
 use log::info;
 use mac_address::MacAddress;
 use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
-use std::net::{AddrParseError, IpAddr};
+use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
 use tonic::Status;
 
 pub mod db;
@@ -103,8 +104,6 @@ impl From<sqlx::Error> for CarbideError {
     }
 }
 
-// Database(PgDatabaseError { severity: Error, code: "T0100", message: "invalid state transision from new using commission", detail: None, hint: Some("Possible transitions from new are adopt, fail"), position: None, where: Some("PL/pgSQL function machine_action_trigger() line 27 at RAISE"), schema: None, table: None, column: None, data_type: None, constraint: None, file: Some("pl_exec.c"), line: Some(3871), routine: Some("exec_stmt_raise") })
-
 /// Result type for the return type of Carbide functions
 ///
 /// Wraps `CarbideError` into `CarbideResult<T>`
@@ -119,3 +118,32 @@ impl From<sqlx::Error> for CarbideError {
 /// assert!(matches!(do_something(), Err(CarbideError::GenericError(_))));
 /// ```
 pub type CarbideResult<T> = Result<T, CarbideError>;
+
+pub fn network_to_host_ipv4(src: IpNetwork) -> CarbideResult<Ipv4Addr> {
+    match src {
+        IpNetwork::V4(network) if network.prefix() == 32 => Ok(network.ip()),
+        IpNetwork::V4(network) => Err(CarbideError::GenericError(format!(
+                    "IP address field in address_ipv4 ({}) is not a single host",
+                    network
+        ))),
+        IpNetwork::V6(network) => Err(CarbideError::GenericError(format!(
+                    "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
+                    network
+        ))),
+    }
+}
+
+pub fn network_to_host_ipv6(src: IpNetwork) -> CarbideResult<Ipv6Addr> {
+    match src {
+        IpNetwork::V6(network) if network.prefix() == 128 => Ok(network.ip()),
+        IpNetwork::V6(network) => Err(CarbideError::GenericError(format!(
+                    "IP address field in address_ipv4 ({}) is not a single host",
+                    network
+        ))),
+        IpNetwork::V4(network) => Err(CarbideError::GenericError(format!(
+                    "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
+                    network
+        ))),
+    }
+}
+

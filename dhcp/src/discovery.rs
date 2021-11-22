@@ -1,12 +1,12 @@
-use eui48::MacAddress;
+use mac_address::MacAddress;
 use std::net::Ipv4Addr;
 use std::primitive::u32;
 
 use crate::machine::Machine;
 use crate::CarbideDhcpContext;
 
-use rpc::v0 as rpc;
 use crate::CONFIG;
+use rpc::v0 as rpc;
 
 #[derive(Debug, Default)]
 pub struct Discovery {
@@ -65,9 +65,12 @@ pub unsafe extern "C" fn discovery_set_mac_address(
     assert!(size == 6);
 
     let mut discovery = Box::from_raw(ctx);
-    let mac_address = MacAddress::from_bytes(std::slice::from_raw_parts(raw_parts, size));
 
-    discovery.mac_address = Some(mac_address.unwrap());
+    discovery.mac_address = Some(MacAddress::new(
+        std::slice::from_raw_parts(raw_parts, size)
+            .try_into()
+            .expect("panic: could not unmarshall u8 slice to 6-bye MAC Address array"),
+    ));
 
     std::mem::forget(discovery);
     true
@@ -82,7 +85,7 @@ pub unsafe extern "C" fn discovery_fetch_machine(ctx: *mut Discovery) -> *mut Ma
     let discovery = Box::from_raw(ctx);
 
     let machine = runtime.block_on(async move {
-        let config = CONFIG.read().unwrap(); 
+        let config = CONFIG.read().unwrap();
         let x = config.api_endpoint.clone();
 
         let mut client = rpc::carbide_client::CarbideClient::connect(x)
@@ -90,7 +93,7 @@ pub unsafe extern "C" fn discovery_fetch_machine(ctx: *mut Discovery) -> *mut Ma
             .unwrap();
 
         let request = tonic::Request::new(rpc::MachineDiscovery {
-            mac_address: discovery.mac_address.unwrap().to_hex_string(),
+            mac_address: discovery.mac_address.unwrap().to_string(),
             relay_address: discovery.relay_address.unwrap().to_string(),
             //vendor_string: discovery.vendor_string.unwrap().to_string(),
         });

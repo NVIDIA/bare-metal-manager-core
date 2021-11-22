@@ -113,6 +113,29 @@ message NetworkSegment {
 	optional string gateway_ipv4 = 9;
 }
 
+message DhcpRecord {
+	UUID machine_id = 1;
+	UUID segment_id = 2;
+
+	string subdomain = 3;
+	string fqdn = 4;
+
+	optional AddressAssignmentV4 address_ipv4 = 5;
+	optional AddressAssignmentV6 address_ipv6 = 6;
+}
+
+message AddressAssignmentV4 {
+	string mac_address = 1;
+	string address = 2;
+	optional string gateway = 3;
+	string mask = 4;
+}
+
+message AddressAssignmentV6 {
+	string duid = 1;
+	string address = 2;
+}
+
 message NewNetworkSegment {
 	string name = 2;
 	string subdomain = 3;
@@ -124,7 +147,6 @@ message NewNetworkSegment {
 	optional int32 reserve_first_ipv6 = 8;
 	optional string gateway_ipv4 = 9;
 }
-
 
 message NetworkSegmentList {
 	repeated NetworkSegment network_segments = 1;
@@ -161,7 +183,7 @@ service Carbide {
 
 	// Machines API
 	/* Discover or create a machine based on Mac Address & DHCP Relay IP */
-	rpc DiscoverMachine(MachineDiscovery) returns (Machine);
+	rpc DiscoverMachine(MachineDiscovery) returns (DhcpRecord);
 
 	/*
 	 * Find and filter a list of the currently available machines:

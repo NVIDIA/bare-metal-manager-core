@@ -29,34 +29,23 @@ pub struct MachineInterface {
 
 impl<'r> sqlx::FromRow<'r, PgRow> for MachineInterface {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let possible_address_ipv4: Option<IpNetwork> = row.try_get("address_ipv4")?;
-        let possible_address_ipv6: Option<IpNetwork> = row.try_get("address_ipv6")?;
+        let address_ipv4 = if let Some(address_ipv4) = row.try_get("address_ipv4")? {
+            Some(
+                crate::network_to_host_ipv4(address_ipv4)
+                    .map_err(|err| sqlx::Error::Protocol(err.to_string()))?,
+            )
+        } else {
+            None
+        };
 
-        let address_ipv4 = match possible_address_ipv4 {
-            Some(IpNetwork::V4(network)) if network.prefix() == 32 => Ok(Some(network.ip())),
-            Some(IpNetwork::V4(network)) => Err(sqlx::Error::Protocol(format!(
-                "IP address field in address_ipv4 ({}) is not a single host",
-                network
-            ))),
-            Some(IpNetwork::V6(network)) => Err(sqlx::Error::Protocol(format!(
-                "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
-                network
-            ))),
-            None => Ok(None),
-        }?;
-
-        let address_ipv6 = match possible_address_ipv6 {
-            Some(IpNetwork::V6(network)) if network.prefix() == 128 => Ok(Some(network.ip())),
-            Some(IpNetwork::V6(network)) => Err(sqlx::Error::Protocol(format!(
-                "IP address field in address_ipv4 ({}) is not a single host",
-                network
-            ))),
-            Some(IpNetwork::V4(network)) => Err(sqlx::Error::Protocol(format!(
-                "IP address field in address_ipv4 ({}) is not an IPv6 subnet",
-                network
-            ))),
-            None => Ok(None),
-        }?;
+        let address_ipv6 = if let Some(address_ipv6) = row.try_get("address_ipv6")? {
+            Some(
+                crate::network_to_host_ipv6(address_ipv6)
+                    .map_err(|err| sqlx::Error::Protocol(err.to_string()))?,
+            )
+        } else {
+            None
+        };
 
         Ok(MachineInterface {
             id: row.try_get("id")?,

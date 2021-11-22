@@ -8,12 +8,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 libc = "*"
-eui48 = "0.4.0"
 rpc = { path = "../rpc" }
 uuid = "*"
 tokio = { version = "*", features = ["rt"] }
 tonic = "*"
 once_cell = "*"
+mac_address = "*"
 
 [build-dependencies]
 cc = "1.0"
