@@ -2206,7 +2206,7 @@ dependencies = [
 name = "rpc"
 version = "0.0.1"
 dependencies = [
- "eui48",
+ "mac_address",
  "prost",
  "prost-build",
  "prost-types",

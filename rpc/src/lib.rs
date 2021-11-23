@@ -4,7 +4,7 @@
 //! interact with the API Service
 //!
 pub mod v0 {
-    use eui48::{MacAddress, ParseError};
+    use mac_address::{MacAddress, MacParseError};
     use prost::Message;
     use std::convert::From;
     use std::convert::TryFrom;
@@ -55,7 +55,7 @@ pub mod v0 {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match uuid::Uuid::try_from(self) {
                 Ok(uuid) => write!(f, "{}", uuid),
-                Err(err) => write!(f, "<uuid error: {}", err),
+                Err(err) => write!(f, "<uuid error: {}>", err),
             }
         }
     }
@@ -77,7 +77,7 @@ pub mod v0 {
             }
         }
 
-        pub fn parsed_mac_address(&self) -> Result<Option<MacAddress>, ParseError> {
+        pub fn parsed_mac_address(&self) -> Result<Option<MacAddress>, MacParseError> {
             Ok(Some(MacAddress::from_str(&self.mac_address)?))
         }
     }
