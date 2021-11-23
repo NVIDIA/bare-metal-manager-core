@@ -123,12 +123,12 @@ pub fn network_to_host_ipv4(src: IpNetwork) -> CarbideResult<Ipv4Addr> {
     match src {
         IpNetwork::V4(network) if network.prefix() == 32 => Ok(network.ip()),
         IpNetwork::V4(network) => Err(CarbideError::GenericError(format!(
-                    "IP address field in address_ipv4 ({}) is not a single host",
-                    network
+            "IP address field in address_ipv4 ({}) is not a single host",
+            network
         ))),
         IpNetwork::V6(network) => Err(CarbideError::GenericError(format!(
-                    "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
-                    network
+            "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
+            network
         ))),
     }
 }
@@ -137,13 +137,12 @@ pub fn network_to_host_ipv6(src: IpNetwork) -> CarbideResult<Ipv6Addr> {
     match src {
         IpNetwork::V6(network) if network.prefix() == 128 => Ok(network.ip()),
         IpNetwork::V6(network) => Err(CarbideError::GenericError(format!(
-                    "IP address field in address_ipv4 ({}) is not a single host",
-                    network
+            "IP address field in address_ipv4 ({}) is not a single host",
+            network
         ))),
         IpNetwork::V4(network) => Err(CarbideError::GenericError(format!(
-                    "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
-                    network
+            "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
+            network
         ))),
     }
 }
-

@@ -105,7 +105,7 @@ pub unsafe extern "C" fn discovery_fetch_machine(ctx: *mut Discovery) -> *mut Ma
                     inner: response.into_inner(),
                     discovery_info: discovery,
                 })
-            },
+            }
             Err(error) => {
                 eprintln!("error: {}", error.to_string());
                 None

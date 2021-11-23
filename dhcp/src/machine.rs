@@ -122,7 +122,6 @@ pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
     };
 }
 
-
 /// Invoke the discovery processs
 ///
 /// # Safety
@@ -176,7 +175,6 @@ mod tests {
 
     use std::net::Ipv4Addr;
     use std::str::FromStr;
-
 
     use crate::machine::Machine as DhcpMachine;
 

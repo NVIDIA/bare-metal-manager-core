@@ -5,12 +5,13 @@ mod machine;
 use libc::c_char;
 
 use once_cell::sync::Lazy;
-use tokio::runtime::{Builder, Runtime};
 use std::sync::RwLock;
+use tokio::runtime::{Builder, Runtime};
 
 use std::ffi::CStr;
 
-static CONFIG: Lazy<RwLock<CarbideDhcpContext>> = Lazy::new(|| RwLock::new(CarbideDhcpContext::default()));
+static CONFIG: Lazy<RwLock<CarbideDhcpContext>> =
+    Lazy::new(|| RwLock::new(CarbideDhcpContext::default()));
 
 #[derive(Debug)]
 pub struct CarbideDhcpContext {
@@ -20,7 +21,7 @@ pub struct CarbideDhcpContext {
 impl Default for CarbideDhcpContext {
     fn default() -> Self {
         Self {
-            api_endpoint: "https://[::1]:1079".to_string()
+            api_endpoint: "https://[::1]:1079".to_string(),
         }
     }
 }

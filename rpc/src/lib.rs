@@ -4,13 +4,13 @@
 //! interact with the API Service
 //!
 pub mod v0 {
+    use eui48::{MacAddress, ParseError};
     use prost::Message;
     use std::convert::From;
     use std::convert::TryFrom;
-    use std::net::{Ipv4Addr, Ipv6Addr, AddrParseError};
-    use std::str::FromStr;
     use std::fmt::Display;
-    use eui48::{ParseError, MacAddress};
+    use std::net::{AddrParseError, Ipv4Addr, Ipv6Addr};
+    use std::str::FromStr;
 
     pub use prost_types::Timestamp;
 
