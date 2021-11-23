@@ -98,15 +98,25 @@ pub unsafe extern "C" fn discovery_fetch_machine(ctx: *mut Discovery) -> *mut Ma
             //vendor_string: discovery.vendor_string.unwrap().to_string(),
         });
 
-        let response = client.discover_machine(request).await.unwrap().into_inner();
-
-        Box::new(Machine {
-            inner: response,
-            discovery_info: discovery,
-        })
+        match client.discover_machine(request).await {
+            Ok(response) => {
+                eprintln!("{:#?}", response);
+                Some(Machine {
+                    inner: response.into_inner(),
+                    discovery_info: discovery,
+                })
+            },
+            Err(error) => {
+                eprintln!("error: {}", error.to_string());
+                None
+            }
+        }
     });
 
-    Box::into_raw(machine)
+    match machine {
+        Some(machine) => Box::into_raw(Box::new(machine)),
+        None => std::ptr::null_mut(),
+    }
 }
 
 /// Free the Discovery object.

@@ -1,3 +1,4 @@
+use std::ffi::CString;
 use std::net::{AddrParseError, Ipv4Addr};
 use std::primitive::u32;
 use std::str::FromStr;
@@ -29,6 +30,10 @@ impl Machine {
         } else {
             Ok(None)
         }
+    }
+
+    fn interface_fqdn(&self) -> &str {
+        &self.inner.fqdn
     }
 }
 
@@ -88,6 +93,35 @@ pub unsafe extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32
     std::mem::forget(machine);
     ret
 }
+
+/// Get the machine fqdn
+///
+/// # Safety
+/// This function checks for null pointer and unboxes into a machine object
+///
+#[no_mangle]
+pub unsafe extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc::c_char {
+    assert!(!ctx.is_null());
+    let machine = Box::from_raw(ctx);
+
+    let fqdn = CString::new(machine.interface_fqdn()).unwrap();
+
+    std::mem::forget(machine);
+
+    fqdn.into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
+    unsafe {
+        if fqdn.is_null() {
+            return;
+        }
+
+        CString::from_raw(fqdn)
+    };
+}
+
 
 /// Invoke the discovery processs
 ///
@@ -186,6 +220,18 @@ mod tests {
         let desired_ip: Ipv4Addr = Ipv4Addr::from_str("192.168.0.4").unwrap();
 
         assert_eq!(machine.interface_address_v4(), Ok(Some(desired_ip)));
+    }
+
+    #[test]
+    fn test_receive_proper_hostname() {
+        let machine = DhcpMachine {
+            inner: generate_machine(),
+            discovery_info: Box::new(generate_discovery_info()),
+        };
+
+        let desired_hostname = machine.inner.fqdn;
+
+        assert_eq!(machine.interface_fqdn(), "jig-coffee.test.nvmetal.net");
     }
 
     #[test]

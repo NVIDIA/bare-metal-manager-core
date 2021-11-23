@@ -8,6 +8,8 @@
 
 #include <dhcp/option_definition.h>
 #include <dhcp/option4_addrlst.h>
+#include <dhcp/option_string.h>
+
 #include <dhcp/option_int.h>
 
 #include "carbide_logger.h"
@@ -35,8 +37,14 @@ extern "C" {
 		
 		Machine *machine = discovery_fetch_machine(discovery);
 
-		handle.setContext("machine", machine);
-		return 0;
+		if (!machine) {
+			LOG_ERROR(logger, isc::log::LOG_CARBIDE_PKT4_RECEIVE).arg("error in discovery_fetch_machine");
+			handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
+			return 1;
+		} else {
+			handle.setContext("machine", machine);
+			return 0;
+		}
 	}
 
 	int subnet4_select(CalloutHandle &handle) {
@@ -47,10 +55,6 @@ extern "C" {
 	int lease4_select(CalloutHandle &handle) {
 		Lease4Ptr lease4_ptr;
 		handle.getArgument("lease4", lease4_ptr);
-
-//		Discovery *discovery;
-//		handle.getContext("machine", machine);
-//		lease4_ptr->addr_ = isc::asiolink::IOAddress( discovery_get_yiaddr(discovery) );
 
 		LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE4_SELECT).arg(lease4_ptr->toText());
 		return 0;
@@ -81,9 +85,21 @@ extern "C" {
 		option_subnet.reset(new OptionInt<uint32_t>(Option::V4, DHO_SUBNET_MASK, machine_get_interface_subnet_mask(machine)));
 		response4_ptr->addOption(option_subnet);
 
-		machine_free(machine);
+		//
+		OptionPtr option_hostname = response4_ptr->getOption(DHO_HOST_NAME);
+		if (option_hostname) {
+			response4_ptr->delOption(DHO_HOST_NAME);
+		}
+		char* hostname = machine_get_interface_hostname(machine);
+		option_hostname.reset(new OptionString(Option::V4, DHO_HOST_NAME, hostname));
+		response4_ptr->addOption(option_hostname);
 
 		LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND).arg(response4_ptr->toText());
+
+		// Tell rust code to free the memory, since we can't free memory that isn't ours
+		machine_free(machine);
+		machine_free_fqdn(hostname);
+
 		return 0;
 	}
 }
