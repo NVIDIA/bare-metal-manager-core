@@ -1,7 +1,4 @@
-image: "carbide-build-container:latest"
-
-#include:
-#  - .gitlab-license-scanning.yml
+image: "gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest"
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/cargo
@@ -11,30 +8,25 @@ variables:
   KEA_INCLUDE_PATH: /usr/include/kea
   CARGO_MAKE_SKIP_CODECOV: "true"
 
+stages:
+  - test
+  - doc
+
 test:cargo:
+  stage: test
   script:
     - /etc/init.d/postgresql start
     - cargo make workspace-ci-flow
 
-#pages:
-#  stage: doc
-#  before_script:
-#    - export PATH="$PATH:$CARGO_HOME/bin"
-#    - mdbook --version || cargo install mdbook
-#    - mdbook-mermaid --version || cargo install mdbook-mermaid
-#    - rustfmt --version || rustup component add rustfmt
-#  script:
-#    - mkdir public
-#    - cargo doc --no-deps
-#    - mv target/doc public/api
-#    - mdbook build book
-#    - mv book/book public/book
-#    - find public
-#  artifacts:
-#    paths:
-#      - public
-#  only:
-#    - trunk
+pages:
+  stage: doc
+  script:
+    - cargo make book
+  artifacts:
+    paths:
+      - public
+  only:
+    - trunk
 
 cache:
   paths:

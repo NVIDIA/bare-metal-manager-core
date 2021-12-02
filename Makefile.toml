@@ -1,7 +1,16 @@
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 
-[tasks.format]
-install_crate = { rustup_component_name = "rustfmt", binary = "rustfmt", test_arg = "--help" }
-command = "cargo"
-args = ["fmt", "--", "--emit=files"]
+
+[tasks.book]
+workspace = false
+command = "find"
+args = ["public"]
+dependencies = [
+	"book-compile",
+]
+
+[tasks.book-compile]
+workspace = false
+command = "mdbook"
+args = ["build", "-d", "../public", "book"]
