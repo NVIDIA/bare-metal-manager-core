@@ -1,7 +1,7 @@
 image: "carbide-build-container:latest"
 
-include:
-  - .gitlab-license-scanning.yml
+#include:
+#  - .gitlab-license-scanning.yml
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/cargo
