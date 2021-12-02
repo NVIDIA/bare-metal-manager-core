@@ -9,14 +9,11 @@ variables:
   LOGNAME: root
   KEA_BIN_PATH: /usr/bin
   KEA_INCLUDE_PATH: /usr/include/kea
-    #  KEA_LIB_PATH:
+  CARGO_MAKE_SKIP_CODECOV: "true"
 
 test:cargo:
   script:
     - /etc/init.d/postgresql start
-    - su postgres -c "/usr/lib/postgresql/14/bin/createuser -d root"
-    - rustup component add rustfmt
-    - cargo install --debug cargo-make
     - cargo make workspace-ci-flow
 
 #pages:
