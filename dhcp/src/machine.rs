@@ -45,9 +45,9 @@ impl Machine {
 /// consumed in C code.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
+pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = Box::from_raw(ctx);
+    let machine = unsafe { Box::from_raw(ctx) };
     let ret = u32::from_be_bytes(
         machine
             .inner
@@ -75,9 +75,9 @@ pub unsafe extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 
 /// consumed in C code.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
+pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = Box::from_raw(ctx);
+    let machine = unsafe { Box::from_raw(ctx) };
 
     // TODO: handle some errors
     let ret = u32::from_be_bytes(
@@ -100,15 +100,67 @@ pub unsafe extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32
 /// This function checks for null pointer and unboxes into a machine object
 ///
 #[no_mangle]
-pub unsafe extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc::c_char {
+pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
-    let machine = Box::from_raw(ctx);
+    let machine = unsafe { Box::from_raw(ctx) };
 
     let fqdn = CString::new(machine.interface_fqdn()).unwrap();
 
     std::mem::forget(machine);
 
     fqdn.into_raw()
+}
+
+/// Get the machine fqdn
+///
+/// # Safety
+/// This function checks for null pointer and unboxes into a machine object
+///
+#[no_mangle]
+pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *mut libc::c_char {
+    assert!(!ctx.is_null());
+    let machine = unsafe { Box::from_raw(ctx) };
+
+    let fqdn = CString::new("ipxe.kpxe").unwrap();
+
+    std::mem::forget(machine);
+
+    fqdn.into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
+    assert!(!ctx.is_null());
+    let machine = unsafe { Box::from_raw(ctx) };
+
+    let ret = u32::from_be_bytes("172.16.0.110".parse::<Ipv4Addr>().unwrap().octets());
+
+    std::mem::forget(machine);
+
+    ret
+}
+
+#[no_mangle]
+pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
+    assert!(!ctx.is_null());
+    let machine = unsafe { Box::from_raw(ctx) };
+
+    let ret = u32::from_be_bytes("192.168.0.255".parse::<Ipv4Addr>().unwrap().octets());
+
+    std::mem::forget(machine);
+
+    ret
+}
+
+#[no_mangle]
+pub extern "C" fn machine_free_filename(filename: *mut libc::c_char) {
+    unsafe {
+        if filename.is_null() {
+            return;
+        }
+
+        CString::from_raw(filename)
+    };
 }
 
 #[no_mangle]
@@ -122,6 +174,17 @@ pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
     };
 }
 
+#[no_mangle]
+pub extern "C" fn machine_free_next_server(next_server: *mut libc::c_char) {
+    unsafe {
+        if next_server.is_null() {
+            return;
+        }
+
+        CString::from_raw(next_server)
+    };
+}
+
 /// Invoke the discovery processs
 ///
 /// # Safety
@@ -130,9 +193,9 @@ pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
 /// consumed in C code.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
+pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = Box::from_raw(ctx);
+    let machine = unsafe { Box::from_raw(ctx) };
 
     // TODO: handle some errors
     let ret = u32::from_be_bytes(
@@ -160,12 +223,12 @@ pub unsafe extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) ->
 /// unusable.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn machine_free(ctx: *mut Machine) {
+pub extern "C" fn machine_free(ctx: *mut Machine) {
     if ctx.is_null() {
         return;
     }
 
-    Box::from_raw(ctx);
+    unsafe { Box::from_raw(ctx) };
 }
 
 #[cfg(test)]

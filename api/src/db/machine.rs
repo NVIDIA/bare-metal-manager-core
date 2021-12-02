@@ -149,7 +149,7 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         uuid: uuid::Uuid,
     ) -> CarbideResult<Option<Self>> {
-        Self::find(txn, MachineIdsFilter::One(uuid))
+        Machine::find(txn, MachineIdsFilter::One(uuid))
             .await
             .map(|v| v.into_iter().next())
     }
@@ -168,7 +168,7 @@ impl Machine {
     /// Arguments:
     ///
     /// * `txn` - A reference to a currently open database transaction
-    /// * `macaddr` - The eui48::MacAddress of the booting machine
+    /// * `macaddr` - The mac_address::MacAddress of the booting machine
     /// * `relay` - The IP address of the DHCP relay servicing the request.
     pub async fn discover(
         txn: &mut Transaction<'_, Postgres>,

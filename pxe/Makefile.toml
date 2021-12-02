@@ -1,0 +1,38 @@
+[tasks.ipxe]
+dependencies = [
+	"ipxe-config",
+	"ipxe-install-pcbios-x86_64",
+	"ipxe-install-efi-x86_64"
+]
+
+[tasks.ipxe-config]
+script = "cp ipxe/local/*.h ipxe/upstream/src/config/local/"
+
+[tasks.static-output]
+command = "mkdir"
+args = [ "-p", "static/ipxe" ]
+
+[tasks.ipxe-install-pcbios-x86_64]
+command = "mv"
+args = ["ipxe/upstream/src/bin-x86_64-pcbios/ipxe.kpxe", "static/ipxe"]
+dependencies = [
+	"ipxe-build-pcbios-x86_64",
+	"static-output"
+]
+
+[tasks.ipxe-install-efi-x86_64]
+command = "mv"
+args = ["ipxe/upstream/src/bin-x86_64-efi/ipxe.efi", "static/ipxe"]
+dependencies = [
+	"ipxe-build-efi-x86_64",
+	"static-output"
+]
+
+[tasks.ipxe-build-pcbios-x86_64]
+command = "make"
+args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=../../local/embed.ipxe", "DEBUG=ipv4,ipv6,dhcp,tftp,https" ]
+cwd = "ipxe/upstream/src"
+
+[tasks.ipxe-build-efi-x86_64]
+script = "make bin-x86_64-efi/ipxe.efi EMBED=../../local/embed.ipxe"
+cwd = "ipxe/upstream/src"

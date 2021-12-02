@@ -1,0 +1,5 @@
+#!ipxe
+
+echo NVIDIA Metal - iPXE boot via cloud-init user-data
+
+shell

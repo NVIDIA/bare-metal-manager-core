@@ -34,7 +34,7 @@ extern "C" {
 
 		discovery_set_relay(discovery, query4_ptr->getGiaddr().toUint32());
 		discovery_set_mac_address(discovery, mac.data(), mac.size());
-		
+
 		Machine *machine = discovery_fetch_machine(discovery);
 
 		if (!machine) {
@@ -77,7 +77,15 @@ extern "C" {
 		}
 		response4_ptr->addOption(OptionPtr(new Option4AddrLst(DHO_ROUTERS, isc::asiolink::IOAddress(machine_get_interface_router(machine)))));
 
-		//
+		// Set subnet-mask
+		OptionPtr option_mtu = response4_ptr->getOption(DHO_INTERFACE_MTU);
+		if (option_mtu) {
+			response4_ptr->delOption(DHO_INTERFACE_MTU);
+		}
+		option_mtu.reset(new OptionInt<uint16_t>(Option::V4, DHO_INTERFACE_MTU, 1500));
+		response4_ptr->addOption(option_mtu);
+
+		// Set subnet-mask
 		OptionPtr option_subnet = response4_ptr->getOption(DHO_SUBNET_MASK);
 		if (option_subnet) {
 			response4_ptr->delOption(DHO_SUBNET_MASK);
@@ -85,7 +93,14 @@ extern "C" {
 		option_subnet.reset(new OptionInt<uint32_t>(Option::V4, DHO_SUBNET_MASK, machine_get_interface_subnet_mask(machine)));
 		response4_ptr->addOption(option_subnet);
 
-		//
+		OptionPtr option_broadcast = response4_ptr->getOption(DHO_BROADCAST_ADDRESS);
+		if (option_broadcast) {
+			response4_ptr->delOption(DHO_BROADCAST_ADDRESS);
+		}
+		option_broadcast.reset(new OptionInt<uint32_t>(Option::V4, DHO_BROADCAST_ADDRESS, machine_get_broadcast_address(machine)));
+		response4_ptr->addOption(option_broadcast);
+
+		// Set hostname
 		OptionPtr option_hostname = response4_ptr->getOption(DHO_HOST_NAME);
 		if (option_hostname) {
 			response4_ptr->delOption(DHO_HOST_NAME);
@@ -94,11 +109,24 @@ extern "C" {
 		option_hostname.reset(new OptionString(Option::V4, DHO_HOST_NAME, hostname));
 		response4_ptr->addOption(option_hostname);
 
+		// Set next-server
+		response4_ptr->setSiaddr(isc::asiolink::IOAddress(machine_get_next_server(machine)));
+
+		// Set filename
+		OptionPtr option_filename = response4_ptr->getOption(DHO_BOOT_FILE_NAME);
+		if (option_filename) {
+			response4_ptr->delOption(DHO_BOOT_FILE_NAME);
+		}
+		char *filename = machine_get_filename(machine);
+		option_filename.reset(new OptionString(Option::V4, DHO_BOOT_FILE_NAME, filename));
+		response4_ptr->addOption(option_filename);
+
 		LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND).arg(response4_ptr->toText());
 
 		// Tell rust code to free the memory, since we can't free memory that isn't ours
 		machine_free(machine);
 		machine_free_fqdn(hostname);
+//		machine_free_filename(filename);
 
 		return 0;
 	}

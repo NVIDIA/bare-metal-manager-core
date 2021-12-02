@@ -187,8 +187,8 @@ impl MachineInterface {
             .bind(machine.id())
             .bind(segment.id)
             .bind(macaddr)
-            .bind(new_ipv4.map(IpNetwork::from ))
-            .bind(new_ipv6.map(IpNetwork::from ))
+            .bind(new_ipv4.map(IpNetwork::from))
+            .bind(new_ipv6.map(IpNetwork::from))
             .fetch_one(&mut *txn).await
             .map_err(|err: sqlx::Error| {
                 match err {
