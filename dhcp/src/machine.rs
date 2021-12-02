@@ -290,7 +290,7 @@ mod tests {
             discovery_info: Box::new(generate_discovery_info()),
         };
 
-        let desired_hostname = machine.inner.fqdn;
+        let desired_hostname = &machine.inner.fqdn;
 
         assert_eq!(machine.interface_fqdn(), "jig-coffee.test.nvmetal.net");
     }

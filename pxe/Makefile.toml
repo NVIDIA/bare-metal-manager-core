@@ -34,5 +34,6 @@ args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=../../local/embed.ipxe", "DEBUG=i
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-x86_64]
-script = "make bin-x86_64-efi/ipxe.efi EMBED=../../local/embed.ipxe"
+command = "make"
+args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=../../local/embed.ipxe", "DEBUG=ipv4,ipv6,dhcp,tftp,https" ]
 cwd = "ipxe/upstream/src"

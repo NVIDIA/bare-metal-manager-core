@@ -1,9 +1,4 @@
-image: "rust:latest"
-
-stages:
-  - License Scan
-  - test
-  - doc
+image: "carbide-build-container:latest"
 
 include:
   - .gitlab-license-scanning.yml
@@ -11,52 +6,38 @@ include:
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/cargo
   APT_CACHE_DIR: $CI_PROJECT_DIR/apt
+  LOGNAME: root
+  KEA_BIN_PATH: /usr/bin
+  KEA_INCLUDE_PATH: /usr/include/kea
+    #  KEA_LIB_PATH:
 
-test-code:
-  stage: test
+test:cargo:
   script:
+    - /etc/init.d/postgresql start
+    - su postgres -c "/usr/lib/postgresql/14/bin/createuser -d root"
     - rustup component add rustfmt
-    - cargo test --lib
-    - cargo test --doc
-    - cargo test --examples
+    - cargo install --debug cargo-make
+    - cargo make workspace-ci-flow
 
-lint-code:
-  stage: test
-  script:
-    - rustup component add clippy rustfmt
-    - cargo clippy
-
-format-code:
-  stage: test
-  script:
-    - rustup component add rustfmt
-    - cargo fmt -- --check
-
-.audit-code:
-  stage: test
-  script:
-    - cargo install cargo-audit
-    - cargo audit
-
-pages:
-  stage: doc
-  before_script:
-    - export PATH="$PATH:$CARGO_HOME/bin"
-    - mdbook --version || cargo install mdbook
-    - mdbook-mermaid --version || cargo install mdbook-mermaid
-    - rustfmt --version || rustup component add rustfmt
-  script:
-    - mkdir public
-    - cargo doc --no-deps
-    - mv target/doc public/api
-    - mdbook build book
-    - mv book/book public/book
-    - find public
-  artifacts:
-    paths:
-      - public
-  only:
-    - trunk
+#pages:
+#  stage: doc
+#  before_script:
+#    - export PATH="$PATH:$CARGO_HOME/bin"
+#    - mdbook --version || cargo install mdbook
+#    - mdbook-mermaid --version || cargo install mdbook-mermaid
+#    - rustfmt --version || rustup component add rustfmt
+#  script:
+#    - mkdir public
+#    - cargo doc --no-deps
+#    - mv target/doc public/api
+#    - mdbook build book
+#    - mv book/book public/book
+#    - find public
+#  artifacts:
+#    paths:
+#      - public
+#  only:
+#    - trunk
 
 cache:
   paths:
