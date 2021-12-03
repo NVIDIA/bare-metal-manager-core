@@ -6,14 +6,21 @@ use crate::machine::Machine;
 use crate::CarbideDhcpContext;
 
 use crate::CONFIG;
+use derive_builder::Builder;
+use log::*;
 use rpc::v0 as rpc;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Builder)]
+#[builder(pattern = "owned")]
 pub struct Discovery {
-    pub(crate) relay_address: Option<Ipv4Addr>,
-    pub(crate) mac_address: Option<MacAddress>,
-    pub(crate) vendor_string: Option<String>,
+    pub(crate) relay_address: Ipv4Addr,
+    pub(crate) mac_address: MacAddress,
+    //pub(crate) vendor_string: String,
+    pub(crate) client_system: u16,
 }
+
+#[repr(C)]
+pub struct DiscoveryBuilderFFI(());
 
 /// Allocate a new struct to fill in the discovery information from the DHCP packet in Kea
 ///
@@ -22,8 +29,36 @@ pub struct Discovery {
 /// struct.
 ///
 #[no_mangle]
-pub extern "C" fn discovery_allocate() -> *mut Discovery {
-    Box::into_raw(Box::new(Discovery::default()))
+pub extern "C" fn discovery_allocate() -> *mut DiscoveryBuilderFFI {
+    Box::into_raw(Box::new(DiscoveryBuilder::default())) as _
+}
+
+unsafe fn marshal_discovery_ffi<F>(builder: *mut DiscoveryBuilderFFI, f: F)
+where
+    F: FnOnce(DiscoveryBuilder) -> DiscoveryBuilder,
+{
+    assert!(!builder.is_null());
+
+    let builder = builder as *mut DiscoveryBuilder;
+
+    let old = builder.read();
+    let new = f(old);
+    builder.write(new);
+}
+
+/// Fill the `client_system` portion of the discovery object
+///
+/// # Safety
+///
+/// This function deferences a pointer to a Discovery object which is an opaque pointer
+/// consumed in C code.
+///
+#[no_mangle]
+pub unsafe extern "C" fn discovery_set_client_system(
+    ctx: *mut DiscoveryBuilderFFI,
+    client_system: u16,
+) {
+    marshal_discovery_ffi(ctx, |builder| builder.client_system(client_system))
 }
 
 /// Fill the `relay` portion of the Discovery object with an IP(v4) address
@@ -34,15 +69,10 @@ pub extern "C" fn discovery_allocate() -> *mut Discovery {
 /// consumed in C code.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn discovery_set_relay(ctx: *mut Discovery, relay: u32) -> bool {
-    assert!(!ctx.is_null());
-
-    let mut discovery = Box::from_raw(ctx);
-
-    discovery.relay_address = Some(Ipv4Addr::from(relay.to_be_bytes()));
-
-    std::mem::forget(discovery);
-    true
+pub unsafe extern "C" fn discovery_set_relay(ctx: *mut DiscoveryBuilderFFI, relay: u32) {
+    marshal_discovery_ffi(ctx, |builder| {
+        builder.relay_address(Ipv4Addr::from(relay.to_be_bytes()))
+    });
 }
 
 /// Fill the `macaddress` portion of the Discovery object with an IP(v4) address
@@ -57,57 +87,64 @@ pub unsafe extern "C" fn discovery_set_relay(ctx: *mut Discovery, relay: u32) ->
 ///
 #[no_mangle]
 pub unsafe extern "C" fn discovery_set_mac_address(
-    ctx: *mut Discovery,
+    ctx: *mut DiscoveryBuilderFFI,
     raw_parts: *const u8,
     size: usize,
-) -> bool {
-    assert!(!ctx.is_null());
+) {
     assert!(size == 6);
 
-    let mut discovery = Box::from_raw(ctx);
-
-    discovery.mac_address = Some(MacAddress::new(
-        std::slice::from_raw_parts(raw_parts, size)
-            .try_into()
-            .expect("panic: could not unmarshall u8 slice to 6-bye MAC Address array"),
-    ));
-
-    std::mem::forget(discovery);
-    true
+    marshal_discovery_ffi(ctx, |builder| {
+        builder.mac_address(MacAddress::new(
+            std::slice::from_raw_parts(raw_parts, size)
+                .try_into()
+                .expect("panic: could not unmarshall u8 slice to 6-bye MAC Address array"),
+        ))
+    });
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn discovery_fetch_machine(ctx: *mut Discovery) -> *mut Machine {
+pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut Machine {
     assert!(!ctx.is_null());
+    let ctx = ctx as *mut DiscoveryBuilder;
+    let builder = unsafe { ctx.read() };
+    let discovery = builder
+        .build()
+        .expect("panic(todo): didn't set all fields before building the discovery struct");
 
+    // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
+    // thread.  This is required beause tonic is async but this code generally is not.
+    //
+    // TODO: reason about FFI code with async.
+    //
     let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
-
-    let discovery = Box::from_raw(ctx);
-
     let machine = runtime.block_on(async move {
         let config = CONFIG.read().unwrap();
-        let x = config.api_endpoint.clone();
+        let url = config.api_endpoint.clone();
 
-        let mut client = rpc::carbide_client::CarbideClient::connect(x)
-            .await
-            .unwrap();
+        match rpc::carbide_client::CarbideClient::connect(url).await {
+            Ok(mut client) => {
+                let request = tonic::Request::new(rpc::MachineDiscovery {
+                    mac_address: discovery.mac_address.to_string(),
+                    relay_address: discovery.relay_address.to_string(),
+                    //vendor_string: discovery.vendor_string.unwrap().to_string(),
+                });
 
-        let request = tonic::Request::new(rpc::MachineDiscovery {
-            mac_address: discovery.mac_address.unwrap().to_string(),
-            relay_address: discovery.relay_address.unwrap().to_string(),
-            //vendor_string: discovery.vendor_string.unwrap().to_string(),
-        });
-
-        match client.discover_machine(request).await {
-            Ok(response) => {
-                eprintln!("{:#?}", response);
-                Some(Machine {
-                    inner: response.into_inner(),
-                    discovery_info: discovery,
-                })
+                match client.discover_machine(request).await {
+                    Ok(response) => {
+                        error!("{:#?}", response);
+                        Some(Machine {
+                            inner: response.into_inner(),
+                            discovery_info: discovery,
+                        })
+                    }
+                    Err(error) => {
+                        error!("unable to discover machine via Carbide: {:?}", error);
+                        None
+                    }
+                }
             }
-            Err(error) => {
-                eprintln!("error: {}", error.to_string());
+            Err(e) => {
+                error!("unable to connect to Carbide API: {:?}", e);
                 None
             }
         }
@@ -130,10 +167,6 @@ pub unsafe extern "C" fn discovery_fetch_machine(ctx: *mut Discovery) -> *mut Ma
 /// unusable.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn discovery_free(ctx: *mut Discovery) {
-    if ctx.is_null() {
-        return;
-    }
-
-    Box::from_raw(ctx);
+pub unsafe extern "C" fn discovery_free(ctx: *mut DiscoveryBuilderFFI) {
+    Box::from_raw(ctx as *mut Discovery);
 }

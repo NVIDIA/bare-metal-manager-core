@@ -11,3 +11,6 @@ Carbide received DHCPv4 (Receive) hook from Kea
 
 % LOG_CARBIDE_PKT4_SEND Carbide hook called for DHCPv4 packet send from %1
 Carbide received DHCPv4 (Send) hook from Kea
+
+% LOG_CARBIDE_GENERIC Carbide: %1
+Carbide generic log message

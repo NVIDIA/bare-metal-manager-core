@@ -25,6 +25,7 @@ fn main() {
 
     cc::Build::new()
         .cpp(true)
+        .file(format!("{}/logger.cc", kea_shim_root))
         .file(format!("{}/loader.cc", kea_shim_root))
         .file(format!("{}/callouts.cc", kea_shim_root))
         .file(format!("{}/carbide_logger.cc", kea_shim_root))
@@ -36,6 +37,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/kea/callouts.cc");
     println!("cargo:rerun-if-changed=src/kea/loader.cc");
+    println!("cargo:rerun-if-changed=src/kea/logger.cc");
     println!("cargo:rerun-if-changed=src/kea/carbide_rust.h");
     println!("cargo:rerun-if-changed=src/kea/carbide_logger.cc");
     println!("cargo:rerun-if-changed=src/kea/carbide_logger.h");
