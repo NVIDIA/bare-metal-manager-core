@@ -1,40 +1,19 @@
 use std::ffi::CString;
-use std::net::{AddrParseError, Ipv4Addr};
+use std::net::{Ipv4Addr};
 use std::primitive::u32;
-use std::str::FromStr;
+
 
 use crate::discovery::Discovery;
 
+/// Machine: a machine that's currently trying to boot something
+///
+/// This just stores the protobuf DHCP record and the discovery info the client used so we can add
+/// additional constraints (options) to and from the client.
+///
 #[derive(Debug)]
 pub struct Machine {
     pub(crate) inner: rpc::v0::DhcpRecord,
     pub(crate) discovery_info: Box<Discovery>,
-}
-impl Machine {
-    fn interface_address_v4(&self) -> Result<Option<Ipv4Addr>, AddrParseError> {
-        Ok(self
-            .inner
-            .address_ipv4
-            .as_ref()
-            .map(|a| Ipv4Addr::from_str(&a.address).unwrap()))
-    }
-
-    fn router_address_v4(&self) -> Result<Option<Ipv4Addr>, AddrParseError> {
-        if let Some(address_assignment) = self.inner.address_ipv4.as_ref() {
-            match address_assignment {
-                rpc::v0::AddressAssignmentV4 {
-                    gateway: Some(x), ..
-                } => Ok(Some(Ipv4Addr::from_str(x)?)),
-                _ => Ok(None),
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn interface_fqdn(&self) -> &str {
-        &self.inner.fqdn
-    }
 }
 
 /// Get the router address
@@ -104,7 +83,7 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let fqdn = CString::new(machine.interface_fqdn()).unwrap();
+    let fqdn = CString::new( &machine.inner.fqdn[..] ).unwrap();
 
     std::mem::forget(machine);
 
@@ -229,81 +208,4 @@ pub extern "C" fn machine_free(ctx: *mut Machine) {
     }
 
     unsafe { Box::from_raw(ctx) };
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Discovery;
-    use mac_address::MacAddress;
-
-    use std::net::Ipv4Addr;
-    use std::str::FromStr;
-
-    use crate::machine::Machine as DhcpMachine;
-
-    fn generate_discovery_info() -> Discovery {
-        Discovery {
-            relay_address: Some(Ipv4Addr::from_str("192.168.0.1").unwrap()),
-            mac_address: Some(MacAddress::from_str("08:00:27:cc:46:36").unwrap()),
-            vendor_string: None,
-        }
-    }
-
-    fn uuid(uuid: &str) -> rpc::v0::Uuid {
-        rpc::v0::Uuid { value: uuid.into() }
-    }
-
-    fn generate_machine() -> rpc::v0::DhcpRecord {
-        rpc::v0::DhcpRecord {
-            machine_id: Some(uuid("9f19d552-75ac-4912-bd0c-6f6fd3426719")),
-            segment_id: Some(uuid("2ee4a4d3-2498-4ad8-9b1a-99a5a3aece05")),
-            fqdn: String::from("jig-coffee.test.nvmetal.net"),
-            subdomain: "test.nvmetal.net".to_string(),
-            address_ipv4: Some(rpc::v0::AddressAssignmentV4 {
-                mac_address: MacAddress::from_str("08:00:27:cc:46:36")
-                    .unwrap()
-                    .to_string(),
-                address: "192.168.0.4".parse().unwrap(),
-                gateway: Some("192.168.0.1".parse().unwrap()),
-                mask: "255.255.255.0".parse().unwrap(),
-            }),
-            address_ipv6: None,
-        }
-    }
-
-    #[test]
-    fn test_retrieve_proper_ip() {
-        let machine = DhcpMachine {
-            inner: generate_machine(),
-            discovery_info: Box::new(generate_discovery_info()),
-        };
-
-        let desired_ip: Ipv4Addr = Ipv4Addr::from_str("192.168.0.4").unwrap();
-
-        assert_eq!(machine.interface_address_v4(), Ok(Some(desired_ip)));
-    }
-
-    #[test]
-    fn test_receive_proper_hostname() {
-        let machine = DhcpMachine {
-            inner: generate_machine(),
-            discovery_info: Box::new(generate_discovery_info()),
-        };
-
-        let desired_hostname = &machine.inner.fqdn;
-
-        assert_eq!(machine.interface_fqdn(), "jig-coffee.test.nvmetal.net");
-    }
-
-    #[test]
-    fn test_retrieve_proper_gatewway() {
-        let machine = DhcpMachine {
-            inner: generate_machine(),
-            discovery_info: Box::new(generate_discovery_info()),
-        };
-
-        let desired_ip: Ipv4Addr = Ipv4Addr::from_str("192.168.0.1").unwrap();
-
-        assert_eq!(machine.router_address_v4(), Ok(Some(desired_ip)));
-    }
 }

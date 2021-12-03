@@ -35,6 +35,14 @@ impl CarbideDhcpContext {
     }
 }
 
+/// Take the config parameter from Kea and configure it as our API endpoint
+///
+/// TODO: add things like certificates
+///
+/// # Safety
+///
+/// None, todo!()
+///
 #[no_mangle]
 pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
     let config_api = CStr::from_ptr(api).to_str().unwrap().to_owned();
