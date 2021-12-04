@@ -1,3 +1,6 @@
+use log::info;
+use log::LevelFilter;
+
 #[repr(C)]
 pub struct OpaquePointer {
     _private: [u8; 0],
@@ -17,6 +20,12 @@ pub unsafe extern "C" fn version() -> libc::c_int {
 
 #[no_mangle]
 pub unsafe extern "C" fn load(a: *mut OpaquePointer) -> libc::c_int {
+    log::set_logger(&crate::LOGGER)
+        .map(|()| log::set_max_level(LevelFilter::Trace))
+        .expect("Error initializing logger, failing.");
+
+    info!("Initialized Logger");
+
     shim_load(a)
 }
 

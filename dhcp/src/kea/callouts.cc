@@ -28,12 +28,21 @@ extern "C" {
 		handle.getArgument("query4", query4_ptr);
 		auto mac = query4_ptr->getHWAddr()->hwaddr_;
 
-		LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_RECEIVE).arg(query4_ptr->getLabel());
+		if (!query4_ptr->isRelayed()) {
+			LOG_ERROR(logger, isc::log::LOG_CARBIDE_PKT4_RECEIVE).arg("Received a non-relayed packet, dropping it");
+			handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
+		}
 
-		Discovery *discovery = discovery_allocate();
+		LOG_ERROR(logger, isc::log::LOG_CARBIDE_PKT4_RECEIVE).arg(query4_ptr->getOption(DHO_SYSTEM));
+		LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(query4_ptr->getLabel());
+
+		DiscoveryBuilderFFI *discovery = discovery_allocate();
+
+		uint16_t client_system = 0;
 
 		discovery_set_relay(discovery, query4_ptr->getGiaddr().toUint32());
 		discovery_set_mac_address(discovery, mac.data(), mac.size());
+		discovery_set_client_system(discovery, client_system);
 
 		Machine *machine = discovery_fetch_machine(discovery);
 

@@ -1,6 +1,8 @@
 mod discovery;
 mod kea;
+mod kea_logger;
 mod machine;
+mod pxe;
 
 use libc::c_char;
 
@@ -12,6 +14,8 @@ use std::ffi::CStr;
 
 static CONFIG: Lazy<RwLock<CarbideDhcpContext>> =
     Lazy::new(|| RwLock::new(CarbideDhcpContext::default()));
+
+static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 
 #[derive(Debug)]
 pub struct CarbideDhcpContext {

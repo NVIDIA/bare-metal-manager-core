@@ -1,7 +1,6 @@
 use std::ffi::CString;
-use std::net::{Ipv4Addr};
+use std::net::Ipv4Addr;
 use std::primitive::u32;
-
 
 use crate::discovery::Discovery;
 
@@ -13,7 +12,7 @@ use crate::discovery::Discovery;
 #[derive(Debug)]
 pub struct Machine {
     pub(crate) inner: rpc::v0::DhcpRecord,
-    pub(crate) discovery_info: Box<Discovery>,
+    pub(crate) discovery_info: Discovery,
 }
 
 /// Get the router address
@@ -83,7 +82,7 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let fqdn = CString::new( &machine.inner.fqdn[..] ).unwrap();
+    let fqdn = CString::new(&machine.inner.fqdn[..]).unwrap();
 
     std::mem::forget(machine);
 
@@ -99,6 +98,8 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
 pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
+
+    //    pxe::Architectures::find(machine.discovery_info.client_system);
 
     let fqdn = CString::new("ipxe.kpxe").unwrap();
 
