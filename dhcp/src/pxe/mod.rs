@@ -1,3 +1,11 @@
+mod arm64;
+mod efi_x64;
+mod bios_x86;
+
+pub use arm64::Arm64;
+pub use efi_x64::EfiX64;
+pub use bios_x86::BiosX86;
+
 pub trait BootArchitecture {
     fn name(&self) -> &str;
     fn efi(&self) -> bool;
@@ -20,91 +28,6 @@ impl Architectures {
             0xb => Some(Box::new(Arm64)),
             _ => None,
         }
-    }
-}
-
-pub struct Arm64;
-pub struct BiosX86;
-pub struct EfiX64;
-
-impl BootArchitecture for Arm64 {
-    fn name(&self) -> &str {
-        "ARM 64-bit UEFI"
-    }
-
-    fn efi(&self) -> bool {
-        true
-    }
-
-    fn arm(&self) -> bool {
-        true
-    }
-
-    fn pxe(&self) -> bool {
-        true
-    }
-
-    fn filename(&self) -> String {
-        String::from("ipxe.efi")
-    }
-}
-
-impl BootArchitecture for EfiX64 {
-    fn name(&self) -> &str {
-        "x64 UEFI"
-    }
-
-    fn efi(&self) -> bool {
-        true
-    }
-
-    fn arm(&self) -> bool {
-        false
-    }
-
-    fn pxe(&self) -> bool {
-        true
-    }
-
-    fn filename(&self) -> String {
-        String::from("ipxe.efi")
-    }
-}
-
-impl BootArchitecture for BiosX86 {
-    fn name(&self) -> &str {
-        "x86 BIOS"
-    }
-
-    fn efi(&self) -> bool {
-        false
-    }
-
-    fn arm(&self) -> bool {
-        false
-    }
-
-    fn pxe(&self) -> bool {
-        true
-    }
-
-    fn filename(&self) -> String {
-        String::from("ipxe.kpxe")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_proper_filename() {
-        let client_system = 0u16;
-
-        let arch = Architectures::find(client_system);
-
-        assert!(arch.is_some());
-        assert_eq!(arch.unwrap().filename(), String::from("ipxe.kpxe"));
     }
 }
 
