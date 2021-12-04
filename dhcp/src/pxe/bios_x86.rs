@@ -1,3 +1,4 @@
+use super::*;
 pub struct BiosX86;
 impl BootArchitecture for BiosX86 {
     fn name(&self) -> &str {

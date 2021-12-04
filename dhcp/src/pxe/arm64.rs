@@ -1,4 +1,6 @@
+use super::*;
 pub struct Arm64;
+
 impl BootArchitecture for Arm64 {
     fn name(&self) -> &str {
         "ARM 64-bit UEFI"

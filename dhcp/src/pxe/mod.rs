@@ -1,10 +1,10 @@
 mod arm64;
-mod efi_x64;
 mod bios_x86;
+mod efi_x64;
 
 pub use arm64::Arm64;
-pub use efi_x64::EfiX64;
 pub use bios_x86::BiosX86;
+pub use efi_x64::EfiX64;
 
 pub trait BootArchitecture {
     fn name(&self) -> &str;

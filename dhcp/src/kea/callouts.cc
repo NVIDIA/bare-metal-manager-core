@@ -28,6 +28,11 @@ extern "C" {
 		handle.getArgument("query4", query4_ptr);
 		auto mac = query4_ptr->getHWAddr()->hwaddr_;
 
+		if (!query4_ptr->isRelayed()) {
+			LOG_ERROR(logger, isc::log::LOG_CARBIDE_PKT4_RECEIVE).arg("Received a non-relayed packet, dropping it");
+			handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
+		}
+
 		LOG_ERROR(logger, isc::log::LOG_CARBIDE_PKT4_RECEIVE).arg(query4_ptr->getOption(DHO_SYSTEM));
 		LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(query4_ptr->getLabel());
 

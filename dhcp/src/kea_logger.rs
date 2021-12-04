@@ -16,7 +16,14 @@ impl log::Log for KeaLogger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            let text = CString::new(format!("{}: {}", record.level(), record.args())).unwrap();
+            let text = CString::new(format!(
+                "{}:{}:{} - {}",
+                record.file().unwrap_or("<no file>"),
+                record.line().unwrap_or(0),
+                record.target(),
+                record.args()
+            ))
+            .unwrap();
 
             unsafe { kea_log_generic_info(text.into_raw()) };
         }

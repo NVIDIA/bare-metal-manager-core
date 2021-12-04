@@ -1,3 +1,4 @@
+use super::*;
 pub struct EfiX64;
 impl BootArchitecture for EfiX64 {
     fn name(&self) -> &str {

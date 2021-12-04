@@ -93,13 +93,18 @@ pub unsafe extern "C" fn discovery_set_mac_address(
 ) {
     assert!(size == 6);
 
-    marshal_discovery_ffi(ctx, |builder| {
-        builder.mac_address(MacAddress::new(
-            std::slice::from_raw_parts(raw_parts, size)
-                .try_into()
-                .expect("panic: could not unmarshall u8 slice to 6-bye MAC Address array"),
-        ))
-    });
+    let mac = match std::slice::from_raw_parts(raw_parts, size).try_into() {
+        Ok(mac) => MacAddress::new(mac),
+        Err(error) => {
+            info!(
+                "Could not unmarshall u8 slice to 6-bye MAC Address array: {}",
+                error
+            );
+            return;
+        }
+    };
+
+    marshal_discovery_ffi(ctx, |builder| builder.mac_address(mac));
 }
 
 #[no_mangle]
@@ -107,14 +112,19 @@ pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut
     assert!(!ctx.is_null());
     let ctx = ctx as *mut DiscoveryBuilder;
     let builder = unsafe { ctx.read() };
-    let discovery = builder
-        .build()
-        .expect("panic(todo): didn't set all fields before building the discovery struct");
+
+    let discovery = match builder.build() {
+        Ok(discovery) => discovery,
+        Err(err) => {
+            info!("Error compiling the discovery builder object: {}", err);
+            return std::ptr::null_mut();
+        }
+    };
 
     // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
     // thread.  This is required beause tonic is async but this code generally is not.
     //
-    // TODO: reason about FFI code with async.
+    // TODO: how to reason about FFI code with async.
     //
     let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
     let machine = runtime.block_on(async move {
@@ -130,13 +140,10 @@ pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut
                 });
 
                 match client.discover_machine(request).await {
-                    Ok(response) => {
-                        error!("{:#?}", response);
-                        Some(Machine {
-                            inner: response.into_inner(),
-                            discovery_info: discovery,
-                        })
-                    }
+                    Ok(response) => Some(Machine {
+                        inner: response.into_inner(),
+                        discovery_info: discovery,
+                    }),
                     Err(error) => {
                         error!("unable to discover machine via Carbide: {:?}", error);
                         None
