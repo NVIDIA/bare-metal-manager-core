@@ -30,7 +30,7 @@ dependencies = [
 
 [tasks.ipxe-build-pcbios-x86_64]
 command = "make"
-args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=../../local/embed.ipxe", "DEBUG=ipv4,ipv6,dhcp,tftp,https" ]
+args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=../../local/embed.ipxe", "DEBUG=dhcp" ]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-x86_64]

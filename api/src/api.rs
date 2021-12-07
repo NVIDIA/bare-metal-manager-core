@@ -25,7 +25,7 @@ pub struct Api {
 impl Carbide for Api {
     async fn find_machines(
         &self,
-        _request: Request<rpc::MachineQuery>,
+        request: Request<rpc::MachineQuery>,
     ) -> Result<Response<rpc::MachineList>, Status> {
         let mut txn = self
             .database_connection
@@ -33,7 +33,14 @@ impl Carbide for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        Ok(Machine::find(&mut txn, MachineIdsFilter::All)
+        let rpc::MachineQuery { id, .. } = request.into_inner();
+
+        let filter = match id {
+            Some(id) => MachineIdsFilter::One(uuid::Uuid::try_from(id).unwrap()),
+            None => MachineIdsFilter::All,
+        };
+
+        Ok(Machine::find(&mut txn, filter)
             .await
             .map(|machine| rpc::MachineList {
                 machines: machine.into_iter().map(rpc::Machine::from).collect(),

@@ -1,8 +1,8 @@
 use rocket::Route;
 use rocket_dyn_templates::Template;
 
-use super::ipxe::rpc::carbide_client::CarbideClient;
-use ::rpc::v0 as rpc;
+use crate::Machine;
+use std::collections::HashMap;
 
 #[derive(serde::Serialize)]
 pub struct BootInstructionGenerator<'a> {
@@ -13,22 +13,27 @@ pub struct BootInstructionGenerator<'a> {
     pub state: &'a str,
 }
 
-#[get("/")]
-pub async fn pxe() -> Template {
-    let mut client = CarbideClient::connect("https://[::1]:1079").await.unwrap();
-    let request = tonic::Request::new(rpc::MachineQuery {
-        id: None,
-        fqdn: "".to_string(),
-    });
+#[derive(serde::Serialize)]
+pub struct IpxeScript<'a> {
+    pub content: &'a str,
+}
 
-    let response = client.find_machines(request).await.unwrap();
+#[get("/whoami")]
+pub async fn whoami(machine: Machine) -> Template {
+    let mut context = HashMap::new();
 
-    let machine = &response.into_inner().machines[0];
+    context.insert("machine", format!("{:#?}", machine));
+
+    Template::render("printcontext", &context)
+}
+
+#[get("/boot")]
+pub async fn boot(machine: Machine) -> Template {
     let context = BootInstructionGenerator {
-        hostname: &machine.fqdn,
-        kernel: "vmlinuz".to_string(),
+        hostname: &machine.0.fqdn,
+        kernel: "".to_string(),
         initrd: "initrd".to_string(),
-        state: &machine.state.as_ref().unwrap().state,
+        state: &machine.0.state.as_ref().unwrap().state,
         command_line: "console=ttyS0,115200,8n1".to_string(),
     };
 
@@ -36,5 +41,5 @@ pub async fn pxe() -> Template {
 }
 
 pub fn routes() -> Vec<Route> {
-    routes![pxe]
+    routes![boot, whoami]
 }

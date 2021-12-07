@@ -157,8 +157,8 @@ message NetworkSegmentQuery {
 }
 
 message MachineQuery {
-	UUID id = 1;
-	string fqdn = 2;
+	optional UUID id = 1;
+	optional string fqdn = 2;
 }
 
 message NetworkSegmentDeletion { }

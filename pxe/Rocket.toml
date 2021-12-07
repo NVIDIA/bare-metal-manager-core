@@ -1,2 +1,5 @@
 [default]
 address = "0.0.0.0"
+carbide_api_url = "http://[::1]:1079"
+
+[development]
