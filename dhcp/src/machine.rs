@@ -1,8 +1,9 @@
+use crate::discovery::Discovery;
+use crate::pxe::Architectures;
+use log::error;
 use std::ffi::CString;
 use std::net::Ipv4Addr;
 use std::primitive::u32;
-
-use crate::discovery::Discovery;
 
 /// Machine: a machine that's currently trying to boot something
 ///
@@ -99,9 +100,13 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    //    pxe::Architectures::find(machine.discovery_info.client_system);
-
-    let fqdn = CString::new("ipxe.kpxe").unwrap();
+    let fqdn = match Architectures::find(machine.discovery_info.client_system) {
+        Some(arch) => CString::new(arch.filename()).unwrap_or_else(|err| {
+            error!("Couldn't convert {} to CString: {}", arch, err);
+            CString::new("").unwrap()
+        }),
+        None => CString::new("ipxe.kpxe").unwrap(),
+    };
 
     std::mem::forget(machine);
 

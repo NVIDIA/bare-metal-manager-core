@@ -1,5 +1,53 @@
 #!ipxe
 
-echo NVIDIA Metal - iPXE boot via cloud-init user-data
+set esc:hex 1b
+set bold ${esc:string}[1m
+set boldoff ${esc:string}[22m
 
+set nvgreen ${esc:string}[32m
+set white ${esc:string}[37m
+
+#color --rgb 0x76b900 7
+#cpair --foreground 7 --background 9 0
+
+:start
+echo ${bold}${nvgreen}NVIDIA${white} Metal${boldoff} - v${version}
+prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open failsafe menu... && goto failsafe || goto dhcp
+
+:dhcp
+ifconf -c dhcp net1
+chain --autofree http://${next-server}:8000/api/v0/pxe/boot || echo
+goto failsafe
+
+:whoami
+ifconf -c dhcp net1
+chain --autofree http://${next-server}:8000/api/v0/pxe/whoami || echo
+prompt --key x Hit the ${bold}x${boldoff} key to continue
+goto failsafe
+
+:failsafe
+menu ${boot_domain} Failsafe Menu
+item localboot Boot to local drive
+#item netconfig Manual network configuration
+#item vlan Manual VLAN configuration
+item retry Retry boot
+item whoami Print information about this machine
+item debug iPXE Debug Shell
+item reboot Reboot System
+choose failsafe_choice || echo
+goto ${failsafe_choice}
+
+:localboot
+exit
+
+:retry
+goto start
+
+:debug
+echo Type "exit" to return tom menu
 shell
+goto failsafe
+
+:reboot
+reboot
+goto start

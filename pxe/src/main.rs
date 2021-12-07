@@ -1,10 +1,99 @@
 #[macro_use]
 extern crate rocket;
 
+use std::{default::Default, fmt::Debug, fmt::Display};
+use uuid::Uuid;
+
 mod routes;
 
-use rocket::fs::{relative, FileServer};
+use rocket::{
+    fairing::AdHoc,
+    form::Errors,
+    fs::{relative, FileServer},
+    http::Status,
+    request::{self, FromRequest},
+    Request,
+};
 use rocket_dyn_templates::Template;
+
+use rpc::v0::{carbide_client::CarbideClient, MachineQuery};
+use tonic::transport::Channel;
+
+#[derive(Debug)]
+pub struct Machine(rpc::v0::Machine);
+
+pub enum RPCError<'a> {
+    RequestError(tonic::Status),
+    MissingClientConfig,
+    MissingMachineId,
+    MalformedMachineId(Errors<'a>),
+}
+
+impl Debug for RPCError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self, f)
+    }
+}
+
+impl Display for RPCError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::RequestError(err) => format!("Error making a carbide API request: {}", err),
+                Self::MissingClientConfig => "Missing client configuration from server config (should not reach this case)".to_string(),
+                Self::MissingMachineId =>
+                    "Missing Machine Identifier (UUID) specified in URI parameter uuid".to_string(),
+                Self::MalformedMachineId(err) => format!("Malformed Machine UUID: {}", err),
+            }
+        )
+    }
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for Machine {
+    type Error = RPCError<'r>;
+
+    async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
+        let uuid = match request.query_value::<Uuid>("uuid") {
+            Some(Ok(uuid)) => uuid,
+            Some(Err(errs)) => {
+                return request::Outcome::Failure((
+                    Status::BadRequest,
+                    RPCError::MalformedMachineId(errs),
+                ))
+            }
+            None => {
+                return request::Outcome::Failure((Status::BadRequest, RPCError::MissingMachineId))
+            }
+        };
+
+        let mut client = match request.rocket().state::<CarbideClient<Channel>>() {
+            Some(cli) => cli.clone(),
+            None => {
+                return request::Outcome::Failure((
+                    Status::BadRequest,
+                    RPCError::MissingClientConfig,
+                ))
+            }
+        };
+
+        let request = tonic::Request::new(MachineQuery {
+            id: Some(uuid.into()),
+            ..Default::default()
+        });
+
+        match client.find_machines(request).await {
+            Ok(response) => {
+                request::Outcome::Success(Machine(response.into_inner().machines.remove(0)))
+            }
+            Err(err) => {
+                request::Outcome::Failure((Status::BadRequest, RPCError::RequestError(err)))
+            }
+        }
+    }
+}
 
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
@@ -13,6 +102,20 @@ async fn main() -> Result<(), rocket::Error> {
         .mount("/api/v0/cloud-init", routes::cloud_init::routes())
         .mount("/public", FileServer::from(relative!("static")))
         .attach(Template::fairing())
+        .attach(AdHoc::try_on_ignite(
+            "Carbide API Config",
+            |rocket| async move {
+                match rocket.figment().extract_inner::<String>("carbide_api_url") {
+                    Ok(url) => Ok(rocket.manage(CarbideClient::new(
+                        tonic::transport::Channel::from_shared(url)
+                            .unwrap()
+                            .connect_lazy()
+                            .unwrap(),
+                    ))),
+                    Err(_) => Err(rocket),
+                }
+            },
+        ))
         .ignite()
         .await?
         .launch()

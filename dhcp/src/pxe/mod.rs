@@ -2,6 +2,8 @@ mod arm64;
 mod bios_x86;
 mod efi_x64;
 
+use std::fmt::Display;
+
 pub use arm64::Arm64;
 pub use bios_x86::BiosX86;
 pub use efi_x64::EfiX64;
@@ -18,6 +20,12 @@ pub enum Architectures {
     BiosX86(BiosX86),
     EfiX64(EfiX64),
     Arm64(Arm64),
+}
+
+impl Display for dyn BootArchitecture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (filename: {})", self.name(), self.filename())
+    }
 }
 
 impl Architectures {
