@@ -3,10 +3,10 @@ ngc:
   - network: 192.168.0.0 
     netmask: 24 
   hosts:
-  - hostname: "mydhcp"
-    image: "generic/unbutu:2110"
+  - name: "mydhcp"
+    image: "generic/unbuntu:2110"
     provider: "libvirt"
     ipv4: 192.168.0.1
-  - hostname: "myclient"
+  - name: "myclient"
     image:  "generic/ubuntu:2110"
     provider: "libvirt"

@@ -18,7 +18,7 @@ module Host
   end
 
   def virtualbox?
-    self.provider == "provider"
+    self.provider == "virtualbox":
   end
 
   def pxe_boot?
