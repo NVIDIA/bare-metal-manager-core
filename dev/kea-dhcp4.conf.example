@@ -2,7 +2,7 @@
 	"Dhcp4": {
 		// Add names of your network interfaces to listen on.
 		"interfaces-config": {
-			"interfaces": [ "enp47s0f0" ],
+			"interfaces": [ "##CHANGEME##" ],
 
 			// Relay only
 			"dhcp-socket-type": "udp"
