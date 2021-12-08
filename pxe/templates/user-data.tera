@@ -1,0 +1,19 @@
+#cloud-config
+autoinstall:
+  version: 1
+  apt:
+    preserve_sources_list: false
+    primary:
+      - arches: [amd64]
+        uri: "http://archive.ubuntu.com/ubuntu/"
+  ssh:
+    install-server: yes
+    authorized-keys:
+      - "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEIGdM9KrbVk0oqdXyje94KrlEeI2LK1PVEWfdhy+SiB6P4m07pTpAURu7S4sMgm3dbOunfU76acJzN4H3+Jd0E= ssh@secretive.aforgue-mlt.local"
+    allow-pw: no
+  identity:
+    hostname: {{ fqdn }}
+    password: "$6$FhcddHFVZ7ABA4Gi$9l4yURWASWe8xEa1jzI0bacVLvhe3Yn4/G3AnU11K3X0yu/mICVRxfo6tZTB2noKljlIRzjkVZPocdf63MtzC0" # root
+    username: ubuntu # root doesn't work
+  user-data:
+    disable_root: false

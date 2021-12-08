@@ -15,13 +15,13 @@ echo ${bold}${nvgreen}NVIDIA${white} Metal${boldoff} - v${version}
 prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open default menu... && goto default || goto carbide
 
 :whoami
-ifconf -c dhcp net1
+ifconf -c dhcp
 isset ${43.70} && chain --autofree http://${next-server}:8000/api/v0/pxe/whoami?uuid=${43.70}
 prompt --key x Hit the ${bold}x${boldoff} key to continue
 goto default
 
 :carbide
-ifconf -c dhcp net1
+ifconf -c dhcp
 isset ${43.70} && chain --autofree http://${next-server}:8000/api/v0/pxe/boot?uuid=${43.70}
 prompt --key x Hit the ${bold}x${boldoff} key to continue
 goto default

@@ -86,6 +86,12 @@ extern "C" {
 		}
 		response4_ptr->addOption(OptionPtr(new Option4AddrLst(DHO_ROUTERS, isc::asiolink::IOAddress(machine_get_interface_router(machine)))));
 
+		OptionPtr option_dns = response4_ptr->getOption(DHO_NAME_SERVERS);
+		if(option_dns) {
+			response4_ptr->delOption(DHO_NAME_SERVERS);
+		}
+		response4_ptr->addOption(OptionPtr(new Option4AddrLst(DHO_NAME_SERVERS, isc::asiolink::IOAddress("192.168.0.1"))));
+
 		// Set subnet-mask
 		OptionPtr option_mtu = response4_ptr->getOption(DHO_INTERFACE_MTU);
 		if (option_mtu) {
