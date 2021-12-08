@@ -36,7 +36,7 @@ Vagrant.configure("2") do |config|
 
     client.vm.provider :virtualbox do |vb, config|
       # make sure this vm has enough memory to load the root fs into memory.
-      vb.memory = 2048
+      vb.memory = 4096
 
       # let vagrant known that the guest does not have the guest additions nor a functional vboxsf or shared folders.
       vb.check_guest_additions = false
@@ -44,6 +44,7 @@ Vagrant.configure("2") do |config|
       config.vm.synced_folder '.', '/vagrant', disabled: true
 
       # configure for PXE boot.
+      vb.customize ["modifyvm", :id, "--nic1", "none"]
       vb.customize ["modifyvm", :id, "--firmware", "bios"]
       vb.customize ['modifyvm', :id, '--boot1', 'net']
       vb.customize ['modifyvm', :id, '--boot2', 'none']
