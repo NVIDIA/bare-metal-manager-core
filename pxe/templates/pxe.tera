@@ -1,9 +1,2 @@
 #!ipxe
-#
-# Boot file for {{ hostname }}
-# 
-ifstat
-echo ==== Toms own MaaS ====
-echo hostname: {{ hostname }}
-echo machine_state: {{ state }}
-shell
+{{ ipxe }}

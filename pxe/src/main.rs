@@ -3,6 +3,7 @@ extern crate rocket;
 
 use std::{default::Default, fmt::Debug, fmt::Display};
 use uuid::Uuid;
+use serde::Serialize;
 
 mod routes;
 
@@ -27,6 +28,14 @@ pub enum RPCError<'a> {
     MissingClientConfig,
     MissingMachineId,
     MalformedMachineId(Errors<'a>),
+}
+
+impl Serialize for Machine {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+            serializer.serialize_newtype_struct("Machine", &self.0)
+    }
 }
 
 impl Debug for RPCError<'_> {

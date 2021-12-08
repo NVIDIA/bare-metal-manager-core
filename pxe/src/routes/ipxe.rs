@@ -2,7 +2,6 @@ use rocket::Route;
 use rocket_dyn_templates::Template;
 
 use crate::Machine;
-use std::collections::HashMap;
 
 #[derive(serde::Serialize)]
 pub struct BootInstructionGenerator<'a> {
@@ -20,11 +19,7 @@ pub struct IpxeScript<'a> {
 
 #[get("/whoami")]
 pub async fn whoami(machine: Machine) -> Template {
-    let mut context = HashMap::new();
-
-    context.insert("machine", format!("{:#?}", machine));
-
-    Template::render("printcontext", &context)
+    Template::render("whoami", &machine)
 }
 
 #[get("/boot")]
