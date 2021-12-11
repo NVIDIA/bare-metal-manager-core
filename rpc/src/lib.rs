@@ -54,7 +54,7 @@ pub mod v0 {
         where
             S: serde::Serializer,
         {
-            let mut state = serializer.serialize_struct("Machine", 7)?;
+            let mut state = serializer.serialize_struct("Machine", 8)?;
 
             state.serialize_field("id", &self.id)?;
             state.serialize_field("fqdn", &self.fqdn)?;
@@ -63,6 +63,7 @@ pub mod v0 {
             state.serialize_field("events", &self.events)?;
             state.serialize_field("interfaces", &self.interfaces)?;
             state.serialize_field("state", &self.state)?;
+            state.serialize_field("userdata", &self.userdata)?;
 
             state.end()
         }

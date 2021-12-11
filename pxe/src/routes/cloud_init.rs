@@ -1,19 +1,22 @@
 use crate::Machine;
 use rocket::{Route, State};
-use rocket_dyn_templates::Template;
+use rocket::response::status;
+use rocket_dyn_templates::{Template};
 use rpc::v0::carbide_client::CarbideClient;
 use std::collections::HashMap;
 use tonic::transport::Channel;
 
 #[get("/<uuid>/user-data")]
-pub async fn user_data(uuid: uuid::Uuid, machine: Machine) -> Template {
-    Template::render("user-data", &machine)
+pub async fn user_data(uuid: uuid::Uuid, machine: Machine) -> String {
+    let mut context = tera::Context::new();
+    context.insert("machine", &machine.0);
+
+    tera::Tera::one_off(&machine.0.userdata.unwrap(), &context, false).unwrap()
 }
 
 #[get("/<uuid>/meta-data")]
 pub async fn meta_data(uuid: uuid::Uuid) -> Template {
     let context: HashMap<String, String> = HashMap::new();
-
     Template::render("printcontext", &context)
 }
 

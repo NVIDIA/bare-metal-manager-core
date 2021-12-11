@@ -18,6 +18,7 @@ serde_json = "*"
 
 # webserver
 rocket = { version = "0.5.0-rc.1", features = ["uuid"] }
+tera = "*"
 
 # data types
 uuid = { version = "0.8", features = ["v4", "serde"] }

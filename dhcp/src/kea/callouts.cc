@@ -146,7 +146,7 @@ extern "C" {
 		if (vendor_option_6) {
 			option_vendor->delOption(6);
 		}
-		vendor_option_6.reset(new OptionInt(Option::V4, 6, 0x8));
+		vendor_option_6.reset(new OptionInt<uint32_t>(Option::V4, 6, 0x8));
 
 		OptionPtr vendor_option_70 = option_vendor->getOption(70);
 		if (vendor_option_70) {
