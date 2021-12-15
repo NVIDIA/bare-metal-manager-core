@@ -69,6 +69,8 @@ message Machine {
 	repeated MachineInterface interfaces = 6;
 
 	MachineState state = 7;
+
+	optional string userdata = 8;
 // TODO(ajf): hardware discovery
 // TODO(ajf): os selection
 // TODO(ajf): bmc configuration

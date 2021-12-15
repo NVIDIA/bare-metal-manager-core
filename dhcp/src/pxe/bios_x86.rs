@@ -18,6 +18,6 @@ impl BootArchitecture for BiosX86 {
     }
 
     fn filename(&self) -> String {
-        String::from("ipxe.kpxe")
+        String::from("/ipxe.kpxe")
     }
 }

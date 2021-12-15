@@ -126,6 +126,23 @@ pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
 }
 
 #[no_mangle]
+pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
+    assert!(!ctx.is_null());
+    let machine = unsafe { Box::from_raw(ctx) };
+
+    let uuid = if let Some(machine_id) = &machine.inner.machine_id {
+        CString::new(machine_id.to_string()).unwrap()
+    } else {
+        error!("Found a host missing UUID, dumping everything we know about it: {:?}", &machine);
+        CString::new("").unwrap()
+    };
+
+    std::mem::forget(machine);
+
+    uuid.into_raw()
+}
+
+#[no_mangle]
 pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
@@ -145,6 +162,17 @@ pub extern "C" fn machine_free_filename(filename: *mut libc::c_char) {
         }
 
         CString::from_raw(filename)
+    };
+}
+
+#[no_mangle]
+pub extern "C" fn machine_free_uuid(uuid: *mut libc::c_char) {
+    unsafe {
+        if uuid.is_null() {
+            return;
+        }
+
+        CString::from_raw(uuid)
     };
 }
 

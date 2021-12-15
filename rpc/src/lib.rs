@@ -6,11 +6,14 @@
 pub mod v0 {
     use mac_address::{MacAddress, MacParseError};
     use prost::Message;
+    use serde::Serialize;
     use std::convert::From;
     use std::convert::TryFrom;
     use std::fmt::Display;
     use std::net::{AddrParseError, Ipv4Addr, Ipv6Addr};
     use std::str::FromStr;
+
+    use serde::ser::SerializeStruct;
 
     pub use prost_types::Timestamp;
 
@@ -27,6 +30,43 @@ pub mod v0 {
             .encode(&mut expected)
             .expect("encode reflection service file descriptor");
         expected
+    }
+
+    impl Serialize for MachineEvent {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("MachineEvent", 5)?;
+
+            state.serialize_field("id", &self.id)?;
+            state.serialize_field("machine_id", &self.machine_id)?;
+            state.serialize_field("event", &self.event)?;
+            state.serialize_field("version", &self.version)?;
+            state.serialize_field("time", &self.time.as_ref().map(|ts| ts.seconds))?;
+
+            state.end()
+        }
+    }
+
+    impl Serialize for Machine {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("Machine", 8)?;
+
+            state.serialize_field("id", &self.id)?;
+            state.serialize_field("fqdn", &self.fqdn)?;
+            state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
+            state.serialize_field("modified", &self.modified.as_ref().map(|ts| ts.seconds))?;
+            state.serialize_field("events", &self.events)?;
+            state.serialize_field("interfaces", &self.interfaces)?;
+            state.serialize_field("state", &self.state)?;
+            state.serialize_field("userdata", &self.userdata)?;
+
+            state.end()
+        }
     }
 
     impl From<uuid::Uuid> for Uuid {

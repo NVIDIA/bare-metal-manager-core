@@ -62,6 +62,9 @@ pub struct Machine {
     ///
     /// [event]: crate::db::MachineInterface
     interfaces: Vec<MachineInterface>,
+
+    /// The cloud-init userdata for this node
+    userdata: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for Machine {
@@ -74,6 +77,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             state: row.try_get("state")?,
             events: Vec::new(),
             interfaces: Vec::new(),
+            userdata: row.try_get("userdata")?,
         })
     }
 }
@@ -110,6 +114,7 @@ impl From<Machine> for rpc::Machine {
                 nanos: 0,
             }),
             state: Some(machine.state.into()),
+            userdata: machine.userdata,
             events: machine
                 .events
                 .into_iter()

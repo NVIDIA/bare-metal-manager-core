@@ -36,8 +36,13 @@ impl Carbide for Api {
         let rpc::MachineQuery { id, .. } = request.into_inner();
 
         let filter = match id {
-            Some(id) => MachineIdsFilter::One(uuid::Uuid::try_from(id).unwrap()),
-            None => MachineIdsFilter::All,
+            Some(id) if id.value.chars().count() > 0 => {
+                match uuid::Uuid::try_from(id) {
+                    Ok(uuid) => MachineIdsFilter::One(uuid),
+                    Err(err) => return Err(Status::invalid_argument(format!("Supplied invalid UUID: {}", err)))
+                }
+            },
+            _ => MachineIdsFilter::All,
         };
 
         Ok(Machine::find(&mut txn, filter)

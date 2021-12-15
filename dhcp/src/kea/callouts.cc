@@ -86,6 +86,12 @@ extern "C" {
 		}
 		response4_ptr->addOption(OptionPtr(new Option4AddrLst(DHO_ROUTERS, isc::asiolink::IOAddress(machine_get_interface_router(machine)))));
 
+		OptionPtr option_dns = response4_ptr->getOption(DHO_NAME_SERVERS);
+		if(option_dns) {
+			response4_ptr->delOption(DHO_NAME_SERVERS);
+		}
+		response4_ptr->addOption(OptionPtr(new Option4AddrLst(DHO_NAME_SERVERS, isc::asiolink::IOAddress("192.168.0.1"))));
+
 		// Set subnet-mask
 		OptionPtr option_mtu = response4_ptr->getOption(DHO_INTERFACE_MTU);
 		if (option_mtu) {
@@ -130,12 +136,37 @@ extern "C" {
 		option_filename.reset(new OptionString(Option::V4, DHO_BOOT_FILE_NAME, filename));
 		response4_ptr->addOption(option_filename);
 
+		/*
+		 * Trying to encapsulate vendor options
+		 */
+		OptionPtr option_vendor(new Option(Option::V4, DHO_VENDOR_ENCAPSULATED_OPTIONS));
+		LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(option_vendor->toText());
+
+		OptionPtr vendor_option_6 = option_vendor->getOption(6);
+		if (vendor_option_6) {
+			option_vendor->delOption(6);
+		}
+		vendor_option_6.reset(new OptionInt<uint32_t>(Option::V4, 6, 0x8));
+
+		OptionPtr vendor_option_70 = option_vendor->getOption(70);
+		if (vendor_option_70) {
+			option_vendor->delOption(70);
+		}
+		char *machine_uuid = machine_get_uuid(machine);
+		vendor_option_70.reset(new OptionString(Option::V4, 70, machine_uuid));
+
+		option_vendor->addOption(vendor_option_6);
+		option_vendor->addOption(vendor_option_70);
+
+		response4_ptr->addOption(option_vendor);
+
 		LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND).arg(response4_ptr->toText());
 
 		// Tell rust code to free the memory, since we can't free memory that isn't ours
 		machine_free(machine);
 		machine_free_fqdn(hostname);
-//		machine_free_filename(filename);
+		machine_free_filename(filename);
+		machine_free_uuid(machine_uuid);
 
 		return 0;
 	}

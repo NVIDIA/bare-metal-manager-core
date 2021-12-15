@@ -41,12 +41,6 @@ pub struct Daemon {
 
     #[clap(long, require_equals(true), default_value = DEFAULT_DATASTORE)]
     pub datastore: String,
-
-    #[clap(long, require_equals(true), default_value = DEFAULT_VAULT)]
-    pub vault_api: String,
-
-    #[clap(long, require_equals(true))]
-    pub vault_token: String,
 }
 
 #[derive(Parser)]

@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
+use serde::Serialize;
 use std::{default::Default, fmt::Debug, fmt::Display};
 use uuid::Uuid;
 
@@ -11,7 +12,7 @@ use rocket::{
     form::Errors,
     fs::{relative, FileServer},
     http::Status,
-    request::{self, FromRequest},
+    request::{self, FromParam, FromRequest},
     Request,
 };
 use rocket_dyn_templates::Template;
@@ -29,6 +30,15 @@ pub enum RPCError<'a> {
     MalformedMachineId(Errors<'a>),
 }
 
+impl Serialize for Machine {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_newtype_struct("Machine", &self.0)
+    }
+}
+
 impl Debug for RPCError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self, f)
@@ -42,7 +52,9 @@ impl Display for RPCError<'_> {
             "{}",
             match self {
                 Self::RequestError(err) => format!("Error making a carbide API request: {}", err),
-                Self::MissingClientConfig => "Missing client configuration from server config (should not reach this case)".to_string(),
+                Self::MissingClientConfig =>
+                    "Missing client configuration from server config (should not reach this case)"
+                        .to_string(),
                 Self::MissingMachineId =>
                     "Missing Machine Identifier (UUID) specified in URI parameter uuid".to_string(),
                 Self::MalformedMachineId(err) => format!("Malformed Machine UUID: {}", err),
@@ -65,7 +77,16 @@ impl<'r> FromRequest<'r> for Machine {
                 ))
             }
             None => {
-                return request::Outcome::Failure((Status::BadRequest, RPCError::MissingMachineId))
+                eprintln!("{:#?}", request.param::<Uuid>(0));
+                match request.param::<Uuid>(0) {
+                    Some(uuid) => uuid.unwrap(),
+                    None => {
+                        return request::Outcome::Failure((
+                            Status::BadRequest,
+                            RPCError::MissingMachineId,
+                        ))
+                    }
+                }
             }
         };
 
