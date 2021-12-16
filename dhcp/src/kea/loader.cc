@@ -31,8 +31,6 @@ extern "C" {
 		}
 
 		handle.registerCallout("pkt4_receive", pkt4_receive);
-		handle.registerCallout("lease4_select", lease4_select);
-//		handle.registerCallout("subnet4_select", subnet4_select);
 		handle.registerCallout("pkt4_send", pkt4_send);
 
 		return 0;
