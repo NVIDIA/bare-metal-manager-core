@@ -1,22 +1,20 @@
 use mac_address::MacAddress;
+use std::ffi::CStr;
 use std::net::Ipv4Addr;
 use std::primitive::u32;
 
 use crate::machine::Machine;
-use crate::CarbideDhcpContext;
 
-use crate::CONFIG;
 use derive_builder::Builder;
 use log::*;
-use rpc::v0 as rpc;
 
 #[derive(Debug, Builder)]
 #[builder(pattern = "owned")]
 pub struct Discovery {
     pub(crate) relay_address: Ipv4Addr,
     pub(crate) mac_address: MacAddress,
-    //pub(crate) vendor_string: String,
     pub(crate) client_system: u16,
+    pub(crate) vendor_class: String,
 }
 
 #[repr(C)]
@@ -59,6 +57,29 @@ pub unsafe extern "C" fn discovery_set_client_system(
     client_system: u16,
 ) {
     marshal_discovery_ffi(ctx, |builder| builder.client_system(client_system))
+}
+
+/// Fill the `vendor_class` portion of the discovery object
+///
+/// # Safety
+///
+/// This function deferences a pointer to a Discovery object which is an opaque pointer
+/// consumed in C code.
+///
+#[no_mangle]
+pub unsafe extern "C" fn discovery_set_vendor_class(
+    ctx: *mut DiscoveryBuilderFFI,
+    vendor_class: *const libc::c_char,
+) {
+    let vendor_class = match CStr::from_ptr(vendor_class).to_str() {
+        Ok(string) => string.to_owned(),
+        Err(error) => {
+            error!("Invalid UTF-8 byte string for vendor_class: {}", error);
+            return;
+        }
+    };
+
+    marshal_discovery_ffi(ctx, |builder| builder.vendor_class(vendor_class))
 }
 
 /// Fill the `relay` portion of the Discovery object with an IP(v4) address
@@ -121,45 +142,9 @@ pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut
         }
     };
 
-    // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
-    // thread.  This is required beause tonic is async but this code generally is not.
-    //
-    // TODO: how to reason about FFI code with async.
-    //
-    let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
-    let machine = runtime.block_on(async move {
-        let config = CONFIG.read().unwrap();
-        let url = config.api_endpoint.clone();
-
-        match rpc::carbide_client::CarbideClient::connect(url).await {
-            Ok(mut client) => {
-                let request = tonic::Request::new(rpc::MachineDiscovery {
-                    mac_address: discovery.mac_address.to_string(),
-                    relay_address: discovery.relay_address.to_string(),
-                    //vendor_string: discovery.vendor_string.unwrap().to_string(),
-                });
-
-                match client.discover_machine(request).await {
-                    Ok(response) => Some(Machine {
-                        inner: response.into_inner(),
-                        discovery_info: discovery,
-                    }),
-                    Err(error) => {
-                        error!("unable to discover machine via Carbide: {:?}", error);
-                        None
-                    }
-                }
-            }
-            Err(e) => {
-                error!("unable to connect to Carbide API: {:?}", e);
-                None
-            }
-        }
-    });
-
-    match machine {
-        Some(machine) => Box::into_raw(Box::new(machine)),
-        None => std::ptr::null_mut(),
+    match Machine::try_from(discovery) {
+        Ok(machine) => Box::into_raw(Box::new(machine)),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 

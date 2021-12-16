@@ -17,15 +17,16 @@ path = "src/main.rs"
 rpc = { path = "../rpc" }
 
 # grpc
-tonic = { version = "0.5", features = ["tls"] }
-tonic-reflection = "0.2"
+tonic = { version = "0.6", features = ["tls"] }
+tonic-reflection = "0.3"
 
 # databases
 sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros" ] }
 
 # async
 tokio = { version = "1.9", features = ["full"] }
-clap = "3.0.0-beta.2"
+clap = "3.0.0-rc.4"
+clap_derive = "3.0.0-rc.4"
 log = { version = "*", features = ["serde"] }
 pretty_env_logger = "*"
 color-eyre = "0.5.11"
@@ -45,7 +46,7 @@ itertools = "*"
 thiserror = "1.0"
 
 [build-dependencies]
-tonic-build = "0.5"
+tonic-build = "0.6"
 
 [dev-dependencies]
 rand = "*"

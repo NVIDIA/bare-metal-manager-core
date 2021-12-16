@@ -21,7 +21,6 @@ Vagrant.configure("2") do |config|
     relay.vm.cloud_init :user_data, content_type: "text/cloud-config", path: "dev/relay.yml"
 
     relay.vm.provider :virtualbox do |vb, config|
-      # TODO - make EFI work
       vb.customize ['modifyvm', :id, '--boot1', 'disk']
     end
   end
@@ -44,14 +43,10 @@ Vagrant.configure("2") do |config|
       config.vm.synced_folder '.', '/vagrant', disabled: true
 
       # configure for PXE boot.
+      vb.customize ['modifyvm', :id, '--firmware', 'efi']
       vb.customize ["modifyvm", :id, "--nic1", "none"]
-      vb.customize ["modifyvm", :id, "--firmware", "bios"]
       vb.customize ['modifyvm', :id, '--boot1', 'net']
-      vb.customize ['modifyvm', :id, '--boot2', 'none']
-      vb.customize ['modifyvm', :id, '--biospxedebug', 'on']
-      vb.customize ['modifyvm', :id, '--cableconnected2', 'on']
-      vb.customize ['modifyvm', :id, '--nicbootprio2', '1']
-      vb.customize ['modifyvm', :id, "--nictype2", '82540EM'] # Must be an Intel card (as-of VB 5.1 we cannot Intel PXE boot from a virtio-net card).
+      vb.customize ['modifyvm', :id, '--nicbootprio1', '1']
     end
   end
 end

@@ -2,7 +2,7 @@ mod discovery;
 mod kea;
 mod kea_logger;
 mod machine;
-mod pxe;
+mod vendor_class;
 
 use libc::c_char;
 

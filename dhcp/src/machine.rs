@@ -1,6 +1,11 @@
 use crate::discovery::Discovery;
-use crate::pxe::Architectures;
+use crate::vendor_class::MachineArchitecture;
+use crate::vendor_class::MachineClientClass;
+use crate::vendor_class::VendorClass;
+use crate::CarbideDhcpContext;
+use crate::CONFIG;
 use log::error;
+use rpc::v0 as rpc;
 use std::ffi::CString;
 use std::net::Ipv4Addr;
 use std::primitive::u32;
@@ -12,8 +17,66 @@ use std::primitive::u32;
 ///
 #[derive(Debug)]
 pub struct Machine {
-    pub(crate) inner: rpc::v0::DhcpRecord,
-    pub(crate) discovery_info: Discovery,
+    pub inner: rpc::DhcpRecord,
+    pub discovery_info: Discovery,
+    pub vendor_class: VendorClass,
+}
+
+pub enum MachineTranslateError {
+    Failure,
+}
+
+impl TryFrom<Discovery> for Machine {
+    type Error = MachineTranslateError;
+
+    fn try_from(discovery: Discovery) -> Result<Self, Self::Error> {
+        // First, see if we can parse the vendor class
+        let vendor_class = discovery
+            .vendor_class
+            .parse()
+            .map_err(|_| MachineTranslateError::Failure)?;
+        let url = CONFIG
+            .read()
+            .unwrap() // TODO(ajf): don't unwrap
+            .api_endpoint
+            .clone();
+
+        // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
+        // thread.  This is required beause tonic is async but this code generally is not.
+        //
+        // TODO(ajf): how to reason about FFI code with async.
+        //
+        let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+
+        runtime.block_on(async move {
+            match rpc::carbide_client::CarbideClient::connect(url).await {
+                Ok(mut client) => {
+                    let request = tonic::Request::new(rpc::MachineDiscovery {
+                        mac_address: discovery.mac_address.to_string(),
+                        relay_address: discovery.relay_address.to_string(),
+                        //vendor_string: discovery.vendor_string.unwrap().to_string(),
+                    });
+
+                    client
+                        .discover_machine(request)
+                        .await
+                        .map(|response| Machine {
+                            inner: response.into_inner(),
+                            discovery_info: discovery,
+                            vendor_class,
+                        })
+                        .map_err(|error| {
+                            error!("unable to discover machine via Carbide: {:?}", error);
+                            MachineTranslateError::Failure
+                        })
+                }
+                Err(err) => {
+                    error!("unable to connect to Carbide API: {:?}", err);
+                    Err(MachineTranslateError::Failure)
+                }
+            }
+        })
+    }
 }
 
 /// Get the router address
@@ -100,14 +163,34 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let fqdn = match Architectures::find(machine.discovery_info.client_system) {
-        Some(arch) => CString::new(arch.filename()).unwrap_or_else(|err| {
-            error!("Couldn't convert {} to CString: {}", arch, err);
-            CString::new("").unwrap()
-        }),
-        None => CString::new("ipxe.kpxe").unwrap(),
+    let filename = match machine.vendor_class {
+        VendorClass {
+            client_architecture: MachineArchitecture::EfiX64,
+            client_type: MachineClientClass::PXEClient,
+        } => "ipxe.efi",
+        VendorClass {
+            client_architecture: MachineArchitecture::Arm64,
+            client_type: MachineClientClass::PXEClient,
+        } => "ipxe.efi",
+        VendorClass {
+            client_architecture: MachineArchitecture::BiosX86,
+            client_type: MachineClientClass::PXEClient,
+        } => "ipxe.kpxe",
+        VendorClass {
+            client_architecture: MachineArchitecture::EfiX64,
+            client_type: MachineClientClass::HTTPClient,
+        } => unimplemented!(),
+        VendorClass {
+            client_architecture: MachineArchitecture::Arm64,
+            client_type: MachineClientClass::HTTPClient,
+        } => unimplemented!(),
+        VendorClass {
+            client_architecture: MachineArchitecture::BiosX86,
+            client_type: MachineClientClass::HTTPClient,
+        } => unreachable!(),  // BIOS never supports HTTPClient
     };
 
+    let fqdn = CString::new(filename).unwrap();
     std::mem::forget(machine);
 
     fqdn.into_raw()
@@ -133,7 +216,10 @@ pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
     let uuid = if let Some(machine_id) = &machine.inner.machine_id {
         CString::new(machine_id.to_string()).unwrap()
     } else {
-        error!("Found a host missing UUID, dumping everything we know about it: {:?}", &machine);
+        error!(
+            "Found a host missing UUID, dumping everything we know about it: {:?}",
+            &machine
+        );
         CString::new("").unwrap()
     };
 
