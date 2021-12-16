@@ -1,4 +1,5 @@
 use clap::Parser;
+use clap_derive::Parser;
 
 // TODO(ajf): always look at crate root
 static DEFAULT_CONFIG_PATH: &str = ".config.toml";
@@ -8,7 +9,7 @@ static DEFAULT_VAULT: &str = "http://localhost:8100";
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
-    #[clap(short, long, parse(from_occurrences), about = "Increase debug level")]
+    #[clap(short, long, parse(from_occurrences))]
     pub debug: u8,
 
     #[clap(long, default_value = DEFAULT_CONFIG_PATH)]
@@ -34,7 +35,6 @@ pub struct Daemon {
         long,
         multiple_values(true),
         require_equals(true),
-        about = "List of listening endpoints",
         default_value = "[::]:1079"
     )]
     pub listen: Vec<std::net::SocketAddr>,

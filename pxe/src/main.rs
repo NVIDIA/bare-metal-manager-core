@@ -23,6 +23,8 @@ use tonic::transport::Channel;
 #[derive(Debug)]
 pub struct Machine(rpc::v0::Machine);
 
+struct CarbideUrl(String);
+
 pub enum RPCError<'a> {
     RequestError(tonic::Status),
     MissingClientConfig,
@@ -90,8 +92,16 @@ impl<'r> FromRequest<'r> for Machine {
             }
         };
 
-        let mut client = match request.rocket().state::<CarbideClient<Channel>>() {
-            Some(cli) => cli.clone(),
+        let mut client = match request.rocket().state::<CarbideUrl>() {
+            Some(url) => match CarbideClient::connect(url.0.clone()).await {
+                Ok(client) => client,
+                Err(err) => {
+                    return request::Outcome::Failure((
+                        Status::BadRequest,
+                        RPCError::MissingClientConfig,
+                    ))
+                }
+            },
             None => {
                 return request::Outcome::Failure((
                     Status::BadRequest,
@@ -127,12 +137,7 @@ async fn main() -> Result<(), rocket::Error> {
             "Carbide API Config",
             |rocket| async move {
                 match rocket.figment().extract_inner::<String>("carbide_api_url") {
-                    Ok(url) => Ok(rocket.manage(CarbideClient::new(
-                        tonic::transport::Channel::from_shared(url)
-                            .unwrap()
-                            .connect_lazy()
-                            .unwrap(),
-                    ))),
+                    Ok(url) => Ok(rocket.manage(CarbideUrl(url))),
                     Err(_) => Err(rocket),
                 }
             },

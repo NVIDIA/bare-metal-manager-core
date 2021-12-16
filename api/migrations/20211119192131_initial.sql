@@ -113,7 +113,6 @@ CREATE TABLE machine_events (
 	FOREIGN KEY (machine_id) REFERENCES machines(id)
 );
 
-
 DELETE FROM machine_transition;
 DELETE FROM machine_state_machine_versions;
 
