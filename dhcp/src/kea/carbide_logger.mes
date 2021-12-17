@@ -14,3 +14,6 @@ Carbide received DHCPv4 (Send) hook from Kea
 
 % LOG_CARBIDE_GENERIC Carbide: %1
 Carbide generic log message
+
+% LOG_CARBIDE_INVALID_NEXTSERVER_IPV4 Invalid provisioning server IPv4 address: %1
+A configuration option for the provisioning server IP address was found, but did not parse as a valid IPv4 address

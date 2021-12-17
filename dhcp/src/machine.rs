@@ -9,6 +9,7 @@ use rpc::v0 as rpc;
 use std::ffi::CString;
 use std::net::Ipv4Addr;
 use std::primitive::u32;
+use std::ptr;
 
 /// Machine: a machine that's currently trying to boot something
 ///
@@ -19,7 +20,7 @@ use std::primitive::u32;
 pub struct Machine {
     pub inner: rpc::DhcpRecord,
     pub discovery_info: Discovery,
-    pub vendor_class: VendorClass,
+    pub vendor_class: Option<VendorClass>,
 }
 
 pub enum MachineTranslateError {
@@ -31,10 +32,19 @@ impl TryFrom<Discovery> for Machine {
 
     fn try_from(discovery: Discovery) -> Result<Self, Self::Error> {
         // First, see if we can parse the vendor class
-        let vendor_class = discovery
-            .vendor_class
-            .parse()
-            .map_err(|_| MachineTranslateError::Failure)?;
+        let vendor_class = match discovery.vendor_class {
+            Some(ref vendor_class) => Some(
+                vendor_class
+                    .parse::<VendorClass>()
+                    .map_err(|_| MachineTranslateError::Failure)?,
+            ),
+            None => None,
+        };
+
+        // Option<X>
+        //   if none then none
+        //   if some then parse if err fail
+
         let url = CONFIG
             .read()
             .unwrap() // TODO(ajf): don't unwrap
@@ -159,41 +169,48 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
 /// This function checks for null pointer and unboxes into a machine object
 ///
 #[no_mangle]
-pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *mut libc::c_char {
+pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let filename = match machine.vendor_class {
-        VendorClass {
-            client_architecture: MachineArchitecture::EfiX64,
-            client_type: MachineClientClass::PXEClient,
-        } => "ipxe.efi",
-        VendorClass {
-            client_architecture: MachineArchitecture::Arm64,
-            client_type: MachineClientClass::PXEClient,
-        } => "ipxe.efi",
-        VendorClass {
-            client_architecture: MachineArchitecture::BiosX86,
-            client_type: MachineClientClass::PXEClient,
-        } => "ipxe.kpxe",
-        VendorClass {
-            client_architecture: MachineArchitecture::EfiX64,
-            client_type: MachineClientClass::HTTPClient,
-        } => unimplemented!(),
-        VendorClass {
-            client_architecture: MachineArchitecture::Arm64,
-            client_type: MachineClientClass::HTTPClient,
-        } => unimplemented!(),
-        VendorClass {
-            client_architecture: MachineArchitecture::BiosX86,
-            client_type: MachineClientClass::HTTPClient,
-        } => unreachable!(),  // BIOS never supports HTTPClient
+    let fqdn = if let Some(vendor_class) = &machine.vendor_class {
+        let filename = match vendor_class {
+            VendorClass {
+                client_architecture: MachineArchitecture::EfiX64,
+                client_type: MachineClientClass::PXEClient,
+            } => "ipxe.efi",
+            VendorClass {
+                client_architecture: MachineArchitecture::Arm64,
+                client_type: MachineClientClass::PXEClient,
+            } => "ipxe.efi",
+            VendorClass {
+                client_architecture: MachineArchitecture::BiosX86,
+                client_type: MachineClientClass::PXEClient,
+            } => "ipxe.kpxe",
+            VendorClass {
+                client_architecture: MachineArchitecture::EfiX64,
+                client_type: MachineClientClass::HTTPClient,
+            } => unimplemented!(),
+            VendorClass {
+                client_architecture: MachineArchitecture::Arm64,
+                client_type: MachineClientClass::HTTPClient,
+            } => unimplemented!(),
+            VendorClass {
+                client_architecture: MachineArchitecture::BiosX86,
+                client_type: MachineClientClass::HTTPClient,
+            } => unreachable!(), // BIOS never supports HTTPClient
+        };
+
+        Some(CString::new(filename).unwrap())
+    } else {
+        None
     };
 
-    let fqdn = CString::new(filename).unwrap();
     std::mem::forget(machine);
 
-    fqdn.into_raw()
+    fqdn.map(|f| f.into_raw())
+        .or_else(|| Some(ptr::null_mut()))
+        .unwrap()
 }
 
 #[no_mangle]
@@ -241,13 +258,13 @@ pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
 }
 
 #[no_mangle]
-pub extern "C" fn machine_free_filename(filename: *mut libc::c_char) {
+pub extern "C" fn machine_free_filename(filename: *const libc::c_char) {
     unsafe {
         if filename.is_null() {
             return;
         }
 
-        CString::from_raw(filename)
+        CString::from_raw(filename as *mut _)
     };
 }
 

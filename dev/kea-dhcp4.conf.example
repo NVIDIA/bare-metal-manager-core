@@ -25,7 +25,8 @@
 				// Carbide provides host provisioning workflow
 				"library": "/home/andrew/NVIDIA/carbide/target/debug/libdhcp.so",
 				"parameters": {
-					"carbide-api-url": "https://[::1]:1079"
+					"carbide-api-url": "https://[::1]:1079",
+					"carbide-provisioning-server-ipv4": "##CHANGEME##"
 				}
 			}
 		],

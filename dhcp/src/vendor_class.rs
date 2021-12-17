@@ -1,4 +1,4 @@
-use std::{str::FromStr, fmt::Display};
+use std::{fmt::Display, str::FromStr};
 
 #[derive(Debug, PartialEq)]
 pub enum MachineClientClass {
@@ -30,12 +30,13 @@ impl FromStr for MachineArchitecture {
     type Err = VendorClassParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match u32::from_str_radix(s, 16) { // Is this actually base 16?
+        match u32::from_str_radix(s, 16) {
+            // Is this actually base 16?
             Ok(0x0) => Ok(MachineArchitecture::BiosX86),
             Ok(0x7) => Ok(MachineArchitecture::EfiX64),
             Ok(0xa) => Ok(MachineArchitecture::Arm64),
-            Ok(_) => Err(VendorClassParseError::UnsupportedArchitecture),  // Unknown
-            Err(_) => Err(VendorClassParseError::InvalidFormat), // Better Error
+            Ok(_) => Err(VendorClassParseError::UnsupportedArchitecture), // Unknown
+            Err(_) => Err(VendorClassParseError::InvalidFormat),          // Better Error
         }
     }
 }
@@ -60,10 +61,14 @@ impl VendorClass {
 
 impl Display for MachineClientClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            Self::PXEClient => "PXE Client",
-            Self::HTTPClient => "HTTP Client",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::PXEClient => "PXE Client",
+                Self::HTTPClient => "HTTP Client",
+            }
+        )
     }
 }
 
@@ -75,11 +80,15 @@ impl Display for VendorClass {
 
 impl Display for MachineArchitecture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            Self::Arm64 => "ARM 64-bit UEFI",
-            Self::EfiX64 => "x64 UEFI",
-            Self::BiosX86 => "x86 BIOS",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Arm64 => "ARM 64-bit UEFI",
+                Self::EfiX64 => "x64 UEFI",
+                Self::BiosX86 => "x86 BIOS",
+            }
+        )
     }
 }
 
@@ -91,7 +100,6 @@ impl FromStr for MachineClientClass {
             "PXEClient" => Ok(Self::PXEClient),
             "HTTPClient" => Ok(Self::HTTPClient),
             _ => Err(VendorClassParseError::UnsupportedClientType),
-
         }
     }
 }
@@ -105,7 +113,7 @@ impl FromStr for VendorClass {
         let parts: Vec<&str> = vendor_class.split(':').collect();
 
         match parts.len() {
-            5 => Ok(VendorClass { 
+            5 => Ok(VendorClass {
                 client_type: parts[0].parse()?,
                 client_architecture: parts[2].parse()?,
             }),
@@ -153,7 +161,8 @@ mod tests {
 
     #[test]
     fn it_fails_on_unknown_client() {
-        let vc: Result<VendorClass, VendorClassParseError> = "NothingClient:Arch:00007:UNDI:X".parse();
+        let vc: Result<VendorClass, VendorClassParseError> =
+            "NothingClient:Arch:00007:UNDI:X".parse();
         assert!(matches!(vc, Err(_)));
     }
 

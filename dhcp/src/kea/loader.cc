@@ -1,6 +1,8 @@
 #include <hooks/hooks.h>
 #include <log/logger.h>
 #include <log/macros.h>
+#include <asiolink/io_address.h>
+#include <asiolink/io_error.h>
 
 #include "carbide_logger.h"
 #include "callouts.h"
@@ -19,10 +21,35 @@ extern "C" {
 	int shim_load(LibraryHandle &handle) {
 		LOG_INFO(loader_logger, isc::log::LOG_CARBIDE_INITIALIZATION);
 
+		ConstElementPtr next_server  = handle.getParameter("carbide-provisioning-server-ipv4");
+		if (next_server) {
+			if(next_server->getType() != Element::string) {
+				// TODO(ajf): handle invalid data here
+				return (1);
+			} else {
+				try {
+					auto nextserver_ipv4 = isc::asiolink::IOAddress(next_server->stringValue());
+
+					if (nextserver_ipv4.isV4()) {
+						carbide_set_config_next_server_ipv4(nextserver_ipv4.toUint32());
+					} else {
+						LOG_ERROR(loader_logger, isc::log::LOG_CARBIDE_INVALID_NEXTSERVER_IPV4).arg("");
+						return 1;
+					}
+
+				} catch(const isc::asiolink::IOError &e) {
+					LOG_ERROR(loader_logger, isc::log::LOG_CARBIDE_INVALID_NEXTSERVER_IPV4).arg(e.getMessage());
+					return 1;
+				}
+			}
+		}
+
+		// TODO(ajf): add config options for mutual TLS authentication to the API
+
 		ConstElementPtr api_endpoint = handle.getParameter("carbide-api-url");
 		if (api_endpoint) {
 			if(api_endpoint->getType() != Element::string) {
-				// TODO: handle invalid data type for carbide-api-url
+				// TODO(ajf): handle invalid data type for carbide-api-url
 				return (1);
 			} else {
 				// TOOD: proper logging
