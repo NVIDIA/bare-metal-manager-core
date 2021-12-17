@@ -1,5 +1,29 @@
 [tasks.ephemeral]
+dependencies = [
+	"mkosi-build-image",
+]
 
+[tasks.mkosi-build-image]
+command = "sudo"
+args = [
+	"mkosi/builddir/mkosi",
+	"-ddebian",
+	"-b",
+	"--hostname=carbide-preexec",
+	"-pcloud-init",
+	"--password=password",
+	"--format=gpt_squashfs",
+	"--split-artifacts",
+	"--output-split-root=static/blobs/carbide-ephermeral-image-x86_64.rootfs",
+	"--output-split-kernel=static/blobs/carbide-ephemeral-image-x86_64.kernel",
+]
+dependencies = [
+	"mkosi-generate-zipapp",
+]
+
+[tasks.mkosi-generate-zipapp]
+command = "tools/generate-zipapp.sh"
+cwd = "mkosi"
 
 [tasks.ipxe]
 dependencies = [

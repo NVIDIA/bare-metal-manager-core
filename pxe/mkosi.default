@@ -1,0 +1,17 @@
+[Distribution]
+Distribution=debian
+
+[Output]
+Format=gpt_squashfs
+ManifestFormat=changelog
+Bootable=true
+#Minimize=true
+Hostname=carbide-preexec
+WithUnifiedKernelImages=true
+SplitArtifacts=true
+OutputSplitRoot=carbide-preexec-x86_64.rootfs
+OutputSplitKernel=carbide-preexec-x86_64.kernel
+
+[Content]
+Packages=cloud-init
+Password=password
