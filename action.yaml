@@ -1,0 +1,41 @@
+name: setup-mkosi
+description: Install mkosi and all its dependencies
+
+runs:
+  using: composite
+  steps:
+
+  - name: Dependencies
+    shell: bash
+    run: |
+      mkdir $BUILDDIR
+
+      sudo ${{ github.action_path }}/action/setup-github-actions.sh
+
+      sudo pacman-key --init
+      sudo pacman-key --populate archlinux
+
+      sudo tee /etc/systemd/network/80-vm-vt.network > /dev/null <<- EOF
+      [Match]
+      Name=vt-*
+      Driver=tun
+
+      [Network]
+      # Default to using a /28 prefix, giving up to 13 addresses per VM.
+      Address=0.0.0.0/28
+      LinkLocalAddressing=yes
+      DHCPServer=yes
+      IPMasquerade=yes
+      LLDP=yes
+      EmitLLDP=customer-bridge
+      IPv6PrefixDelegation=yes
+      EOF
+
+      sudo systemctl restart systemd-networkd
+
+    env:
+      BUILDDIR: build
+
+  - name: Install
+    shell: bash
+    run: sudo python3 -m pip install ${{ github.action_path }}
