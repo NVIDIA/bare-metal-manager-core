@@ -1631,6 +1631,7 @@ def configure_dracut(args: CommandLineArguments, packages: Set[str], root: Path)
     )
 
     dracut_dir.joinpath("30-mkosi-qemu.conf").write_text('add_dracutmodules+=" qemu "\n')
+    dracut_dir.joinpath("31-live.conf").write_text('add_dracutmodules+=" livenet "\n')
 
     with dracut_dir.joinpath("30-mkosi-systemd-extras.conf").open("w") as f:
         for extra in DRACUT_SYSTEMD_EXTRAS:
@@ -2688,7 +2689,7 @@ def install_debian_or_ubuntu(args: CommandLineArguments, root: Path, *, do_run_b
         extra_packages.update(args.build_packages)
 
     if not do_run_build_script and args.bootable:
-        add_packages(args, extra_packages, "dracut", "binutils")
+        add_packages(args, extra_packages, "dracut", "dracut-live", "binutils")
         configure_dracut(args, extra_packages, root)
 
         if args.distribution == Distribution.ubuntu:
