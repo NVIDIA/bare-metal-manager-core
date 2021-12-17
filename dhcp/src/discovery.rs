@@ -13,8 +13,12 @@ use log::*;
 pub struct Discovery {
     pub(crate) relay_address: Ipv4Addr,
     pub(crate) mac_address: MacAddress,
-    pub(crate) client_system: u16,
-    pub(crate) vendor_class: String,
+
+    #[builder(setter(into, strip_option), default)]
+    pub(crate) client_system: Option<u16>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub(crate) vendor_class: Option<String>,
 }
 
 #[repr(C)]

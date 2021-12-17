@@ -180,9 +180,11 @@ extern "C" {
 		if (option_filename) {
 			response4_ptr->delOption(DHO_BOOT_FILE_NAME);
 		}
-		char *filename = machine_get_filename(machine);
-		option_filename.reset(new OptionString(Option::V4, DHO_BOOT_FILE_NAME, filename));
-		response4_ptr->addOption(option_filename);
+		const char *filename = machine_get_filename(machine);
+		if (filename) {
+			option_filename.reset(new OptionString(Option::V4, DHO_BOOT_FILE_NAME, filename));
+			response4_ptr->addOption(option_filename);
+		}
 
 		/*
 		 * Encapsulate some PXE options in the vendor encapsulated

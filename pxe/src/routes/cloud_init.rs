@@ -1,7 +1,7 @@
 use crate::Machine;
-use rocket::{Route, State};
 use rocket::response::status;
-use rocket_dyn_templates::{Template};
+use rocket::{Route, State};
+use rocket_dyn_templates::Template;
 use rpc::v0::carbide_client::CarbideClient;
 use std::collections::HashMap;
 use tonic::transport::Channel;
