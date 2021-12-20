@@ -1,0 +1,103 @@
+require_relative 'carburize'
+
+MY_INTERFACE = '##CHANGEME##'
+CWD = __dir__
+CFG = "#{CWD}/carburize.yaml"
+CARBURIZE = Carburize.load_yaml(File.read(CFG))
+
+Vagrant.configure('2') do |config|
+  config.vagrant.plugins = %w[vagrant-reload vagrant-env vagrant-cloudinit]
+
+  CARBURIZE.tenants.each_with_index do |t, num|
+    t.hosts.each do |host|
+      config.vm.define host.name do |instance|
+        instance.vm.hostname = host.name
+
+        if host.userdata?
+          instance.vm.cloud_init :user_data, content_type: 'text/cloud-config', inline: host.userdata
+        end
+
+        if host.is_relay?
+          if t.virtualbox?
+            instance.vm.network :public_network, bridge: MY_INTERFACE
+            instance.vm.network :private_network, ip: host.ipv4, virtualbox__intnet: true
+
+            # Default box if not defined
+            instance.vm.box = host.image || 'ubuntu/impish64'
+
+            instance.vm.provider :virtualbox do |vb, _config|
+              vb.check_guest_additions = false
+              vb.functional_vboxsf = false
+
+              vb.customize ['modfiyvm', :id, '--boot1', 'disk']
+            end
+          end
+
+          if t.libvirt?
+            instance.vm.network :public_network, bridge: MY_INTERFACE
+
+            instance.vm.network :private_network,
+                                libvirt__network_name: "#{t}_network",
+                                libvirt__dhcp_enable: false,
+                                libvirt__forward_mode: 'veryisolated',
+                                ip: host.ipv4,
+                                bus: 1,
+                                slot: num
+
+            instance.vm.box = host.image || 'ubuntu/ubuntu2104'
+
+            instance.vm.provider :libvirt do |dom|
+              dom.title = host.name
+              dom.cpus = host.cpu_count
+              dom.memory = host.memory
+              dom.uri = 'qemu:///system'
+
+              # TODO: - utilize other types
+              dom.machine_type = 'pc'
+              dom.management_network_pci_bus = 2
+              dom.management_network_pci_slot = 1
+
+              dom.qemuargs value: '-netdev'
+              dom.qemuargs value: 'user,id=user.0'
+              dom.qemuargs value: '-device'
+              dom.qemuargs value: 'virtio-net-pci,netdev=user,bus=pci.0,addr0x8'
+              dom.qemuargs value: '-nographic'
+            end
+          end
+        end
+
+        if host.is_client? # if host.relay
+
+          if t.libvirt?
+            # if host.pxe_boot?
+            #  boot_network = { 'network' => "#{t}_network"}
+            #  #dom.boot boot_network
+            # end
+          end
+
+          if t.virtualbox?
+            instance.vm.box = 'sridhav/empty'
+            instance.vm.box_version = '1.0'
+            instance.vm.hostname = 'client'
+            instance.vm.network :private_network, type: 'dhcp', virtualbox__intnet: true
+
+            instance.vm.provider :virtualbox do |vb, _config|
+              vb.memory = 4096
+              vb.check_guest_additions = false
+              vb.functional_vboxsf = false
+
+              vb.customize ['modifyvm', :id, '--nic1', 'none']
+              vb.customize ['modifyvm', :id, '--firmware']
+              vb.customize ['modfiyvm', :id, '--boot1', 'net']
+              vb.customize ['modifyvm', :id, '--boot2', 'none']
+              vb.customize ['modifyvm', :id, '--biospxedebug', 'on']
+              vb.customize ['modifyvm', :id, '--cableconnected2', 'on']
+              vb.customize ['modifyvm', :id, '--nicbootprio3', '1']
+              vb.customize ['modifyvm', :id, '--nictype2', '82540EM']
+            end
+          end
+        end
+      end
+    end
+  end
+end
