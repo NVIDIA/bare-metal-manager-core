@@ -11,7 +11,7 @@ mod machine_interface;
 mod machine_state;
 mod network_segment;
 
-pub use address_selection_strategy::AddressSelectionStrategy;
+pub use address_selection_strategy::{AddressSelectionStrategy, AbsentSubnetStrategy};
 pub use dhcp_record::DhcpRecord;
 pub use machine::Machine;
 pub use machine::MachineIdsFilter;

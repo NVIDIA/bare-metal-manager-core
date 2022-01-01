@@ -1,5 +1,6 @@
 mod common;
 
+use carbide::db::AbsentSubnetStrategy;
 use carbide::db::AddressSelectionStrategy;
 use carbide::db::Machine;
 use carbide::db::MachineInterface;
@@ -63,7 +64,7 @@ async fn prevent_duplicate_mac_addresses() {
         &new_machine,
         &new_segment,
         &test_mac,
-        &AddressSelectionStrategy::Automatic(false),
+        &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
         &AddressSelectionStrategy::Empty,
     )
     .await;

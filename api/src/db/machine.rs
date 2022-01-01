@@ -1,6 +1,7 @@
 //!
 //! Machine - represents a database-backed Machine object
 //!
+use crate::db::address_selection_strategy::AbsentSubnetStrategy;
 use crate::{CarbideError, CarbideResult};
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
@@ -223,8 +224,8 @@ impl Machine {
                             &machine,
                             &segment,
                             &macaddr,
-                            &AddressSelectionStrategy::Automatic(true),
-                            &AddressSelectionStrategy::Automatic(true),
+                            &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
+                            &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
                         )
                         .await?;
 
