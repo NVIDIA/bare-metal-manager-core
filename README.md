@@ -32,4 +32,8 @@ Discussion happens on #nsv-bcmetal slack channel.
   *Make sure to change the listen interface to reflect your system.*
 
 
+### Clients
+1. Install ```edk2-omvf``` on host. This provides the UEFI files needed
+
+
 ##### Still WIP 

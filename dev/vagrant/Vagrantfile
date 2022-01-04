@@ -34,17 +34,19 @@ Vagrant.configure('2') do |config|
           end
 
           if t.libvirt?
-            instance.vm.network :public_network, bridge: MY_INTERFACE
+            instance.vm.network :public_network, bridge: "enp11s0", dev: "enp11s0"
 
             instance.vm.network :private_network,
-                                libvirt__network_name: "#{t}_network",
-                                libvirt__dhcp_enable: false,
-                                libvirt__forward_mode: 'veryisolated',
-                                ip: host.ipv4,
+                                libvirt__network_name: "temp_network",
+                                libvirt__dhcp_enabled: false,
+                                libvirt__forward_mode: 'none',
+                                ip: '192.168.0.1',
                                 bus: 1,
-                                slot: num
+                                slot: 1
 
-            instance.vm.box = host.image || 'ubuntu/ubuntu2104'
+            # TODO this is ugly.  Include box and version in yaml
+            instance.vm.box = host.image || 'generic/ubuntu2110'
+            instance.vm.box_version = "3.6.0"
 
             instance.vm.provider :libvirt do |dom|
               dom.title = host.name
@@ -60,7 +62,7 @@ Vagrant.configure('2') do |config|
               dom.qemuargs value: '-netdev'
               dom.qemuargs value: 'user,id=user.0'
               dom.qemuargs value: '-device'
-              dom.qemuargs value: 'virtio-net-pci,netdev=user,bus=pci.0,addr0x8'
+              dom.qemuargs value: 'virtio-net-pci,netdev=user.0,bus=pci.0,addr=0x8'
               dom.qemuargs value: '-nographic'
             end
           end
@@ -73,6 +75,8 @@ Vagrant.configure('2') do |config|
             #  boot_network = { 'network' => "#{t}_network"}
             #  #dom.boot boot_network
             # end
+            instance.vm.loader = "/usr/share/edk2-ovmf/x64/OVMF_CODE.fd"
+
           end
 
           if t.virtualbox?

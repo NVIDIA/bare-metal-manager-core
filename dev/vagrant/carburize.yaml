@@ -5,7 +5,7 @@ ngc:
   provider: libvirt
   hosts:
     - name: "relay001"
-      image: "generic/ubuntu:2110"
+      image: "generic/ubuntu2110"
       ipv4: 192.168.0.1
       userdata:
         packages:
@@ -31,4 +31,4 @@ ngc:
           - [ systemctl, restart, dnsmasq ]
           - [ systemctl, restart, procps ]
     - name: "client001"
-      image:  "generic/ubuntu:2110"
+      image: "generic/ubuntu2110"
