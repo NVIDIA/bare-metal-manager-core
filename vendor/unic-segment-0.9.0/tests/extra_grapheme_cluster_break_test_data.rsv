@@ -1,0 +1,41 @@
+// Copyright 2012-2015 The Rust Project Developers.
+// Copyright 2017 The UNIC Project Developers.
+//
+// See the COPYRIGHT file at the top-level directory of this distribution.
+//
+// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+// option. This file may not be copied, modified, or distributed
+// except according to those terms.
+
+&[
+    // Two Prepend chars between two other chars.
+    (
+        "\u{20}\u{600}\u{600}\u{20}",
+        &["\u{20}", "\u{600}\u{600}\u{20}"],
+        Some(&["\u{20}", "\u{600}", "\u{600}", "\u{20}"]),
+    ),
+
+    // Test for Prepend followed by two other chars.
+    (
+        "\u{600}\u{20}\u{20}",
+        &["\u{600}\u{20}", "\u{20}"],
+        Some(&["\u{600}", "\u{20}", "\u{20}"]),
+    ),
+
+    // Family emoji (more than two emoji joined by ZWJ)
+    (
+        "\u{1f468}\u{200d}\u{1f467}\u{200d}\u{1f466}",
+        &["\u{1f468}\u{200d}\u{1f467}\u{200d}\u{1f466}"],
+        None,
+    ),
+
+    // Cartwheel emoji followed by two fitzpatrick skin tone modifiers
+    // (test case from <https://github.com/unicode-rs/unicode-segmentation/issues/19>)
+    (
+        "\u{1F938}\u{1F3FE}\u{1F3FE}",
+        &["\u{1F938}\u{1F3FE}", "\u{1F3FE}"],
+        None,
+    ),
+]

@@ -1,0 +1,14 @@
+pub mod America {
+    use timezones::Tz;
+
+    pub const New_York : Tz = Tz::America__New_York;
+    pub const Toronto : Tz = Tz::America__Toronto;
+}
+
+pub mod Europe {
+    use timezones::Tz;
+
+    pub const London : Tz = Tz::Europe__London;
+    pub const Moscow : Tz = Tz::Europe__Moscow;
+    pub const Rome : Tz = Tz::Europe__Rome;
+}

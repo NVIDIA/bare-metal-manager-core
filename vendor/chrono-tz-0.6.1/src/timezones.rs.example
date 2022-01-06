@@ -1,0 +1,122 @@
+use ::timezone_impl::{TimeSpans, FixedTimespanSet, FixedTimespan};
+use std::fmt::{Debug, Formatter, Error};
+
+use std::str::FromStr;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Tz {
+    America__New_York,
+    America__Toronto,
+    Europe__London,
+    Europe__Moscow,
+    Europe__Rome,
+}
+
+// Perfect hash table of timezone string -> Tz
+static TIMEZONES: phf::Map<&'static str, Tz> = /* ... */
+
+impl FromStr for Tz {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        TIMEZONES.get(s).cloned().ok_or(s.to_string())
+    }
+}
+
+impl Debug for Tz {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match *self {
+            Tz::America__New_York => write!(f, "America/New_York"),
+            Tz::America__Toronto => write!(f, "America/Toronto"),
+            Tz::Europe__London => write!(f, "Europe/London"),
+            Tz::Europe__Moscow => write!(f, "Europe/Moscow"),
+            Tz::Europe__Rome => write!(f, "Europe/Rome"),
+         }
+    }
+}
+
+impl TimeSpans for Tz {
+    fn timespans(&self) -> FixedTimespanSet {
+        match *self {
+            Tz::America__New_York => {
+                const REST: &'static [(i64, FixedTimespan)] = &[
+                    (-2717650800, FixedTimespan { utc_offset: -18000, dst_offset: 0, name: "EST" }),
+                    (-1633280400, FixedTimespan { utc_offset: -18000, dst_offset: 3600, name: "EDT" }),
+                    (-1615140000, FixedTimespan { utc_offset: -18000, dst_offset: 0, name: "EST" }),
+                ];
+                FixedTimespanSet {
+                    first: FixedTimespan {
+                        utc_offset: -17762,
+                        dst_offset: 0,
+                        name: "LMT",
+                    },
+                    rest: REST
+                }
+            },
+
+            Tz::America__Toronto => {
+                const REST: &'static [(i64, FixedTimespan)] = &[
+                    (-2366736148, FixedTimespan { utc_offset: -18000, dst_offset: 0, name: "EST" }),
+                    (-1632070800, FixedTimespan { utc_offset: -18000, dst_offset: 3600, name: "EDT" }),
+                    (-1615140000, FixedTimespan { utc_offset: -18000, dst_offset: 0, name: "EST" }),
+                ];
+                FixedTimespanSet {
+                    first: FixedTimespan {
+                        utc_offset: -19052,
+                        dst_offset: 0,
+                        name: "LMT",
+                    },
+                    rest: REST
+                }
+            },
+
+            Tz::Europe__London => {
+                const REST: &'static [(i64, FixedTimespan)] = &[
+                    (-3852662325, FixedTimespan { utc_offset: 0, dst_offset: 0, name: "GMT" }),
+                    (-1691964000, FixedTimespan { utc_offset: 0, dst_offset: 3600, name: "BST" }),
+                    (-1680472800, FixedTimespan { utc_offset: 0, dst_offset: 0, name: "GMT" }),
+                ];
+                FixedTimespanSet {
+                    first: FixedTimespan {
+                        utc_offset: -75,
+                        dst_offset: 0,
+                        name: "LMT",
+                    },
+                    rest: REST
+                }
+            },
+
+            Tz::Europe__Moscow => {
+                const REST: &'static [(i64, FixedTimespan)] = &[
+                    (-2840149817, FixedTimespan { utc_offset: 9017, dst_offset: 0, name: "MMT" }),
+                    (-1688265017, FixedTimespan { utc_offset: 9079, dst_offset: 0, name: "MMT" }),
+                    (-1656819079, FixedTimespan { utc_offset: 9079, dst_offset: 3600, name: "MST" }),
+                ];
+                FixedTimespanSet {
+                    first: FixedTimespan {
+                        utc_offset: 9017,
+                        dst_offset: 0,
+                        name: "LMT",
+                    },
+                    rest: REST
+                }
+            },
+
+            Tz::Europe__Rome => {
+                const REST: &'static [(i64, FixedTimespan)] = &[
+                    (-3259097396, FixedTimespan { utc_offset: 2996, dst_offset: 0, name: "RMT" }),
+                    (-2403564596, FixedTimespan { utc_offset: 3600, dst_offset: 0, name: "CET" }),
+                    (-1690851600, FixedTimespan { utc_offset: 3600, dst_offset: 3600, name: "CEST" }),
+                ];
+                FixedTimespanSet {
+                    first: FixedTimespan {
+                        utc_offset: 2996,
+                        dst_offset: 0,
+                        name: "LMT",
+                    },
+                    rest: REST
+                }
+            },
+
+         }
+    }
+}

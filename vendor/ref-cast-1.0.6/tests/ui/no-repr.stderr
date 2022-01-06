@@ -1,0 +1,7 @@
+error: RefCast trait requires #[repr(C)] or #[repr(transparent)]
+ --> $DIR/no-repr.rs:3:10
+  |
+3 | #[derive(RefCast)]
+  |          ^^^^^^^
+  |
+  = note: this error originates in a derive macro (in Nightly builds, run with -Z macro-backtrace for more info)
