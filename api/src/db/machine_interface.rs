@@ -1,4 +1,4 @@
-use super::{AddressSelectionStrategy, Machine, NetworkSegment};
+use super::{AbsentSubnetStrategy, AddressSelectionStrategy, Machine, NetworkSegment};
 use crate::{CarbideError, CarbideResult};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
@@ -151,7 +151,7 @@ impl MachineInterface {
                         .filter_map(|interface| interface.address_ipv4()),
                 ) {
                     Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
-                        if *ignore_absent =>
+                        if *ignore_absent == AbsentSubnetStrategy::Ignore =>
                     {
                         None
                     }
@@ -172,7 +172,7 @@ impl MachineInterface {
                         .filter_map(|interface| interface.address_ipv6()),
                 ) {
                     Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
-                        if *ignore_absent =>
+                        if *ignore_absent == AbsentSubnetStrategy::Ignore =>
                     {
                         None
                     }
