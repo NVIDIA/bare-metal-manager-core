@@ -4,3 +4,4 @@ public/
 .DS_Store
 .idea/*
 dev/kea-dhcp4.conf
+**/.env

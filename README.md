@@ -13,10 +13,13 @@ Discussion happens on #nsv-bcmetal slack channel.
 ## Setting up development environments
 
 ### Pre-reqs
+  * direnv
   * Kea
   * Rust
   * Postgresql
   * Vagrant
+  * boost-libs
+  * gnu-c++
 
 ### Postgresql
 
@@ -35,5 +38,9 @@ Discussion happens on #nsv-bcmetal slack channel.
 ### Clients
 1. Install ```edk2-omvf``` on host. This provides the UEFI files needed
 
+
+### Setting bridge interface
+1. cp 'dev/vagrant/env.example dev/vagrant/.env'
+2. Change BRIDGE_INTERFACE to your HOST interface 
 
 ##### Still WIP 

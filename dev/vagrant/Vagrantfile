@@ -1,26 +1,28 @@
 require_relative 'carburize'
 
-MY_INTERFACE = '##CHANGEME##'
+INTERFACE = ENV["BRIDGE_INTERFACE"]
 CWD = __dir__
 CFG = "#{CWD}/carburize.yaml"
 CARBURIZE = Carburize.load_yaml(File.read(CFG))
 
 Vagrant.configure('2') do |config|
-  config.vagrant.plugins = %w[vagrant-reload vagrant-env vagrant-cloudinit]
+  config.vagrant.plugins = %w[vagrant-env vagrant-cloudinit vagrant-reload]
+  config.env.enable
 
   CARBURIZE.tenants.each_with_index do |t, num|
     t.hosts.each do |host|
       config.vm.define host.name do |instance|
         instance.vm.hostname = host.name
 
-        if host.userdata?
-          instance.vm.cloud_init :user_data, content_type: 'text/cloud-config', inline: host.userdata
-        end
-
         if host.is_relay?
           if t.virtualbox?
-            instance.vm.network :public_network, bridge: MY_INTERFACE
+            instance.vm.network :public_network, bridge: INTERFACE
             instance.vm.network :private_network, ip: host.ipv4, virtualbox__intnet: true
+
+            if host.userdata?
+              instance.vm.cloud_init :user_data, content_type: 'text/cloud-config', inline: host.userdata
+            end
+    
 
             # Default box if not defined
             instance.vm.box = host.image || 'ubuntu/impish64'
@@ -34,19 +36,25 @@ Vagrant.configure('2') do |config|
           end
 
           if t.libvirt?
-            instance.vm.network :public_network, bridge: "enp11s0", dev: "enp11s0"
+#            instance.vm.network :public_network, dev: INTERFACE
 
             instance.vm.network :private_network,
-                                libvirt__network_name: "temp_network",
+              libvirt__network_name: "#{t.name}_network_#{num}",
                                 libvirt__dhcp_enabled: false,
                                 libvirt__forward_mode: 'none',
                                 ip: '192.168.0.1',
+                                #auto_config: false
                                 bus: 1,
-                                slot: 1
+                                slot: num + 1
 
             # TODO this is ugly.  Include box and version in yaml
             instance.vm.box = host.image || 'generic/ubuntu2110'
             instance.vm.box_version = "3.6.0"
+            if host.clouddata?
+              instance.vm.provision :file, :source => host.clouddata, :destination => '/tmp/vagrant/50-custom.cfg'
+              instance.vm.provision :shell, :path => "cloud-init.sh", :args => host.name
+            end
+
 
             instance.vm.provider :libvirt do |dom|
               dom.title = host.name
@@ -56,8 +64,8 @@ Vagrant.configure('2') do |config|
 
               # TODO: - utilize other types
               dom.machine_type = 'pc'
-              dom.management_network_pci_bus = 2
-              dom.management_network_pci_slot = 1
+#              dom.management_network_pci_bus = 2
+#              dom.management_network_pci_slot = 1
 
               dom.qemuargs value: '-netdev'
               dom.qemuargs value: 'user,id=user.0'
@@ -66,18 +74,33 @@ Vagrant.configure('2') do |config|
               dom.qemuargs value: '-nographic'
             end
           end
-        end
+        end # is host.relay?
 
-        if host.is_client? # if host.relay
-
+        if host.is_client? 
           if t.libvirt?
-            # if host.pxe_boot?
-            #  boot_network = { 'network' => "#{t}_network"}
-            #  #dom.boot boot_network
-            # end
-            instance.vm.loader = "/usr/share/edk2-ovmf/x64/OVMF_CODE.fd"
+            instance.vm.provider :libvirt do |dom|
+              dom.title = host.name
+              dom.cpus = host.cpu_count
+              dom.memory = host.memory
+              dom.uri = 'qemu:///system'
 
-          end
+              dom.loader = "/usr/share/edk2-ovmf/x64/OVMF_CODE.fd"
+
+              dom.machine_type = 'pc'
+
+              dom.qemuargs value: '-netdev'
+              dom.qemuargs value: 'user,id=user.0'
+              dom.qemuargs value: '-device'
+              dom.qemuargs value: 'virtio-net-pci,netdev=user.0,bus=pci.0,addr=0x8'
+              dom.qemuargs value: '-nographic'
+            
+              if host.pxe_boot?
+                boot_network = { 'network' => "#{t.name}_network_#{num}" }
+                dom.boot boot_network
+              end
+
+            end # vm.provider
+          end # if libvirt
 
           if t.virtualbox?
             instance.vm.box = 'sridhav/empty'
