@@ -8,7 +8,7 @@ Carbide is a bare metal provisioning system used to manage the lifecycle of bare
 
 Please see [The Book](https://bcmetal.gitlab-master-pages.nvidia.com/carbide/book/index.html) for more detail about roadmap & architecture.
 
-Discussion happens on #nsv-bcmetal slack channel.
+Discussion happens on #ngc-metal slack channel.
 
 ## Setting up development environments
 
