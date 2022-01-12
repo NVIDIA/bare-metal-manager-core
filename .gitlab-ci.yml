@@ -21,13 +21,11 @@ test:cargo:
     - /etc/init.d/postgresql start
     - cargo make workspace-ci-flow
 
-build:carbide:
-  stage: build
-  script:
-    - cargo build --release
-
 build:docker:
   image: docker
+  only:
+    refs:
+      - tags
   before_script:
   # docker login asks for the password to be passed through stdin for security
   # we use $CI_REGISTRY_PASSWORD here which is a special variable provided by GitLab
@@ -35,9 +33,6 @@ build:docker:
   stage: build
   services:
     - docker:dind
-  needs:
-    - job: build:carbide
-      artifacts: true
   script:
     - >
       docker build -f dev/deployment/Dockerfile
