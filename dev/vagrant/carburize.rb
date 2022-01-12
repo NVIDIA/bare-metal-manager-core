@@ -42,7 +42,7 @@ end
 #
 #
 module Host
-  attr_accessor :name, :image, :cpu_count, :ipv4, :ipv6, :shellcmds, :memory, :volumes, :userdata
+  attr_accessor :name, :image, :cpu_count, :ipv4, :ipv6, :shellcmds, :memory, :volumes, :userdata, :clouddata
 
 
   def ipv4?
@@ -72,6 +72,11 @@ module Host
   def userdata?
     self.userdata != nil && self.userdata != ""
   end
+
+  def clouddata?
+    self.clouddata != nil && self.clouddata != ""
+  end
+
 
 end
 
@@ -143,8 +148,8 @@ class Carburize
           host.name = hostcfg["name"]
           host.image = hostcfg['image']
 
-          if hostcfg['userdata']
-            host.userdata = hostcfg['userdata']
+          if hostcfg['clouddata']
+            host.clouddata = hostcfg['clouddata']
           end
          
           unless hostcfg['memory']
