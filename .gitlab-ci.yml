@@ -7,9 +7,12 @@ variables:
   KEA_BIN_PATH: /usr/bin
   KEA_INCLUDE_PATH: /usr/include/kea
   CARGO_MAKE_SKIP_CODECOV: "true"
+  DOCKER_DRIVER: "overlay2"
+
 
 stages:
   - test
+  - build
   - doc
 
 test:cargo:
@@ -17,6 +20,41 @@ test:cargo:
   script:
     - /etc/init.d/postgresql start
     - cargo make workspace-ci-flow
+
+build:carbide:
+  stage: build
+  script:
+    - cargo build --release
+
+build:docker:
+  image: docker
+  before_script:
+  # docker login asks for the password to be passed through stdin for security
+  # we use $CI_REGISTRY_PASSWORD here which is a special variable provided by GitLab
+  - echo -n $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  stage: build
+  services:
+    - docker:dind
+  needs:
+    - job: build:carbide
+      artifacts: true
+  script:
+    - >
+      docker build -f dev/deployment/Dockerfile
+      --pull
+      --cache-from $CI_REGISTRY_IMAGE
+      --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+      .
+
+#TODO publish image to gitlab container registry
+#docker:publish:
+#  stage: publish
+#  needs:
+#    - job: docker:build
+#      artifacts: false
+#  image: docker
+#  script:
+#    - docker push ${CI_REGISTRY_IMAGE}:latest
 
 pages:
   stage: doc
