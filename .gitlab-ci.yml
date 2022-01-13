@@ -62,12 +62,11 @@ build:docker:
       #Add ref.name for opencontainers
       IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.ref.name=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME"
       VERSIONLABEL=$CI_COMMIT_TAG;
-      IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.version=$VERSIONLABEL"
       if [[ ! -z "$VERSIONLABEL" ]]; then 
         IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.version=$VERSIONLABEL"
         ADDITIONALTAGLIST="$ADDITIONALTAGLIST $VERSIONLABEL"
       fi
-      if [[ "$CI_COMMIT_BRANCH" == "$CI_DEFAULT_BRANCH" ]]; then ADDITIONALTAGLIST="$ADDITIONALTAGLIST latest"; fi
+      if [[ "$CI_COMMIT_BRANCH" == "trunk" ]]; then ADDITIONALTAGLIST="$ADDITIONALTAGLIST latest"; fi
       ADDITIONALTAGLIST="$ADDITIONALTAGLIST $CI_COMMIT_REF_NAME $CI_COMMIT_SHORT_SHA"
       if [[ -n "$ADDITIONALTAGLIST" ]]; then 
         for TAG in $ADDITIONALTAGLIST; do 
