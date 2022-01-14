@@ -1,5 +1,9 @@
 #[macro_use]
 extern crate rocket;
+extern crate clap;
+
+use clap::Parser;
+use std::path::Path;
 
 use serde::Serialize;
 use std::{default::Default, fmt::Debug, fmt::Display};
@@ -30,6 +34,14 @@ pub enum RPCError<'a> {
     MissingClientConfig,
     MissingMachineId,
     MalformedMachineId(Errors<'a>),
+}
+
+#[derive(Parser, Debug)]
+struct Args {
+
+  #[clap(short, long, default_value = "static")]
+  static_dir: String,
+
 }
 
 impl Serialize for Machine {
@@ -128,10 +140,12 @@ impl<'r> FromRequest<'r> for Machine {
 
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
+    let opts = Args::parse();
+
     rocket::build()
         .mount("/api/v0/pxe", routes::ipxe::routes())
         .mount("/api/v0/cloud-init", routes::cloud_init::routes())
-        .mount("/public", FileServer::from(relative!("static")))
+        .mount("/public", FileServer::from(String::from(opts.static_dir)))
         .attach(Template::fairing())
         .attach(AdHoc::try_on_ignite(
             "Carbide API Config",
