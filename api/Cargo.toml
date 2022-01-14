@@ -25,8 +25,6 @@ sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mac_address", "i
 
 # async
 tokio = { version = "1.9", features = ["full"] }
-clap = "3.0.0"
-clap_derive = "3.0.0"
 log = { version = "*", features = ["serde"] }
 pretty_env_logger = "*"
 color-eyre = "0.5.11"
@@ -44,6 +42,9 @@ chrono = "0.4.19"
 # misc
 itertools = "*"
 thiserror = "1.0"
+
+# cli
+clap = { version = "~3.0.0", features = ["derive"] }
 
 [build-dependencies]
 tonic-build = "0.6"

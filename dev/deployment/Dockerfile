@@ -12,44 +12,29 @@ RUN rustup component add rustfmt
 RUN cargo install cargo-make mdbook mdbook-mermaid
 RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
-#RUN bash -c 'mkdir -p {api,dhcp,pxe,rpc,api}'
-#api  book  Cargo.lock  Cargo.toml  dev  dhcp  Makefile.toml  pxe  README.md  rpc  target
-#ARG GITROOT
-#COPY ./Cargo.toml ./Cargo.toml
-#COPY ./dhcp/Cargo.toml ./dhcp/Cargo.toml
-#COPY ./rpc/ ./rpc
-#COPY ./api/Cargo.toml ./api/Cargo.toml
-#COPY ./pxe/Cargo.toml ./pxe/Cargo.toml
-#RUN cargo build-deps
-#RUN cargo build --release
 COPY . ./
-#RUN cargo build-deps
-#RUN rm ./target/release/depds/carbide*
 
-RUN cargo build --release
-#ADD ../../target/release/carbide-api 
+RUN cargo build
 
-FROM ubuntu:latest
-RUN apt-get update && apt-get install -y curl ca-certificates iproute2
-COPY dev/deployment/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
-COPY dev/deployment/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
-RUN apt-get update && apt-get install -y isc-kea-dhcp4-server isc-kea-dhcp6-server && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /carbide/target/release/carbide-api /carbide/target/release/carbide /usr/sbin/
-COPY --from=builder /carbide/target/release/libdhcp.so /usr/lib/kea/hooks
-#RUN apt-get update && apt-get install -y locales && rm -rf /var/lig/apt/lists/* \
-#  && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
-#ENV LAN en_US.utf8
-#
-#RUN apt-get install --no-install-recommends -y \
-#  ca-certificates \
-#  curl \
-#  build-essential \ 
-#  git \
-#  autoconf automake autotools-dev libtool xutils-dev && \
-#  rm -rf /var/lib/apt/lists/*
-#
-#RUN curl https://sh.rustup.rs -sSf | \
-#  sh -s -- --default-toolchain stable -y
-#
-#ENV PATH=/root/.cargo/bin:$PATH
-#
+FROM ubuntu:latest as carbide
+RUN ln -snf /usr/share/zoneinfo/UTC /etc/localtime && echo UTC > /etc/timezone
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates curl iproute2
+COPY dev/deployment/carbide-api/pgdg.gpg /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
+COPY dev/deployment/carbide-api/pgdg.list /etc/apt/sources.list.d/pgdg.list
+COPY dev/deployment/carbide-dhcp/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
+COPY dev/deployment/carbide-dhcp/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
+COPY dev/deployment/carbide-dhcp/kea-dhcp4.conf /etc/kea/kea-dhcp4-carbide.conf
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  postgresql-client-14 postgresql-client-14-dbgsym \
+  ca-certificates curl iproute2 \
+  isc-kea-dhcp4-server isc-kea-dhcp6-server \
+  && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /opt/carbide/migrations && \
+  mkdir -p /opt/carbide/pxe/templates && \
+  mkdir -p /opt/carbide/static
+COPY --from=builder ["/carbide/target/debug/carbide-api", "/carbide/target/debug/carbide","/opt/carbide/"]
+COPY --from=builder /carbide/target/debug/libdhcp.so /usr/lib/x86_64-linux-gnu/kea/hooks
+COPY api/migrations/ /opt/carbide/migrations/
+COPY pxe/templates/*  /opt/carbide/pxe/templates/
+COPY pxe/Rocket.toml /opt/carbide/

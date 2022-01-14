@@ -31,6 +31,9 @@ thiserror = "1.0"
 clap = "3.0.0"
 clap_derive = "3.0.0"
 
+# cli
+clap = { version = "~3.0.0", features = ["derive"]}
+
 [build-dependencies]
 tonic-build = "*"
 
@@ -41,9 +44,3 @@ rstest = "*"
 [dependencies.rocket_dyn_templates]
 version = "0.1.0-rc.1"
 features = ["tera"]
-
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "../vendor"
