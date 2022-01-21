@@ -18,10 +18,17 @@ extern "C" {
 		return KEA_HOOKS_VERSION;
 	}
 
-	int shim_load(LibraryHandle &handle) {
+	int shim_load(void *handle_ptr) {
+		if (!handle_ptr) {
+			LOG_INFO(loader_logger, isc::log::LOG_CARBIDE_INVALID_HANDLE);
+			return 1;
+		}
+
+		LibraryHandle *handle = static_cast<LibraryHandle *>(handle_ptr);
+
 		LOG_INFO(loader_logger, isc::log::LOG_CARBIDE_INITIALIZATION);
 
-		ConstElementPtr next_server  = handle.getParameter("carbide-provisioning-server-ipv4");
+		ConstElementPtr next_server  = handle->getParameter("carbide-provisioning-server-ipv4");
 		if (next_server) {
 			if(next_server->getType() != Element::string) {
 				// TODO(ajf): handle invalid data here
@@ -46,7 +53,7 @@ extern "C" {
 
 		// TODO(ajf): add config options for mutual TLS authentication to the API
 
-		ConstElementPtr api_endpoint = handle.getParameter("carbide-api-url");
+		ConstElementPtr api_endpoint = handle->getParameter("carbide-api-url");
 		if (api_endpoint) {
 			if(api_endpoint->getType() != Element::string) {
 				// TODO(ajf): handle invalid data type for carbide-api-url
@@ -57,8 +64,8 @@ extern "C" {
 			}
 		}
 
-		handle.registerCallout("pkt4_receive", pkt4_receive);
-		handle.registerCallout("pkt4_send", pkt4_send);
+		handle->registerCallout("pkt4_receive", pkt4_receive);
+		handle->registerCallout("pkt4_send", pkt4_send);
 
 		return 0;
 	}
