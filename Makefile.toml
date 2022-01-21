@@ -14,3 +14,8 @@ dependencies = [
 workspace = false
 command = "mdbook"
 args = ["build", "-d", "../public", "book"]
+
+[tasks.attribution]
+workspace = false
+command = "cargo"
+args = ["license", "--avoid-build-deps", "--avoid-dev-deps", "--json"]
