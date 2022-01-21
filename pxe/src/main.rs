@@ -1,9 +1,8 @@
 #[macro_use]
 extern crate rocket;
-extern crate clap;
 
 use clap::Parser;
-use std::path::Path;
+use clap_derive::Parser;
 
 use serde::Serialize;
 use std::{default::Default, fmt::Debug, fmt::Display};
@@ -22,7 +21,6 @@ use rocket::{
 use rocket_dyn_templates::Template;
 
 use rpc::v0::{carbide_client::CarbideClient, MachineQuery};
-use tonic::transport::Channel;
 
 #[derive(Debug)]
 pub struct Machine(rpc::v0::Machine);
@@ -38,10 +36,8 @@ pub enum RPCError<'a> {
 
 #[derive(Parser, Debug)]
 struct Args {
-
-  #[clap(short, long, default_value = "static")]
-  static_dir: String,
-
+    #[clap(short, long, default_value = "static")]
+    static_dir: String,
 }
 
 impl Serialize for Machine {

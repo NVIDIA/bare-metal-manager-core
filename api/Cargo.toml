@@ -25,8 +25,8 @@ sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mac_address", "i
 
 # async
 tokio = { version = "1.9", features = ["full"] }
-clap = "3.0.0-rc.4"
-clap_derive = "3.0.0-rc.4"
+clap = "3.0.0"
+clap_derive = "3.0.0"
 log = { version = "*", features = ["serde"] }
 pretty_env_logger = "*"
 color-eyre = "0.5.11"
