@@ -1,0 +1,25 @@
+apiVersion: skaffold/v2beta5
+kind: Config
+build:
+  tagPolicy:
+    envTemplate:
+      template: "{{.IMAGE_NAME}}:{{.VERSION}}"
+  artifacts:
+  - image: quay.io/nvidia/carbide
+deploy:
+  helm:
+    releases:
+    - name: "carbide-{{ .ENV_NAME }}"
+      chartPath: ndash-charts/carbide
+      artifactOverrides:
+        image: quay.io/nvidia/carbide
+      valuesFiles: [ndash-charts/carbide/values.yaml]
+      namespace: "{{ .ENV_NAME }}"
+      wait: true
+      setValueTemplates:
+        imageCredentials.username: "{{ .REGISTRY_USR }}"
+        imageCredentials.password: "{{ .REGISTRY_PSW }}"
+        imageCredentials.registry: quay.io
+        imageCredentials.email: svcngcc@nvidia.com
+    flags:
+      global: [--tiller-namespace=kube-system]
