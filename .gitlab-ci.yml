@@ -2,6 +2,7 @@ image: "gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest"
 
 variables:
   KANIKO_CACHE_ARGS: "--cache=true --cache-copy-layers=true --cache-ttl=24h"
+  GIT_SUBMODULE_STRATEGY: recursive
   CARGO_HOME: $CI_PROJECT_DIR/cargo
   APT_CACHE_DIR: $CI_PROJECT_DIR/apt
   LOGNAME: root
@@ -11,18 +12,25 @@ variables:
 
 
 stages:
-  - test
   - build
   - release
   - doc
 
-test:cargo:
-  stage: test
+build:cargo:
+  stage: build
   only: 
     - branches
   script:
+    - env
     - /etc/init.d/postgresql start
     - cargo make workspace-ci-flow
+
+build:ipxe:
+  stage: build
+  only:
+    - branches
+  script:
+    - cargo make --cwd pxe ipxe
 
 build:docker:
   stage: release
