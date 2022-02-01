@@ -15,16 +15,12 @@ services:
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
       - POSTGRES_USER=${DBUSER:-carbide_development}
       - POSTGRES_DB=${DBNAME:-carbide_development}
-        #      - PG_CONNECT_URL=${PG_URL:-postgres://$DBNAME:$POSTGRES_PASSWORD@postgresql}
-        #    networks:
-        #      - db
     depends_on:
       - postgresql
     command: ["wait-for-pg", "postgresql", "/opt/carbide", "./carbide-api", "migrate", "--datastore=postgres://carbide_development:notforprod@postgresql"]
   carbide-api:
     image: carbide-api:latest
     environment:
-      - PG_CONNECT_URL=${PG_URL:-"postgres://carbide_development@postgresql"}
       - POSTGRES_USER=${DBUSER:-carbide_development}
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
       - POSTGRES_DB=${DBNAME:-carbide_development}
@@ -33,16 +29,11 @@ services:
     depends_on:
       - postgresql
       - carbide-db-migrations
-        #    networks:
-        #      - web
-        #      - db
     command: ["wait-for-carbide-migrations", "postgresql", "/opt/carbide", "4", "./carbide-api", "run", "--listen=0.0.0.0:1079", "--datastore=postgresql://carbide_development:notforprod@postgresql"]
   carbide-pxe:
     image: carbide-pxe:latest
     ports:
       - 8000:8000
-        #    networks:
-        #      - web
     environment:
       - ROCKET_template_dir="/opt/carbide/pxe/templates"
       - ROCKET_CARBIDE_API_URL=${carbide_url-"http://[::1]:1079}"
@@ -63,11 +54,5 @@ services:
       - 5432:5432
     expose:
       - 5432
-        #########    networks:
-        #- db
-
-        #networks:
-        #  db: {}
-        #  web: {}
 volumes:
   db-data: {}

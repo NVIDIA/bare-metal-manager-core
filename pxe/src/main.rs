@@ -2,7 +2,7 @@
 extern crate rocket;
 
 use clap::Parser;
-use clap_derive::Parser;
+//:use clap_derive::Parser;
 
 use serde::Serialize;
 use std::{default::Default, fmt::Debug, fmt::Display};
