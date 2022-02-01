@@ -23,3 +23,10 @@ deploy:
         imageCredentials.email: svcngcc@nvidia.com
     flags:
       global: [--tiller-namespace=kube-system]
+profiles:
+- name: dev
+  patches:
+  - op: add
+    path: /deploy/helm/releases/0/valuesFiles/1
+    value: ndash-charts/carbide/values.yaml
+...
