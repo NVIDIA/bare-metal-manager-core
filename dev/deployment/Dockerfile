@@ -17,14 +17,16 @@ COPY . ./
 RUN cargo build
 
 FROM ubuntu:latest as carbide
-RUN ln -snf /usr/share/zoneinfo/UTC /etc/localtime && echo UTC > /etc/timezone
+#RUN ln -snf /usr/share/zoneinfo/UTC /etc/localtime && echo UTC > /etc/timezone
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates curl iproute2
-COPY dev/deployment/carbide-api/pgdg.gpg /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
-COPY dev/deployment/carbide-api/pgdg.list /etc/apt/sources.list.d/pgdg.list
-COPY dev/deployment/carbide-dhcp/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
-COPY dev/deployment/carbide-dhcp/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
-COPY dev/deployment/carbide-dhcp/kea-dhcp4.conf /etc/kea/kea-dhcp4-carbide.conf
+COPY dev/deployment/pgdg.gpg /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
+COPY dev/deployment/pgdg.list /etc/apt/sources.list.d/pgdg.list
+COPY dev/deployment/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
+COPY dev/deployment/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
+COPY dev/deployment/kea-dhcp4-carbide.conf /etc/kea/kea-dhcp4-carbide.conf
+COPY dev/deployment/wait-for-pg /usr/local/bin
+COPY dev/deployment/wait-for-carbide-migrations /usr/local/bin
 RUN apt-get update && apt-get install -y --no-install-recommends \
   postgresql-client-14 postgresql-client-14-dbgsym \
   ca-certificates curl iproute2 \

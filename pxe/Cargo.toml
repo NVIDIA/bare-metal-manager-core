@@ -28,8 +28,6 @@ eui48 = "0.4.0"
 # misc
 itertools = "*"
 thiserror = "1.0"
-clap = "3.0.0"
-clap_derive = "3.0.0"
 
 # cli
 clap = { version = "~3.0.0", features = ["derive"]}
