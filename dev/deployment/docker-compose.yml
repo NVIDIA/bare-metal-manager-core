@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   carbide-dhcp:
-    image: carbide-dhcp:latest
+    image: carbide:latest
     ports:
       - "67:67"
     depends_on:
@@ -10,7 +10,7 @@ services:
     cap_add:
       - net_bind_service
   carbide-db-migrations:
-    image: carbide-api:latest
+    image: carbide:latest
     environment:
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
       - POSTGRES_USER=${DBUSER:-carbide_development}
@@ -19,7 +19,7 @@ services:
       - postgresql
     command: ["wait-for-pg", "postgresql", "/opt/carbide", "./carbide-api", "migrate", "--datastore=postgres://carbide_development:notforprod@postgresql"]
   carbide-api:
-    image: carbide-api:latest
+    image: carbide:latest
     environment:
       - POSTGRES_USER=${DBUSER:-carbide_development}
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
@@ -31,7 +31,7 @@ services:
       - carbide-db-migrations
     command: ["wait-for-carbide-migrations", "postgresql", "/opt/carbide", "4", "./carbide-api", "run", "--listen=0.0.0.0:1079", "--datastore=postgresql://carbide_development:notforprod@postgresql"]
   carbide-pxe:
-    image: carbide-pxe:latest
+    image: carbide:latest
     ports:
       - 8000:8000
     environment:
