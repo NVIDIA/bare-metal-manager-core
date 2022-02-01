@@ -1,5 +1,7 @@
+extern crate clap;
+
 use clap::Parser;
-use clap_derive::Parser;
+//use clap_derive::Parser;
 
 // TODO(ajf): always look at crate root
 static DEFAULT_CONFIG_PATH: &str = ".config.toml";

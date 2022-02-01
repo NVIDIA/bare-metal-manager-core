@@ -236,7 +236,6 @@ version = "0.0.1"
 dependencies = [
  "chrono",
  "clap 3.0.10",
- "clap_derive",
  "color-eyre",
  "futures",
  "ipnetwork",
@@ -264,7 +263,6 @@ name = "carbide-pxe"
 version = "0.0.1"
 dependencies = [
  "clap 3.0.10",
- "clap_derive",
  "eui48",
  "ip_network",
  "itertools",
@@ -377,7 +375,9 @@ checksum = "7a30c3bf9ff12dfe5dae53f0a96e0febcd18420d1c0e7fad77796d9d5c4b5375"
 dependencies = [
  "atty",
  "bitflags",
+ "clap_derive",
  "indexmap",
+ "lazy_static",
  "os_str_bytes",
  "strsim 0.10.0",
  "termcolor",
