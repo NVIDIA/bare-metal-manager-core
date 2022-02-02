@@ -47,10 +47,9 @@ build:docker:
   image: 
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
-  only:
-    refs:
-      - trunk
-      - tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH 
+    - if: $CI_COMMIT_TAG =~ "/^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/g"
   script:
     - |
       echo "Building carbide container and pushing to $CI_REGISTRY_IMAGE"
@@ -66,7 +65,7 @@ build:docker:
         IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.version=$VERSIONLABEL"
         ADDITIONALTAGLIST="$ADDITIONALTAGLIST $VERSIONLABEL"
       fi
-      if [[ "$CI_COMMIT_BRANCH" == "trunk" ]]; then ADDITIONALTAGLIST="$ADDITIONALTAGLIST latest"; fi
+      ADDITIONALTAGLIST="$ADDITIONALTAGLIST latest"
       ADDITIONALTAGLIST="$ADDITIONALTAGLIST $CI_COMMIT_REF_NAME $CI_COMMIT_SHORT_SHA"
       if [[ -n "$ADDITIONALTAGLIST" ]]; then 
         for TAG in $ADDITIONALTAGLIST; do 
