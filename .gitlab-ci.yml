@@ -20,6 +20,8 @@ test:cargo:
   stage: test
   only: 
     - branches
+  except:
+    - tags
   script:
     - /etc/init.d/postgresql start
     - cargo make workspace-ci-flow
