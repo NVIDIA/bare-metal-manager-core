@@ -36,6 +36,8 @@ build:ipxe:
 
 build:docker:
   stage: release
+  before_script:
+    - docker login -u "$QUAY_LOGIN_RW" -p "$QUAY_LOGIN_RW_PASS" quay.io
   variables: 
     IMAGE_LABELS: >
       --label org.opencontainers.image.vendor=nvidia
