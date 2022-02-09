@@ -1,0 +1,166 @@
+#!/bin/sh
+<%#
+kind: script
+name: Ubuntu provisioning for 3.8.5.12027
+model: ProvisioningTemplate
+%>
+
+set -x
+ECHO=${ECHO:-echo}
+CAT=${CAT:-cat}
+ifconfig tmfifo_net0 192.168.100.2 netmask 255.255.255.0 up
+${ECHO} "==== Installing Ubuntu bfb:3.8.5.12027 ===="
+/bin/bash /ubuntu/install.sh
+${ECHO} "==== Starting Post configuration ===="
+
+mount
+mount /dev/mmcblk0p2 /mnt
+
+echo "UseDNS no" >> /mnt/etc/ssh/sshd_config
+echo 'SUBSYSTEM=="net", ACTION=="add", NAME=="p0", RUN+="/sbin/ethtool -G p0 rx 8192 tx 8192"' >> /mnt/lib/udev/rules.d/82-net-setup-link.rules
+echo 'SUBSYSTEM=="net", ACTION=="add", NAME=="p1", RUN+="/sbin/ethtool -G p1 rx 8192 tx 8192"' >> /mnt/lib/udev/rules.d/82-net-setup-link.rules
+echo 'SUBSYSTEM=="net", ACTION=="add", NAME=="p0", RUN+="/sbin/ethtool -s p0 autoneg on"' >> /mnt/etc/udev/rules.d/83-net-speed.rules
+echo 'SUBSYSTEM=="net", ACTION=="add", NAME=="p1", RUN+="/sbin/ethtool -s p1 autoneg on"' >> /mnt/etc/udev/rules.d/83-net-speed.rules
+
+# Glean the BOOTNIC from the foreman host mac
+# The devices are not renamed to p{0,1} until first boot
+HOST_MAC=<%= @host.provision_interface.mac %>
+# Single port card is named differently
+[ $(cat /sys/class/net/enp3s0np0/address) = $HOST_MAC ] && DEVICE=NIC_P0 && PROVISION_IFC=eth0
+[ $(cat /sys/class/net/enp3s0f0np0/address) = $HOST_MAC ] && DEVICE=NIC_P0 && PROVISION_IFC=eth0
+[ $(cat /sys/class/net/enp3s0f1np1/address) = $HOST_MAC  ] && DEVICE=NIC_P1 && PROVISION_IFC=eth1
+[ $(cat /sys/class/net/oob_net0/address) = $HOST_MAC  ] && DEVICE=OOB && PROVISION_IFC=oob_net0
+BOOTNIC=NET-${DEVICE}-IPV4
+
+# Since we want to have both the password be non escaped in the user stanza below and we want
+# variable subsitution, we need to cat this user-data in 2 sections
+# 1) the first section uses \EOF which will leave values like $6$1 (hashed password) alone
+# 2) the section section uses EOF (no slash) which will substitute $VARS
+# Note the 2nd section will be using >> redirection to append, and the first will not
+cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
+#cloud-config
+debug:
+  verbose: true
+timezone: "Etc/UTC"
+hostname: <%= @host.shortname %>.<%= @host.domain %>
+manage_etc_hosts: true
+users:
+  - name: ubuntu
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    passwd: $6$...
+    groups: [adm, audio, cdrom, dialout, dip, floppy, lxd, netdev, plugdev, sudo, video]
+<%- if host_param('remote_execution_ssh_keys').is_a?(String) -%>
+    ssh_authorized_keys:
+      - <%= host_param('remote_execution_ssh_keys') %>
+<% end %>
+
+ntp:
+  enabled: true
+  ntp_client: systemd-timesyncd
+  servers:
+    - <%= @host.subnet.dns_primary %>
+EOF
+cat << EOF >> /mnt/var/lib/cloud/seed/nocloud-net/user-data
+
+write_files:
+  - content: |
+        BOOT0=${BOOTNIC}
+        BOOT1=DISK
+    path: /etc/bf.cfg
+
+runcmd:
+  - [ grub-install ]
+  - [ /usr/bin/bfcfg ]
+  - [ systemctl, enable, nvsm ]
+  - [ systemctl, enable, nvsm-mqtt ]
+  - [ systemctl, enable, nvsm-core ]
+  - [ systemctl, enable, nvsm-api-gateway ]
+  - [ systemctl, enable, nvsm-notifier ]
+  - [ systemctl, start, nvsm ]
+
+EOF
+
+mst start
+OWNERSHIP_STATUS=$(mlxconfig -d $(/bin/ls -1 /dev/mst/mt*pciconf0) q|grep CPU|awk '{print $2}')
+
+if [[ $OWNERSHIP_STATUS == 'EMBEDDED_CPU(1)' ]]; then
+    cat > /mnt/var/lib/cloud/seed/nocloud-net/network-config << 'EOF'
+version: 2
+renderer: networkd
+ethernets:
+  tmfifo_net0:
+    dhcp4: false
+    addresses:
+      - <%= host_param('tmfifo_ip') %>
+    macaddress: <%= host_param('tmfifo_mac') %>
+    nameservers:
+      addresses: [ 192.168.100.1 ]
+    routes:
+    - to: 0.0.0.0/0
+      via: 192.168.100.1
+      metric: 1025
+  enp3s0f0s0:
+    dhcp4: true
+    mtu: <%= @host.subnet.mtu %>
+  enp3s0f1s0:
+    dhcp4: true
+    mtu: <%= @host.subnet.mtu %>
+  oob_net0:
+    dhcp4: true
+    nameservers:
+      search: [ <%= @host.domain %> ]
+      addresses: [ <%= @host.subnet.dns_primary %> ]
+EOF
+else
+    cat > /mnt/var/lib/cloud/seed/nocloud-net/network-config << 'EOF'
+version: 2
+renderer: networkd
+ethernets:
+  tmfifo_net0:
+    dhcp4: false
+    addresses:
+      - <%= host_param('tmfifo_ip') %>
+    macaddress: <%= host_param('tmfifo_mac') %>
+    nameservers:
+      addresses: [ 192.168.100.1 ]
+    routes:
+    - to: 0.0.0.0/0
+      via: 192.168.100.1
+      metric: 1025
+  p0:
+    dhcp4: true
+    mtu: <%= @host.subnet.mtu %>
+  p1:
+    dhcp4: true
+    mtu: <%= @host.subnet.mtu %>
+  oob_net0:
+    dhcp4: true
+    nameservers:
+      search: [ <%= @host.domain %> ]
+      addresses: [ <%= @host.subnet.dns_primary %> ]
+EOF
+fi
+
+# Set mtu for ovs ports
+cat << \EOF >> /mnt/etc/mellanox/mlnx-ovs.conf
+for i in $OVS_BRIDGE1_PORTS $OVS_BRIDGE2_PORTS enp3s0f0s0 enp3s0f1s0
+do
+        ip link set dev $i mtu <%= @host.subnet.mtu %>
+        ovs-vsctl set Interface $i mtu_request=<%= @host.subnet.mtu + 50 %>
+done
+logger "Done setting MTU for interfaces"
+EOF
+
+#we do wget to tell foreman that the box is provisioned
+/usr/bin/wget -Y off <%= foreman_url('built') %>
+
+# To debug via rshim uncomment this out
+# /bin/start_getty 115200 hvc0 vt102
+
+${ECHO} "==== Installation complete ====="
+umount /mnt
+sync
+reboot -f
+

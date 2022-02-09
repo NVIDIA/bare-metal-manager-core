@@ -38,8 +38,8 @@ pub async fn whoami(machine: Machine) -> Template {
 #[get("/boot")]
 pub async fn boot(machine: Machine) -> Template {
     let instructions = BootInstructionGenerator {
-        kernel: "http://${next-server}:8000/public/blobs/vmlinuz".to_string(),
-        initrd: "http://${next-server}:8000/public/blobs/initrd".to_string(),
+        kernel: "http://${next-server}:8000/public/blobs/internal/x86_64/carbide.efi".to_string(),
+        initrd: "http://${next-server}:8000/public/blobs/internal/x86_64/carbide.root".to_string(),
         command_line: format!("url=http://${{next-server}}:8000/public/blobs/ubuntu-21.10-live-server-amd64.iso ip=dhcp autoinstall ds=nocloud-net;s=http://${{next-server}}:8000/api/v0/cloud-init/{}/", machine.0.id.unwrap()),
     };
 

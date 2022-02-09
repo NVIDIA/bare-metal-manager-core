@@ -1,7 +1,6 @@
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 
-
 [tasks.book]
 workspace = false
 command = "find"
