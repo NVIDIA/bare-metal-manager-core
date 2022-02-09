@@ -17,10 +17,10 @@ pub mod v0 {
 
     pub use prost_types::Timestamp;
 
-    tonic::include_proto!("carbide.v0");
+    tonic::include_proto!("metal.v0");
 
     pub const REFLECTION_SERVICE_DESCRIPTOR: &[u8] =
-        tonic::include_file_descriptor_set!("carbide.v0");
+        tonic::include_file_descriptor_set!("metal.v0");
 
     pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
         let mut expected = Vec::new();
@@ -57,13 +57,12 @@ pub mod v0 {
             let mut state = serializer.serialize_struct("Machine", 8)?;
 
             state.serialize_field("id", &self.id)?;
-            state.serialize_field("fqdn", &self.fqdn)?;
+            //state.serialize_field("fqdn", &self.fqdn)?;
             state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
             state.serialize_field("modified", &self.modified.as_ref().map(|ts| ts.seconds))?;
             state.serialize_field("events", &self.events)?;
             state.serialize_field("interfaces", &self.interfaces)?;
             state.serialize_field("state", &self.state)?;
-            state.serialize_field("userdata", &self.userdata)?;
 
             state.end()
         }

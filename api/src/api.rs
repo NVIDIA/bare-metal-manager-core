@@ -22,7 +22,7 @@ pub struct Api {
 }
 
 #[tonic::async_trait]
-impl Carbide for Api {
+impl Metal for Api {
     async fn find_machines(
         &self,
         request: Request<rpc::MachineQuery>,
