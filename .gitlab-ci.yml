@@ -70,7 +70,7 @@ build:docker:
       BUILDTITLE=$(echo $CI_PROJECT_TITLE | tr " " "_")
       IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.title=$BUILDTITLE --label org.opencontainers.image.description=$BUILDTITLE"
       #Add ref.name for opencontainers
-      IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.ref.name=quay.io/nvmetal/carbide:$CI_COMMIT_REF_NAME"
+      IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.ref.name=quay.io/nvidia/nvmetal-carbide:$CI_COMMIT_REF_NAME"
       VERSIONLABEL=$CI_COMMIT_TAG;
       if [[ ! -z "$VERSIONLABEL" ]]; then 
         IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.version=$VERSIONLABEL"
@@ -80,7 +80,7 @@ build:docker:
       ADDITIONALTAGLIST="$ADDITIONALTAGLIST $CI_COMMIT_REF_NAME $CI_COMMIT_SHORT_SHA"
       if [[ -n "$ADDITIONALTAGLIST" ]]; then 
         for TAG in $ADDITIONALTAGLIST; do 
-          FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag quay.io/nvmetal/carbide:$TAG "; 
+          FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag quay.io/nvidia/nvmetal-carbide:$TAG "; 
         done; 
       fi
       FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g) 
