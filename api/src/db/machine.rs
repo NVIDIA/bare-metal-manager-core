@@ -49,7 +49,10 @@ pub struct Machine {
     created: DateTime<Utc>,
 
     /// When the machine record was last modified
-    modified: DateTime<Utc>,
+    updated: DateTime<Utc>,
+
+    /// When the machine was last deployed
+    deployed: Option<DateTime<Utc>>,
 
     /// The current state of the machine
     state: MachineState,
@@ -63,9 +66,6 @@ pub struct Machine {
     ///
     /// [event]: crate::db::MachineInterface
     interfaces: Vec<MachineInterface>,
-
-    /// The cloud-init userdata for this node
-    userdata: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for Machine {
@@ -74,11 +74,11 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             id: row.try_get("id")?,
             fqdn: row.try_get("fqdn")?,
             created: row.try_get("created")?,
-            modified: row.try_get("modified")?,
+            updated: row.try_get("updated")?,
+            deployed: row.try_get("deployed")?,
             state: row.try_get("state")?,
             events: Vec::new(),
             interfaces: Vec::new(),
-            userdata: row.try_get("userdata")?,
         })
     }
 }
@@ -110,12 +110,16 @@ impl From<Machine> for rpc::Machine {
                 seconds: machine.created.timestamp(),
                 nanos: 0,
             }),
-            modified: Some(rpc::Timestamp {
-                seconds: machine.created.timestamp(),
+            updated: Some(rpc::Timestamp {
+                seconds: machine.updated.timestamp(),
                 nanos: 0,
             }),
-            state: Some(machine.state.into()),
-            userdata: machine.userdata,
+            deployed: machine.deployed.map(|ts| rpc::Timestamp {
+                seconds: ts.timestamp(),
+                nanos: 0,
+            }),
+            state: machine.state.to_string(),
+            supported_instance_type: None,
             events: machine
                 .events
                 .into_iter()
@@ -193,7 +197,7 @@ impl Machine {
             WHERE
                 mi.mac_address = $1::macaddr
                 AND
-                (($2::inet <<= ns.subnet_ipv4) OR ($2::inet <<= ns.subnet_ipv6));
+                (($2::inet <<= ns.prefix_ipv4) OR ($2::inet <<= ns.prefix_ipv6));
         "#;
 
         let mut machine_ids: Vec<(Uuid,)> = sqlx::query_as(sql)
@@ -269,8 +273,8 @@ impl Machine {
     }
 
     /// Returns the std::time::SystemTime for when the machine was last updated
-    pub fn modified(&self) -> chrono::DateTime<Utc> {
-        self.modified
+    pub fn updated(&self) -> chrono::DateTime<Utc> {
+        self.updated
     }
 
     /// Returns a reference to the FQDN of the machine
@@ -303,13 +307,13 @@ impl Machine {
         new_fqdn: &str,
     ) -> CarbideResult<&Machine> {
         let (fqdn, timestamp) =
-            sqlx::query_as("UPDATE machines SET fqdn=$1 RETURNING fqdn,modified")
+            sqlx::query_as("UPDATE machines SET fqdn=$1 RETURNING fqdn,updated")
                 .bind(new_fqdn)
                 .fetch_one(txn)
                 .await?;
 
         self.fqdn = fqdn;
-        self.modified = timestamp;
+        self.updated = timestamp;
 
         Ok(self)
     }

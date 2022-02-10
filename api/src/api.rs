@@ -11,7 +11,7 @@ use tonic::{Request, Response, Status};
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
 
-use self::rpc::carbide_server::Carbide;
+use self::rpc::metal_server::Metal;
 use crate::cfg;
 use rpc::v0 as rpc;
 use tonic_reflection::server::Builder;
@@ -25,7 +25,7 @@ pub struct Api {
 impl Metal for Api {
     async fn find_machines(
         &self,
-        request: Request<rpc::MachineQuery>,
+        request: Request<rpc::MachineSearchQuery>,
     ) -> Result<Response<rpc::MachineList>, Status> {
         let mut txn = self
             .database_connection
@@ -33,7 +33,7 @@ impl Metal for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::MachineQuery { id, .. } = request.into_inner();
+        let rpc::MachineSearchQuery { id, .. } = request.into_inner();
 
         let filter = match id {
             Some(id) if id.value.chars().count() > 0 => match uuid::Uuid::try_from(id) {
@@ -94,7 +94,7 @@ impl Metal for Api {
         response
     }
 
-    async fn get_network_segments(
+    async fn find_network_segments(
         &self,
         _request: Request<rpc::NetworkSegmentQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
@@ -119,7 +119,7 @@ impl Metal for Api {
 
     async fn create_network_segment(
         &self,
-        request: Request<rpc::NewNetworkSegment>,
+        request: Request<rpc::NetworkSegment>,
     ) -> Result<Response<rpc::NetworkSegment>, Status> {
         let mut txn = self
             .database_connection
@@ -140,21 +140,105 @@ impl Metal for Api {
 
     async fn delete_network_segment(
         &self,
-        _request: Request<rpc::Uuid>,
-    ) -> Result<Response<rpc::NetworkSegmentDeletion>, Status> {
+        _request: Request<rpc::NetworkSegmentDeletion>,
+    ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
         let txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        //    carbide::models::NetworkSegment::find_by_id(&txn);
+        // TODO(ajf): actually delete the thing, or likely return an error.
 
-        let response = Ok(Response::new(rpc::NetworkSegmentDeletion {}));
+        let response = Ok(Response::new(rpc::NetworkSegmentDeletionResult {}));
 
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
+    }
+
+    async fn create_project(
+        &self,
+        _request: Request<rpc::Project>,
+    ) -> Result<Response<rpc::Project>, Status> {
+        todo!()
+    }
+
+    async fn update_project(
+        &self,
+        _request: Request<rpc::Project>,
+    ) -> Result<Response<rpc::Project>, Status> {
+        todo!()
+    }
+
+    async fn delete_project(
+        &self,
+        _request: Request<rpc::ProjectDeletion>,
+    ) -> Result<Response<rpc::ProjectDeletionResult>, Status> {
+        todo!()
+    }
+
+    async fn update_network_segment(
+        &self,
+        _request: Request<rpc::NetworkSegment>,
+    ) -> Result<Response<rpc::NetworkSegment>, Status> {
+        todo!()
+    }
+
+    async fn create_instance(
+        &self,
+        _request: Request<rpc::Instance>,
+    ) -> Result<Response<rpc::Instance>, Status> {
+        todo!()
+    }
+
+    async fn update_instance(
+        &self,
+        _request: Request<rpc::Instance>,
+    ) -> Result<Response<rpc::Instance>, Status> {
+        todo!()
+    }
+
+    async fn delete_instance(
+        &self,
+        _request: Request<rpc::InstanceDeletionRequest>,
+    ) -> Result<Response<rpc::InstanceDeletionResult>, Status> {
+        todo!()
+    }
+
+    async fn invoke_instance_power(
+        &self,
+        _request: Request<rpc::InstancePowerRequest>,
+    ) -> Result<Response<rpc::InstancePowerResult>, Status> {
+        todo!()
+    }
+
+    async fn get_machine(
+        &self,
+        _request: Request<rpc::Uuid>,
+    ) -> Result<Response<rpc::Machine>, Status> {
+        todo!()
+    }
+
+    async fn create_instance_type(
+        &self,
+        _request: Request<rpc::InstanceType>,
+    ) -> Result<Response<rpc::InstanceType>, Status> {
+        todo!()
+    }
+
+    async fn update_instance_type(
+        &self,
+        _request: Request<rpc::InstanceType>,
+    ) -> Result<Response<rpc::InstanceType>, Status> {
+        todo!()
+    }
+
+    async fn delete_instance_type(
+        &self,
+        _request: Request<rpc::InstanceTypeDeletion>,
+    ) -> Result<Response<rpc::InstanceTypeDeletionResult>, Status> {
+        todo!()
     }
 }
 
@@ -174,7 +258,7 @@ impl Api {
 
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
-            .add_service(rpc::carbide_server::CarbideServer::new(api_service))
+            .add_service(rpc::metal_server::MetalServer::new(api_service))
             .add_service(reflection_service)
             .serve(daemon_config.listen[0])
             .await?;

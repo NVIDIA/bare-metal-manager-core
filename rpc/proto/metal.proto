@@ -12,17 +12,21 @@ service Metal {
 	rpc DeleteProject(ProjectDeletion) returns (ProjectDeletionResult);
 
 	// Segments - i.e. Overlay Networks
-	rpc FindSegments(Segment) returns (SegmentList);
-	rpc CreateSegment(Segment) returns (Segment);
-	rpc UpdateSegment(Segment) returns (Segment);
-	rpc DeleteSegment(SegmentDeletion) returns (SegmentDeletionResult);
+	rpc FindNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
+	rpc CreateNetworkSegment(NetworkSegment) returns (NetworkSegment);
+	rpc UpdateNetworkSegment(NetworkSegment) returns (NetworkSegment);
+	rpc DeleteNetworkSegment(NetworkSegmentDeletion) returns (NetworkSegmentDeletionResult);
 
 	// Manage instances on machines
 	rpc CreateInstance(Instance) returns (Instance);
 	rpc UpdateInstance(Instance) returns (Instance);
 	rpc DeleteInstance(InstanceDeletionRequest) returns (InstanceDeletionResult);
-	rpc StreamConsole(stream ConsoleInput) returns (stream ConsoleOutput);
-	rpc StreamInstanceEvents(UUID) returns (stream InstanceEvent);
+
+	// TODO(ajf): Harder to implement bi-directional streaming, commented out for now
+	// rpc StreamConsole(stream ConsoleInput) returns (stream ConsoleOutput);
+	// rpc StreamInstanceEvents(UUID) returns (stream InstanceEvent);
+
+	/* Power Control */
 	rpc InvokeInstancePower(InstancePowerRequest) returns (InstancePowerResult);
 
 	// PRIVILEGED: Creates a new machine from nothing
@@ -71,18 +75,18 @@ message ProjectDeletion {
 message ProjectDeletionResult {
 }
 
-message Segment {
+message NetworkSegment {
 	UUID id = 1;
 	UUID project = 2;
 	string name = 3;
 	string subdomain = 4;
-	int32 mtu = 5;
+	optional int32 mtu = 5;
 
 	optional string prefix_ipv4 = 6;
 	optional string prefix_ipv6 = 7;
 
-	int32 reserve_first_ipv4 = 8;
-	int32 reserve_first_ipv6 = 9;
+	optional int32 reserve_first_ipv4 = 8;
+	optional int32 reserve_first_ipv6 = 9;
 
 	optional string gateway_ipv4 = 10;
 
@@ -90,11 +94,19 @@ message Segment {
 	google.protobuf.Timestamp updated = 12;
 }
 
-message SegmentDeletion { 
+message NetworkSegmentDeletion {
 	UUID id = 1;
 }
 
-message SegmentDeletionResult {
+message NetworkSegmentQuery {
+	UUID id = 1;
+}
+
+message MachineState {
+       string state = 1;
+}
+
+message NetworkSegmentDeletionResult {
 }
 
 enum InstanceTypeCapabilities {
@@ -172,21 +184,23 @@ message Machine {
 	InstanceType supported_instance_type = 2;
 
 	google.protobuf.Timestamp created = 3;
-	google.protobuf.Timestamp modified = 4;
+	google.protobuf.Timestamp updated = 4;
 	google.protobuf.Timestamp deployed = 5;
 
 	string state = 6;
 
 	repeated MachineEvent events = 7;
 	repeated MachineInterface interfaces = 8;
+
+	string fqdn = 9;
 }
 
 message MachineEvent {
-	fixed64 id = 1;
+	int64 id = 1;
 	UUID  machine_id = 2;
 
 	MachineAction event = 3;
-	fixed32 version = 4;
+	int32 version = 4;
 
 	google.protobuf.Timestamp time = 5;
 }
@@ -244,6 +258,6 @@ message AddressAssignmentV6 {
 	string address = 2;
 }
 
-message SegmentList {
-	repeated Segment network_segments = 1;
+message NetworkSegmentList {
+	repeated NetworkSegment network_segments = 1;
 }

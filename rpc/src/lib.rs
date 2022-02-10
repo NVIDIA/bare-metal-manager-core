@@ -59,7 +59,7 @@ pub mod v0 {
             state.serialize_field("id", &self.id)?;
             //state.serialize_field("fqdn", &self.fqdn)?;
             state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
-            state.serialize_field("modified", &self.modified.as_ref().map(|ts| ts.seconds))?;
+            state.serialize_field("modified", &self.updated.as_ref().map(|ts| ts.seconds))?;
             state.serialize_field("events", &self.events)?;
             state.serialize_field("interfaces", &self.interfaces)?;
             state.serialize_field("state", &self.state)?;
