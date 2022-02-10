@@ -36,7 +36,7 @@ async fn test_machine_rename() {
         .await
         .expect("Unable to create machine");
 
-    let original_modified = machine.modified();
+    let original_modified = machine.updated();
 
     txn.commit().await.unwrap();
 
@@ -50,6 +50,6 @@ async fn test_machine_rename() {
         .await
         .expect("Could not update FQDN");
 
-    assert_ne!(original_modified, machine.modified());
+    assert_ne!(original_modified, machine.updated());
     assert_eq!(machine.fqdn(), "peppersmacker2.nvidia.com");
 }

@@ -59,7 +59,7 @@ impl TryFrom<Discovery> for Machine {
         let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
 
         runtime.block_on(async move {
-            match rpc::carbide_client::CarbideClient::connect(url).await {
+            match rpc::metal_client::MetalClient::connect(url).await {
                 Ok(mut client) => {
                     let request = tonic::Request::new(rpc::MachineDiscovery {
                         mac_address: discovery.mac_address.to_string(),

@@ -92,15 +92,36 @@ RETURN new;
 END
 $$;
 
+CREATE TYPE instance_type_capabilities as ENUM (
+	'default'
+);
+
+
+CREATE TABLE instance_types (
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
+	short_name VARCHAR(32) NOT NULL,
+	description TEXT NOT NULL,
+	capabilities instance_type_capabilities NOT NULL DEFAULT 'default',
+	active BOOLEAN NOT NULL DEFAULT 't',
+	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+	PRIMARY KEY (id)
+);
+
 CREATE TABLE machines (
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
 
-	fqdn VARCHAR(255) NOT NULL UNIQUE,
+	supported_instance_type uuid NULL,
+
+	fqdn VARCHAR(64) NOT NULL UNIQUE,
 
 	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	modified TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	deployed TIMESTAMPTZ NULL,
 
-	PRIMARY KEY (id)
+	PRIMARY KEY (id),
+	FOREIGN KEY (supported_instance_type) REFERENCES instance_types(id)
 );
 
 CREATE TABLE machine_events (
@@ -132,10 +153,10 @@ INSERT INTO machine_transition (state, event, next_state) VALUES
 ('decommissioned', 'recommission', 'tested'),
 ('decommissioned', 'release', 'new');
 
-CREATE FUNCTION update_machine_modified_trigger() RETURNS TRIGGER
+CREATE FUNCTION update_machine_updated_trigger() RETURNS TRIGGER
 LANGUAGE plpgsql as $$
 BEGIN
-	NEW.modified := NOW();
+	NEW.updated := NOW();
 	RETURN NEW;
 END
 $$;
@@ -149,5 +170,5 @@ END
 $$;
 
 CREATE TRIGGER start_machine_state_machine AFTER INSERT ON machines FOR EACH ROW EXECUTE PROCEDURE set_machine_state_to_new();
-CREATE TRIGGER machine_last_modified BEFORE UPDATE ON machines FOR EACH ROW EXECUTE PROCEDURE update_machine_modified_trigger();
+CREATE TRIGGER machine_last_updated BEFORE UPDATE ON machines FOR EACH ROW EXECUTE PROCEDURE update_machine_updated_trigger();
 CREATE TRIGGER machine_event_trigger BEFORE INSERT on machine_events FOR EACH ROW EXECUTE PROCEDURE machine_action_trigger();

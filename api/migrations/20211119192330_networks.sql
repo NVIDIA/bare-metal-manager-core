@@ -1,17 +1,22 @@
 DROP TABLE IF EXISTS network_segments;
 CREATE TABLE network_segments(
-	id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
 	name VARCHAR NOT NULL UNIQUE,
 	subdomain VARCHAR NOT NULL,
 
 	mtu INTEGER NOT NULL DEFAULT 1500 CHECK(mtu >= 576 AND mtu <= 9000),
 
-	subnet_ipv4 cidr CHECK (family(subnet_ipv4) = 4),
+	prefix_ipv4 cidr CHECK (family(prefix_ipv4) = 4),
 	reserve_first_ipv4 INTEGER NOT NULL DEFAULT 1, -- always a gateway address
 	gateway_ipv4 cidr CHECK (family(gateway_ipv4) = 4),
 
-	subnet_ipv6 cidr CHECK (family(subnet_ipv6) = 6),
-	reserve_first_ipv6 INTEGER NOT NULL DEFAULT 0 -- not always a gateway address (i.e. link-local)
+	prefix_ipv6 cidr CHECK (family(prefix_ipv6) = 6),
+	reserve_first_ipv6 INTEGER NOT NULL DEFAULT 0, -- not always a gateway address (i.e. link-local)
+
+	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+	PRIMARY KEY(id)
 );
 
 DROP TABLE IF EXISTS machine_interfaces;
@@ -28,7 +33,9 @@ CREATE TABLE machine_interfaces(
 	address_ipv6 inet CHECK(family(address_ipv6) = 6),
 
 	FOREIGN KEY (machine_id) REFERENCES machines(id),
-	FOREIGN KEY (segment_id) REFERENCES network_segments(id)
+	FOREIGN KEY (segment_id) REFERENCES network_segments(id),
+
+	PRIMARY KEY(id)
 );
 
 DROP VIEW IF EXISTS machine_dhcp_responses;

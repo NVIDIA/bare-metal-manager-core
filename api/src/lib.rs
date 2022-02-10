@@ -73,6 +73,9 @@ pub enum CarbideError {
 
     #[error("Generic error: {0}")]
     GenericError(String),
+
+    #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier")]
+    IdentifierSpecifiedForNewObject(String),
 }
 
 impl From<CarbideError> for tonic::Status {

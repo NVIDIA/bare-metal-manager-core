@@ -1,0 +1,263 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+package metal.v0;
+
+service Metal {
+	// Projects
+	rpc CreateProject(Project) returns (Project);
+	rpc UpdateProject(Project) returns (Project);
+	rpc DeleteProject(ProjectDeletion) returns (ProjectDeletionResult);
+
+	// Segments - i.e. Overlay Networks
+	rpc FindNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
+	rpc CreateNetworkSegment(NetworkSegment) returns (NetworkSegment);
+	rpc UpdateNetworkSegment(NetworkSegment) returns (NetworkSegment);
+	rpc DeleteNetworkSegment(NetworkSegmentDeletion) returns (NetworkSegmentDeletionResult);
+
+	// Manage instances on machines
+	rpc CreateInstance(Instance) returns (Instance);
+	rpc UpdateInstance(Instance) returns (Instance);
+	rpc DeleteInstance(InstanceDeletionRequest) returns (InstanceDeletionResult);
+
+	// TODO(ajf): Harder to implement bi-directional streaming, commented out for now
+	// rpc StreamConsole(stream ConsoleInput) returns (stream ConsoleOutput);
+	// rpc StreamInstanceEvents(UUID) returns (stream InstanceEvent);
+
+	/* Power Control */
+	rpc InvokeInstancePower(InstancePowerRequest) returns (InstancePowerResult);
+
+	// PRIVILEGED: Creates a new machine from nothing
+	rpc DiscoverMachine(MachineDiscovery) returns (DhcpRecord);
+
+	// PRIVILEGED: Get a single machine
+	rpc GetMachine(UUID) returns (Machine);
+
+	// PRIVILEGED: Find a list of machines
+	rpc FindMachines(MachineSearchQuery) returns (MachineList);
+
+	// PRIVILEGED: Define and manage new instance types
+	rpc CreateInstanceType(InstanceType) returns (InstanceType);
+	rpc UpdateInstanceType(InstanceType) returns (InstanceType);
+	rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
+}
+
+message ConsoleInput {
+	string input = 1;
+}
+
+message ConsoleOutput {
+	string output = 1;
+}
+
+message InstanceEvent {
+	string event = 1;
+}
+
+
+// Primitives
+message UUID {
+	string value = 1;
+}
+
+message Project {
+	UUID id = 1;
+	string name = 2;
+	UUID organization = 3;
+}
+
+message ProjectDeletion {
+	UUID id = 1;
+}
+
+message ProjectDeletionResult {
+}
+
+message NetworkSegment {
+	UUID id = 1;
+	UUID project = 2;
+	string name = 3;
+	string subdomain = 4;
+	optional int32 mtu = 5;
+
+	optional string prefix_ipv4 = 6;
+	optional string prefix_ipv6 = 7;
+
+	optional int32 reserve_first_ipv4 = 8;
+	optional int32 reserve_first_ipv6 = 9;
+
+	optional string gateway_ipv4 = 10;
+
+	google.protobuf.Timestamp created = 11;
+	google.protobuf.Timestamp updated = 12;
+}
+
+message NetworkSegmentDeletion {
+	UUID id = 1;
+}
+
+message NetworkSegmentQuery {
+	UUID id = 1;
+}
+
+message MachineState {
+       string state = 1;
+}
+
+message NetworkSegmentDeletionResult {
+}
+
+enum InstanceTypeCapabilities {
+	DEFAULT = 0;
+}
+
+message InstancePowerRequest {
+	UUID machine_id = 1;
+	enum operation {
+		POWER_OFF = 0;
+		POWER_ON = 1;
+		POWER_RESET = 2;
+	}
+}
+
+message InstanceType {
+	UUID id = 1;
+	string short_name = 2;
+	string description = 3;
+
+	repeated InstanceTypeCapabilities capabilities = 4;
+
+	bool active = 5;
+	google.protobuf.Timestamp created = 6;
+	google.protobuf.Timestamp updated = 7;
+}
+
+message InstanceTypeDeletion {
+	UUID id = 1;
+}
+
+message InstancePowerResult { }
+message InstanceTypeDeletionResult { }
+
+message Instance {
+	UUID id = 1;
+	UUID segment_id = 2;
+	UUID machine_id = 3;
+
+	OperatingSystem operating_system = 4;
+
+	optional string user_data = 5;
+	optional string custom_ipxe = 6;
+
+	repeated string ssh_keys = 7;
+
+	google.protobuf.Timestamp requested = 8;
+	google.protobuf.Timestamp started = 9;
+	google.protobuf.Timestamp finished = 10;
+}
+
+message OperatingSystem {
+	UUID id = 1;
+	string name = 2;
+}
+
+message InstanceDeletionRequest {
+	UUID id = 1;
+}
+
+message InstanceDeletionResult {
+}
+
+message MachineList {
+	repeated Machine machines = 1;
+}
+
+message MachineSearchQuery {
+	optional UUID id = 1;
+	optional string fqdn = 2;
+}
+
+message Machine {
+	UUID id = 1;
+	InstanceType supported_instance_type = 2;
+
+	google.protobuf.Timestamp created = 3;
+	google.protobuf.Timestamp updated = 4;
+	google.protobuf.Timestamp deployed = 5;
+
+	string state = 6;
+
+	repeated MachineEvent events = 7;
+	repeated MachineInterface interfaces = 8;
+
+	string fqdn = 9;
+}
+
+message MachineEvent {
+	int64 id = 1;
+	UUID  machine_id = 2;
+
+	MachineAction event = 3;
+	int32 version = 4;
+
+	google.protobuf.Timestamp time = 5;
+}
+
+message MachineInterface {
+	UUID id = 1;
+	UUID machine_id = 2;
+	UUID segment_id = 3;
+
+	string mac_address = 4;
+
+	optional string address_ipv4 = 5;
+	optional string address_ipv6 = 6;
+}
+
+enum MachineAction {
+	UNKNOWN = 0;
+	DISCOVER = 1;
+	ADOPT = 2;
+	TEST = 3;
+	COMMISSION = 4;
+	ASSIGN = 5;
+	FAIL = 6;
+	DECOMMISSION = 7;
+	RECOMMISSION = 8;
+	UNASSIGN = 9;
+	RELEASE = 10;
+}
+
+message MachineDiscovery {
+	string mac_address = 1;
+	string relay_address = 2;
+}
+
+message DhcpRecord {
+	UUID machine_id = 1;
+	UUID segment_id = 2;
+
+	string subdomain = 3;
+	string fqdn = 4;
+
+	optional AddressAssignmentV4 address_ipv4 = 5;
+	optional AddressAssignmentV6 address_ipv6 = 6;
+}
+
+message AddressAssignmentV4 {
+	string mac_address = 1;
+	string address = 2;
+	optional string gateway = 3;
+	string mask = 4;
+}
+
+message AddressAssignmentV6 {
+	string duid = 1;
+	string address = 2;
+}
+
+message NetworkSegmentList {
+	repeated NetworkSegment network_segments = 1;
+}

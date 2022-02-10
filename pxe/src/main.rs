@@ -19,12 +19,12 @@ use rocket::{
 };
 use rocket_dyn_templates::Template;
 
-use rpc::v0::{carbide_client::CarbideClient, MachineQuery};
+use rpc::v0::{metal_client::MetalClient, MachineSearchQuery};
 
 #[derive(Debug)]
 pub struct Machine(rpc::v0::Machine);
 
-struct CarbideUrl(String);
+struct MetalUrl(String);
 
 pub enum RPCError<'a> {
     RequestError(tonic::Status),
@@ -99,10 +99,10 @@ impl<'r> FromRequest<'r> for Machine {
             }
         };
 
-        let mut client = match request.rocket().state::<CarbideUrl>() {
-            Some(url) => match CarbideClient::connect(url.0.clone()).await {
+        let mut client = match request.rocket().state::<MetalUrl>() {
+            Some(url) => match MetalClient::connect(url.0.clone()).await {
                 Ok(client) => client,
-                Err(err) => {
+                Err(_err) => {
                     return request::Outcome::Failure((
                         Status::BadRequest,
                         RPCError::MissingClientConfig,
@@ -117,7 +117,7 @@ impl<'r> FromRequest<'r> for Machine {
             }
         };
 
-        let request = tonic::Request::new(MachineQuery {
+        let request = tonic::Request::new(MachineSearchQuery {
             id: Some(uuid.into()),
             ..Default::default()
         });
@@ -146,7 +146,7 @@ async fn main() -> Result<(), rocket::Error> {
             "Carbide API Config",
             |rocket| async move {
                 match rocket.figment().extract_inner::<String>("carbide_api_url") {
-                    Ok(url) => Ok(rocket.manage(CarbideUrl(url))),
+                    Ok(url) => Ok(rocket.manage(MetalUrl(url))),
                     Err(_) => Err(rocket),
                 }
             },
