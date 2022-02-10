@@ -12,6 +12,12 @@ Discussion happens on #ngc-metal slack channel.
 
 ## Setting up development environments
 
+### Building using docker
+
+```
+   docker run  --volume (pwd):/code -e "RUST_BACKTRACE=1" --workdir /code -it carbide-build cargo build
+```
+
 ### Pre-reqs
   * direnv
   * Kea
