@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "multer"
-version = "2.0.1"
+version = "2.0.2"
 authors = ["Rousan Ali <hello@rousan.io>"]
 description = "An async parser for `multipart/form-data` content-type in Rust."
 homepage = "https://github.com/rousan/multer-rs"
@@ -51,6 +51,9 @@ version = "1.3"
 [dependencies.log]
 version = "0.4"
 
+[dependencies.memchr]
+version = "2.4"
+
 [dependencies.mime]
 version = "0.3"
 
@@ -76,9 +79,6 @@ optional = true
 version = "0.6"
 features = ["io"]
 optional = true
-
-[dependencies.twoway]
-version = "0.2"
 [dev-dependencies.hyper]
 version = "0.14"
 features = ["server", "http1", "stream", "tcp"]

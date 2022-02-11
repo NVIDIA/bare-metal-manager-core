@@ -10,7 +10,7 @@ use nix::sys::stat::{self, Mode, SFlag};
 #[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 use nix::pty::{posix_openpt, grantpt, unlockpt, ptsname};
 use nix::errno::Errno;
-use std::{env, iter};
+use std::env;
 #[cfg(not(any(target_os = "fuchsia", target_os = "redox")))]
 use std::ffi::CString;
 #[cfg(not(target_os = "redox"))]
@@ -28,7 +28,7 @@ use crate::*;
 #[test]
 #[cfg(not(any(target_os = "netbsd")))]
 fn test_fork_and_waitpid() {
-    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::FORK_MTX.lock();
 
     // Safe: Child only calls `_exit`, which is signal-safe
     match unsafe{fork()}.expect("Error: Fork Failed") {
@@ -56,7 +56,7 @@ fn test_fork_and_waitpid() {
 #[test]
 fn test_wait() {
     // Grab FORK_MTX so wait doesn't reap a different test's child process
-    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::FORK_MTX.lock();
 
     // Safe: Child only calls `_exit`, which is signal-safe
     match unsafe{fork()}.expect("Error: Fork Failed") {
@@ -116,7 +116,7 @@ fn test_mkfifo_directory() {
     target_os = "macos", target_os = "ios",
     target_os = "android", target_os = "redox")))]
 fn test_mkfifoat_none() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     let tempdir = tempdir().unwrap();
     let mkfifoat_fifo = tempdir.path().join("mkfifoat_fifo");
@@ -151,10 +151,10 @@ fn test_mkfifoat() {
     target_os = "macos", target_os = "ios",
     target_os = "android", target_os = "redox")))]
 fn test_mkfifoat_directory_none() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     // mkfifoat should fail if a directory is given
-    assert!(!mkfifoat(None, &env::temp_dir(), Mode::S_IRUSR).is_ok());
+    assert!(mkfifoat(None, &env::temp_dir(), Mode::S_IRUSR).is_err());
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn test_mkfifoat_directory() {
     let mkfifoat_dir = "mkfifoat_dir";
     stat::mkdirat(dirfd, mkfifoat_dir, Mode::S_IRUSR).unwrap();
 
-    assert!(!mkfifoat(Some(dirfd), mkfifoat_dir, Mode::S_IRUSR).is_ok());
+    assert!(mkfifoat(Some(dirfd), mkfifoat_dir, Mode::S_IRUSR).is_err());
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn test_setgroups() {
     // Skip this test when not run as root as `setgroups()` requires root.
     skip_if_not_root!("test_setgroups");
 
-    let _m = crate::GROUPS_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::GROUPS_MTX.lock();
 
     // Save the existing groups
     let old_groups = getgroups().unwrap();
@@ -234,7 +234,7 @@ fn test_initgroups() {
     // require root.
     skip_if_not_root!("test_initgroups");
 
-    let _m = crate::GROUPS_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::GROUPS_MTX.lock();
 
     // Save the existing groups
     let old_groups = getgroups().unwrap();
@@ -304,7 +304,7 @@ macro_rules! execve_test_factory(
             skip_if_seccomp!($test_name);
         }
 
-        let m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+        let m = crate::FORK_MTX.lock();
         // The `exec`d process will write to `writer`, and we'll read that
         // data from `reader`.
         let (reader, writer) = pipe().unwrap();
@@ -443,7 +443,7 @@ fn test_getcwd() {
     // 4096 on linux, 1024 on macos)
     let mut inner_tmp_dir = tmpdir_path;
     for _ in 0..5 {
-        let newdir = iter::repeat("a").take(100).collect::<String>();
+        let newdir = "a".repeat(100);
         inner_tmp_dir.push(newdir);
         assert!(mkdir(inner_tmp_dir.as_path(), Mode::S_IRWXU).is_ok());
     }
@@ -549,7 +549,7 @@ cfg_if!{
     if #[cfg(any(target_os = "android", target_os = "linux"))] {
         macro_rules! require_acct{
             () => {
-                require_capability!(CAP_SYS_PACCT);
+                require_capability!("test_acct", CAP_SYS_PACCT);
             }
         }
     } else if #[cfg(target_os = "freebsd")] {
@@ -575,7 +575,7 @@ fn test_acct() {
     use std::process::Command;
     use std::{thread, time};
 
-    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::FORK_MTX.lock();
     require_acct!();
 
     let file = NamedTempFile::new().unwrap();
@@ -735,7 +735,7 @@ fn test_alarm() {
     };
 
     // Maybe other tests that fork interfere with this one?
-    let _m = crate::SIGNAL_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::SIGNAL_MTX.lock();
 
     let handler = SigHandler::Handler(alarm_signal_handler);
     let signal_action = SigAction::new(handler, SaFlags::SA_RESTART, SigSet::empty());
@@ -773,7 +773,7 @@ fn test_alarm() {
 #[test]
 #[cfg(not(target_os = "redox"))]
 fn test_canceling_alarm() {
-    let _m = crate::SIGNAL_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::SIGNAL_MTX.lock();
 
     assert_eq!(alarm::cancel(), None);
 
@@ -784,7 +784,7 @@ fn test_canceling_alarm() {
 #[test]
 #[cfg(not(target_os = "redox"))]
 fn test_symlinkat() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     let tempdir = tempdir().unwrap();
 
@@ -883,7 +883,7 @@ fn test_linkat_newdirfd_none() {
 #[test]
 #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
 fn test_linkat_no_follow_symlink() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     let tempdir = tempdir().unwrap();
     let oldfilename = "foo.txt";
@@ -920,7 +920,7 @@ fn test_linkat_no_follow_symlink() {
 #[test]
 #[cfg(not(target_os = "redox"))]
 fn test_linkat_follow_symlink() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     let tempdir = tempdir().unwrap();
     let oldfilename = "foo.txt";
@@ -1025,13 +1025,22 @@ fn test_access_file_exists() {
     assert!(access(&path, AccessFlags::R_OK | AccessFlags::W_OK).is_ok());
 }
 
+#[cfg(not(target_os = "redox"))]
+#[test]
+fn test_user_into_passwd() {
+    // get the UID of the "nobody" user
+    let nobody = User::from_name("nobody").unwrap().unwrap();
+    let pwd: libc::passwd = nobody.into();
+    let _: User = (&pwd).into();
+}
+
 /// Tests setting the filesystem UID with `setfsuid`.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 #[test]
 fn test_setfsuid() {
     use std::os::unix::fs::PermissionsExt;
     use std::{fs, io, thread};
-    require_capability!(CAP_SETUID);
+    require_capability!("test_setfsuid", CAP_SETUID);
 
     // get the UID of the "nobody" user
     let nobody = User::from_name("nobody").unwrap().unwrap();
@@ -1042,7 +1051,7 @@ fn test_setfsuid() {
     dbg!(&temp_path);
     let temp_path_2 = (&temp_path).to_path_buf();
     let mut permissions = fs::metadata(&temp_path).unwrap().permissions();
-    permissions.set_mode(640);
+    permissions.set_mode(0o640);
 
     // spawn a new thread where to test setfsuid
     thread::spawn(move || {

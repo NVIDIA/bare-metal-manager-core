@@ -103,6 +103,9 @@ pub mod set;
 #[cfg(feature = "rayon")]
 mod rayon;
 
+#[cfg(feature = "rustc-rayon")]
+mod rustc;
+
 pub use crate::equivalent::Equivalent;
 pub use crate::map::IndexMap;
 pub use crate::set::IndexSet;
@@ -161,6 +164,9 @@ impl<K, V> Bucket<K, V> {
     }
     fn key(self) -> K {
         self.key
+    }
+    fn value(self) -> V {
+        self.value
     }
     fn key_value(self) -> (K, V) {
         (self.key, self.value)

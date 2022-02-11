@@ -22,14 +22,14 @@ impl ContentDispositionAttr {
             ContentDispositionAttr::FileName => &b"filename=\""[..],
         };
 
-        if let Some(i) = twoway::find_bytes(header, prefix) {
+        if let Some(i) = memchr::memmem::find(header, prefix) {
             // Check if this is malformed, with `filename` coming first.
             if *self == ContentDispositionAttr::Name && i > 0 && header[i - 1] == b'e' {
                 return None;
             }
 
             let rest = &header[(i + prefix.len())..];
-            if let Some(j) = twoway::find_bytes(rest, b"\"") {
+            if let Some(j) = memchr::memmem::find(rest, b"\"") {
                 return Some(&rest[..j]);
             }
         }

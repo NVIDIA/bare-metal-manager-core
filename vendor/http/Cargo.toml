@@ -11,8 +11,9 @@
 
 [package]
 edition = "2018"
+rust-version = "1.46.0"
 name = "http"
-version = "0.2.5"
+version = "0.2.6"
 authors = ["Alex Crichton <alex@alexcrichton.com>", "Carl Lerche <me@carllerche.com>", "Sean McArthur <sean@seanmonstar.com>"]
 description = "A set of types for representing HTTP requests and responses.\n"
 documentation = "https://docs.rs/http"
@@ -48,7 +49,7 @@ version = "1"
 version = "1.0.5"
 
 [dependencies.itoa]
-version = "0.4.1"
+version = "1"
 [dev-dependencies.doc-comment]
 version = "0.3"
 

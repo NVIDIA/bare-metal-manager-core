@@ -121,8 +121,9 @@ impl<Fut> FuturesUnordered<Fut> {
             next_ready_to_run: AtomicPtr::new(ptr::null_mut()),
             queued: AtomicBool::new(true),
             ready_to_run_queue: Weak::new(),
+            woken: AtomicBool::new(false),
         });
-        let stub_ptr = &*stub as *const Task<Fut>;
+        let stub_ptr = Arc::as_ptr(&stub);
         let ready_to_run_queue = Arc::new(ReadyToRunQueue {
             waker: AtomicWaker::new(),
             head: AtomicPtr::new(stub_ptr as *mut _),
@@ -167,6 +168,7 @@ impl<Fut> FuturesUnordered<Fut> {
             next_ready_to_run: AtomicPtr::new(ptr::null_mut()),
             queued: AtomicBool::new(true),
             ready_to_run_queue: Arc::downgrade(&self.ready_to_run_queue),
+            woken: AtomicBool::new(false),
         });
 
         // Reset the `is_terminated` flag if we've previously marked ourselves
@@ -375,7 +377,7 @@ impl<Fut> FuturesUnordered<Fut> {
         // The `ReadyToRunQueue` stub is never inserted into the `head_all`
         // list, and its pointer value will remain valid for the lifetime of
         // this `FuturesUnordered`, so we can make use of its value here.
-        &*self.ready_to_run_queue.stub as *const _ as *mut _
+        Arc::as_ptr(&self.ready_to_run_queue.stub) as *mut _
     }
 }
 
@@ -383,25 +385,12 @@ impl<Fut: Future> Stream for FuturesUnordered<Fut> {
     type Item = Fut::Output;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // Variable to determine how many times it is allowed to poll underlying
-        // futures without yielding.
-        //
-        // A single call to `poll_next` may potentially do a lot of work before
-        // yielding. This happens in particular if the underlying futures are awoken
-        // frequently but continue to return `Pending`. This is problematic if other
-        // tasks are waiting on the executor, since they do not get to run. This value
-        // caps the number of calls to `poll` on underlying futures a single call to
-        // `poll_next` is allowed to make.
-        //
-        // The value is the length of FuturesUnordered. This ensures that each
-        // future is polled only once at most per iteration.
-        //
-        // See also https://github.com/rust-lang/futures-rs/issues/2047.
-        let yield_every = self.len();
+        let len = self.len();
 
         // Keep track of how many child futures we have polled,
         // in case we want to forcibly yield.
         let mut polled = 0;
+        let mut yielded = 0;
 
         // Ensure `parent` is correctly set.
         self.ready_to_run_queue.waker.register(cx.waker());
@@ -512,7 +501,11 @@ impl<Fut: Future> Stream for FuturesUnordered<Fut> {
             // the internal allocation, appropriately accessing fields and
             // deallocating the task if need be.
             let res = {
-                let waker = Task::waker_ref(bomb.task.as_ref().unwrap());
+                let task = bomb.task.as_ref().unwrap();
+                // We are only interested in whether the future is awoken before it
+                // finishes polling, so reset the flag here.
+                task.woken.store(false, Relaxed);
+                let waker = Task::waker_ref(task);
                 let mut cx = Context::from_waker(&waker);
 
                 // Safety: We won't move the future ever again
@@ -525,12 +518,17 @@ impl<Fut: Future> Stream for FuturesUnordered<Fut> {
             match res {
                 Poll::Pending => {
                     let task = bomb.task.take().unwrap();
+                    // If the future was awoken during polling, we assume
+                    // the future wanted to explicitly yield.
+                    yielded += task.woken.load(Relaxed) as usize;
                     bomb.queue.link(task);
 
-                    if polled == yield_every {
-                        // We have polled a large number of futures in a row without yielding.
-                        // To ensure we do not starve other tasks waiting on the executor,
-                        // we yield here, but immediately wake ourselves up to continue.
+                    // If a future yields, we respect it and yield here.
+                    // If all futures have been polled, we also yield here to
+                    // avoid starving other tasks waiting on the executor.
+                    // (polling the same future twice per iteration may cause
+                    // the problem: https://github.com/rust-lang/futures-rs/pull/2333)
+                    if yielded >= 2 || polled == len {
                         cx.waker().wake_by_ref();
                         return Poll::Pending;
                     }

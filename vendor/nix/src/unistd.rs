@@ -180,10 +180,7 @@ impl ForkResult {
     /// Return `true` if this is the child process of the `fork()`
     #[inline]
     pub fn is_child(self) -> bool {
-        match self {
-            ForkResult::Child => true,
-            _ => false
-        }
+        matches!(self, ForkResult::Child)
     }
 
     /// Returns `true` if this is the parent process of the `fork()`
@@ -200,14 +197,19 @@ impl ForkResult {
 /// be created that are identical with the exception of their pid and the
 /// return value of this function.  As an example:
 ///
-/// ```no_run
-/// use nix::unistd::{fork, ForkResult};
+/// ```
+/// use nix::{sys::wait::waitpid,unistd::{fork, ForkResult, write}};
 ///
 /// match unsafe{fork()} {
 ///    Ok(ForkResult::Parent { child, .. }) => {
 ///        println!("Continuing execution in parent process, new child has pid: {}", child);
+///        waitpid(child, None).unwrap();
 ///    }
-///    Ok(ForkResult::Child) => println!("I'm a new child process"),
+///    Ok(ForkResult::Child) => {
+///        // Unsafe to use `println!` (or `unwrap`) here. See Safety.
+///        write(libc::STDOUT_FILENO, "I'm a new child process\n".as_bytes()).ok();
+///        unsafe { libc::_exit(0) };
+///    }
 ///    Err(_) => println!("Fork failed"),
 /// }
 /// ```
@@ -393,7 +395,7 @@ pub fn dup3(oldfd: RawFd, newfd: RawFd, flags: OFlag) -> Result<RawFd> {
 #[inline]
 fn dup3_polyfill(oldfd: RawFd, newfd: RawFd, flags: OFlag) -> Result<RawFd> {
     if oldfd == newfd {
-        return Err(Error::from(Errno::EINVAL));
+        return Err(Errno::EINVAL);
     }
 
     let fd = dup2(oldfd, newfd)?;
@@ -567,7 +569,7 @@ fn reserve_double_buffer_size<T>(buf: &mut Vec<T>, limit: usize) -> Result<()> {
     use std::cmp::min;
 
     if buf.capacity() >= limit {
-        return Err(Error::from(Errno::ERANGE))
+        return Err(Errno::ERANGE)
     }
 
     let capacity = min(buf.capacity() * 2, limit);
@@ -610,9 +612,9 @@ pub fn getcwd() -> Result<PathBuf> {
                 let error = Errno::last();
                 // ERANGE means buffer was too small to store directory name
                 if error != Errno::ERANGE {
-                    return Err(Error::from(error));
+                    return Err(error);
                 }
-            }
+           }
 
             // Trigger the internal buffer resizing logic.
             reserve_double_buffer_size(&mut buf, PATH_MAX as usize)?;
@@ -734,7 +736,7 @@ pub fn execv<S: AsRef<CStr>>(path: &CStr, argv: &[S]) -> Result<Infallible> {
         libc::execv(path.as_ptr(), args_p.as_ptr())
     };
 
-    Err(Error::from(Errno::last()))
+    Err(Errno::last())
 }
 
 
@@ -759,7 +761,7 @@ pub fn execve<SA: AsRef<CStr>, SE: AsRef<CStr>>(path: &CStr, args: &[SA], env: &
         libc::execve(path.as_ptr(), args_p.as_ptr(), env_p.as_ptr())
     };
 
-    Err(Error::from(Errno::last()))
+    Err(Errno::last())
 }
 
 /// Replace the current process image with a new one and replicate shell `PATH`
@@ -779,7 +781,7 @@ pub fn execvp<S: AsRef<CStr>>(filename: &CStr, args: &[S]) -> Result<Infallible>
         libc::execvp(filename.as_ptr(), args_p.as_ptr())
     };
 
-    Err(Error::from(Errno::last()))
+    Err(Errno::last())
 }
 
 /// Replace the current process image with a new one and replicate shell `PATH`
@@ -800,7 +802,7 @@ pub fn execvpe<SA: AsRef<CStr>, SE: AsRef<CStr>>(filename: &CStr, args: &[SA], e
         libc::execvpe(filename.as_ptr(), args_p.as_ptr(), env_p.as_ptr())
     };
 
-    Err(Error::from(Errno::last()))
+    Err(Errno::last())
 }
 
 /// Replace the current process image with a new one (see
@@ -828,7 +830,7 @@ pub fn fexecve<SA: AsRef<CStr> ,SE: AsRef<CStr>>(fd: RawFd, args: &[SA], env: &[
         libc::fexecve(fd, args_p.as_ptr(), env_p.as_ptr())
     };
 
-    Err(Error::from(Errno::last()))
+    Err(Errno::last())
 }
 
 /// Execute program relative to a directory file descriptor (see
@@ -853,7 +855,7 @@ pub fn execveat<SA: AsRef<CStr>,SE: AsRef<CStr>>(dirfd: RawFd, pathname: &CStr, 
                       args_p.as_ptr(), env_p.as_ptr(), flags);
     };
 
-    Err(Error::from(Errno::last()))
+    Err(Errno::last())
 }
 
 /// Daemonize this process by detaching from the controlling terminal (see
@@ -1073,10 +1075,10 @@ pub fn pipe() -> std::result::Result<(RawFd, RawFd), Error> {
 /// The following flags are supported, and will be set atomically as the pipe is
 /// created:
 ///
-/// `O_CLOEXEC`:    Set the close-on-exec flag for the new file descriptors.
-#[cfg_attr(target_os = "linux", doc = "`O_DIRECT`: Create a pipe that performs I/O in \"packet\" mode.  ")]
-#[cfg_attr(target_os = "netbsd", doc = "`O_NOSIGPIPE`: Return `EPIPE` instead of raising `SIGPIPE`.  ")]
-/// `O_NONBLOCK`:   Set the non-blocking flag for the ends of the pipe.
+/// - `O_CLOEXEC`:    Set the close-on-exec flag for the new file descriptors.
+#[cfg_attr(target_os = "linux", doc = "- `O_DIRECT`: Create a pipe that performs I/O in \"packet\" mode.")]
+#[cfg_attr(target_os = "netbsd", doc = "- `O_NOSIGPIPE`: Return `EPIPE` instead of raising `SIGPIPE`.")]
+/// - `O_NONBLOCK`:   Set the non-blocking flag for the ends of the pipe.
 ///
 /// See also [pipe(2)](https://man7.org/linux/man-pages/man2/pipe.2.html)
 #[cfg(any(target_os = "android",
@@ -1133,9 +1135,9 @@ pub fn isatty(fd: RawFd) -> Result<bool> {
         } else {
             match Errno::last() {
                 Errno::ENOTTY => Ok(false),
-                err => Err(Error::from(err)),
+                err => Err(err),
             }
-        }
+       }
     }
 }
 
@@ -1415,6 +1417,14 @@ pub fn getgroups() -> Result<Vec<Gid>> {
     // Next, get the number of groups so we can size our Vec
     let ngroups = unsafe { libc::getgroups(0, ptr::null_mut()) };
 
+    // If there are no supplementary groups, return early.
+    // This prevents a potential buffer over-read if the number of groups
+    // increases from zero before the next call. It would return the total
+    // number of groups beyond the capacity of the buffer.
+    if ngroups == 0 {
+        return Ok(Vec::new());
+    }
+
     // Now actually get the groups. We try multiple times in case the number of
     // groups has changed since the first call to getgroups() and the buffer is
     // now too small.
@@ -1436,7 +1446,7 @@ pub fn getgroups() -> Result<Vec<Gid>> {
                 // EINVAL indicates that the buffer size was too
                 // small, resize it up to ngroups_max as limit.
                 reserve_double_buffer_size(&mut groups, ngroups_max)
-                    .or(Err(Error::from(Errno::EINVAL)))?;
+                    .or(Err(Errno::EINVAL))?;
             },
             Err(e) => return Err(e)
         }
@@ -1558,7 +1568,7 @@ pub fn getgrouplist(user: &CStr, group: Gid) -> Result<Vec<Gid>> {
             // groups as possible, but Linux manpages do not mention this
             // behavior.
             reserve_double_buffer_size(&mut groups, ngroups_max as usize)
-                .map_err(|_| Error::from(Errno::EINVAL))?;
+                .map_err(|_| Errno::EINVAL)?;
         }
     }
 }
@@ -1801,6 +1811,7 @@ pub fn mkstemp<P: ?Sized + NixPath>(template: &P) -> Result<(RawFd, PathBuf)> {
 /// - [unistd.h](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/unistd.h.html)
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(i32)]
+#[non_exhaustive]
 pub enum PathconfVar {
     #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux",
               target_os = "netbsd", target_os = "openbsd", target_os = "redox"))]
@@ -1916,7 +1927,7 @@ pub fn fpathconf(fd: RawFd, var: PathconfVar) -> Result<Option<c_long>> {
         if errno::errno() == 0 {
             Ok(None)
         } else {
-            Err(Error::from(Errno::last()))
+            Err(Errno::last())
         }
     } else {
         Ok(Some(raw))
@@ -1955,7 +1966,7 @@ pub fn pathconf<P: ?Sized + NixPath>(path: &P, var: PathconfVar) -> Result<Optio
         if errno::errno() == 0 {
             Ok(None)
         } else {
-            Err(Error::from(Errno::last()))
+            Err(Errno::last())
         }
     } else {
         Ok(Some(raw))
@@ -1980,6 +1991,7 @@ pub fn pathconf<P: ?Sized + NixPath>(path: &P, var: PathconfVar) -> Result<Optio
 /// - [limits.h](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/limits.h.html)
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(i32)]
+#[non_exhaustive]
 pub enum SysconfVar {
     /// Maximum number of I/O operations in a single list I/O call supported by
     /// the implementation.
@@ -2454,7 +2466,7 @@ pub fn sysconf(var: SysconfVar) -> Result<Option<c_long>> {
         if errno::errno() == 0 {
             Ok(None)
         } else {
-            Err(Error::from(Errno::last()))
+            Err(Errno::last())
         }
     } else {
         Ok(Some(raw))
@@ -2624,7 +2636,7 @@ pub struct User {
     /// Group ID
     pub gid: Gid,
     /// User information
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(all(target_os = "android", target_pointer_width = "32")))]
     pub gecos: CString,
     /// Home directory
     pub dir: PathBuf,
@@ -2660,7 +2672,7 @@ impl From<&libc::passwd> for User {
             User {
                 name: CStr::from_ptr((*pw).pw_name).to_string_lossy().into_owned(),
                 passwd: CString::new(CStr::from_ptr((*pw).pw_passwd).to_bytes()).unwrap(),
-                #[cfg(not(target_os = "android"))]
+                #[cfg(not(all(target_os = "android", target_pointer_width = "32")))]
                 gecos: CString::new(CStr::from_ptr((*pw).pw_gecos).to_bytes()).unwrap(),
                 dir: PathBuf::from(OsStr::from_bytes(CStr::from_ptr((*pw).pw_dir).to_bytes())),
                 shell: PathBuf::from(OsStr::from_bytes(CStr::from_ptr((*pw).pw_shell).to_bytes())),
@@ -2685,6 +2697,58 @@ impl From<&libc::passwd> for User {
                               target_os = "solaris")))]
                 expire: (*pw).pw_expire
             }
+        }
+    }
+}
+
+#[cfg(not(target_os = "redox"))] // RedoxFS does not support passwd
+impl From<User> for libc::passwd {
+    fn from(u: User) -> Self {
+        let name = match CString::new(u.name) {
+            Ok(n) => n.into_raw(),
+            Err(_) => CString::new("").unwrap().into_raw(),
+        };
+        let dir = match u.dir.into_os_string().into_string() {
+            Ok(s) => CString::new(s.as_str()).unwrap().into_raw(),
+            Err(_) => CString::new("").unwrap().into_raw(),
+        };
+        let shell = match u.shell.into_os_string().into_string() {
+            Ok(s) => CString::new(s.as_str()).unwrap().into_raw(),
+            Err(_) => CString::new("").unwrap().into_raw(),
+        };
+        Self {
+            pw_name: name,
+            pw_passwd: u.passwd.into_raw(),
+            #[cfg(not(all(target_os = "android", target_pointer_width = "32")))]
+            pw_gecos: u.gecos.into_raw(),
+            pw_dir: dir,
+            pw_shell: shell,
+            pw_uid: u.uid.0,
+            pw_gid: u.gid.0,
+            #[cfg(not(any(target_os = "android",
+                          target_os = "fuchsia",
+                          target_os = "illumos",
+                          target_os = "linux",
+                          target_os = "solaris")))]
+            pw_class: u.class.into_raw(),
+            #[cfg(not(any(target_os = "android",
+                          target_os = "fuchsia",
+                          target_os = "illumos",
+                          target_os = "linux",
+                          target_os = "solaris")))]
+            pw_change: u.change,
+            #[cfg(not(any(target_os = "android",
+                          target_os = "fuchsia",
+                          target_os = "illumos",
+                          target_os = "linux",
+                          target_os = "solaris")))]
+            pw_expire: u.expire,
+            #[cfg(target_os = "illumos")]
+            pw_age: CString::new("").unwrap().into_raw(),
+            #[cfg(target_os = "illumos")]
+            pw_comment: CString::new("").unwrap().into_raw(),
+            #[cfg(any(target_os = "dragonfly", target_os = "freebsd"))]
+            pw_fields: 0,
         }
     }
 }
@@ -2721,7 +2785,7 @@ impl User {
                 // Trigger the internal buffer resizing logic.
                 reserve_double_buffer_size(&mut cbuf, buflimit)?;
             } else {
-                return Err(Error::from(Errno::last()));
+                return Err(Errno::last());
             }
         }
     }
@@ -2842,7 +2906,7 @@ impl Group {
                 // Trigger the internal buffer resizing logic.
                 reserve_double_buffer_size(&mut cbuf, buflimit)?;
             } else {
-                return Err(Error::from(Errno::last()));
+                return Err(Errno::last());
             }
         }
     }
@@ -2901,7 +2965,7 @@ pub fn ttyname(fd: RawFd) -> Result<PathBuf> {
 
     let ret = unsafe { libc::ttyname_r(fd, c_buf, buf.len()) };
     if ret != 0 {
-        return Err(Error::from(Errno::from_i32(ret)));
+        return Err(Errno::from_i32(ret));
     }
 
     let nul = buf.iter().position(|c| *c == b'\0').unwrap();

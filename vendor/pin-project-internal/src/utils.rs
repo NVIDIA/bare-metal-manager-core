@@ -15,12 +15,18 @@ use syn::{
 
 pub(crate) type Variants = Punctuated<Variant, Token![,]>;
 
-macro_rules! error {
-    ($span:expr, $msg:expr) => {
-        syn::Error::new_spanned(&$span, $msg)
+macro_rules! format_err {
+    ($span:expr, $msg:expr $(,)?) => {
+        syn::Error::new_spanned(&$span as &dyn quote::ToTokens, &$msg as &dyn std::fmt::Display)
     };
     ($span:expr, $($tt:tt)*) => {
-        error!($span, format!($($tt)*))
+        format_err!($span, format!($($tt)*))
+    };
+}
+
+macro_rules! bail {
+    ($($tt:tt)*) => {
+        return Err(format_err!($($tt)*))
     };
 }
 
@@ -98,7 +104,11 @@ pub(crate) fn determine_visibility(vis: &Visibility) -> Visibility {
 /// This is almost equivalent to `syn::parse2::<Nothing>()`, but produces
 /// a better error message and does not require ownership of `tokens`.
 pub(crate) fn parse_as_empty(tokens: &TokenStream) -> Result<()> {
-    if tokens.is_empty() { Ok(()) } else { Err(error!(tokens, "unexpected token: {}", tokens)) }
+    if tokens.is_empty() {
+        Ok(())
+    } else {
+        bail!(tokens, "unexpected token: `{}`", tokens)
+    }
 }
 
 pub(crate) fn respan<T>(node: &T, span: Span) -> T
@@ -131,14 +141,14 @@ pub(crate) trait SliceExt {
 impl SliceExt for [Attribute] {
     /// # Errors
     ///
-    /// * There are multiple specified attributes.
-    /// * The `Attribute::tokens` field of the specified attribute is not empty.
+    /// - There are multiple specified attributes.
+    /// - The `Attribute::tokens` field of the specified attribute is not empty.
     fn position_exact(&self, ident: &str) -> Result<Option<usize>> {
         self.iter()
             .try_fold((0, None), |(i, mut prev), attr| {
                 if attr.path.is_ident(ident) {
                     if prev.replace(i).is_some() {
-                        return Err(error!(attr, "duplicate #[{}] attribute", ident));
+                        bail!(attr, "duplicate #[{}] attribute", ident);
                     }
                     parse_as_empty(&attr.tokens)?;
                 }

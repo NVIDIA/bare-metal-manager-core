@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "clap"
-version = "3.0.10"
+version = "3.0.14"
 include = ["build.rs", "src/**/*", "Cargo.toml", "LICENSE*", "README.md", "benches/**/*", "examples/**/*"]
 description = "A simple to use, efficient, and full-featured Command Line Argument Parser"
 documentation = "https://docs.rs/clap/"
@@ -64,7 +64,7 @@ replace = "<!-- next-url -->\n[Unreleased]: https://github.com/clap-rs/clap/comp
 search = "<!-- next-url -->"
 
 [[package.metadata.release.pre-release-replacements]]
-exactly = 9
+exactly = 13
 file = "README.md"
 prerelease = true
 replace = "github.com/clap-rs/clap/blob/{{tag_name}}/"
@@ -391,7 +391,7 @@ version = "1"
 version = "1.0.18"
 
 [dev-dependencies.trycmd]
-version = "0.9"
+version = "0.12"
 features = ["color-auto", "diff", "examples"]
 default-features = false
 

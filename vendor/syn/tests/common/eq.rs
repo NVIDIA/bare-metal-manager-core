@@ -3,22 +3,21 @@ extern crate rustc_data_structures;
 extern crate rustc_span;
 
 use rustc_ast::ast::{
-    AngleBracketedArg, AngleBracketedArgs, AnonConst, Arm, AssocItemKind, AssocTyConstraint,
-    AssocTyConstraintKind, Async, AttrId, AttrItem, AttrKind, AttrStyle, Attribute, BareFnTy,
-    BinOpKind, BindingMode, Block, BlockCheckMode, BorrowKind, CaptureBy, Const, Crate, CrateSugar,
+    AngleBracketedArg, AngleBracketedArgs, AnonConst, Arm, AssocConstraint, AssocConstraintKind,
+    AssocItemKind, Async, AttrId, AttrItem, AttrKind, AttrStyle, Attribute, BareFnTy, BinOpKind,
+    BindingMode, Block, BlockCheckMode, BorrowKind, CaptureBy, Const, Crate, CrateSugar,
     Defaultness, EnumDef, Expr, ExprField, ExprKind, Extern, FieldDef, FloatTy, Fn, FnDecl,
     FnHeader, FnRetTy, FnSig, ForeignItemKind, ForeignMod, GenericArg, GenericArgs, GenericBound,
     GenericParam, GenericParamKind, Generics, Impl, ImplPolarity, Inline, InlineAsm,
     InlineAsmOperand, InlineAsmOptions, InlineAsmRegOrRegClass, InlineAsmTemplatePiece, IntTy,
-    IsAuto, Item, ItemKind, Label, Lifetime, Lit, LitFloatType, LitIntType, LitKind,
-    LlvmAsmDialect, LlvmInlineAsm, LlvmInlineAsmOutput, Local, LocalKind, MacArgs, MacCall,
-    MacCallStmt, MacDelimiter, MacStmtStyle, MacroDef, ModKind, Movability, MutTy, Mutability,
-    NodeId, Param, ParenthesizedArgs, Pat, PatField, PatKind, Path, PathSegment, PolyTraitRef,
-    QSelf, RangeEnd, RangeLimits, RangeSyntax, Stmt, StmtKind, StrLit, StrStyle, StructExpr,
-    StructRest, Trait, TraitBoundModifier, TraitObjectSyntax, TraitRef, Ty, TyAlias, TyKind,
-    UintTy, UnOp, Unsafe, UnsafeSource, UseTree, UseTreeKind, Variant, VariantData, Visibility,
-    VisibilityKind, WhereBoundPredicate, WhereClause, WhereEqPredicate, WherePredicate,
-    WhereRegionPredicate,
+    IsAuto, Item, ItemKind, Label, Lifetime, Lit, LitFloatType, LitIntType, LitKind, Local,
+    LocalKind, MacArgs, MacCall, MacCallStmt, MacDelimiter, MacStmtStyle, MacroDef, ModKind,
+    Movability, MutTy, Mutability, NodeId, Param, ParenthesizedArgs, Pat, PatField, PatKind, Path,
+    PathSegment, PolyTraitRef, QSelf, RangeEnd, RangeLimits, RangeSyntax, Stmt, StmtKind, StrLit,
+    StrStyle, StructExpr, StructRest, Term, Trait, TraitBoundModifier, TraitObjectSyntax, TraitRef,
+    Ty, TyAlias, TyKind, UintTy, UnOp, Unsafe, UnsafeSource, UseTree, UseTreeKind, Variant,
+    VariantData, Visibility, VisibilityKind, WhereBoundPredicate, WhereClause, WhereEqPredicate,
+    WherePredicate, WhereRegionPredicate,
 };
 use rustc_ast::ptr::P;
 use rustc_ast::token::{self, CommentKind, DelimToken, Nonterminal, Token, TokenKind};
@@ -296,14 +295,14 @@ macro_rules! spanless_eq_enum {
 spanless_eq_struct!(AngleBracketedArgs; span args);
 spanless_eq_struct!(AnonConst; id value);
 spanless_eq_struct!(Arm; attrs pat guard body span id is_placeholder);
-spanless_eq_struct!(AssocTyConstraint; id ident gen_args kind span);
+spanless_eq_struct!(AssocConstraint; id ident gen_args kind span);
 spanless_eq_struct!(AttrAnnotatedTokenStream; 0);
 spanless_eq_struct!(AttrItem; path args tokens);
 spanless_eq_struct!(Attribute; kind id style span);
 spanless_eq_struct!(AttributesData; attrs tokens);
 spanless_eq_struct!(BareFnTy; unsafety ext generic_params decl);
 spanless_eq_struct!(Block; stmts id rules span tokens could_be_bare_literal);
-spanless_eq_struct!(Crate; attrs items span);
+spanless_eq_struct!(Crate; attrs items span id is_placeholder);
 spanless_eq_struct!(EnumDef; variants);
 spanless_eq_struct!(Expr; id kind span attrs !tokens);
 spanless_eq_struct!(ExprField; attrs id span ident expr is_shorthand is_placeholder);
@@ -321,8 +320,6 @@ spanless_eq_struct!(Item<K>; attrs id span vis ident kind !tokens);
 spanless_eq_struct!(Label; ident);
 spanless_eq_struct!(Lifetime; id ident);
 spanless_eq_struct!(Lit; token kind span);
-spanless_eq_struct!(LlvmInlineAsm; asm asm_str_style outputs inputs clobbers volatile alignstack dialect);
-spanless_eq_struct!(LlvmInlineAsmOutput; constraint expr is_rw is_indirect);
 spanless_eq_struct!(Local; pat ty kind id span attrs !tokens);
 spanless_eq_struct!(MacCall; path args prior_type_ascription);
 spanless_eq_struct!(MacCallStmt; mac style attrs tokens);
@@ -353,7 +350,7 @@ spanless_eq_struct!(WhereRegionPredicate; span lifetime bounds);
 spanless_eq_struct!(token::Lit; kind symbol suffix);
 spanless_eq_enum!(AngleBracketedArg; Arg(0) Constraint(0));
 spanless_eq_enum!(AssocItemKind; Const(0 1 2) Fn(0) TyAlias(0) MacCall(0));
-spanless_eq_enum!(AssocTyConstraintKind; Equality(ty) Bound(bounds));
+spanless_eq_enum!(AssocConstraintKind; Equality(term) Bound(bounds));
 spanless_eq_enum!(Async; Yes(span closure_id return_impl_trait_id) No);
 spanless_eq_enum!(AttrAnnotatedTokenTree; Token(0) Delimited(0 1 2) Attributes(0));
 spanless_eq_enum!(AttrStyle; Outer Inner);
@@ -381,7 +378,6 @@ spanless_eq_enum!(IntTy; Isize I8 I16 I32 I64 I128);
 spanless_eq_enum!(IsAuto; Yes No);
 spanless_eq_enum!(LitFloatType; Suffixed(0) Unsuffixed);
 spanless_eq_enum!(LitIntType; Signed(0) Unsigned(0) Unsuffixed);
-spanless_eq_enum!(LlvmAsmDialect; Att Intel);
 spanless_eq_enum!(LocalKind; Decl Init(0) InitElse(0 1));
 spanless_eq_enum!(MacArgs; Empty Delimited(0 1 2) Eq(0 1));
 spanless_eq_enum!(MacDelimiter; Parenthesis Bracket Brace);
@@ -394,6 +390,7 @@ spanless_eq_enum!(RangeLimits; HalfOpen Closed);
 spanless_eq_enum!(StmtKind; Local(0) Item(0) Expr(0) Semi(0) Empty MacCall(0));
 spanless_eq_enum!(StrStyle; Cooked Raw(0));
 spanless_eq_enum!(StructRest; Base(0) Rest(0) None);
+spanless_eq_enum!(Term; Ty(0) Const(0));
 spanless_eq_enum!(TokenTree; Token(0) Delimited(0 1 2));
 spanless_eq_enum!(TraitBoundModifier; None Maybe MaybeConst MaybeConstMaybe);
 spanless_eq_enum!(TraitObjectSyntax; Dyn None);
@@ -411,8 +408,7 @@ spanless_eq_enum!(ExprKind; Box(0) Array(0) ConstBlock(0) Call(0 1)
     Closure(0 1 2 3 4 5) Block(0 1) Async(0 1 2) Await(0) TryBlock(0)
     Assign(0 1 2) AssignOp(0 1 2) Field(0 1) Index(0 1) Underscore Range(0 1 2)
     Path(0 1) AddrOf(0 1 2) Break(0 1) Continue(0) Ret(0) InlineAsm(0)
-    LlvmInlineAsm(0) MacCall(0) Struct(0) Repeat(0 1) Paren(0) Try(0) Yield(0)
-    Err);
+    MacCall(0) Struct(0) Repeat(0 1) Paren(0) Try(0) Yield(0) Err);
 spanless_eq_enum!(InlineAsmOperand; In(reg expr) Out(reg late expr)
     InOut(reg late expr) SplitInOut(reg late in_expr out_expr) Const(anon_const)
     Sym(expr));

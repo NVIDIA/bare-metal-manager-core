@@ -11,8 +11,9 @@
 
 [package]
 edition = "2018"
+rust-version = "1.42.0"
 name = "tracing-attributes"
-version = "0.1.18"
+version = "0.1.19"
 authors = ["Tokio Contributors <team@tokio.rs>", "Eliza Weisman <eliza@buoyant.io>", "David Barsky <dbarsky@amazon.com>"]
 description = "Procedural macro attributes for automatically instrumenting functions.\n"
 homepage = "https://tokio.rs"

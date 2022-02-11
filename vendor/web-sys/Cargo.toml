@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "web-sys"
-version = "0.3.55"
+version = "0.3.56"
 authors = ["The wasm-bindgen Developers"]
 description = "Bindings for all Web APIs, a procedurally generated crate from WebIDL\n"
 homepage = "https://rustwasm.github.io/wasm-bindgen/web-sys/index.html"
@@ -28,10 +28,10 @@ rustdoc-args = ["--cfg=web_sys_unstable_apis"]
 test = false
 doctest = false
 [dependencies.js-sys]
-version = "0.3.55"
+version = "0.3.56"
 
 [dependencies.wasm-bindgen]
-version = "0.2.78"
+version = "0.2.79"
 
 [features]
 AbortController = []
@@ -958,6 +958,11 @@ RequestInit = []
 RequestMediaKeySystemAccessNotification = []
 RequestMode = []
 RequestRedirect = []
+ResizeObserver = []
+ResizeObserverBoxOptions = []
+ResizeObserverEntry = []
+ResizeObserverOptions = []
+ResizeObserverSize = []
 Response = []
 ResponseInit = []
 ResponseType = []
@@ -1442,7 +1447,7 @@ XsltProcessor = []
 console = []
 css = []
 [target."cfg(target_arch = \"wasm32\")".dev-dependencies.wasm-bindgen-futures]
-version = "0.4.28"
+version = "0.4.29"
 
 [target."cfg(target_arch = \"wasm32\")".dev-dependencies.wasm-bindgen-test]
-version = "0.3.28"
+version = "0.3.29"

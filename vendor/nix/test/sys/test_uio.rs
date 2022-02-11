@@ -141,7 +141,7 @@ fn test_pread() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "redox"))]
 fn test_pwritev() {
     use std::io::Read;
 
@@ -171,7 +171,7 @@ fn test_pwritev() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "redox"))]
 fn test_preadv() {
     use std::io::Write;
 
@@ -205,16 +205,16 @@ fn test_preadv() {
 
 #[test]
 #[cfg(target_os = "linux")]
-// FIXME: qemu-user doesn't implement process_vm_readv/writev on most arches
-#[cfg_attr(not(any(target_arch = "x86", target_arch = "x86_64")), ignore)]
+// qemu-user doesn't implement process_vm_readv/writev on most arches
+#[cfg_attr(qemu, ignore)]
 fn test_process_vm_readv() {
     use nix::unistd::ForkResult::*;
     use nix::sys::signal::*;
     use nix::sys::wait::*;
     use crate::*;
 
-    require_capability!(CAP_SYS_PTRACE);
-    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    require_capability!("test_process_vm_readv", CAP_SYS_PTRACE);
+    let _m = crate::FORK_MTX.lock();
 
     // Pre-allocate memory in the child, since allocation isn't safe
     // post-fork (~= async-signal-safe)

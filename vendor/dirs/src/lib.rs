@@ -1,6 +1,6 @@
 //! The _dirs_ crate is
 //!
-//! - a tiny library with a minimal API (16 functions)
+//! - a tiny library with a minimal API (18 public functions)
 //! - that provides the platform-specific, user-accessible locations
 //! - for finding and storing configuration, cache and other data
 //! - on Linux, Redox, Windows (≥ Vista) and macOS.
@@ -148,6 +148,9 @@ pub fn preference_dir() -> Option<PathBuf> {
 }
 /// Returns the path to the user's runtime directory.
 ///
+/// The runtime directory contains transient, non-essential data (like sockets or named pipes) that
+/// is expected to be cleared when the user's session ends.
+///
 /// The returned value depends on the operating system and is either a `Some`, containing a value from the following table, or a `None`.
 ///
 /// |Platform | Value              | Example         |
@@ -157,6 +160,22 @@ pub fn preference_dir() -> Option<PathBuf> {
 /// | Windows | –                  | –               |
 pub fn runtime_dir() -> Option<PathBuf> {
     sys::runtime_dir()
+}
+/// Returns the path to the user's state directory.
+///
+/// The state directory contains data that should be retained between sessions (unlike the runtime
+/// directory), but may not be important/portable enough to be synchronized across machines (unlike
+/// the config/preferences/data directories).
+///
+/// The returned value depends on the operating system and is either a `Some`, containing a value from the following table, or a `None`.
+///
+/// |Platform | Value                                     | Example                  |
+/// | ------- | ----------------------------------------- | ------------------------ |
+/// | Linux   | `$XDG_STATE_HOME` or `$HOME`/.local/state | /home/alice/.local/state |
+/// | macOS   | –                                         | –                        |
+/// | Windows | –                                         | –                        |
+pub fn state_dir() -> Option<PathBuf> {
+    sys::state_dir()
 }
 
 /// Returns the path to the user's audio directory.
@@ -274,6 +293,7 @@ mod tests {
     #[test]
     fn test_dirs() {
         println!("home_dir:       {:?}", ::home_dir());
+        println!();
         println!("cache_dir:      {:?}", ::cache_dir());
         println!("config_dir:     {:?}", ::config_dir());
         println!("data_dir:       {:?}", ::data_dir());
@@ -281,8 +301,10 @@ mod tests {
         println!("executable_dir: {:?}", ::executable_dir());
         println!("preference_dir: {:?}", ::preference_dir());
         println!("runtime_dir:    {:?}", ::runtime_dir());
+        println!("state_dir:      {:?}", ::state_dir());
+        println!();
         println!("audio_dir:      {:?}", ::audio_dir());
-        println!("home_dir:       {:?}", ::desktop_dir());
+        println!("desktop_dir:    {:?}", ::desktop_dir());
         println!("cache_dir:      {:?}", ::document_dir());
         println!("config_dir:     {:?}", ::download_dir());
         println!("font_dir:       {:?}", ::font_dir());

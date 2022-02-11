@@ -13,10 +13,12 @@
 //!
 //! ```toml
 //! [dependencies]
-//! tracing-subscriber = "0.2"
+//! tracing-subscriber = "0.3"
 //! ```
 //!
-//! *Compiler support: requires rustc 1.39+*
+//! *Compiler support: [requires `rustc` 1.42+][msrv]*
+//!
+//! [msrv]: ../index.html#supported-rust-versions
 //!
 //! Add the following to your executable to initialize the default subscriber:
 //! ```rust
@@ -221,7 +223,7 @@
 //!    .with_thread_names(true) // include the name of the current thread
 //!    .compact(); // use the `Compact` formatting style.
 //!
-//! // Create a `fmt` collector that uses our custom event format, and set it
+//! // Create a `fmt` subscriber that uses our custom event format, and set it
 //! // as the default.
 //! tracing_subscriber::fmt()
 //!     .event_format(format)
@@ -309,6 +311,7 @@ pub mod writer;
 pub use fmt_layer::{FmtContext, FormattedFields, Layer};
 
 use crate::layer::Layer as _;
+use crate::util::SubscriberInitExt;
 use crate::{
     filter::LevelFilter,
     layer,
@@ -417,7 +420,7 @@ pub struct SubscriberBuilder<
 /// ```
 ///
 /// [formatting subscriber]: Subscriber
-/// [`SubscriberBuilder::default()`]: SubscriberBuilder::default()
+/// [`SubscriberBuilder::default()`]: struct.SubscriberBuilder.html#method.default
 /// [`init`]: SubscriberBuilder::init()
 /// [`try_init`]: SubscriberBuilder::try_init()
 /// [`finish`]: SubscriberBuilder::finish()
@@ -429,10 +432,11 @@ pub fn fmt() -> SubscriberBuilder {
 /// Returns a new [formatting layer] that can be [composed] with other layers to
 /// construct a [`Subscriber`].
 ///
-/// This is a shorthand for the equivalent [`Layer::default`] function.
+/// This is a shorthand for the equivalent [`Layer::default()`] function.
 ///
 /// [formatting layer]: Layer
 /// [composed]: crate::layer
+/// [`Layer::default()`]: struct.Layer.html#method.default
 #[cfg_attr(docsrs, doc(cfg(all(feature = "fmt", feature = "std"))))]
 pub fn layer<S>() -> Layer<S> {
     Layer::default()
@@ -730,6 +734,34 @@ where
         }
     }
 
+    /// Sets whether or not an event's [source code file path][file] is
+    /// displayed.
+    ///
+    /// [file]: tracing_core::Metadata::file
+    pub fn with_file(
+        self,
+        display_filename: bool,
+    ) -> SubscriberBuilder<N, format::Format<L, T>, F, W> {
+        SubscriberBuilder {
+            inner: self.inner.with_file(display_filename),
+            ..self
+        }
+    }
+
+    /// Sets whether or not an event's [source code line number][line] is
+    /// displayed.
+    ///
+    /// [line]: tracing_core::Metadata::line
+    pub fn with_line_number(
+        self,
+        display_line_number: bool,
+    ) -> SubscriberBuilder<N, format::Format<L, T>, F, W> {
+        SubscriberBuilder {
+            inner: self.inner.with_line_number(display_line_number),
+            ..self
+        }
+    }
+
     /// Sets whether or not an event's level is displayed.
     pub fn with_level(
         self,
@@ -891,7 +923,7 @@ where
 }
 
 impl<N, E, F, W> SubscriberBuilder<N, E, F, W> {
-    /// Sets the Visitor that the subscriber being built will use to record
+    /// Sets the field formatter that the subscriber being built will use to record
     /// fields.
     ///
     /// For example:
@@ -989,7 +1021,7 @@ impl<N, E, F, W> SubscriberBuilder<N, E, F, W> {
     /// subscriber.
     ///
     /// If the max level has already been set, or a [`EnvFilter`] was added by
-    /// [`with_filter`], this replaces that configuration with the new
+    /// [`with_env_filter`], this replaces that configuration with the new
     /// maximum level.
     ///
     /// # Examples
@@ -1012,8 +1044,8 @@ impl<N, E, F, W> SubscriberBuilder<N, E, F, W> {
     ///     .finish();
     /// ```
     /// [verbosity level]: https://docs.rs/tracing-core/0.1.5/tracing_core/struct.Level.html
-    /// [`EnvFilter`]: ../filter/struct.EnvFilter.html
-    /// [`with_filter`]: #method.with_filter
+    /// [`EnvFilter`]: struct@crate::filter::EnvFilter
+    /// [`with_env_filter`]: fn@Self::with_env_filter
     pub fn with_max_level(
         self,
         filter: impl Into<LevelFilter>,
@@ -1025,8 +1057,26 @@ impl<N, E, F, W> SubscriberBuilder<N, E, F, W> {
         }
     }
 
-    /// Sets the function that the subscriber being built should use to format
-    /// events that occur.
+    /// Sets the [event formatter][`FormatEvent`] that the subscriber being built
+    /// will use to format events that occur.
+    ///
+    /// The event formatter may be any type implementing the [`FormatEvent`]
+    /// trait, which is implemented for all functions taking a [`FmtContext`], a
+    /// [`Writer`], and an [`Event`].
+    ///
+    /// # Examples
+    ///
+    /// Setting a type implementing [`FormatEvent`] as the formatter:
+    ///
+    /// ```rust
+    /// use tracing_subscriber::fmt::format;
+    ///
+    /// let subscriber = tracing_subscriber::fmt()
+    ///     .event_format(format().compact())
+    ///     .finish();
+    /// ```
+    ///
+    /// [`Writer`]: struct@self::format::Writer
     pub fn event_format<E2>(self, fmt_event: E2) -> SubscriberBuilder<N, E2, F, W>
     where
         E2: FormatEvent<Registry, N> + 'static,
@@ -1053,8 +1103,6 @@ impl<N, E, F, W> SubscriberBuilder<N, E, F, W> {
     ///     .with_writer(io::stderr)
     ///     .init();
     /// ```
-    ///
-    /// [`MakeWriter`]: trait.MakeWriter.html
     pub fn with_writer<W2>(self, make_writer: W2) -> SubscriberBuilder<N, E, F, W2>
     where
         W2: for<'writer> MakeWriter<'writer> + 'static,
@@ -1095,6 +1143,82 @@ impl<N, E, F, W> SubscriberBuilder<N, E, F, W> {
             inner: self.inner.with_writer(TestWriter::default()),
         }
     }
+
+    /// Updates the event formatter by applying a function to the existing event formatter.
+    ///
+    /// This sets the event formatter that the subscriber being built will use to record fields.
+    ///
+    /// # Examples
+    ///
+    /// Updating an event formatter:
+    ///
+    /// ```rust
+    /// let subscriber = tracing_subscriber::fmt()
+    ///     .map_event_format(|e| e.compact())
+    ///     .finish();
+    /// ```
+    pub fn map_event_format<E2>(self, f: impl FnOnce(E) -> E2) -> SubscriberBuilder<N, E2, F, W>
+    where
+        E2: FormatEvent<Registry, N> + 'static,
+        N: for<'writer> FormatFields<'writer> + 'static,
+        W: for<'writer> MakeWriter<'writer> + 'static,
+    {
+        SubscriberBuilder {
+            filter: self.filter,
+            inner: self.inner.map_event_format(f),
+        }
+    }
+
+    /// Updates the field formatter by applying a function to the existing field formatter.
+    ///
+    /// This sets the field formatter that the subscriber being built will use to record fields.
+    ///
+    /// # Examples
+    ///
+    /// Updating a field formatter:
+    ///
+    /// ```rust
+    /// use tracing_subscriber::field::MakeExt;
+    /// let subscriber = tracing_subscriber::fmt()
+    ///     .map_fmt_fields(|f| f.debug_alt())
+    ///     .finish();
+    /// ```
+    pub fn map_fmt_fields<N2>(self, f: impl FnOnce(N) -> N2) -> SubscriberBuilder<N2, E, F, W>
+    where
+        N2: for<'writer> FormatFields<'writer> + 'static,
+    {
+        SubscriberBuilder {
+            filter: self.filter,
+            inner: self.inner.map_fmt_fields(f),
+        }
+    }
+
+    /// Updates the [`MakeWriter`] by applying a function to the existing [`MakeWriter`].
+    ///
+    /// This sets the [`MakeWriter`] that the subscriber being built will use to write events.
+    ///
+    /// # Examples
+    ///
+    /// Redirect output to stderr if level is <= WARN:
+    ///
+    /// ```rust
+    /// use tracing::Level;
+    /// use tracing_subscriber::fmt::{self, writer::MakeWriterExt};
+    ///
+    /// let stderr = std::io::stderr.with_max_level(Level::WARN);
+    /// let layer = tracing_subscriber::fmt()
+    ///     .map_writer(move |w| stderr.or_else(w))
+    ///     .finish();
+    /// ```
+    pub fn map_writer<W2>(self, f: impl FnOnce(W) -> W2) -> SubscriberBuilder<N, E, F, W2>
+    where
+        W2: for<'writer> MakeWriter<'writer> + 'static,
+    {
+        SubscriberBuilder {
+            filter: self.filter,
+            inner: self.inner.map_writer(f),
+        }
+    }
 }
 
 /// Install a global tracing subscriber that listens for events and
@@ -1129,7 +1253,37 @@ pub fn try_init() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     #[cfg(feature = "env-filter")]
     let builder = builder.with_env_filter(crate::EnvFilter::from_default_env());
 
-    builder.try_init()
+    // If `env-filter` is disabled, remove the default max level filter from the
+    // subscriber; it will be added to the `Targets` filter instead if no filter
+    // is set in `RUST_LOG`.
+    // Replacing the default `LevelFilter` with an `EnvFilter` would imply this,
+    // but we can't replace the builder's filter with a `Targets` filter yet.
+    #[cfg(not(feature = "env-filter"))]
+    let builder = builder.with_max_level(LevelFilter::TRACE);
+
+    let subscriber = builder.finish();
+    #[cfg(not(feature = "env-filter"))]
+    let subscriber = {
+        use crate::{filter::Targets, layer::SubscriberExt};
+        use std::{env, str::FromStr};
+        let targets = match env::var("RUST_LOG") {
+            Ok(var) => Targets::from_str(&var)
+                .map_err(|e| {
+                    eprintln!("Ignoring `RUST_LOG={:?}`: {}", var, e);
+                })
+                .unwrap_or_default(),
+            Err(env::VarError::NotPresent) => {
+                Targets::new().with_default(Subscriber::DEFAULT_MAX_LEVEL)
+            }
+            Err(e) => {
+                eprintln!("Ignoring `RUST_LOG`: {}", e);
+                Targets::new().with_default(Subscriber::DEFAULT_MAX_LEVEL)
+            }
+        };
+        subscriber.with(targets)
+    };
+
+    subscriber.try_init().map_err(Into::into)
 }
 
 /// Install a global tracing subscriber that listens for events and

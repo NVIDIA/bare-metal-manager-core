@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "crypto-common"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["RustCrypto Developers"]
 description = "Common cryptographic traits"
 documentation = "https://docs.rs/crypto-common"
@@ -25,7 +25,8 @@ repository = "https://github.com/RustCrypto/traits"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 [dependencies.generic-array]
-version = "0.14"
+version = "0.14.4"
+features = ["more_lengths"]
 
 [dependencies.rand_core]
 version = "0.6"

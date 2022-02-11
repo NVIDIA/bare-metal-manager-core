@@ -63,7 +63,7 @@ impl Errno {
         since = "0.22.0",
         note = "It's a no-op now; just delete it."
     )]
-    pub fn as_errno(self) -> Option<Self> {
+    pub const fn as_errno(self) -> Option<Self> {
         Some(self)
     }
 
@@ -72,8 +72,9 @@ impl Errno {
         since = "0.22.0",
         note = "It's a no-op now; just delete it."
     )]
+    #[allow(clippy::wrong_self_convention)] // False positive
     pub fn from_errno(errno: Errno) -> Error {
-        Error::from(errno)
+        errno
     }
 
     /// Create a new invalid argument error (`EINVAL`)
@@ -81,7 +82,7 @@ impl Errno {
         since = "0.22.0",
         note = "Use Errno::EINVAL instead"
     )]
-    pub fn invalid_argument() -> Error {
+    pub const fn invalid_argument() -> Error {
         Errno::EINVAL
     }
 
@@ -93,7 +94,7 @@ impl Errno {
         desc(self)
     }
 
-    pub fn from_i32(err: i32) -> Errno {
+    pub const fn from_i32(err: i32) -> Errno {
         from_i32(err)
     }
 
@@ -103,6 +104,7 @@ impl Errno {
 
     /// Returns `Ok(value)` if it does not contain the sentinel value. This
     /// should not be used when `-1` is not the errno sentinel value.
+    #[inline]
     pub fn result<S: ErrnoSentinel + PartialEq<S>>(value: S) -> Result<S> {
         if value == S::sentinel() {
             Err(Self::last())
@@ -122,7 +124,7 @@ impl Errno {
     )]
     #[allow(non_snake_case)]
     #[inline]
-    pub fn Sys(errno: Errno) -> Error {
+    pub const fn Sys(errno: Errno) -> Error {
         errno
     }
 }
@@ -768,6 +770,7 @@ fn desc(errno: Errno) -> &'static str {
 mod consts {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(i32)]
+    #[non_exhaustive]
     pub enum Errno {
         UnknownErrno    = 0,
         EPERM           = libc::EPERM,
@@ -927,7 +930,7 @@ mod consts {
         pub const ENOTSUP:     Errno = Errno::EOPNOTSUPP;
     }
 
-    pub fn from_i32(e: i32) -> Errno {
+    pub const fn from_i32(e: i32) -> Errno {
         use self::Errno::*;
 
         match e {
@@ -1073,6 +1076,7 @@ mod consts {
 mod consts {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(i32)]
+    #[non_exhaustive]
     pub enum Errno {
         UnknownErrno    = 0,
         EPERM           = libc::EPERM,
@@ -1205,7 +1209,7 @@ mod consts {
         pub const EDEADLOCK:   Errno = Errno::EDEADLK;
     }
 
-    pub fn from_i32(e: i32) -> Errno {
+    pub const fn from_i32(e: i32) -> Errno {
         use self::Errno::*;
 
         match e {
@@ -1324,6 +1328,7 @@ mod consts {
 mod consts {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(i32)]
+    #[non_exhaustive]
     pub enum Errno {
         UnknownErrno    = 0,
         EPERM           = libc::EPERM,
@@ -1452,7 +1457,7 @@ mod consts {
         pub const EOPNOTSUPP:  Errno = Errno::ENOTSUP;
     }
 
-    pub fn from_i32(e: i32) -> Errno {
+    pub const fn from_i32(e: i32) -> Errno {
         use self::Errno::*;
 
         match e {
@@ -1562,6 +1567,7 @@ mod consts {
 mod consts {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(i32)]
+    #[non_exhaustive]
     pub enum Errno {
         UnknownErrno    = 0,
         EPERM           = libc::EPERM,
@@ -1688,7 +1694,7 @@ mod consts {
         pub const EOPNOTSUPP:  Errno = Errno::ENOTSUP;
     }
 
-    pub fn from_i32(e: i32) -> Errno {
+    pub const fn from_i32(e: i32) -> Errno {
         use self::Errno::*;
 
         match e {
@@ -1796,6 +1802,7 @@ mod consts {
 mod consts {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(i32)]
+    #[non_exhaustive]
     pub enum Errno {
         UnknownErrno    = 0,
         EPERM           = libc::EPERM,
@@ -1911,7 +1918,7 @@ mod consts {
         pub const EWOULDBLOCK: Errno = Errno::EAGAIN;
     }
 
-    pub fn from_i32(e: i32) -> Errno {
+    pub const fn from_i32(e: i32) -> Errno {
         use self::Errno::*;
 
         match e {
@@ -2019,6 +2026,7 @@ mod consts {
 mod consts {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(i32)]
+    #[non_exhaustive]
     pub enum Errno {
         UnknownErrno    = 0,
         EPERM           = libc::EPERM,
@@ -2135,7 +2143,7 @@ mod consts {
         pub const EWOULDBLOCK: Errno = Errno::EAGAIN;
     }
 
-    pub fn from_i32(e: i32) -> Errno {
+    pub const fn from_i32(e: i32) -> Errno {
         use self::Errno::*;
 
         match e {
@@ -2244,6 +2252,7 @@ mod consts {
 mod consts {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(i32)]
+    #[non_exhaustive]
     pub enum Errno {
         UnknownErrno = 0,
         EPERM = libc::EPERM,
@@ -2343,7 +2352,7 @@ mod consts {
         pub const EWOULDBLOCK: Errno = Errno::EAGAIN;
     }
 
-    pub fn from_i32(e: i32) -> Errno {
+    pub const fn from_i32(e: i32) -> Errno {
         use self::Errno::*;
 
         match e {
@@ -2441,6 +2450,7 @@ mod consts {
 mod consts {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(i32)]
+    #[non_exhaustive]
     pub enum Errno {
         UnknownErrno = 0,
         EPERM = libc::EPERM,
@@ -2582,7 +2592,7 @@ mod consts {
         pub const EWOULDBLOCK: Errno = Errno::EAGAIN;
     }
 
-    pub fn from_i32(e: i32) -> Errno {
+    pub const fn from_i32(e: i32) -> Errno {
         use self::Errno::*;
 
         match e {

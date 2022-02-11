@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "block-buffer"
-version = "0.10.0"
+version = "0.10.2"
 authors = ["RustCrypto Developers"]
 description = "Buffer type for block processing of data"
 documentation = "https://docs.rs/block-buffer"

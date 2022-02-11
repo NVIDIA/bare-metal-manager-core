@@ -2,7 +2,9 @@
 
 Macro implementation for clap's derives.
 
-See [docs.rs](https://docs.rs/clap).
+[docs.rs](https://docs.rs/clap)
+- [Derive Tutorial](https://github.com/clap-rs/clap/blob/v3.0.14/examples/tutorial_derive/README.md)
+- [Derive Reference](https://github.com/clap-rs/clap/blob/v3.0.14/examples/derive_ref/README.md)
 
 ## License
 

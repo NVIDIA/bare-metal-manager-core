@@ -64,6 +64,7 @@ pub trait Future01CompatExt: Future01 {
     /// [`Future<Output = Result<T, E>>`](futures_core::future::Future).
     ///
     /// ```
+    /// # if cfg!(miri) { return; } // https://github.com/rust-lang/futures-rs/issues/2514
     /// # futures::executor::block_on(async {
     /// # // TODO: These should be all using `futures::compat`, but that runs up against Cargo
     /// # // feature issues
@@ -90,6 +91,7 @@ pub trait Stream01CompatExt: Stream01 {
     /// [`Stream<Item = Result<T, E>>`](futures_core::stream::Stream).
     ///
     /// ```
+    /// # if cfg!(miri) { return; } // https://github.com/rust-lang/futures-rs/issues/2514
     /// # futures::executor::block_on(async {
     /// use futures::stream::StreamExt;
     /// use futures_util::compat::Stream01CompatExt;
@@ -119,6 +121,7 @@ pub trait Sink01CompatExt: Sink01 {
     /// [`Sink<T, Error = E>`](futures_sink::Sink).
     ///
     /// ```
+    /// # if cfg!(miri) { return; } // https://github.com/rust-lang/futures-rs/issues/2514
     /// # futures::executor::block_on(async {
     /// use futures::{sink::SinkExt, stream::StreamExt};
     /// use futures_util::compat::{Stream01CompatExt, Sink01CompatExt};
@@ -351,8 +354,6 @@ unsafe impl UnsafeNotify01 for NotifyWaker {
 #[cfg_attr(docsrs, doc(cfg(feature = "io-compat")))]
 mod io {
     use super::*;
-    #[cfg(feature = "read-initializer")]
-    use futures_io::Initializer;
     use futures_io::{AsyncRead as AsyncRead03, AsyncWrite as AsyncWrite03};
     use std::io::Error;
     use tokio_io::{AsyncRead as AsyncRead01, AsyncWrite as AsyncWrite01};
@@ -364,6 +365,7 @@ mod io {
         /// [`AsyncRead`](futures_io::AsyncRead).
         ///
         /// ```
+        /// # if cfg!(miri) { return; } // https://github.com/rust-lang/futures-rs/issues/2514
         /// # futures::executor::block_on(async {
         /// use futures::io::AsyncReadExt;
         /// use futures_util::compat::AsyncRead01CompatExt;
@@ -393,6 +395,7 @@ mod io {
         /// [`AsyncWrite`](futures_io::AsyncWrite).
         ///
         /// ```
+        /// # if cfg!(miri) { return; } // https://github.com/rust-lang/futures-rs/issues/2514
         /// # futures::executor::block_on(async {
         /// use futures::io::AsyncWriteExt;
         /// use futures_util::compat::AsyncWrite01CompatExt;
@@ -416,16 +419,6 @@ mod io {
     impl<W: AsyncWrite01> AsyncWrite01CompatExt for W {}
 
     impl<R: AsyncRead01> AsyncRead03 for Compat01As03<R> {
-        #[cfg(feature = "read-initializer")]
-        unsafe fn initializer(&self) -> Initializer {
-            // check if `prepare_uninitialized_buffer` needs zeroing
-            if self.inner.get_ref().prepare_uninitialized_buffer(&mut [1]) {
-                Initializer::zeroing()
-            } else {
-                Initializer::nop()
-            }
-        }
-
         fn poll_read(
             mut self: Pin<&mut Self>,
             cx: &mut Context<'_>,

@@ -41,7 +41,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
 
             let o = &self.p.app[&a];
             reqs_validated = true;
-            let should_err = if let Some(v) = matcher.0.args.get(&o.id) {
+            let should_err = if let Some(v) = matcher.args.get(&o.id) {
                 v.all_val_groups_empty() && !(o.min_vals.is_some() && o.min_vals.unwrap() == 0)
             } else {
                 true
@@ -50,7 +50,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
                 return Err(Error::empty_value(
                     self.p.app,
                     o,
-                    Usage::new(self.p).create_usage_with_title(&[]),
+                    Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
                 ));
             }
         }
@@ -91,7 +91,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
                 );
                 return Err(Error::invalid_utf8(
                     self.p.app,
-                    Usage::new(self.p).create_usage_with_title(&[]),
+                    Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
                 ));
             }
             if !arg.possible_vals.is_empty() {
@@ -122,7 +122,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
                             .filter_map(PossibleValue::get_visible_name)
                             .collect::<Vec<_>>(),
                         arg,
-                        Usage::new(self.p).create_usage_with_title(&used),
+                        Usage::new(self.p.app, &self.p.required).create_usage_with_title(&used),
                     ));
                 }
             }
@@ -134,7 +134,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
                 return Err(Error::empty_value(
                     self.p.app,
                     arg,
-                    Usage::new(self.p).create_usage_with_title(&[]),
+                    Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
                 ));
             }
 
@@ -209,7 +209,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
                     self.p.app,
                     arg,
                     Vec::new(),
-                    Usage::new(self.p).create_usage_with_title(&[]),
+                    Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
                 ))
             })
     }
@@ -264,7 +264,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
             .chain(used_filtered.iter())
             .cloned()
             .collect();
-        Usage::new(self.p).create_usage_with_title(&required)
+        Usage::new(self.p.app, &self.p.required).create_usage_with_title(&required)
     }
 
     fn gather_requirements(&mut self, matcher: &ArgMatcher) {
@@ -304,16 +304,20 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
     fn validate_arg_num_occurs(&self, a: &Arg, ma: &MatchedArg) -> ClapResult<()> {
         debug!(
             "Validator::validate_arg_num_occurs: {:?}={}",
-            a.name, ma.occurs
+            a.name,
+            ma.get_occurrences()
         );
         // Occurrence of positional argument equals to number of values rather
         // than number of grouped values.
-        if ma.occurs > 1 && !a.is_set(ArgSettings::MultipleOccurrences) && !a.is_positional() {
+        if ma.get_occurrences() > 1
+            && !a.is_set(ArgSettings::MultipleOccurrences)
+            && !a.is_positional()
+        {
             // Not the first time, and we don't allow multiples
             return Err(Error::unexpected_multiple_usage(
                 self.p.app,
                 a,
-                Usage::new(self.p).create_usage_with_title(&[]),
+                Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
             ));
         }
         if let Some(max_occurs) = a.max_occurs {
@@ -321,14 +325,14 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
                 "Validator::validate_arg_num_occurs: max_occurs set...{}",
                 max_occurs
             );
-            let occurs = ma.occurs as usize;
+            let occurs = ma.get_occurrences() as usize;
             if occurs > max_occurs {
                 return Err(Error::too_many_occurrences(
                     self.p.app,
                     a,
                     max_occurs,
                     occurs,
-                    Usage::new(self.p).create_usage_with_title(&[]),
+                    Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
                 ));
             }
         }
@@ -357,7 +361,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
                     } else {
                         total_num
                     },
-                    Usage::new(self.p).create_usage_with_title(&[]),
+                    Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
                 ));
             }
         }
@@ -374,7 +378,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
                         .expect(INVALID_UTF8)
                         .to_string(),
                     a.to_string(),
-                    Usage::new(self.p).create_usage_with_title(&[]),
+                    Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
                 ));
             }
         }
@@ -387,7 +391,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
                     a,
                     num,
                     ma.num_vals(),
-                    Usage::new(self.p).create_usage_with_title(&[]),
+                    Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
                 ));
             }
             num == 0
@@ -400,7 +404,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
             return Err(Error::empty_value(
                 self.p.app,
                 a,
-                Usage::new(self.p).create_usage_with_title(&[]),
+                Usage::new(self.p.app, &self.p.required).create_usage_with_title(&[]),
             ));
         }
         Ok(())
@@ -510,7 +514,7 @@ impl<'help, 'app, 'parser> Validator<'help, 'app, 'parser> {
             self.p.required
         );
 
-        let usg = Usage::new(self.p);
+        let usg = Usage::new(self.p.app, &self.p.required);
 
         let req_args = usg.get_required_usage_from(&incl, Some(matcher), true);
 

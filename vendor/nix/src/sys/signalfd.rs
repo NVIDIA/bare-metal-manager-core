@@ -15,9 +15,8 @@
 //!
 //! Please note that signal discarding is not specific to `signalfd`, but also happens with regular
 //! signal handlers.
-use libc;
 use crate::unistd;
-use crate::{Error, Result};
+use crate::Result;
 use crate::errno::Errno;
 pub use crate::sys::signal::{self, SigSet};
 pub use libc::signalfd_siginfo as siginfo;
@@ -34,7 +33,8 @@ libc_bitflags!{
 }
 
 pub const SIGNALFD_NEW: RawFd = -1;
-pub const SIGNALFD_SIGINFO_SIZE: usize = 128;
+#[deprecated(since = "0.23.0", note = "use mem::size_of::<siginfo>() instead")]
+pub const SIGNALFD_SIGINFO_SIZE: usize = mem::size_of::<siginfo>();
 
 /// Creates a new file descriptor for reading signals.
 ///
@@ -98,15 +98,14 @@ impl SignalFd {
     }
 
     pub fn read_signal(&mut self) -> Result<Option<siginfo>> {
-        let mut buffer = mem::MaybeUninit::<[u8; SIGNALFD_SIGINFO_SIZE]>::uninit();
+        let mut buffer = mem::MaybeUninit::<siginfo>::uninit();
 
+        let size = mem::size_of_val(&buffer);
         let res = Errno::result(unsafe {
-            libc::read(self.0,
-                       buffer.as_mut_ptr() as *mut libc::c_void,
-                       SIGNALFD_SIGINFO_SIZE as libc::size_t)
+            libc::read(self.0, buffer.as_mut_ptr() as *mut libc::c_void, size)
         }).map(|r| r as usize);
         match res {
-            Ok(SIGNALFD_SIGINFO_SIZE) => Ok(Some(unsafe { mem::transmute(buffer.assume_init()) })),
+            Ok(x) if x == size => Ok(Some(unsafe { buffer.assume_init() })),
             Ok(_) => unreachable!("partial read on signalfd"),
             Err(Errno::EAGAIN) => Ok(None),
             Err(error) => Err(error)
@@ -117,7 +116,7 @@ impl SignalFd {
 impl Drop for SignalFd {
     fn drop(&mut self) {
         let e = unistd::close(self.0);
-        if !std::thread::panicking() && e == Err(Error::from(Errno::EBADF)) {
+        if !std::thread::panicking() && e == Err(Errno::EBADF) {
             panic!("Closing an invalid file descriptor!");
         };
     }
@@ -144,14 +143,6 @@ impl Iterator for SignalFd {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::mem;
-    use libc;
-
-
-    #[test]
-    fn check_siginfo_size() {
-        assert_eq!(mem::size_of::<libc::signalfd_siginfo>(), SIGNALFD_SIGINFO_SIZE);
-    }
 
     #[test]
     fn create_signalfd() {

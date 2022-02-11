@@ -3,7 +3,7 @@
 use crate::sys::time::TimeSpec;
 #[cfg(any(target_os = "android", target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))]
 use crate::sys::signal::SigSet;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 
 use crate::Result;
 use crate::errno::Errno;
@@ -25,7 +25,7 @@ pub struct PollFd {
 impl PollFd {
     /// Creates a new `PollFd` specifying the events of interest
     /// for a given file descriptor.
-    pub fn new(fd: RawFd, events: PollFlags) -> PollFd {
+    pub const fn new(fd: RawFd, events: PollFlags) -> PollFd {
         PollFd {
             pollfd: libc::pollfd {
                 fd,
@@ -35,9 +35,26 @@ impl PollFd {
         }
     }
 
-    /// Returns the events that occured in the last call to `poll` or `ppoll`.
+    /// Returns the events that occured in the last call to `poll` or `ppoll`.  Will only return
+    /// `None` if the kernel provides status flags that Nix does not know about.
     pub fn revents(self) -> Option<PollFlags> {
         PollFlags::from_bits(self.pollfd.revents)
+    }
+
+    /// The events of interest for this `PollFd`.
+    pub fn events(self) -> PollFlags {
+        PollFlags::from_bits(self.pollfd.events).unwrap()
+    }
+
+    /// Modify the events of interest for this `PollFd`.
+    pub fn set_events(&mut self, events: PollFlags) {
+        self.pollfd.events = events.bits();
+    }
+}
+
+impl AsRawFd for PollFd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.pollfd.fd
     }
 }
 

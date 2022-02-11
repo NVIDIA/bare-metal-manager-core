@@ -325,7 +325,7 @@ fn inner_readlink<P: ?Sized + NixPath>(dirfd: Option<RawFd>, path: &P) -> Result
                 Some(next_size) => try_size = next_size,
                 // It's absurd that this would happen, but handle it sanely
                 // anyway.
-                None => break Err(super::Error::from(Errno::ENAMETOOLONG)),
+                None => break Err(Errno::ENAMETOOLONG),
             }
         }
     }
@@ -374,6 +374,7 @@ libc_bitflags!(
 
 #[cfg(not(target_os = "redox"))]
 #[derive(Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
 pub enum FcntlArg<'a> {
     F_DUPFD(RawFd),
     F_DUPFD_CLOEXEC(RawFd),
@@ -405,6 +406,7 @@ pub enum FcntlArg<'a> {
 
 #[cfg(target_os = "redox")]
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
+#[non_exhaustive]
 pub enum FcntlArg {
     F_DUPFD(RawFd),
     F_DUPFD_CLOEXEC(RawFd),
@@ -454,6 +456,7 @@ pub fn fcntl(fd: RawFd, arg: FcntlArg) -> Result<c_int> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
 pub enum FlockArg {
     LockShared,
     LockExclusive,
@@ -643,12 +646,12 @@ pub fn fallocate(
 ))]
 mod posix_fadvise {
     use crate::errno::Errno;
-    use libc;
     use std::os::unix::io::RawFd;
     use crate::Result;
 
     libc_enum! {
         #[repr(i32)]
+        #[non_exhaustive]
         pub enum PosixFadviseAdvice {
             POSIX_FADV_NORMAL,
             POSIX_FADV_SEQUENTIAL,
@@ -664,9 +667,14 @@ mod posix_fadvise {
         offset: libc::off_t,
         len: libc::off_t,
         advice: PosixFadviseAdvice,
-    ) -> Result<libc::c_int> {
+    ) -> Result<()> {
         let res = unsafe { libc::posix_fadvise(fd, offset, len, advice as libc::c_int) };
-        Errno::result(res)
+
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(Errno::from_i32(res))
+        }
     }
 }
 
@@ -683,6 +691,6 @@ pub fn posix_fallocate(fd: RawFd, offset: libc::off_t, len: libc::off_t) -> Resu
     match Errno::result(res) {
         Err(err) => Err(err),
         Ok(0) => Ok(()),
-        Ok(errno) => Err(crate::Error::from(Errno::from_i32(errno))),
+        Ok(errno) => Err(Errno::from_i32(errno)),
     }
 }

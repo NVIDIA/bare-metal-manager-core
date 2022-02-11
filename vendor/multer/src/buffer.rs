@@ -70,11 +70,11 @@ impl<'r> StreamBuffer<'r> {
     }
 
     pub fn read_until(&mut self, pattern: &[u8]) -> Option<Bytes> {
-        twoway::find_bytes(&self.buf, pattern).map(|idx| self.buf.split_to(idx + pattern.len()).freeze())
+        memchr::memmem::find(&self.buf, pattern).map(|idx| self.buf.split_to(idx + pattern.len()).freeze())
     }
 
     pub fn read_to(&mut self, pattern: &[u8]) -> Option<Bytes> {
-        twoway::find_bytes(&self.buf, pattern).map(|idx| self.buf.split_to(idx).freeze())
+        memchr::memmem::find(&self.buf, pattern).map(|idx| self.buf.split_to(idx).freeze())
     }
 
     pub fn advance_past_transport_padding(&mut self) -> bool {
@@ -108,7 +108,7 @@ impl<'r> StreamBuffer<'r> {
         let boundary_deriv = format!("{}{}{}", constants::CRLF, constants::BOUNDARY_EXT, boundary);
         let b_len = boundary_deriv.len();
 
-        match twoway::find_bytes(&self.buf, boundary_deriv.as_bytes()) {
+        match memchr::memmem::find(&self.buf, boundary_deriv.as_bytes()) {
             Some(idx) => {
                 log::trace!("new field found at {}", idx);
                 let bytes = self.buf.split_to(idx).freeze();
@@ -135,11 +135,11 @@ impl<'r> StreamBuffer<'r> {
 
                 log::trace!("no new field found, not EOF, checking close");
                 let bytes = &self.buf[rem_boundary_part_idx..];
-                match twoway::rfind_bytes(bytes, constants::CR.as_bytes()) {
+                match memchr::memmem::rfind(bytes, constants::CR.as_bytes()) {
                     Some(rel_idx) => {
                         let idx = rel_idx + rem_boundary_part_idx;
 
-                        match twoway::find_bytes(boundary_deriv.as_bytes(), &self.buf[idx..]) {
+                        match memchr::memmem::find(boundary_deriv.as_bytes(), &self.buf[idx..]) {
                             Some(_) => {
                                 let bytes = self.buf.split_to(idx).freeze();
 

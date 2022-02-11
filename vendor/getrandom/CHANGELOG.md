@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2021-12-13
+### Changed
+- Use explicit imports in the `js` backend [#220]
+- Use `/dev/urandom` on Redox instead of `rand:` [#222]
+- Use `NonZeroU32::new_unchecked` to convert wasi error [#233]
+
+### Added
+- SOLID targets (`*-kmc-solid_*`) support [#235]
+- Limited Hermit (`x86_64-unknown-hermit`) support [#236]
+
+[#220]: https://github.com/rust-random/getrandom/pull/220
+[#222]: https://github.com/rust-random/getrandom/pull/222
+[#233]: https://github.com/rust-random/getrandom/pull/233
+[#235]: https://github.com/rust-random/getrandom/pull/235
+[#236]: https://github.com/rust-random/getrandom/pull/236
+
 ## [0.2.3] - 2021-04-10
 ### Changed
 - Replace build.rs with link attributes. [#205]
@@ -55,8 +71,8 @@ The following (off by default) Cargo features have been added:
 - Unsupported targets no longer compile [#107]
 - Change/Add `Error` constants [#120]
 - Only impl `std` traits when the `"std"` Cargo feature is specified [#106]
-- Remove offical support for Hermit, L4Re, and UEFI [#133]
-- Remove optional `"log"` dependancy [#131]
+- Remove official support for Hermit, L4Re, and UEFI [#133]
+- Remove optional `"log"` dependency [#131]
 - Update minimum supported Linux kernel to 2.6.32 [#153]
 - Update MSRV to 1.34 [#159]
 

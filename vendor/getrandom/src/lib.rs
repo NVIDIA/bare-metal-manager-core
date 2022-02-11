@@ -22,14 +22,16 @@
 //! | Dragonfly BSD     | `*‑dragonfly`      | [`getrandom()`][22] if available, otherwise [`/dev/random`][8]
 //! | Solaris, illumos  | `*‑solaris`, `*‑illumos` | [`getrandom()`][9] if available, otherwise [`/dev/random`][10]
 //! | Fuchsia OS        | `*‑fuchsia`        | [`cprng_draw`][11]
-//! | Redox             | `*‑redox`          | [`rand:`][12]
+//! | Redox             | `*‑redox`          | [`/dev/urandom`][12]
 //! | Haiku             | `*‑haiku`          | `/dev/random` (identical to `/dev/urandom`)
+//! | Hermit            | `x86_64-*-hermit`  | [`RDRAND`][18]
 //! | SGX               | `x86_64‑*‑sgx`     | [RDRAND][18]
 //! | VxWorks           | `*‑wrs‑vxworks‑*`  | `randABytes` after checking entropy pool initialization with `randSecure`
 //! | Emscripten        | `*‑emscripten`     | `/dev/random` (identical to `/dev/urandom`)
 //! | WASI              | `wasm32‑wasi`      | [`random_get`][17]
 //! | Web Browser       | `wasm32‑*‑unknown` | [`Crypto.getRandomValues()`][14], see [WebAssembly support][16]
 //! | Node.js           | `wasm32‑*‑unknown` | [`crypto.randomBytes`][15], see [WebAssembly support][16]
+//! | SOLID             | `*-kmc-solid_*`    | `SOLID_RNG_SampleRandomBytes`
 //!
 //! There is no blanket implementation on `unix` targets that reads from
 //! `/dev/urandom`. This ensures all supported targets are using the recommended
@@ -144,7 +146,7 @@
 #![doc(
     html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk.png",
     html_favicon_url = "https://www.rust-lang.org/favicon.ico",
-    html_root_url = "https://docs.rs/getrandom/0.2.3"
+    html_root_url = "https://docs.rs/getrandom/0.2.4"
 )]
 #![no_std]
 #![warn(rust_2018_idioms, unused_lifetimes, missing_docs)]
@@ -200,9 +202,13 @@ cfg_if! {
         #[path = "openbsd.rs"] mod imp;
     } else if #[cfg(target_os = "wasi")] {
         #[path = "wasi.rs"] mod imp;
+    } else if #[cfg(all(target_arch = "x86_64", target_os = "hermit"))] {
+        #[path = "rdrand.rs"] mod imp;
     } else if #[cfg(target_os = "vxworks")] {
         mod util_libc;
         #[path = "vxworks.rs"] mod imp;
+    } else if #[cfg(target_os = "solid_asp3")] {
+        #[path = "solid.rs"] mod imp;
     } else if #[cfg(windows)] {
         #[path = "windows.rs"] mod imp;
     } else if #[cfg(all(target_arch = "x86_64", target_env = "sgx"))] {

@@ -39,7 +39,7 @@ pub enum ErrorKind {
     ///         .possible_value("slow"))
     ///     .try_get_matches_from(vec!["prog", "other"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::InvalidValue);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidValue);
     /// ```
     InvalidValue,
 
@@ -53,7 +53,7 @@ pub enum ErrorKind {
     ///     .arg(arg!(--flag "some flag"))
     ///     .try_get_matches_from(vec!["prog", "--other"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::UnknownArgument);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::UnknownArgument);
     /// ```
     UnknownArgument,
 
@@ -75,7 +75,7 @@ pub enum ErrorKind {
     ///             .index(1)))
     ///     .try_get_matches_from(vec!["prog", "confi"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::InvalidSubcommand);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidSubcommand);
     /// ```
     ///
     /// [`Subcommand`]: crate::Subcommand
@@ -102,7 +102,7 @@ pub enum ErrorKind {
     ///             .index(1)))
     ///     .try_get_matches_from(vec!["prog", "help", "nothing"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::UnrecognizedSubcommand);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::UnrecognizedSubcommand);
     /// ```
     ///
     /// [`Subcommand`]: crate::Subcommand
@@ -124,7 +124,7 @@ pub enum ErrorKind {
     ///          .long("color"))
     ///     .try_get_matches_from(vec!["prog", "--color="]);
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::EmptyValue);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::EmptyValue);
     /// ```
     EmptyValue,
 
@@ -140,7 +140,7 @@ pub enum ErrorKind {
     ///          .long("color"))
     ///     .try_get_matches_from(vec!["prog", "--color", "red"]);
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::NoEquals);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::NoEquals);
     /// ```
     NoEquals,
 
@@ -163,7 +163,7 @@ pub enum ErrorKind {
     ///          .validator(is_numeric))
     ///     .try_get_matches_from(vec!["prog", "NotANumber"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::ValueValidation);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::ValueValidation);
     /// ```
     ValueValidation,
 
@@ -179,7 +179,7 @@ pub enum ErrorKind {
     ///         .max_values(2))
     ///     .try_get_matches_from(vec!["prog", "too", "many", "values"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::TooManyValues);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::TooManyValues);
     /// ```
     /// [`Arg::max_values`]: Arg::max_values()
     TooManyValues,
@@ -197,7 +197,7 @@ pub enum ErrorKind {
     ///         .min_values(3))
     ///     .try_get_matches_from(vec!["prog", "--opt", "too", "few"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::TooFewValues);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::TooFewValues);
     /// ```
     /// [`Arg::min_values`]: Arg::min_values()
     TooFewValues,
@@ -215,7 +215,7 @@ pub enum ErrorKind {
     ///         .max_occurrences(2))
     ///     .try_get_matches_from(vec!["prog", "-vvv"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::TooManyOccurrences);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::TooManyOccurrences);
     /// ```
     /// [`Arg::max_occurrences`]: Arg::max_occurrences()
     TooManyOccurrences,
@@ -235,7 +235,7 @@ pub enum ErrorKind {
     ///         .number_of_values(2))
     ///     .try_get_matches_from(vec!["prog", "--opt", "wrong"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::WrongNumberOfValues);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::WrongNumberOfValues);
     /// ```
     ///
     /// [`Arg::number_of_values`]: Arg::number_of_values()
@@ -257,7 +257,7 @@ pub enum ErrorKind {
     ///         .long("color"))
     ///     .try_get_matches_from(vec!["prog", "--debug", "--color"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::ArgumentConflict);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::ArgumentConflict);
     /// ```
     ArgumentConflict,
 
@@ -272,7 +272,7 @@ pub enum ErrorKind {
     ///         .required(true))
     ///     .try_get_matches_from(vec!["prog"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     MissingRequiredArgument,
 
@@ -290,7 +290,7 @@ pub enum ErrorKind {
     ///         "myprog",
     ///     ]);
     /// assert!(err.is_err());
-    /// assert_eq!(err.unwrap_err().kind, ErrorKind::MissingSubcommand);
+    /// assert_eq!(err.unwrap_err().kind(), ErrorKind::MissingSubcommand);
     /// # ;
     /// ```
     ///
@@ -309,7 +309,7 @@ pub enum ErrorKind {
     ///         .multiple_occurrences(false))
     ///     .try_get_matches_from(vec!["prog", "--debug", "--debug"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::UnexpectedMultipleUsage);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::UnexpectedMultipleUsage);
     /// ```
     UnexpectedMultipleUsage,
 
@@ -339,7 +339,7 @@ pub enum ErrorKind {
     ///                                 OsString::from("-u"),
     ///                                 OsString::from_vec(vec![0xE9])]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::InvalidUtf8);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidUtf8);
     /// ```
     ///
     /// [`Arg::allow_invalid_utf8`]: crate::Arg::allow_invalid_utf8
@@ -359,7 +359,7 @@ pub enum ErrorKind {
     /// let result = App::new("prog")
     ///     .try_get_matches_from(vec!["prog", "--help"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::DisplayHelp);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::DisplayHelp);
     /// ```
     DisplayHelp,
 
@@ -380,7 +380,7 @@ pub enum ErrorKind {
     ///             .help("The configuration file to use")))
     ///     .try_get_matches_from(vec!["prog"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand);
     /// ```
     ///
     /// [`Subcommand`]: crate::Subcommand
@@ -399,7 +399,7 @@ pub enum ErrorKind {
     ///     .version("3.0")
     ///     .try_get_matches_from(vec!["prog", "--version"]);
     /// assert!(result.is_err());
-    /// assert_eq!(result.unwrap_err().kind, ErrorKind::DisplayVersion);
+    /// assert_eq!(result.unwrap_err().kind(), ErrorKind::DisplayVersion);
     /// ```
     DisplayVersion,
 
@@ -432,13 +432,13 @@ pub enum ErrorKind {
 #[derive(Debug)]
 pub struct Error {
     /// Formatted error message, enhancing the cause message with extra information
-    pub(crate) message: Message,
+    message: Message,
     /// The type of error
     pub kind: ErrorKind,
     /// Additional information depending on the error kind, like values and argument names.
     /// Useful when you want to render an error of your own.
     pub info: Vec<String>,
-    pub(crate) source: Option<Box<dyn error::Error + Send + Sync>>,
+    source: Option<Box<dyn error::Error + Send + Sync>>,
     wait_on_exit: bool,
     backtrace: Option<Backtrace>,
 }
@@ -466,18 +466,23 @@ impl Error {
         self
     }
 
+    /// Type of error for programmatic processing
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+
     /// Should the message be written to `stdout` or not?
     #[inline]
     pub fn use_stderr(&self) -> bool {
         !matches!(
-            self.kind,
+            self.kind(),
             ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
         )
     }
 
     /// Prints the error and exits.
     ///
-    /// Depending on the error kind, this either prints to `stderr` and exits with a status of `1`
+    /// Depending on the error kind, this either prints to `stderr` and exits with a status of `2`
     /// or prints to `stdout` and exits with a status of `0`.
     pub fn exit(&self) -> ! {
         if self.use_stderr() {
@@ -538,6 +543,21 @@ impl Error {
         }
     }
 
+    #[inline(never)]
+    pub(crate) fn for_app(
+        app: &App,
+        colorizer: Colorizer,
+        kind: ErrorKind,
+        info: Vec<String>,
+    ) -> Self {
+        Self::new(
+            colorizer,
+            kind,
+            app.settings.is_set(AppSettings::WaitOnError),
+        )
+        .set_info(info)
+    }
+
     pub(crate) fn set_info(mut self, info: Vec<String>) -> Self {
         self.info = info;
         self
@@ -561,24 +581,20 @@ impl Error {
         c.warning(arg);
         c.none("' cannot be used with");
 
-        let mut info = vec![];
         match others.len() {
             0 => {
                 c.none(" one or more of the other specified arguments");
             }
             1 => {
-                let v = &others[0];
                 c.none(" '");
-                c.warning(v.clone());
+                c.warning(&*others[0]);
                 c.none("'");
-                info.push(v.clone());
             }
             _ => {
                 c.none(":");
-                for v in others {
+                for v in &others {
                     c.none("\n    ");
-                    c.warning(v.to_string());
-                    info.push(v.to_string());
+                    c.warning(&**v);
                 }
             }
         }
@@ -586,12 +602,7 @@ impl Error {
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::ArgumentConflict,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(info)
+        Self::for_app(app, c, ErrorKind::ArgumentConflict, others)
     }
 
     pub(crate) fn empty_value(app: &App, arg: &Arg, usage: String) -> Self {
@@ -599,58 +610,45 @@ impl Error {
         let arg = arg.to_string();
 
         start_error(&mut c, "The argument '");
-        c.warning(arg.clone());
+        c.warning(&*arg);
         c.none("' requires a value but none was supplied");
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::EmptyValue,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(vec![arg])
+        Self::for_app(app, c, ErrorKind::EmptyValue, vec![arg])
     }
 
     pub(crate) fn no_equals(app: &App, arg: String, usage: String) -> Self {
         let mut c = Colorizer::new(true, app.get_color());
 
         start_error(&mut c, "Equal sign is needed when assigning values to '");
-        c.warning(&arg);
+        c.warning(&*arg);
         c.none("'.");
 
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::NoEquals,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(vec![arg])
+        Self::for_app(app, c, ErrorKind::NoEquals, vec![arg])
     }
 
-    pub(crate) fn invalid_value<G>(
+    pub(crate) fn invalid_value(
         app: &App,
         bad_val: String,
-        good_vals: &[G],
+        good_vals: &[&str],
         arg: &Arg,
         usage: String,
-    ) -> Self
-    where
-        G: AsRef<str> + Display,
-    {
+    ) -> Self {
         let mut c = Colorizer::new(true, app.get_color());
         let suffix = suggestions::did_you_mean(&bad_val, good_vals.iter()).pop();
+        let arg = arg.to_string();
 
         let mut sorted: Vec<String> = good_vals
             .iter()
-            .map(|v| v.to_string())
-            .map(|v| {
+            .map(|&v| {
                 if v.contains(char::is_whitespace) {
                     format!("{:?}", v)
                 } else {
-                    v
+                    v.to_owned()
                 }
             })
             .collect();
@@ -659,7 +657,7 @@ impl Error {
         start_error(&mut c, "");
         c.warning(format!("{:?}", bad_val));
         c.none(" isn't a valid value for '");
-        c.warning(arg.to_string());
+        c.warning(&*arg);
         c.none("'\n\t[possible values: ");
 
         if let Some((last, elements)) = sorted.split_last() {
@@ -682,15 +680,10 @@ impl Error {
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        let mut info = vec![arg.to_string(), bad_val];
+        let mut info = vec![arg, bad_val];
         info.extend(sorted);
 
-        Self::new(
-            c,
-            ErrorKind::InvalidValue,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(info)
+        Self::for_app(app, c, ErrorKind::InvalidValue, info)
     }
 
     pub(crate) fn invalid_subcommand(
@@ -703,7 +696,7 @@ impl Error {
         let mut c = Colorizer::new(true, app.get_color());
 
         start_error(&mut c, "The subcommand '");
-        c.warning(subcmd.clone());
+        c.warning(&*subcmd);
         c.none("' wasn't recognized\n\n\tDid you mean ");
         c.good(did_you_mean);
         c.none("");
@@ -716,30 +709,20 @@ impl Error {
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::InvalidSubcommand,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(vec![subcmd])
+        Self::for_app(app, c, ErrorKind::InvalidSubcommand, vec![subcmd])
     }
 
     pub(crate) fn unrecognized_subcommand(app: &App, subcmd: String, name: String) -> Self {
         let mut c = Colorizer::new(true, app.get_color());
 
         start_error(&mut c, " The subcommand '");
-        c.warning(subcmd.clone());
+        c.warning(&*subcmd);
         c.none("' wasn't recognized\n\n");
         c.warning("USAGE:");
         c.none(format!("\n    {} <subcommands>", name));
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::UnrecognizedSubcommand,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(vec![subcmd])
+        Self::for_app(app, c, ErrorKind::UnrecognizedSubcommand, vec![subcmd])
     }
 
     pub(crate) fn missing_required_argument(
@@ -754,22 +737,15 @@ impl Error {
             "The following required arguments were not provided:",
         );
 
-        let mut info = vec![];
-        for v in required {
+        for v in &required {
             c.none("\n    ");
-            c.good(v.to_string());
-            info.push(v.to_string());
+            c.good(&**v);
         }
 
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::MissingRequiredArgument,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(info)
+        Self::for_app(app, c, ErrorKind::MissingRequiredArgument, required)
     }
 
     pub(crate) fn missing_subcommand(app: &App, name: String, usage: String) -> Self {
@@ -781,11 +757,7 @@ impl Error {
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::MissingSubcommand,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
+        Self::for_app(app, c, ErrorKind::MissingSubcommand, vec![])
     }
 
     pub(crate) fn invalid_utf8(app: &App, usage: String) -> Self {
@@ -798,11 +770,7 @@ impl Error {
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::InvalidUtf8,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
+        Self::for_app(app, c, ErrorKind::InvalidUtf8, vec![])
     }
 
     pub(crate) fn too_many_occurrences(
@@ -813,47 +781,41 @@ impl Error {
         usage: String,
     ) -> Self {
         let mut c = Colorizer::new(true, app.get_color());
-        let verb = Error::singular_or_plural(curr_occurs);
+        let were_provided = Error::singular_or_plural(curr_occurs);
+        let arg = arg.to_string();
+        let max_occurs = max_occurs.to_string();
+        let curr_occurs = curr_occurs.to_string();
 
         start_error(&mut c, "The argument '");
-        c.warning(arg.to_string());
+        c.warning(&*arg);
         c.none("' allows at most ");
-        c.warning(max_occurs.to_string());
+        c.warning(&*max_occurs);
         c.none(" occurrences, but ");
-        c.warning(curr_occurs.to_string());
-        c.none(format!(" {} provided", verb));
+        c.warning(&*curr_occurs);
+        c.none(were_provided);
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
+        Self::for_app(
+            app,
             c,
             ErrorKind::TooManyOccurrences,
-            app.settings.is_set(AppSettings::WaitOnError),
+            vec![arg, curr_occurs, max_occurs],
         )
-        .set_info(vec![
-            arg.to_string(),
-            curr_occurs.to_string(),
-            max_occurs.to_string(),
-        ])
     }
 
     pub(crate) fn too_many_values(app: &App, val: String, arg: String, usage: String) -> Self {
         let mut c = Colorizer::new(true, app.get_color());
 
         start_error(&mut c, "The value '");
-        c.warning(val.clone());
+        c.warning(&*val);
         c.none("' was provided to '");
-        c.warning(&arg);
+        c.warning(&*arg);
         c.none("' but it wasn't expecting any more values");
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::TooManyValues,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(vec![arg, val])
+        Self::for_app(app, c, ErrorKind::TooManyValues, vec![arg, val])
     }
 
     pub(crate) fn too_few_values(
@@ -864,28 +826,27 @@ impl Error {
         usage: String,
     ) -> Self {
         let mut c = Colorizer::new(true, app.get_color());
-        let verb = Error::singular_or_plural(curr_vals);
+        let were_provided = Error::singular_or_plural(curr_vals);
+        let arg = arg.to_string();
+        let min_vals = min_vals.to_string();
+        let curr_vals = curr_vals.to_string();
 
         start_error(&mut c, "The argument '");
-        c.warning(arg.to_string());
+        c.warning(&*arg);
         c.none("' requires at least ");
-        c.warning(min_vals.to_string());
+        c.warning(&*min_vals);
         c.none(" values, but only ");
-        c.warning(curr_vals.to_string());
-        c.none(format!(" {} provided", verb));
+        c.warning(&*curr_vals);
+        c.none(were_provided);
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
+        Self::for_app(
+            app,
             c,
             ErrorKind::TooFewValues,
-            app.settings.is_set(AppSettings::WaitOnError),
+            vec![arg, curr_vals, min_vals],
         )
-        .set_info(vec![
-            arg.to_string(),
-            curr_vals.to_string(),
-            min_vals.to_string(),
-        ])
     }
 
     pub(crate) fn value_validation(
@@ -939,7 +900,7 @@ impl Error {
         start_error(&mut c, "Invalid value");
 
         c.none(" for '");
-        c.warning(arg.clone());
+        c.warning(&*arg);
         c.none("'");
 
         c.none(format!(": {}", err));
@@ -957,28 +918,27 @@ impl Error {
         usage: String,
     ) -> Self {
         let mut c = Colorizer::new(true, app.get_color());
-        let verb = Error::singular_or_plural(curr_vals);
+        let were_provided = Error::singular_or_plural(curr_vals);
+        let arg = arg.to_string();
+        let num_vals = num_vals.to_string();
+        let curr_vals = curr_vals.to_string();
 
         start_error(&mut c, "The argument '");
-        c.warning(arg.to_string());
+        c.warning(&*arg);
         c.none("' requires ");
-        c.warning(num_vals.to_string());
+        c.warning(&*num_vals);
         c.none(" values, but ");
-        c.warning(curr_vals.to_string());
-        c.none(format!(" {} provided", verb));
+        c.warning(&*curr_vals);
+        c.none(were_provided);
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
+        Self::for_app(
+            app,
             c,
             ErrorKind::WrongNumberOfValues,
-            app.settings.is_set(AppSettings::WaitOnError),
+            vec![arg, curr_vals, num_vals],
         )
-        .set_info(vec![
-            arg.to_string(),
-            curr_vals.to_string(),
-            num_vals.to_string(),
-        ])
     }
 
     pub(crate) fn unexpected_multiple_usage(app: &App, arg: &Arg, usage: String) -> Self {
@@ -986,17 +946,12 @@ impl Error {
         let arg = arg.to_string();
 
         start_error(&mut c, "The argument '");
-        c.warning(arg.clone());
+        c.warning(&*arg);
         c.none("' was provided more than once, but cannot be used multiple times");
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::UnexpectedMultipleUsage,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(vec![arg])
+        Self::for_app(app, c, ErrorKind::UnexpectedMultipleUsage, vec![arg])
     }
 
     pub(crate) fn unknown_argument(
@@ -1008,7 +963,7 @@ impl Error {
         let mut c = Colorizer::new(true, app.get_color());
 
         start_error(&mut c, "Found argument '");
-        c.warning(arg.clone());
+        c.warning(&*arg);
         c.none("' which wasn't expected, or isn't valid in this context");
 
         if let Some((flag, subcmd)) = did_you_mean {
@@ -1040,19 +995,14 @@ impl Error {
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::UnknownArgument,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(vec![arg])
+        Self::for_app(app, c, ErrorKind::UnknownArgument, vec![arg])
     }
 
     pub(crate) fn unnecessary_double_dash(app: &App, arg: String, usage: String) -> Self {
         let mut c = Colorizer::new(true, app.get_color());
 
         start_error(&mut c, "Found argument '");
-        c.warning(arg.clone());
+        c.warning(&*arg);
         c.none("' which wasn't expected, or isn't valid in this context");
 
         c.none(format!(
@@ -1062,30 +1012,25 @@ impl Error {
         put_usage(&mut c, usage);
         try_help(app, &mut c);
 
-        Self::new(
-            c,
-            ErrorKind::UnknownArgument,
-            app.settings.is_set(AppSettings::WaitOnError),
-        )
-        .set_info(vec![arg])
+        Self::for_app(app, c, ErrorKind::UnknownArgument, vec![arg])
     }
 
     pub(crate) fn argument_not_found_auto(arg: String) -> Self {
         let mut c = Colorizer::new(true, ColorChoice::Never);
 
         start_error(&mut c, "The argument '");
-        c.warning(arg.clone());
+        c.warning(&*arg);
         c.none("' wasn't found\n");
 
         Self::new(c, ErrorKind::ArgumentNotFound, false).set_info(vec![arg])
     }
 
     /// Returns the singular or plural form on the verb to be based on the argument's value.
-    fn singular_or_plural(n: usize) -> String {
+    fn singular_or_plural(n: usize) -> &'static str {
         if n > 1 {
-            String::from("were")
+            " were provided"
         } else {
-            String::from("was")
+            " was provided"
         }
     }
 }

@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "digest"
-version = "0.10.1"
+version = "0.10.2"
 authors = ["RustCrypto Developers"]
 description = "Traits for cryptographic hash functions"
 documentation = "https://docs.rs/digest"
@@ -33,10 +33,7 @@ version = "0.10"
 optional = true
 
 [dependencies.crypto-common]
-version = "0.1.1"
-
-[dependencies.generic-array]
-version = "0.14"
+version = "0.1.2"
 
 [dependencies.subtle]
 version = "=2.4"

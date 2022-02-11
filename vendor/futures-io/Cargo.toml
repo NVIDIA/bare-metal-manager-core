@@ -11,22 +11,26 @@
 
 [package]
 edition = "2018"
+rust-version = "1.36"
 name = "futures-io"
-version = "0.3.17"
-authors = ["Alex Crichton <alex@alexcrichton.com>"]
-description = "The `AsyncRead`, `AsyncWrite`, `AsyncSeek`, and `AsyncBufRead` traits for the futures-rs library.\n"
+version = "0.3.21"
+description = """
+The `AsyncRead`, `AsyncWrite`, `AsyncSeek`, and `AsyncBufRead` traits for the futures-rs library.
+"""
 homepage = "https://rust-lang.github.io/futures-rs"
-documentation = "https://docs.rs/futures-io/0.3"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-lang/futures-rs"
+
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
 
 [dependencies]
 
 [features]
 default = ["std"]
-read-initializer = []
 std = []
 unstable = []

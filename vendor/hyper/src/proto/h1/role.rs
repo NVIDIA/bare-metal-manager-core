@@ -76,21 +76,22 @@ where
 
     #[cfg(all(feature = "server", feature = "runtime"))]
     if !*ctx.h1_header_read_timeout_running {
-    if let Some(h1_header_read_timeout) = ctx.h1_header_read_timeout {
-        let deadline = Instant::now() + h1_header_read_timeout;
+        if let Some(h1_header_read_timeout) = ctx.h1_header_read_timeout {
+            let deadline = Instant::now() + h1_header_read_timeout;
 
-        match ctx.h1_header_read_timeout_fut {
-            Some(h1_header_read_timeout_fut) => {
-                debug!("resetting h1 header read timeout timer");
-                h1_header_read_timeout_fut.as_mut().reset(deadline);
-            },
-            None => {
-                debug!("setting h1 header read timeout timer");
-                *ctx.h1_header_read_timeout_fut = Some(Box::pin(tokio::time::sleep_until(deadline)));
+            match ctx.h1_header_read_timeout_fut {
+                Some(h1_header_read_timeout_fut) => {
+                    debug!("resetting h1 header read timeout timer");
+                    h1_header_read_timeout_fut.as_mut().reset(deadline);
+                }
+                None => {
+                    debug!("setting h1 header read timeout timer");
+                    *ctx.h1_header_read_timeout_fut =
+                        Some(Box::pin(tokio::time::sleep_until(deadline)));
+                }
             }
         }
     }
-}
 
     T::parse(bytes, ctx)
 }
@@ -580,7 +581,7 @@ impl Server {
     #[inline]
     fn encode_headers<W>(
         msg: Encode<'_, StatusCode>,
-        mut dst: &mut Vec<u8>,
+        dst: &mut Vec<u8>,
         mut is_last: bool,
         orig_len: usize,
         mut wrote_len: bool,
@@ -837,7 +838,7 @@ impl Server {
                             "content-length: ",
                             header::CONTENT_LENGTH,
                         );
-                        let _ = ::itoa::write(&mut dst, len);
+                        extend(dst, ::itoa::Buffer::new().format(len).as_bytes());
                         extend(dst, b"\r\n");
                         Encoder::length(len)
                     }
@@ -954,7 +955,21 @@ impl Http1Transaction for Client {
                 }
             };
 
-            let slice = buf.split_to(len).freeze();
+            let mut slice = buf.split_to(len);
+
+            if ctx.h1_parser_config.obsolete_multiline_headers_in_responses_are_allowed() {
+                for header in &headers_indices[..headers_len] {
+                    // SAFETY: array is valid up to `headers_len`
+                    let header = unsafe { &*header.as_ptr() };
+                    for b in &mut slice[header.value.0..header.value.1] {
+                        if *b == b'\r' || *b == b'\n' {
+                            *b = b' ';
+                        }
+                    }
+                }
+            }
+
+            let slice = slice.freeze();
 
             let mut headers = ctx.cached_headers.take().unwrap_or_else(HeaderMap::new);
 

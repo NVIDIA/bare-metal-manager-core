@@ -16,7 +16,7 @@ use yaml_rust::Yaml;
 ///
 /// You can also do things such as name an entire `ArgGroup` as a [conflict] or [requirement] for
 /// another argument, meaning any of the arguments that belong to that group will cause a failure
-/// if present, or must present respectively.
+/// if present, or must be present respectively.
 ///
 /// Perhaps the most common use of `ArgGroup`s is to require one and *only* one argument to be
 /// present out of a given set. Imagine that you had multiple arguments, and you want one of them
@@ -50,7 +50,7 @@ use yaml_rust::Yaml;
 /// // Because we used two args in the group it's an error
 /// assert!(result.is_err());
 /// let err = result.unwrap_err();
-/// assert_eq!(err.kind, ErrorKind::ArgumentConflict);
+/// assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
 /// ```
 /// This next example shows a passing parse of the same scenario
 ///
@@ -124,7 +124,7 @@ impl<'help> ArgGroup<'help> {
     #[must_use]
     pub fn name<S: Into<&'help str>>(mut self, n: S) -> Self {
         self.name = n.into();
-        self.id = Id::from(&self.name);
+        self.id = Id::from(self.name);
         self
     }
 
@@ -220,7 +220,7 @@ impl<'help> ArgGroup<'help> {
     /// // Because we used both args in the group it's an error
     /// assert!(result.is_err());
     /// let err = result.unwrap_err();
-    /// assert_eq!(err.kind, ErrorKind::ArgumentConflict);
+    /// assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
     /// ```
     ///
     /// [`Arg`]: crate::Arg
@@ -263,7 +263,7 @@ impl<'help> ArgGroup<'help> {
     /// // Because we didn't use any of the args in the group, it's an error
     /// assert!(result.is_err());
     /// let err = result.unwrap_err();
-    /// assert_eq!(err.kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     ///
     /// [`Subcommand`]: crate::Subcommand
@@ -306,7 +306,7 @@ impl<'help> ArgGroup<'help> {
     /// // error
     /// assert!(result.is_err());
     /// let err = result.unwrap_err();
-    /// assert_eq!(err.kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [required group]: ArgGroup::required()
     /// [argument requirement rules]: crate::Arg::requires()
@@ -348,7 +348,7 @@ impl<'help> ArgGroup<'help> {
     /// // yet we only used "-d" it's an error
     /// assert!(result.is_err());
     /// let err = result.unwrap_err();
-    /// assert_eq!(err.kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [required group]: ArgGroup::required()
     /// [argument requirement rules]: crate::Arg::requires_all()
@@ -389,7 +389,7 @@ impl<'help> ArgGroup<'help> {
     /// // because we used an arg from the group, and the group conflicts with "-d", it's an error
     /// assert!(result.is_err());
     /// let err = result.unwrap_err();
-    /// assert_eq!(err.kind, ErrorKind::ArgumentConflict);
+    /// assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
     /// ```
     /// [argument exclusion rules]: crate::Arg::conflicts_with()
     #[must_use]
@@ -429,7 +429,7 @@ impl<'help> ArgGroup<'help> {
     /// // it's an error
     /// assert!(result.is_err());
     /// let err = result.unwrap_err();
-    /// assert_eq!(err.kind, ErrorKind::ArgumentConflict);
+    /// assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
     /// ```
     ///
     /// [argument exclusion rules]: crate::Arg::conflicts_with_all()

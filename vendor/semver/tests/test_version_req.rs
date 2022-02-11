@@ -1,3 +1,10 @@
+#![allow(
+    clippy::missing_panics_doc,
+    clippy::shadow_unrelated,
+    clippy::toplevel_ref_arg,
+    clippy::wildcard_imports
+)]
+
 mod node;
 mod util;
 
@@ -27,11 +34,18 @@ fn assert_match_none(req: &VersionReq, versions: &[&str]) {
 }
 
 #[test]
-fn test_default() {
+fn test_basic() {
     let ref r = req("1.0.0");
     assert_to_string(r, "^1.0.0");
     assert_match_all(r, &["1.0.0", "1.1.0", "1.0.1"]);
     assert_match_none(r, &["0.9.9", "0.10.0", "0.1.0", "1.0.0-pre", "1.0.1-pre"]);
+}
+
+#[test]
+#[cfg(not(no_const_vec_new))]
+fn test_default() {
+    let ref r = VersionReq::default();
+    assert_eq!(r, &VersionReq::STAR);
 }
 
 #[test]
@@ -389,7 +403,7 @@ fn test_eq_hash() {
 }
 
 #[test]
-fn test_parsing_pre_and_build_metadata_see_issue_217() {
+fn test_leading_digit_in_pre_and_build() {
     for op in &["=", ">", ">=", "<", "<=", "~", "^"] {
         // digit then alpha
         req(&format!("{} 1.2.3-1a", op));
@@ -405,4 +419,25 @@ fn test_parsing_pre_and_build_metadata_see_issue_217() {
         req(&format!("{} 1.2.3-1a+1a", op));
         req(&format!("{} 1.2.3-1a-1a+1a-1a-1a", op));
     }
+}
+
+#[test]
+fn test_wildcard_and_another() {
+    let err = req_err("*, 0.20.0-any");
+    assert_to_string(
+        err,
+        "wildcard req (*) must be the only comparator in the version req",
+    );
+
+    let err = req_err("0.20.0-any, *");
+    assert_to_string(
+        err,
+        "wildcard req (*) must be the only comparator in the version req",
+    );
+
+    let err = req_err("0.20.0-any, *, 1.0");
+    assert_to_string(
+        err,
+        "wildcard req (*) must be the only comparator in the version req",
+    );
 }

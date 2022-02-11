@@ -17,7 +17,7 @@ use std::{
     error::Error,
     ffi::OsStr,
     fmt::{self, Display, Formatter},
-    iter, str,
+    str,
     sync::{Arc, Mutex},
 };
 #[cfg(feature = "env")]
@@ -542,7 +542,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::UnknownArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::UnknownArgument);
     /// ```
     /// [index]: Arg::index()
     /// [`UnknownArgument`]: crate::ErrorKind::UnknownArgument
@@ -607,7 +607,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     #[inline]
     #[must_use]
@@ -672,7 +672,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [`Arg::requires(name)`]: Arg::requires()
     /// [Conflicting]: Arg::conflicts_with()
@@ -713,7 +713,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::ArgumentConflict);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::ArgumentConflict);
     /// ```
     #[inline]
     #[must_use]
@@ -869,7 +869,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::TooManyOccurrences);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::TooManyOccurrences);
     /// ```
     /// [`Arg::multiple_occurrences(true)`]: Arg::multiple_occurrences()
     #[inline]
@@ -1083,7 +1083,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::UnexpectedMultipleUsage)
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::UnexpectedMultipleUsage)
     /// ```
     ///
     /// A common mistake is to define an option which allows multiple values, and a positional
@@ -1151,7 +1151,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::UnknownArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::UnknownArgument);
     /// ```
     ///
     /// [`subcommands`]: crate::App::subcommand()
@@ -1206,7 +1206,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::WrongNumberOfValues);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::WrongNumberOfValues);
     /// ```
     /// [`Arg::multiple_occurrences(true)`]: Arg::multiple_occurrences()
     #[inline]
@@ -1270,7 +1270,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::UnknownArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::UnknownArgument);
     /// ```
     /// [`Arg::multiple_occurrences(true)`]: Arg::multiple_occurrences()
     #[inline]
@@ -1335,7 +1335,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::TooFewValues);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::TooFewValues);
     /// ```
     /// [`Arg::multiple_occurrences(true)`]: Arg::multiple_occurrences()
     #[inline]
@@ -1635,7 +1635,7 @@ impl<'help> Arg<'help> {
     ///         "prog", "12345"
     ///     ]);
     /// assert!(res.is_err());
-    /// assert_eq!(res.err().unwrap().kind, ErrorKind::ValueValidation)
+    /// assert_eq!(res.err().unwrap().kind(), ErrorKind::ValueValidation)
     /// ```
     #[cfg(feature = "regex")]
     #[must_use]
@@ -1720,7 +1720,7 @@ impl<'help> Arg<'help> {
     ///         "prog", "--mode", "wrong"
     ///     ]);
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::InvalidValue);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::InvalidValue);
     /// ```
     /// [options]: Arg::takes_value()
     /// [positional arguments]: Arg::index()
@@ -1796,7 +1796,7 @@ impl<'help> Arg<'help> {
     ///         "prog", "--mode", "wrong"
     ///     ]);
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::InvalidValue);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::InvalidValue);
     /// ```
     /// [options]: Arg::takes_value()
     /// [positional arguments]: Arg::index()
@@ -1916,7 +1916,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::UnknownArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::UnknownArgument);
     /// ```
     /// [`Arg::number_of_values(1)`]: Arg::number_of_values()
     #[inline]
@@ -2013,7 +2013,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::EmptyValue);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::EmptyValue);
     /// ```
     #[inline]
     #[must_use]
@@ -2065,7 +2065,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::NoEquals);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::NoEquals);
     /// ```
     #[inline]
     #[must_use]
@@ -2223,7 +2223,7 @@ impl<'help> Arg<'help> {
     ///
     /// assert!(res.is_err());
     /// let err = res.unwrap_err();
-    /// assert_eq!(err.kind, ErrorKind::UnknownArgument);
+    /// assert_eq!(err.kind(), ErrorKind::UnknownArgument);
     /// ```
     ///
     /// What's happening is `-o` is getting `val1`, and because delimiters are required yet none
@@ -3643,7 +3643,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [required]: Arg::required()
     #[must_use]
@@ -3712,7 +3712,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [required]: Arg::required()
     /// [`Arg::required_unless_present_any`]: Arg::required_unless_present_any()
@@ -3789,7 +3789,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [required]: Arg::required()
     /// [`Arg::required_unless_present_any(names)`]: Arg::required_unless_present_any()
@@ -3848,7 +3848,7 @@ impl<'help> Arg<'help> {
     ///
     /// // We did use --other=special so "cfg" had become required but was missing.
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     ///
     /// let res = App::new("prog")
     ///     .arg(Arg::new("cfg")
@@ -3880,7 +3880,7 @@ impl<'help> Arg<'help> {
     ///
     /// // However, case-insensitive comparisons can be enabled.  This typically occurs when using Arg::possible_values().
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [`Arg::requires(name)`]: Arg::requires()
     /// [Conflicting]: Arg::conflicts_with()
@@ -3959,7 +3959,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [`Arg::requires(name)`]: Arg::requires()
     /// [Conflicting]: Arg::conflicts_with()
@@ -4039,7 +4039,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [required]: Arg::required()
     #[must_use]
@@ -4101,7 +4101,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [`Arg::requires(name)`]: Arg::requires()
     /// [Conflicting]: Arg::conflicts_with()
@@ -4153,7 +4153,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err()); // We  used --config=special.conf so --option <val> is required
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [`Arg::requires(name)`]: Arg::requires()
     /// [Conflicting]: Arg::conflicts_with()
@@ -4225,7 +4225,7 @@ impl<'help> Arg<'help> {
     ///
     /// assert!(res.is_err());
     /// // We didn't use output
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::MissingRequiredArgument);
     /// ```
     /// [Conflicting]: Arg::conflicts_with()
     /// [override]: Arg::overrides_with()
@@ -4275,7 +4275,7 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::ArgumentConflict);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::ArgumentConflict);
     /// ```
     ///
     /// [`Arg::conflicts_with_all(names)`]: Arg::conflicts_with_all()
@@ -4329,13 +4329,13 @@ impl<'help> Arg<'help> {
     ///     ]);
     ///
     /// assert!(res.is_err());
-    /// assert_eq!(res.unwrap_err().kind, ErrorKind::ArgumentConflict);
+    /// assert_eq!(res.unwrap_err().kind(), ErrorKind::ArgumentConflict);
     /// ```
     /// [`Arg::conflicts_with`]: Arg::conflicts_with()
     /// [`Arg::exclusive(true)`]: Arg::exclusive()
     #[must_use]
     pub fn conflicts_with_all(mut self, names: &[&str]) -> Self {
-        self.blacklist.extend(names.iter().map(Id::from));
+        self.blacklist.extend(names.iter().copied().map(Id::from));
         self
     }
 
@@ -4943,12 +4943,12 @@ impl<'help> Arg<'help> {
     // Used for positionals when printing
     pub(crate) fn name_no_brackets(&self) -> Cow<str> {
         debug!("Arg::name_no_brackets:{}", self.name);
-        let mut delim = String::new();
-        delim.push(if self.is_set(ArgSettings::RequireDelimiter) {
+        let delim = if self.is_set(ArgSettings::RequireDelimiter) {
             self.val_delim.expect(INTERNAL_ERROR_MSG)
         } else {
             ' '
-        });
+        }
+        .to_string();
         if !self.val_names.is_empty() {
             debug!("Arg::name_no_brackets: val_names={:#?}", self.val_names);
 
@@ -5013,16 +5013,29 @@ impl<'help> Display for Arg<'help> {
         } else if let Some(s) = self.short {
             write!(f, "-{}", s)?;
         }
+        let mut need_closing_bracket = false;
         if !self.is_positional() && self.is_set(ArgSettings::TakesValue) {
+            let is_optional_val = self.min_vals == Some(0);
             let sep = if self.is_set(ArgSettings::RequireEquals) {
-                "="
+                if is_optional_val {
+                    need_closing_bracket = true;
+                    "[="
+                } else {
+                    "="
+                }
+            } else if is_optional_val {
+                need_closing_bracket = true;
+                " ["
             } else {
                 " "
             };
-            write!(f, "{}", sep)?;
+            f.write_str(sep)?;
         }
         if self.is_set(ArgSettings::TakesValue) || self.is_positional() {
-            display_arg_val(self, |s, _| write!(f, "{}", s))?;
+            display_arg_val(self, |s, _| f.write_str(s))?;
+        }
+        if need_closing_bracket {
+            f.write_str("]")?;
         }
 
         Ok(())
@@ -5110,7 +5123,8 @@ where
         arg.val_delim.expect(INTERNAL_ERROR_MSG)
     } else {
         ' '
-    };
+    }
+    .to_string();
     if !arg.val_names.is_empty() {
         // If have val_name.
         match (arg.val_names.len(), arg.num_vals) {
@@ -5118,11 +5132,10 @@ where
                 // If single value name with multiple num_of_vals, display all
                 // the values with the single value name.
                 let arg_name = format!("<{}>", arg.val_names.get(0).unwrap());
-                let mut it = iter::repeat(arg_name).take(num_vals).peekable();
-                while let Some(arg_name) = it.next() {
+                for n in 1..=num_vals {
                     write(&arg_name, true)?;
-                    if it.peek().is_some() {
-                        write(&delim.to_string(), false)?;
+                    if n != num_vals {
+                        write(&delim, false)?;
                     }
                 }
             }
@@ -5132,7 +5145,7 @@ where
                 while let Some(val) = it.next() {
                     write(&format!("<{}>", val), true)?;
                     if it.peek().is_some() {
-                        write(&delim.to_string(), false)?;
+                        write(&delim, false)?;
                     }
                 }
                 if (num_val_names == 1 && mult_val) || (arg.is_positional() && mult_occ) {
@@ -5143,11 +5156,10 @@ where
     } else if let Some(num_vals) = arg.num_vals {
         // If number_of_values is specified, display the value multiple times.
         let arg_name = format!("<{}>", arg.name);
-        let mut it = iter::repeat(&arg_name).take(num_vals).peekable();
-        while let Some(arg_name) = it.next() {
-            write(arg_name, true)?;
-            if it.peek().is_some() {
-                write(&delim.to_string(), false)?;
+        for n in 1..=num_vals {
+            write(&arg_name, true)?;
+            if n != num_vals {
+                write(&delim, false)?;
             }
         }
     } else if arg.is_positional() {
@@ -5177,12 +5189,12 @@ mod test {
         let mut f = Arg::new("flg").multiple_occurrences(true);
         f.long = Some("flag");
 
-        assert_eq!(&*format!("{}", f), "--flag");
+        assert_eq!(f.to_string(), "--flag");
 
         let mut f2 = Arg::new("flg");
         f2.short = Some('f');
 
-        assert_eq!(&*format!("{}", f2), "-f");
+        assert_eq!(f2.to_string(), "-f");
     }
 
     #[test]
@@ -5191,7 +5203,7 @@ mod test {
         f.long = Some("flag");
         f.aliases = vec![("als", true)];
 
-        assert_eq!(&*format!("{}", f), "--flag")
+        assert_eq!(f.to_string(), "--flag")
     }
 
     #[test]
@@ -5204,7 +5216,7 @@ mod test {
             ("f3", true),
             ("f4", true),
         ];
-        assert_eq!(&*format!("{}", f), "-f");
+        assert_eq!(f.to_string(), "-f");
     }
 
     #[test]
@@ -5213,7 +5225,7 @@ mod test {
         f.short = Some('a');
         f.short_aliases = vec![('b', true)];
 
-        assert_eq!(&*format!("{}", f), "-a")
+        assert_eq!(f.to_string(), "-a")
     }
 
     #[test]
@@ -5221,7 +5233,7 @@ mod test {
         let mut f = Arg::new("flg");
         f.short = Some('a');
         f.short_aliases = vec![('b', false), ('c', true), ('d', true), ('e', true)];
-        assert_eq!(&*format!("{}", f), "-a");
+        assert_eq!(f.to_string(), "-a");
     }
 
     // Options
@@ -5233,7 +5245,7 @@ mod test {
             .takes_value(true)
             .multiple_occurrences(true);
 
-        assert_eq!(&*format!("{}", o), "--option <opt>");
+        assert_eq!(o.to_string(), "--option <opt>");
     }
 
     #[test]
@@ -5243,14 +5255,14 @@ mod test {
             .takes_value(true)
             .multiple_values(true);
 
-        assert_eq!(&*format!("{}", o), "--option <opt>...");
+        assert_eq!(o.to_string(), "--option <opt>...");
     }
 
     #[test]
     fn option_display2() {
         let o2 = Arg::new("opt").short('o').value_names(&["file", "name"]);
 
-        assert_eq!(&*format!("{}", o2), "-o <file> <name>");
+        assert_eq!(o2.to_string(), "-o <file> <name>");
     }
 
     #[test]
@@ -5261,7 +5273,7 @@ mod test {
             .multiple_values(true)
             .value_names(&["file", "name"]);
 
-        assert_eq!(&*format!("{}", o2), "-o <file> <name>");
+        assert_eq!(o2.to_string(), "-o <file> <name>");
     }
 
     #[test]
@@ -5271,7 +5283,7 @@ mod test {
             .long("option")
             .visible_alias("als");
 
-        assert_eq!(&*format!("{}", o), "--option <opt>");
+        assert_eq!(o.to_string(), "--option <opt>");
     }
 
     #[test]
@@ -5282,7 +5294,7 @@ mod test {
             .visible_aliases(&["als2", "als3", "als4"])
             .alias("als_not_visible");
 
-        assert_eq!(&*format!("{}", o), "--option <opt>");
+        assert_eq!(o.to_string(), "--option <opt>");
     }
 
     #[test]
@@ -5292,7 +5304,7 @@ mod test {
             .short('a')
             .visible_short_alias('b');
 
-        assert_eq!(&*format!("{}", o), "-a <opt>");
+        assert_eq!(o.to_string(), "-a <opt>");
     }
 
     #[test]
@@ -5303,7 +5315,7 @@ mod test {
             .visible_short_aliases(&['b', 'c', 'd'])
             .short_alias('e');
 
-        assert_eq!(&*format!("{}", o), "-a <opt>");
+        assert_eq!(o.to_string(), "-a <opt>");
     }
 
     // Positionals
@@ -5315,7 +5327,7 @@ mod test {
             .takes_value(true)
             .multiple_values(true);
 
-        assert_eq!(&*format!("{}", p), "<pos>...");
+        assert_eq!(p.to_string(), "<pos>...");
     }
 
     #[test]
@@ -5325,21 +5337,21 @@ mod test {
             .takes_value(true)
             .multiple_occurrences(true);
 
-        assert_eq!(&*format!("{}", p), "<pos>...");
+        assert_eq!(p.to_string(), "<pos>...");
     }
 
     #[test]
     fn positional_display_required() {
         let p2 = Arg::new("pos").index(1).required(true);
 
-        assert_eq!(&*format!("{}", p2), "<pos>");
+        assert_eq!(p2.to_string(), "<pos>");
     }
 
     #[test]
     fn positional_display_val_names() {
         let p2 = Arg::new("pos").index(1).value_names(&["file1", "file2"]);
 
-        assert_eq!(&*format!("{}", p2), "<file1> <file2>");
+        assert_eq!(p2.to_string(), "<file1> <file2>");
     }
 
     #[test]
@@ -5349,6 +5361,6 @@ mod test {
             .required(true)
             .value_names(&["file1", "file2"]);
 
-        assert_eq!(&*format!("{}", p2), "<file1> <file2>");
+        assert_eq!(p2.to_string(), "<file1> <file2>");
     }
 }

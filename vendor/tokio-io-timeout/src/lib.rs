@@ -9,10 +9,11 @@
 use pin_project_lite::pin_project;
 use std::future::Future;
 use std::io;
+use std::io::SeekFrom;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite, ReadBuf};
 use tokio::time::{sleep_until, Instant, Sleep};
 
 pin_project! {
@@ -202,6 +203,18 @@ where
     }
 }
 
+impl<R> AsyncSeek for TimeoutReader<R>
+where
+    R: AsyncSeek,
+{
+    fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> io::Result<()> {
+        self.project().reader.start_seek(position)
+    }
+    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
+        self.project().reader.poll_complete(cx)
+    }
+}
+
 pin_project! {
     /// An `AsyncWrite`er which applies a timeout to write operations.
     #[derive(Debug)]
@@ -336,6 +349,18 @@ where
         buf: &mut ReadBuf<'_>,
     ) -> Poll<Result<(), io::Error>> {
         self.project().writer.poll_read(cx, buf)
+    }
+}
+
+impl<W> AsyncSeek for TimeoutWriter<W>
+where
+    W: AsyncSeek,
+{
+    fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> io::Result<()> {
+        self.project().writer.start_seek(position)
+    }
+    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
+        self.project().writer.poll_complete(cx)
     }
 }
 
