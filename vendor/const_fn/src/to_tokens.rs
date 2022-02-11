@@ -1,6 +1,6 @@
 use std::iter;
 
-use proc_macro::{Ident, Literal, TokenStream, TokenTree};
+use proc_macro::{TokenStream, TokenTree};
 
 pub(crate) trait ToTokens {
     fn to_tokens(&self, tokens: &mut TokenStream);
@@ -9,18 +9,6 @@ pub(crate) trait ToTokens {
         let mut tokens = TokenStream::new();
         self.to_tokens(&mut tokens);
         tokens
-    }
-}
-
-impl ToTokens for Ident {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(iter::once(TokenTree::Ident(self.clone())));
-    }
-}
-
-impl ToTokens for Literal {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(iter::once(TokenTree::Literal(self.clone())));
     }
 }
 

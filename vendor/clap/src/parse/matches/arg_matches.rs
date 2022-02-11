@@ -80,6 +80,29 @@ pub struct ArgMatches {
 }
 
 impl ArgMatches {
+    /// Check if any args were present on the command line
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clap::{App, Arg};
+    /// let mut app = App::new("myapp")
+    ///     .arg(Arg::new("output")
+    ///         .takes_value(true));
+    ///
+    /// let m = app
+    ///     .try_get_matches_from_mut(vec!["myapp", "something"])
+    ///     .unwrap();
+    /// assert!(m.args_present());
+    ///
+    /// let m = app
+    ///     .try_get_matches_from_mut(vec!["myapp"])
+    ///     .unwrap();
+    /// assert!(! m.args_present());
+    pub fn args_present(&self) -> bool {
+        !self.args.is_empty()
+    }
+
     /// Gets the value of a specific option or positional argument.
     ///
     /// i.e. an argument that [takes an additional value][crate::Arg::takes_value] at runtime.
@@ -649,7 +672,8 @@ impl ArgMatches {
     /// assert_eq!(m.occurrences_of("flag"), 1);
     /// ```
     pub fn occurrences_of<T: Key>(&self, id: T) -> u64 {
-        self.get_arg(&Id::from(id)).map_or(0, |a| a.occurs)
+        self.get_arg(&Id::from(id))
+            .map_or(0, |a| a.get_occurrences())
     }
 
     /// The first index of that an argument showed up.

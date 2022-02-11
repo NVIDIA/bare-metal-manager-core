@@ -12,8 +12,12 @@ mod time_crate;
 pub use time_crate::UtcTime;
 
 #[cfg(feature = "local-time")]
-#[cfg_attr(docsrs, doc(cfg(feature = "local-time")))]
+#[cfg_attr(docsrs, doc(cfg(unsound_local_offset, feature = "local-time")))]
 pub use time_crate::LocalTime;
+
+#[cfg(feature = "time")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time")))]
+pub use time_crate::OffsetTime;
 
 /// A type that can measure and format the current time.
 ///

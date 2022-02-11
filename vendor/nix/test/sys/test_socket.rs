@@ -1,12 +1,13 @@
-use nix::sys::socket::{AddressFamily, InetAddr, UnixAddr, getsockname};
+use nix::sys::socket::{AddressFamily, InetAddr, SockAddr, UnixAddr, getsockname, sockaddr, sockaddr_in6, sockaddr_storage_to_addr};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::mem::{self, MaybeUninit};
 use std::net::{self, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::os::unix::io::RawFd;
 use std::path::Path;
 use std::slice;
 use std::str::FromStr;
-use libc::c_char;
+use libc::{c_char, sockaddr_storage};
 #[cfg(any(target_os = "linux", target_os= "android"))]
 use crate::*;
 
@@ -27,10 +28,33 @@ pub fn test_inetv4_addr_to_sock_addr() {
         _ => panic!("nope"),
     }
 
-    assert_eq!(addr.to_str(), "127.0.0.1:3000");
+    assert_eq!(addr.to_string(), "127.0.0.1:3000");
 
     let inet = addr.to_std();
     assert_eq!(actual, inet);
+}
+
+#[test]
+pub fn test_inetv4_addr_roundtrip_sockaddr_storage_to_addr() {
+    let actual: net::SocketAddr = FromStr::from_str("127.0.0.1:3000").unwrap();
+    let addr = InetAddr::from_std(&actual);
+    let sockaddr = SockAddr::new_inet(addr);
+
+    let (storage, ffi_size) = {
+        let mut storage = MaybeUninit::<sockaddr_storage>::zeroed();
+        let storage_ptr = storage.as_mut_ptr().cast::<sockaddr>();
+        let (ffi_ptr, ffi_size) = sockaddr.as_ffi_pair();
+        assert_eq!(mem::size_of::<sockaddr>(), ffi_size as usize);
+        unsafe {
+            storage_ptr.copy_from_nonoverlapping(ffi_ptr as *const sockaddr, 1);
+            (storage.assume_init(), ffi_size)
+        }
+    };
+
+    let from_storage = sockaddr_storage_to_addr(&storage, ffi_size as usize).unwrap();
+    assert_eq!(from_storage, sockaddr);
+    let from_storage = sockaddr_storage_to_addr(&storage, mem::size_of::<sockaddr_storage>()).unwrap();
+    assert_eq!(from_storage, sockaddr);
 }
 
 #[test]
@@ -54,6 +78,33 @@ pub fn test_inetv6_addr_to_sock_addr() {
 
     assert_eq!(actual, addr.to_std());
 }
+#[test]
+pub fn test_inetv6_addr_roundtrip_sockaddr_storage_to_addr() {
+    let port: u16 = 3000;
+    let flowinfo: u32 = 1;
+    let scope_id: u32 = 2;
+    let ip: Ipv6Addr = "fe80::1".parse().unwrap();
+
+    let actual = SocketAddr::V6(SocketAddrV6::new(ip, port, flowinfo, scope_id));
+    let addr = InetAddr::from_std(&actual);
+    let sockaddr = SockAddr::new_inet(addr);
+
+    let (storage, ffi_size) = {
+        let mut storage = MaybeUninit::<sockaddr_storage>::zeroed();
+        let storage_ptr = storage.as_mut_ptr().cast::<sockaddr_in6>();
+        let (ffi_ptr, ffi_size) = sockaddr.as_ffi_pair();
+        assert_eq!(mem::size_of::<sockaddr_in6>(), ffi_size as usize);
+        unsafe {
+            storage_ptr.copy_from_nonoverlapping((ffi_ptr as *const sockaddr).cast::<sockaddr_in6>(), 1);
+            (storage.assume_init(), ffi_size)
+        }
+    };
+
+    let from_storage = sockaddr_storage_to_addr(&storage, ffi_size as usize).unwrap();
+    assert_eq!(from_storage, sockaddr);
+    let from_storage = sockaddr_storage_to_addr(&storage, mem::size_of::<sockaddr_storage>()).unwrap();
+    assert_eq!(from_storage, sockaddr);
+}
 
 #[test]
 pub fn test_path_to_sock_addr() {
@@ -62,9 +113,9 @@ pub fn test_path_to_sock_addr() {
     let addr = UnixAddr::new(actual).unwrap();
 
     let expect: &[c_char] = unsafe {
-        slice::from_raw_parts(path.as_bytes().as_ptr() as *const c_char, path.len())
+        slice::from_raw_parts(path.as_ptr() as *const c_char, path.len())
     };
-    assert_eq!(&addr.0.sun_path[..8], expect);
+    assert_eq!(unsafe { &(*addr.as_ptr()).sun_path[..8] }, expect);
 
     assert_eq!(addr.path(), Some(actual));
 }
@@ -82,7 +133,7 @@ pub fn test_addr_equality_path() {
     let addr1 = UnixAddr::new(actual).unwrap();
     let mut addr2 = addr1;
 
-    addr2.0.sun_path[10] = 127;
+    unsafe { (*addr2.as_mut_ptr()).sun_path[10] = 127 };
 
     assert_eq!(addr1, addr2);
     assert_eq!(calculate_hash(&addr1), calculate_hash(&addr2));
@@ -101,12 +152,12 @@ pub fn test_abstract_sun_path_too_long() {
 pub fn test_addr_equality_abstract() {
     let name = String::from("nix\0abstract\0test");
     let addr1 = UnixAddr::new_abstract(name.as_bytes()).unwrap();
-    let mut addr2 = addr1.clone();
+    let mut addr2 = addr1;
 
     assert_eq!(addr1, addr2);
     assert_eq!(calculate_hash(&addr1), calculate_hash(&addr2));
 
-    addr2.0.sun_path[17] = 127;
+    unsafe { (*addr2.as_mut_ptr()).sun_path[17] = 127 };
     assert_ne!(addr1, addr2);
     assert_ne!(calculate_hash(&addr1), calculate_hash(&addr2));
 }
@@ -129,7 +180,7 @@ pub fn test_abstract_uds_addr() {
     assert_eq!(addr.path(), None);
 
     // Internally, name is null-prefixed (abstract namespace)
-    assert_eq!(addr.0.sun_path[0], 0);
+    assert_eq!(unsafe { (*addr.as_ptr()).sun_path[0] }, 0);
 }
 
 #[test]
@@ -143,8 +194,7 @@ pub fn test_getsockname() {
                .expect("socket failed");
     let sockaddr = SockAddr::new_unix(&sockname).unwrap();
     bind(sock, &sockaddr).expect("bind failed");
-    assert_eq!(sockaddr.to_str(),
-               getsockname(sock).expect("getsockname failed").to_str());
+    assert_eq!(sockaddr, getsockname(sock).expect("getsockname failed"));
 }
 
 #[test]
@@ -237,9 +287,9 @@ mod recvfrom {
         use nix::sys::socket::sockopt::{UdpGroSegment, UdpGsoSegment};
 
         #[test]
-        // Disable the test on emulated platforms because it fails in Cirrus-CI.  Lack of QEMU
-        // support is suspected.
-        #[cfg_attr(not(any(target_arch = "x86_64", target_arch="i686")), ignore)]
+        // Disable the test under emulation because it fails in Cirrus-CI.  Lack
+        // of QEMU support is suspected.
+        #[cfg_attr(qemu, ignore)]
         pub fn gso() {
             require_kernel_version!(udp_offload::gso, ">= 4.18");
 
@@ -291,9 +341,9 @@ mod recvfrom {
         }
 
         #[test]
-        // Disable the test on emulated platforms because it fails in Cirrus-CI.  Lack of QEMU
-        // support is suspected.
-        #[cfg_attr(not(any(target_arch = "x86_64", target_arch="i686")), ignore)]
+        // Disable the test on emulated platforms because it fails in Cirrus-CI.
+        // Lack of QEMU support is suspected.
+        #[cfg_attr(qemu, ignore)]
         pub fn gro() {
             require_kernel_version!(udp_offload::gro, ">= 5.3");
 
@@ -317,7 +367,6 @@ mod recvfrom {
         target_os = "freebsd",
         target_os = "netbsd",
     ))]
-    #[allow(clippy::vec_init_then_push)]
     #[test]
     pub fn udp_sendmmsg() {
         use nix::sys::uio::IoVec;
@@ -344,14 +393,14 @@ mod recvfrom {
 
         let from = sendrecv(rsock, ssock, move |s, m, flags| {
             let iov = [IoVec::from_slice(m)];
-            let mut msgs = Vec::new();
-            msgs.push(
+            let mut msgs = vec![
                 SendMmsgData {
                     iov: &iov,
                     cmsgs: &[],
                     addr: Some(sock_addr),
                     _lt: Default::default(),
-                });
+                }
+            ];
 
             let batch_size = 15;
 
@@ -532,7 +581,7 @@ pub fn test_recvmsg_ebadf() {
 
 // Disable the test on emulated platforms due to a bug in QEMU versions <
 // 2.12.0.  https://bugs.launchpad.net/qemu/+bug/1701808
-#[cfg_attr(not(any(target_arch = "x86_64", target_arch="i686")), ignore)]
+#[cfg_attr(qemu, ignore)]
 #[test]
 pub fn test_scm_rights() {
     use nix::sys::uio::IoVec;
@@ -586,11 +635,10 @@ pub fn test_scm_rights() {
 }
 
 // Disable the test on emulated platforms due to not enabled support of AF_ALG in QEMU from rust cross
-#[cfg_attr(not(any(target_arch = "x86_64", target_arch = "i686")), ignore)]
 #[cfg(any(target_os = "linux", target_os= "android"))]
+#[cfg_attr(qemu, ignore)]
 #[test]
 pub fn test_af_alg_cipher() {
-    use libc;
     use nix::sys::uio::IoVec;
     use nix::unistd::read;
     use nix::sys::socket::{socket, sendmsg, bind, accept, setsockopt,
@@ -654,12 +702,14 @@ pub fn test_af_alg_cipher() {
     assert_eq!(decrypted, payload);
 }
 
-// Disable the test on emulated platforms due to not enabled support of AF_ALG in QEMU from rust cross
-#[cfg_attr(not(any(target_arch = "x86_64", target_arch = "i686")), ignore)]
+// Disable the test on emulated platforms due to not enabled support of AF_ALG
+// in QEMU from rust cross
 #[cfg(any(target_os = "linux", target_os= "android"))]
+#[cfg_attr(qemu, ignore)]
 #[test]
 pub fn test_af_alg_aead() {
     use libc::{ALG_OP_DECRYPT, ALG_OP_ENCRYPT};
+    use nix::fcntl::{fcntl, FcntlArg, OFlag};
     use nix::sys::uio::IoVec;
     use nix::unistd::{read, close};
     use nix::sys::socket::{socket, sendmsg, bind, accept, setsockopt,
@@ -738,6 +788,11 @@ pub fn test_af_alg_aead() {
 
     // allocate buffer for decrypted data
     let mut decrypted = vec![0u8; payload_len + (assoc_size as usize) + auth_size];
+    // Starting with kernel 4.9, the interface changed slightly such that the
+    // authentication tag memory is only needed in the output buffer for encryption
+    // and in the input buffer for decryption.
+    // Do not block on read, as we may have fewer bytes than buffer size
+    fcntl(session_socket,FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).expect("fcntl non_blocking");
     let num_bytes = read(session_socket, &mut decrypted).expect("read decrypt");
 
     assert!(num_bytes >= payload_len + (assoc_size as usize));
@@ -780,7 +835,7 @@ pub fn test_sendmsg_ipv4packetinfo() {
     if let InetAddr::V4(sin) = inet_addr {
         cfg_if! {
             if #[cfg(target_os = "netbsd")] {
-                drop(sin);
+                let _dontcare = sin;
                 let pi = libc::in_pktinfo {
                     ipi_ifindex: 0, /* Unspecified interface */
                     ipi_addr: libc::in_addr { s_addr: 0 },
@@ -859,7 +914,7 @@ pub fn test_sendmsg_ipv6packetinfo() {
 /// Tests that passing multiple fds using a single `ControlMessage` works.
 // Disable the test on emulated platforms due to a bug in QEMU versions <
 // 2.12.0.  https://bugs.launchpad.net/qemu/+bug/1701808
-#[cfg_attr(not(any(target_arch = "x86_64", target_arch="i686")), ignore)]
+#[cfg_attr(qemu, ignore)]
 #[test]
 fn test_scm_rights_single_cmsg_multiple_fds() {
     use std::os::unix::net::UnixDatagram;
@@ -868,7 +923,6 @@ fn test_scm_rights_single_cmsg_multiple_fds() {
     use nix::sys::socket::{ControlMessage, ControlMessageOwned, MsgFlags,
         sendmsg, recvmsg};
     use nix::sys::uio::IoVec;
-    use libc;
 
     let (send, receive) = UnixDatagram::pair().unwrap();
     let thread = thread::spawn(move || {
@@ -1006,13 +1060,11 @@ fn test_scm_credentials() {
 /// Ensure that we can send `SCM_CREDENTIALS` and `SCM_RIGHTS` with a single
 /// `sendmsg` call.
 #[cfg(any(target_os = "android", target_os = "linux"))]
-// qemu's handling of multiple cmsgs is bugged, ignore tests on non-x86
+// qemu's handling of multiple cmsgs is bugged, ignore tests under emulation
 // see https://bugs.launchpad.net/qemu/+bug/1781280
-#[cfg_attr(not(any(target_arch = "x86_64", target_arch = "x86")), ignore)]
+#[cfg_attr(qemu, ignore)]
 #[test]
 fn test_scm_credentials_and_rights() {
-    use libc;
-
     let space = cmsg_space!(libc::ucred, RawFd);
     test_impl_scm_credentials_and_rights(space);
 }
@@ -1020,9 +1072,9 @@ fn test_scm_credentials_and_rights() {
 /// Ensure that passing a an oversized control message buffer to recvmsg
 /// still works.
 #[cfg(any(target_os = "android", target_os = "linux"))]
-// qemu's handling of multiple cmsgs is bugged, ignore tests on non-x86
+// qemu's handling of multiple cmsgs is bugged, ignore tests under emulation
 // see https://bugs.launchpad.net/qemu/+bug/1781280
-#[cfg_attr(not(any(target_arch = "x86_64", target_arch = "x86")), ignore)]
+#[cfg_attr(qemu, ignore)]
 #[test]
 fn test_too_large_cmsgspace() {
     let space = vec![0u8; 1024];
@@ -1169,7 +1221,6 @@ fn loopback_address(family: AddressFamily) -> Option<nix::ifaddrs::InterfaceAddr
     use std::io;
     use std::io::Write;
     use nix::ifaddrs::getifaddrs;
-    use nix::sys::socket::SockAddr;
     use nix::net::if_::*;
 
     let addrs = match getifaddrs() {
@@ -1212,14 +1263,16 @@ fn loopback_address(family: AddressFamily) -> Option<nix::ifaddrs::InterfaceAddr
     target_os = "netbsd",
 ))]
 // qemu doesn't seem to be emulating this correctly in these architectures
-#[cfg_attr(any(
-    target_arch = "mips",
-    target_arch = "mips64",
-    target_arch = "powerpc64",
+#[cfg_attr(all(
+    qemu,
+    any(
+        target_arch = "mips",
+        target_arch = "mips64",
+        target_arch = "powerpc64",
+    )
 ), ignore)]
 #[test]
 pub fn test_recv_ipv4pktinfo() {
-    use libc;
     use nix::sys::socket::sockopt::Ipv4PacketInfo;
     use nix::sys::socket::{bind, SockFlag, SockType};
     use nix::sys::socket::{getsockname, setsockopt, socket};
@@ -1272,18 +1325,15 @@ pub fn test_recv_ipv4pktinfo() {
         );
 
         let mut cmsgs = msg.cmsgs();
-        match cmsgs.next() {
-            Some(ControlMessageOwned::Ipv4PacketInfo(pktinfo)) => {
-                let i = if_nametoindex(lo_name.as_bytes()).expect("if_nametoindex");
-                assert_eq!(
-                    pktinfo.ipi_ifindex as libc::c_uint,
-                    i,
-                    "unexpected ifindex (expected {}, got {})",
-                    i,
-                    pktinfo.ipi_ifindex
-                );
-            }
-            _ => (),
+        if let Some(ControlMessageOwned::Ipv4PacketInfo(pktinfo)) = cmsgs.next() {
+            let i = if_nametoindex(lo_name.as_bytes()).expect("if_nametoindex");
+            assert_eq!(
+                pktinfo.ipi_ifindex as libc::c_uint,
+                i,
+                "unexpected ifindex (expected {}, got {})",
+                i,
+                pktinfo.ipi_ifindex
+            );
         }
         assert!(cmsgs.next().is_none(), "unexpected additional control msg");
         assert_eq!(msg.bytes, 8);
@@ -1302,14 +1352,16 @@ pub fn test_recv_ipv4pktinfo() {
     target_os = "openbsd",
 ))]
 // qemu doesn't seem to be emulating this correctly in these architectures
-#[cfg_attr(any(
-    target_arch = "mips",
-    target_arch = "mips64",
-    target_arch = "powerpc64",
+#[cfg_attr(all(
+    qemu,
+    any(
+        target_arch = "mips",
+        target_arch = "mips64",
+        target_arch = "powerpc64",
+    )
 ), ignore)]
 #[test]
 pub fn test_recvif() {
-    use libc;
     use nix::net::if_::*;
     use nix::sys::socket::sockopt::{Ipv4RecvIf, Ipv4RecvDstAddr};
     use nix::sys::socket::{bind, SockFlag, SockType};
@@ -1413,14 +1465,16 @@ pub fn test_recvif() {
     target_os = "openbsd",
 ))]
 // qemu doesn't seem to be emulating this correctly in these architectures
-#[cfg_attr(any(
-    target_arch = "mips",
-    target_arch = "mips64",
-    target_arch = "powerpc64",
+#[cfg_attr(all(
+    qemu,
+    any(
+        target_arch = "mips",
+        target_arch = "mips64",
+        target_arch = "powerpc64",
+    )
 ), ignore)]
 #[test]
 pub fn test_recv_ipv6pktinfo() {
-    use libc;
     use nix::net::if_::*;
     use nix::sys::socket::sockopt::Ipv6RecvPacketInfo;
     use nix::sys::socket::{bind, SockFlag, SockType};
@@ -1494,9 +1548,9 @@ pub fn test_recv_ipv6pktinfo() {
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
+#[cfg_attr(graviton, ignore = "Not supported by the CI environment")]
 #[test]
 pub fn test_vsock() {
-    use libc;
     use nix::errno::Errno;
     use nix::sys::socket::{AddressFamily, socket, bind, connect, listen,
                            SockAddr, SockType, SockFlag};
@@ -1538,9 +1592,9 @@ pub fn test_vsock() {
     thr.join().unwrap();
 }
 
-// Disable the test on emulated platforms because it fails in Cirrus-CI.  Lack of QEMU
-// support is suspected.
-#[cfg_attr(not(any(target_arch = "x86_64")), ignore)]
+// Disable the test on emulated platforms because it fails in Cirrus-CI.  Lack
+// of QEMU support is suspected.
+#[cfg_attr(qemu, ignore)]
 #[cfg(all(target_os = "linux"))]
 #[test]
 fn test_recvmsg_timestampns() {
@@ -1589,9 +1643,9 @@ fn test_recvmsg_timestampns() {
     nix::unistd::close(in_socket).unwrap();
 }
 
-// Disable the test on emulated platforms because it fails in Cirrus-CI.  Lack of QEMU
-// support is suspected.
-#[cfg_attr(not(any(target_arch = "x86_64")), ignore)]
+// Disable the test on emulated platforms because it fails in Cirrus-CI.  Lack
+// of QEMU support is suspected.
+#[cfg_attr(qemu, ignore)]
 #[cfg(all(target_os = "linux"))]
 #[test]
 fn test_recvmmsg_timestampns() {
@@ -1646,9 +1700,9 @@ fn test_recvmmsg_timestampns() {
     nix::unistd::close(in_socket).unwrap();
 }
 
-// Disable the test on emulated platforms because it fails in Cirrus-CI.  Lack of QEMU
-// support is suspected.
-#[cfg_attr(not(any(target_arch = "x86_64")), ignore)]
+// Disable the test on emulated platforms because it fails in Cirrus-CI.  Lack
+// of QEMU support is suspected.
+#[cfg_attr(qemu, ignore)]
 #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 #[test]
 fn test_recvmsg_rxq_ovfl() {
@@ -1727,4 +1781,161 @@ fn test_recvmsg_rxq_ovfl() {
     // Close sockets
     nix::unistd::close(in_socket).unwrap();
     nix::unistd::close(out_socket).unwrap();
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+))]
+mod linux_errqueue {
+    use nix::sys::socket::*;
+    use super::{FromStr, SocketAddr};
+
+    // Send a UDP datagram to a bogus destination address and observe an ICMP error (v4).
+    //
+    // Disable the test on QEMU because QEMU emulation of IP_RECVERR is broken (as documented on PR
+    // #1514).
+    #[cfg_attr(qemu, ignore)]
+    #[test]
+    fn test_recverr_v4() {
+        #[repr(u8)]
+        enum IcmpTypes {
+            DestUnreach = 3, // ICMP_DEST_UNREACH
+        }
+        #[repr(u8)]
+        enum IcmpUnreachCodes {
+            PortUnreach = 3, // ICMP_PORT_UNREACH
+        }
+
+        test_recverr_impl::<sockaddr_in, _, _>(
+            "127.0.0.1:6800",
+            AddressFamily::Inet,
+            sockopt::Ipv4RecvErr,
+            libc::SO_EE_ORIGIN_ICMP,
+            IcmpTypes::DestUnreach as u8,
+            IcmpUnreachCodes::PortUnreach as u8,
+            // Closure handles protocol-specific testing and returns generic sock_extended_err for
+            // protocol-independent test impl.
+            |cmsg| {
+                if let ControlMessageOwned::Ipv4RecvErr(ext_err, err_addr) = cmsg {
+                    if let Some(origin) = err_addr {
+                        // Validate that our network error originated from 127.0.0.1:0.
+                        assert_eq!(origin.sin_family, AddressFamily::Inet as _);
+                        assert_eq!(Ipv4Addr(origin.sin_addr), Ipv4Addr::new(127, 0, 0, 1));
+                        assert_eq!(origin.sin_port, 0);
+                    } else {
+                        panic!("Expected some error origin");
+                    }
+                    *ext_err
+                } else {
+                    panic!("Unexpected control message {:?}", cmsg);
+                }
+            },
+        )
+    }
+
+    // Essentially the same test as v4.
+    //
+    // Disable the test on QEMU because QEMU emulation of IPV6_RECVERR is broken (as documented on
+    // PR #1514).
+    #[cfg_attr(qemu, ignore)]
+    #[test]
+    fn test_recverr_v6() {
+        #[repr(u8)]
+        enum IcmpV6Types {
+            DestUnreach = 1, // ICMPV6_DEST_UNREACH
+        }
+        #[repr(u8)]
+        enum IcmpV6UnreachCodes {
+            PortUnreach = 4, // ICMPV6_PORT_UNREACH
+        }
+
+        test_recverr_impl::<sockaddr_in6, _, _>(
+            "[::1]:6801",
+            AddressFamily::Inet6,
+            sockopt::Ipv6RecvErr,
+            libc::SO_EE_ORIGIN_ICMP6,
+            IcmpV6Types::DestUnreach as u8,
+            IcmpV6UnreachCodes::PortUnreach as u8,
+            // Closure handles protocol-specific testing and returns generic sock_extended_err for
+            // protocol-independent test impl.
+            |cmsg| {
+                if let ControlMessageOwned::Ipv6RecvErr(ext_err, err_addr) = cmsg {
+                    if let Some(origin) = err_addr {
+                        // Validate that our network error originated from localhost:0.
+                        assert_eq!(origin.sin6_family, AddressFamily::Inet6 as _);
+                        assert_eq!(
+                            Ipv6Addr(origin.sin6_addr),
+                            Ipv6Addr::from_std(&"::1".parse().unwrap()),
+                        );
+                        assert_eq!(origin.sin6_port, 0);
+                    } else {
+                        panic!("Expected some error origin");
+                    }
+                    *ext_err
+                } else {
+                    panic!("Unexpected control message {:?}", cmsg);
+                }
+            },
+        )
+    }
+
+    fn test_recverr_impl<SA, OPT, TESTF>(sa: &str,
+                                         af: AddressFamily,
+                                         opt: OPT,
+                                         ee_origin: u8,
+                                         ee_type: u8,
+                                         ee_code: u8,
+                                         testf: TESTF)
+        where
+            OPT: SetSockOpt<Val = bool>,
+            TESTF: FnOnce(&ControlMessageOwned) -> libc::sock_extended_err,
+    {
+        use nix::errno::Errno;
+        use nix::sys::uio::IoVec;
+
+        const MESSAGE_CONTENTS: &str = "ABCDEF";
+
+        let sock_addr = {
+            let std_sa = SocketAddr::from_str(sa).unwrap();
+            let inet_addr = InetAddr::from_std(&std_sa);
+            SockAddr::new_inet(inet_addr)
+        };
+        let sock = socket(af, SockType::Datagram, SockFlag::SOCK_CLOEXEC, None).unwrap();
+        setsockopt(sock, opt, &true).unwrap();
+        if let Err(e) = sendto(sock, MESSAGE_CONTENTS.as_bytes(), &sock_addr, MsgFlags::empty()) {
+            assert_eq!(e, Errno::EADDRNOTAVAIL);
+            println!("{:?} not available, skipping test.", af);
+            return;
+        }
+
+        let mut buf = [0u8; 8];
+        let iovec = [IoVec::from_mut_slice(&mut buf)];
+        let mut cspace = cmsg_space!(libc::sock_extended_err, SA);
+
+        let msg = recvmsg(sock, &iovec, Some(&mut cspace), MsgFlags::MSG_ERRQUEUE).unwrap();
+        // The sent message / destination associated with the error is returned:
+        assert_eq!(msg.bytes, MESSAGE_CONTENTS.as_bytes().len());
+        assert_eq!(&buf[..msg.bytes], MESSAGE_CONTENTS.as_bytes());
+        // recvmsg(2): "The original destination address of the datagram that caused the error is
+        // supplied via msg_name;" however, this is not literally true.  E.g., an earlier version
+        // of this test used 0.0.0.0 (::0) as the destination address, which was mutated into
+        // 127.0.0.1 (::1).
+        assert_eq!(msg.address, Some(sock_addr));
+
+        // Check for expected control message.
+        let ext_err = match msg.cmsgs().next() {
+            Some(cmsg) => testf(&cmsg),
+            None => panic!("No control message"),
+        };
+
+        assert_eq!(ext_err.ee_errno, libc::ECONNREFUSED as u32);
+        assert_eq!(ext_err.ee_origin, ee_origin);
+        // ip(7): ee_type and ee_code are set from the type and code fields of the ICMP (ICMPv6)
+        // header.
+        assert_eq!(ext_err.ee_type, ee_type);
+        assert_eq!(ext_err.ee_code, ee_code);
+        // ip(7): ee_info contains the discovered MTU for EMSGSIZE errors.
+        assert_eq!(ext_err.ee_info, 0);
+    }
 }

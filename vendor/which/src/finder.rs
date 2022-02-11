@@ -5,6 +5,8 @@ use crate::helper::has_executable_extension;
 use either::Either;
 #[cfg(feature = "regex")]
 use regex::Regex;
+#[cfg(feature = "regex")]
+use std::borrow::Borrow;
 use std::env;
 use std::ffi::OsStr;
 #[cfg(feature = "regex")]
@@ -54,7 +56,7 @@ impl Finder {
         &self,
         binary_name: T,
         paths: Option<U>,
-        cwd: V,
+        cwd: Option<V>,
         binary_checker: CompositeChecker,
     ) -> Result<impl Iterator<Item = PathBuf>>
     where
@@ -64,15 +66,18 @@ impl Finder {
     {
         let path = PathBuf::from(&binary_name);
 
-        let binary_path_candidates = if path.has_separator() {
-            // Search binary in cwd if the path have a path separator.
-            Either::Left(Self::cwd_search_candidates(path, cwd).into_iter())
-        } else {
-            // Search binary in PATHs(defined in environment variable).
-            let p = paths.ok_or(Error::CannotFindBinaryPath)?;
-            let paths: Vec<_> = env::split_paths(&p).collect();
+        let binary_path_candidates = match cwd {
+            Some(cwd) if path.has_separator() => {
+                // Search binary in cwd if the path have a path separator.
+                Either::Left(Self::cwd_search_candidates(path, cwd).into_iter())
+            }
+            _ => {
+                // Search binary in PATHs(defined in environment variable).
+                let p = paths.ok_or(Error::CannotFindBinaryPath)?;
+                let paths: Vec<_> = env::split_paths(&p).collect();
 
-            Either::Right(Self::path_search_candidates(path, paths).into_iter())
+                Either::Right(Self::path_search_candidates(path, paths).into_iter())
+            }
         };
 
         Ok(binary_path_candidates.filter(move |p| binary_checker.is_valid(p)))
@@ -81,7 +86,7 @@ impl Finder {
     #[cfg(feature = "regex")]
     pub fn find_re<T>(
         &self,
-        binary_regex: Regex,
+        binary_regex: impl Borrow<Regex>,
         paths: Option<T>,
         binary_checker: CompositeChecker,
     ) -> Result<impl Iterator<Item = PathBuf>>
@@ -99,7 +104,7 @@ impl Finder {
             .map(|e| e.path())
             .filter(move |p| {
                 if let Some(unicode_file_name) = p.file_name().unwrap().to_str() {
-                    binary_regex.is_match(unicode_file_name)
+                    binary_regex.borrow().is_match(unicode_file_name)
                 } else {
                     false
                 }
@@ -153,7 +158,7 @@ impl Finder {
                     .map(|pathext| {
                         pathext.split(';')
                             .filter_map(|s| {
-                                if s.as_bytes()[0] == b'.' {
+                                if s.as_bytes().first() == Some(&b'.') {
                                     Some(s.to_owned())
                                 } else {
                                     // Invalid segment; just ignore it.

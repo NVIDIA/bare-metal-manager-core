@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "normpath"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["dylni"]
 exclude = [".*", "/rustfmt.toml", "/tests"]
 description = "More reliable path manipulation\n"

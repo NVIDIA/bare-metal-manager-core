@@ -141,8 +141,11 @@ fn test_which_re_in_with_matches() {
         .collect();
 
     let temp = f.tempdir;
-    
-    assert_eq!(result, vec![temp.path().join("a/bin_0"), temp.path().join("b/bin_1")])
+
+    assert_eq!(
+        result,
+        vec![temp.path().join("a/bin_0"), temp.path().join("b/bin_1")]
+    )
 }
 
 #[test]
@@ -157,6 +160,15 @@ fn test_which_re_in_without_matches() {
         .collect();
 
     assert_eq!(result, Vec::<PathBuf>::new())
+}
+
+#[test]
+#[cfg(all(unix, feature = "regex"))]
+fn test_which_re_accepts_owned_and_borrow() {
+    which::which_re(Regex::new(r".").unwrap());
+    which::which_re(&Regex::new(r".").unwrap());
+    which::which_re_in(Regex::new(r".").unwrap(), Some("pth"));
+    which::which_re_in(&Regex::new(r".").unwrap(), Some("pth"));
 }
 
 #[test]

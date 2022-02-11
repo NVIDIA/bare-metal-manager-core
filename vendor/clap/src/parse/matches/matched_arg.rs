@@ -10,8 +10,8 @@ use crate::INTERNAL_ERROR_MSG;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MatchedArg {
-    pub(crate) occurs: u64,
-    pub(crate) ty: ValueType,
+    occurs: u64,
+    ty: ValueType,
     indices: Vec<usize>,
     vals: Vec<Vec<OsString>>,
     ignore_case: bool,
@@ -28,6 +28,14 @@ impl MatchedArg {
             ignore_case: false,
             invalid_utf8_allowed: None,
         }
+    }
+
+    pub(crate) fn inc_occurrences(&mut self) {
+        self.occurs += 1;
+    }
+
+    pub(crate) fn get_occurrences(&self) -> u64 {
+        self.occurs
     }
 
     pub(crate) fn indices(&self) -> Cloned<Iter<'_, usize>> {
@@ -119,8 +127,12 @@ impl MatchedArg {
         })
     }
 
-    pub(crate) fn set_ty(&mut self, ty: ValueType) {
-        self.ty = ty;
+    pub(crate) fn source(&self) -> ValueType {
+        self.ty
+    }
+
+    pub(crate) fn update_ty(&mut self, ty: ValueType) {
+        self.ty = self.ty.max(ty);
     }
 
     pub(crate) fn set_ignore_case(&mut self, yes: bool) {
@@ -142,13 +154,13 @@ impl Default for MatchedArg {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ValueType {
     Unknown,
+    DefaultValue,
     #[cfg(feature = "env")]
     EnvVariable,
     CommandLine,
-    DefaultValue,
 }
 
 #[cfg(test)]

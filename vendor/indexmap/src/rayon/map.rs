@@ -13,6 +13,7 @@ use crate::vec::Vec;
 use core::cmp::Ordering;
 use core::fmt;
 use core::hash::{BuildHasher, Hash};
+use core::ops::RangeBounds;
 
 use crate::Bucket;
 use crate::Entries;
@@ -139,6 +140,13 @@ pub struct ParIterMut<'a, K, V> {
     entries: &'a mut [Bucket<K, V>],
 }
 
+impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for ParIterMut<'_, K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let iter = self.entries.iter().map(Bucket::refs);
+        f.debug_list().entries(iter).finish()
+    }
+}
+
 impl<'a, K: Sync + Send, V: Send> ParallelIterator for ParIterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
 
@@ -147,6 +155,43 @@ impl<'a, K: Sync + Send, V: Send> ParallelIterator for ParIterMut<'a, K, V> {
 
 impl<K: Sync + Send, V: Send> IndexedParallelIterator for ParIterMut<'_, K, V> {
     indexed_parallel_iterator_methods!(Bucket::ref_mut);
+}
+
+/// Requires crate feature `"rayon"`.
+impl<'a, K, V, S> ParallelDrainRange<usize> for &'a mut IndexMap<K, V, S>
+where
+    K: Send,
+    V: Send,
+{
+    type Item = (K, V);
+    type Iter = ParDrain<'a, K, V>;
+
+    fn par_drain<R: RangeBounds<usize>>(self, range: R) -> Self::Iter {
+        ParDrain {
+            entries: self.core.par_drain(range),
+        }
+    }
+}
+
+/// A parallel draining iterator over the entries of a `IndexMap`.
+///
+/// This `struct` is created by the [`par_drain`] method on [`IndexMap`]
+/// (provided by rayon's `ParallelDrainRange` trait). See its documentation for more.
+///
+/// [`par_drain`]: ../struct.IndexMap.html#method.par_drain
+/// [`IndexMap`]: ../struct.IndexMap.html
+pub struct ParDrain<'a, K: Send, V: Send> {
+    entries: rayon::vec::Drain<'a, Bucket<K, V>>,
+}
+
+impl<K: Send, V: Send> ParallelIterator for ParDrain<'_, K, V> {
+    type Item = (K, V);
+
+    parallel_iterator_methods!(Bucket::key_value);
+}
+
+impl<K: Send, V: Send> IndexedParallelIterator for ParDrain<'_, K, V> {
+    indexed_parallel_iterator_methods!(Bucket::key_value);
 }
 
 /// Parallel iterator methods and other parallel methods.
@@ -303,7 +348,7 @@ where
     }
 
     /// Sort the map’s key-value pairs in place and in parallel, using the comparison
-    /// function `compare`.
+    /// function `cmp`.
     ///
     /// The comparison function receives two key and value pairs to compare (you
     /// can sort by keys or values or their combination as needed).
@@ -316,7 +361,7 @@ where
         });
     }
 
-    /// Sort the key-value pairs of the map in parallel and return a by value parallel
+    /// Sort the key-value pairs of the map in parallel and return a by-value parallel
     /// iterator of the key-value pairs with the result.
     pub fn par_sorted_by<F>(self, cmp: F) -> IntoParIter<K, V>
     where
@@ -324,6 +369,41 @@ where
     {
         let mut entries = self.into_entries();
         entries.par_sort_by(move |a, b| cmp(&a.key, &a.value, &b.key, &b.value));
+        IntoParIter { entries }
+    }
+
+    /// Sort the map's key-value pairs in parallel, by the default ordering of the keys.
+    pub fn par_sort_unstable_keys(&mut self)
+    where
+        K: Ord,
+    {
+        self.with_entries(|entries| {
+            entries.par_sort_unstable_by(|a, b| K::cmp(&a.key, &b.key));
+        });
+    }
+
+    /// Sort the map's key-value pairs in place and in parallel, using the comparison
+    /// function `cmp`.
+    ///
+    /// The comparison function receives two key and value pairs to compare (you
+    /// can sort by keys or values or their combination as needed).
+    pub fn par_sort_unstable_by<F>(&mut self, cmp: F)
+    where
+        F: Fn(&K, &V, &K, &V) -> Ordering + Sync,
+    {
+        self.with_entries(|entries| {
+            entries.par_sort_unstable_by(move |a, b| cmp(&a.key, &a.value, &b.key, &b.value));
+        });
+    }
+
+    /// Sort the key-value pairs of the map in parallel and return a by-value parallel
+    /// iterator of the key-value pairs with the result.
+    pub fn par_sorted_unstable_by<F>(self, cmp: F) -> IntoParIter<K, V>
+    where
+        F: Fn(&K, &V, &K, &V) -> Ordering + Sync,
+    {
+        let mut entries = self.into_entries();
+        entries.par_sort_unstable_by(move |a, b| cmp(&a.key, &a.value, &b.key, &b.value));
         IntoParIter { entries }
     }
 }
@@ -337,6 +417,13 @@ where
 /// [`IndexMap`]: ../struct.IndexMap.html
 pub struct ParValuesMut<'a, K, V> {
     entries: &'a mut [Bucket<K, V>],
+}
+
+impl<K, V: fmt::Debug> fmt::Debug for ParValuesMut<'_, K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let iter = self.entries.iter().map(Bucket::value_ref);
+        f.debug_list().entries(iter).finish()
+    }
 }
 
 impl<'a, K: Send, V: Send> ParallelIterator for ParValuesMut<'a, K, V> {

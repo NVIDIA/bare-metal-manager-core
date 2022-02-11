@@ -4,8 +4,8 @@ version = "0.0.1"
 edition = "2018"
 
 [dependencies]
-tonic = "*"
-tonic-reflection = "0.2.0"
+tonic = "^0"
+tonic-reflection = "^0"
 prost = "*"
 prost-types = "*"
 prost-build = "*"
@@ -14,4 +14,4 @@ mac_address = "*"
 serde = { version = "*", features = ["derive"] }
 
 [build-dependencies]
-tonic-build = "0.5"
+tonic-build = "^0"

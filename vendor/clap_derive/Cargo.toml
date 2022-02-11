@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "clap_derive"
-version = "3.0.6"
+version = "3.0.14"
 include = ["src/**/*", "Cargo.toml", "LICENSE-*", "README.md"]
 description = "Parse command line argument by defining a struct, derive crate."
 documentation = "https://docs.rs/clap_derive"
@@ -27,6 +27,13 @@ targets = ["x86_64-unknown-linux-gnu"]
 [package.metadata.release]
 shared-version = true
 tag-name = "v{{version}}"
+
+[[package.metadata.release.pre-release-replacements]]
+exactly = 2
+file = "README.md"
+prerelease = true
+replace = "github.com/clap-rs/clap/blob/{{tag_name}}/"
+search = "github.com/clap-rs/clap/blob/[^/]+/"
 
 [lib]
 bench = false

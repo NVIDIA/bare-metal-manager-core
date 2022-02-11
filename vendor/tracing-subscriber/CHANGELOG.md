@@ -1,3 +1,144 @@
+# 0.3.8 (Feb 4, 2022)
+
+This release adds *experimental* support for recording structured field
+values using the [`valuable`] crate to the `format::Json` formatter. In
+particular, user-defined types which are recorded using their
+[`valuable::Valuable`] implementations will be serialized as JSON objects,
+rather than using their `fmt::Debug` representation. See [this blog post][post]
+for details on `valuable`.
+
+Note that `valuable` support currently requires `--cfg tracing_unstable`. See
+the documentation for details.
+
+Additionally, this release includes a number of other smaller API improvements.
+
+### Added
+
+- **json**: Experimental support for recording [`valuable`] values as structured
+  JSON ([#1862], [#1901])
+- **filter**: `Targets::would_enable` method for testing if a `Targets` filter
+  would enable a given target ([#1903])
+- **fmt**: `map_event_format`, `map_fmt_fields`, and `map_writer` methods to
+  `fmt::Layer` and `fmt::SubscriberBuilder` ([#1871])
+
+### Changed
+
+- `tracing-core`: updated to [0.1.22][core-0.1.22]
+
+### Fixed
+
+- Set `smallvec` minimal version to 1.2.0, to fix compilation errors with `-Z
+  minimal-versions` ([#1890])
+- Minor documentation fixes ([#1902], [#1893])
+
+Thanks to @guswynn, @glts, and @lilyball for contributing to this release!
+
+[`valuable`]: https://crates.io/crates/valuable
+[`valuable::Valuable`]: https://docs.rs/valuable/latest/valuable/trait.Valuable.html
+[post]: https://tokio.rs/blog/2021-05-valuable
+[core-0.1.22]: https://github.com/tokio-rs/tracing/releases/tag/tracing-core-0.1.22
+[#1862]: https://github.com/tokio-rs/tracing/pull/1862
+[#1901]: https://github.com/tokio-rs/tracing/pull/1901
+[#1903]: https://github.com/tokio-rs/tracing/pull/1903
+[#1871]: https://github.com/tokio-rs/tracing/pull/1871
+[#1890]: https://github.com/tokio-rs/tracing/pull/1890
+[#1902]: https://github.com/tokio-rs/tracing/pull/1902
+[#1893]: https://github.com/tokio-rs/tracing/pull/1893
+
+# 0.3.7 (Jan 25, 2022)
+
+This release adds combinators for combining filters.
+
+Additionally, this release also updates the `thread-local` crate to v1.1.4,
+fixing warnings for the security advisory [RUSTSEC-2022-0006]. Note that
+previous versions of `tracing-subscriber` did not use any of the `thread-local`
+crate's APIs effected by the vulnerability. However, updating the version fixes
+warnings emitted by `cargo audit` and similar tools.
+
+### Added
+
+- **filter**: Added combinators for combining filters ([#1578])
+
+### Fixed
+
+- **registry**: Updated `thread-local` to v1.1.4 ([#1858])
+
+Thanks to new contributor @matze for contributing to this release!
+
+[RUSTSEC-2022-0006]: https://rustsec.org/advisories/RUSTSEC-2022-0006
+[#1578]: https://github.com/tokio-rs/tracing/pull/1578
+[#1858]: https://github.com/tokio-rs/tracing/pull/1858
+
+# 0.3.6 (Jan 14, 2022)
+
+This release adds configuration options to `tracing_subscriber::fmt` to log
+source code locations for events.
+### Added
+
+- **fmt**: Added `with_file` and `with_line_number`
+  configuration methods to `fmt::Format`, `fmt::SubscriberBuilder`, and
+  `fmt::Layer` ([#1773])
+
+### Fixed
+
+- **fmt**: Removed incorrect leading comma from span fields with the `Pretty`
+  formatter ([#1833])
+
+### Deprecated
+
+- **fmt**: Deprecated `Pretty::with_source_location`, as it can now be replaced
+  by the more general `Format`, `SubscriberBuilder`, and `Layer` methods
+  ([#1773])
+
+Thanks to new contributor @renecouto for contributing to this release!
+
+[#1773]: https://github.com/tokio-rs/tracing/pull/1773
+[#1833]: https://github.com/tokio-rs/tracing/pull/1833
+
+# 0.3.5 (Dec 29, 2021)
+
+This release re-enables `RUST_LOG` filtering in `tracing_subscriber::fmt`'s
+default initialization methods, and adds an `OffsetLocalTime` formatter for
+using local timestamps with the `time` crate.
+
+### Added
+
+- **fmt**: Added `OffsetLocalTime` formatter to `fmt::time` for formatting local
+  timestamps with a fixed offset ([#1772])
+
+### Fixed
+
+- **fmt**: Added a `Targets` filter to `fmt::init()` and `fmt::try_init()` when
+  the "env-filter" feature is disabled, so that `RUST_LOG` is still honored
+  ([#1781])
+
+Thanks to @marienz and @ishitatsuyuki for contributing to this release!
+
+[#1772]: https://github.com/tokio-rs/tracing/pull/1772
+[#1781]: https://github.com/tokio-rs/tracing/pull/1781
+
+# 0.3.4 (Dec 23, 2021) 
+
+This release contains bugfixes for the `fmt` module, as well as documentation
+improvements.
+
+### Fixed
+
+- **fmt**: Fixed `fmt` not emitting log lines when timestamp formatting fails
+  ([#1689])
+- **fmt**: Fixed double space before thread IDs with `Pretty` formatter
+  ([#1778])
+- Several documentation improvements ([#1608], [#1699], [#1701])
+
+[#1689]: https://github.com/tokio-rs/tracing/pull/1689
+[#1778]: https://github.com/tokio-rs/tracing/pull/1778
+[#1608]: https://github.com/tokio-rs/tracing/pull/1608
+[#1699]: https://github.com/tokio-rs/tracing/pull/1699
+[#1701]: https://github.com/tokio-rs/tracing/pull/1701
+
+Thanks to new contributors @Swatinem and @rukai for contributing to this
+release!
+
 # 0.3.3 (Nov 29, 2021)
 
 This release fixes a pair of regressions in `tracing-subscriber`'s `fmt` module.

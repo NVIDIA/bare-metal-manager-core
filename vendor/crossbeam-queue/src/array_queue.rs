@@ -6,8 +6,7 @@
 use alloc::boxed::Box;
 use core::cell::UnsafeCell;
 use core::fmt;
-use core::marker::PhantomData;
-use core::mem::{self, MaybeUninit};
+use core::mem::MaybeUninit;
 use core::sync::atomic::{self, AtomicUsize, Ordering};
 
 use crossbeam_utils::{Backoff, CachePadded};
@@ -63,16 +62,13 @@ pub struct ArrayQueue<T> {
     tail: CachePadded<AtomicUsize>,
 
     /// The buffer holding slots.
-    buffer: *mut Slot<T>,
+    buffer: Box<[Slot<T>]>,
 
     /// The queue capacity.
     cap: usize,
 
     /// A stamp with the value of `{ lap: 1, index: 0 }`.
     one_lap: usize,
-
-    /// Indicates that dropping an `ArrayQueue<T>` may drop elements of type `T`.
-    _marker: PhantomData<T>,
 }
 
 unsafe impl<T: Send> Sync for ArrayQueue<T> {}
@@ -102,20 +98,15 @@ impl<T> ArrayQueue<T> {
 
         // Allocate a buffer of `cap` slots initialized
         // with stamps.
-        let buffer = {
-            let mut boxed: Box<[Slot<T>]> = (0..cap)
-                .map(|i| {
-                    // Set the stamp to `{ lap: 0, index: i }`.
-                    Slot {
-                        stamp: AtomicUsize::new(i),
-                        value: UnsafeCell::new(MaybeUninit::uninit()),
-                    }
-                })
-                .collect();
-            let ptr = boxed.as_mut_ptr();
-            mem::forget(boxed);
-            ptr
-        };
+        let buffer: Box<[Slot<T>]> = (0..cap)
+            .map(|i| {
+                // Set the stamp to `{ lap: 0, index: i }`.
+                Slot {
+                    stamp: AtomicUsize::new(i),
+                    value: UnsafeCell::new(MaybeUninit::uninit()),
+                }
+            })
+            .collect();
 
         // One lap is the smallest power of two greater than `cap`.
         let one_lap = (cap + 1).next_power_of_two();
@@ -126,7 +117,6 @@ impl<T> ArrayQueue<T> {
             one_lap,
             head: CachePadded::new(AtomicUsize::new(head)),
             tail: CachePadded::new(AtomicUsize::new(tail)),
-            _marker: PhantomData,
         }
     }
 
@@ -154,7 +144,8 @@ impl<T> ArrayQueue<T> {
             let lap = tail & !(self.one_lap - 1);
 
             // Inspect the corresponding slot.
-            let slot = unsafe { &*self.buffer.add(index) };
+            debug_assert!(index < self.buffer.len());
+            let slot = unsafe { self.buffer.get_unchecked(index) };
             let stamp = slot.stamp.load(Ordering::Acquire);
 
             // If the tail and the stamp match, we may attempt to push.
@@ -234,7 +225,8 @@ impl<T> ArrayQueue<T> {
             let lap = head & !(self.one_lap - 1);
 
             // Inspect the corresponding slot.
-            let slot = unsafe { &*self.buffer.add(index) };
+            debug_assert!(index < self.buffer.len());
+            let slot = unsafe { self.buffer.get_unchecked(index) };
             let stamp = slot.stamp.load(Ordering::Acquire);
 
             // If the the stamp is ahead of the head by 1, we may attempt to pop.
@@ -407,22 +399,11 @@ impl<T> Drop for ArrayQueue<T> {
             };
 
             unsafe {
-                let p = {
-                    let slot = &mut *self.buffer.add(index);
-                    let value = &mut *slot.value.get();
-                    value.as_mut_ptr()
-                };
-                p.drop_in_place();
+                debug_assert!(index < self.buffer.len());
+                let slot = self.buffer.get_unchecked_mut(index);
+                let value = &mut *slot.value.get();
+                value.as_mut_ptr().drop_in_place();
             }
-        }
-
-        // Finally, deallocate the buffer, but don't run any destructors.
-        unsafe {
-            // Create a slice from the buffer to make
-            // a fat pointer. Then, use Box::from_raw
-            // to deallocate it.
-            let ptr = core::slice::from_raw_parts_mut(self.buffer, self.cap) as *mut [Slot<T>];
-            Box::from_raw(ptr);
         }
     }
 }
@@ -430,5 +411,55 @@ impl<T> Drop for ArrayQueue<T> {
 impl<T> fmt::Debug for ArrayQueue<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("ArrayQueue { .. }")
+    }
+}
+
+impl<T> IntoIterator for ArrayQueue<T> {
+    type Item = T;
+
+    type IntoIter = IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter { value: self }
+    }
+}
+
+#[derive(Debug)]
+pub struct IntoIter<T> {
+    value: ArrayQueue<T>,
+}
+
+impl<T> Iterator for IntoIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = &mut self.value;
+        let head = *value.head.get_mut();
+        if value.head.get_mut() != value.tail.get_mut() {
+            let index = head & (value.one_lap - 1);
+            let lap = head & !(value.one_lap - 1);
+            // SAFETY: We have mutable access to this, so we can read without
+            // worrying about concurrency. Furthermore, we know this is
+            // initialized because it is the value pointed at by `value.head`
+            // and this is a non-empty queue.
+            let val = unsafe {
+                debug_assert!(index < value.buffer.len());
+                let slot = value.buffer.get_unchecked_mut(index);
+                slot.value.get().read().assume_init()
+            };
+            let new = if index + 1 < value.cap {
+                // Same lap, incremented index.
+                // Set to `{ lap: lap, index: index + 1 }`.
+                head + 1
+            } else {
+                // One lap forward, index wraps around to zero.
+                // Set to `{ lap: lap.wrapping_add(1), index: 0 }`.
+                lap.wrapping_add(value.one_lap)
+            };
+            *value.head.get_mut() = new;
+            Option::Some(val)
+        } else {
+            Option::None
+        }
     }
 }

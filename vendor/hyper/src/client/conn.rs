@@ -487,6 +487,23 @@ where
             Poll::Ready(Ok(conn.take().unwrap().into_parts()))
         })
     }
+
+    /// Returns whether the [extended CONNECT protocol][1] is enabled or not.
+    ///
+    /// This setting is configured by the server peer by sending the
+    /// [`SETTINGS_ENABLE_CONNECT_PROTOCOL` parameter][2] in a `SETTINGS` frame.
+    /// This method returns the currently acknowledged value recieved from the
+    /// remote.
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/rfc8441#section-4
+    /// [2]: https://datatracker.ietf.org/doc/html/rfc8441#section-3
+    #[cfg(feature = "http2")]
+    pub fn http2_is_extended_connect_protocol_enabled(&self) -> bool {
+        match self.inner.as_ref().unwrap() {
+            ProtoClient::H1 { .. } => false,
+            ProtoClient::H2 { h2 } => h2.is_extended_connect_protocol_enabled(),
+        }
+    }
 }
 
 impl<T, B> Future for Connection<T, B>
@@ -595,6 +612,49 @@ impl Builder {
     ) -> &mut Builder {
         self.h1_parser_config
             .allow_spaces_after_header_name_in_responses(enabled);
+        self
+    }
+
+    /// Set whether HTTP/1 connections will accept obsolete line folding for
+    /// header values.
+    ///
+    /// Newline codepoints (`\r` and `\n`) will be transformed to spaces when
+    /// parsing.
+    ///
+    /// You probably don't need this, here is what [RFC 7230 Section 3.2.4.] has
+    /// to say about it:
+    ///
+    /// > A server that receives an obs-fold in a request message that is not
+    /// > within a message/http container MUST either reject the message by
+    /// > sending a 400 (Bad Request), preferably with a representation
+    /// > explaining that obsolete line folding is unacceptable, or replace
+    /// > each received obs-fold with one or more SP octets prior to
+    /// > interpreting the field value or forwarding the message downstream.
+    ///
+    /// > A proxy or gateway that receives an obs-fold in a response message
+    /// > that is not within a message/http container MUST either discard the
+    /// > message and replace it with a 502 (Bad Gateway) response, preferably
+    /// > with a representation explaining that unacceptable line folding was
+    /// > received, or replace each received obs-fold with one or more SP
+    /// > octets prior to interpreting the field value or forwarding the
+    /// > message downstream.
+    ///
+    /// > A user agent that receives an obs-fold in a response message that is
+    /// > not within a message/http container MUST replace each received
+    /// > obs-fold with one or more SP octets prior to interpreting the field
+    /// > value.
+    ///
+    /// Note that this setting does not affect HTTP/2.
+    ///
+    /// Default is false.
+    ///
+    /// [RFC 7230 Section 3.2.4.]: https://tools.ietf.org/html/rfc7230#section-3.2.4
+    pub fn http1_allow_obsolete_multiline_headers_in_responses(
+        &mut self,
+        enabled: bool,
+    ) -> &mut Builder {
+        self.h1_parser_config
+            .allow_obsolete_multiline_headers_in_responses(enabled);
         self
     }
 

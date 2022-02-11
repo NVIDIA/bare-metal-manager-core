@@ -10,16 +10,25 @@ A Rust equivalent of Unix command "which". Locate installed executable in cross 
 * Windows
 * macOS
 
-## Example
+## Examples
 
-To find which rustc exectable binary is using.
+1) To find which rustc executable binary is using.
 
-``` rust
-use which::which;
+    ``` rust
+    use which::which;
 
-let result = which::which("rustc").unwrap();
-assert_eq!(result, PathBuf::from("/usr/bin/rustc"));
-```
+    let result = which("rustc").unwrap();
+    assert_eq!(result, PathBuf::from("/usr/bin/rustc"));
+    ```
+
+2. After enabling the `regex` feature, find all cargo subcommand executables on the path:
+
+    ``` rust
+    use which::which_re;
+
+    which_re(Regex::new("^cargo-.*").unwrap()).unwrap()
+        .for_each(|pth| println!("{}", pth.to_string_lossy()));
+    ```
 
 ## Documentation
 

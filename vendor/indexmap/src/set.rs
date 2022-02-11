@@ -10,7 +10,7 @@ use crate::vec::{self, Vec};
 use core::cmp::Ordering;
 use core::fmt;
 use core::hash::{BuildHasher, Hash};
-use core::iter::{Chain, FromIterator};
+use core::iter::{Chain, FromIterator, FusedIterator};
 use core::ops::{BitAnd, BitOr, BitXor, Index, RangeBounds, Sub};
 use core::slice;
 
@@ -61,11 +61,11 @@ type Bucket<T> = super::Bucket<T, ()>;
 /// ```
 #[cfg(has_std)]
 pub struct IndexSet<T, S = RandomState> {
-    map: IndexMap<T, (), S>,
+    pub(crate) map: IndexMap<T, (), S>,
 }
 #[cfg(not(has_std))]
 pub struct IndexSet<T, S> {
-    map: IndexMap<T, (), S>,
+    pub(crate) map: IndexMap<T, (), S>,
 }
 
 impl<T, S> Clone for IndexSet<T, S>
@@ -155,8 +155,11 @@ impl<T, S> IndexSet<T, S> {
         }
     }
 
-    /// Create a new set with `hash_builder`
-    pub fn with_hasher(hash_builder: S) -> Self {
+    /// Create a new set with `hash_builder`.
+    ///
+    /// This function is `const`, so it
+    /// can be called in `static` contexts.
+    pub const fn with_hasher(hash_builder: S) -> Self {
         IndexSet {
             map: IndexMap::with_hasher(hash_builder),
         }
@@ -532,6 +535,8 @@ where
 
     /// Remove the last value
     ///
+    /// This preserves the order of the remaining elements.
+    ///
     /// Computes in **O(1)** time (average).
     pub fn pop(&mut self) -> Option<T> {
         self.map.pop().map(|(x, ())| x)
@@ -553,7 +558,7 @@ where
 
     /// Sort the set’s values by their default ordering.
     ///
-    /// See `sort_by` for details.
+    /// See [`sort_by`](Self::sort_by) for details.
     pub fn sort(&mut self)
     where
         T: Ord,
@@ -561,17 +566,17 @@ where
         self.map.sort_keys()
     }
 
-    /// Sort the set’s values in place using the comparison function `compare`.
+    /// Sort the set’s values in place using the comparison function `cmp`.
     ///
     /// Computes in **O(n log n)** time and **O(n)** space. The sort is stable.
-    pub fn sort_by<F>(&mut self, mut compare: F)
+    pub fn sort_by<F>(&mut self, mut cmp: F)
     where
         F: FnMut(&T, &T) -> Ordering,
     {
-        self.map.sort_by(move |a, _, b, _| compare(a, b));
+        self.map.sort_by(move |a, _, b, _| cmp(a, b));
     }
 
-    /// Sort the values of the set and return a by value iterator of
+    /// Sort the values of the set and return a by-value iterator of
     /// the values with the result.
     ///
     /// The sort is stable.
@@ -580,7 +585,41 @@ where
         F: FnMut(&T, &T) -> Ordering,
     {
         IntoIter {
-            iter: self.map.sorted_by(move |a, &(), b, &()| cmp(a, b)).iter,
+            iter: self.map.sorted_by(move |a, _, b, _| cmp(a, b)).iter,
+        }
+    }
+
+    /// Sort the set's values by their default ordering.
+    ///
+    /// See [`sort_unstable_by`](Self::sort_unstable_by) for details.
+    pub fn sort_unstable(&mut self)
+    where
+        T: Ord,
+    {
+        self.map.sort_unstable_keys()
+    }
+
+    /// Sort the set's values in place using the comparison funtion `cmp`.
+    ///
+    /// Computes in **O(n log n)** time. The sort is unstable.
+    pub fn sort_unstable_by<F>(&mut self, mut cmp: F)
+    where
+        F: FnMut(&T, &T) -> Ordering,
+    {
+        self.map.sort_unstable_by(move |a, _, b, _| cmp(a, b))
+    }
+
+    /// Sort the values of the set and return a by-value iterator of
+    /// the values with the result.
+    pub fn sorted_unstable_by<F>(self, mut cmp: F) -> IntoIter<T>
+    where
+        F: FnMut(&T, &T) -> Ordering,
+    {
+        IntoIter {
+            iter: self
+                .map
+                .sorted_unstable_by(move |a, _, b, _| cmp(a, b))
+                .iter,
         }
     }
 
@@ -708,9 +747,7 @@ impl<T> Iterator for IntoIter<T> {
 }
 
 impl<T> DoubleEndedIterator for IntoIter<T> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.iter.next_back().map(Bucket::key)
-    }
+    double_ended_iterator_methods!(Bucket::key);
 }
 
 impl<T> ExactSizeIterator for IntoIter<T> {
@@ -718,6 +755,8 @@ impl<T> ExactSizeIterator for IntoIter<T> {
         self.iter.len()
     }
 }
+
+impl<T> FusedIterator for IntoIter<T> {}
 
 impl<T: fmt::Debug> fmt::Debug for IntoIter<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -744,9 +783,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 }
 
 impl<T> DoubleEndedIterator for Iter<'_, T> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.iter.next_back().map(Bucket::key_ref)
-    }
+    double_ended_iterator_methods!(Bucket::key_ref);
 }
 
 impl<T> ExactSizeIterator for Iter<'_, T> {
@@ -754,6 +791,8 @@ impl<T> ExactSizeIterator for Iter<'_, T> {
         self.iter.len()
     }
 }
+
+impl<T> FusedIterator for Iter<'_, T> {}
 
 impl<T> Clone for Iter<'_, T> {
     fn clone(&self) -> Self {
@@ -790,6 +829,21 @@ impl<T> DoubleEndedIterator for Drain<'_, T> {
     double_ended_iterator_methods!(Bucket::key);
 }
 
+impl<T> ExactSizeIterator for Drain<'_, T> {
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+}
+
+impl<T> FusedIterator for Drain<'_, T> {}
+
+impl<T: fmt::Debug> fmt::Debug for Drain<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let iter = self.iter.as_slice().iter().map(Bucket::key_ref);
+        f.debug_list().entries(iter).finish()
+    }
+}
+
 impl<'a, T, S> IntoIterator for &'a IndexSet<T, S> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
@@ -820,6 +874,25 @@ where
         IndexSet {
             map: IndexMap::from_iter(iter),
         }
+    }
+}
+
+#[cfg(all(has_std, rustc_1_51))]
+impl<T, const N: usize> From<[T; N]> for IndexSet<T, RandomState>
+where
+    T: Eq + Hash,
+{
+    /// # Examples
+    ///
+    /// ```
+    /// use indexmap::IndexSet;
+    ///
+    /// let set1 = IndexSet::from([1, 2, 3, 4]);
+    /// let set2: IndexSet<_> = [1, 2, 3, 4].into();
+    /// assert_eq!(set1, set2);
+    /// ```
+    fn from(arr: [T; N]) -> Self {
+        std::array::IntoIter::new(arr).collect()
     }
 }
 
@@ -957,6 +1030,13 @@ where
     }
 }
 
+impl<T, S> FusedIterator for Difference<'_, T, S>
+where
+    T: Eq + Hash,
+    S: BuildHasher,
+{
+}
+
 impl<T, S> Clone for Difference<'_, T, S> {
     fn clone(&self) -> Self {
         Difference {
@@ -1024,6 +1104,13 @@ where
     }
 }
 
+impl<T, S> FusedIterator for Intersection<'_, T, S>
+where
+    T: Eq + Hash,
+    S: BuildHasher,
+{
+}
+
 impl<T, S> Clone for Intersection<'_, T, S> {
     fn clone(&self) -> Self {
         Intersection {
@@ -1087,6 +1174,21 @@ where
     fn next_back(&mut self) -> Option<Self::Item> {
         self.iter.next_back()
     }
+
+    fn rfold<B, F>(self, init: B, f: F) -> B
+    where
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.iter.rfold(init, f)
+    }
+}
+
+impl<T, S1, S2> FusedIterator for SymmetricDifference<'_, T, S1, S2>
+where
+    T: Eq + Hash,
+    S1: BuildHasher,
+    S2: BuildHasher,
+{
 }
 
 impl<T, S1, S2> Clone for SymmetricDifference<'_, T, S1, S2> {
@@ -1150,6 +1252,20 @@ where
     fn next_back(&mut self) -> Option<Self::Item> {
         self.iter.next_back()
     }
+
+    fn rfold<B, F>(self, init: B, f: F) -> B
+    where
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.iter.rfold(init, f)
+    }
+}
+
+impl<T, S> FusedIterator for Union<'_, T, S>
+where
+    T: Eq + Hash,
+    S: BuildHasher,
+{
 }
 
 impl<T, S> Clone for Union<'_, T, S> {
@@ -1646,5 +1762,14 @@ mod tests {
         assert_eq!(&set_d ^ &set_c, &set_a | &(&set_d - &set_b));
         assert_eq!(&set_c - &set_d, set_a);
         assert_eq!(&set_d - &set_c, &set_d - &set_b);
+    }
+
+    #[test]
+    #[cfg(all(has_std, rustc_1_51))]
+    fn from_array() {
+        let set1 = IndexSet::from([1, 2, 3, 4]);
+        let set2: IndexSet<_> = [1, 2, 3, 4].into();
+
+        assert_eq!(set1, set2);
     }
 }

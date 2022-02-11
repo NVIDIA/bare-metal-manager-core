@@ -138,7 +138,7 @@ impl error::Error for PathPersistError {
 ///
 /// When dropped, the temporary file is deleted.
 pub struct TempPath {
-    path: PathBuf,
+    path: Box<Path>,
 }
 
 impl TempPath {
@@ -176,8 +176,8 @@ impl TempPath {
     /// # }
     /// ```
     pub fn close(mut self) -> io::Result<()> {
-        let result = fs::remove_file(&self.path).with_err_path(|| &self.path);
-        self.path = PathBuf::new();
+        let result = fs::remove_file(&self.path).with_err_path(|| &*self.path);
+        self.path = PathBuf::new().into_boxed_path();
         mem::forget(self);
         result
     }
@@ -231,7 +231,7 @@ impl TempPath {
                 // Don't drop `self`. We don't want to try deleting the old
                 // temporary file path. (It'll fail, but the failure is never
                 // seen.)
-                self.path = PathBuf::new();
+                self.path = PathBuf::new().into_boxed_path();
                 mem::forget(self);
                 Ok(())
             }
@@ -293,7 +293,7 @@ impl TempPath {
                 // Don't drop `self`. We don't want to try deleting the old
                 // temporary file path. (It'll fail, but the failure is never
                 // seen.)
-                self.path = PathBuf::new();
+                self.path = PathBuf::new().into_boxed_path();
                 mem::forget(self);
                 Ok(())
             }
@@ -341,14 +341,26 @@ impl TempPath {
                 // Don't drop `self`. We don't want to try deleting the old
                 // temporary file path. (It'll fail, but the failure is never
                 // seen.)
-                let path = mem::replace(&mut self.path, PathBuf::new());
+                let path = mem::replace(&mut self.path, PathBuf::new().into_boxed_path());
                 mem::forget(self);
-                Ok(path)
+                Ok(path.into())
             }
             Err(e) => Err(PathPersistError {
                 error: e,
                 path: self,
             }),
+        }
+    }
+
+    /// Create a new TempPath from an existing path. This can be done even if no
+    /// file exists at the given path.
+    ///
+    /// This is mostly useful for interacting with libraries and external
+    /// components that provide files to be consumed or expect a path with no
+    /// existing file to be given.
+    pub fn from_path(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into().into_boxed_path(),
         }
     }
 }
@@ -953,7 +965,9 @@ pub(crate) fn create_named(
     imp::create_named(&path, open_options)
         .with_err_path(|| path.clone())
         .map(|file| NamedTempFile {
-            path: TempPath { path },
+            path: TempPath {
+                path: path.into_boxed_path(),
+            },
             file,
         })
 }

@@ -60,8 +60,10 @@
 //!   **Requires "std"**.
 //! - `json`: Enables `fmt` support for JSON output. In JSON output, the ANSI
 //!   feature does nothing. **Requires "fmt" and "std"**.
-//! - [`local-time`]: Enables local time formatting when using the [`time`
+//! - `local-time`: Enables local time formatting when using the [`time`
 //!   crate]'s timestamp formatters with the `fmt` subscriber.
+//!
+//! [`registry`]: mod@registry
 //!
 //! ### Optional Dependencies
 //!
@@ -80,7 +82,7 @@
 //! used without requiring the Rust standard library, although some features are
 //! disabled. Although most of the APIs provided by `tracing-subscriber`, such
 //! as [`fmt`] and [`EnvFilter`], require the standard library, some
-//! functionality, such as the [`Subscriber`] trait, can still be used in
+//! functionality, such as the [`Layer`] trait, can still be used in
 //! `no_std` environments.
 //!
 //! The dependency on the standard library is controlled by two crate feature
@@ -101,6 +103,37 @@
 //! # Cargo.toml
 //! tracing-subscriber = { version = "0.3", default-features = false, features = ["alloc"] }
 //! ```
+//!
+//! ### Unstable Features
+//!
+//! These feature flags enable **unstable** features. The public API may break in 0.1.x
+//! releases. To enable these features, the `--cfg tracing_unstable` must be passed to
+//! `rustc` when compiling.
+//!
+//! The following unstable feature flags are currently available:
+//!
+//! * `valuable`: Enables support for serializing values recorded using the
+//!   [`valuable`] crate as structured JSON in the [`format::Json`] formatter.
+//!
+//! #### Enabling Unstable Features
+//!
+//! The easiest way to set the `tracing_unstable` cfg is to use the `RUSTFLAGS`
+//! env variable when running `cargo` commands:
+//!
+//! ```shell
+//! RUSTFLAGS="--cfg tracing_unstable" cargo build
+//! ```
+//! Alternatively, the following can be added to the `.cargo/config` file in a
+//! project to automatically enable the cfg flag for that project:
+//!
+//! ```toml
+//! [build]
+//! rustflags = ["--cfg", "tracing_unstable"]
+//! ```
+//!
+//! [feature flags]: https://doc.rust-lang.org/cargo/reference/manifest.html#the-features-section
+//! [`valuable`]: https://crates.io/crates/valuable
+//! [`format::Json`]: crate::fmt::format::Json
 //!
 //! ## Supported Rust Versions
 //!
@@ -125,8 +158,9 @@
 //! [`env_logger` crate]: https://crates.io/crates/env_logger
 //! [`parking_lot`]: https://crates.io/crates/parking_lot
 //! [`time` crate]: https://crates.io/crates/time
+//! [`libstd`]: https://doc.rust-lang.org/std/index.html
 //! [`liballoc`]: https://doc.rust-lang.org/alloc/index.html
-#![doc(html_root_url = "https://docs.rs/tracing-subscriber/0.3.1")]
+#![doc(html_root_url = "https://docs.rs/tracing-subscriber/0.3.8")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/tokio-rs/tracing/master/assets/logo-type.png",
     issue_tracker_base_url = "https://github.com/tokio-rs/tracing/issues/"

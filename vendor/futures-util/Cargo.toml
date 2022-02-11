@@ -11,45 +11,51 @@
 
 [package]
 edition = "2018"
+rust-version = "1.45"
 name = "futures-util"
-version = "0.3.17"
-authors = ["Alex Crichton <alex@alexcrichton.com>"]
-description = "Common utilities and extension traits for the futures-rs library.\n"
+version = "0.3.21"
+description = """
+Common utilities and extension traits for the futures-rs library.
+"""
 homepage = "https://rust-lang.github.io/futures-rs"
-documentation = "https://docs.rs/futures-util/0.3"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-lang/futures-rs"
+
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
+
 [dependencies.futures-channel]
-version = "0.3.17"
+version = "0.3.21"
 features = ["std"]
 optional = true
 default-features = false
 
 [dependencies.futures-core]
-version = "0.3.17"
+version = "0.3.21"
 default-features = false
 
 [dependencies.futures-io]
-version = "0.3.17"
+version = "0.3.21"
 features = ["std"]
 optional = true
 default-features = false
 
 [dependencies.futures-macro]
-version = "=0.3.17"
+version = "=0.3.21"
 optional = true
 default-features = false
 
 [dependencies.futures-sink]
-version = "0.3.17"
+version = "0.3.21"
 optional = true
 default-features = false
 
 [dependencies.futures-task]
-version = "0.3.17"
+version = "0.3.21"
 default-features = false
 
 [dependencies.futures_01]
@@ -67,14 +73,6 @@ version = "0.2.4"
 [dependencies.pin-utils]
 version = "0.1.0"
 
-[dependencies.proc-macro-hack]
-version = "0.5.19"
-optional = true
-
-[dependencies.proc-macro-nested]
-version = "0.1.2"
-optional = true
-
 [dependencies.slab]
 version = "0.4.2"
 optional = true
@@ -82,24 +80,54 @@ optional = true
 [dependencies.tokio-io]
 version = "0.1.9"
 optional = true
+
 [dev-dependencies.tokio]
 version = "0.1.11"
-[build-dependencies.autocfg]
-version = "1"
 
 [features]
-alloc = ["futures-core/alloc", "futures-task/alloc"]
+alloc = [
+    "futures-core/alloc",
+    "futures-task/alloc",
+]
 async-await = []
-async-await-macro = ["async-await", "futures-macro", "proc-macro-hack", "proc-macro-nested"]
+async-await-macro = [
+    "async-await",
+    "futures-macro",
+]
 bilock = []
 cfg-target-has-atomic = []
-channel = ["std", "futures-channel"]
-compat = ["std", "futures_01"]
-default = ["std", "async-await", "async-await-macro"]
-io = ["std", "futures-io", "memchr"]
-io-compat = ["io", "compat", "tokio-io"]
-read-initializer = ["io", "futures-io/read-initializer", "futures-io/unstable"]
+channel = [
+    "std",
+    "futures-channel",
+]
+compat = [
+    "std",
+    "futures_01",
+]
+default = [
+    "std",
+    "async-await",
+    "async-await-macro",
+]
+io = [
+    "std",
+    "futures-io",
+    "memchr",
+]
+io-compat = [
+    "io",
+    "compat",
+    "tokio-io",
+]
 sink = ["futures-sink"]
-std = ["alloc", "futures-core/std", "futures-task/std", "slab"]
-unstable = ["futures-core/unstable", "futures-task/unstable"]
+std = [
+    "alloc",
+    "futures-core/std",
+    "futures-task/std",
+    "slab",
+]
+unstable = [
+    "futures-core/unstable",
+    "futures-task/unstable",
+]
 write-all-vectored = ["io"]

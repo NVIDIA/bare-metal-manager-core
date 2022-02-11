@@ -185,6 +185,9 @@ In addition to the raw attributes, the following magic attributes are supported:
 - `default_value_t [= <expr>]`: `clap::Arg::default_value` and `clap::Arg::required(false)`
   - Requires `std::fmt::Display` or `#[clap(arg_enum)]`
   - Without `<expr>`, relies on `Default::default()`
+- `default_value_os_t [= <expr>]`: `clap::Arg::default_value_os` and `clap::Arg::required(false)`
+  - Requires `std::convert::Into<OsString>` or `#[clap(arg_enum)]`
+  - Without `<expr>`, relies on `Default::default()`
 
 ### Arg Types
 
@@ -192,7 +195,7 @@ In addition to the raw attributes, the following magic attributes are supported:
 
 | Type                | Effect                               | Implies                                                          |
 |---------------------|--------------------------------------|------------------------------------------------------------------|
-| `bool`              | flag                                 | `#[clap(parser(from_flag))]`                                     |
+| `bool`              | flag                                 | `#[clap(parse(from_flag))]`                                     |
 | `Option<T>`         | optional argument                    | `.takes_value(true).required(false)`                             |
 | `Option<Option<T>>` | optional value for optional argument | `.takes_value(true).required(false).min_values(0).max_values(1)` |
 | `T`                 | required argument                    | `.takes_value(true).required(!has_default)`                      |
@@ -224,9 +227,11 @@ Notes:
 - `from_occurrences`:
   - Implies `arg.takes_value(false).multiple_occurrences(true)`
   - Reads from `clap::ArgMatches::occurrences_of` rather than a `value_of` function
+    - Note: operations on values, like `default_value`, are unlikely to do what you want
 - `from_flag`
   - Implies `arg.takes_value(false)`
   - Reads from `clap::ArgMatches::is_present` rather than a `value_of` function
+    - Note: operations on values, like `default_value`, are unlikely to do what you want
 
 **Warning:**
 - To support non-UTF8 paths, you must use `parse(from_os_str)`, otherwise

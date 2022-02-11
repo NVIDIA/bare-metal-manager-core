@@ -60,7 +60,7 @@
 //!
 //! [Specifying Dependencies]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html
 
-#![doc(html_root_url = "https://docs.rs/semver/1.0.4")]
+#![doc(html_root_url = "https://docs.rs/semver/1.0.5")]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![cfg_attr(all(not(feature = "std"), not(no_alloc_crate)), no_std)]
 #![cfg_attr(not(no_unsafe_op_in_unsafe_fn_lint), deny(unsafe_op_in_unsafe_fn))]
@@ -71,6 +71,7 @@
     clippy::cast_possible_truncation,
     clippy::doc_markdown,
     clippy::items_after_statements,
+    clippy::manual_map,
     clippy::match_bool,
     clippy::missing_errors_doc,
     clippy::must_use_candidate,
@@ -183,7 +184,8 @@ pub struct Version {
 /// - Whitespace is permitted around commas and around operators. Whitespace is
 ///   not permitted within a partial version, i.e. anywhere between the major
 ///   version number and its minor, patch, pre-release, or build metadata.
-#[derive(Default, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+#[cfg_attr(no_const_vec_new, derive(Default))]
 pub struct VersionReq {
     pub comparators: Vec<Comparator>,
 }
@@ -473,6 +475,14 @@ impl VersionReq {
     /// described by `self`.
     pub fn matches(&self, version: &Version) -> bool {
         eval::matches_req(self, version)
+    }
+}
+
+/// The default VersionReq is the same as [`VersionReq::STAR`].
+#[cfg(not(no_const_vec_new))]
+impl Default for VersionReq {
+    fn default() -> Self {
+        VersionReq::STAR
     }
 }
 

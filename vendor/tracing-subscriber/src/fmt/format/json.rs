@@ -52,9 +52,23 @@ use tracing_log::NormalizeEvent;
 /// By default, event fields are not flattened, and both current span and span
 /// list are logged.
 ///
+/// # Valuable Support
+///
+/// Experimental support is available for using the [`valuable`] crate to record
+/// user-defined values as structured JSON. When the ["valuable" unstable
+/// feature][unstable] is enabled, types implementing [`valuable::Valuable`] will
+/// be recorded as structured JSON, rather than
+/// using their [`std::fmt::Debug`] implementations.
+///
+/// **Note**: This is an experimental feature. [Unstable features][unstable]
+/// must be enabled in order to use `valuable` support.
+///
 /// [`Json::flatten_event`]: #method.flatten_event
 /// [`Json::with_current_span`]: #method.with_current_span
 /// [`Json::with_span_list`]: #method.with_span_list
+/// [`valuable`]: https://crates.io/crates/valuable
+/// [unstable]: crate#unstable-features
+/// [`valuable::Valuable`]: https://docs.rs/valuable/latest/valuable/trait.Valuable.html
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Json {
     pub(crate) flatten_event: bool,
@@ -241,6 +255,18 @@ where
 
             if self.display_target {
                 serializer.serialize_entry("target", meta.target())?;
+            }
+
+            if self.display_filename {
+                if let Some(filename) = meta.file() {
+                    serializer.serialize_entry("filename", filename)?;
+                }
+            }
+
+            if self.display_line_number {
+                if let Some(line_number) = meta.line() {
+                    serializer.serialize_entry("line_number", &line_number)?;
+                }
             }
 
             if self.format.display_current_span {
@@ -435,6 +461,26 @@ impl<'a> crate::field::VisitOutput<fmt::Result> for JsonVisitor<'a> {
 }
 
 impl<'a> field::Visit for JsonVisitor<'a> {
+    #[cfg(all(tracing_unstable, feature = "valuable"))]
+    fn record_value(&mut self, field: &Field, value: valuable_crate::Value<'_>) {
+        let value = match serde_json::to_value(valuable_serde::Serializable::new(value)) {
+            Ok(value) => value,
+            Err(_e) => {
+                #[cfg(debug_assertions)]
+                unreachable!(
+                    "`valuable::Valuable` implementations should always serialize \
+                    successfully, but an error occurred: {}",
+                    _e,
+                );
+
+                #[cfg(not(debug_assertions))]
+                return;
+            }
+        };
+
+        self.values.insert(field.name(), value);
+    }
+
     /// Visit a double precision floating point value.
     fn record_f64(&mut self, field: &Field, value: f64) {
         self.values
@@ -488,6 +534,7 @@ mod test {
     use tracing::{self, subscriber::with_default};
 
     use std::fmt;
+    use std::path::Path;
 
     struct MockTime;
     impl FormatTime for MockTime {
@@ -509,6 +556,50 @@ mod test {
             .with_current_span(true)
             .with_span_list(true);
         test_json(expected, subscriber, || {
+            let span = tracing::span!(tracing::Level::INFO, "json_span", answer = 42, number = 3);
+            let _guard = span.enter();
+            tracing::info!("some json test");
+        });
+    }
+
+    #[test]
+    fn json_filename() {
+        let current_path = Path::new("tracing-subscriber")
+            .join("src")
+            .join("fmt")
+            .join("format")
+            .join("json.rs")
+            .to_str()
+            .expect("path must be valid unicode")
+            // escape windows backslashes
+            .replace('\\', "\\\\");
+        let expected =
+            &format!("{}{}{}",
+                    "{\"timestamp\":\"fake time\",\"level\":\"INFO\",\"span\":{\"answer\":42,\"name\":\"json_span\",\"number\":3},\"spans\":[{\"answer\":42,\"name\":\"json_span\",\"number\":3}],\"target\":\"tracing_subscriber::fmt::format::json::test\",\"filename\":\"",
+                    current_path,
+                    "\",\"fields\":{\"message\":\"some json test\"}}\n");
+        let subscriber = subscriber()
+            .flatten_event(false)
+            .with_current_span(true)
+            .with_file(true)
+            .with_span_list(true);
+        test_json(expected, subscriber, || {
+            let span = tracing::span!(tracing::Level::INFO, "json_span", answer = 42, number = 3);
+            let _guard = span.enter();
+            tracing::info!("some json test");
+        });
+    }
+
+    #[test]
+    fn json_line_number() {
+        let expected =
+            "{\"timestamp\":\"fake time\",\"level\":\"INFO\",\"span\":{\"answer\":42,\"name\":\"json_span\",\"number\":3},\"spans\":[{\"answer\":42,\"name\":\"json_span\",\"number\":3}],\"target\":\"tracing_subscriber::fmt::format::json::test\",\"line_number\":42,\"fields\":{\"message\":\"some json test\"}}\n";
+        let subscriber = subscriber()
+            .flatten_event(false)
+            .with_current_span(true)
+            .with_line_number(true)
+            .with_span_list(true);
+        test_json_with_line_number(expected, subscriber, || {
             let span = tracing::span!(tracing::Level::INFO, "json_span", answer = 42, number = 3);
             let _guard = span.enter();
             tracing::info!("some json test");
@@ -746,5 +837,35 @@ mod test {
                 .unwrap(),
             serde_json::from_str(actual).unwrap()
         );
+    }
+
+    fn test_json_with_line_number<T>(
+        expected: &str,
+        builder: crate::fmt::SubscriberBuilder<JsonFields, Format<Json>>,
+        producer: impl FnOnce() -> T,
+    ) {
+        let make_writer = MockMakeWriter::default();
+        let subscriber = builder
+            .with_writer(make_writer.clone())
+            .with_timer(MockTime)
+            .finish();
+
+        with_default(subscriber, producer);
+
+        let buf = make_writer.buf();
+        let actual = std::str::from_utf8(&buf[..]).unwrap();
+        let mut expected =
+            serde_json::from_str::<std::collections::HashMap<&str, serde_json::Value>>(expected)
+                .unwrap();
+        let expect_line_number = expected.remove("line_number").is_some();
+        let mut actual: std::collections::HashMap<&str, serde_json::Value> =
+            serde_json::from_str(actual).unwrap();
+        let line_number = actual.remove("line_number");
+        if expect_line_number {
+            assert_eq!(line_number.map(|x| x.is_number()), Some(true));
+        } else {
+            assert!(line_number.is_none());
+        }
+        assert_eq!(actual, expected);
     }
 }

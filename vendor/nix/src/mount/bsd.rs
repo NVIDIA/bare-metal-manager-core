@@ -111,7 +111,7 @@ impl NmountError {
     }
 
     /// Returns the inner [`Error`]
-    pub fn error(&self) -> Error {
+    pub const fn error(&self) -> Error {
         self.errno
     }
 
@@ -347,6 +347,7 @@ impl<'a> Nmount<'a> {
         self
     }
 
+    /// Create a new `Nmount` struct with no options
     pub fn new() -> Self {
         Self::default()
     }
@@ -382,7 +383,7 @@ impl<'a> Nmount<'a> {
                         Some(CStr::from_bytes_with_nul(sl).unwrap())
                     }
                 };
-                Err(NmountError::new(error.into(), errmsg))
+                Err(NmountError::new(error, errmsg))
             }
         }
     }
@@ -396,7 +397,7 @@ impl<'a> Drop for Nmount<'a> {
                 // Free the owned string.  Safe because we recorded ownership,
                 // and Nmount does not implement Clone.
                 unsafe {
-                    CString::from_raw(iov.0.iov_base as *mut c_char);
+                    drop(CString::from_raw(iov.0.iov_base as *mut c_char));
                 }
             }
         }

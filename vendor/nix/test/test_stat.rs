@@ -11,7 +11,6 @@ use std::path::Path;
 
 #[cfg(not(any(target_os = "netbsd", target_os = "redox")))]
 use libc::{S_IFMT, S_IFLNK};
-#[cfg(not(target_os = "redox"))]
 use libc::mode_t;
 
 #[cfg(not(target_os = "redox"))]
@@ -60,6 +59,7 @@ fn assert_stat_results(stat_result: Result<FileStat>) {
 #[cfg(not(any(target_os = "netbsd", target_os = "redox")))]
 // (Android's st_blocks is ulonglong which is always non-negative.)
 #[cfg_attr(target_os = "android", allow(unused_comparisons))]
+#[allow(clippy::absurd_extreme_comparisons)]    // Not absurd on all OSes
 fn assert_lstat_results(stat_result: Result<FileStat>) {
     let stats = stat_result.expect("stat call failed");
     assert!(stats.st_dev > 0);      // must be positive integer, exact number machine dependent
@@ -305,4 +305,54 @@ fn test_mkdirat_fail() {
                             stat::Mode::empty()).unwrap();
     let result = mkdirat(dirfd, filename, Mode::S_IRWXU).unwrap_err();
     assert_eq!(result, Errno::ENOTDIR);
+}
+
+#[test]
+#[cfg(not(any(target_os = "freebsd",
+              target_os = "ios",
+              target_os = "macos",
+              target_os = "redox")))]
+fn test_mknod() {
+    use stat::{lstat, mknod, SFlag};
+
+    let file_name = "test_file";
+    let tempdir = tempfile::tempdir().unwrap();
+    let target = tempdir.path().join(file_name);
+    mknod(&target, SFlag::S_IFREG, Mode::S_IRWXU, 0).unwrap();
+    let mode = lstat(&target).unwrap().st_mode as mode_t;
+    assert!(mode & libc::S_IFREG == libc::S_IFREG);
+    assert!(mode & libc::S_IRWXU == libc::S_IRWXU);
+}
+
+#[test]
+#[cfg(not(any(target_os = "freebsd",
+              target_os = "illumos",
+              target_os = "ios",
+              target_os = "macos",
+              target_os = "redox")))]
+fn test_mknodat() {
+    use fcntl::{AtFlags, OFlag};
+    use nix::dir::Dir;
+    use stat::{fstatat, mknodat, SFlag};
+
+    let file_name = "test_file";
+    let tempdir = tempfile::tempdir().unwrap();
+    let target_dir = Dir::open(tempdir.path(), OFlag::O_DIRECTORY, Mode::S_IRWXU).unwrap();
+    mknodat(
+        target_dir.as_raw_fd(),
+        file_name,
+        SFlag::S_IFREG,
+        Mode::S_IRWXU,
+        0,
+    )
+    .unwrap();
+    let mode = fstatat(
+        target_dir.as_raw_fd(),
+        file_name,
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    )
+    .unwrap()
+    .st_mode as mode_t;
+    assert!(mode & libc::S_IFREG == libc::S_IFREG);
+    assert!(mode & libc::S_IRWXU == libc::S_IRWXU);
 }

@@ -1,5 +1,5 @@
 use libc::{c_int, c_void};
-use nix::{Error, Result};
+use nix::Result;
 use nix::errno::*;
 use nix::sys::aio::*;
 use nix::sys::signal::{SaFlags, SigAction, sigaction, SigevNotify, SigHandler, Signal, SigSet};
@@ -16,7 +16,7 @@ use tempfile::tempfile;
 fn poll_aio(aiocb: &mut Pin<Box<AioCb>>) -> Result<()> {
     loop {
         let err = aiocb.error();
-        if err != Err(Error::from(Errno::EINPROGRESS)) { return err; };
+        if err != Err(Errno::EINPROGRESS) { return err; };
         thread::sleep(time::Duration::from_millis(10));
     }
 }
@@ -26,7 +26,7 @@ fn poll_aio(aiocb: &mut Pin<Box<AioCb>>) -> Result<()> {
 fn poll_lio(liocb: &mut LioCb, i: usize) -> Result<()> {
     loop {
         let err = liocb.error(i);
-        if err != Err(Error::from(Errno::EINPROGRESS)) { return err; };
+        if err != Err(Errno::EINPROGRESS) { return err; };
         thread::sleep(time::Duration::from_millis(10));
     }
 }
@@ -70,7 +70,7 @@ fn test_cancel() {
                             LioOpcode::LIO_NOP);
     aiocb.write().unwrap();
     let err = aiocb.error();
-    assert!(err == Ok(()) || err == Err(Error::from(Errno::EINPROGRESS)));
+    assert!(err == Ok(()) || err == Err(Errno::EINPROGRESS));
 
     let cancelstat = aiocb.cancel();
     assert!(cancelstat.is_ok());
@@ -95,7 +95,7 @@ fn test_aio_cancel_all() {
                             LioOpcode::LIO_NOP);
     aiocb.write().unwrap();
     let err = aiocb.error();
-    assert!(err == Ok(()) || err == Err(Error::from(Errno::EINPROGRESS)));
+    assert!(err == Ok(()) || err == Err(Errno::EINPROGRESS));
 
     let cancelstat = aio_cancel_all(f.as_raw_fd());
     assert!(cancelstat.is_ok());
@@ -182,8 +182,8 @@ fn test_aio_suspend() {
                 Ok(_) => ()
             };
         }
-        if rcb.error() != Err(Error::from(Errno::EINPROGRESS)) &&
-           wcb.error() != Err(Error::from(Errno::EINPROGRESS)) {
+        if rcb.error() != Err(Errno::EINPROGRESS) &&
+           wcb.error() != Err(Errno::EINPROGRESS) {
             break
         }
     }
@@ -406,7 +406,7 @@ extern fn sigfunc(_: c_int) {
 #[test]
 #[cfg_attr(any(all(target_env = "musl", target_arch = "x86_64"), target_arch = "mips", target_arch = "mips64"), ignore)]
 fn test_write_sigev_signal() {
-    let _m = crate::SIGNAL_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::SIGNAL_MTX.lock();
     let sa = SigAction::new(SigHandler::Handler(sigfunc),
                             SaFlags::SA_RESETHAND,
                             SigSet::empty());
@@ -544,7 +544,7 @@ fn test_liocb_listio_nowait() {
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
 #[cfg_attr(any(target_arch = "mips", target_arch = "mips64", target_env = "musl"), ignore)]
 fn test_liocb_listio_signal() {
-    let _m = crate::SIGNAL_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::SIGNAL_MTX.lock();
     const INITIAL: &[u8] = b"abcdef123456";
     const WBUF: &[u8] = b"CDEF";
     let mut rbuf = vec![0; 4];

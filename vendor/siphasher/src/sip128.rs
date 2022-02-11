@@ -124,7 +124,7 @@ macro_rules! load_int_le {
         debug_assert!($i + mem::size_of::<$int_ty>() <= $buf.len());
         let mut data = 0 as $int_ty;
         ptr::copy_nonoverlapping(
-            $buf.get_unchecked($i),
+            $buf.as_ptr().add($i),
             &mut data as *mut _ as *mut u8,
             mem::size_of::<$int_ty>(),
         );
@@ -181,7 +181,7 @@ impl SipHasher {
         let mut b0 = [0u8; 8];
         let mut b1 = [0u8; 8];
         b0.copy_from_slice(&key[0..8]);
-        b1.copy_from_slice(&key[0..8]);
+        b1.copy_from_slice(&key[8..16]);
         let key0 = u64::from_le_bytes(b0);
         let key1 = u64::from_le_bytes(b1);
         Self::new_with_keys(key0, key1)
@@ -196,7 +196,7 @@ impl SipHasher {
     pub fn key(&self) -> [u8; 16] {
         let mut bytes = [0u8; 16];
         bytes[0..8].copy_from_slice(&self.0.hasher.k0.to_le_bytes());
-        bytes[0..16].copy_from_slice(&self.0.hasher.k1.to_le_bytes());
+        bytes[8..16].copy_from_slice(&self.0.hasher.k1.to_le_bytes());
         bytes
     }
 }
@@ -229,7 +229,7 @@ impl SipHasher13 {
         let mut b0 = [0u8; 8];
         let mut b1 = [0u8; 8];
         b0.copy_from_slice(&key[0..8]);
-        b1.copy_from_slice(&key[0..8]);
+        b1.copy_from_slice(&key[8..16]);
         let key0 = u64::from_le_bytes(b0);
         let key1 = u64::from_le_bytes(b1);
         Self::new_with_keys(key0, key1)
@@ -244,7 +244,7 @@ impl SipHasher13 {
     pub fn key(&self) -> [u8; 16] {
         let mut bytes = [0u8; 16];
         bytes[0..8].copy_from_slice(&self.hasher.k0.to_le_bytes());
-        bytes[0..16].copy_from_slice(&self.hasher.k1.to_le_bytes());
+        bytes[8..16].copy_from_slice(&self.hasher.k1.to_le_bytes());
         bytes
     }
 }
@@ -277,7 +277,7 @@ impl SipHasher24 {
         let mut b0 = [0u8; 8];
         let mut b1 = [0u8; 8];
         b0.copy_from_slice(&key[0..8]);
-        b1.copy_from_slice(&key[0..8]);
+        b1.copy_from_slice(&key[8..16]);
         let key0 = u64::from_le_bytes(b0);
         let key1 = u64::from_le_bytes(b1);
         Self::new_with_keys(key0, key1)
@@ -292,7 +292,7 @@ impl SipHasher24 {
     pub fn key(&self) -> [u8; 16] {
         let mut bytes = [0u8; 16];
         bytes[0..8].copy_from_slice(&self.hasher.k0.to_le_bytes());
-        bytes[0..16].copy_from_slice(&self.hasher.k1.to_le_bytes());
+        bytes[8..16].copy_from_slice(&self.hasher.k1.to_le_bytes());
         bytes
     }
 }
@@ -647,8 +647,8 @@ impl Hash128 {
         let h1 = self.h1.to_le();
         let h2 = self.h2.to_le();
         unsafe {
-            ptr::copy_nonoverlapping(&h1 as *const _ as *const u8, bytes.get_unchecked_mut(0), 8);
-            ptr::copy_nonoverlapping(&h2 as *const _ as *const u8, bytes.get_unchecked_mut(8), 8);
+            ptr::copy_nonoverlapping(&h1 as *const _ as *const u8, bytes.as_mut_ptr(), 8);
+            ptr::copy_nonoverlapping(&h2 as *const _ as *const u8, bytes.as_mut_ptr().add(8), 8);
         }
         bytes
     }

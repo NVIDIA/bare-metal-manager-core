@@ -58,6 +58,7 @@ libc_enum! {
     /// The type of the clock used to mark the progress of the timer. For more
     /// details on each kind of clock, please refer to [timerfd_create(2)](https://man7.org/linux/man-pages/man2/timerfd_create.2.html).
     #[repr(i32)]
+    #[non_exhaustive]
     pub enum ClockId {
         CLOCK_REALTIME,
         CLOCK_MONOTONIC,
@@ -87,7 +88,7 @@ bitflags! {
 struct TimerSpec(libc::itimerspec);
 
 impl TimerSpec {
-    pub fn none() -> Self {
+    pub const fn none() -> Self {
         Self(libc::itimerspec {
             it_interval: libc::timespec {
                 tv_sec: 0,
@@ -256,14 +257,9 @@ impl TimerFd {
     ///
     /// Note: If the alarm is unset, then you will wait forever.
     pub fn wait(&self) -> Result<()> {
-        loop {
-            if let Err(e) = read(self.fd, &mut [0u8; 8]) {
-                match e {
-                    Errno::EINTR => continue,
-                    _ => return Err(e),
-                }
-            } else {
-                break;
+        while let Err(e) = read(self.fd, &mut [0u8; 8]) {
+            if e != Errno::EINTR {
+                return Err(e)
             }
         }
 

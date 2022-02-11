@@ -28,8 +28,6 @@ use std::io::prelude::*;
 #[cfg(not(target_os = "redox"))]
 use std::os::unix::fs;
 
-use crate::*;
-
 #[test]
 #[cfg(not(target_os = "redox"))]
 fn test_openat() {
@@ -129,14 +127,14 @@ fn test_renameat2_exchange() {
     let old_path = old_dir.path().join("old");
     {
         let mut old_f = File::create(&old_path).unwrap();
-        old_f.write(b"old").unwrap();
+        old_f.write_all(b"old").unwrap();
     }
     let new_dir = tempfile::tempdir().unwrap();
     let new_dirfd = open(new_dir.path(), OFlag::empty(), Mode::empty()).unwrap();
     let new_path = new_dir.path().join("new");
     {
         let mut new_f = File::create(&new_path).unwrap();
-        new_f.write(b"new").unwrap();
+        new_f.write_all(b"new").unwrap();
     }
     renameat2(
         Some(old_dirfd),
@@ -238,14 +236,8 @@ mod linux_android {
     /// The from_offset should be updated by the call to reflect
     /// the 3 bytes read (6).
     #[test]
-    // QEMU does not support copy_file_range. Skip platforms that use QEMU in CI
-    #[cfg_attr(all(target_os = "linux", any(
-            target_arch = "aarch64",
-            target_arch = "arm",
-            target_arch = "mips",
-            target_arch = "mips64",
-            target_arch = "powerpc64"
-    )), ignore)]
+    // QEMU does not support copy_file_range. Skip under qemu
+    #[cfg_attr(qemu, ignore)]
     fn test_copy_file_range() {
         const CONTENTS: &[u8] = b"foobarbaz";
 
@@ -327,9 +319,10 @@ mod linux_android {
 
         let buf1 = b"abcdef";
         let buf2 = b"defghi";
-        let mut iovecs = Vec::with_capacity(2);
-        iovecs.push(IoVec::from_slice(&buf1[0..3]));
-        iovecs.push(IoVec::from_slice(&buf2[0..3]));
+        let iovecs = vec![
+            IoVec::from_slice(&buf1[0..3]),
+            IoVec::from_slice(&buf2[0..3])
+        ];
 
         let res = vmsplice(wr, &iovecs[..], SpliceFFlags::empty()).unwrap();
 
@@ -480,17 +473,16 @@ mod test_posix_fadvise {
     fn test_success() {
         let tmp = NamedTempFile::new().unwrap();
         let fd = tmp.as_raw_fd();
-        let res = posix_fadvise(fd, 0, 100, PosixFadviseAdvice::POSIX_FADV_WILLNEED).unwrap();
+        let res = posix_fadvise(fd, 0, 100, PosixFadviseAdvice::POSIX_FADV_WILLNEED);
 
-        assert_eq!(res, 0);
+        assert!(res.is_ok());
     }
 
     #[test]
     fn test_errno() {
         let (rd, _wr) = pipe().unwrap();
-        let errno = posix_fadvise(rd as RawFd, 0, 100, PosixFadviseAdvice::POSIX_FADV_WILLNEED)
-                                 .unwrap();
-        assert_eq!(errno, Errno::ESPIPE as i32);
+        let res = posix_fadvise(rd as RawFd, 0, 100, PosixFadviseAdvice::POSIX_FADV_WILLNEED);
+        assert_eq!(res, Err(Errno::ESPIPE));
     }
 }
 

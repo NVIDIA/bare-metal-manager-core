@@ -106,7 +106,7 @@ impl<'help> App<'help> {
     /// name will only be displayed to the user when they request to print
     /// version or help and usage information.
     ///
-    /// See also [`app_from_crate!!`](crate::app_from_crate!) and [`crate_name!`](crate::crate_name!).
+    /// See also [`app_from_crate!`](crate::app_from_crate!) and [`crate_name!`](crate::crate_name!).
     ///
     /// # Examples
     ///
@@ -116,27 +116,33 @@ impl<'help> App<'help> {
     /// # ;
     /// ```
     pub fn new<S: Into<String>>(name: S) -> Self {
-        let name = name.into();
-
-        App {
-            id: Id::from(&*name),
-            name,
-            ..Default::default()
+        /// The actual implementation of `new`, non-generic to save code size.
+        ///
+        /// If we don't do this rustc will unnecessarily generate multiple versions
+        /// of this code.
+        fn new_inner<'help>(name: String) -> App<'help> {
+            App {
+                id: Id::from(&*name),
+                name,
+                ..Default::default()
+            }
+            .arg(
+                Arg::new("help")
+                    .long("help")
+                    .help("Print help information")
+                    .global(true)
+                    .generated(),
+            )
+            .arg(
+                Arg::new("version")
+                    .long("version")
+                    .help("Print version information")
+                    .global(true)
+                    .generated(),
+            )
         }
-        .arg(
-            Arg::new("help")
-                .long("help")
-                .help("Print help information")
-                .global(true)
-                .generated(),
-        )
-        .arg(
-            Arg::new("version")
-                .long("version")
-                .help("Print version information")
-                .global(true)
-                .generated(),
-        )
+
+        new_inner(name.into())
     }
 
     /// Adds an [argument] to the list of valid possibilities.
@@ -672,9 +678,10 @@ impl<'help> App<'help> {
         self._build();
         let color = self.get_color();
 
-        let p = Parser::new(self);
         let mut c = Colorizer::new(false, color);
-        Help::new(HelpWriter::Buffer(&mut c), &p, false).write_help()?;
+        let parser = Parser::new(self);
+        let usage = Usage::new(parser.app, &parser.required);
+        Help::new(HelpWriter::Buffer(&mut c), parser.app, &usage, false).write_help()?;
         c.print()
     }
 
@@ -697,9 +704,10 @@ impl<'help> App<'help> {
         self._build();
         let color = self.get_color();
 
-        let p = Parser::new(self);
         let mut c = Colorizer::new(false, color);
-        Help::new(HelpWriter::Buffer(&mut c), &p, true).write_help()?;
+        let parser = Parser::new(self);
+        let usage = Usage::new(parser.app, &parser.required);
+        Help::new(HelpWriter::Buffer(&mut c), parser.app, &usage, true).write_help()?;
         c.print()
     }
 
@@ -722,8 +730,9 @@ impl<'help> App<'help> {
     pub fn write_help<W: Write>(&mut self, w: &mut W) -> io::Result<()> {
         self._build();
 
-        let p = Parser::new(self);
-        Help::new(HelpWriter::Normal(w), &p, false).write_help()?;
+        let parser = Parser::new(self);
+        let usage = Usage::new(parser.app, &parser.required);
+        Help::new(HelpWriter::Normal(w), parser.app, &usage, false).write_help()?;
         w.flush()
     }
 
@@ -746,8 +755,9 @@ impl<'help> App<'help> {
     pub fn write_long_help<W: Write>(&mut self, w: &mut W) -> io::Result<()> {
         self._build();
 
-        let p = Parser::new(self);
-        Help::new(HelpWriter::Normal(w), &p, true).write_help()?;
+        let parser = Parser::new(self);
+        let usage = Usage::new(parser.app, &parser.required);
+        Help::new(HelpWriter::Normal(w), parser.app, &usage, true).write_help()?;
         w.flush()
     }
 
@@ -814,9 +824,8 @@ impl<'help> App<'help> {
         // before parsing incase we run into a subcommand
         self._build();
 
-        let mut parser = Parser::new(self);
-        parser._build();
-        Usage::new(&parser).create_usage_with_title(&[])
+        let parser = Parser::new(self);
+        Usage::new(parser.app, &parser.required).create_usage_with_title(&[])
     }
 }
 
@@ -2106,6 +2115,24 @@ impl<'help> App<'help> {
         &self.name
     }
 
+    /// Get the version of the app.
+    #[inline]
+    pub fn get_version(&self) -> Option<&'help str> {
+        self.version
+    }
+
+    /// Get the long version of the app.
+    #[inline]
+    pub fn get_long_version(&self) -> Option<&'help str> {
+        self.long_version
+    }
+
+    /// Get the authors of the app.
+    #[inline]
+    pub fn get_author(&self) -> Option<&'help str> {
+        self.author
+    }
+
     /// Get the short flag of the subcommand.
     #[inline]
     pub fn get_short_flag(&self) -> Option<char> {
@@ -2196,7 +2223,7 @@ impl<'help> App<'help> {
     }
 
     /// Should we color the output?
-    #[inline]
+    #[inline(never)]
     pub fn get_color(&self) -> ColorChoice {
         debug!("App::color: Color setting...");
 
@@ -2233,6 +2260,30 @@ impl<'help> App<'help> {
     #[inline]
     pub fn has_subcommands(&self) -> bool {
         !self.subcommands.is_empty()
+    }
+
+    /// Returns the help heading for listing subcommands.
+    #[inline]
+    pub fn get_subommand_help_heading(&self) -> Option<&str> {
+        self.subcommand_heading
+    }
+
+    /// Returns the subcommand value name.
+    #[inline]
+    pub fn get_subcommand_value_name(&self) -> Option<&str> {
+        self.subcommand_value_name
+    }
+
+    /// Returns the help heading for listing subcommands.
+    #[inline]
+    pub fn get_after_help(&self) -> Option<&str> {
+        self.after_help
+    }
+
+    /// Returns the help heading for listing subcommands.
+    #[inline]
+    pub fn get_after_long_help(&self) -> Option<&str> {
+        self.after_long_help
     }
 
     /// Find subcommand such that its name or one of aliases equals `name`.
@@ -2611,7 +2662,7 @@ impl<'help> App<'help> {
             .filter(|a| a.get_global())
             .map(|ga| ga.id.clone())
             .collect();
-        if let Some(used_subcommand) = matcher.0.subcommand.as_ref() {
+        if let Some(used_subcommand) = matcher.subcommand.as_ref() {
             if let Some(used_subcommand) = self
                 .subcommands
                 .iter()
@@ -2973,7 +3024,7 @@ impl<'help> App<'help> {
                     debug!("No");
                     let bin_name = format!(
                         "{}{}{}",
-                        self.bin_name.as_ref().unwrap_or(&self.name.clone()),
+                        self.bin_name.as_ref().unwrap_or(&self.name),
                         if self.bin_name.is_some() { " " } else { "" },
                         &*sc.name
                     );
@@ -3001,11 +3052,9 @@ impl<'help> App<'help> {
         debug!("App::_render_version");
 
         let ver = if use_long {
-            self.long_version
-                .unwrap_or_else(|| self.version.unwrap_or(""))
+            self.long_version.or(self.version).unwrap_or("")
         } else {
-            self.version
-                .unwrap_or_else(|| self.long_version.unwrap_or(""))
+            self.version.or(self.long_version).unwrap_or("")
         };
         if let Some(bn) = self.bin_name.as_ref() {
             if bn.contains(' ') {

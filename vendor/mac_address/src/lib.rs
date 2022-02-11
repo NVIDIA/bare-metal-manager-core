@@ -35,29 +35,13 @@ impl From<nix::Error> for MacAddressError {
 
 impl std::fmt::Display for MacAddressError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use MacAddressError::*;
-
-        write!(
-            f,
-            "{}",
-            match self {
-                InternalError => "Internal API error",
-            }
-        )?;
-
-        Ok(())
+        f.write_str(match self {
+            MacAddressError::InternalError => "Internal API error",
+        })
     }
 }
 
-impl std::error::Error for MacAddressError {
-    fn description(&self) -> &str {
-        use MacAddressError::*;
-
-        match self {
-            InternalError => "Internal API error",
-        }
-    }
-}
+impl std::error::Error for MacAddressError {}
 
 /// An error that may occur when parsing a MAC address string.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -82,7 +66,7 @@ impl std::error::Error for MacParseError {}
 /// Contains the individual bytes of the MAC address.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "&str"))]
+#[cfg_attr(feature = "serde", serde(try_from = "std::borrow::Cow<'_, str>"))]
 pub struct MacAddress {
     bytes: [u8; 6],
 }
@@ -115,10 +99,7 @@ impl serde::Serialize for MacAddress {
 pub fn get_mac_address() -> Result<Option<MacAddress>, MacAddressError> {
     let bytes = os::get_mac(None)?;
 
-    Ok(match bytes {
-        Some(b) => Some(MacAddress { bytes: b }),
-        None => None,
-    })
+    Ok(bytes.map(|b| MacAddress { bytes: b }))
 }
 
 /// Attempts to look up the MAC address of an interface via the specified name.
@@ -127,10 +108,7 @@ pub fn get_mac_address() -> Result<Option<MacAddress>, MacAddressError> {
 pub fn mac_address_by_name(name: &str) -> Result<Option<MacAddress>, MacAddressError> {
     let bytes = os::get_mac(Some(name))?;
 
-    Ok(match bytes {
-        Some(b) => Some(MacAddress { bytes: b }),
-        None => None,
-    })
+    Ok(bytes.map(|b| MacAddress { bytes: b }))
 }
 
 /// Attempts to look up the interface name via MAC address.
@@ -174,6 +152,14 @@ impl std::convert::TryFrom<&'_ str> for MacAddress {
     type Error = MacParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl std::convert::TryFrom<std::borrow::Cow<'_, str>> for MacAddress {
+    type Error = MacParseError;
+
+    fn try_from(value: std::borrow::Cow<'_, str>) -> Result<Self, Self::Error> {
         value.parse()
     }
 }
@@ -253,6 +239,24 @@ mod tests {
                 &serde_json::from_str("{ \"mac\": \"80:FA:5B:41:10:6B\" }").unwrap()
             )
             .unwrap(),
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_from_reader_works() {
+        use serde::{Deserialize, Serialize};
+        let mac: MacAddress = "80:FA:5B:41:10:6B".parse().unwrap();
+
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        struct Test {
+            mac: MacAddress,
+        }
+
+        assert_eq!(
+            Test { mac },
+            serde_json::from_reader(std::io::Cursor::new(r#"{ "mac": "80:FA:5B:41:10:6B" }"#))
+                .unwrap(),
         );
     }
 

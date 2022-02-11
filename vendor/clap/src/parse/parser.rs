@@ -2,6 +2,7 @@
 use std::{
     cell::{Cell, RefCell},
     ffi::{OsStr, OsString},
+    fmt::Write as _,
 };
 
 // Third Party
@@ -27,13 +28,13 @@ pub(crate) struct Parser<'help, 'app> {
     pub(crate) app: &'app mut App<'help>,
     pub(crate) required: ChildGraph<Id>,
     pub(crate) overridden: RefCell<Vec<Id>>,
-    pub(crate) seen: Vec<Id>,
-    pub(crate) cur_idx: Cell<usize>,
+    seen: Vec<Id>,
+    cur_idx: Cell<usize>,
     /// Index of the previous flag subcommand in a group of flags.
-    pub(crate) flag_subcmd_at: Option<usize>,
+    flag_subcmd_at: Option<usize>,
     /// Counter indicating the number of items to skip
     /// when revisiting the group of flags which includes the flag subcommand.
-    pub(crate) flag_subcmd_skip: usize,
+    flag_subcmd_skip: usize,
 }
 
 // Initializing Methods
@@ -47,6 +48,14 @@ impl<'help, 'app> Parser<'help, 'app> {
         {
             reqs.insert(a.id.clone());
         }
+        for group in &app.groups {
+            if group.required {
+                let idx = reqs.insert(group.id.clone());
+                for a in &group.requires {
+                    reqs.insert_child(idx, a.clone());
+                }
+            }
+        }
 
         Parser {
             app,
@@ -56,20 +65,6 @@ impl<'help, 'app> Parser<'help, 'app> {
             cur_idx: Cell::new(0),
             flag_subcmd_at: None,
             flag_subcmd_skip: 0,
-        }
-    }
-
-    // Does all the initializing and prepares the parser
-    pub(crate) fn _build(&mut self) {
-        debug!("Parser::_build");
-
-        for group in &self.app.groups {
-            if group.required {
-                let idx = self.required.insert(group.id.clone());
-                for a in &group.requires {
-                    self.required.insert_child(idx, a.clone());
-                }
-            }
         }
     }
 
@@ -95,7 +90,6 @@ impl<'help, 'app> Parser<'help, 'app> {
     ) -> ClapResult<()> {
         debug!("Parser::get_matches_with");
         // Verify all positional assertions pass
-        self._build();
 
         let mut subcmd_name: Option<String> = None;
         let mut keep_state = false;
@@ -263,7 +257,7 @@ impl<'help, 'app> Parser<'help, 'app> {
                             return Err(ClapError::no_equals(
                                 self.app,
                                 arg,
-                                Usage::new(self).create_usage_with_title(&[]),
+                                Usage::new(self.app, &self.required).create_usage_with_title(&[]),
                             ));
                         }
                         ParseResult::NoMatchingArg { arg } => {
@@ -278,7 +272,7 @@ impl<'help, 'app> Parser<'help, 'app> {
                                 self.app,
                                 rest,
                                 arg,
-                                Usage::new(self).create_usage_no_title(&used),
+                                Usage::new(self.app, &self.required).create_usage_no_title(&used),
                             ))
                         }
                         ParseResult::HelpFlag => {
@@ -352,7 +346,7 @@ impl<'help, 'app> Parser<'help, 'app> {
                             return Err(ClapError::no_equals(
                                 self.app,
                                 arg,
-                                Usage::new(self).create_usage_with_title(&[]),
+                                Usage::new(self.app, &self.required).create_usage_with_title(&[]),
                             ))
                         }
                         ParseResult::NoMatchingArg { arg } => {
@@ -360,7 +354,7 @@ impl<'help, 'app> Parser<'help, 'app> {
                                 self.app,
                                 arg,
                                 None,
-                                Usage::new(self).create_usage_with_title(&[]),
+                                Usage::new(self.app, &self.required).create_usage_with_title(&[]),
                             ));
                         }
                         ParseResult::HelpFlag => {
@@ -405,7 +399,7 @@ impl<'help, 'app> Parser<'help, 'app> {
                         self.app,
                         arg_os.to_str_lossy().into_owned(),
                         None,
-                        Usage::new(self).create_usage_with_title(&[]),
+                        Usage::new(self.app, &self.required).create_usage_with_title(&[]),
                     ));
                 }
 
@@ -446,7 +440,7 @@ impl<'help, 'app> Parser<'help, 'app> {
                     None => {
                         return Err(ClapError::invalid_utf8(
                             self.app,
-                            Usage::new(self).create_usage_with_title(&[]),
+                            Usage::new(self.app, &self.required).create_usage_with_title(&[]),
                         ));
                     }
                 };
@@ -460,7 +454,7 @@ impl<'help, 'app> Parser<'help, 'app> {
                     if !allow_invalid_utf8 && v.to_str().is_none() {
                         return Err(ClapError::invalid_utf8(
                             self.app,
-                            Usage::new(self).create_usage_with_title(&[]),
+                            Usage::new(self.app, &self.required).create_usage_with_title(&[]),
                         ));
                     }
                     sc_m.add_val_to(
@@ -475,8 +469,8 @@ impl<'help, 'app> Parser<'help, 'app> {
                 }
 
                 matcher.subcommand(SubCommand {
-                    name: sc_name.clone(),
-                    id: sc_name.into(),
+                    id: Id::from(&*sc_name),
+                    name: sc_name,
                     matches: sc_m.into_inner(),
                 });
 
@@ -505,7 +499,7 @@ impl<'help, 'app> Parser<'help, 'app> {
             return Err(ClapError::missing_subcommand(
                 self.app,
                 bn.to_string(),
-                Usage::new(self).create_usage_with_title(&[]),
+                Usage::new(self.app, &self.required).create_usage_with_title(&[]),
             ));
         } else if self.is_set(AS::SubcommandRequiredElseHelp) {
             debug!("Parser::get_matches_with: SubcommandRequiredElseHelp=true");
@@ -533,7 +527,7 @@ impl<'help, 'app> Parser<'help, 'app> {
                 return ClapError::unnecessary_double_dash(
                     self.app,
                     arg_os.to_str_lossy().into_owned(),
-                    Usage::new(self).create_usage_with_title(&[]),
+                    Usage::new(self.app, &self.required).create_usage_with_title(&[]),
                 );
             }
         }
@@ -554,7 +548,7 @@ impl<'help, 'app> Parser<'help, 'app> {
                     .as_ref()
                     .unwrap_or(&self.app.name)
                     .to_string(),
-                Usage::new(self).create_usage_with_title(&[]),
+                Usage::new(self.app, &self.required).create_usage_with_title(&[]),
             );
         }
         // If the argument must be a subcommand.
@@ -573,7 +567,7 @@ impl<'help, 'app> Parser<'help, 'app> {
             self.app,
             arg_os.to_str_lossy().into_owned(),
             None,
-            Usage::new(self).create_usage_with_title(&[]),
+            Usage::new(self.app, &self.required).create_usage_with_title(&[]),
         )
     }
 
@@ -720,7 +714,8 @@ impl<'help, 'app> Parser<'help, 'app> {
         let mut mid_string = String::from(" ");
 
         if !self.is_set(AS::SubcommandsNegateReqs) {
-            let reqs = Usage::new(self).get_required_usage_from(&[], None, true); // maybe Some(m)
+            let reqs =
+                Usage::new(self.app, &self.required).get_required_usage_from(&[], None, true); // maybe Some(m)
 
             for s in &reqs {
                 mid_string.push_str(s);
@@ -735,11 +730,11 @@ impl<'help, 'app> Parser<'help, 'app> {
             let mut sc_names = sc.name.clone();
             let mut flag_subcmd = false;
             if let Some(l) = sc.long_flag {
-                sc_names.push_str(&format!(", --{}", l));
+                write!(sc_names, ", --{}", l).unwrap();
                 flag_subcmd = true;
             }
             if let Some(s) = sc.short_flag {
-                sc_names.push_str(&format!(", -{}", s));
+                write!(sc_names, ", -{}", s).unwrap();
                 flag_subcmd = true;
             }
 
@@ -1189,26 +1184,12 @@ impl<'help, 'app> Parser<'help, 'app> {
         );
         if !(trailing_values && self.is_set(AS::DontDelimitTrailingValues)) {
             if let Some(delim) = arg.val_delim {
-                let arg_split = val.split(delim);
-                let vals = if let Some(t) = arg.terminator {
-                    let mut vals = vec![];
-                    for val in arg_split {
-                        if t == val {
-                            break;
-                        }
-                        vals.push(val);
-                    }
-                    vals
-                } else {
-                    arg_split.collect()
-                };
-                self.add_multiple_vals_to_arg(
-                    arg,
-                    vals.into_iter().map(|x| x.to_os_str().into_owned()),
-                    matcher,
-                    ty,
-                    append,
-                );
+                let terminator = arg.terminator.map(OsStr::new);
+                let vals = val
+                    .split(delim)
+                    .map(|x| x.to_os_str().into_owned())
+                    .take_while(|val| Some(val.as_os_str()) != terminator);
+                self.add_multiple_vals_to_arg(arg, vals, matcher, ty, append);
                 // If there was a delimiter used or we must use the delimiter to
                 // separate the values or no more vals is needed, we're not
                 // looking for more values.
@@ -1461,7 +1442,10 @@ impl<'help, 'app> Parser<'help, 'app> {
         self.app.args.args().try_for_each(|a| {
             // Use env only if the arg was absent among command line args,
             // early return if this is not the case.
-            if matcher.get(&a.id).map_or(false, |a| a.occurs != 0) {
+            if matcher
+                .get(&a.id)
+                .map_or(false, |a| a.get_occurrences() != 0)
+            {
                 debug!("Parser::add_env: Skipping existing arg `{}`", a);
                 return Ok(());
             }
@@ -1573,13 +1557,14 @@ impl<'help, 'app> Parser<'help, 'app> {
             self.app,
             format!("--{}", arg),
             did_you_mean,
-            Usage::new(self).create_usage_with_title(&*used),
+            Usage::new(self.app, &self.required).create_usage_with_title(&*used),
         )
     }
 
     pub(crate) fn write_help_err(&self) -> ClapResult<Colorizer> {
+        let usage = Usage::new(self.app, &self.required);
         let mut c = Colorizer::new(true, self.color_help());
-        Help::new(HelpWriter::Buffer(&mut c), self, false).write_help()?;
+        Help::new(HelpWriter::Buffer(&mut c), self.app, &usage, false).write_help()?;
         Ok(c)
     }
 
@@ -1590,15 +1575,12 @@ impl<'help, 'app> Parser<'help, 'app> {
         );
 
         use_long = use_long && self.use_long_help();
+        let usage = Usage::new(self.app, &self.required);
         let mut c = Colorizer::new(false, self.color_help());
 
-        match Help::new(HelpWriter::Buffer(&mut c), self, use_long).write_help() {
+        match Help::new(HelpWriter::Buffer(&mut c), self.app, &usage, use_long).write_help() {
             Err(e) => e.into(),
-            _ => ClapError::new(
-                c,
-                ErrorKind::DisplayHelp,
-                self.app.settings.is_set(AS::WaitOnError),
-            ),
+            _ => ClapError::for_app(self.app, c, ErrorKind::DisplayHelp, vec![]),
         }
     }
 
@@ -1608,11 +1590,7 @@ impl<'help, 'app> Parser<'help, 'app> {
         let msg = self.app._render_version(use_long);
         let mut c = Colorizer::new(false, self.color_help());
         c.none(msg);
-        ClapError::new(
-            c,
-            ErrorKind::DisplayVersion,
-            self.app.settings.is_set(AS::WaitOnError),
-        )
+        ClapError::for_app(self.app, c, ErrorKind::DisplayVersion, vec![])
     }
 }
 

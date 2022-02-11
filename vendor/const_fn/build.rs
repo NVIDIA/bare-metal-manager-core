@@ -111,8 +111,9 @@ fn assume_incomplete_release() -> bool {
     //
     //     -Zassume-incomplete-release
 
-    if let Some(rustflags) = env::var_os("RUSTFLAGS") {
-        for mut flag in rustflags.to_string_lossy().split(' ') {
+    // https://github.com/rust-lang/cargo/issues/10111
+    if let Some(rustflags) = env::var_os("CARGO_ENCODED_RUSTFLAGS") {
+        for mut flag in rustflags.to_string_lossy().split('\x1f') {
             if flag.starts_with("-Z") {
                 flag = &flag["-Z".len()..];
             }

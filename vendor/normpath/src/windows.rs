@@ -109,18 +109,36 @@ pub(super) fn normalize_virtually(
         // This assertion should never fail.
         static_assert!(mem::size_of::<DWORD>() <= mem::size_of::<usize>());
 
-        let capacity = capacity as usize;
-        if let Some(additional_capacity) =
-            capacity.checked_sub(buffer.capacity())
+        let length = capacity as usize;
+        if let Some(mut additional_capacity) =
+            length.checked_sub(buffer.capacity())
         {
             assert_ne!(0, additional_capacity);
+
+            // WinAPI can recommend an insufficient capacity that causes it to
+            // return incorrect results, so extra space is reserved as a
+            // workaround.
+            macro_rules! extra_capacity {
+                () => {
+                    2
+                };
+            }
+            capacity =
+                capacity.checked_add(extra_capacity!()).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::Other,
+                        "required path length is too large for WinAPI",
+                    )
+                })?;
+            additional_capacity += extra_capacity!();
+
             buffer.reserve(additional_capacity);
             continue;
         }
 
         // SAFETY: These characters were initialized by the system call.
         unsafe {
-            buffer.set_len(capacity);
+            buffer.set_len(length);
         }
         break Ok(BasePathBuf(OsString::from_wide(&buffer)));
     }

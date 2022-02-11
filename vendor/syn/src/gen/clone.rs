@@ -412,8 +412,8 @@ impl Clone for ExprClosure {
     fn clone(&self) -> Self {
         ExprClosure {
             attrs: self.attrs.clone(),
-            asyncness: self.asyncness.clone(),
             movability: self.movability.clone(),
+            asyncness: self.asyncness.clone(),
             capture: self.capture.clone(),
             or1_token: self.or1_token.clone(),
             inputs: self.inputs.clone(),
@@ -1662,7 +1662,9 @@ impl Clone for PathArguments {
     fn clone(&self) -> Self {
         match self {
             PathArguments::None => PathArguments::None,
-            PathArguments::AngleBracketed(v0) => PathArguments::AngleBracketed(v0.clone()),
+            PathArguments::AngleBracketed(v0) => {
+                PathArguments::AngleBracketed(v0.clone())
+            }
             PathArguments::Parenthesized(v0) => PathArguments::Parenthesized(v0.clone()),
         }
     }
@@ -1962,9 +1964,7 @@ impl Clone for TypeInfer {
 #[cfg_attr(doc_cfg, doc(cfg(feature = "clone-impls")))]
 impl Clone for TypeMacro {
     fn clone(&self) -> Self {
-        TypeMacro {
-            mac: self.mac.clone(),
-        }
+        TypeMacro { mac: self.mac.clone() }
     }
 }
 #[cfg(any(feature = "derive", feature = "full"))]
