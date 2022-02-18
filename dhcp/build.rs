@@ -3,11 +3,10 @@ use std::process::Command;
 
 fn main() {
     let kea_include_path =
-        env::var("KEA_INCLUDE_PATH").unwrap_or_else(|_| "/opt/kea-2.0.0/include/kea".to_string());
-    let kea_bin_path =
-        env::var("KEA_BIN_PATH").unwrap_or_else(|_| "/opt/kea-2.0.0/bin".to_string());
+        env::var("KEA_INCLUDE_PATH").unwrap_or_else(|_| "/usr/include/kea".to_string());
+    let kea_bin_path = env::var("KEA_BIN_PATH").unwrap_or_else(|_| "/usr/bin".to_string());
     let kea_lib_path =
-        env::var("KEA_LIB_PATH").unwrap_or_else(|_| "/opt/kea-2.0.0/lib".to_string());
+        env::var("KEA_LIB_PATH").unwrap_or_else(|_| "/usr/lib/x86_64-linux-gnu/kea".to_string());
 
     let kea_shim_root = format!("{}/src/kea", env!("CARGO_MANIFEST_DIR"));
 
