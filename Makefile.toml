@@ -9,6 +9,12 @@ dependencies = [
 	"book-compile",
 ]
 
+[tasks.runtime-container]
+workspace = false
+command = "docker"
+args = ["build", "-t", "carbide-runtime:latest", "."]
+env = { "DOCKER_BUILDKIT" = "1" }
+
 [tasks.book-compile]
 workspace = false
 command = "mdbook"
