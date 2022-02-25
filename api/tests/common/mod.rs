@@ -1,6 +1,7 @@
 use carbide::CarbideResult;
 use rand::prelude::*;
 use sqlx::PgPool;
+use std::env;
 
 pub struct TestDatabaseManager {
     #[allow(dead_code)]
@@ -25,13 +26,19 @@ impl TestDatabaseManager {
                 .as_micros()
         );
 
-        let username = env!("LOGNAME");
+        let username = std::env::var("TESTDB_USER").unwrap_or(env!("LOGNAME").to_string());
+        let password = std::env::var("TESTDB_PASSWORD").unwrap_or("".to_string());
+        let db_host = std::env::var("TESTDB_HOST")
+            .unwrap_or("%2Fvar%2Frun%2Fpostgresql/template1".to_string());
+
+        // Not pretty, but if there is no password specified as an env var, assume its connecting over UDS
+        let uri: String = match password.is_empty() {
+            true => "%2Fvar%2Frun%2Fpostgresql/template1".to_string(),
+            false => format!("postgres://{0}:{1}@{2}", username, password, db_host),
+         };
+
         let template_pool = sqlx::PgPool::connect(
-            format!(
-                "postgres://{0}@%2Fvar%2Frun%2Fpostgresql/template1",
-                username
-            )
-            .as_str(),
+            &uri,
         )
         .await?;
 
@@ -54,12 +61,8 @@ impl TestDatabaseManager {
         });
 
         let mut real_pool = sqlx::PgPool::connect(
-            format!(
-                "postgres://{0}@%2Fvar%2Frun%2Fpostgresql/{1}",
-                username, temporary_database_name
+            &uri
             )
-            .as_str(),
-        )
         .await?;
 
         carbide::db::migrations::migrate(&mut real_pool)
