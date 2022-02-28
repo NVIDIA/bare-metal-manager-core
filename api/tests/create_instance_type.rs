@@ -26,12 +26,13 @@ async fn test_create_segment() {
         .expect("Unable to create transaction on database pool");
 
     let segment: CarbideResult<InstanceType> = NewInstanceType {
-        name: "integration_test".to_string(),
+        short_name: "integration_test".to_string(),
         description: "integration_test_description".to_string(),
         active: true
     }
         .persist(&mut txn)
         .await;
+
     txn.commit().await;
 
     assert!(matches!(segment.unwrap(), InstanceType));
