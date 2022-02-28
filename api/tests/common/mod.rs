@@ -33,14 +33,14 @@ impl TestDatabaseManager {
 
         // Not pretty, but if there is no password specified as an env var, assume its connecting over UDS
         let uri: String = match password.is_empty() {
-            true => "%2Fvar%2Frun%2Fpostgresql/template1".to_string(),
+            true => "%2Fvar%2Frun%2Fpostgresql".to_string(),
             false => format!("postgres://{0}:{1}@{2}", username, password, db_host),
-         };
+        };
 
-        let template_pool = sqlx::PgPool::connect(
-            &uri,
-        )
-        .await?;
+        let template_name = "template1";
+        let full_uri_template: String = [&uri[..], "/", &template_name[..]].concat();
+
+        let template_pool = sqlx::PgPool::connect(&full_uri_template).await?;
 
         let pool = template_pool.clone();
 
@@ -60,10 +60,9 @@ impl TestDatabaseManager {
             )
         });
 
-        let mut real_pool = sqlx::PgPool::connect(
-            &uri
-            )
-        .await?;
+        let full_uri_db: String = [&uri[..], "/", &temporary_database_name[..]].concat();
+
+        let mut real_pool = sqlx::PgPool::connect(&full_uri_db).await?;
 
         carbide::db::migrations::migrate(&mut real_pool)
             .await
