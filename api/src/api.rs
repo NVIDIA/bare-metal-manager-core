@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use carbide::{
-    db::{DhcpRecord, Machine, MachineIdsFilter, NetworkSegment, NewNetworkSegment},
+    db::{DhcpRecord, Machine, MachineIdsFilter, NetworkSegment, NewNetworkSegment, NewInstanceType},
     CarbideError,
 };
 use color_eyre::Report;
@@ -224,7 +224,21 @@ impl Metal for Api {
         &self,
         _request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(NewInstanceType::try_from(_request.into_inner())?
+            .persist(&mut txn)
+            .await
+            .map(rpc::InstanceType::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn update_instance_type(
