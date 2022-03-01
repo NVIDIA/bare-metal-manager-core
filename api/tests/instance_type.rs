@@ -8,7 +8,7 @@ use carbide::{
 };
 
 use log::LevelFilter;
-use carbide::db::UpdateInstanceType;
+use carbide::db::{DeactivateInstanceType, UpdateInstanceType};
 
 #[tokio::test]
 async fn test_instance_type_crud () {
@@ -46,7 +46,13 @@ async fn test_instance_type_crud () {
         .update(&mut txn)
         .await;
 
-    txn.commit().await;
-
     assert!(matches!(updatedType.unwrap(), InstanceType));
+
+    let deletedType = DeactivateInstanceType {
+        id: unwrapped.id,
+    }
+        .deactivate(&mut txn)
+        .await;
+
+    assert!(matches!(deletedType.unwrap(), InstanceType));
 }
