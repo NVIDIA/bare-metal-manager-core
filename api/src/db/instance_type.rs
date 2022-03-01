@@ -1,7 +1,7 @@
 use crate::{CarbideError, CarbideResult};
 use sqlx::postgres::PgRow;
 use sqlx::{Error, Postgres, Row};
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
 
 use chrono::prelude::*;
@@ -40,11 +40,24 @@ pub struct NewInstanceType {
     pub active: bool
 }
 
+#[derive(Clone, Debug)]
+pub struct UpdateInstanceType {
+    pub id: Uuid,
+    pub short_name: String,
+    pub description: String,
+    pub active: bool
+}
+
+#[derive(Clone, Debug)]
+pub struct DeactivateInstanceType {
+    pub id: Uuid,
+}
+
 impl TryFrom<rpc::InstanceType> for NewInstanceType {
     type Error = CarbideError;
 
     fn try_from(value: rpc::InstanceType) -> Result<Self, Self::Error> {
-        if let Some(id) = value.id {
+        if let Some(_) = value.id {
             return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
                 "Instance Type",
             )));
@@ -53,6 +66,31 @@ impl TryFrom<rpc::InstanceType> for NewInstanceType {
             short_name: value.short_name,
             description: value.description,
             active: value.active,
+        })
+    }
+}
+
+impl TryFrom<rpc::InstanceType> for UpdateInstanceType {
+    type Error = CarbideError;
+
+    fn try_from(value: rpc::InstanceType) -> Result<Self, Self::Error> {
+
+        Ok(UpdateInstanceType {
+            id: value.id.unwrap().try_into().unwrap(),
+            short_name: value.short_name,
+            description: value.description,
+            active: value.active,
+        })
+    }
+}
+
+impl TryFrom<rpc::InstanceTypeDeletion> for DeactivateInstanceType {
+    type Error = CarbideError;
+
+    fn try_from(value: rpc::InstanceTypeDeletion) -> Result<Self, Self::Error> {
+
+        Ok(DeactivateInstanceType {
+            id: value.id.unwrap().try_into().unwrap(),
         })
     }
 }
@@ -78,6 +116,12 @@ impl From<InstanceType> for rpc::InstanceType {
     }
 }
 
+impl From<InstanceType> for rpc::InstanceTypeDeletionResult {
+    fn from(src: InstanceType) -> Self {
+        rpc::InstanceTypeDeletionResult {}
+    }
+}
+
 impl NewInstanceType {
     pub async fn persist(
         &self,
@@ -87,6 +131,31 @@ impl NewInstanceType {
             .bind(&self.short_name)
             .bind(&self.description)
             .bind(&self.active)
+            .fetch_one(&mut *txn).await?)
+    }
+}
+
+impl UpdateInstanceType {
+    pub async fn update(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<InstanceType> {
+        Ok(sqlx::query_as("UPDATE instance_types SET short_name=$1, description=$2, active=$3, updated=now() WHERE id=$4 RETURNING *")
+            .bind(&self.short_name)
+            .bind(&self.description)
+            .bind(&self.active)
+            .bind(&self.id)
+            .fetch_one(&mut *txn).await?)
+    }
+}
+
+impl DeactivateInstanceType {
+    pub async fn deactivate(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<InstanceType> {
+        Ok(sqlx::query_as("UPDATE instance_types SET active=false, updated=now() WHERE id=$1 RETURNING *")
+            .bind(&self.id)
             .fetch_one(&mut *txn).await?)
     }
 }

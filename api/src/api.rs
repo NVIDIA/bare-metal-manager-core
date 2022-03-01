@@ -15,6 +15,7 @@ use self::rpc::metal_server::Metal;
 use crate::cfg;
 use rpc::v0 as rpc;
 use tonic_reflection::server::Builder;
+use carbide::db::{DeactivateInstanceType, UpdateInstanceType};
 
 #[derive(Debug)]
 pub struct Api {
@@ -245,14 +246,44 @@ impl Metal for Api {
         &self,
         _request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
-        todo!()
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(UpdateInstanceType::try_from(_request.into_inner())?
+            .update(&mut txn)
+            .await
+            .map(rpc::InstanceType::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn delete_instance_type(
         &self,
         _request: Request<rpc::InstanceTypeDeletion>,
     ) -> Result<Response<rpc::InstanceTypeDeletionResult>, Status> {
-        todo!()
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+       let response = Ok(DeactivateInstanceType::try_from(_request.into_inner())?
+            .deactivate(&mut txn)
+            .await
+            .map(rpc::InstanceTypeDeletionResult::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 }
 

@@ -1,6 +1,6 @@
 mod common;
 
-use std::str::FromStr;
+use std::fmt::format;
 
 use carbide::{
     db::{InstanceType, NewInstanceType},
@@ -8,9 +8,10 @@ use carbide::{
 };
 
 use log::LevelFilter;
+use carbide::db::UpdateInstanceType;
 
 #[tokio::test]
-async fn test_create_segment() {
+async fn test_instance_type_crud () {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
@@ -33,7 +34,19 @@ async fn test_create_segment() {
         .persist(&mut txn)
         .await;
 
+    let unwrapped = &segment.unwrap();
+    assert!(matches!(unwrapped, InstanceType));
+
+    let updatedType = UpdateInstanceType {
+        id: unwrapped.id,
+        short_name: format!("{0}_updated", unwrapped.short_name).to_string(),
+        description: format!("{0}_updated", unwrapped.description).to_string(),
+        active: true
+    }
+        .update(&mut txn)
+        .await;
+
     txn.commit().await;
 
-    assert!(matches!(segment.unwrap(), InstanceType));
+    assert!(matches!(updatedType.unwrap(), InstanceType));
 }

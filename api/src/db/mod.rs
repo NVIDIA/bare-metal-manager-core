@@ -14,7 +14,7 @@ mod network_segment;
 
 pub use address_selection_strategy::{AddressSelectionStrategy, AbsentSubnetStrategy};
 pub use dhcp_record::DhcpRecord;
-pub use instance_type::{InstanceType, NewInstanceType};
+pub use instance_type::{InstanceType, NewInstanceType, UpdateInstanceType, DeactivateInstanceType};
 pub use machine::Machine;
 pub use machine::MachineIdsFilter;
 pub use machine_action::MachineAction;
