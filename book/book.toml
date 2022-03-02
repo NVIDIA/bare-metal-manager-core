@@ -1,9 +1,9 @@
 [book]
-title = "Carbide Documentation"
-author = "Andrew Forgue"
+title = "NVMetal Documentation"
+author = "NVMetal Development Team <nvmetal-dev@exchange.nvidia.com>"
 
 [rust]
-edition = "2018"
+edition = "2021"
 
 [preprocessor]
 [preprocessor.mermaid]
