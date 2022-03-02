@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use carbide::{
-    db::{DhcpRecord, Machine, MachineIdsFilter, NetworkSegment, NewNetworkSegment, NewInstanceType},
+    db::{DhcpRecord, Machine, MachineIdsFilter, NetworkSegment, NewNetworkSegment, NewInstanceType, DeactivateInstanceType, UpdateInstanceType},
     CarbideError,
 };
 use color_eyre::Report;
@@ -15,7 +15,6 @@ use self::rpc::metal_server::Metal;
 use crate::cfg;
 use rpc::v0 as rpc;
 use tonic_reflection::server::Builder;
-use carbide::db::{DeactivateInstanceType, UpdateInstanceType};
 
 #[derive(Debug)]
 pub struct Api {
