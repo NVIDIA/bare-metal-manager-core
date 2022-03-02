@@ -12,8 +12,8 @@ variables:
 
 
 stages:
-  - build
-  - release
+  #  - build
+  #  - release
   - doc
 
 build:cargo:
