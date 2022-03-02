@@ -76,6 +76,7 @@ impl TryFrom<rpc::InstanceType> for UpdateInstanceType {
     fn try_from(value: rpc::InstanceType) -> Result<Self, Self::Error> {
 
         Ok(UpdateInstanceType {
+            // todo(baz): Add proper error handling instead of unwrap
             id: value.id.unwrap().try_into().unwrap(),
             short_name: value.short_name,
             description: value.description,
@@ -90,6 +91,7 @@ impl TryFrom<rpc::InstanceTypeDeletion> for DeactivateInstanceType {
     fn try_from(value: rpc::InstanceTypeDeletion) -> Result<Self, Self::Error> {
 
         Ok(DeactivateInstanceType {
+            // todo(baz): Add proper error handling instead of unwrap
             id: value.id.unwrap().try_into().unwrap(),
         })
     }

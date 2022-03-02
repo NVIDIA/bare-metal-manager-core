@@ -223,7 +223,7 @@ impl Metal for Api {
 
     async fn create_instance_type(
         &self,
-        _request: Request<rpc::InstanceType>,
+        request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
         let mut txn = self
             .database_connection
@@ -231,7 +231,7 @@ impl Metal for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(NewInstanceType::try_from(_request.into_inner())?
+        let response = Ok(NewInstanceType::try_from(request.into_inner())?
             .persist(&mut txn)
             .await
             .map(rpc::InstanceType::from)
@@ -244,7 +244,7 @@ impl Metal for Api {
 
     async fn update_instance_type(
         &self,
-        _request: Request<rpc::InstanceType>,
+        request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
 
         let mut txn = self
@@ -253,7 +253,7 @@ impl Metal for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(UpdateInstanceType::try_from(_request.into_inner())?
+        let response = Ok(UpdateInstanceType::try_from(request.into_inner())?
             .update(&mut txn)
             .await
             .map(rpc::InstanceType::from)
@@ -266,7 +266,7 @@ impl Metal for Api {
 
     async fn delete_instance_type(
         &self,
-        _request: Request<rpc::InstanceTypeDeletion>,
+        request: Request<rpc::InstanceTypeDeletion>,
     ) -> Result<Response<rpc::InstanceTypeDeletionResult>, Status> {
 
         let mut txn = self
@@ -275,7 +275,7 @@ impl Metal for Api {
             .await
             .map_err(CarbideError::from)?;
 
-       let response = Ok(DeactivateInstanceType::try_from(_request.into_inner())?
+       let response = Ok(DeactivateInstanceType::try_from(request.into_inner())?
             .deactivate(&mut txn)
             .await
             .map(rpc::InstanceTypeDeletionResult::from)
