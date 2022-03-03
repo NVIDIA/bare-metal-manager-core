@@ -76,6 +76,12 @@ pub enum CarbideError {
 
     #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier")]
     IdentifierSpecifiedForNewObject(String),
+
+    #[error("Two or more domains named {0} exist in database. Domain names must be unique")]
+    DuplicateDomain(String),
+
+    #[error("The domain name object {0} does not exist")]
+    UnknownDomain(uuid::Uuid),
 }
 
 impl From<CarbideError> for tonic::Status {

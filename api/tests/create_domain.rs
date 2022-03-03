@@ -5,6 +5,7 @@ use carbide::{
     CarbideResult
 };
 use log::LevelFilter;
+use crate::common::TestDatabaseManager;
 
 #[tokio::test]
 async fn create_domain() {
@@ -12,7 +13,7 @@ async fn create_domain() {
         .filter_level(LevelFilter::Error)
         .init();
 
-    let db = common::TestDatabaseManager::new()
+    let db = TestDatabaseManager::new()
         .await
         .expect("Could not create database manager");
 
@@ -28,6 +29,8 @@ async fn create_domain() {
     }
     .persist(&mut txn)
     .await;
+
+    txn.commit().await.unwrap();
 
     assert!(matches!(domain.unwrap(), Domain));
 

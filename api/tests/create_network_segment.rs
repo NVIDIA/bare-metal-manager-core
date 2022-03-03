@@ -1,15 +1,10 @@
 mod common;
-
 use std::str::FromStr;
 
 use ipnetwork::{Ipv4Network, Ipv6Network};
-
-use carbide::{
-    db::{NetworkSegment, NewNetworkSegment},
-    CarbideResult,
-};
-
 use log::LevelFilter;
+
+use carbide::{CarbideResult, db::{Domain, NetworkSegment, NewDomain, NewNetworkSegment}};
 
 #[tokio::test]
 async fn test_create_segment() {
@@ -27,9 +22,28 @@ async fn test_create_segment() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let segment: CarbideResult<NetworkSegment> = NewNetworkSegment {
+   let mut txn2 = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on db pool");
+
+    let my_domain = "dwrt.com";
+
+    let new_domain: CarbideResult<Domain> = NewDomain {
+        name: my_domain.to_string(),
+    }
+    .persist(&mut txn)
+    .await;
+
+    txn.commit().await.unwrap();
+
+    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string()).await.expect("Could not find domain in DB");
+
+    // TODO - Find a domain based on UUID and use that on subdomain_id rather than cheat
+    let segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
-        subdomain: "m.nvmetal.net".to_string(),
+        subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
         prefix_ipv4: Some(Ipv4Network::from_str("192.0.2.1/24").expect("can't parse network")),
         prefix_ipv6: Some(Ipv6Network::from_str("2001:db8:f::/64").expect("can't parse network")),
@@ -37,8 +51,9 @@ async fn test_create_segment() {
         reserve_first_ipv4: Some(3),
         reserve_first_ipv6: Some(3),
     }
-    .persist(&mut txn)
-    .await;
+    .persist(&mut txn2)
+    .await
+    .expect("Unable to create network segment");
 
-    assert!(matches!(segment.unwrap(), NetworkSegment));
+    assert!(matches!(segment, NetworkSegment));
 }

@@ -48,7 +48,7 @@ service Metal {
 	rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
 }
 message Domain {
-  optional UUID id = 1;
+  UUID id = 1;
   string name = 2;
 
   google.protobuf.Timestamp created = 3;
@@ -98,7 +98,8 @@ message NetworkSegment {
 	UUID id = 1;
 	UUID project = 2;
 	string name = 3;
-	string subdomain = 4;
+	optional UUID subdomain_id = 4;
+
 	optional int32 mtu = 5;
 
 	optional string prefix_ipv4 = 6;

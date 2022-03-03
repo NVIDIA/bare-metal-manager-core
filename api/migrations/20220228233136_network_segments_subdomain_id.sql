@@ -8,7 +8,7 @@ CREATE VIEW machine_dhcp_responses AS (
     INNER JOIN network_segments n ON mi.segment_id = n.id
 );
 
-ALTER TABLE network_segments ADD COLUMN subdomain_id uuid NOT NULL;
+ALTER TABLE network_segments ADD COLUMN subdomain_id uuid;
 
-ALTER TABLE network_segments ADD CONSTRAINT network_segments_domain_fkey FOREIGN KEY (subdomain_id) REFERENCES domains(id);
+ALTER TABLE network_segments ADD FOREIGN KEY (subdomain_id) REFERENCES domains(id);
 

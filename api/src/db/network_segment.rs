@@ -2,20 +2,21 @@ use crate::{CarbideError, CarbideResult};
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use patricia_tree::PatriciaMap;
 use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row};
-use std::convert::TryFrom;
+use sqlx::{Acquire, Postgres, Row};
+use std::convert::{TryFrom, TryInto};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use uuid::Uuid;
-
 use chrono::prelude::*;
+use log::warn;
 
 use rpc::v0 as rpc;
+use crate::db::{Domain, NewDomain};
 
 #[derive(Clone, Debug)]
 pub struct NetworkSegment {
     pub id: Uuid,
     pub name: String,
-    pub subdomain: String,
+    pub subdomain_id: Option<Uuid>,
     pub mtu: i32,
 
     pub prefix_ipv4: Option<Ipv4Network>,
@@ -69,7 +70,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSegment {
         Ok(NetworkSegment {
             id: row.try_get("id")?,
             name: row.try_get("name")?,
-            subdomain: row.try_get("subdomain")?,
+            subdomain_id: row.try_get("subdomain_id")?,
             mtu: row.try_get("mtu")?,
             prefix_ipv4,
             prefix_ipv6,
@@ -85,7 +86,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSegment {
 #[derive(Clone, Debug)]
 pub struct NewNetworkSegment {
     pub name: String,
-    pub subdomain: String,
+    pub subdomain_id: Option<Uuid>,
     pub mtu: Option<i32>,
 
     pub prefix_ipv4: Option<Ipv4Network>,
@@ -108,7 +109,10 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
 
         Ok(NewNetworkSegment {
             name: value.name,
-            subdomain: value.subdomain,
+            subdomain_id: match value.subdomain_id {
+              Some(v) => Some(uuid::Uuid::try_from(v).unwrap()),
+              None => None,
+            },
             mtu: value.mtu,
             prefix_ipv4: match value.prefix_ipv4 {
                 Some(v) => Some(v.parse()?),
@@ -136,7 +140,7 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
         rpc::NetworkSegment {
             id: Some(src.id.into()),
             name: src.name,
-            subdomain: src.subdomain,
+            subdomain_id: Some(rpc::Uuid::try_from(src.subdomain_id.unwrap()).unwrap()),
             mtu: Some(src.mtu),
             prefix_ipv4: src.prefix_ipv4.map(|s| s.to_string()),
             prefix_ipv6: src.prefix_ipv6.map(|s| s.to_string()),
@@ -161,13 +165,16 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
 }
 
 impl NewNetworkSegment {
+
+
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-        Ok(sqlx::query_as("INSERT INTO network_segments (name, subdomain, mtu, prefix_ipv4, prefix_ipv6, gateway_ipv4, reserve_first_ipv4, reserve_first_ipv6) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *")
+
+        Ok(sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, mtu, prefix_ipv4, prefix_ipv6, gateway_ipv4, reserve_first_ipv4, reserve_first_ipv6) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *")
             .bind(&self.name)
-            .bind(&self.subdomain)
+            .bind(&self.subdomain_id)
             .bind(self.mtu)
             .bind(self.prefix_ipv4.map(IpNetwork::from))
             .bind(self.prefix_ipv6.map(IpNetwork::from))
@@ -200,8 +207,8 @@ impl NetworkSegment {
             .await?)
     }
 
-    pub fn subdomain(&self) -> &str {
-        &self.subdomain
+    pub fn subdomain_id(&self) -> Option<&uuid::Uuid> {
+        self.subdomain_id.as_ref()
     }
 
     pub fn id(&self) -> &uuid::Uuid {
@@ -290,10 +297,12 @@ mod tests {
 
     #[test]
     fn test_unused_ipv4_address() -> Result<(), String> {
+        let domain = Domain::new("testdomain");
+
         let segment = NetworkSegment {
             id: Uuid::new_v4(),
             name: String::from("test-network"),
-            subdomain: String::from("example.com"),
+            subdomain_id: Some(*domain.id()),
             mtu: 1500,
             prefix_ipv4: Some("10.0.0.0/24".parse().unwrap()),
             prefix_ipv6: None,
@@ -316,10 +325,12 @@ mod tests {
 
     #[test]
     fn test_exhausted_ipv4_address() -> Result<(), String> {
+        let domain = Domain::new("Testdomain");
+
         let segment = NetworkSegment {
             id: Uuid::new_v4(),
             name: String::from("test-network"),
-            subdomain: String::from("example.com"),
+            subdomain_id: Some(*domain.id()),
             mtu: 1500,
             prefix_ipv4: Some("10.0.0.0/24".parse().unwrap()),
             prefix_ipv6: None,
