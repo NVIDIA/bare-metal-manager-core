@@ -110,7 +110,7 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
         Ok(NewNetworkSegment {
             name: value.name,
             subdomain_id: match value.subdomain_id {
-              Some(v) => Some(uuid::Uuid::try_from(v).unwrap()),
+              Some(v) => Some(uuid::Uuid::try_from(v)?),
               None => None,
             },
             mtu: value.mtu,

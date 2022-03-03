@@ -38,6 +38,9 @@ pub enum CarbideError {
     #[error("Unable to parse string into IP Address: {0}")]
     AddressParseError(#[from] AddrParseError),
 
+    #[error("Uuid type conversion error: {0}")]
+    UuidConversionError(#[from] uuid::Error),
+
     #[error("Database Query Error: {0}")]
     DatabaseError(sqlx::Error),
 
