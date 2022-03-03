@@ -6,6 +6,10 @@ import "google/protobuf/timestamp.proto";
 package metal.v0;
 
 service Metal {
+  // Domain0
+  rpc CreateDomain(Domain) returns (Domain);
+  rpc UpdateDomain(Domain) returns (Domain);
+  rpc DeleteDomain(DomainDeletion) returns (DomainDeletionResult);
 	// Projects
 	rpc CreateProject(Project) returns (Project);
 	rpc UpdateProject(Project) returns (Project);
@@ -42,6 +46,21 @@ service Metal {
 	rpc CreateInstanceType(InstanceType) returns (InstanceType);
 	rpc UpdateInstanceType(InstanceType) returns (InstanceType);
 	rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
+}
+message Domain {
+  optional UUID id = 1;
+  string name = 2;
+
+  google.protobuf.Timestamp created = 3;
+  google.protobuf.Timestamp updated = 4;
+}
+
+message DomainDeletion {
+  UUID id = 1;
+}
+
+message DomainDeletionResult {
+
 }
 
 message ConsoleInput {
