@@ -214,8 +214,7 @@ impl Machine {
                     Some(segment) => {
                         let generated_hostname =
                             Self::generate_hostname_from_uuid(&uuid::Uuid::new_v4());
-                        let generated_fqdn =
-                            format!("{}", generated_hostname);
+                        let generated_fqdn = format!("{}", generated_hostname);
 
                         debug!("Generated hostname {}", generated_fqdn);
 

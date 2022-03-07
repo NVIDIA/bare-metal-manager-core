@@ -1,13 +1,12 @@
-use crate::{CarbideResult, CarbideError};
-use sqlx::{Row, Postgres, Transaction, postgres::PgRow};
-use uuid::Uuid;
-use sqlx::types::uuid;
+use crate::{CarbideError, CarbideResult};
 use chrono::prelude::*;
-use std::convert::TryFrom;
 use rpc::v0 as rpc;
+use sqlx::types::uuid;
+use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
+use std::convert::TryFrom;
+use uuid::Uuid;
 
-
-/// Domain 
+/// Domain
 /// Dervied trait sqlx::FromRow consist of a series of calls to
 /// [`Row::try_get`] using the name from each struct field
 #[derive(Clone, Debug)]
@@ -49,7 +48,6 @@ impl From<Domain> for rpc::Domain {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),
-
         }
     }
 }
@@ -64,10 +62,7 @@ impl TryFrom<rpc::Domain> for NewDomain {
             )));
         }
 
-        Ok(NewDomain {
-            name: value.name,
-
-        })
+        Ok(NewDomain { name: value.name })
     }
 }
 
@@ -81,7 +76,6 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Domain {
             updated: row.try_get("updated")?,
         })
     }
-
 }
 
 impl NewDomain {
@@ -95,15 +89,16 @@ impl NewDomain {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Domain> {
-        Ok(sqlx::query_as("INSERT INTO domains (name) VALUES ($1) returning *")
-            .bind(&self.name)
-            .fetch_one(&mut *txn)
-            .await?)
+        Ok(
+            sqlx::query_as("INSERT INTO domains (name) VALUES ($1) returning *")
+                .bind(&self.name)
+                .fetch_one(&mut *txn)
+                .await?,
+        )
     }
-
 }
 
-impl UpdateDomain{
+impl UpdateDomain {
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
@@ -113,7 +108,6 @@ impl UpdateDomain{
 }
 
 impl Domain {
-
     pub fn new(name: &str) -> Domain {
         Self {
             id: Uuid::new_v4(),
@@ -124,26 +118,28 @@ impl Domain {
     }
 
     /// Create a new Domain object in database
-    /// 
+    ///
     /// Arguments:
     /// * `txn` - A reference to a currently open database transaction
     /// * `name` - The name of the Domain. e.g. mydomain.com
-    /// 
+    ///
     pub async fn create(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Self> {
-        Ok(sqlx::query_as("INSERT INTO domains (name) VALUES ($1) RETURNING name")
-            .bind(&self.name)
-            .fetch_one(&mut *txn)
-            .await?)
-            
+        Ok(
+            sqlx::query_as("INSERT INTO domains (name) VALUES ($1) RETURNING name")
+                .bind(&self.name)
+                .fetch_one(&mut *txn)
+                .await?,
+        )
     }
 
     pub async fn find_by_name(
         txn: &mut Transaction<'_, Postgres>,
         name: String,
     ) -> CarbideResult<Option<Self>> {
-       let mut results: Vec<Domain> = sqlx::query_as("SELECT * FROM domains WHERE name = $1")
-           .bind(&name)
-           .fetch_all(&mut *txn).await?;
+        let mut results: Vec<Domain> = sqlx::query_as("SELECT * FROM domains WHERE name = $1")
+            .bind(&name)
+            .fetch_all(&mut *txn)
+            .await?;
 
         match results.len() {
             0 => Ok(None),
@@ -158,7 +154,6 @@ impl Domain {
         uuid: Uuid,
     ) -> CarbideResult<Option<Self>> {
         todo!()
-
     }
 
     pub async fn delete(
@@ -175,7 +170,9 @@ impl Domain {
         todo!()
     }
 
-    pub fn id(&self) -> &uuid::Uuid { &self.id }
+    pub fn id(&self) -> &uuid::Uuid {
+        &self.id
+    }
 
     pub fn name(&self) -> &str {
         &self.name
@@ -192,4 +189,3 @@ impl Domain {
 
 #[cfg(test)]
 mod tests {}
-

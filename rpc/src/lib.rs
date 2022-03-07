@@ -52,7 +52,7 @@ pub mod v0 {
     impl Serialize for Domain {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
-        S: serde::Serializer,
+            S: serde::Serializer,
         {
             let mut state = serializer.serialize_struct("Domain", 4)?;
 
@@ -89,7 +89,6 @@ pub mod v0 {
             }
         }
     }
-
 
     impl TryFrom<Uuid> for uuid::Uuid {
         type Error = uuid::Error;

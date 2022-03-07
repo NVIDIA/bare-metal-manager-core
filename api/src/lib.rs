@@ -1,8 +1,9 @@
+use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
+
 use ipnetwork::IpNetwork;
 use log::info;
 use mac_address::MacAddress;
 use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
-use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
 use tonic::Status;
 
 pub mod db;

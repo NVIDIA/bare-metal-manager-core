@@ -1,11 +1,11 @@
 mod common;
 
-use carbide::db::{Machine, Domain, NewNetworkSegment, NewDomain};
+use carbide::db::{Domain, Machine, NewDomain, NewNetworkSegment};
 
 use log::LevelFilter;
 
-use std::sync::Once;
 use carbide::CarbideResult;
+use std::sync::Once;
 
 static INIT: Once = Once::new();
 
@@ -44,16 +44,18 @@ async fn return_existing_machine_on_rediscover() {
     let new_domain: CarbideResult<Domain> = NewDomain {
         name: my_domain.to_string(),
     }
-        .persist(&mut txn)
-        .await;
+    .persist(&mut txn)
+    .await;
 
     txn.commit().await.unwrap();
 
-    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string()).await.expect("Could not find domain in DB");
+    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string())
+        .await
+        .expect("Could not find domain in DB");
 
     NewNetworkSegment {
         name: "test-network".to_string(),
-        subdomain_id:  Some(domain).unwrap().map(|d|d.id().to_owned()),
+        subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
         prefix_ipv4: Some("10.0.0.0/24".parse().unwrap()),
         prefix_ipv6: None,

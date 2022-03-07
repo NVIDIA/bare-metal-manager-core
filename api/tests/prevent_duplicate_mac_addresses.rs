@@ -1,11 +1,11 @@
 mod common;
 
-use carbide::db::{AbsentSubnetStrategy, NewDomain};
 use carbide::db::AddressSelectionStrategy;
+use carbide::db::Domain;
 use carbide::db::Machine;
 use carbide::db::MachineInterface;
 use carbide::db::NetworkSegment;
-use carbide::db::Domain;
+use carbide::db::{AbsentSubnetStrategy, NewDomain};
 use carbide::{CarbideError, CarbideResult};
 
 use carbide::db::NewNetworkSegment;
@@ -53,16 +53,18 @@ async fn prevent_duplicate_mac_addresses() {
     let new_domain: CarbideResult<Domain> = NewDomain {
         name: my_domain.to_string(),
     }
-        .persist(&mut txn)
-        .await;
+    .persist(&mut txn)
+    .await;
 
     txn.commit().await.unwrap();
 
-    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string()).await.expect("Could not find domain in DB");
+    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string())
+        .await
+        .expect("Could not find domain in DB");
 
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
-        subdomain_id: Some(domain).unwrap().map(|d|d.id().to_owned()),
+        subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
         prefix_ipv4: Some(Ipv4Network::from_str("10.0.0.0/24").expect("can't parse network")),
         prefix_ipv6: None,

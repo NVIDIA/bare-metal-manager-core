@@ -1,22 +1,20 @@
-mod common;
-
-use carbide::db::{Machine, NewDomain};
-use carbide::db::NetworkSegment;
-use carbide::db::NewNetworkSegment;
-use carbide::db::Domain;
-
-use ipnetwork::Ipv4Network;
-use ipnetwork::Ipv6Network;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
+use std::sync::Once;
 
+use ipnetwork::Ipv4Network;
+use ipnetwork::Ipv6Network;
 use log::LevelFilter;
-
 use mac_address::MacAddress;
 
-use std::sync::Once;
+use carbide::db::Domain;
+use carbide::db::NetworkSegment;
+use carbide::db::NewNetworkSegment;
+use carbide::db::{Machine, NewDomain};
 use carbide::CarbideResult;
+
+mod common;
 
 static INIT: Once = Once::new();
 
@@ -55,12 +53,14 @@ async fn test_machine_discovery() {
     let new_domain: CarbideResult<Domain> = NewDomain {
         name: my_domain.to_string(),
     }
-        .persist(&mut txn)
-        .await;
+    .persist(&mut txn)
+    .await;
 
     txn.commit().await.unwrap();
 
-    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string()).await.expect("Could not find domain in DB");
+    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string())
+        .await
+        .expect("Could not find domain in DB");
 
     let segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),

@@ -1,8 +1,10 @@
 use std::convert::TryFrom;
 
 use carbide::{
-    db::{Domain, DhcpRecord, Machine, MachineIdsFilter, NetworkSegment, NewDomain, NewNetworkSegment},
-    CarbideError
+    db::{
+        DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment, NewDomain, NewNetworkSegment,
+    },
+    CarbideError,
 };
 use color_eyre::Report;
 use mac_address::MacAddress;
@@ -160,8 +162,7 @@ impl Metal for Api {
     async fn create_domain(
         &self,
         request: Request<rpc::Domain>,
-    ) -> Result<Response<rpc::Domain>,  Status> {
-
+    ) -> Result<Response<rpc::Domain>, Status> {
         let mut txn = self
             .database_connection
             .begin()
@@ -176,21 +177,20 @@ impl Metal for Api {
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
-
     }
 
     async fn update_domain(
         &self,
         _request: Request<rpc::Domain>,
-    ) -> Result<Response<rpc::Domain>,  Status> {
-            todo!()
+    ) -> Result<Response<rpc::Domain>, Status> {
+        todo!()
     }
 
     async fn delete_domain(
         &self,
         _request: Request<rpc::DomainDeletion>,
-    ) -> Result<Response<rpc::DomainDeletionResult>,  Status> {
-            todo!()
+    ) -> Result<Response<rpc::DomainDeletionResult>, Status> {
+        todo!()
     }
 
     async fn create_project(

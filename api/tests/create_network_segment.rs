@@ -4,7 +4,10 @@ use std::str::FromStr;
 use ipnetwork::{Ipv4Network, Ipv6Network};
 use log::LevelFilter;
 
-use carbide::{CarbideResult, db::{Domain, NetworkSegment, NewDomain, NewNetworkSegment}};
+use carbide::{
+    db::{Domain, NetworkSegment, NewDomain, NewNetworkSegment},
+    CarbideResult,
+};
 
 #[tokio::test]
 async fn test_create_segment() {
@@ -22,7 +25,7 @@ async fn test_create_segment() {
         .await
         .expect("Unable to create transaction on database pool");
 
-   let mut txn2 = db
+    let mut txn2 = db
         .pool
         .begin()
         .await
@@ -38,7 +41,9 @@ async fn test_create_segment() {
 
     txn.commit().await.unwrap();
 
-    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string()).await.expect("Could not find domain in DB");
+    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string())
+        .await
+        .expect("Could not find domain in DB");
 
     // TODO - Find a domain based on UUID and use that on subdomain_id rather than cheat
     let segment: NetworkSegment = NewNetworkSegment {

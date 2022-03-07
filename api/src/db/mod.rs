@@ -3,8 +3,8 @@
 pub mod migrations;
 
 mod address_selection_strategy;
-mod domain;
 mod dhcp_record;
+mod domain;
 mod machine;
 mod machine_action;
 mod machine_event;
@@ -12,7 +12,7 @@ mod machine_interface;
 mod machine_state;
 mod network_segment;
 
-pub use address_selection_strategy::{AddressSelectionStrategy, AbsentSubnetStrategy};
+pub use address_selection_strategy::{AbsentSubnetStrategy, AddressSelectionStrategy};
 pub use dhcp_record::DhcpRecord;
 pub use domain::{Domain, NewDomain};
 pub use machine::Machine;

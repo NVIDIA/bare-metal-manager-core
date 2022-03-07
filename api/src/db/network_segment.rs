@@ -1,16 +1,16 @@
 use crate::{CarbideError, CarbideResult};
+use chrono::prelude::*;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
+use log::warn;
 use patricia_tree::PatriciaMap;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, Postgres, Row};
 use std::convert::{TryFrom, TryInto};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use uuid::Uuid;
-use chrono::prelude::*;
-use log::warn;
 
-use rpc::v0 as rpc;
 use crate::db::{Domain, NewDomain};
+use rpc::v0 as rpc;
 
 #[derive(Clone, Debug)]
 pub struct NetworkSegment {
@@ -110,8 +110,8 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
         Ok(NewNetworkSegment {
             name: value.name,
             subdomain_id: match value.subdomain_id {
-              Some(v) => Some(uuid::Uuid::try_from(v)?),
-              None => None,
+                Some(v) => Some(uuid::Uuid::try_from(v)?),
+                None => None,
             },
             mtu: value.mtu,
             prefix_ipv4: match value.prefix_ipv4 {
@@ -165,13 +165,10 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
 }
 
 impl NewNetworkSegment {
-
-
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-
         Ok(sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, mtu, prefix_ipv4, prefix_ipv6, gateway_ipv4, reserve_first_ipv4, reserve_first_ipv6) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *")
             .bind(&self.name)
             .bind(&self.subdomain_id)

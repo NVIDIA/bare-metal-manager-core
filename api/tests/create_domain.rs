@@ -1,11 +1,11 @@
 mod common;
 
+use crate::common::TestDatabaseManager;
 use carbide::{
     db::{Domain, NewDomain},
-    CarbideResult
+    CarbideResult,
 };
 use log::LevelFilter;
-use crate::common::TestDatabaseManager;
 
 #[tokio::test]
 async fn create_domain() {
@@ -23,7 +23,6 @@ async fn create_domain() {
         .await
         .expect("Unable to create transaction on database pool");
 
-
     let domain: CarbideResult<Domain> = NewDomain {
         name: "nv.metal.net".to_string(),
     }
@@ -33,5 +32,4 @@ async fn create_domain() {
     txn.commit().await.unwrap();
 
     assert!(matches!(domain.unwrap(), Domain));
-
 }
