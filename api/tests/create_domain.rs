@@ -1,11 +1,13 @@
-mod common;
+use log::LevelFilter;
 
-use crate::common::TestDatabaseManager;
 use carbide::{
     db::{Domain, NewDomain},
     CarbideResult,
 };
-use log::LevelFilter;
+
+use crate::common::TestDatabaseManager;
+
+mod common;
 
 #[tokio::test]
 async fn create_domain() {

@@ -299,7 +299,7 @@ mod tests {
         let segment = NetworkSegment {
             id: Uuid::new_v4(),
             name: String::from("test-network"),
-            subdomain_id: Some(*domain.id()),
+            subdomain_id: Some(domain.clone().id().to_owned()),
             mtu: 1500,
             prefix_ipv4: Some("10.0.0.0/24".parse().unwrap()),
             prefix_ipv6: None,
@@ -327,7 +327,7 @@ mod tests {
         let segment = NetworkSegment {
             id: Uuid::new_v4(),
             name: String::from("test-network"),
-            subdomain_id: Some(*domain.id()),
+            subdomain_id: Some(domain.clone().id().to_owned()),
             mtu: 1500,
             prefix_ipv4: Some("10.0.0.0/24".parse().unwrap()),
             prefix_ipv6: None,
