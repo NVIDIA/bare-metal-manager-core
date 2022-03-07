@@ -54,6 +54,30 @@ services:
     expose:
       - 5432
 
+  vault:
+    image: vault:latest
+    ports:
+      - "8200:8200"
+    cap_add:
+      - ipc_lock
+    expose:
+      - 8200
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=notforprodtoken
+    domainname: metal.dev
+
+  terraform:
+    image: hashicorp/terraform:latest
+    depends_on:
+      - vault
+    environment:
+      - VAULT_TOKEN=notforprodtoken
+      - VAULT_ADDR=http://vault:8200
+    volumes:
+      - ./dev/terraform:/infra
+    working_dir: /infra
+    domainname: metal.dev
+
   gateway:
     image: envoyproxy/envoy-dev:35f8d59b1172a85f02dd119791a9ef42c728cfa8
     ports:
