@@ -44,6 +44,19 @@ Discussion happens on #ngc-metal slack channel.
 ### Clients
 1. Install ```edk2-omvf``` on host. This provides the UEFI files needed
 
+```
+   sudo qemu-system-x86_64 -boot n -nographic -serial mon:stdio -cpu host \
+   -accel kvm -device virtio-serial-pci -display none \
+   -netdev bridge,id=carbidevm,br=carbide0 \
+   -device virtio-net-pci,netdev=carbidevm \
+   -bios /usr/share/ovmf/OVMF.fd
+```
+
+You might need to modify or create /etc/qemu/bridge.conf and add ```allow <bridgename>```
+
+```
+grpcurl -d '{"name":"test", "subdomain": "test.com", "prefix_ipv4": "172.20.0.0/24", "prefix_ipv6": "::1/128", "mtu": 1490, "reserve_first_ipv4": 0, "reserve_first_ipv6": 0, "gateway_ipv4": "172.20.0.1" }' -plaintext 127.0.0.1:1079 metal.v0.Metal/CreateNetworkSegment
+```
 
 ### Setting bridge interface
 1. cp 'dev/vagrant/env.example dev/vagrant/.env'
