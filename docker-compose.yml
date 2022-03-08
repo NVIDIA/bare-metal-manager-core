@@ -1,4 +1,5 @@
 version: "3.9"
+
 networks:
   carbide:
     driver_opts:
@@ -6,6 +7,7 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/24
+
 services:
   dhcp-relay:
     build: relay
@@ -17,10 +19,14 @@ services:
       alpine:latest
     command: >
       sh -c "/sbin/apk add dhcp-helper && /usr/sbin/dhcp-helper -s 172.20.0.2 -i eth0 -n -d"
+
   carbide-dhcp:
+    depends_on:
+      - terraform
     build: dhcp
     volumes:
       - .:/app/code
+      - ca-certificate:/identity
     command: cargo watch -C dhcp -x build -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-carbide.conf"
     networks: 
       carbide:
@@ -29,34 +35,41 @@ services:
       - net_bind_service
 
   carbide-db-migrations:
+    depends_on:
+      - terraform
+      - postgresql
     build: api
     volumes:
       - .:/app/code
+      - ca-certificate:/identity
     networks: 
       carbide:
         ipv4_address: 172.20.0.254
-    depends_on:
-      - postgresql
-    command: cargo watch -C api -x "run -- migrate --datastore=postgres://carbide_development:notforprod@postgresql"
+    command: cargo watch -C api -x "run -- migrate --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
 
   carbide-api:
+    depends_on:
+      - terraform
+      - carbide-db-migrations
+      - postgresql
     build: api
     volumes:
       - .:/app/code
-    depends_on:
-      - carbide-db-migrations
-      - postgresql
+      - ca-certificate:/identity
     networks: 
       carbide:
         ipv4_address: 172.20.0.3
     ports:
       - 1079:1079
-    command: cargo watch -C api -x "run -- run --datastore=postgres://carbide_development:notforprod@postgresql"
+    command: cargo watch -C api -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
 
   carbide-pxe:
+    depends_on:
+      - terraform
     build: pxe
     volumes:
       - .:/app/code
+      - ca-certificate:/identity
     ports:
       - 1080:1080
     networks: 
@@ -67,9 +80,12 @@ services:
     command: cargo watch -C pxe -x run
 
   postgresql:
+    depends_on:
+      - terraform
     image: postgres:14.1-alpine
     volumes:
-      - db-data:/var/lib/postgresql/db-data
+      - db-data:/var/lib/postgresql/data
+      - ca-certificate:/identity
     environment:
       - POSTGRES_USER=${DBUSER:-carbide_development}
       - POSTGRES_DB=${DBNAME:-carbide_development}
@@ -81,30 +97,27 @@ services:
         ipv4_address: 172.20.0.5
     expose:
       - 5432
-
-  vault:
-    image: vault:latest
-    ports:
-      - "8200:8200"
-    cap_add:
-      - ipc_lock
-    expose:
-      - 8200
-    environment:
-      - VAULT_DEV_ROOT_TOKEN_ID=notforprodtoken
-    domainname: metal.dev
+    command: -c ssl=on -c ssl_cert_file=/identity/postgresql.metal.dev.pem -c ssl_key_file=/identity/postgresql.metal.dev.key
 
   terraform:
     image: hashicorp/terraform:latest
     depends_on:
-      - vault
+      vault:
+        condition: service_healthy
     environment:
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
+      - TF_VAR_authority_output_root=/identity
     volumes:
       - ./dev/terraform:/infra
+      - ca-certificate:/identity
+      - terraform-state:/terraform
     working_dir: /infra
     domainname: metal.dev
+    command: apply -auto-approve
+    networks:
+      carbide:
+        ipv4_address: 172.20.0.252
 
   gateway:
     image: envoyproxy/envoy-dev:35f8d59b1172a85f02dd119791a9ef42c728cfa8
@@ -120,8 +133,37 @@ services:
         ipv4_address: 172.20.0.6
     volumes:
       - ./dev/envoy.yaml:/etc/envoy/envoy.yaml
+      - ca-certificate:/identity
     cap_add:
       - net_bind_service
 
+  vault:
+    image: vault:latest
+    ports:
+      - "8200:8200"
+    cap_add:
+      - ipc_lock
+    expose:
+      - 8200
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=notforprodtoken
+      - VAULT_TOKEN=notforprodtoken
+      - VAULT_ADDR=http://vault:8200
+    healthcheck:
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      test: ["CMD", "vault", "status"]
+    volumes:
+      - vault-data:/vault/file
+      - ca-certificate:/identity
+    networks:
+      carbide:
+        ipv4_address: 172.20.0.7
+    domainname: metal.dev
+
 volumes:
   db-data: {}
+  ca-certificate: {}
+  vault-data: {}
+  terraform-state: {}
