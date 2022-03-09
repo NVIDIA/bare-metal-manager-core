@@ -97,6 +97,12 @@ pub struct NewNetworkSegment {
     pub reserve_first_ipv6: Option<i32>,
 }
 
+/*
+Marshal from Rust NewNetworkSegment to ProtoBuf NetworkSegment
+subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
+  Use try_from in order to return a Result where Result is an error if the conversion
+  from String -> UUID fails
+ */
 impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
     type Error = CarbideError;
 
@@ -134,13 +140,14 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
 
 /*
  * Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
+ subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
  */
 impl From<NetworkSegment> for rpc::NetworkSegment {
     fn from(src: NetworkSegment) -> Self {
         rpc::NetworkSegment {
             id: Some(src.id.into()),
             name: src.name,
-            subdomain_id: Some(rpc::Uuid::try_from(src.subdomain_id.unwrap()).unwrap()),
+            subdomain_id: src.subdomain_id.map(rpc::Uuid::from),
             mtu: Some(src.mtu),
             prefix_ipv4: src.prefix_ipv4.map(|s| s.to_string()),
             prefix_ipv6: src.prefix_ipv6.map(|s| s.to_string()),
