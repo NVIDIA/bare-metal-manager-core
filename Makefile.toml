@@ -15,6 +15,16 @@ command = "docker"
 args = ["build", "-t", "carbide-runtime:latest", "."]
 env = { "DOCKER_BUILDKIT" = "1" }
 
+[tasks.fullstack-up]
+workspace = false
+command = "docker-compose"
+args = ["up", "-d"]
+
+[tasks.fullstack-down]
+workspace = false
+command = "docker-compose"
+args = ["down", "-v"]
+
 [tasks.book-compile]
 workspace = false
 command = "mdbook"
