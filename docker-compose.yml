@@ -10,7 +10,6 @@ networks:
 
 services:
   dhcp-relay:
-    build: relay
     networks:
       carbide:
         ipv4_address: 172.20.0.253
