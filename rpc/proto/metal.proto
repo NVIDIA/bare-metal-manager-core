@@ -259,7 +259,7 @@ message DhcpRecord {
 	UUID machine_id = 1;
 	UUID segment_id = 2;
 
-	string subdomain = 3;
+	optional UUID subdomain_id = 3;
 	string fqdn = 4;
 
 	optional AddressAssignmentV4 address_ipv4 = 5;
