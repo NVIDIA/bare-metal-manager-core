@@ -49,6 +49,20 @@ pub mod v0 {
         }
     }
 
+    impl Serialize for Domain {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("Domain", 4)?;
+
+            state.serialize_field("id", &self.id)?;
+            state.serialize_field("name", &self.name)?;
+            state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
+            state.serialize_field("updated", &self.updated.as_ref().map(|ts| ts.seconds))?;
+            state.end()
+        }
+    }
     impl Serialize for Machine {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where

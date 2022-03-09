@@ -6,6 +6,10 @@ import "google/protobuf/timestamp.proto";
 package metal.v0;
 
 service Metal {
+  // Domain0
+  rpc CreateDomain(Domain) returns (Domain);
+  rpc UpdateDomain(Domain) returns (Domain);
+  rpc DeleteDomain(DomainDeletion) returns (DomainDeletionResult);
 	// Projects
 	rpc CreateProject(Project) returns (Project);
 	rpc UpdateProject(Project) returns (Project);
@@ -43,6 +47,21 @@ service Metal {
 	rpc UpdateInstanceType(InstanceType) returns (InstanceType);
 	rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
 }
+message Domain {
+  UUID id = 1;
+  string name = 2;
+
+  google.protobuf.Timestamp created = 3;
+  google.protobuf.Timestamp updated = 4;
+}
+
+message DomainDeletion {
+  UUID id = 1;
+}
+
+message DomainDeletionResult {
+
+}
 
 message ConsoleInput {
 	string input = 1;
@@ -79,7 +98,8 @@ message NetworkSegment {
 	UUID id = 1;
 	UUID project = 2;
 	string name = 3;
-	string subdomain = 4;
+	optional UUID subdomain_id = 4;
+
 	optional int32 mtu = 5;
 
 	optional string prefix_ipv4 = 6;
@@ -239,7 +259,7 @@ message DhcpRecord {
 	UUID machine_id = 1;
 	UUID segment_id = 2;
 
-	string subdomain = 3;
+	optional UUID subdomain_id = 3;
 	string fqdn = 4;
 
 	optional AddressAssignmentV4 address_ipv4 = 5;
