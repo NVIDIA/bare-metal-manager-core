@@ -1,18 +1,7 @@
 version: "3.9"
 
-networks:
-  carbide:
-    driver_opts:
-      com.docker.network.bridge.name: carbide0
-    ipam:
-      config:
-        - subnet: 172.20.0.0/24
-
 services:
   dhcp-relay:
-    networks:
-      carbide:
-        ipv4_address: 172.20.0.253
     container_name: "dhcp-relay"
     image:
       alpine:latest
@@ -27,9 +16,6 @@ services:
       - .:/app/code
       - ca-certificate:/identity
     command: cargo watch -C dhcp -x build -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-carbide.conf"
-    networks: 
-      carbide:
-        ipv4_address: 172.20.0.2
     cap_add:
       - net_bind_service
 
@@ -41,9 +27,6 @@ services:
     volumes:
       - .:/app/code
       - ca-certificate:/identity
-    networks: 
-      carbide:
-        ipv4_address: 172.20.0.254
     command: cargo watch -C api -x "run -- migrate --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
 
   carbide-api:
@@ -55,9 +38,6 @@ services:
     volumes:
       - .:/app/code
       - ca-certificate:/identity
-    networks: 
-      carbide:
-        ipv4_address: 172.20.0.3
     ports:
       - 1079:1079
     command: cargo watch -C api -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
@@ -71,9 +51,6 @@ services:
       - ca-certificate:/identity
     ports:
       - 1080:1080
-    networks: 
-      carbide:
-        ipv4_address: 172.20.0.4
     environment:
       - ROCKET_port=1080
     command: cargo watch -C pxe -x run
@@ -91,9 +68,6 @@ services:
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
     ports:
       - 5432:5432
-    networks:
-      carbide:
-        ipv4_address: 172.20.0.5
     expose:
       - 5432
     command: -c ssl=on -c ssl_cert_file=/identity/postgresql.metal.dev.pem -c ssl_key_file=/identity/postgresql.metal.dev.key
@@ -114,9 +88,6 @@ services:
     working_dir: /infra
     domainname: metal.dev
     command: apply -auto-approve
-    networks:
-      carbide:
-        ipv4_address: 172.20.0.252
 
   gateway:
     image: envoyproxy/envoy-dev:35f8d59b1172a85f02dd119791a9ef42c728cfa8
@@ -127,9 +98,6 @@ services:
     expose:
       - 80
       - 8080
-    networks:
-      carbide:
-        ipv4_address: 172.20.0.6
     volumes:
       - ./dev/envoy.yaml:/etc/envoy/envoy.yaml
       - ca-certificate:/identity
@@ -156,9 +124,6 @@ services:
     volumes:
       - vault-data:/vault/file
       - ca-certificate:/identity
-    networks:
-      carbide:
-        ipv4_address: 172.20.0.7
     domainname: metal.dev
 
 volumes:
