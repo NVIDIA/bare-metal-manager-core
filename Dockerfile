@@ -8,6 +8,8 @@ COPY dev/deployment/pgdg.gpg /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
 COPY dev/deployment/pgdg.list /etc/apt/sources.list.d/pgdg.list
 COPY dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
 COPY dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
+COPY dev/docker/hashicorp.gpg /etc/apt/trusted.gpg.d/apt.hashicorp.gpg
+COPY dev/docker/hashicorp.list /etc/apt/sources.list.d/hashicorp.list
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
   binutils-aarch64-linux-gnu \
@@ -22,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libboost-dev \
   postgresql-client-14 \
   postgresql-client-14-dbgsym \
+  vault \
   && rm -rf /var/lib/apt/lists/*
 
 RUN rustup component add rustfmt rust-src
