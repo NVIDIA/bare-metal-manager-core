@@ -2,16 +2,19 @@ version: "3.9"
 
 services:
   dhcp-relay:
+    depends_on:
+      - carbide-dhcp
     container_name: "dhcp-relay"
     image:
       alpine:latest
     command: >
-      sh -c "/sbin/apk add dhcp-helper && /usr/sbin/dhcp-helper -s 172.20.0.2 -i eth0 -n -d"
-
+      sh -c "/sbin/apk add dhcp-helper && /usr/sbin/dhcp-helper -s carbide-dhcp -i eth0 -n -d"
   carbide-dhcp:
     depends_on:
       - terraform
     build: dhcp
+    ports:
+      - "67:67/udp"
     volumes:
       - .:/app/code
       - ca-certificate:/identity
@@ -38,8 +41,6 @@ services:
     volumes:
       - .:/app/code
       - ca-certificate:/identity
-    ports:
-      - 1079:1079
     command: cargo watch -C api -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
 
   carbide-pxe:
@@ -49,8 +50,6 @@ services:
     volumes:
       - .:/app/code
       - ca-certificate:/identity
-    ports:
-      - 1080:1080
     environment:
       - ROCKET_port=1080
     command: cargo watch -C pxe -x run
@@ -66,10 +65,6 @@ services:
       - POSTGRES_USER=${DBUSER:-carbide_development}
       - POSTGRES_DB=${DBNAME:-carbide_development}
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
-    ports:
-      - 5432:5432
-    expose:
-      - 5432
     command: -c ssl=on -c ssl_cert_file=/identity/postgresql.metal.dev.pem -c ssl_key_file=/identity/postgresql.metal.dev.key
 
   terraform:
@@ -95,9 +90,6 @@ services:
       - "9901:9901"
       - "80:80"
       - "8080:8080"
-    expose:
-      - 80
-      - 8080
     volumes:
       - ./dev/envoy.yaml:/etc/envoy/envoy.yaml
       - ca-certificate:/identity
@@ -106,12 +98,8 @@ services:
 
   vault:
     image: vault:latest
-    ports:
-      - "8200:8200"
     cap_add:
       - ipc_lock
-    expose:
-      - 8200
     environment:
       - VAULT_DEV_ROOT_TOKEN_ID=notforprodtoken
       - VAULT_TOKEN=notforprodtoken

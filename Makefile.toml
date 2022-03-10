@@ -10,20 +10,50 @@ dependencies = [
 ]
 
 [tasks.runtime-container]
+category = "Docker Compose"
+description = "Build the runtime container base image for Carbide components"
 workspace = false
 command = "docker"
 args = ["build", "-t", "carbide-runtime:latest", "."]
 env = { "DOCKER_BUILDKIT" = "1" }
 
 [tasks.fullstack-up]
+category = "Docker Compose"
+description = "Brings up a full Carbide stack"
 workspace = false
 command = "docker-compose"
 args = ["up", "-d"]
 
 [tasks.fullstack-down]
+category = "Docker Compose"
+description = "Brings down the full Carbide stack"
 workspace = false
 command = "docker-compose"
 args = ["down", "-v"]
+
+[tasks.fullstack-cert-renew]
+category = "Docker Compose"
+description = "Renews all the certificates in the containers and reloads the services"
+workspace=false
+dependencies = [
+	"fullstack-terraform",
+	"fullstack-refresh-postgresql",
+]
+
+[tasks.fullstack-terraform]
+category = "Docker Compose"
+description = "Re-runs terraform in the running environment"
+workspace = false
+command = "docker-compose"
+args = ["run", "terraform", "apply", "-auto-approve"]
+
+[tasks.fullstack-refresh-postgresql]
+category = "Docker Compose"
+description = "Reloads postgres in the running container"
+workspace = false
+command = "docker-compose"
+args = ["exec", "postgresql", "kill", "-HUP", "1"]
+
 
 [tasks.book-compile]
 workspace = false

@@ -95,6 +95,7 @@ resource "vault_pki_secret_backend_cert" "postgresql" {
   name = vault_pki_secret_backend_role.service.name
   common_name = "postgresql"
   ttl = 3600
+  auto_renew = true
 }
 
 #
