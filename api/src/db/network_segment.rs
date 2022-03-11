@@ -1,115 +1,75 @@
-use std::convert::{TryFrom, TryInto};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::convert::TryFrom;
+use std::net::IpAddr;
 
+use crate::{
+    db::NetworkPrefix, db::NewNetworkPrefix, db::UuidKeyedObjectFilter, CarbideError, CarbideResult,
+};
 use chrono::prelude::*;
-use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
+use ipnetwork::IpNetwork;
+use itertools::Itertools;
 use log::warn;
 use patricia_tree::PatriciaMap;
+use rpc::v0 as rpc;
 use sqlx::postgres::PgRow;
-use sqlx::{Acquire, Postgres, Row};
+use sqlx::{FromRow, Transaction};
+use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
-use rpc::v0 as rpc;
+#[derive(Debug)]
+pub enum IpAllocationError {
+    PrefixExhausted(NetworkPrefix),
+}
 
-use crate::db::{Domain, NewDomain};
-use crate::{CarbideError, CarbideResult};
+pub type IpAllocationResult = Result<IpAddr, IpAllocationError>;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct NetworkSegment {
     pub id: Uuid,
     pub name: String,
     pub subdomain_id: Option<Uuid>,
     pub mtu: i32,
 
-    pub prefix_ipv4: Option<Ipv4Network>,
-    pub prefix_ipv6: Option<Ipv6Network>,
-    pub gateway_ipv4: Option<Ipv4Addr>,
-
-    pub reserve_first_ipv4: i32,
-    pub reserve_first_ipv6: i32,
-
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
+
+    pub prefixes: Vec<NetworkPrefix>,
 }
 
-impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSegment {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let possible_prefix_ipv4: Option<IpNetwork> = row.try_get("prefix_ipv4")?;
-        let possible_prefix_ipv6: Option<IpNetwork> = row.try_get("prefix_ipv6")?;
-        let possible_gateway_ipv4: Option<IpNetwork> = row.try_get("gateway_ipv4")?;
-
-        let prefix_ipv4 = match possible_prefix_ipv4 {
-            Some(IpNetwork::V4(network)) => Ok(Some(network)),
-            Some(IpNetwork::V6(network)) => Err(sqlx::Error::Protocol(format!(
-                "IP address field in prefix_ipv4 ({}) is not an IPv4 subnet",
-                network
-            ))),
-            None => Ok(None),
-        }?;
-
-        let prefix_ipv6 = match possible_prefix_ipv6 {
-            Some(IpNetwork::V6(network)) => Ok(Some(network)),
-            Some(IpNetwork::V4(network)) => Err(sqlx::Error::Protocol(format!(
-                "IP address field in prefix_ipv6 ({}) is not an IPv6 subnet",
-                network
-            ))),
-            None => Ok(None),
-        }?;
-
-        let gateway_ipv4 = match possible_gateway_ipv4 {
-            Some(IpNetwork::V4(network)) if network.prefix() == 32 => Ok(Some(network.ip())),
-            Some(IpNetwork::V4(network)) => Err(sqlx::Error::Protocol(format!(
-                "IP address field in gateway_ipv4 ({}) is not a single host",
-                network
-            ))),
-            Some(IpNetwork::V6(network)) => Err(sqlx::Error::Protocol(format!(
-                "IP address field in gateway_ipv4 ({}) is not an IPv4 subnet",
-                network
-            ))),
-            None => Ok(None),
-        }?;
-
-        Ok(NetworkSegment {
-            id: row.try_get("id")?,
-            name: row.try_get("name")?,
-            subdomain_id: row.try_get("subdomain_id")?,
-            mtu: row.try_get("mtu")?,
-            prefix_ipv4,
-            prefix_ipv6,
-            gateway_ipv4,
-            reserve_first_ipv4: row.try_get("reserve_first_ipv4")?,
-            reserve_first_ipv6: row.try_get("reserve_first_ipv6")?,
-            created: row.try_get("created")?,
-            updated: row.try_get("updated")?,
-        })
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct NewNetworkSegment {
     pub name: String,
     pub subdomain_id: Option<Uuid>,
     pub mtu: Option<i32>,
-
-    pub prefix_ipv4: Option<Ipv4Network>,
-    pub prefix_ipv6: Option<Ipv6Network>,
-    pub gateway_ipv4: Option<Ipv4Network>,
-
-    pub reserve_first_ipv4: Option<i32>,
-    pub reserve_first_ipv6: Option<i32>,
+    pub prefixes: Vec<NewNetworkPrefix>,
 }
 
-/*
-Marshal from protobuf NewNetworkSegment to Rust NetworkSegment
-subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
-  Use try_from in order to return a Result where Result is an error if the conversion
-  from String -> UUID fails
- */
+// We need to implement FromRow because we can't associate dependent tables with the default derive
+// (i.e. it can't default unknown fields)
+impl<'r> FromRow<'r, PgRow> for NetworkSegment {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        Ok(NetworkSegment {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            subdomain_id: row.try_get("subdomain_id")?,
+            created: row.try_get("created")?,
+            updated: row.try_get("updated")?,
+            mtu: row.try_get("mtu")?,
+            prefixes: Vec::new(),
+        })
+    }
+}
+
+/// Marshal from Rust NewNetworkSegment to ProtoBuf NetworkSegment.
+///
+/// subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
+/// Use try_from in order to return a Result where Result is an error if the conversion
+/// from String -> UUID fails
+///
 impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
     type Error = CarbideError;
 
     fn try_from(value: rpc::NetworkSegment) -> Result<Self, Self::Error> {
-        if let Some(id) = value.id {
+        if let Some(_id) = value.id {
             return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
                 "Network Segment",
             )));
@@ -122,28 +82,16 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
                 None => None,
             },
             mtu: value.mtu,
-            prefix_ipv4: match value.prefix_ipv4 {
-                Some(v) => Some(v.parse()?),
-                None => None,
-            },
-            prefix_ipv6: match value.prefix_ipv6 {
-                Some(v) => Some(v.parse()?),
-                None => None,
-            },
-            gateway_ipv4: match value.gateway_ipv4 {
-                Some(v) => Some(v.parse()?),
-                None => None,
-            },
-            reserve_first_ipv4: value.reserve_first_ipv4,
-            reserve_first_ipv6: value.reserve_first_ipv6,
+            prefixes: vec![],
         })
     }
 }
 
-/*
-* Marshal a Data Object from Rust (NetworkSegment) into an RPC NetworkSegment
-subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
-*/
+///
+/// Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
+///
+/// subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
+///
 impl From<NetworkSegment> for rpc::NetworkSegment {
     fn from(src: NetworkSegment) -> Self {
         rpc::NetworkSegment {
@@ -151,11 +99,6 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
             name: src.name,
             subdomain_id: src.subdomain_id.map(rpc::Uuid::from),
             mtu: Some(src.mtu),
-            prefix_ipv4: src.prefix_ipv4.map(|s| s.to_string()),
-            prefix_ipv6: src.prefix_ipv6.map(|s| s.to_string()),
-            gateway_ipv4: src.gateway_ipv4.map(|s| s.to_string()),
-            reserve_first_ipv4: Some(src.reserve_first_ipv4),
-            reserve_first_ipv6: Some(src.reserve_first_ipv6),
 
             created: Some(rpc::Timestamp {
                 seconds: src.created.timestamp(),
@@ -166,6 +109,8 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),
+
+            prefixes: vec![],
 
             // TODO(ajf): Projects aren't modeled yet so just return 0 UUID.
             project: Some(uuid::Uuid::nil().into()),
@@ -178,16 +123,15 @@ impl NewNetworkSegment {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-        Ok(sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, mtu, prefix_ipv4, prefix_ipv6, gateway_ipv4, reserve_first_ipv4, reserve_first_ipv6) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *")
-            .bind(&self.name)
-            .bind(&self.subdomain_id)
-            .bind(self.mtu)
-            .bind(self.prefix_ipv4.map(IpNetwork::from))
-            .bind(self.prefix_ipv6.map(IpNetwork::from))
-            .bind(self.gateway_ipv4.map(IpNetwork::from))
-            .bind(self.reserve_first_ipv4)
-            .bind(self.reserve_first_ipv6)
-            .fetch_one(&mut *txn).await?)
+        let mut segment: NetworkSegment = sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, mtu) VALUES ($1, $2, $3) RETURNING *")
+           .bind(&self.name)
+           .bind(&self.subdomain_id)
+           .bind(self.mtu)
+           .fetch_one(&mut *txn).await?;
+
+        segment.prefixes = NetworkPrefix::create_for(txn, &segment.id, &self.prefixes).await?;
+
+        Ok(segment)
     }
 }
 
@@ -196,21 +140,83 @@ impl NetworkSegment {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         relay: IpAddr,
     ) -> CarbideResult<Option<Self>> {
-        let mut results = sqlx::query_as("SELECT * FROM network_segments WHERE ($1::inet <<= prefix_ipv4 OR $1::inet <<= prefix_ipv6)")
-            .bind(IpNetwork::from(relay))
-            .fetch_all(&mut *txn).await?;
+        let mut results = sqlx::query_as(
+            r#"SELECT network_segments.* FROM network_segments INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id WHERE $1::inet <<= network_prefixes.prefix"#,
+        )
+        .bind(IpNetwork::from(relay))
+        .fetch_all(&mut *txn)
+        .await?;
 
         match results.len() {
             0 => Ok(None),
-            1 => Ok(Some(results.remove(0))),
+            1 => {
+                let mut segment: NetworkSegment = results.remove(0);
+
+                segment.prefixes =
+                    sqlx::query_as(r#"SELECT * FROM network_prefixes WHERE segment_id=$1::uuid"#)
+                        .bind(segment.id())
+                        .fetch_all(&mut *txn)
+                        .await?;
+
+                Ok(Some(segment))
+            }
             _ => Err(CarbideError::MultipleNetworkSegmentsForRelay(relay)),
         }
     }
 
-    pub async fn find(txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vec<Self>> {
-        Ok(sqlx::query_as("SELECT * FROM network_segments")
-            .fetch_all(txn)
-            .await?)
+    pub async fn find(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        filter: UuidKeyedObjectFilter<'_>,
+    ) -> CarbideResult<Vec<Self>> {
+        let base_query = "SELECT * FROM network_segments {where}".to_owned();
+
+        let mut all_records: Vec<NetworkSegment> = match filter {
+            UuidKeyedObjectFilter::All => {
+                sqlx::query_as::<_, NetworkSegment>(&base_query.replace("{where}", ""))
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+
+            UuidKeyedObjectFilter::List(uuids) => {
+                sqlx::query_as::<_, NetworkSegment>(
+                    &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
+                )
+                .bind(uuids)
+                .fetch_all(&mut *txn)
+                .await?
+            }
+            UuidKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as::<_, NetworkSegment>(
+                    &base_query.replace("{where}", "WHERE network_segments.id=$1"),
+                )
+                .bind(uuid)
+                .fetch_all(&mut *txn)
+                .await?
+            }
+        };
+
+        let all_uuids = all_records
+            .iter()
+            .map(|record| record.id)
+            .collect::<Vec<Uuid>>();
+
+        // TODO(ajf): N+1 query alert.  Optimize later.
+
+        let mut grouped_prefixes =
+            NetworkPrefix::find_by_segment(&mut *txn, UuidKeyedObjectFilter::List(&all_uuids))
+                .await?
+                .into_iter()
+                .into_group_map_by(|prefix| prefix.segment_id);
+
+        all_records.iter_mut().for_each(|record| {
+            if let Some(prefixes) = grouped_prefixes.remove(&record.id) {
+                record.prefixes = prefixes;
+            } else {
+                warn!("Network {0} ({1}) has no prefixes?", record.id, record.name);
+            }
+        });
+
+        Ok(all_records)
     }
 
     pub fn subdomain_id(&self) -> Option<&uuid::Uuid> {
@@ -221,144 +227,102 @@ impl NetworkSegment {
         &self.id
     }
 
-    pub fn prefix_ipv4(&self) -> Option<&Ipv4Network> {
-        self.prefix_ipv4.as_ref()
-    }
-
-    pub fn prefix_ipv6(&self) -> Option<&Ipv6Network> {
-        self.prefix_ipv6.as_ref()
-    }
-
-    pub fn next_ipv4<'a>(
+    /// Returns a Vec<IpNetwork> of the next ip address for all the prefixes of this segment.
+    ///
+    /// It will allocate both address families, if both are present.
+    ///
+    /// This function assumes that proper DB locking has been done prior to calling this function
+    ///
+    /// # Arguments
+    ///
+    /// None
+    ///
+    /// # Examples
+    ///
+    /// let network = NetworkSegment::for_relay("192.0.2.1")
+    ///
+    /// let next_addresses: Vec<IpNetwork> = network.next_addresses();
+    ///
+    /// # Returns
+    ///
+    pub async fn next_address<'a>(
         &self,
-        used_ips: impl Iterator<Item = &'a Ipv4Addr>,
-    ) -> CarbideResult<Ipv4Addr> {
-        self.prefix_ipv4()
-            .ok_or_else(|| {
-                CarbideError::NetworkSegmentMissingAddressFamilyError(String::from("IPv4"))
-            })
-            .and_then(|subnet| {
-                let mut map: PatriciaMap<()> = PatriciaMap::new();
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<Vec<IpAllocationResult>> {
+        let used_ips: Vec<(IpNetwork,)> = sqlx::query_as(r"
+             SELECT address FROM machine_interface_addresses
+             INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
+             INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id
+             WHERE network_segments.id = $1::uuid")
+            .bind(self.id())
+            .fetch_all(&mut *txn)
+            .await?;
 
-                map.extend(used_ips.map(|ip| (ip.octets(), ())));
-                map.extend(std::iter::once((subnet.network().octets(), ())));
+        let segment_prefixes: Vec<NetworkPrefix> =
+            sqlx::query_as("SELECT * FROM network_prefixes WHERE segment_id = $1::uuid")
+                .bind(self.id())
+                .fetch_all(&mut *txn)
+                .await?;
 
-                if let Some(gateway) = self.gateway_ipv4 {
-                    map.extend(std::iter::once((gateway.octets(), ())));
+        let addresses = segment_prefixes
+            .into_iter()
+            .map(|segment_prefix| {
+                let mut excluded_ips: PatriciaMap<()> = PatriciaMap::new();
+
+                /// This looks dumb, because octets() isn't on IpAddr, only on IpXAddr
+                ///
+                /// https://github.com/rust-lang/rfcs/issues/1881
+                ///
+                fn to_vec(addr: &IpAddr) -> Vec<u8> {
+                    match addr {
+                        IpAddr::V4(address) => address.octets().to_vec(),
+                        IpAddr::V6(address) => address.octets().to_vec(),
+                    }
                 }
 
-                map.extend(
-                    subnet
+                excluded_ips.extend(used_ips.iter().filter_map(|(ip,)| {
+                    segment_prefix
+                        .prefix
+                        .contains(ip.ip())
+                        .then(|| (to_vec(&ip.ip()), ()))
+                }));
+
+                // TODO: add gateway to the list of used IPs above?
+                if let Some(gateway) = segment_prefix.gateway {
+                    assert!(segment_prefix.prefix.is_ipv4());
+
+                    excluded_ips.extend(std::iter::once((to_vec(&gateway.ip()), ())));
+                }
+
+                // Exclude the first "N" number of addresses
+                //
+                // The gateway will be excluded separately, so if `num_reserved` == 1` and that's
+                // also the gateway address, then we'll exclude the same address twice, and you'll
+                // get the second address.
+                //
+                excluded_ips.extend(
+                    segment_prefix
+                        .prefix
                         .iter()
-                        .skip(1)
-                        .take(self.reserve_first_ipv4 as usize)
-                        .map(|ip| (ip.octets(), ())),
+                        .take(segment_prefix.num_reserved as usize)
+                        .map(|ip| (to_vec(&ip), ())),
                 );
 
-                subnet
+                // Iterate over all the IPs until we find one that's not in the map, that's our
+                // first free IPs
+                segment_prefix
+                    .prefix
                     .iter()
-                    .find(|host| map.get(host.octets()).is_none())
-                    .ok_or_else(|| {
-                        CarbideError::NetworkSegmentExhaustedAddressFamily(String::from("huh"))
+                    .find_map(|address| {
+                        excluded_ips
+                            .get(to_vec(&address))
+                            .is_none()
+                            .then(|| address)
                     })
+                    .ok_or(IpAllocationError::PrefixExhausted(segment_prefix))
             })
-    }
+            .collect();
 
-    pub fn next_ipv6<'a>(
-        &self,
-        used_ips: impl Iterator<Item = &'a Ipv6Addr>,
-    ) -> CarbideResult<Ipv6Addr> {
-        self.prefix_ipv6()
-            .ok_or_else(|| {
-                CarbideError::NetworkSegmentMissingAddressFamilyError(String::from("IPv6"))
-            })
-            .and_then(|subnet| {
-                let mut map: PatriciaMap<()> = PatriciaMap::new();
-
-                map.extend(used_ips.map(|ip| (ip.octets(), ())));
-
-                map.extend(
-                    subnet
-                        .iter()
-                        .take(self.reserve_first_ipv6 as usize)
-                        .map(|ip| (ip.octets(), ())),
-                );
-
-                subnet
-                    .iter()
-                    .find(|address| map.get(address.octets()).is_none())
-                    .ok_or_else(|| {
-                        CarbideError::NetworkSegmentExhaustedAddressFamily(String::from("huh"))
-                    })
-            })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::str::FromStr;
-
-    use uuid::Uuid;
-
-    use crate::CarbideError;
-
-    use super::*;
-
-    #[test]
-    fn test_unused_ipv4_address() -> Result<(), String> {
-        let domain = Domain::new("testdomain");
-
-        let segment = NetworkSegment {
-            id: Uuid::new_v4(),
-            name: String::from("test-network"),
-            subdomain_id: Some(domain.clone().id().to_owned()),
-            mtu: 1500,
-            prefix_ipv4: Some("10.0.0.0/24".parse().unwrap()),
-            prefix_ipv6: None,
-            reserve_first_ipv4: 3,
-            reserve_first_ipv6: 0,
-            gateway_ipv4: Some("10.0.0.1".parse().unwrap()),
-            created: Utc::now(),
-            updated: Utc::now(),
-        };
-        let mut usedips: Vec<Ipv4Addr> = vec![];
-
-        usedips.extend((1..=200).map(|i| Ipv4Addr::new(10, 0, 0, i)));
-
-        assert_eq!(
-            segment.next_ipv4(usedips.iter()).unwrap(),
-            Ipv4Addr::from_str("10.0.0.201").unwrap()
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_exhausted_ipv4_address() -> Result<(), String> {
-        let domain = Domain::new("Testdomain");
-
-        let segment = NetworkSegment {
-            id: Uuid::new_v4(),
-            name: String::from("test-network"),
-            subdomain_id: Some(domain.clone().id().to_owned()),
-            mtu: 1500,
-            prefix_ipv4: Some("10.0.0.0/24".parse().unwrap()),
-            prefix_ipv6: None,
-            reserve_first_ipv4: 3,
-            reserve_first_ipv6: 0,
-            gateway_ipv4: Some("10.0.0.1".parse().unwrap()),
-            created: Utc::now(),
-            updated: Utc::now(),
-        };
-        let mut usedips: Vec<Ipv4Addr> = vec![];
-
-        let address_list = (1..=255).map(|i| Ipv4Addr::new(10, 0, 0, i));
-
-        usedips.extend(address_list);
-
-        assert!(matches!(
-            segment.next_ipv4(usedips.iter()),
-            Err(CarbideError::NetworkSegmentExhaustedAddressFamily(_))
-        ));
-        Ok(())
+        Ok(addresses)
     }
 }

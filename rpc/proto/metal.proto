@@ -6,10 +6,10 @@ import "google/protobuf/timestamp.proto";
 package metal.v0;
 
 service Metal {
-  // Domain0
-  rpc CreateDomain(Domain) returns (Domain);
-  rpc UpdateDomain(Domain) returns (Domain);
-  rpc DeleteDomain(DomainDeletion) returns (DomainDeletionResult);
+	// Domain0
+	rpc CreateDomain(Domain) returns (Domain);
+	rpc UpdateDomain(Domain) returns (Domain);
+	rpc DeleteDomain(DomainDeletion) returns (DomainDeletionResult);
 	// Projects
 	rpc CreateProject(Project) returns (Project);
 	rpc UpdateProject(Project) returns (Project);
@@ -47,16 +47,17 @@ service Metal {
 	rpc UpdateInstanceType(InstanceType) returns (InstanceType);
 	rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
 }
-message Domain {
-  UUID id = 1;
-  string name = 2;
 
-  google.protobuf.Timestamp created = 3;
-  google.protobuf.Timestamp updated = 4;
+message Domain {
+	UUID id = 1;
+	string name = 2;
+
+	google.protobuf.Timestamp created = 3;
+	google.protobuf.Timestamp updated = 4;
 }
 
 message DomainDeletion {
-  UUID id = 1;
+	UUID id = 1;
 }
 
 message DomainDeletionResult {
@@ -101,21 +102,23 @@ message ProjectDeletionResult {
 message NetworkSegment {
 	UUID id = 1;
 	UUID project = 2;
-	string name = 3;
-	optional UUID subdomain_id = 4;
 
+	string name = 3;
+
+	optional UUID subdomain_id = 4;
 	optional int32 mtu = 5;
 
-	optional string prefix_ipv4 = 6;
-	optional string prefix_ipv6 = 7;
-
-	optional int32 reserve_first_ipv4 = 8;
-	optional int32 reserve_first_ipv6 = 9;
-
-	optional string gateway_ipv4 = 10;
+	repeated NetworkPrefix prefixes = 6;
 
 	google.protobuf.Timestamp created = 11;
 	google.protobuf.Timestamp updated = 12;
+}
+
+message NetworkPrefix {
+	UUID id = 1;
+	string prefix = 2;
+	optional string gateway = 3;
+	int32 reserve_first = 4;
 }
 
 message NetworkSegmentDeletion {
@@ -127,7 +130,7 @@ message NetworkSegmentQuery {
 }
 
 message MachineState {
-       string state = 1;
+	string state = 1;
 }
 
 message NetworkSegmentDeletionResult {
@@ -232,14 +235,15 @@ message MachineInterface {
 	UUID id = 1;
 	UUID machine_id = 2;
 	UUID segment_id = 3;
-	string hostname = 4;
-	UUID domain_id = 5;
-	bool primary_interface = 6;
 
+	string hostname = 4;
+
+	UUID domain_id = 5;
+
+	bool primary_interface = 6;
 	string mac_address = 7;
-;
-	optional string address_ipv4 = 8;
-	optional string address_ipv6 = 9;
+
+	repeated string address = 8;
 }
 
 enum MachineAction {
@@ -264,24 +268,16 @@ message MachineDiscovery {
 message DhcpRecord {
 	UUID machine_id = 1;
 	UUID segment_id = 2;
+	UUID subdomain_id = 3;
 
-	optional UUID subdomain_id = 3;
 	string fqdn = 4;
+	string mac_address = 5;
+	string address = 6;
 
-	optional AddressAssignmentV4 address_ipv4 = 5;
-	optional AddressAssignmentV6 address_ipv6 = 6;
-}
+	int32 mtu = 7;
 
-message AddressAssignmentV4 {
-	string mac_address = 1;
-	string address = 2;
-	optional string gateway = 3;
-	string mask = 4;
-}
-
-message AddressAssignmentV6 {
-	string duid = 1;
-	string address = 2;
+	string prefix = 8;
+	optional string gateway = 9;
 }
 
 message NetworkSegmentList {

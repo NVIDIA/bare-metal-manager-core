@@ -1,17 +1,20 @@
-use log::LevelFilter;
+use std::str::FromStr;
 use std::sync::Once;
 
-use carbide::db::AddressSelectionStrategy;
-use carbide::db::Domain;
-use carbide::db::Machine;
-use carbide::db::MachineInterface;
-use carbide::db::NetworkSegment;
-use carbide::db::NewDomain;
 use carbide::db::NewNetworkPrefix;
+
+
+use log::LevelFilter;
+use mac_address::MacAddress;
+
+
+use carbide::db::Domain;
+use carbide::db::NetworkSegment;
 use carbide::db::NewNetworkSegment;
+use carbide::db::{Machine, NewDomain};
+use carbide::CarbideResult;
 
 mod common;
-use carbide::{CarbideError, CarbideResult};
 
 static INIT: Once = Once::new();
 
@@ -26,7 +29,7 @@ fn init_logger() {
 }
 
 #[tokio::test]
-async fn prevent_duplicate_mac_addresses() {
+async fn test_machine_dhcp() {
     setup();
 
     let mut txn = common::TestDatabaseManager::new()
@@ -37,6 +40,14 @@ async fn prevent_duplicate_mac_addresses() {
         .await
         .expect("Unable to create transaction on database pool");
 
+    let mut txn2 = common::TestDatabaseManager::new()
+        .await
+        .expect("Could not create second database manager")
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on db pool");
+
     let my_domain = "dwrt.com";
 
     let _new_domain: CarbideResult<Domain> = NewDomain {
@@ -45,15 +56,14 @@ async fn prevent_duplicate_mac_addresses() {
     .persist(&mut txn)
     .await;
 
-    let domain = Domain::find_by_name(&mut txn, my_domain.to_string())
+    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string())
         .await
         .expect("Could not find domain in DB");
 
-    let segment: NetworkSegment = NewNetworkSegment {
+    let _segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
-
         prefixes: vec![
             NewNetworkPrefix {
                 prefix: "2001:db8:f::/64".parse().unwrap(),
@@ -67,30 +77,20 @@ async fn prevent_duplicate_mac_addresses() {
             },
         ],
     }
-    .persist(&mut txn)
+    .persist(&mut txn2)
     .await
     .expect("Unable to create network segment");
 
-    let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
+    let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
+    let test_gateway_address = "192.0.2.1".parse().unwrap();
 
-    let new_machine = Machine::discover(&mut txn, test_mac, "192.0.2.1".parse().unwrap())
+    let _machine = Machine::discover(&mut txn2, test_mac_address, test_gateway_address)
         .await
         .expect("Unable to create machine");
 
-    let duplicate_interface = MachineInterface::create(
-        &mut txn,
-        &new_machine,
-        &segment,
-        &test_mac,
-        None,
-        "foobar".to_string(),
-        true,
-        AddressSelectionStrategy::Automatic,
-    )
-    .await;
+    txn.commit().await.unwrap();
 
-    assert!(matches!(
-        duplicate_interface,
-        Err(CarbideError::NetworkSegmentDuplicateMacAddress(_))
-    ));
+    //    let dhcp = DhcpRecord::find_by_id_ipv4(&mut txn, &test_mac_address, segment.id()).await;
+    //
+    //    assert_eq!(dhcp.address_ipv4().unwrap(), &test_ipv4_prefix);
 }

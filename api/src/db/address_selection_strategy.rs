@@ -1,11 +1,7 @@
-#[derive(PartialEq)]
-pub enum AbsentSubnetStrategy {
-    Fail,
-    Ignore,
-}
+use std::net::IpAddr;
 
-pub enum AddressSelectionStrategy<T> {
+pub enum AddressSelectionStrategy<'a> {
     Empty,
-    Static(T),
-    Automatic(AbsentSubnetStrategy),
+    Static(&'a [IpAddr]),
+    Automatic,
 }

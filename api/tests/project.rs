@@ -34,7 +34,7 @@ async fn create_project() {
     .persist(&mut txn)
     .await;
 
-    assert!(matches!(project.unwrap(), Project));
+    assert!(matches!(project.unwrap(), _Project));
 
     let project: CarbideResult<Project> = NewProject {
         name: "Metal no Org".to_string(),
@@ -44,7 +44,7 @@ async fn create_project() {
     .await;
 
     let unwrapped = &project.unwrap();
-    assert!(matches!(unwrapped, Project));
+    assert!(matches!(unwrapped, _Project));
     assert!(unwrapped.deleted.is_none());
 
     txn.commit().await.unwrap();
@@ -64,7 +64,7 @@ async fn create_project() {
     .update(&mut txn)
     .await;
 
-    assert!(matches!(updatedProject.unwrap(), Project));
+    assert!(matches!(updatedProject.unwrap(), _Project));
 
     let project = DeleteProject { id: unwrapped.id }.delete(&mut txn).await;
 
@@ -72,6 +72,6 @@ async fn create_project() {
 
     let project = &project.unwrap();
 
-    assert!(matches!(project, Project));
+    assert!(matches!(project, _Project));
     assert!(project.deleted.is_some());
 }

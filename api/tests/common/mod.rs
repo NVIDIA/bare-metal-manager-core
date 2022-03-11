@@ -43,7 +43,7 @@ impl TestDatabaseManager {
                 .as_micros()
         );
 
-        let full_uri_template = [&base_uri[..], "/template1"].concat();
+        let full_uri_template = [base_uri, "/template1"].concat();
 
         let template_pool = sqlx::PgPool::connect(&full_uri_template).await?;
 
@@ -65,7 +65,7 @@ impl TestDatabaseManager {
             )
         });
 
-        let full_uri_db = [&base_uri[..], "/", &temporary_database_name[..]].concat();
+        let full_uri_db = [base_uri, "/", &temporary_database_name[..]].concat();
 
         let mut real_pool = sqlx::PgPool::connect(&full_uri_db).await?;
 

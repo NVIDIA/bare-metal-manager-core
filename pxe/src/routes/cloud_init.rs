@@ -1,4 +1,5 @@
 use crate::Machine;
+use rocket::routes;
 use rocket::Route;
 use rocket_dyn_templates::Template;
 use std::collections::HashMap;

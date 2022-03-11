@@ -2,7 +2,7 @@ use super::MachineAction;
 use crate::CarbideResult;
 use chrono::prelude::*;
 use itertools::Itertools;
-use sqlx::{Postgres, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
 
 use rpc::v0 as rpc;
@@ -14,7 +14,7 @@ use rpc::v0 as rpc;
 /// instance, creating an event called `adopt` on a Machine where the last event is `discover` will
 /// result in a MachineState of `adopted`
 ///
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, FromRow)]
 pub struct MachineEvent {
     /// The numeric identifier of the event, this should not be exposed to consumers of this API,
     /// it is not secure.

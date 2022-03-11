@@ -1,10 +1,7 @@
-use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
-
-use crate::db::{Domain, MachineInterface};
-use ipnetwork::IpNetwork;
 use log::info;
 use mac_address::MacAddress;
 use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
+use std::net::{AddrParseError, IpAddr};
 use tonic::Status;
 
 pub mod db;
@@ -71,7 +68,7 @@ pub enum CarbideError {
     NetworkSegmentDuplicateMacAddress(MacAddress),
 
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
-    NetworkSegmentExhaustedAddressFamily(String),
+    NetworkSegmentsExhausted(String),
 
     #[error("A machine that was just created, failed to return any rows: {0}")]
     DatabaseInconsistencyOnMachineCreate(uuid::Uuid),
@@ -96,6 +93,9 @@ pub enum CarbideError {
 
     #[error("Only one interface per machine can be marked as primary")]
     OnePrimaryInterface,
+
+    #[error("Duplicate record for {0} that should be unique: {1}")]
+    DuplicateRecordIdentifier(&'static str, uuid::Uuid),
 }
 
 impl From<CarbideError> for tonic::Status {
@@ -142,30 +142,22 @@ impl From<sqlx::Error> for CarbideError {
 /// ```
 pub type CarbideResult<T> = Result<T, CarbideError>;
 
-pub fn network_to_host_ipv4(src: IpNetwork) -> CarbideResult<Ipv4Addr> {
-    match src {
-        IpNetwork::V4(network) if network.prefix() == 32 => Ok(network.ip()),
-        IpNetwork::V4(network) => Err(CarbideError::GenericError(format!(
-            "IP address field in address_ipv4 ({}) is not a single host",
-            network
-        ))),
-        IpNetwork::V6(network) => Err(CarbideError::GenericError(format!(
-            "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
-            network
-        ))),
-    }
-}
-
-pub fn network_to_host_ipv6(src: IpNetwork) -> CarbideResult<Ipv6Addr> {
-    match src {
-        IpNetwork::V6(network) if network.prefix() == 128 => Ok(network.ip()),
-        IpNetwork::V6(network) => Err(CarbideError::GenericError(format!(
-            "IP address field in address_ipv4 ({}) is not a single host",
-            network
-        ))),
-        IpNetwork::V4(network) => Err(CarbideError::GenericError(format!(
-            "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
-            network
-        ))),
-    }
-}
+//pub fn network_to_host_ipv4(src: IpNetwork) -> CarbideResult<Ipv4Addr> {
+//    match src {
+//        IpNetwork::V4(network) => Ok(network.ip()),
+//        IpNetwork::V6(network) => Err(CarbideError::GenericError(format!(
+//            "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
+//            network
+//        ))),
+//    }
+//}
+//
+//pub fn network_to_host_ipv6(src: IpNetwork) -> CarbideResult<Ipv6Addr> {
+//    match src {
+//        IpNetwork::V6(network) => Ok(network.ip()),
+//        IpNetwork::V4(network) => Err(CarbideError::GenericError(format!(
+//            "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
+//            network
+//        ))),
+//    }
+//}

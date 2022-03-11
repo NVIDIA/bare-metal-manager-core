@@ -1,15 +1,13 @@
 use std::str::FromStr;
 use std::sync::Once;
 
-use ipnetwork::Ipv4Network;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
 use carbide::db::{
-    AbsentSubnetStrategy, AddressSelectionStrategy, Domain, Machine, MachineInterface,
-    NetworkSegment, NewDomain, NewNetworkSegment,
+    AddressSelectionStrategy, Domain, Machine, MachineInterface, NetworkSegment, NewDomain,
+    NewNetworkPrefix, NewNetworkSegment,
 };
-use carbide::CarbideResult;
 
 mod common;
 
@@ -44,7 +42,7 @@ async fn test_machine_rename() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let mut new_machine = Machine::create(&mut txn)
+    let new_machine = Machine::create(&mut txn)
         .await
         .expect("Unable to create machine");
 
@@ -65,11 +63,19 @@ async fn test_machine_rename() {
         name: "test-network".to_string(),
         subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
-        prefix_ipv4: Some(Ipv4Network::from_str("10.0.0.0/24").expect("can't parse network")),
-        prefix_ipv6: None,
-        gateway_ipv4: Some("192.168.0.1/32".parse().unwrap()),
-        reserve_first_ipv4: Some(3),
-        reserve_first_ipv6: Some(3),
+
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "2001:db8:f::/64".parse().unwrap(),
+                gateway: None,
+                num_reserved: 100,
+            },
+            NewNetworkPrefix {
+                prefix: "192.0.2.0/24".parse().unwrap(),
+                gateway: "192.0.2.1".parse().ok(),
+                num_reserved: 2,
+            },
+        ],
     }
     .persist(&mut txn2)
     .await
@@ -83,8 +89,7 @@ async fn test_machine_rename() {
         None,
         "peppersmacker2".to_string(),
         true,
-        &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
-        &AddressSelectionStrategy::Empty,
+        AddressSelectionStrategy::Automatic,
     )
     .await
     .expect("Unable to create machine interface");

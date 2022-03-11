@@ -10,7 +10,6 @@ pub mod v0 {
     use std::convert::From;
     use std::convert::TryFrom;
     use std::fmt::Display;
-    use std::net::{AddrParseError, Ipv4Addr, Ipv6Addr};
     use std::str::FromStr;
 
     use serde::ser::SerializeStruct;
@@ -117,22 +116,6 @@ pub mod v0 {
     }
 
     impl MachineInterface {
-        pub fn parsed_address_ipv4(&self) -> Result<Option<Ipv4Addr>, AddrParseError> {
-            if let Some(addr) = &self.address_ipv4 {
-                Ok(Some(Ipv4Addr::from_str(addr)?))
-            } else {
-                Ok(None)
-            }
-        }
-
-        pub fn parsed_address_ipv6(&self) -> Result<Option<Ipv6Addr>, AddrParseError> {
-            if let Some(addr) = &self.address_ipv6 {
-                Ok(Some(Ipv6Addr::from_str(addr)?))
-            } else {
-                Ok(None)
-            }
-        }
-
         pub fn parsed_mac_address(&self) -> Result<Option<MacAddress>, MacParseError> {
             Ok(Some(MacAddress::from_str(&self.mac_address)?))
         }

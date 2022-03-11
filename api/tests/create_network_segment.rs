@@ -1,14 +1,15 @@
 mod common;
 
-use std::any::Any;
-use std::str::FromStr;
+use std::net::IpAddr;
 
-use carbide::db::MachineIdsFilter::All;
+
 use carbide::{
-    db::{Domain, NetworkSegment, NewDomain, NewNetworkSegment},
+    db::{
+        Domain, NetworkSegment, NewDomain, NewNetworkPrefix, NewNetworkSegment,
+    },
     CarbideResult,
 };
-use ipnetwork::{Ipv4Network, Ipv6Network};
+
 use log::LevelFilter;
 use std::sync::Once;
 
@@ -42,7 +43,7 @@ async fn test_create_segment_with_domain() {
 
     let my_domain = "dwrt.com";
 
-    let new_domain: CarbideResult<Domain> = NewDomain {
+    let _new_domain: CarbideResult<Domain> = NewDomain {
         name: my_domain.to_string(),
     }
     .persist(&mut txn)
@@ -59,18 +60,37 @@ async fn test_create_segment_with_domain() {
         name: "integration_test".to_string(),
         subdomain_id: Some(domain.unwrap().id().to_owned()),
         mtu: Some(1500i32),
-        prefix_ipv4: Some(Ipv4Network::from_str("192.0.2.1/24").expect("can't parse network")),
-        prefix_ipv6: Some(Ipv6Network::from_str("2001:db8:f::/64").expect("can't parse network")),
-        gateway_ipv4: Some("192.168.0.1/32".parse().unwrap()),
-        reserve_first_ipv4: Some(3),
-        reserve_first_ipv6: Some(3),
+
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "192.0.2.1/24".parse().expect("can't parse network"),
+                gateway: "192.0.2.1".parse().ok(),
+                num_reserved: 1,
+            },
+            NewNetworkPrefix {
+                prefix: "2001:db8:f::/64".parse().expect("can't parse network"),
+                gateway: None,
+                num_reserved: 100,
+            },
+        ],
     }
     .persist(&mut txn2)
     .await
     .expect("Unable to create network segment");
 
-    assert!(matches!(&segment, NetworkSegment));
-    assert!(matches!(segment.subdomain_id, domain))
+    let next_address = segment.next_address(&mut txn2).await.expect("no query?");
+
+    txn2.commit().await.unwrap();
+
+    let _next_ipv4: IpAddr = "192.0.2.2".parse().unwrap();
+    let _next_ipv6: IpAddr = "2001:db8:f::64".parse().unwrap();
+
+    assert!(matches!(
+        next_address.as_slice(),
+        [Ok(_next_ipv4), Ok(_next_ipv6)]
+    ));
+
+    assert_eq!(next_address.len(), 2);
 }
 
 #[tokio::test]
@@ -89,15 +109,25 @@ async fn test_create_segment_no_domain() {
         name: "integration_test".to_string(),
         subdomain_id: None,
         mtu: Some(1500i32),
-        prefix_ipv4: Some(Ipv4Network::from_str("192.0.2.1/24").expect("can't parse network")),
-        prefix_ipv6: Some(Ipv6Network::from_str("2001:db8:f::/64").expect("can't parse network")),
-        gateway_ipv4: Some("192.168.0.1/32".parse().unwrap()),
-        reserve_first_ipv4: Some(3),
-        reserve_first_ipv6: Some(3),
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "192.0.2.1/24".parse().expect("can't parse network"),
+                gateway: "192.0.2.1".parse().ok(),
+                num_reserved: 1,
+            },
+            NewNetworkPrefix {
+                prefix: "2001:db8:f::/64".parse().expect("can't parse network"),
+                gateway: None,
+                num_reserved: 100,
+            },
+        ],
     }
     .persist(&mut txn)
     .await
     .expect("Unable to create network segment");
 
-    assert!(matches!(segment, NetworkSegment));
+    let next_address = segment.next_address(&mut txn).await.expect("no query?");
+    txn.commit().await.unwrap();
+
+    assert_eq!(next_address.len(), 2);
 }

@@ -1,6 +1,3 @@
-use log::LevelFilter;
-use std::sync::Once;
-
 use carbide::{
     db::{Domain, NewDomain},
     CarbideError, CarbideResult,
@@ -9,16 +6,6 @@ use carbide::{
 use crate::common::TestDatabaseManager;
 
 mod common;
-
-fn setup() {
-    Once::new().call_once(init_logger);
-}
-
-fn init_logger() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
-}
 
 #[tokio::test]
 async fn create_valid_domain() {
@@ -32,15 +19,13 @@ async fn create_valid_domain() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let domain: CarbideResult<Domain> = NewDomain {
-        name: "nv.metal.net".to_string(),
-    }
-    .persist(&mut txn)
-    .await;
+    let test_name = "nv.metal.net".to_string();
+
+    let domain = NewDomain { name: test_name }.persist(&mut txn).await;
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(domain.unwrap(), Domain));
+    assert!(matches!(domain, Ok(_)));
 }
 
 #[tokio::test]
@@ -55,17 +40,13 @@ async fn create_invalid_domain_case() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let domain: CarbideResult<Domain> = NewDomain {
-        name: "DwRt".to_string(),
-    }
-    .persist(&mut txn)
-    .await;
+    let test_name = "DwRt".to_string();
+
+    let domain: CarbideResult<Domain> = NewDomain { name: test_name }.persist(&mut txn).await;
 
     txn.commit().await.unwrap();
-    assert!(matches!(
-        domain,
-        Err(CarbideError::InvalidDomainName(domain))
-    ));
+
+    assert!(matches!(domain, Err(CarbideError::InvalidDomainName(_))));
 }
 
 #[tokio::test]
@@ -87,8 +68,6 @@ async fn create_invalid_domain_regex() {
     .await;
 
     txn.commit().await.unwrap();
-    assert!(matches!(
-        domain,
-        Err(CarbideError::InvalidDomainName(domain))
-    ));
+
+    assert!(matches!(domain, Err(CarbideError::InvalidDomainName(_))));
 }
