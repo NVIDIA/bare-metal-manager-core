@@ -15,6 +15,7 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 
 use self::rpc::metal_server::Metal;
 use crate::cfg;
+use carbide::db::NewProject;
 use rpc::v0 as rpc;
 use tonic_reflection::server::Builder;
 
@@ -195,9 +196,23 @@ impl Metal for Api {
 
     async fn create_project(
         &self,
-        _request: Request<rpc::Project>,
+        request: Request<rpc::Project>,
     ) -> Result<Response<rpc::Project>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(NewProject::try_from(request.into_inner())?
+            .persist(&mut txn)
+            .await
+            .map(rpc::Project::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn update_project(
