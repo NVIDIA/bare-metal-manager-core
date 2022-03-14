@@ -1,10 +1,19 @@
 version: "3.9"
 
+networks:
+  carbide:
+    driver_opts:
+      com.docker.network.bridge.name: carbide0
+    ipam:
+      config:
+        - subnet: "172.20.0.0/24"
 services:
   dhcp-relay:
     depends_on:
       - carbide-dhcp
     container_name: "dhcp-relay"
+    networks:
+      - carbide
     image:
       alpine:latest
     command: >
@@ -13,6 +22,8 @@ services:
     depends_on:
       - terraform
     build: dhcp
+    networks:
+      - carbide
     ports:
       - "67:67/udp"
     volumes:
@@ -27,6 +38,8 @@ services:
       - terraform
       - postgresql
     build: api
+    networks:
+      - carbide
     volumes:
       - .:/app/code
       - ca-certificate:/identity
@@ -38,6 +51,8 @@ services:
       - carbide-db-migrations
       - postgresql
     build: api
+    networks:
+      - carbide
     volumes:
       - .:/app/code
       - ca-certificate:/identity
@@ -47,6 +62,8 @@ services:
     depends_on:
       - terraform
     build: pxe
+    networks:
+      - carbide
     volumes:
       - .:/app/code
       - ca-certificate:/identity
@@ -58,6 +75,8 @@ services:
     depends_on:
       - terraform
     image: postgres:14.1-alpine
+    networks:
+      - carbide
     volumes:
       - db-data:/var/lib/postgresql/data
       - ca-certificate:/identity
@@ -69,6 +88,8 @@ services:
 
   terraform:
     image: hashicorp/terraform:latest
+    networks:
+      - carbide
     depends_on:
       vault:
         condition: service_healthy
@@ -86,6 +107,8 @@ services:
 
   gateway:
     image: envoyproxy/envoy-dev:35f8d59b1172a85f02dd119791a9ef42c728cfa8
+    networks:
+      - carbide
     ports:
       - "9901:9901"
       - "80:80"
@@ -98,6 +121,8 @@ services:
 
   vault:
     image: vault:latest
+    networks:
+      - carbide
     cap_add:
       - ipc_lock
     environment:
