@@ -54,5 +54,7 @@ async fn test_instance_type_crud () {
         .deactivate(&mut txn)
         .await;
 
+    txn.commit().await;
+
     assert!(matches!(deletedType.unwrap(), InstanceType));
 }
