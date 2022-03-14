@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use carbide::{
-    db::{DhcpRecord, Machine, MachineIdsFilter, NetworkSegment, NewNetworkSegment, NewInstanceType, DeactivateInstanceType, UpdateInstanceType},
+    db::{DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment, NewDomain, NewNetworkSegment, NewInstanceType, DeactivateInstanceType, UpdateInstanceType},
     CarbideError,
 };
 use color_eyre::Report;
@@ -155,6 +155,40 @@ impl Metal for Api {
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
+    }
+
+    async fn create_domain(
+        &self,
+        request: Request<rpc::Domain>,
+    ) -> Result<Response<rpc::Domain>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(NewDomain::try_from(request.into_inner())?
+            .persist(&mut txn)
+            .await
+            .map(rpc::Domain::from)
+            .map(Response::new)?);
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn update_domain(
+        &self,
+        _request: Request<rpc::Domain>,
+    ) -> Result<Response<rpc::Domain>, Status> {
+        todo!()
+    }
+
+    async fn delete_domain(
+        &self,
+        _request: Request<rpc::DomainDeletion>,
+    ) -> Result<Response<rpc::DomainDeletionResult>, Status> {
+        todo!()
     }
 
     async fn create_project(

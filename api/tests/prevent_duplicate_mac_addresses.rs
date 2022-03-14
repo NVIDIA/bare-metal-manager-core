@@ -1,11 +1,12 @@
 mod common;
 
-use carbide::db::AbsentSubnetStrategy;
 use carbide::db::AddressSelectionStrategy;
+use carbide::db::Domain;
 use carbide::db::Machine;
 use carbide::db::MachineInterface;
 use carbide::db::NetworkSegment;
-use carbide::CarbideError;
+use carbide::db::{AbsentSubnetStrategy, NewDomain};
+use carbide::{CarbideError, CarbideResult};
 
 use carbide::db::NewNetworkSegment;
 use ipnetwork::Ipv4Network;
@@ -39,9 +40,31 @@ async fn prevent_duplicate_mac_addresses() {
         .await
         .expect("Unable to create transaction on database pool");
 
+    let mut txn2 = common::TestDatabaseManager::new()
+        .await
+        .expect("Could not create second database manager")
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on db pool");
+
+    let my_domain = "dwrt.com";
+
+    let new_domain: CarbideResult<Domain> = NewDomain {
+        name: my_domain.to_string(),
+    }
+    .persist(&mut txn)
+    .await;
+
+    txn.commit().await.unwrap();
+
+    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string())
+        .await
+        .expect("Could not find domain in DB");
+
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
-        subdomain: "test.example.com".to_string(),
+        subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
         prefix_ipv4: Some(Ipv4Network::from_str("10.0.0.0/24").expect("can't parse network")),
         prefix_ipv6: None,
@@ -49,18 +72,18 @@ async fn prevent_duplicate_mac_addresses() {
         reserve_first_ipv4: Some(3),
         reserve_first_ipv6: Some(3),
     }
-    .persist(&mut txn)
+    .persist(&mut txn2)
     .await
     .expect("Unable to create network segment");
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
 
-    let new_machine = Machine::discover(&mut txn, test_mac, "10.0.0.1".parse().unwrap())
+    let new_machine = Machine::discover(&mut txn2, test_mac, "10.0.0.1".parse().unwrap())
         .await
         .expect("Unable to create machine");
 
     let duplicate_interface = MachineInterface::create(
-        &mut txn,
+        &mut txn2,
         &new_machine,
         &new_segment,
         &test_mac,

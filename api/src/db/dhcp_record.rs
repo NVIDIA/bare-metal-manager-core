@@ -2,7 +2,6 @@ use crate::CarbideResult;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 use std::net::{Ipv4Addr, Ipv6Addr};
-
 use rpc::v0 as rpc;
 
 ///
@@ -15,7 +14,7 @@ pub struct DhcpRecord {
     machine_id: uuid::Uuid,
     segment_id: uuid::Uuid,
     fqdn: String,
-    subdomain: String,
+    subdomain_id: Option<uuid::Uuid>,
     mtu: i32,
 
     address_ipv4: Option<AddressAssignmentV4>,
@@ -83,7 +82,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for DhcpRecord {
             address_ipv4,
             address_ipv6,
             fqdn: row.try_get("fqdn")?,
-            subdomain: row.try_get("subdomain")?,
+            subdomain_id: row.try_get("subdomain_id")?,
             mtu: row.try_get("mtu")?,
         })
     }
@@ -114,7 +113,7 @@ impl From<DhcpRecord> for rpc::DhcpRecord {
         Self {
             machine_id: Some(record.machine_id.into()),
             segment_id: Some(record.segment_id.into()),
-            subdomain: record.subdomain,
+            subdomain_id: record.subdomain_id.map(rpc::Uuid::from),
             fqdn: record.fqdn,
             address_ipv4: record.address_ipv4.map(|addr| addr.into()),
             address_ipv6: record.address_ipv6.map(|addr| addr.into()),

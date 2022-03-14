@@ -11,6 +11,23 @@ pub struct TestDatabaseManager {
 
 impl TestDatabaseManager {
     pub(crate) async fn new() -> CarbideResult<Self> {
+        if std::env::var("TESTDB_HOST").is_ok()
+            || std::env::var("TESTDB_USER").is_ok()
+            || std::env::var("TESTDB_PASSWORD").is_ok()
+        {
+            Self::_new(&format!(
+                "postgres://{0}:{1}@{2}",
+                std::env::var("TESTDB_USER").unwrap(),
+                std::env::var("TESTDB_PASSWORD").unwrap(),
+                std::env::var("TESTDB_HOST").unwrap(),
+            ))
+            .await
+        } else {
+            Self::_new("postgres://%2Fvar%2Frun%2Fpostgresql").await
+        }
+    }
+
+    pub(crate) async fn _new(base_uri: &str) -> CarbideResult<Self> {
         let temporary_database_name = format!(
             "{0}_integrationtests_{1}_{2}",
             env!("CARGO_CRATE_NAME"),
@@ -26,19 +43,7 @@ impl TestDatabaseManager {
                 .as_micros()
         );
 
-        let username = std::env::var("TESTDB_USER").unwrap_or(env!("LOGNAME").to_string());
-        let password = std::env::var("TESTDB_PASSWORD").unwrap_or("".to_string());
-        let db_host = std::env::var("TESTDB_HOST")
-            .unwrap_or("%2Fvar%2Frun%2Fpostgresql/template1".to_string());
-
-        // Not pretty, but if there is no password specified as an env var, assume its connecting over UDS
-        let uri: String = match password.is_empty() {
-            true => "%2Fvar%2Frun%2Fpostgresql".to_string(),
-            false => format!("postgres://{0}:{1}@{2}", username, password, db_host),
-        };
-
-        let template_name = "template1";
-        let full_uri_template: String = [&uri[..], "/", &template_name[..]].concat();
+        let full_uri_template = [&base_uri[..], "/template1"].concat();
 
         let template_pool = sqlx::PgPool::connect(&full_uri_template).await?;
 
@@ -60,7 +65,7 @@ impl TestDatabaseManager {
             )
         });
 
-        let full_uri_db: String = [&uri[..], "/", &temporary_database_name[..]].concat();
+        let full_uri_db = [&base_uri[..], "/", &temporary_database_name[..]].concat();
 
         let mut real_pool = sqlx::PgPool::connect(&full_uri_db).await?;
 

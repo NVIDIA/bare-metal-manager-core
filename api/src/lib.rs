@@ -1,8 +1,9 @@
+use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
+
 use ipnetwork::IpNetwork;
 use log::info;
 use mac_address::MacAddress;
 use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
-use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
 use tonic::Status;
 
 pub mod db;
@@ -37,6 +38,9 @@ pub enum CarbideError {
 
     #[error("Unable to parse string into IP Address: {0}")]
     AddressParseError(#[from] AddrParseError),
+
+    #[error("Uuid type conversion error: {0}")]
+    UuidConversionError(#[from] uuid::Error),
 
     #[error("Database Query Error: {0}")]
     DatabaseError(sqlx::Error),
@@ -76,6 +80,12 @@ pub enum CarbideError {
 
     #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier")]
     IdentifierSpecifiedForNewObject(String),
+
+    #[error("Two or more domains named {0} exist in database. Domain names must be unique")]
+    DuplicateDomain(String),
+
+    #[error("The domain name object {0} does not exist")]
+    UnknownDomain(uuid::Uuid),
 }
 
 impl From<CarbideError> for tonic::Status {
