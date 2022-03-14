@@ -9,7 +9,7 @@ CREATE TABLE domains(
         PRIMARY KEY(id),
 
         CONSTRAINT domain_name_lower_case CHECK (((name)::TEXT = LOWER((name)::TEXT))),
-        CONSTRAINT check_valid_domain_name CHECK ( name ~ '^(?!.*?_.*?)(?!(?:[\w]+?\.)?\-[\w\.\-]*?)(?![\w]+?\-\.(?:[\w\.\-]+?))(?=[\w])(?=[\w\.\-]*?\.+[\w\.\-]*?)(?![\w\.\-]{254})(?!(?:\.?[\w\-\.]*?[\w\-]{64,}\.)+?)[\w\.\-]+?(?<![\w\-\.]*?\.[\d]+?)(?<=[\w\-]{2,})(?<![\w\-]{25})$')
+        CONSTRAINT valid_domain_name_regex CHECK ( name ~ '^(?!.*?_.*?)(?!(?:[\w]+?\.)?\-[\w\.\-]*?)(?![\w]+?\-\.(?:[\w\.\-]+?))(?=[\w])(?=[\w\.\-]*?\.+[\w\.\-]*?)(?![\w\.\-]{254})(?!(?:\.?[\w\-\.]*?[\w\-]{64,}\.)+?)[\w\.\-]+?(?<![\w\-\.]*?\.[\d]+?)(?<=[\w\-]{2,})(?<![\w\-]{25})$')
 );
 
 --  https://github.com/c-hive/guides/blob/79f7ddde35706f85b2844998a16d1e5ecaf1bb39/etc/regex.md#domain
