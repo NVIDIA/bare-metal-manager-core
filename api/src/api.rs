@@ -3,6 +3,7 @@ use std::convert::TryFrom;
 use carbide::{
     db::{
         DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment, NewDomain, NewNetworkSegment,
+        Project, NewProject, UpdateProject
     },
     CarbideError,
 };
@@ -15,7 +16,6 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 
 use self::rpc::metal_server::Metal;
 use crate::cfg;
-use carbide::db::NewProject;
 use rpc::v0 as rpc;
 use tonic_reflection::server::Builder;
 
@@ -217,9 +217,23 @@ impl Metal for Api {
 
     async fn update_project(
         &self,
-        _request: Request<rpc::Project>,
+        request: Request<rpc::Project>,
     ) -> Result<Response<rpc::Project>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(UpdateProject::try_from(request.into_inner())?
+            .update(&mut txn)
+            .await
+            .map(rpc::Project::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn delete_project(

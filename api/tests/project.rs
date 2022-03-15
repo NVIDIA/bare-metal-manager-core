@@ -5,6 +5,7 @@ use carbide::{
     db::{NewProject, Project},
     CarbideResult,
 };
+use carbide::db::UpdateProject;
 
 use crate::common::TestDatabaseManager;
 
@@ -42,7 +43,27 @@ async fn create_project() {
     .persist(&mut txn)
     .await;
 
+    let unwrapped = &project.unwrap();
+    assert!(matches!(unwrapped, Project));
+
     txn.commit().await.unwrap();
 
-    assert!(matches!(project.unwrap(), Project));
+    // create another transaction to ensure the updated field is updated properly
+    let mut txn = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let updatedProject = UpdateProject {
+        id: unwrapped.id,
+        name: unwrapped.name.to_string(),
+        organization: Some(Uuid::new_v4())
+    }
+        .update(&mut txn)
+        .await;
+
+    txn.commit().await.unwrap();
+
+    assert!(matches!(updatedProject.unwrap(), Project));
 }

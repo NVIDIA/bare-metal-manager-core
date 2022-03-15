@@ -23,6 +23,13 @@ pub struct NewProject {
     pub organization: Option<Uuid>,
 }
 
+#[derive(Clone, Debug)]
+pub struct UpdateProject {
+    pub id: Uuid,
+    pub name: String,
+    pub organization: Option<Uuid>,
+}
+
 impl<'r> sqlx::FromRow<'r, PgRow> for Project {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(Project {
@@ -81,5 +88,34 @@ impl TryFrom<rpc::Project> for NewProject {
                 None => None,
             },
         })
+    }
+}
+
+impl TryFrom<rpc::Project> for UpdateProject {
+    type Error = CarbideError;
+
+    fn try_from(value: rpc::Project) -> Result<Self, Self::Error> {
+        Ok(UpdateProject {
+            // todo(baz): Add proper error handling instead of unwrap
+            id: value.id.unwrap().try_into().unwrap(),
+            name: value.name,
+            organization: match value.organization {
+                Some(v) => Some(uuid::Uuid::try_from(v)?),
+                None => None,
+            },
+        })
+    }
+}
+
+impl UpdateProject {
+    pub async fn update(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<Project> {
+        Ok(sqlx::query_as("UPDATE projects SET name=$1, organization_id=$2, updated=NOW() WHERE id=$3 RETURNING *")
+            .bind(&self.name)
+            .bind(&self.organization)
+            .bind(&self.id)
+            .fetch_one(&mut *txn).await?)
     }
 }
