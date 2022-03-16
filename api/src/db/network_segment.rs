@@ -139,9 +139,9 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
 }
 
 /*
- * Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
- subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
- */
+* Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
+subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
+*/
 impl From<NetworkSegment> for rpc::NetworkSegment {
     fn from(src: NetworkSegment) -> Self {
         rpc::NetworkSegment {

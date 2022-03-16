@@ -1,8 +1,8 @@
 use crate::CarbideResult;
 use mac_address::MacAddress;
+use rpc::v0 as rpc;
 use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 use std::net::{Ipv4Addr, Ipv6Addr};
-use rpc::v0 as rpc;
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
