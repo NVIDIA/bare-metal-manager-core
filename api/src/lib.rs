@@ -5,6 +5,7 @@ use log::info;
 use mac_address::MacAddress;
 use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
 use tonic::Status;
+use crate::db::Domain;
 
 pub mod db;
 mod human_hash;
@@ -84,8 +85,11 @@ pub enum CarbideError {
     #[error("A unique identifier was nopt specified for an existing object.  Please specify an identifier")]
     IdentifierNotSpecifiedForObject(),
 
-    #[error("Two or more domains named {0} exist in database. Domain names must be unique")]
+    #[error("The Domain named {0} already exists. Domain names must be unique")]
     DuplicateDomain(String),
+
+    #[error("The Domain name {0} contains illegal characters")]
+    InvalidDomainName(String),
 
     #[error("The domain name object {0} does not exist")]
     UnknownDomain(uuid::Uuid),

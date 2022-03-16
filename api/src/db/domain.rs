@@ -6,6 +6,10 @@ use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 use std::convert::TryFrom;
 use uuid::Uuid;
 
+
+const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
+const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str="domain_name_lower_case";
+
 /// Domain
 /// Dervied trait sqlx::FromRow consist of a series of calls to
 /// [`Row::try_get`] using the name from each struct field
@@ -92,9 +96,14 @@ impl NewDomain {
         Ok(
             sqlx::query_as("INSERT INTO domains (name) VALUES ($1) returning *")
                 .bind(&self.name)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+                .fetch_one(&mut *txn).await
+                .map_err(|err: sqlx::Error| {
+                    match err {
+                        sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) => CarbideError::InvalidDomainName(String::from(&self.name)),
+                        sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) => CarbideError::InvalidDomainName(String::from(&self.name)),
+                        _ => CarbideError::from(err)
+                    }
+                })?)
     }
 }
 
