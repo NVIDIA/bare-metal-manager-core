@@ -2,8 +2,8 @@ use std::convert::TryFrom;
 
 use carbide::{
     db::{
-        DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment, NewDomain, NewNetworkSegment,
-        Project, NewProject, UpdateProject
+        DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment, NewDomain,
+        NewNetworkSegment, NewProject, Project, UpdateProject,
     },
     CarbideError,
 };
@@ -16,9 +16,9 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 
 use self::rpc::metal_server::Metal;
 use crate::cfg;
+use carbide::db::DeleteProject;
 use rpc::v0 as rpc;
 use tonic_reflection::server::Builder;
-use carbide::db::DeleteProject;
 
 #[derive(Debug)]
 pub struct Api {

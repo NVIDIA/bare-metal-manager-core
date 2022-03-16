@@ -1,11 +1,11 @@
 use log::LevelFilter;
 use uuid::Uuid;
 
+use carbide::db::{DeleteProject, UpdateProject};
 use carbide::{
     db::{NewProject, Project},
     CarbideResult,
 };
-use carbide::db::{DeleteProject, UpdateProject};
 
 use crate::common::TestDatabaseManager;
 
@@ -59,23 +59,19 @@ async fn create_project() {
     let updatedProject = UpdateProject {
         id: unwrapped.id,
         name: unwrapped.name.to_string(),
-        organization: Some(Uuid::new_v4())
+        organization: Some(Uuid::new_v4()),
     }
-        .update(&mut txn)
-        .await;
+    .update(&mut txn)
+    .await;
 
     assert!(matches!(updatedProject.unwrap(), Project));
 
-    let project = DeleteProject {
-        id: unwrapped.id,
-    }
-        .delete(&mut txn)
-        .await;
+    let project = DeleteProject { id: unwrapped.id }.delete(&mut txn).await;
 
     txn.commit().await.unwrap();
+
     let project = &project.unwrap();
 
     assert!(matches!(project, Project));
-
     assert!(project.deleted.is_some());
 }

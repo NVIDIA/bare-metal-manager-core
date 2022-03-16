@@ -54,10 +54,13 @@ impl NewProject {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Project> {
-        Ok(sqlx::query_as("INSERT INTO projects (name, organization_id) VALUES ($1, $2) RETURNING *")
-            .bind(&self.name)
-            .bind(&self.organization)
-            .fetch_one(&mut *txn).await?)
+        Ok(sqlx::query_as(
+            "INSERT INTO projects (name, organization_id) VALUES ($1, $2) RETURNING *",
+        )
+        .bind(&self.name)
+        .bind(&self.organization)
+        .fetch_one(&mut *txn)
+        .await?)
     }
 }
 
@@ -80,7 +83,7 @@ impl From<Project> for rpc::Project {
                     seconds: t.timestamp(),
                     nanos: 0,
                 }),
-                _ => None
+                _ => None,
             },
         }
     }
@@ -109,15 +112,20 @@ impl TryFrom<rpc::Project> for UpdateProject {
     type Error = CarbideError;
 
     fn try_from(value: rpc::Project) -> Result<Self, Self::Error> {
-        Ok(UpdateProject {
-            // todo(baz): Add proper error handling instead of unwrap
-            id: value.id.unwrap().try_into().unwrap(),
-            name: value.name,
-            organization: match value.organization {
-                Some(v) => Some(uuid::Uuid::try_from(v)?),
-                None => None,
+        match value.id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => Ok(UpdateProject {
+                    id: uuid,
+                    name: value.name,
+                    organization: match value.organization {
+                        Some(v) => Some(uuid::Uuid::try_from(v)?),
+                        None => None,
+                    },
+                }),
+                Err(err) => Err(CarbideError::UuidConversionError(err)),
             },
-        })
+            None => Err(CarbideError::IdentifierNotSpecifiedForObject()),
+        }
     }
 }
 
@@ -125,10 +133,13 @@ impl TryFrom<rpc::ProjectDeletion> for DeleteProject {
     type Error = CarbideError;
 
     fn try_from(value: rpc::ProjectDeletion) -> Result<Self, Self::Error> {
-        Ok(DeleteProject {
-            // todo(baz): Add proper error handling instead of unwrap
-            id: value.id.unwrap().try_into().unwrap(),
-        })
+        match value.id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => Ok(DeleteProject { id: uuid }),
+                Err(err) => Err(CarbideError::UuidConversionError(err)),
+            },
+            None => Err(CarbideError::IdentifierNotSpecifiedForObject()),
+        }
     }
 }
 
@@ -156,8 +167,11 @@ impl DeleteProject {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Project> {
-        Ok(sqlx::query_as("UPDATE projects SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *")
-            .bind(&self.id)
-            .fetch_one(&mut *txn).await?)
+        Ok(sqlx::query_as(
+            "UPDATE projects SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
+        )
+        .bind(&self.id)
+        .fetch_one(&mut *txn)
+        .await?)
     }
 }
