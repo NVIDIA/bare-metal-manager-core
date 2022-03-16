@@ -1,9 +1,7 @@
 use std::convert::TryFrom;
 
 use carbide::{
-    db::{
-        DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment, NewDomain, NewNetworkSegment,
-    },
+    db::{DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment, NewDomain, NewNetworkSegment, NewInstanceType, DeactivateInstanceType, UpdateInstanceType},
     CarbideError,
 };
 use color_eyre::Report;
@@ -258,23 +256,67 @@ impl Metal for Api {
 
     async fn create_instance_type(
         &self,
-        _request: Request<rpc::InstanceType>,
+        request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(NewInstanceType::try_from(request.into_inner())?
+            .persist(&mut txn)
+            .await
+            .map(rpc::InstanceType::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn update_instance_type(
         &self,
-        _request: Request<rpc::InstanceType>,
+        request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
-        todo!()
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(UpdateInstanceType::try_from(request.into_inner())?
+            .update(&mut txn)
+            .await
+            .map(rpc::InstanceType::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn delete_instance_type(
         &self,
-        _request: Request<rpc::InstanceTypeDeletion>,
+        request: Request<rpc::InstanceTypeDeletion>,
     ) -> Result<Response<rpc::InstanceTypeDeletionResult>, Status> {
-        todo!()
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+       let response = Ok(DeactivateInstanceType::try_from(request.into_inner())?
+            .deactivate(&mut txn)
+            .await
+            .map(rpc::InstanceTypeDeletionResult::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 }
 

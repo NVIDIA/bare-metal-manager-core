@@ -5,6 +5,7 @@ pub mod migrations;
 mod address_selection_strategy;
 mod dhcp_record;
 mod domain;
+mod instance_type;
 mod machine;
 mod machine_action;
 mod machine_event;
@@ -16,6 +17,7 @@ pub use address_selection_strategy::{AbsentSubnetStrategy, AddressSelectionStrat
 pub use dhcp_record::DhcpRecord;
 pub use domain::{Domain, NewDomain};
 pub use machine::Machine;
+pub use instance_type::{InstanceType, NewInstanceType, UpdateInstanceType, DeactivateInstanceType};
 pub use machine::MachineIdsFilter;
 pub use machine_action::MachineAction;
 pub use machine_event::MachineEvent;
