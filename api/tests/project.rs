@@ -5,7 +5,7 @@ use carbide::{
     db::{NewProject, Project},
     CarbideResult,
 };
-use carbide::db::UpdateProject;
+use carbide::db::{DeleteProject, UpdateProject};
 
 use crate::common::TestDatabaseManager;
 
@@ -45,6 +45,7 @@ async fn create_project() {
 
     let unwrapped = &project.unwrap();
     assert!(matches!(unwrapped, Project));
+    assert!(unwrapped.deleted.is_none());
 
     txn.commit().await.unwrap();
 
@@ -63,7 +64,18 @@ async fn create_project() {
         .update(&mut txn)
         .await;
 
-    txn.commit().await.unwrap();
-
     assert!(matches!(updatedProject.unwrap(), Project));
+
+    let project = DeleteProject {
+        id: unwrapped.id,
+    }
+        .delete(&mut txn)
+        .await;
+
+    txn.commit().await.unwrap();
+    let project = &project.unwrap();
+
+    assert!(matches!(project, Project));
+
+    assert!(project.deleted.is_some());
 }

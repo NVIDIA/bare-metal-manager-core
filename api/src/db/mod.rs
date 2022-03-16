@@ -23,4 +23,4 @@ pub use machine_event::MachineEvent;
 pub use machine_interface::MachineInterface;
 pub use machine_state::MachineState;
 pub use network_segment::{NetworkSegment, NewNetworkSegment};
-pub use project::{NewProject, Project, UpdateProject};
+pub use project::{NewProject, Project, UpdateProject, DeleteProject};

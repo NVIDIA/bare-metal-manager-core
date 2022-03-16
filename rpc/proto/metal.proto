@@ -88,6 +88,7 @@ message Project {
 
 	google.protobuf.Timestamp created = 4;
 	google.protobuf.Timestamp updated = 5;
+	google.protobuf.Timestamp deleted = 6;
 }
 
 message ProjectDeletion {

@@ -18,6 +18,7 @@ use self::rpc::metal_server::Metal;
 use crate::cfg;
 use rpc::v0 as rpc;
 use tonic_reflection::server::Builder;
+use carbide::db::DeleteProject;
 
 #[derive(Debug)]
 pub struct Api {
@@ -238,9 +239,23 @@ impl Metal for Api {
 
     async fn delete_project(
         &self,
-        _request: Request<rpc::ProjectDeletion>,
+        request: Request<rpc::ProjectDeletion>,
     ) -> Result<Response<rpc::ProjectDeletionResult>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(DeleteProject::try_from(request.into_inner())?
+            .delete(&mut txn)
+            .await
+            .map(rpc::ProjectDeletionResult::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn update_network_segment(

@@ -6,6 +6,7 @@ CREATE TABLE projects(
 
                         created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        deleted TIMESTAMPTZ,
 
                         PRIMARY KEY(id)
 );

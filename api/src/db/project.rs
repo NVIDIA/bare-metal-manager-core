@@ -15,6 +15,7 @@ pub struct Project {
     pub organization_id: Option<Uuid>,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
+    pub deleted: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug)]
@@ -30,6 +31,11 @@ pub struct UpdateProject {
     pub organization: Option<Uuid>,
 }
 
+#[derive(Clone, Debug)]
+pub struct DeleteProject {
+    pub id: Uuid,
+}
+
 impl<'r> sqlx::FromRow<'r, PgRow> for Project {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(Project {
@@ -38,6 +44,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Project {
             organization_id: row.try_get("organization_id")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
+            deleted: row.try_get("deleted")?,
         })
     }
 }
@@ -47,7 +54,7 @@ impl NewProject {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Project> {
-        Ok(sqlx::query_as("INSERT INTO projects (name, organization_id, created, updated) VALUES ($1, $2, now(), now()) RETURNING *")
+        Ok(sqlx::query_as("INSERT INTO projects (name, organization_id) VALUES ($1, $2) RETURNING *")
             .bind(&self.name)
             .bind(&self.organization)
             .fetch_one(&mut *txn).await?)
@@ -68,6 +75,13 @@ impl From<Project> for rpc::Project {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),
+            deleted: match src.deleted {
+                Some(t) => Some(rpc::Timestamp {
+                    seconds: t.timestamp(),
+                    nanos: 0,
+                }),
+                _ => None
+            },
         }
     }
 }
@@ -107,6 +121,23 @@ impl TryFrom<rpc::Project> for UpdateProject {
     }
 }
 
+impl TryFrom<rpc::ProjectDeletion> for DeleteProject {
+    type Error = CarbideError;
+
+    fn try_from(value: rpc::ProjectDeletion) -> Result<Self, Self::Error> {
+        Ok(DeleteProject {
+            // todo(baz): Add proper error handling instead of unwrap
+            id: value.id.unwrap().try_into().unwrap(),
+        })
+    }
+}
+
+impl From<Project> for rpc::ProjectDeletionResult {
+    fn from(src: Project) -> Self {
+        rpc::ProjectDeletionResult {}
+    }
+}
+
 impl UpdateProject {
     pub async fn update(
         &self,
@@ -115,6 +146,17 @@ impl UpdateProject {
         Ok(sqlx::query_as("UPDATE projects SET name=$1, organization_id=$2, updated=NOW() WHERE id=$3 RETURNING *")
             .bind(&self.name)
             .bind(&self.organization)
+            .bind(&self.id)
+            .fetch_one(&mut *txn).await?)
+    }
+}
+
+impl DeleteProject {
+    pub async fn delete(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<Project> {
+        Ok(sqlx::query_as("UPDATE projects SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *")
             .bind(&self.id)
             .fetch_one(&mut *txn).await?)
     }
