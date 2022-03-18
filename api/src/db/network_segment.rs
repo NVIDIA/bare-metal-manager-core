@@ -98,7 +98,7 @@ pub struct NewNetworkSegment {
 }
 
 /*
-Marshal from Rust NewNetworkSegment to ProtoBuf NetworkSegment
+Marshal from protobuf NewNetworkSegment to Rust NetworkSegment
 subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
   Use try_from in order to return a Result where Result is an error if the conversion
   from String -> UUID fails
@@ -139,9 +139,9 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
 }
 
 /*
-* Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
-subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
-*/
+ * Marshal a Data Object from Rust (NetworkSegment) into an RPC NetworkSegment
+ subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
+ */
 impl From<NetworkSegment> for rpc::NetworkSegment {
     fn from(src: NetworkSegment) -> Self {
         rpc::NetworkSegment {

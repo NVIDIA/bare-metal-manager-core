@@ -15,7 +15,7 @@ use std::str;
 
 use super::{
     AddressSelectionStrategy, MachineAction, MachineEvent, MachineInterface, MachineState,
-    NetworkSegment,
+    NetworkSegment,Domain
 };
 
 use chrono::prelude::*;
@@ -43,7 +43,7 @@ pub struct Machine {
     ///
     /// [interface]: crate::db::MachineInterface
     ///
-    fqdn: String,
+    //fqdn: String,
 
     /// When this machine record was created
     created: DateTime<Utc>,
@@ -72,7 +72,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(Machine {
             id: row.try_get("id")?,
-            fqdn: row.try_get("fqdn")?,
+//            fqdn: row.try_get("fqdn")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
@@ -105,7 +105,7 @@ impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
         rpc::Machine {
             id: Some(machine.id.into()),
-            fqdn: machine.fqdn,
+          //  fqdn: machine.fqdn,
             created: Some(rpc::Timestamp {
                 seconds: machine.created.timestamp(),
                 nanos: 0,
@@ -142,9 +142,8 @@ impl Machine {
     /// * `txn` - A reference to a currently open database transaction
     /// * `fqdn` - initial hostname used to identify this host
     ///
-    pub async fn create(txn: &mut Transaction<'_, Postgres>, fqdn: String) -> CarbideResult<Self> {
-        let row: (Uuid,) = sqlx::query_as("INSERT INTO machines (fqdn) VALUES ($1) RETURNING id")
-            .bind(&fqdn)
+    pub async fn create(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Self> {
+        let row: (Uuid,) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
             .fetch_one(&mut *txn)
             .await?;
 
@@ -212,6 +211,7 @@ impl Machine {
 
                 match NetworkSegment::for_relay(txn, relay).await? {
                     Some(segment) => {
+
                         let generated_hostname =
                             Self::generate_hostname_from_uuid(&uuid::Uuid::new_v4());
                         let generated_fqdn = format!("{}", generated_hostname);
@@ -220,13 +220,16 @@ impl Machine {
 
                         let mut txn2 = txn.begin().await?;
 
-                        let machine = Machine::create(&mut txn2, generated_fqdn).await?;
+                        let machine = Machine::create(&mut txn2).await?;
 
                         let _ = MachineInterface::create(
                             &mut txn2,
                             &machine,
                             &segment,
                             &macaddr,
+                            None,
+                            generated_hostname,
+                            true,
                             &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
                             &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
                         )
@@ -276,11 +279,6 @@ impl Machine {
         self.updated
     }
 
-    /// Returns a reference to the FQDN of the machine
-    pub fn fqdn(&self) -> &str {
-        &self.fqdn
-    }
-
     /// Returns the list of Events the machine has experienced
     pub fn events(&self) -> &Vec<MachineEvent> {
         &self.events
@@ -289,32 +287,6 @@ impl Machine {
     /// Returns the list of Interfaces this machine owns
     pub fn interfaces(&self) -> &Vec<MachineInterface> {
         &self.interfaces
-    }
-
-    /// Update this machine's FQDN
-    ///
-    /// This updates the machines FQDN which will render the old name in-accessible after the DNS
-    /// TTL expires on recursive resolvers.  The authoritative resolver is updated immediately.
-    ///
-    /// Arguments:
-    ///
-    /// * `txn` - A reference to a currently open database transaction
-    /// * `new_fqdn` - The new FQDN, which is subject to DNS validation rules (todo!())
-    pub async fn update_fqdn(
-        &mut self,
-        txn: &mut Transaction<'_, Postgres>,
-        new_fqdn: &str,
-    ) -> CarbideResult<&Machine> {
-        let (fqdn, timestamp) =
-            sqlx::query_as("UPDATE machines SET fqdn=$1 RETURNING fqdn,updated")
-                .bind(new_fqdn)
-                .fetch_one(txn)
-                .await?;
-
-        self.fqdn = fqdn;
-        self.updated = timestamp;
-
-        Ok(self)
     }
 
     /// Return the current state of the machine based on the sequence of events the machine has
@@ -429,15 +401,15 @@ impl Machine {
             if let Some(events) = events_for_machine.remove(&machine.id) {
                 machine.events = events;
             } else {
-                warn!("Machine {0} ({1}) has no events", machine.id, machine.fqdn);
+                warn!("Machine {0} () has no events", machine.id);
             }
 
             if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
                 machine.interfaces = interfaces;
             } else {
                 warn!(
-                    "Machine {0} ({1}) has no interfaces",
-                    machine.id, machine.fqdn
+                    "Machine {0} () has no interfaces",
+                    machine.id
                 );
             }
         });

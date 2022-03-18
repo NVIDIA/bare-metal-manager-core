@@ -31,7 +31,7 @@ async fn test_fsm_invalid_advance() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine = Machine::create(&mut txn, String::from("peppersmacker.nvidia.com"))
+    let machine = Machine::create(&mut txn)
         .await
         .expect("Unable to create machine");
 

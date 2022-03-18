@@ -87,6 +87,9 @@ async fn prevent_duplicate_mac_addresses() {
         &new_machine,
         &new_segment,
         &test_mac,
+         None,
+        "foobar".to_string(),
+        true,
         &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
         &AddressSelectionStrategy::Empty,
     )
