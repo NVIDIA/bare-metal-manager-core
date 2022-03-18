@@ -112,20 +112,14 @@ impl TryFrom<rpc::Project> for UpdateProject {
     type Error = CarbideError;
 
     fn try_from(value: rpc::Project) -> Result<Self, Self::Error> {
-        match value.id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => Ok(UpdateProject {
-                    id: uuid,
-                    name: value.name,
-                    organization: match value.organization {
-                        Some(v) => Some(uuid::Uuid::try_from(v)?),
-                        None => None,
-                    },
-                }),
-                Err(err) => Err(CarbideError::UuidConversionError(err)),
+        Ok(UpdateProject {
+            id: value.id.ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?.try_into()?,
+            name: value.name,
+            organization: match value.organization {
+                Some(v) => Some(uuid::Uuid::try_from(v)?),
+                None => None,
             },
-            None => Err(CarbideError::IdentifierNotSpecifiedForObject()),
-        }
+        })
     }
 }
 
@@ -133,13 +127,9 @@ impl TryFrom<rpc::ProjectDeletion> for DeleteProject {
     type Error = CarbideError;
 
     fn try_from(value: rpc::ProjectDeletion) -> Result<Self, Self::Error> {
-        match value.id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => Ok(DeleteProject { id: uuid }),
-                Err(err) => Err(CarbideError::UuidConversionError(err)),
-            },
-            None => Err(CarbideError::IdentifierNotSpecifiedForObject()),
-        }
+        Ok(DeleteProject{
+            id: value.id.ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?.try_into()?
+        })
     }
 }
 

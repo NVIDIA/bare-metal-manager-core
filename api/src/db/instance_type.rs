@@ -74,10 +74,8 @@ impl TryFrom<rpc::InstanceType> for UpdateInstanceType {
     type Error = CarbideError;
 
     fn try_from(value: rpc::InstanceType) -> Result<Self, Self::Error> {
-
         Ok(UpdateInstanceType {
-            // todo(baz): Add proper error handling instead of unwrap
-            id: value.id.unwrap().try_into().unwrap(),
+            id: value.id.ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?.try_into()?,
             short_name: value.short_name,
             description: value.description,
             active: value.active,
@@ -89,10 +87,8 @@ impl TryFrom<rpc::InstanceTypeDeletion> for DeactivateInstanceType {
     type Error = CarbideError;
 
     fn try_from(value: rpc::InstanceTypeDeletion) -> Result<Self, Self::Error> {
-
         Ok(DeactivateInstanceType {
-            // todo(baz): Add proper error handling instead of unwrap
-            id: value.id.unwrap().try_into().unwrap(),
+            id: value.id.ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?.try_into()?
         })
     }
 }
