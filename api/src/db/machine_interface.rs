@@ -15,6 +15,7 @@ use uuid::Uuid;
 use rpc::v0 as rpc;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "prevent_duplicate_mac_for_network";
+const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str="one_primary_interface_per_machine";
 
 #[derive(Debug)]
 pub struct MachineInterface {
@@ -52,21 +53,16 @@ impl<'r> sqlx::FromRow<'r, PgRow> for MachineInterface {
             None
         };
 
-        let domain_id = if let Some(domain_id) = row.try_get("domain_id")? {
-         Some(domain_id)
-        } else {
-            None
-        };
 
 
         Ok(MachineInterface {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
             segment_id: row.try_get("segment_id")?,
+            domain_id: row.try_get("domain_id")?,
             hostname: row.try_get("hostname")?,
             mac_address: row.try_get("mac_address")?,
             primary_interface: row.try_get("primary_interface")?,
-            domain_id,
             address_ipv4,
             address_ipv6,
         })
@@ -96,13 +92,13 @@ impl From<MachineInterface> for rpc::MachineInterface {
 impl MachineInterface {
     /// Update machine interface hostname
     ///
-    /// This updates the machines FQDN which will render the old name in-accessible after the DNS
+    /// This updates the machine_interfaces hostname which will render the old name in-accessible after the DNS
     /// TTL expires on recursive resolvers.  The authoritative resolver is updated immediately.
     ///
     /// Arguments:
     ///
     /// * `txn` - A reference to a currently open database transaction
-    /// * `new_fqdn` - The new FQDN, which is subject to DNS validation rules (todo!())
+    /// * `new_hostname` - The new hostname, which is subject to DNS validation rules (todo!())
     pub async fn update_hostname(
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
@@ -245,6 +241,7 @@ impl MachineInterface {
             .map_err(|err: sqlx::Error| {
                 match err {
                     sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr),
+                    sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) => CarbideError::OnePrimaryInterface,
                     _ => CarbideError::from(err)
                 }
             })?)
@@ -257,6 +254,10 @@ impl MachineInterface {
 
     pub fn hostname(&self) -> &str {
         &self.hostname
+    }
+
+    pub fn primary_interface(&self) -> bool {
+        self.primary_interface
     }
 
 }

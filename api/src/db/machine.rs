@@ -1,30 +1,28 @@
 //!
 //! Machine - represents a database-backed Machine object
 //!
-use crate::db::address_selection_strategy::AbsentSubnetStrategy;
-use crate::{CarbideError, CarbideResult};
+use std::convert::From;
+use std::net::IpAddr;
+use std::str;
+
+use chrono::prelude::*;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use mac_address::MacAddress;
-use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
-use std::convert::From;
-use std::str;
+use rpc::v0 as rpc;
 
-use super::{
-    AddressSelectionStrategy, MachineAction, MachineEvent, MachineInterface, MachineState,
-    NetworkSegment,Domain
-};
-
-use chrono::prelude::*;
-
+use crate::{CarbideError, CarbideResult};
+use crate::db::address_selection_strategy::AbsentSubnetStrategy;
 use crate::human_hash;
 
-use std::net::IpAddr;
-
-use rpc::v0 as rpc;
+use super::{
+    AddressSelectionStrategy, Domain, MachineAction, MachineEvent, MachineInterface, MachineState,
+    NetworkSegment,
+};
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
@@ -36,14 +34,6 @@ pub struct Machine {
     /// all machines managed by this instance of carbide.
     ///
     id: uuid::Uuid,
-
-    ///
-    /// This is the FQDN of the machine that's used to access the machine remotely.  It's IP
-    /// address is mapped to the IP address on the [MachineInterface][interface] that's `primary`.
-    ///
-    /// [interface]: crate::db::MachineInterface
-    ///
-    //fqdn: String,
 
     /// When this machine record was created
     created: DateTime<Utc>,
@@ -72,7 +62,6 @@ impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(Machine {
             id: row.try_get("id")?,
-//            fqdn: row.try_get("fqdn")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
@@ -105,7 +94,6 @@ impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
         rpc::Machine {
             id: Some(machine.id.into()),
-          //  fqdn: machine.fqdn,
             created: Some(rpc::Timestamp {
                 seconds: machine.created.timestamp(),
                 nanos: 0,
@@ -140,10 +128,9 @@ impl Machine {
     /// Arguments:
     ///
     /// * `txn` - A reference to a currently open database transaction
-    /// * `fqdn` - initial hostname used to identify this host
     ///
     pub async fn create(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Self> {
-        let row: (Uuid,) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
+        let row: (Uuid, ) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
             .fetch_one(&mut *txn)
             .await?;
 
@@ -199,7 +186,7 @@ impl Machine {
                 (($2::inet <<= ns.prefix_ipv4) OR ($2::inet <<= ns.prefix_ipv6));
         "#;
 
-        let mut machine_ids: Vec<(Uuid,)> = sqlx::query_as(sql)
+        let mut machine_ids: Vec<(Uuid, )> = sqlx::query_as(sql)
             .bind(macaddr)
             .bind(IpNetwork::from(relay))
             .fetch_all(&mut *txn)
@@ -211,7 +198,6 @@ impl Machine {
 
                 match NetworkSegment::for_relay(txn, relay).await? {
                     Some(segment) => {
-
                         let generated_hostname =
                             Self::generate_hostname_from_uuid(&uuid::Uuid::new_v4());
                         let generated_fqdn = format!("{}", generated_hostname);
@@ -233,7 +219,7 @@ impl Machine {
                             &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
                             &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
                         )
-                        .await?;
+                            .await?;
 
                         txn2.commit().await?;
 
@@ -319,13 +305,13 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         action: &MachineAction,
     ) -> CarbideResult<bool> {
-        let id: (Uuid,) = sqlx::query_as(
+        let id: (Uuid, ) = sqlx::query_as(
             "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING id",
         )
-        .bind(self.id())
-        .bind(action)
-        .fetch_one(txn)
-        .await?;
+            .bind(self.id())
+            .bind(action)
+            .fetch_one(txn)
+            .await?;
 
         log::info!("Event ID is {}", id.0);
 
@@ -407,10 +393,7 @@ impl Machine {
             if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
                 machine.interfaces = interfaces;
             } else {
-                warn!(
-                    "Machine {0} () has no interfaces",
-                    machine.id
-                );
+                warn!("Machine {0} () has no interfaces", machine.id);
             }
         });
 

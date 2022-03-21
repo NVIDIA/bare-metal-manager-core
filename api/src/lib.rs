@@ -1,11 +1,11 @@
 use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::db::Domain;
 use ipnetwork::IpNetwork;
 use log::info;
 use mac_address::MacAddress;
 use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
 use tonic::Status;
+use crate::db::{Domain, MachineInterface};
 
 pub mod db;
 mod human_hash;
@@ -82,9 +82,6 @@ pub enum CarbideError {
     #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier")]
     IdentifierSpecifiedForNewObject(String),
 
-    #[error("A unique identifier was nopt specified for an existing object.  Please specify an identifier")]
-    IdentifierNotSpecifiedForObject(),
-
     #[error("The Domain named {0} already exists. Domain names must be unique")]
     DuplicateDomain(String),
 
@@ -93,6 +90,9 @@ pub enum CarbideError {
 
     #[error("The domain name object {0} does not exist")]
     UnknownDomain(uuid::Uuid),
+
+    #[error("Only one interface per machine can be marked as primary")]
+    OnePrimaryInterface
 }
 
 impl From<CarbideError> for tonic::Status {

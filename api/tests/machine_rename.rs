@@ -1,14 +1,14 @@
-mod common;
-
 use std::str::FromStr;
+use std::sync::Once;
+
+use ipnetwork::Ipv4Network;
+use log::LevelFilter;
+use mac_address::MacAddress;
+
+use carbide::CarbideResult;
 use carbide::db::{AbsentSubnetStrategy, AddressSelectionStrategy, Domain, Machine, MachineInterface, NetworkSegment, NewDomain, NewNetworkSegment};
 
-use log::LevelFilter;
-
-use std::sync::Once;
-use ipnetwork::Ipv4Network;
-use mac_address::MacAddress;
-use carbide::CarbideResult;
+mod common;
 
 static INIT: Once = Once::new();
 
@@ -45,15 +45,16 @@ async fn test_machine_rename() {
         .await
         .expect("Unable to create machine");
 
-    let new_domain: CarbideResult<Domain> = NewDomain {
+    let new_domain: Domain = NewDomain {
         name: "foobar.com".to_string(),
     }
         .persist(&mut txn)
-        .await;
+        .await
+        .expect("Unable top create domain");
 
     txn.commit().await.unwrap();
 
-    let domain = Domain::find_by_name(&mut txn2, "foobar.com".to_string())
+    let domain = Domain::find_by_name(&mut txn2, new_domain.name().to_owned())
         .await
         .expect("Could not find domain in DB");
 
@@ -87,17 +88,11 @@ async fn test_machine_rename() {
         .expect("Unable to create machine interface");
 
 
-    //let original_modified = machine.updated();
-
-    //txn.commit().await.unwrap();
-
-
-     machine_interface.update_hostname(&mut txn2, "peppersmacker2")
+    machine_interface.update_hostname(&mut txn2, "peppersmacker400")
         .await
         .expect("Could not update hostname");
 
     txn2.commit().await.unwrap();
 
-//    assert_ne!(original_modified, machine.updated());
-    assert_eq!(machine_interface.hostname(), "peppersmacker2");
+    assert_eq!(machine_interface.hostname(), "peppersmacker400");
 }

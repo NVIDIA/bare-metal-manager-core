@@ -8,11 +8,11 @@ use ipnetwork::Ipv6Network;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
+use carbide::CarbideResult;
+use carbide::db::{Machine, NewDomain};
 use carbide::db::Domain;
 use carbide::db::NetworkSegment;
 use carbide::db::NewNetworkSegment;
-use carbide::db::{Machine, NewDomain};
-use carbide::CarbideResult;
 
 mod common;
 
@@ -61,17 +61,17 @@ async fn test_machine_discovery_no_domain() {
         reserve_first_ipv4: Some(3),
         reserve_first_ipv6: Some(4096),
     }
-    .persist(&mut txn2)
-    .await
-    .expect("Unable to create network segment");
+        .persist(&mut txn2)
+        .await
+        .expect("Unable to create network segment");
 
     let machine = Machine::discover(
         &mut txn2,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         "10.0.0.1".parse().unwrap(),
     )
-    .await
-    .expect("Unable to create machine");
+        .await
+        .expect("Unable to create machine");
 
     let interface = machine
         .interfaces()
