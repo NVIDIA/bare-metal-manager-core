@@ -1,11 +1,11 @@
-mod common;
+use std::sync::Once;
+
+use log::LevelFilter;
 
 use carbide::db::Machine;
 use carbide::db::MachineState;
 
-use log::LevelFilter;
-
-use std::sync::Once;
+mod common;
 
 static INIT: Once = Once::new();
 

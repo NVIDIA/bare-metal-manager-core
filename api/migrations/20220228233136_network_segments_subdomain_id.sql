@@ -4,7 +4,6 @@ ALTER TABLE network_segments ADD COLUMN subdomain_id uuid;
 
 ALTER TABLE network_segments ADD FOREIGN KEY (subdomain_id) REFERENCES domains(id);
 
-ALTER TABLE machines DROP COLUMN fqdn;
 ALTER TABLE machine_interfaces ADD COLUMN domain_id uuid;
 ALTER TABLE machine_interfaces ADD COLUMN hostname VARCHAR(63) NOT NULL;
 ALTER TABLE machine_interfaces ADD FOREIGN KEY (domain_id) REFERENCES domains(id);
@@ -14,7 +13,7 @@ ALTER TABLE machine_interfaces ADD CONSTRAINT fqdn_must_be_unique UNIQUE (domain
 ALTER TABLE machine_interfaces ADD CONSTRAINT one_primary_interface_per_machine UNIQUE (machine_id, primary_interface);
 
 
-CREATE function fqdn(machine_uuid uuid)
+CREATE OR REPLACE function fqdn(machine_uuid uuid)
   RETURNS varchar
   LANGUAGE plpgsql
   AS
@@ -24,13 +23,30 @@ CREATE function fqdn(machine_uuid uuid)
   begin
     SELECT CONCAT_WS('.', hostname, name) INTO fqdn_result
     FROM machine_interfaces
-    INNER JOIN domains on domains.id = machine_intefaces.domain_id
+    INNER JOIN domains on domains.id = machine_interfaces.domain_id
     WHERE machine_id = machine_uuid AND primary_interface=true;
 
     return fqdn_result;
   end;
 $$;
 
+CREATE OR REPLACE function update_fqdn()
+  RETURNS TRIGGER
+  LANGUAGE PLPGSQL
+  AS
+  $$
+  BEGIN
+    UPDATE machines SET fqdn = (fqdn(NEW.machine_id)) WHERE id = new.machine_id;
+
+  RETURN NEW;
+  END;
+$$;
+
+CREATE OR REPLACE TRIGGER trigger_update_fqdn
+  AFTER INSERT OR UPDATE
+  ON machine_interfaces
+  FOR EACH row
+  EXECUTE PROCEDURE update_fqdn();
 
 CREATE VIEW machine_dhcp_responses AS (
     SELECT m.id as machine_id, n.id as segment_id, mi.mac_address, mi.address_ipv4, mi.address_ipv6, n.subdomain_id, n.mtu, n.gateway_ipv4, fqdn(mi.machine_id)

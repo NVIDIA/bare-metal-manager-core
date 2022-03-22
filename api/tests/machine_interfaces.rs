@@ -103,7 +103,7 @@ async fn only_one_primary_interface_per_machine() {
 
     assert!(matches!(
         machine_interface2,
-        Err(CarbideError::OnePrimaryInterface())
+        Err(CarbideError::OnePrimaryInterface)
     ));
 }
 

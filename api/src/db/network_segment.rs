@@ -1,16 +1,18 @@
-use crate::{CarbideError, CarbideResult};
+use std::convert::{TryFrom, TryInto};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
 use chrono::prelude::*;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use log::warn;
 use patricia_tree::PatriciaMap;
-use sqlx::postgres::PgRow;
 use sqlx::{Acquire, Postgres, Row};
-use std::convert::{TryFrom, TryInto};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
-use crate::db::{Domain, NewDomain};
 use rpc::v0 as rpc;
+
+use crate::{CarbideError, CarbideResult};
+use crate::db::{Domain, NewDomain};
 
 #[derive(Clone, Debug)]
 pub struct NetworkSegment {
@@ -139,9 +141,9 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
 }
 
 /*
- * Marshal a Data Object from Rust (NetworkSegment) into an RPC NetworkSegment
- subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
- */
+* Marshal a Data Object from Rust (NetworkSegment) into an RPC NetworkSegment
+subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
+*/
 impl From<NetworkSegment> for rpc::NetworkSegment {
     fn from(src: NetworkSegment) -> Self {
         rpc::NetworkSegment {
@@ -229,7 +231,7 @@ impl NetworkSegment {
 
     pub fn next_ipv4<'a>(
         &self,
-        used_ips: impl Iterator<Item = &'a Ipv4Addr>,
+        used_ips: impl Iterator<Item=&'a Ipv4Addr>,
     ) -> CarbideResult<Ipv4Addr> {
         self.prefix_ipv4()
             .ok_or_else(|| {
@@ -264,7 +266,7 @@ impl NetworkSegment {
 
     pub fn next_ipv6<'a>(
         &self,
-        used_ips: impl Iterator<Item = &'a Ipv6Addr>,
+        used_ips: impl Iterator<Item=&'a Ipv6Addr>,
     ) -> CarbideResult<Ipv6Addr> {
         self.prefix_ipv6()
             .ok_or_else(|| {
@@ -294,10 +296,13 @@ impl NetworkSegment {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::CarbideError;
     use std::str::FromStr;
+
     use uuid::Uuid;
+
+    use crate::CarbideError;
+
+    use super::*;
 
     #[test]
     fn test_unused_ipv4_address() -> Result<(), String> {

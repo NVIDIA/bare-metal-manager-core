@@ -1,21 +1,22 @@
-use super::{AbsentSubnetStrategy, AddressSelectionStrategy, Machine, NetworkSegment};
-use crate::{CarbideError, CarbideResult, Domain};
-use ipnetwork::IpNetwork;
-use itertools::Itertools;
-
-use mac_address::MacAddress;
-use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row, Transaction};
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use ipnetwork::IpNetwork;
+use itertools::Itertools;
+use mac_address::MacAddress;
+use sqlx::{Postgres, Row, Transaction};
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
 
+use crate::{CarbideError, CarbideResult, Domain};
+
+use super::{AbsentSubnetStrategy, AddressSelectionStrategy, Machine, NetworkSegment};
+
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "prevent_duplicate_mac_for_network";
-const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str="one_primary_interface_per_machine";
+const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
 
 #[derive(Debug)]
 pub struct MachineInterface {
@@ -54,7 +55,6 @@ impl<'r> sqlx::FromRow<'r, PgRow> for MachineInterface {
         };
 
 
-
         Ok(MachineInterface {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
@@ -71,10 +71,8 @@ impl<'r> sqlx::FromRow<'r, PgRow> for MachineInterface {
 
 
 impl From<MachineInterface> for rpc::MachineInterface {
-
     fn from(machine_interface: MachineInterface) -> rpc::MachineInterface {
         rpc::MachineInterface {
-
             id: Some(machine_interface.id.into()),
             machine_id: Some(machine_interface.machine_id.into()),
             segment_id: Some(machine_interface.segment_id.into()),
@@ -104,7 +102,7 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         new_hostname: &str,
     ) -> CarbideResult<&MachineInterface> {
-        let (hostname,) =
+        let (hostname, ) =
             sqlx::query_as("UPDATE machine_interfaces SET hostname=$1 RETURNING hostname")
                 .bind(new_hostname)
                 .fetch_one(txn)
@@ -123,9 +121,9 @@ impl MachineInterface {
             sqlx::query_as(
                 "SELECT * FROM machine_interfaces mi WHERE mi.mac_address = $1::macaddr",
             )
-            .bind(macaddr)
-            .fetch_all(txn)
-            .await?,
+                .bind(macaddr)
+                .fetch_all(txn)
+                .await?,
         )
     }
 
@@ -196,16 +194,16 @@ impl MachineInterface {
                         .filter_map(|interface| interface.address_ipv4()),
                 ) {
                     Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
-                        if *ignore_absent == AbsentSubnetStrategy::Ignore =>
-                    {
-                        None
-                    }
+                    if *ignore_absent == AbsentSubnetStrategy::Ignore =>
+                        {
+                            None
+                        }
                     Err(x) => return Err(x),
                     Ok(addr) => Some(addr),
                 }
             }
         }
-        .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
+            .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
 
         let new_ipv6 = match address_v6 {
             AddressSelectionStrategy::Empty => None,
@@ -217,16 +215,16 @@ impl MachineInterface {
                         .filter_map(|interface| interface.address_ipv6()),
                 ) {
                     Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
-                        if *ignore_absent == AbsentSubnetStrategy::Ignore =>
-                    {
-                        None
-                    }
+                    if *ignore_absent == AbsentSubnetStrategy::Ignore =>
+                        {
+                            None
+                        }
                     Err(x) => return Err(x),
                     Ok(addr) => Some(addr),
                 }
             }
         }
-        .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
+            .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
 
         Ok(sqlx::query_as("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, hostname, domain_id, primary_interface, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::varchar, $5::uuid, $6::bool, $7::inet, $8::inet) RETURNING *")
             .bind(machine.id())
@@ -259,5 +257,4 @@ impl MachineInterface {
     pub fn primary_interface(&self) -> bool {
         self.primary_interface
     }
-
 }
