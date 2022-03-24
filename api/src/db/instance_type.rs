@@ -37,7 +37,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for InstanceType {
 pub struct NewInstanceType {
     pub short_name: String,
     pub description: String,
-    pub active: bool
+    pub active: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -45,7 +45,7 @@ pub struct UpdateInstanceType {
     pub id: Uuid,
     pub short_name: String,
     pub description: String,
-    pub active: bool
+    pub active: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -75,7 +75,10 @@ impl TryFrom<rpc::InstanceType> for UpdateInstanceType {
 
     fn try_from(value: rpc::InstanceType) -> Result<Self, Self::Error> {
         Ok(UpdateInstanceType {
-            id: value.id.ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?.try_into()?,
+            id: value
+                .id
+                .ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?
+                .try_into()?,
             short_name: value.short_name,
             description: value.description,
             active: value.active,
@@ -88,7 +91,10 @@ impl TryFrom<rpc::InstanceTypeDeletion> for DeactivateInstanceType {
 
     fn try_from(value: rpc::InstanceTypeDeletion) -> Result<Self, Self::Error> {
         Ok(DeactivateInstanceType {
-            id: value.id.ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?.try_into()?
+            id: value
+                .id
+                .ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?
+                .try_into()?,
         })
     }
 }
@@ -109,7 +115,6 @@ impl From<InstanceType> for rpc::InstanceType {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),
-
         }
     }
 }
@@ -152,8 +157,11 @@ impl DeactivateInstanceType {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<InstanceType> {
-        Ok(sqlx::query_as("UPDATE instance_types SET active=false, updated=now() WHERE id=$1 RETURNING *")
-            .bind(&self.id)
-            .fetch_one(&mut *txn).await?)
+        Ok(sqlx::query_as(
+            "UPDATE instance_types SET active=false, updated=now() WHERE id=$1 RETURNING *",
+        )
+        .bind(&self.id)
+        .fetch_one(&mut *txn)
+        .await?)
     }
 }

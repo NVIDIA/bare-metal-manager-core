@@ -113,7 +113,10 @@ impl TryFrom<rpc::Project> for UpdateProject {
 
     fn try_from(value: rpc::Project) -> Result<Self, Self::Error> {
         Ok(UpdateProject {
-            id: value.id.ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?.try_into()?,
+            id: value
+                .id
+                .ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?
+                .try_into()?,
             name: value.name,
             organization: match value.organization {
                 Some(v) => Some(uuid::Uuid::try_from(v)?),
@@ -127,8 +130,11 @@ impl TryFrom<rpc::ProjectDeletion> for DeleteProject {
     type Error = CarbideError;
 
     fn try_from(value: rpc::ProjectDeletion) -> Result<Self, Self::Error> {
-        Ok(DeleteProject{
-            id: value.id.ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?.try_into()?
+        Ok(DeleteProject {
+            id: value
+                .id
+                .ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?
+                .try_into()?,
         })
     }
 }

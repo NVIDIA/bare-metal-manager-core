@@ -1,9 +1,9 @@
-use std::sync::Once;
 use log::LevelFilter;
+use std::sync::Once;
 
 use carbide::{
     db::{Domain, NewDomain},
-    CarbideResult, CarbideError
+    CarbideError, CarbideResult,
 };
 
 use crate::common::TestDatabaseManager;
@@ -58,8 +58,8 @@ async fn create_invalid_domain_case() {
     let domain: CarbideResult<Domain> = NewDomain {
         name: "DwRt".to_string(),
     }
-        .persist(&mut txn)
-        .await;
+    .persist(&mut txn)
+    .await;
 
     txn.commit().await.unwrap();
     assert!(matches!(
@@ -83,8 +83,8 @@ async fn create_invalid_domain_regex() {
     let domain: CarbideResult<Domain> = NewDomain {
         name: "ihaveaspace.com ".to_string(),
     }
-        .persist(&mut txn)
-        .await;
+    .persist(&mut txn)
+    .await;
 
     txn.commit().await.unwrap();
     assert!(matches!(

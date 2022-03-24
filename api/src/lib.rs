@@ -1,11 +1,11 @@
 use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
 
+use crate::db::Domain;
 use ipnetwork::IpNetwork;
 use log::info;
 use mac_address::MacAddress;
 use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
 use tonic::Status;
-use crate::db::Domain;
 
 pub mod db;
 mod human_hash;
