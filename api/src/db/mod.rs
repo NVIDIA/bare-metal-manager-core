@@ -17,8 +17,10 @@ mod project;
 pub use address_selection_strategy::{AbsentSubnetStrategy, AddressSelectionStrategy};
 pub use dhcp_record::DhcpRecord;
 pub use domain::{Domain, NewDomain};
+pub use instance_type::{
+    DeactivateInstanceType, InstanceType, NewInstanceType, UpdateInstanceType,
+};
 pub use machine::Machine;
-pub use instance_type::{InstanceType, NewInstanceType, UpdateInstanceType, DeactivateInstanceType};
 pub use machine::MachineIdsFilter;
 pub use machine_action::MachineAction;
 pub use machine_event::MachineEvent;

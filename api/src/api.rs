@@ -1,10 +1,11 @@
 use std::convert::TryFrom;
 
 use carbide::{
-
-    db::{DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment, NewDomain,
-         NewNetworkSegment, NewInstanceType, DeactivateInstanceType, UpdateInstanceType,
-         NewProject, Project, UpdateProject},
+    db::{
+        DeactivateInstanceType, DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment,
+        NewDomain, NewInstanceType, NewNetworkSegment, NewProject, Project, UpdateInstanceType,
+        UpdateProject,
+    },
     CarbideError,
 };
 use color_eyre::Report;
@@ -325,7 +326,6 @@ impl Metal for Api {
         &self,
         request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
-
         let mut txn = self
             .database_connection
             .begin()
@@ -347,14 +347,13 @@ impl Metal for Api {
         &self,
         request: Request<rpc::InstanceTypeDeletion>,
     ) -> Result<Response<rpc::InstanceTypeDeletionResult>, Status> {
-
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-       let response = Ok(DeactivateInstanceType::try_from(request.into_inner())?
+        let response = Ok(DeactivateInstanceType::try_from(request.into_inner())?
             .deactivate(&mut txn)
             .await
             .map(rpc::InstanceTypeDeletionResult::from)
