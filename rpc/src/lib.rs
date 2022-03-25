@@ -17,7 +17,10 @@ pub mod v0 {
 
     pub use prost_types::Timestamp;
 
-    tonic::include_proto!("metal.v0");
+    // In order for CLion to grok the generated files, we need to use include! instead of
+    // tonic's built in include. To include the proto build in CLion, ensure that the experimental
+    // `org.rust.cargo.evaluate.build.scripts` flag is enabled.
+    include!(concat!(env!("OUT_DIR"), "/metal.v0.rs"));
 
     pub const REFLECTION_SERVICE_DESCRIPTOR: &[u8] =
         tonic::include_file_descriptor_set!("metal.v0");
