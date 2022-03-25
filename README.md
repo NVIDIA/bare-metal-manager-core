@@ -71,7 +71,7 @@ order to recompile on changes.
 
 
 ### QEMU
-QEMU and UEFI firmware are required to  PXE boot a VM using Carbide
+QEMU and UEFI firmware are required to PXE boot a VM using Carbide
 
 Arch - `pacman -S qemu edk2-ovmf`
 Ubuntu - `apt-get install qemu edk2-ovmf`
@@ -137,14 +137,153 @@ primary_interface) VALUES ('<machine uuid>', '<segment uuid>', 'de:af:de:ad:be:e
 ```
 
 ## SJC4 Lab Environments
+### Required access groups
+In order to reach the any of these IP's you will need to be a member of 
+the `ngc-automation` or `sagan` ssh groups. Without this ssh access you cannot
+access the jump hosts. 
 
-| hostname   | DPU BMC       | DPU OOB       | HOST OOB      | HOST IP                         |
-| ---------- | ------------- | ------------- | ------------- | ------------------------------- |
-| forge001   | 10.146.38.232 | 10.146.38.229 | 10.146.38.242 | 10.150.51.235 / 10.150.51.236   |
-| forge002   | 10.146.38.233 | 10.146.38.228 | 10.146.38.243 | 10.150.115.234 / 10.150.115.245 |
-| forge003   | 10.146.38.234 | 10.146.38.227 | 10.146.38.244 | 10.150.51.230 / 10.150.51.229   |
-| forge004   | 10.146.38.235 | 10.146.38.226 | 10.146.38.245 | 10.150.115.236 / 10.150.115.237 |
-| forge005   | 10.146.38.236 | 10.146.38.225 | 10.146.38.246 | 10.150.51.228 / 10.150.51.227   |
+You must first install [nvinit](https://confluence.nvidia.com/display/COS/Security+Engineering+Home#SecurityEngineeringHome-CertificateBasedSSHAccessforNGCHosts) and Hashicorp vault
+
+SSH group membership.  Its not clear if both SSH groups are required, so 
+try with just one and if that doesn't work get the other.
+
+First is `sagan`.  Make a [dlrequest](https://dlrequest/GroupID/Groups/Properties?identity=M2UwMzM1NGI0M2Q2NDFkZWIyZTUwZjA1Zjk4YmQxMmV8Z3JvdXA=) Click Join -> Join perpetually
+
+Second group is `ngc-automation`, open a Jira using [this](https://jirasw.nvidia.com/browse/NGCSEC-1183) as a template
+
+When you have been added to one of the groups, you will need to sign-in to vault
+
+```
+vault login -method=ldap username=<your AD username> -passcode=<passcode from duo>  
+```
+
+You will know when you are a member of a specific group based on the policies 
+returned from `vault login` (example below where you are a member of `sagan` and `ngc-automation`)
+
+```
+Success! You are now authenticated. The token information displayed below
+is already stored in the token helper. You do NOT need to run "vault login"
+again. Future Vault requests will automatically use this token.
+
+Key                    Value
+---                    -----
+token                  XXXXXXXXXXX
+token_accessor         XXXXXXXXXXX
+token_duration         1h
+token_renewable        true
+token_policies         ["default" "jwt-nvidia-policy" "ngc-devops-service-accounts-policy" "ngc-user-policy" "sagan-policy"]
+identity_policies      ["jwt-nvidia-policy"]
+policies               ["default" "jwt-nvidia-policy" "ngc-devops-service-accounts-policy" "ngc-user-policy" "sagan-policy"]
+token_meta_username    <your AD login>
+```
+
+Once authenticated to vault, you use nvinit to request additional principals
+Before running the commands below make sure to have `ssh-agent` running.  
+```
+eval $(ssh-agent)
+```
+
+```
+nvinit ssh -user <AD username> -principals "<AD username>,bouncer" -passcode <DUO passcode>
+nvinit ssh -user <AD username> -vault-role sshca-usercert/issue/sagan
+nvinit ssh -user <AD username> -vault-role sshca-devopscert/issue/ngc-automation
+```
+
+Add the following to your `.ssh/config`. The user depends on which ssh group you use are a member of,
+but bouncer should be sufficient for most.
+
+```
+Host sjc4jump
+  Hostname 24.51.7.3
+  Compression yes
+  User [bouncer or ngc-devops]
+  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com  // This is only required if you are running the latest SSH.  OpenSSH deprecated RSA a while ago
+```
+### Host info
+Related Info about Lab hosts:
+
+https://jirasw.nvidia.com/browse/NSVIS-3666
+https://docs.google.com/spreadsheets/d/1wbRW8zcw_rx05fgP6ThK288d0W_WRIVe6uErUpqT0Eg/edit?userstoinvite=rdancel@nvidia.com&actionButton=1#gid=2074715696
+https://netbox.nvidia.com/dcim/racks/6496/
+
+
+| hostname   | DPU BMC IP    | DPU OOB IP    | HOST OOB IP   | HOST IP                          | DPU BMC Credentials | DPU OOB Credentials | ILO Creds             | Host OS Creds   |
+| ---------- | ------------- | ------------- | ------------- | -------------------------------- | ------------------- | ------------------- | --------------------- | --------------  |
+| forge001   | 10.146.38.232 | 10.146.38.229 | 10.146.38.242 | 10.150.51.235 / 10.150.51.236    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge002   | 10.146.38.233 | 10.146.38.228 | 10.146.38.243 | 10.150.115.234 / 10.150.115.245  | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge003   | 10.146.38.234 | 10.146.38.227 | 10.146.38.244 | 10.150.51.230 / 10.150.51.229    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge004   | 10.146.38.235 | 10.146.38.226 | 10.146.38.245 | 10.150.115.236 / 10.150.115.237  | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge005   | 10.146.38.236 | 10.146.38.225 | 10.146.38.246 | 10.150.51.228 / 10.150.51.227    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+
+### Connecting to DPU
+The DPU shares a physical 1GB ethernet connection for both BMC and OOB access.  
+This one interface has two different MAC addresses. So, while the physical 
+connection is shared the OOB and BMC have unique IP addresses.
+
+The BMC OS is a basic `busybox` shell,  so the available commands are limited.
+To connect the BMC, ssh to the IP address listed under `DPU BMC IP` address 
+using credentials in the `DPU BMC Credentials` table above.
+
+To then connect to the 'console' of the DPU you use `microcom` on the
+console device
+
+```
+microcom /dev/rshim0/console
+
+Press enter to bring up login prompt.
+
+use the login credentials in the DPU OOB column to connect
+
+ctrl-x will break out of the connection
+```
+
+Another way (and preferred if the OOB interfaces are provisioned) is to ssh
+directly to the IP listed in `DPU OOB IP` and use the credentials in the
+`DPU OOB Credentials` column. This bypasses the BMC and connects you directly to
+the DPU OS.
+
+#### Updating to the latest BFB on a DPU
+
+
+Download the latest BFB from artifactory - https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04/
+
+In order to upgrade the OS you will need to `scp` the BFB file to a specific directory on the DPU.
+`scp DOCA_1.3.0_BSP_3.9.0_Ubuntu_20.04-3.20220315.bfb root@bmc_ip:/dev/rshim0/boot` once the file is copied the DPU reboots and completes the install of the new BFB.
+
+Note you will need to request access to the `ngc-automation` or `sagan` ssh group
+in order to login to a jump host.
+
+
+
+Recent versions of BFB can also contain firmware updates which can need to be applied using `/opt/mellanox/mlnx-fw-updater/mlnx_fw_updater.pl` after that completes
+you must power cycle (not reboot) the server.  For HP the "Cold restart" option in iLO works.   
+
+`mlxfwmanager` will tell you the current version of firmware as well as the new version that will become active on power cycle
+
+Open Vswitch is loaded on the DPUs 
+`ovs-vsctl` show will show which interfaces are the bridge interfaces
+
+From the ArmOS BMC you can instruct the DPU to restart using 
+
+`echo "SW_RESET 1" > /dev/rshim0/misc`
+
+The DPU Might require the following udev rules to enable auto-negotiation.  You can look if that is already enable
+
+```
+echo 'SUBSYSTEM=="net", ACTION=="add", NAME=="p0", RUN+="/sbin/ethtool -s p0 autoneg on"' >> /etc/udev/rules.d/83-net-speed.rules
+echo 'SUBSYSTEM=="net", ACTION=="add", NAME=="p1", RUN+="/sbin/ethtool -s p1 autoneg on"' >> /etc/udev/rules.d/83-net-speed.rules
+```
+
+```
+ethtool p0 | grep -P 'Speed|Auto'
+ethtool p1 | grep -P 'Speed|Auto'
+
+Output should look like this assuming it is connecting to a 25G port
+
+	Speed: 25000Mb/s
+	Auto-negotiation: on
+```
+
 
 ## Production containers on Quay.io
 
