@@ -9,15 +9,15 @@ use chrono::prelude::*;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use mac_address::MacAddress;
-use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use sqlx::postgres::PgRow;
+use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
 
-use crate::{CarbideError, CarbideResult};
 use crate::db::address_selection_strategy::AbsentSubnetStrategy;
 use crate::human_hash;
+use crate::{CarbideError, CarbideResult};
 
 use super::{
     AddressSelectionStrategy, Domain, MachineAction, MachineEvent, MachineInterface, MachineState,
@@ -130,7 +130,7 @@ impl Machine {
     /// * `txn` - A reference to a currently open database transaction
     ///
     pub async fn create(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Self> {
-        let row: (Uuid, ) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
+        let row: (Uuid,) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
             .fetch_one(&mut *txn)
             .await?;
 
@@ -186,7 +186,7 @@ impl Machine {
                 (($2::inet <<= ns.prefix_ipv4) OR ($2::inet <<= ns.prefix_ipv6));
         "#;
 
-        let mut machine_ids: Vec<(Uuid, )> = sqlx::query_as(sql)
+        let mut machine_ids: Vec<(Uuid,)> = sqlx::query_as(sql)
             .bind(macaddr)
             .bind(IpNetwork::from(relay))
             .fetch_all(&mut *txn)
@@ -219,7 +219,7 @@ impl Machine {
                             &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
                             &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
                         )
-                            .await?;
+                        .await?;
 
                         txn2.commit().await?;
 
@@ -305,13 +305,13 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         action: &MachineAction,
     ) -> CarbideResult<bool> {
-        let id: (Uuid, ) = sqlx::query_as(
+        let id: (Uuid,) = sqlx::query_as(
             "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING id",
         )
-            .bind(self.id())
-            .bind(action)
-            .fetch_one(txn)
-            .await?;
+        .bind(self.id())
+        .bind(action)
+        .fetch_one(txn)
+        .await?;
 
         log::info!("Event ID is {}", id.0);
 

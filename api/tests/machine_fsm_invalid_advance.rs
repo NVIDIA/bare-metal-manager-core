@@ -2,8 +2,8 @@ use std::sync::Once;
 
 use log::LevelFilter;
 
-use carbide::CarbideError;
 use carbide::db::Machine;
+use carbide::CarbideError;
 
 mod common;
 

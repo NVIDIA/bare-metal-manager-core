@@ -5,8 +5,11 @@ use ipnetwork::Ipv4Network;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
+use carbide::db::{
+    AbsentSubnetStrategy, AddressSelectionStrategy, Domain, Machine, MachineInterface,
+    NetworkSegment, NewDomain, NewNetworkSegment,
+};
 use carbide::CarbideResult;
-use carbide::db::{AbsentSubnetStrategy, AddressSelectionStrategy, Domain, Machine, MachineInterface, NetworkSegment, NewDomain, NewNetworkSegment};
 
 mod common;
 
@@ -48,16 +51,15 @@ async fn test_machine_rename() {
     let new_domain: Domain = NewDomain {
         name: "foobar.com".to_string(),
     }
-        .persist(&mut txn)
-        .await
-        .expect("Unable top create domain");
+    .persist(&mut txn)
+    .await
+    .expect("Unable top create domain");
 
     txn.commit().await.unwrap();
 
     let domain = Domain::find_by_name(&mut txn2, new_domain.name().to_owned())
         .await
         .expect("Could not find domain in DB");
-
 
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
@@ -69,9 +71,9 @@ async fn test_machine_rename() {
         reserve_first_ipv4: Some(3),
         reserve_first_ipv6: Some(3),
     }
-        .persist(&mut txn2)
-        .await
-        .expect("Unable to create network segment");
+    .persist(&mut txn2)
+    .await
+    .expect("Unable to create network segment");
 
     let mut machine_interface = MachineInterface::create(
         &mut txn2,
@@ -84,11 +86,11 @@ async fn test_machine_rename() {
         &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
         &AddressSelectionStrategy::Empty,
     )
-        .await
-        .expect("Unable to create machine interface");
+    .await
+    .expect("Unable to create machine interface");
 
-
-    machine_interface.update_hostname(&mut txn2, "peppersmacker400")
+    machine_interface
+        .update_hostname(&mut txn2, "peppersmacker400")
         .await
         .expect("Could not update hostname");
 

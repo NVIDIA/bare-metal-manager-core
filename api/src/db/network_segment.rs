@@ -5,14 +5,14 @@ use chrono::prelude::*;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use log::warn;
 use patricia_tree::PatriciaMap;
-use sqlx::{Acquire, Postgres, Row};
 use sqlx::postgres::PgRow;
+use sqlx::{Acquire, Postgres, Row};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
 
-use crate::{CarbideError, CarbideResult};
 use crate::db::{Domain, NewDomain};
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Clone, Debug)]
 pub struct NetworkSegment {
@@ -231,7 +231,7 @@ impl NetworkSegment {
 
     pub fn next_ipv4<'a>(
         &self,
-        used_ips: impl Iterator<Item=&'a Ipv4Addr>,
+        used_ips: impl Iterator<Item = &'a Ipv4Addr>,
     ) -> CarbideResult<Ipv4Addr> {
         self.prefix_ipv4()
             .ok_or_else(|| {
@@ -266,7 +266,7 @@ impl NetworkSegment {
 
     pub fn next_ipv6<'a>(
         &self,
-        used_ips: impl Iterator<Item=&'a Ipv6Addr>,
+        used_ips: impl Iterator<Item = &'a Ipv6Addr>,
     ) -> CarbideResult<Ipv6Addr> {
         self.prefix_ipv6()
             .ok_or_else(|| {

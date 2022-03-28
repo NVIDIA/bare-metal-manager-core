@@ -5,8 +5,11 @@ use ipnetwork::Ipv4Network;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
+use carbide::db::{
+    AbsentSubnetStrategy, AddressSelectionStrategy, Machine, MachineInterface, NetworkSegment,
+    NewNetworkSegment,
+};
 use carbide::CarbideError;
-use carbide::db::{AbsentSubnetStrategy, AddressSelectionStrategy, Machine, MachineInterface, NetworkSegment, NewNetworkSegment};
 
 use crate::common::TestDatabaseManager;
 
@@ -33,10 +36,7 @@ async fn only_one_primary_interface_per_machine() {
         .expect("Unable to create database pool")
         .pool;
 
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("Unable to create txn");
+    let mut txn = pool.begin().await.expect("Unable to create txn");
 
     let mut txn2 = pool
         .begin()
@@ -58,17 +58,15 @@ async fn only_one_primary_interface_per_machine() {
         reserve_first_ipv4: Some(3),
         reserve_first_ipv6: Some(3),
     }
-        .persist(&mut txn)
-        .await
-        .expect("Unable to create network segment");
-
+    .persist(&mut txn)
+    .await
+    .expect("Unable to create network segment");
 
     txn.commit().await.unwrap();
 
     let new_machine = Machine::create(&mut txn2)
         .await
         .expect("Unable to create machine");
-
 
     let machine_interface = MachineInterface::create(
         &mut txn2,
@@ -81,8 +79,8 @@ async fn only_one_primary_interface_per_machine() {
         &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
         &AddressSelectionStrategy::Empty,
     )
-        .await
-        .expect("Unable to create machine interface");
+    .await
+    .expect("Unable to create machine interface");
 
     txn2.commit().await.unwrap();
 
@@ -97,7 +95,7 @@ async fn only_one_primary_interface_per_machine() {
         &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
         &AddressSelectionStrategy::Empty,
     )
-        .await;
+    .await;
 
     txn3.commit().await.unwrap();
 
@@ -116,10 +114,7 @@ async fn many_non_primary_interfaces_per_machine() {
         .expect("Unable to create database pool")
         .pool;
 
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("Unable to create txn");
+    let mut txn = pool.begin().await.expect("Unable to create txn");
 
     let mut txn2 = pool
         .begin()
@@ -141,17 +136,15 @@ async fn many_non_primary_interfaces_per_machine() {
         reserve_first_ipv4: Some(3),
         reserve_first_ipv6: Some(3),
     }
-        .persist(&mut txn)
-        .await
-        .expect("Unable to create network segment");
-
+    .persist(&mut txn)
+    .await
+    .expect("Unable to create network segment");
 
     txn.commit().await.unwrap();
 
     let new_machine = Machine::create(&mut txn2)
         .await
         .expect("Unable to create machine");
-
 
     let machine_interface = MachineInterface::create(
         &mut txn2,
@@ -164,8 +157,8 @@ async fn many_non_primary_interfaces_per_machine() {
         &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
         &AddressSelectionStrategy::Empty,
     )
-        .await
-        .expect("Unable to create machine interface");
+    .await
+    .expect("Unable to create machine interface");
 
     txn2.commit().await.unwrap();
 
@@ -180,12 +173,9 @@ async fn many_non_primary_interfaces_per_machine() {
         &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
         &AddressSelectionStrategy::Empty,
     )
-        .await;
+    .await;
 
     txn3.commit().await.unwrap();
 
-    assert!(matches!(
-        machine_interface2,
-        MachineInterface,
-    ));
+    assert!(matches!(machine_interface2, MachineInterface,));
 }

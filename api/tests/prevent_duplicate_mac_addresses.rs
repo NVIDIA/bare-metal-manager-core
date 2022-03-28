@@ -4,14 +4,14 @@ use std::sync::Once;
 use ipnetwork::Ipv4Network;
 use log::LevelFilter;
 
-use carbide::{CarbideError, CarbideResult};
-use carbide::db::{AbsentSubnetStrategy, NewDomain};
 use carbide::db::AddressSelectionStrategy;
 use carbide::db::Domain;
 use carbide::db::Machine;
 use carbide::db::MachineInterface;
 use carbide::db::NetworkSegment;
 use carbide::db::NewNetworkSegment;
+use carbide::db::{AbsentSubnetStrategy, NewDomain};
+use carbide::{CarbideError, CarbideResult};
 
 mod common;
 
@@ -52,8 +52,8 @@ async fn prevent_duplicate_mac_addresses() {
     let new_domain: CarbideResult<Domain> = NewDomain {
         name: my_domain.to_string(),
     }
-        .persist(&mut txn)
-        .await;
+    .persist(&mut txn)
+    .await;
 
     txn.commit().await.unwrap();
 
@@ -71,9 +71,9 @@ async fn prevent_duplicate_mac_addresses() {
         reserve_first_ipv4: Some(3),
         reserve_first_ipv6: Some(3),
     }
-        .persist(&mut txn2)
-        .await
-        .expect("Unable to create network segment");
+    .persist(&mut txn2)
+    .await
+    .expect("Unable to create network segment");
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
 
@@ -92,7 +92,7 @@ async fn prevent_duplicate_mac_addresses() {
         &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
         &AddressSelectionStrategy::Empty,
     )
-        .await;
+    .await;
 
     assert!(matches!(
         duplicate_interface,

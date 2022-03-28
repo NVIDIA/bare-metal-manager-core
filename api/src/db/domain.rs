@@ -1,8 +1,8 @@
 use std::convert::TryFrom;
 
 use chrono::prelude::*;
-use sqlx::{Postgres, postgres::PgRow, Row, Transaction};
 use sqlx::types::uuid;
+use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
@@ -102,15 +102,15 @@ impl NewDomain {
                 .await
                 .map_err(|err: sqlx::Error| match err {
                     sqlx::Error::Database(e)
-                    if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
-                        {
-                            CarbideError::InvalidDomainName(String::from(&self.name))
-                        }
+                        if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
+                    {
+                        CarbideError::InvalidDomainName(String::from(&self.name))
+                    }
                     sqlx::Error::Database(e)
-                    if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
-                        {
-                            CarbideError::InvalidDomainName(String::from(&self.name))
-                        }
+                        if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
+                    {
+                        CarbideError::InvalidDomainName(String::from(&self.name))
+                    }
                     _ => CarbideError::from(err),
                 })?,
         )
