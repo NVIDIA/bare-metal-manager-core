@@ -114,7 +114,7 @@ CREATE TABLE machines (
 
 	supported_instance_type uuid NULL,
 
-	fqdn VARCHAR(64) NOT NULL UNIQUE,
+	fqdn VARCHAR(64) UNIQUE,
 
 	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
