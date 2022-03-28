@@ -138,14 +138,13 @@ primary_interface) VALUES ('<machine uuid>', '<segment uuid>', 'de:af:de:ad:be:e
 
 ## SJC4 Lab Environments
 ### Required access groups
-In order to reach the any of these IP's you will need to be a member of 
-the `ngc-automation` or `sagan` ssh groups. Without this ssh access you cannot
-access the jump hosts. 
+In order to reach the any of IP's listed you will need to be a member of 
+the `ngc-automation` and `sagan` ssh groups. Without this ssh access you cannot
+access the jump hosts.
 
 You must first install [nvinit](https://confluence.nvidia.com/display/COS/Security+Engineering+Home#SecurityEngineeringHome-CertificateBasedSSHAccessforNGCHosts) and Hashicorp vault
 
-SSH group membership.  Its not clear if both SSH groups are required, so 
-try with just one and if that doesn't work get the other.
+SSH group membership:
 
 First is `sagan`.  Make a [dlrequest](https://dlrequest/GroupID/Groups/Properties?identity=M2UwMzM1NGI0M2Q2NDFkZWIyZTUwZjA1Zjk4YmQxMmV8Z3JvdXA=) Click Join -> Join perpetually
 
@@ -157,7 +156,7 @@ When you have been added to one of the groups, you will need to sign-in to vault
 vault login -method=ldap username=<your AD username> -passcode=<passcode from duo>  
 ```
 
-You will know when you are a member of a specific group based on the policies 
+You will know when you are a member a group based on the policies 
 returned from `vault login` (example below where you are a member of `sagan` and `ngc-automation`)
 
 ```
@@ -181,6 +180,7 @@ Once authenticated to vault, you use nvinit to request additional principals
 Before running the commands below make sure to have `ssh-agent` running.  
 ```
 eval $(ssh-agent)
+ssh-add -D
 ```
 
 ```
@@ -196,7 +196,7 @@ but bouncer should be sufficient for most.
 Host sjc4jump
   Hostname 24.51.7.3
   Compression yes
-  User [bouncer or ngc-devops]
+  User ngc-devops
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com  // This is only required if you are running the latest SSH.  OpenSSH deprecated RSA a while ago
 ```
 ### Host info
