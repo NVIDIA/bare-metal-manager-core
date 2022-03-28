@@ -216,7 +216,6 @@ message Machine {
 	repeated MachineEvent events = 7;
 	repeated MachineInterface interfaces = 8;
 
-	string fqdn = 9;
 }
 
 message MachineEvent {
@@ -233,11 +232,14 @@ message MachineInterface {
 	UUID id = 1;
 	UUID machine_id = 2;
 	UUID segment_id = 3;
+	string hostname = 4;
+	UUID domain_id = 5;
+	bool primary_interface = 6;
 
-	string mac_address = 4;
-
-	optional string address_ipv4 = 5;
-	optional string address_ipv6 = 6;
+	string mac_address = 7;
+;
+	optional string address_ipv4 = 8;
+	optional string address_ipv6 = 9;
 }
 
 enum MachineAction {

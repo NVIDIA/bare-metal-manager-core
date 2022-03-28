@@ -1,16 +1,18 @@
-use crate::{CarbideError, CarbideResult};
+use std::convert::{TryFrom, TryInto};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
 use chrono::prelude::*;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use log::warn;
 use patricia_tree::PatriciaMap;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, Postgres, Row};
-use std::convert::{TryFrom, TryInto};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use uuid::Uuid;
 
-use crate::db::{Domain, NewDomain};
 use rpc::v0 as rpc;
+
+use crate::db::{Domain, NewDomain};
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Clone, Debug)]
 pub struct NetworkSegment {
@@ -98,7 +100,7 @@ pub struct NewNetworkSegment {
 }
 
 /*
-Marshal from Rust NewNetworkSegment to ProtoBuf NetworkSegment
+Marshal from protobuf NewNetworkSegment to Rust NetworkSegment
 subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
   Use try_from in order to return a Result where Result is an error if the conversion
   from String -> UUID fails
@@ -139,7 +141,7 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
 }
 
 /*
-* Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
+* Marshal a Data Object from Rust (NetworkSegment) into an RPC NetworkSegment
 subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
 */
 impl From<NetworkSegment> for rpc::NetworkSegment {
@@ -294,10 +296,13 @@ impl NetworkSegment {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::CarbideError;
     use std::str::FromStr;
+
     use uuid::Uuid;
+
+    use crate::CarbideError;
+
+    use super::*;
 
     #[test]
     fn test_unused_ipv4_address() -> Result<(), String> {

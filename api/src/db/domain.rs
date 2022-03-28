@@ -1,10 +1,13 @@
-use crate::{CarbideError, CarbideResult};
+use std::convert::TryFrom;
+
 use chrono::prelude::*;
-use rpc::v0 as rpc;
 use sqlx::types::uuid;
 use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
-use std::convert::TryFrom;
 use uuid::Uuid;
+
+use rpc::v0 as rpc;
+
+use crate::{CarbideError, CarbideResult};
 
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
 const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";

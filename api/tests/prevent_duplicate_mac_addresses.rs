@@ -1,20 +1,19 @@
-mod common;
+use std::str::FromStr;
+use std::sync::Once;
+
+use ipnetwork::Ipv4Network;
+use log::LevelFilter;
 
 use carbide::db::AddressSelectionStrategy;
 use carbide::db::Domain;
 use carbide::db::Machine;
 use carbide::db::MachineInterface;
 use carbide::db::NetworkSegment;
+use carbide::db::NewNetworkSegment;
 use carbide::db::{AbsentSubnetStrategy, NewDomain};
 use carbide::{CarbideError, CarbideResult};
 
-use carbide::db::NewNetworkSegment;
-use ipnetwork::Ipv4Network;
-
-use log::LevelFilter;
-
-use std::str::FromStr;
-use std::sync::Once;
+mod common;
 
 static INIT: Once = Once::new();
 
@@ -87,6 +86,9 @@ async fn prevent_duplicate_mac_addresses() {
         &new_machine,
         &new_segment,
         &test_mac,
+        None,
+        "foobar".to_string(),
+        true,
         &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
         &AddressSelectionStrategy::Empty,
     )

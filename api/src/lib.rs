@@ -1,6 +1,6 @@
 use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::db::Domain;
+use crate::db::{Domain, MachineInterface};
 use ipnetwork::IpNetwork;
 use log::info;
 use mac_address::MacAddress;
@@ -93,6 +93,9 @@ pub enum CarbideError {
 
     #[error("The domain name object {0} does not exist")]
     UnknownDomain(uuid::Uuid),
+
+    #[error("Only one interface per machine can be marked as primary")]
+    OnePrimaryInterface,
 }
 
 impl From<CarbideError> for tonic::Status {

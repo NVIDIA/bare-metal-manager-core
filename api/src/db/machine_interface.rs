@@ -1,27 +1,34 @@
-use super::{AbsentSubnetStrategy, AddressSelectionStrategy, Machine, NetworkSegment};
-use crate::{CarbideError, CarbideResult};
+use std::collections::HashMap;
+use std::convert::{TryFrom, TryInto};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row, Transaction};
-use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
 
+use crate::{CarbideError, CarbideResult, Domain};
+
+use super::{AbsentSubnetStrategy, AddressSelectionStrategy, Machine, NetworkSegment};
+
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "prevent_duplicate_mac_for_network";
+const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
 
 #[derive(Debug)]
 pub struct MachineInterface {
     id: uuid::Uuid,
 
+    domain_id: Option<uuid::Uuid>,
     machine_id: uuid::Uuid,
     segment_id: uuid::Uuid,
+    hostname: String,
 
     mac_address: MacAddress,
+    primary_interface: bool,
 
     address_ipv4: Option<Ipv4Addr>,
     address_ipv6: Option<Ipv6Addr>,
@@ -51,7 +58,10 @@ impl<'r> sqlx::FromRow<'r, PgRow> for MachineInterface {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
             segment_id: row.try_get("segment_id")?,
+            domain_id: row.try_get("domain_id")?,
+            hostname: row.try_get("hostname")?,
             mac_address: row.try_get("mac_address")?,
+            primary_interface: row.try_get("primary_interface")?,
             address_ipv4,
             address_ipv6,
         })
@@ -64,8 +74,11 @@ impl From<MachineInterface> for rpc::MachineInterface {
             id: Some(machine_interface.id.into()),
             machine_id: Some(machine_interface.machine_id.into()),
             segment_id: Some(machine_interface.segment_id.into()),
+            hostname: machine_interface.hostname.into(),
+            domain_id: machine_interface.domain_id.map(|d| d.into()),
 
             mac_address: machine_interface.mac_address.to_string(),
+            primary_interface: machine_interface.primary_interface.into(),
             address_ipv4: machine_interface.address_ipv4.map(|a| a.to_string()),
             address_ipv6: machine_interface.address_ipv6.map(|a| a.to_string()),
         }
@@ -73,6 +86,31 @@ impl From<MachineInterface> for rpc::MachineInterface {
 }
 
 impl MachineInterface {
+    /// Update machine interface hostname
+    ///
+    /// This updates the machine_interfaces hostname which will render the old name in-accessible after the DNS
+    /// TTL expires on recursive resolvers.  The authoritative resolver is updated immediately.
+    ///
+    /// Arguments:
+    ///
+    /// * `txn` - A reference to a currently open database transaction
+    /// * `new_hostname` - The new hostname, which is subject to DNS validation rules (todo!())
+    pub async fn update_hostname(
+        &mut self,
+        txn: &mut Transaction<'_, Postgres>,
+        new_hostname: &str,
+    ) -> CarbideResult<&MachineInterface> {
+        let (hostname,) =
+            sqlx::query_as("UPDATE machine_interfaces SET hostname=$1 RETURNING hostname")
+                .bind(new_hostname)
+                .fetch_one(txn)
+                .await?;
+
+        self.hostname = hostname;
+
+        Ok(self)
+    }
+
     pub async fn find_by_mac_address(
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
@@ -127,6 +165,9 @@ impl MachineInterface {
         machine: &Machine,
         segment: &NetworkSegment,
         macaddr: &MacAddress,
+        domain_id: Option<uuid::Uuid>,
+        hostname: String,
+        primary_interface: bool,
         address_v4: &AddressSelectionStrategy<Ipv4Addr>,
         address_v6: &AddressSelectionStrategy<Ipv6Addr>,
     ) -> CarbideResult<Self> {
@@ -183,16 +224,20 @@ impl MachineInterface {
         }
         .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
 
-        Ok(sqlx::query_as("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::inet, $5::inet) RETURNING *")
+        Ok(sqlx::query_as("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, hostname, domain_id, primary_interface, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::varchar, $5::uuid, $6::bool, $7::inet, $8::inet) RETURNING *")
             .bind(machine.id())
             .bind(segment.id)
             .bind(macaddr)
+            .bind(hostname)
+            .bind(domain_id)
+            .bind(primary_interface)
             .bind(new_ipv4.map(IpNetwork::from))
             .bind(new_ipv6.map(IpNetwork::from))
             .fetch_one(&mut *txn).await
             .map_err(|err: sqlx::Error| {
                 match err {
                     sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr),
+                    sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) => CarbideError::OnePrimaryInterface,
                     _ => CarbideError::from(err)
                 }
             })?)
@@ -201,5 +246,13 @@ impl MachineInterface {
     /// Get a reference to the machine interface's segment id.
     pub fn segment_id(&self) -> Uuid {
         self.segment_id
+    }
+
+    pub fn hostname(&self) -> &str {
+        &self.hostname
+    }
+
+    pub fn primary_interface(&self) -> bool {
+        self.primary_interface
     }
 }

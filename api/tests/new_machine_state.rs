@@ -1,11 +1,11 @@
-mod common;
+use std::sync::Once;
+
+use log::LevelFilter;
 
 use carbide::db::Machine;
 use carbide::db::MachineState;
 
-use log::LevelFilter;
-
-use std::sync::Once;
+mod common;
 
 static INIT: Once = Once::new();
 
@@ -31,7 +31,7 @@ async fn test_new_machine_state() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine = Machine::create(&mut txn, String::from("peppersmacker.nvidia.com"))
+    let machine = Machine::create(&mut txn)
         .await
         .expect("Unable to create machine");
 
