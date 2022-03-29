@@ -1,7 +1,5 @@
 mod common;
 
-
-
 use carbide::{
     db::{InstanceType, NewInstanceType},
     CarbideResult,
