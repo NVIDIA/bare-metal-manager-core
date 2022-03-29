@@ -3,10 +3,8 @@ use std::sync::Once;
 
 use carbide::db::NewNetworkPrefix;
 
-
 use log::LevelFilter;
 use mac_address::MacAddress;
-
 
 use carbide::db::Domain;
 use carbide::db::NetworkSegment;

@@ -79,9 +79,9 @@ impl From<Project> for rpc::Project {
                 nanos: 0,
             }),
             deleted: src.deleted.map(|t| rpc::Timestamp {
-                    seconds: t.timestamp(),
-                    nanos: 0,
-                }),
+                seconds: t.timestamp(),
+                nanos: 0,
+            }),
         }
     }
 }

@@ -2,11 +2,8 @@ mod common;
 
 use std::net::IpAddr;
 
-
 use carbide::{
-    db::{
-        Domain, NetworkSegment, NewDomain, NewNetworkPrefix, NewNetworkSegment,
-    },
+    db::{Domain, NetworkSegment, NewDomain, NewNetworkPrefix, NewNetworkSegment},
     CarbideResult,
 };
 
