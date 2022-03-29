@@ -1,57 +1,44 @@
-use crate::{
-    error,
-    format::parse::{parse, ParsedItems},
-    internals,
-    util::{days_in_year, days_in_year_month, is_leap_year, weeks_in_year},
-    DeferredFormat, Duration, ParseResult, PrimitiveDateTime, Time, Weekday,
-};
-#[cfg(not(feature = "std"))]
-use alloc::string::{String, ToString};
-use const_fn::const_fn;
-use core::{
-    cmp::{Ord, Ordering, PartialOrd},
-    fmt::{self, Display},
-    ops::{Add, AddAssign, Sub, SubAssign},
-    time::Duration as StdDuration,
-};
-#[cfg(feature = "serde")]
-use standback::convert::TryInto;
-#[allow(unused_imports)]
-use standback::prelude::*;
+//! The [`Date`] struct and its associated `impl`s.
+
+use core::fmt;
+use core::ops::{Add, Sub};
+use core::time::Duration as StdDuration;
+#[cfg(feature = "formatting")]
+use std::io;
+
+#[cfg(feature = "formatting")]
+use crate::formatting::Formattable;
+#[cfg(feature = "parsing")]
+use crate::parsing::Parsable;
+use crate::util::{days_in_year, days_in_year_month, is_leap_year, weeks_in_year};
+use crate::{error, Duration, Month, PrimitiveDateTime, Time, Weekday};
 
 /// The minimum valid year.
-pub(crate) const MIN_YEAR: i32 = -100_000;
+#[cfg(feature = "large-dates")]
+pub(crate) const MIN_YEAR: i32 = -999_999;
 /// The maximum valid year.
-pub(crate) const MAX_YEAR: i32 = 100_000;
+#[cfg(feature = "large-dates")]
+pub(crate) const MAX_YEAR: i32 = 999_999;
 
-/// Floored division for integers. This differs from the default behavior, which
-/// is truncation.
-#[const_fn("1.46")]
-pub(crate) const fn div_floor(a: i64, b: i64) -> i64 {
-    let (quotient, remainder) = (a / b, a % b);
+/// The minimum valid year.
+#[cfg(not(feature = "large-dates"))]
+pub(crate) const MIN_YEAR: i32 = -9999;
+/// The maximum valid year.
+#[cfg(not(feature = "large-dates"))]
+pub(crate) const MAX_YEAR: i32 = 9999;
 
-    if (remainder > 0 && b < 0) || (remainder < 0 && b > 0) {
-        quotient - 1
-    } else {
-        quotient
-    }
-}
-
-/// Calendar date.
+/// Date in the proleptic Gregorian calendar.
 ///
-/// Years between `-100_000` and `+100_000` inclusive are guaranteed to be
-/// representable. Any values outside this range may have incidental support
-/// that can change at any time without notice. If you need support outside this
-/// range, please [file an issue](https://github.com/time-rs/time/issues/new)
-/// with your use case.
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[cfg_attr(feature = "serde", serde(into = "crate::serde::Date"))]
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+/// By default, years between ±9999 inclusive are representable. This can be expanded to ±999,999
+/// inclusive by enabling the `large-dates` crate feature. Doing so has performance implications
+/// and introduces some ambiguities when parsing.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Date {
     /// Bitpacked field containing both the year and ordinal.
     // |     xx     | xxxxxxxxxxxxxxxxxxxxx | xxxxxxxxx |
     // |   2 bits   |        21 bits        |  9 bits   |
     // | unassigned |         year          |  ordinal  |
+    // The year is 15 bits when `large-dates` is not enabled.
     pub(crate) value: i32,
 }
 
@@ -64,286 +51,225 @@ impl fmt::Debug for Date {
     }
 }
 
-#[cfg(feature = "serde")]
-impl<'a> serde::Deserialize<'a> for Date {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'a>,
-    {
-        crate::serde::Date::deserialize(deserializer)?
-            .try_into()
-            .map_err(serde::de::Error::custom)
-    }
-}
-
 impl Date {
-    /// Create a `Date` from the year, month, and day.
+    /// The minimum valid `Date`.
     ///
-    /// ```rust
-    /// # #![allow(deprecated)]
-    /// # use time::{Date, date};
-    /// assert_eq!(Date::from_ymd(2019, 1, 1), date!(2019-001));
-    /// assert_eq!(Date::from_ymd(2019, 12, 31), date!(2019-365));
-    /// ```
-    ///
-    /// Panics if the date is not valid.
-    ///
-    /// ```rust,should_panic
-    /// # #![allow(deprecated)]
-    /// # use time::Date;
-    /// Date::from_ymd(2019, 2, 29); // 2019 isn't a leap year.
-    /// ```
-    #[cfg(feature = "panicking-api")]
-    #[cfg_attr(__time_02_docs, doc(cfg(feature = "panicking-api")))]
-    #[deprecated(
-        since = "0.2.3",
-        note = "For dates knowable at compile-time, use the `date!` macro. For situations where a \
-                value isn't known, use `Date::try_from_ymd`."
-    )]
-    pub fn from_ymd(year: i32, month: u8, day: u8) -> Self {
-        assert_value_in_range!(year in MIN_YEAR => MAX_YEAR);
-        assert_value_in_range!(month in 1 => 12);
-        assert_value_in_range!(day in 1 => days_in_year_month(year, month), given year, month);
+    /// The value of this may vary depending on the feature flags enabled.
+    pub const MIN: Self = Self::__from_ordinal_date_unchecked(MIN_YEAR, 1);
 
-        internals::Date::from_ymd_unchecked(year, month, day)
+    /// The maximum valid `Date`.
+    ///
+    /// The value of this may vary depending on the feature flags enabled.
+    pub const MAX: Self = Self::__from_ordinal_date_unchecked(MAX_YEAR, days_in_year(MAX_YEAR));
+
+    // region: constructors
+    /// Construct a `Date` from the year and ordinal values, the validity of which must be
+    /// guaranteed by the caller.
+    #[doc(hidden)]
+    pub const fn __from_ordinal_date_unchecked(year: i32, ordinal: u16) -> Self {
+        Self {
+            value: (year << 9) | ordinal as i32,
+        }
     }
 
     /// Attempt to create a `Date` from the year, month, and day.
     ///
     /// ```rust
-    /// # use time::Date;
-    /// assert!(Date::try_from_ymd(2019, 1, 1).is_ok());
-    /// assert!(Date::try_from_ymd(2019, 12, 31).is_ok());
+    /// # use time::{Date, Month};
+    /// assert!(Date::from_calendar_date(2019, Month::January, 1).is_ok());
+    /// assert!(Date::from_calendar_date(2019, Month::December, 31).is_ok());
     /// ```
-    ///
-    /// Returns `None` if the date is not valid.
     ///
     /// ```rust
-    /// # use time::Date;
-    /// assert!(Date::try_from_ymd(2019, 2, 29).is_err()); // 2019 isn't a leap year.
+    /// # use time::{Date, Month};
+    /// assert!(Date::from_calendar_date(2019, Month::February, 29).is_err()); // 2019 isn't a leap year.
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn try_from_ymd(
+    pub const fn from_calendar_date(
         year: i32,
-        month: u8,
+        month: Month,
         day: u8,
     ) -> Result<Self, error::ComponentRange> {
+        /// Cumulative days through the beginning of a month in both common and leap years.
+        const DAYS_CUMULATIVE_COMMON_LEAP: [[u16; 12]; 2] = [
+            [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334],
+            [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335],
+        ];
+
         ensure_value_in_range!(year in MIN_YEAR => MAX_YEAR);
-        ensure_value_in_range!(month in 1 => 12);
         ensure_value_in_range!(day conditionally in 1 => days_in_year_month(year, month));
 
-        Ok(internals::Date::from_ymd_unchecked(year, month, day))
-    }
-
-    /// Create a `Date` from the year and ordinal day number.
-    ///
-    /// ```rust
-    /// # #![allow(deprecated)]
-    /// # use time::{Date, date};
-    /// assert_eq!(Date::from_yo(2019, 1), date!(2019-01-01));
-    /// assert_eq!(Date::from_yo(2019, 365), date!(2019-12-31));
-    /// ```
-    ///
-    /// Panics if the date is not valid.
-    ///
-    /// ```rust,should_panic
-    /// # #![allow(deprecated)]
-    /// # use time::Date;
-    /// Date::from_yo(2019, 366); // 2019 isn't a leap year.
-    /// ```
-    #[cfg(feature = "panicking-api")]
-    #[cfg_attr(__time_02_docs, doc(cfg(feature = "panicking-api")))]
-    #[deprecated(
-        since = "0.2.3",
-        note = "For dates knowable at compile-time, use the `date!` macro. For situations where a \
-                value isn't known, use `Date::try_from_yo`."
-    )]
-    pub fn from_yo(year: i32, ordinal: u16) -> Self {
-        assert_value_in_range!(year in MIN_YEAR => MAX_YEAR);
-        assert_value_in_range!(ordinal in 1 => days_in_year(year), given year);
-        internals::Date::from_yo_unchecked(year, ordinal)
+        Ok(Self::__from_ordinal_date_unchecked(
+            year,
+            DAYS_CUMULATIVE_COMMON_LEAP[is_leap_year(year) as usize][month as usize - 1]
+                + day as u16,
+        ))
     }
 
     /// Attempt to create a `Date` from the year and ordinal day number.
     ///
     /// ```rust
     /// # use time::Date;
-    /// assert!(Date::try_from_yo(2019, 1).is_ok());
-    /// assert!(Date::try_from_yo(2019, 365).is_ok());
+    /// assert!(Date::from_ordinal_date(2019, 1).is_ok());
+    /// assert!(Date::from_ordinal_date(2019, 365).is_ok());
     /// ```
-    ///
-    /// Returns `None` if the date is not valid.
     ///
     /// ```rust
     /// # use time::Date;
-    /// assert!(Date::try_from_yo(2019, 366).is_err()); // 2019 isn't a leap year.
+    /// assert!(Date::from_ordinal_date(2019, 366).is_err()); // 2019 isn't a leap year.
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn try_from_yo(year: i32, ordinal: u16) -> Result<Self, error::ComponentRange> {
+    pub const fn from_ordinal_date(year: i32, ordinal: u16) -> Result<Self, error::ComponentRange> {
         ensure_value_in_range!(year in MIN_YEAR => MAX_YEAR);
         ensure_value_in_range!(ordinal conditionally in 1 => days_in_year(year));
-        Ok(internals::Date::from_yo_unchecked(year, ordinal))
-    }
-
-    /// Create a `Date` from the ISO year, week, and weekday.
-    ///
-    /// ```rust
-    /// # #![allow(deprecated)]
-    /// # use time::{Date, Weekday::*, date};
-    /// assert_eq!(
-    ///     Date::from_iso_ywd(2019, 1, Monday),
-    ///     date!(2018-12-31)
-    /// );
-    /// assert_eq!(
-    ///     Date::from_iso_ywd(2019, 1, Tuesday),
-    ///     date!(2019-01-01)
-    /// );
-    /// assert_eq!(
-    ///     Date::from_iso_ywd(2020, 53, Friday),
-    ///     date!(2021-01-01)
-    /// );
-    /// ```
-    ///
-    /// Panics if the week is not valid.
-    ///
-    /// ```rust,should_panic
-    /// # #![allow(deprecated)]
-    /// # use time::{Date, Weekday::*};
-    /// Date::from_iso_ywd(2019, 53, Monday); // 2019 doesn't have 53 weeks.
-    /// ```
-    #[cfg(feature = "panicking-api")]
-    #[cfg_attr(__time_02_docs, doc(cfg(feature = "panicking-api")))]
-    #[deprecated(
-        since = "0.2.3",
-        note = "For dates knowable at compile-time, use the `date!` macro. For situations where a \
-                value isn't known, use `Date::try_from_iso_ywd`."
-    )]
-    pub fn from_iso_ywd(year: i32, week: u8, weekday: Weekday) -> Self {
-        assert_value_in_range!(year in MIN_YEAR => MAX_YEAR);
-        assert_value_in_range!(week in 1 => weeks_in_year(year), given year);
-        internals::Date::from_iso_ywd_unchecked(year, week, weekday)
+        Ok(Self::__from_ordinal_date_unchecked(year, ordinal))
     }
 
     /// Attempt to create a `Date` from the ISO year, week, and weekday.
     ///
     /// ```rust
     /// # use time::{Date, Weekday::*};
-    /// assert!(Date::try_from_iso_ywd(2019, 1, Monday).is_ok());
-    /// assert!(Date::try_from_iso_ywd(2019, 1, Tuesday).is_ok());
-    /// assert!(Date::try_from_iso_ywd(2020, 53, Friday).is_ok());
+    /// assert!(Date::from_iso_week_date(2019, 1, Monday).is_ok());
+    /// assert!(Date::from_iso_week_date(2019, 1, Tuesday).is_ok());
+    /// assert!(Date::from_iso_week_date(2020, 53, Friday).is_ok());
     /// ```
-    ///
-    /// Returns `None` if the week is not valid.
     ///
     /// ```rust
     /// # use time::{Date, Weekday::*};
-    /// assert!(Date::try_from_iso_ywd(2019, 53, Monday).is_err()); // 2019 doesn't have 53 weeks.
+    /// assert!(Date::from_iso_week_date(2019, 53, Monday).is_err()); // 2019 doesn't have 53 weeks.
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn try_from_iso_ywd(
+    pub const fn from_iso_week_date(
         year: i32,
         week: u8,
         weekday: Weekday,
     ) -> Result<Self, error::ComponentRange> {
         ensure_value_in_range!(year in MIN_YEAR => MAX_YEAR);
         ensure_value_in_range!(week conditionally in 1 => weeks_in_year(year));
-        Ok(internals::Date::from_iso_ywd_unchecked(year, week, weekday))
+
+        let adj_year = year - 1;
+        let raw = 365 * adj_year + div_floor!(adj_year, 4) - div_floor!(adj_year, 100)
+            + div_floor!(adj_year, 400);
+        let jan_4 = match (raw % 7) as i8 {
+            -6 | 1 => 8,
+            -5 | 2 => 9,
+            -4 | 3 => 10,
+            -3 | 4 => 4,
+            -2 | 5 => 5,
+            -1 | 6 => 6,
+            _ => 7,
+        };
+        let ordinal = week as i16 * 7 + weekday.number_from_monday() as i16 - jan_4;
+
+        Ok(if ordinal <= 0 {
+            Self::__from_ordinal_date_unchecked(
+                year - 1,
+                (ordinal as u16).wrapping_add(days_in_year(year - 1)),
+            )
+        } else if ordinal > days_in_year(year) as i16 {
+            Self::__from_ordinal_date_unchecked(year + 1, ordinal as u16 - days_in_year(year))
+        } else {
+            Self::__from_ordinal_date_unchecked(year, ordinal as _)
+        })
     }
 
-    /// Create a `Date` representing the current date.
+    /// Create a `Date` from the Julian day.
+    ///
+    /// The algorithm to perform this conversion is derived from one provided by Peter Baum; it is
+    /// freely available [here](https://www.researchgate.net/publication/316558298_Date_Algorithms).
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
-    /// # use time::Date;
-    /// assert!(Date::today().year() >= 2019);
+    /// # use time::{Date, macros::date};
+    /// assert_eq!(Date::from_julian_day(0), Ok(date!(-4713 - 11 - 24)));
+    /// assert_eq!(Date::from_julian_day(2_451_545), Ok(date!(2000 - 01 - 01)));
+    /// assert_eq!(Date::from_julian_day(2_458_485), Ok(date!(2019 - 01 - 01)));
+    /// assert_eq!(Date::from_julian_day(2_458_849), Ok(date!(2019 - 12 - 31)));
     /// ```
-    #[cfg(feature = "std")]
-    #[cfg_attr(__time_02_docs, doc(cfg(feature = "std")))]
-    #[deprecated(
-        since = "0.2.7",
-        note = "This method returns a value that assumes an offset of UTC."
-    )]
-    #[allow(deprecated)]
-    pub fn today() -> Self {
-        PrimitiveDateTime::now().date()
+    #[doc(alias = "from_julian_date")]
+    pub const fn from_julian_day(julian_day: i32) -> Result<Self, error::ComponentRange> {
+        ensure_value_in_range!(
+            julian_day in Self::MIN.to_julian_day() => Self::MAX.to_julian_day()
+        );
+        Ok(Self::from_julian_day_unchecked(julian_day))
     }
 
+    /// Create a `Date` from the Julian day.
+    ///
+    /// This does not check the validity of the provided Julian day, and as such may result in an
+    /// internally invalid value.
+    #[doc(alias = "from_julian_date_unchecked")]
+    pub(crate) const fn from_julian_day_unchecked(julian_day: i32) -> Self {
+        #![allow(trivial_numeric_casts)] // cast depends on type alias
+
+        /// A type that is either `i32` or `i64`. This subtle difference allows for optimization
+        /// based on the valid values.
+        #[cfg(feature = "large-dates")]
+        type MaybeWidened = i64;
+        #[allow(clippy::missing_docs_in_private_items)]
+        #[cfg(not(feature = "large-dates"))]
+        type MaybeWidened = i32;
+
+        // To avoid a potential overflow, the value may need to be widened for some arithmetic.
+
+        let z = julian_day - 1_721_119;
+        let g = 100 * z as MaybeWidened - 25;
+        let a = (g / 3_652_425) as i32;
+        let b = a - a / 4;
+        let mut year = div_floor!(100 * b as MaybeWidened + g, 36525) as i32;
+        let mut ordinal = (b + z - div_floor!(36525 * year as MaybeWidened, 100) as i32) as _;
+
+        if is_leap_year(year) {
+            ordinal += 60;
+            cascade!(ordinal in 1..367 => year);
+        } else {
+            ordinal += 59;
+            cascade!(ordinal in 1..366 => year);
+        }
+
+        Self::__from_ordinal_date_unchecked(year, ordinal)
+    }
+    // endregion constructors
+
+    // region: getters
     /// Get the year of the date.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).year(), 2019);
-    /// assert_eq!(date!(2019-12-31).year(), 2019);
-    /// assert_eq!(date!(2020-01-01).year(), 2020);
+    /// # use time::macros::date;
+    /// assert_eq!(date!(2019 - 01 - 01).year(), 2019);
+    /// assert_eq!(date!(2019 - 12 - 31).year(), 2019);
+    /// assert_eq!(date!(2020 - 01 - 01).year(), 2020);
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[allow(clippy::missing_const_for_fn)]
-    #[const_fn("1.46")]
     pub const fn year(self) -> i32 {
         self.value >> 9
     }
 
-    /// Get the month. If fetching both the month and day, it is more efficient
-    /// to use [`Date::month_day`].
-    ///
-    /// The returned value will always be in the range `1..=12`.
+    /// Get the month.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).month(), 1);
-    /// assert_eq!(date!(2019-12-31).month(), 12);
+    /// # use time::{macros::date, Month};
+    /// assert_eq!(date!(2019 - 01 - 01).month(), Month::January);
+    /// assert_eq!(date!(2019 - 12 - 31).month(), Month::December);
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn month(self) -> u8 {
+    pub const fn month(self) -> Month {
         self.month_day().0
     }
 
-    /// Get the day of the month. If fetching both the month and day, it is more
-    /// efficient to use [`Date::month_day`].
+    /// Get the day of the month.
     ///
     /// The returned value will always be in the range `1..=31`.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).day(), 1);
-    /// assert_eq!(date!(2019-12-31).day(), 31);
+    /// # use time::macros::date;
+    /// assert_eq!(date!(2019 - 01 - 01).day(), 1);
+    /// assert_eq!(date!(2019 - 12 - 31).day(), 31);
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
     pub const fn day(self) -> u8 {
         self.month_day().1
     }
 
-    /// Get the month and day. This is more efficient than fetching the
-    /// components individually.
-    ///
-    /// The month component will always be in the range `1..=12`;
-    /// the day component in `1..=31`.
-    ///
-    /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).month_day(), (1, 1));
-    /// assert_eq!(date!(2019-12-31).month_day(), (12, 31));
-    /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    // For whatever reason, rustc has difficulty optimizing this function. It's
-    // significantly faster to write the statements out by hand.
-    #[const_fn("1.46")]
-    pub const fn month_day(self) -> (u8, u8) {
+    /// Get the month and day. This is more efficient than fetching the components individually.
+    // For whatever reason, rustc has difficulty optimizing this function. It's significantly faster
+    // to write the statements out by hand.
+    pub(crate) const fn month_day(self) -> (Month, u8) {
         /// The number of days up to and including the given month. Common years
         /// are first, followed by leap years.
-        #[allow(clippy::items_after_statements)]
         const CUMULATIVE_DAYS_IN_MONTH_COMMON_LEAP: [[u16; 11]; 2] = [
             [31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334],
             [31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335],
@@ -353,73 +279,53 @@ impl Date {
         let ordinal = self.ordinal();
 
         if ordinal > days[10] {
-            (12, (ordinal - days[10]) as u8)
+            (Month::December, (ordinal - days[10]) as _)
         } else if ordinal > days[9] {
-            (11, (ordinal - days[9]) as u8)
+            (Month::November, (ordinal - days[9]) as _)
         } else if ordinal > days[8] {
-            (10, (ordinal - days[8]) as u8)
+            (Month::October, (ordinal - days[8]) as _)
         } else if ordinal > days[7] {
-            (9, (ordinal - days[7]) as u8)
+            (Month::September, (ordinal - days[7]) as _)
         } else if ordinal > days[6] {
-            (8, (ordinal - days[6]) as u8)
+            (Month::August, (ordinal - days[6]) as _)
         } else if ordinal > days[5] {
-            (7, (ordinal - days[5]) as u8)
+            (Month::July, (ordinal - days[5]) as _)
         } else if ordinal > days[4] {
-            (6, (ordinal - days[4]) as u8)
+            (Month::June, (ordinal - days[4]) as _)
         } else if ordinal > days[3] {
-            (5, (ordinal - days[3]) as u8)
+            (Month::May, (ordinal - days[3]) as _)
         } else if ordinal > days[2] {
-            (4, (ordinal - days[2]) as u8)
+            (Month::April, (ordinal - days[2]) as _)
         } else if ordinal > days[1] {
-            (3, (ordinal - days[1]) as u8)
+            (Month::March, (ordinal - days[1]) as _)
         } else if ordinal > days[0] {
-            (2, (ordinal - days[0]) as u8)
+            (Month::February, (ordinal - days[0]) as _)
         } else {
-            (1, ordinal as u8)
+            (Month::January, ordinal as _)
         }
     }
 
     /// Get the day of the year.
     ///
-    /// The returned value will always be in the range `1..=366` (`1..=365` for
-    /// common years).
+    /// The returned value will always be in the range `1..=366` (`1..=365` for common years).
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).ordinal(), 1);
-    /// assert_eq!(date!(2019-12-31).ordinal(), 365);
+    /// # use time::macros::date;
+    /// assert_eq!(date!(2019 - 01 - 01).ordinal(), 1);
+    /// assert_eq!(date!(2019 - 12 - 31).ordinal(), 365);
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[allow(clippy::missing_const_for_fn)]
-    #[const_fn("1.46")]
     pub const fn ordinal(self) -> u16 {
-        (self.value & 0x1FF) as u16
+        (self.value & 0x1FF) as _
     }
 
     /// Get the ISO 8601 year and week number.
-    ///
-    /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).iso_year_week(), (2019, 1));
-    /// assert_eq!(date!(2019-10-04).iso_year_week(), (2019, 40));
-    /// assert_eq!(date!(2020-01-01).iso_year_week(), (2020, 1));
-    /// assert_eq!(date!(2020-12-31).iso_year_week(), (2020, 53));
-    /// assert_eq!(date!(2021-01-01).iso_year_week(), (2020, 53));
-    /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn iso_year_week(self) -> (i32, u8) {
-        let (year, ordinal) = self.as_yo();
+    pub(crate) const fn iso_year_week(self) -> (i32, u8) {
+        let (year, ordinal) = self.to_ordinal_date();
 
-        match ((ordinal + 10 - self.iso_weekday_number() as u16) / 7) as u8 {
+        match ((ordinal + 10 - self.weekday().number_from_monday() as u16) / 7) as _ {
             0 => (year - 1, weeks_in_year(year - 1)),
             53 if weeks_in_year(year) == 52 => (year + 1, 1),
-            _ => (
-                year,
-                ((ordinal + 10 - self.iso_weekday_number() as u16) / 7) as u8,
-            ),
+            week => (year, week),
         }
     }
 
@@ -428,17 +334,14 @@ impl Date {
     /// The returned value will always be in the range `1..=53`.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).week(), 1);
-    /// assert_eq!(date!(2019-10-04).week(), 40);
-    /// assert_eq!(date!(2020-01-01).week(), 1);
-    /// assert_eq!(date!(2020-12-31).week(), 53);
-    /// assert_eq!(date!(2021-01-01).week(), 53);
+    /// # use time::macros::date;
+    /// assert_eq!(date!(2019 - 01 - 01).iso_week(), 1);
+    /// assert_eq!(date!(2019 - 10 - 04).iso_week(), 40);
+    /// assert_eq!(date!(2020 - 01 - 01).iso_week(), 1);
+    /// assert_eq!(date!(2020 - 12 - 31).iso_week(), 53);
+    /// assert_eq!(date!(2021 - 01 - 01).iso_week(), 53);
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn week(self) -> u8 {
+    pub const fn iso_week(self) -> u8 {
         self.iso_year_week().1
     }
 
@@ -447,17 +350,14 @@ impl Date {
     /// The returned value will always be in the range `0..=53`.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).sunday_based_week(), 0);
-    /// assert_eq!(date!(2020-01-01).sunday_based_week(), 0);
-    /// assert_eq!(date!(2020-12-31).sunday_based_week(), 52);
-    /// assert_eq!(date!(2021-01-01).sunday_based_week(), 0);
+    /// # use time::macros::date;
+    /// assert_eq!(date!(2019 - 01 - 01).sunday_based_week(), 0);
+    /// assert_eq!(date!(2020 - 01 - 01).sunday_based_week(), 0);
+    /// assert_eq!(date!(2020 - 12 - 31).sunday_based_week(), 52);
+    /// assert_eq!(date!(2021 - 01 - 01).sunday_based_week(), 0);
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
     pub const fn sunday_based_week(self) -> u8 {
-        ((self.ordinal() as i16 - self.number_days_from_sunday() as i16 + 6) / 7) as u8
+        ((self.ordinal() as i16 - self.weekday().number_days_from_sunday() as i16 + 6) / 7) as _
     }
 
     /// Get the week number where week 1 begins on the first Monday.
@@ -465,29 +365,26 @@ impl Date {
     /// The returned value will always be in the range `0..=53`.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).monday_based_week(), 0);
-    /// assert_eq!(date!(2020-01-01).monday_based_week(), 0);
-    /// assert_eq!(date!(2020-12-31).monday_based_week(), 52);
-    /// assert_eq!(date!(2021-01-01).monday_based_week(), 0);
+    /// # use time::macros::date;
+    /// assert_eq!(date!(2019 - 01 - 01).monday_based_week(), 0);
+    /// assert_eq!(date!(2020 - 01 - 01).monday_based_week(), 0);
+    /// assert_eq!(date!(2020 - 12 - 31).monday_based_week(), 52);
+    /// assert_eq!(date!(2021 - 01 - 01).monday_based_week(), 0);
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
     pub const fn monday_based_week(self) -> u8 {
-        ((self.ordinal() as i16 - self.number_days_from_monday() as i16 + 6) / 7) as u8
+        ((self.ordinal() as i16 - self.weekday().number_days_from_monday() as i16 + 6) / 7) as _
     }
 
     /// Get the year, month, and day.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).as_ymd(), (2019, 1, 1));
+    /// # use time::{macros::date, Month};
+    /// assert_eq!(
+    ///     date!(2019 - 01 - 01).to_calendar_date(),
+    ///     (2019, Month::January, 1)
+    /// );
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn as_ymd(self) -> (i32, u8, u8) {
+    pub const fn to_calendar_date(self) -> (i32, Month, u8) {
         let (month, day) = self.month_day();
         (self.year(), month, day)
     }
@@ -495,284 +392,454 @@ impl Date {
     /// Get the year and ordinal day number.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).as_yo(), (2019, 1));
+    /// # use time::macros::date;
+    /// assert_eq!(date!(2019 - 01 - 01).to_ordinal_date(), (2019, 1));
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[allow(clippy::missing_const_for_fn)]
-    #[const_fn("1.46")]
-    pub const fn as_yo(self) -> (i32, u16) {
+    pub const fn to_ordinal_date(self) -> (i32, u16) {
         (self.year(), self.ordinal())
     }
 
-    /// Get the ISO weekday number.
+    /// Get the ISO 8601 year, week number, and weekday.
     ///
-    /// This is equivalent to calling `.weekday().iso_weekday_number()`, but is
-    /// usable in `const` contexts.
-    #[const_fn("1.46")]
-    pub(crate) const fn iso_weekday_number(self) -> u8 {
-        self.number_days_from_monday() + 1
-    }
+    /// ```rust
+    /// # use time::{Weekday::*, macros::date};
+    /// assert_eq!(date!(2019 - 01 - 01).to_iso_week_date(), (2019, 1, Tuesday));
+    /// assert_eq!(date!(2019 - 10 - 04).to_iso_week_date(), (2019, 40, Friday));
+    /// assert_eq!(
+    ///     date!(2020 - 01 - 01).to_iso_week_date(),
+    ///     (2020, 1, Wednesday)
+    /// );
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).to_iso_week_date(),
+    ///     (2020, 53, Thursday)
+    /// );
+    /// assert_eq!(date!(2021 - 01 - 01).to_iso_week_date(), (2020, 53, Friday));
+    /// ```
+    pub const fn to_iso_week_date(self) -> (i32, u8, Weekday) {
+        let (year, ordinal) = self.to_ordinal_date();
+        let weekday = self.weekday();
 
-    /// Get the number of days from Sunday.
-    ///
-    /// This is equivalent to calling `.weekday().number_days_from_sunday()`,
-    /// but is usable in `const` contexts.
-    #[const_fn("1.46")]
-    pub(crate) const fn number_days_from_sunday(self) -> u8 {
-        self.iso_weekday_number() % 7
-    }
-
-    /// Get the number of days from Monday.
-    ///
-    /// This is equivalent to calling `.weekday().number_days_from_monday()`,
-    /// but is usable in `const` contexts.
-    #[const_fn("1.46")]
-    pub(crate) const fn number_days_from_monday(self) -> u8 {
-        let (year, month, day) = self.as_ymd();
-
-        let (month, adjusted_year) = if month < 3 {
-            (month + 12, year - 1)
-        } else {
-            (month, year)
-        };
-
-        let raw_weekday =
-            ((day as i32 + (13 * (month as i32 + 1)) / 5 + adjusted_year + adjusted_year / 4
-                - adjusted_year / 100
-                + adjusted_year / 400)
-                - 2)
-                % 7;
-
-        if raw_weekday < 0 {
-            (raw_weekday + 7) as u8
-        } else {
-            raw_weekday as u8
+        match ((ordinal + 10 - self.weekday().number_from_monday() as u16) / 7) as _ {
+            0 => (year - 1, weeks_in_year(year - 1), weekday),
+            53 if weeks_in_year(year) == 52 => (year + 1, 1, weekday),
+            week => (year, week, weekday),
         }
     }
 
     /// Get the weekday.
     ///
-    /// This current uses [Zeller's congruence](https://en.wikipedia.org/wiki/Zeller%27s_congruence)
-    /// internally.
-    ///
     /// ```rust
-    /// # use time::{date, Weekday::*};
-    /// assert_eq!(date!(2019-01-01).weekday(), Tuesday);
-    /// assert_eq!(date!(2019-02-01).weekday(), Friday);
-    /// assert_eq!(date!(2019-03-01).weekday(), Friday);
-    /// assert_eq!(date!(2019-04-01).weekday(), Monday);
-    /// assert_eq!(date!(2019-05-01).weekday(), Wednesday);
-    /// assert_eq!(date!(2019-06-01).weekday(), Saturday);
-    /// assert_eq!(date!(2019-07-01).weekday(), Monday);
-    /// assert_eq!(date!(2019-08-01).weekday(), Thursday);
-    /// assert_eq!(date!(2019-09-01).weekday(), Sunday);
-    /// assert_eq!(date!(2019-10-01).weekday(), Tuesday);
-    /// assert_eq!(date!(2019-11-01).weekday(), Friday);
-    /// assert_eq!(date!(2019-12-01).weekday(), Sunday);
+    /// # use time::{Weekday::*, macros::date};
+    /// assert_eq!(date!(2019 - 01 - 01).weekday(), Tuesday);
+    /// assert_eq!(date!(2019 - 02 - 01).weekday(), Friday);
+    /// assert_eq!(date!(2019 - 03 - 01).weekday(), Friday);
+    /// assert_eq!(date!(2019 - 04 - 01).weekday(), Monday);
+    /// assert_eq!(date!(2019 - 05 - 01).weekday(), Wednesday);
+    /// assert_eq!(date!(2019 - 06 - 01).weekday(), Saturday);
+    /// assert_eq!(date!(2019 - 07 - 01).weekday(), Monday);
+    /// assert_eq!(date!(2019 - 08 - 01).weekday(), Thursday);
+    /// assert_eq!(date!(2019 - 09 - 01).weekday(), Sunday);
+    /// assert_eq!(date!(2019 - 10 - 01).weekday(), Tuesday);
+    /// assert_eq!(date!(2019 - 11 - 01).weekday(), Friday);
+    /// assert_eq!(date!(2019 - 12 - 01).weekday(), Sunday);
     /// ```
-    pub fn weekday(self) -> Weekday {
-        match self.number_days_from_monday() {
-            0 => Weekday::Monday,
-            1 => Weekday::Tuesday,
-            2 => Weekday::Wednesday,
-            3 => Weekday::Thursday,
-            4 => Weekday::Friday,
-            5 => Weekday::Saturday,
-            6 => Weekday::Sunday,
-            // FIXME The compiler isn't able to optimize this away. See
-            // rust-lang/rust#66993.
-            n => unreachable!("A value mod 7 is always in the range 0..7 (was {})", n),
+    pub const fn weekday(self) -> Weekday {
+        match self.to_julian_day() % 7 {
+            -6 | 1 => Weekday::Tuesday,
+            -5 | 2 => Weekday::Wednesday,
+            -4 | 3 => Weekday::Thursday,
+            -3 | 4 => Weekday::Friday,
+            -2 | 5 => Weekday::Saturday,
+            -1 | 6 => Weekday::Sunday,
+            _ => Weekday::Monday,
         }
     }
 
     /// Get the next calendar date.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-01).next_day(), date!(2019-01-02));
-    /// assert_eq!(date!(2019-01-31).next_day(), date!(2019-02-01));
-    /// assert_eq!(date!(2019-12-31).next_day(), date!(2020-01-01));
+    /// # use time::{Date, macros::date};
+    /// assert_eq!(
+    ///     date!(2019 - 01 - 01).next_day(),
+    ///     Some(date!(2019 - 01 - 02))
+    /// );
+    /// assert_eq!(
+    ///     date!(2019 - 01 - 31).next_day(),
+    ///     Some(date!(2019 - 02 - 01))
+    /// );
+    /// assert_eq!(
+    ///     date!(2019 - 12 - 31).next_day(),
+    ///     Some(date!(2020 - 01 - 01))
+    /// );
+    /// assert_eq!(Date::MAX.next_day(), None);
     /// ```
-    pub fn next_day(self) -> Self {
-        let (mut year, mut ordinal) = self.as_yo();
-
-        ordinal += 1;
-
-        if ordinal > days_in_year(year) {
-            year += 1;
-            ordinal = 1;
+    pub const fn next_day(self) -> Option<Self> {
+        if self.ordinal() == 366 || (self.ordinal() == 365 && !is_leap_year(self.year())) {
+            if self.value == Self::MAX.value {
+                None
+            } else {
+                Some(Self::__from_ordinal_date_unchecked(self.year() + 1, 1))
+            }
+        } else {
+            Some(Self {
+                value: self.value + 1,
+            })
         }
-
-        if year > MAX_YEAR {
-            panic!("overflow when fetching next day");
-        }
-
-        internals::Date::from_yo_unchecked(year, ordinal)
     }
 
     /// Get the previous calendar date.
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-02).previous_day(), date!(2019-01-01));
-    /// assert_eq!(date!(2019-02-01).previous_day(), date!(2019-01-31));
-    /// assert_eq!(date!(2020-01-01).previous_day(), date!(2019-12-31));
+    /// # use time::{Date, macros::date};
+    /// assert_eq!(
+    ///     date!(2019 - 01 - 02).previous_day(),
+    ///     Some(date!(2019 - 01 - 01))
+    /// );
+    /// assert_eq!(
+    ///     date!(2019 - 02 - 01).previous_day(),
+    ///     Some(date!(2019 - 01 - 31))
+    /// );
+    /// assert_eq!(
+    ///     date!(2020 - 01 - 01).previous_day(),
+    ///     Some(date!(2019 - 12 - 31))
+    /// );
+    /// assert_eq!(Date::MIN.previous_day(), None);
     /// ```
-    pub fn previous_day(self) -> Self {
-        let (mut year, mut ordinal) = self.as_yo();
-
-        ordinal -= 1;
-
-        if ordinal == 0 {
-            year -= 1;
-            ordinal = days_in_year(year);
+    pub const fn previous_day(self) -> Option<Self> {
+        if self.ordinal() != 1 {
+            Some(Self {
+                value: self.value - 1,
+            })
+        } else if self.value == Self::MIN.value {
+            None
+        } else {
+            Some(Self::__from_ordinal_date_unchecked(
+                self.year() - 1,
+                days_in_year(self.year() - 1),
+            ))
         }
-
-        if year < MIN_YEAR {
-            panic!("overflow when fetching previous day");
-        }
-
-        internals::Date::from_yo_unchecked(year, ordinal)
     }
 
     /// Get the Julian day for the date.
     ///
-    /// The algorithm to perform this conversion is derived from one provided by
-    /// Peter Baum; it is freely available
-    /// [here](https://www.researchgate.net/publication/316558298_Date_Algorithms).
+    /// The algorithm to perform this conversion is derived from one provided by Peter Baum; it is
+    /// freely available [here](https://www.researchgate.net/publication/316558298_Date_Algorithms).
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(-4713-11-24).julian_day(), 0);
-    /// assert_eq!(date!(2000-01-01).julian_day(), 2_451_545);
-    /// assert_eq!(date!(2019-01-01).julian_day(), 2_458_485);
-    /// assert_eq!(date!(2019-12-31).julian_day(), 2_458_849);
+    /// # use time::macros::date;
+    /// assert_eq!(date!(-4713 - 11 - 24).to_julian_day(), 0);
+    /// assert_eq!(date!(2000 - 01 - 01).to_julian_day(), 2_451_545);
+    /// assert_eq!(date!(2019 - 01 - 01).to_julian_day(), 2_458_485);
+    /// assert_eq!(date!(2019 - 12 - 31).to_julian_day(), 2_458_849);
     /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn julian_day(self) -> i64 {
-        let (mut year, mut month, day) = self.as_ymd();
+    pub const fn to_julian_day(self) -> i32 {
+        let year = self.year() - 1;
+        let ordinal = self.ordinal() as i32;
 
-        if month < 3 {
-            year -= 1;
-            month += 12;
-        }
-
-        let year = year as i64;
-        let month = month as i64;
-        let day = day as i64;
-
-        day + (153 * month - 457) / 5 + 365 * year + div_floor(year, 4) - div_floor(year, 100)
-            + div_floor(year, 400)
-            + 1_721_119
+        ordinal + 365 * year + div_floor!(year, 4) - div_floor!(year, 100)
+            + div_floor!(year, 400)
+            + 1_721_425
     }
+    // endregion getters
 
-    /// Create a `Date` from the Julian day.
-    ///
-    /// The algorithm to perform this conversion is derived from one provided by
-    /// Peter Baum; it is freely available
-    /// [here](https://www.researchgate.net/publication/316558298_Date_Algorithms).
+    // region: checked arithmetic
+    /// Computes `self + duration`, returning `None` if an overflow occurred.
     ///
     /// ```rust
-    /// # use time::{Date, date};
+    /// # use time::{Date, ext::NumericalDuration, macros::date};
+    /// assert_eq!(Date::MAX.checked_add(1.days()), None);
+    /// assert_eq!(Date::MIN.checked_add((-2).days()), None);
     /// assert_eq!(
-    ///     Date::from_julian_day(0),
-    ///     date!(-4713-11-24)
+    ///     date!(2020 - 12 - 31).checked_add(2.days()),
+    ///     Some(date!(2021 - 01 - 02))
     /// );
-    /// assert_eq!(Date::from_julian_day(2_451_545), date!(2000-01-01));
-    /// assert_eq!(Date::from_julian_day(2_458_485), date!(2019-01-01));
-    /// assert_eq!(Date::from_julian_day(2_458_849), date!(2019-12-31));
     /// ```
-    // TODO Return a `Result<Self, error::ComponentRange>` in 0.3
-    pub fn from_julian_day(julian_day: i64) -> Self {
-        #![allow(clippy::many_single_char_names)]
-        let z = julian_day - 1_721_119;
-        let h = 100 * z - 25;
-        let a = div_floor(h, 3_652_425);
-        let b = a - div_floor(a, 4);
-        let mut year = div_floor(100 * b + h, 36_525);
-        let c = b + z - 365 * year - div_floor(year, 4);
-        let mut month = (5 * c + 456) / 153;
-        let day = c - (153 * month - 457) / 5;
-
-        if month > 12 {
-            year += 1;
-            month -= 12;
+    ///
+    /// # Note
+    ///
+    /// This function only takes whole days into account.
+    ///
+    /// ```rust
+    /// # use time::{Date, ext::NumericalDuration, macros::date};
+    /// assert_eq!(Date::MAX.checked_add(23.hours()), Some(Date::MAX));
+    /// assert_eq!(Date::MIN.checked_add((-23).hours()), Some(Date::MIN));
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).checked_add(23.hours()),
+    ///     Some(date!(2020 - 12 - 31))
+    /// );
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).checked_add(47.hours()),
+    ///     Some(date!(2021 - 01 - 01))
+    /// );
+    /// ```
+    pub const fn checked_add(self, duration: Duration) -> Option<Self> {
+        let whole_days = duration.whole_days();
+        if whole_days < i32::MIN as i64 || whole_days > i32::MAX as i64 {
+            return None;
         }
 
-        match Date::try_from_ymd(year as i32, month as u8, day as u8) {
-            Ok(date) => date,
-            Err(err) => panic!("{}", err),
+        let julian_day = const_try_opt!(self.to_julian_day().checked_add(whole_days as _));
+        if let Ok(date) = Self::from_julian_day(julian_day) {
+            Some(date)
+        } else {
+            None
         }
     }
+
+    /// Computes `self - duration`, returning `None` if an overflow occurred.
+    ///
+    /// ```
+    /// # use time::{Date, ext::NumericalDuration, macros::date};
+    /// assert_eq!(Date::MAX.checked_sub((-2).days()), None);
+    /// assert_eq!(Date::MIN.checked_sub(1.days()), None);
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).checked_sub(2.days()),
+    ///     Some(date!(2020 - 12 - 29))
+    /// );
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// This function only takes whole days into account.
+    ///
+    /// ```
+    /// # use time::{Date, ext::NumericalDuration, macros::date};
+    /// assert_eq!(Date::MAX.checked_sub((-23).hours()), Some(Date::MAX));
+    /// assert_eq!(Date::MIN.checked_sub(23.hours()), Some(Date::MIN));
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).checked_sub(23.hours()),
+    ///     Some(date!(2020 - 12 - 31))
+    /// );
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).checked_sub(47.hours()),
+    ///     Some(date!(2020 - 12 - 30))
+    /// );
+    /// ```
+    pub const fn checked_sub(self, duration: Duration) -> Option<Self> {
+        let whole_days = duration.whole_days();
+        if whole_days < i32::MIN as i64 || whole_days > i32::MAX as i64 {
+            return None;
+        }
+
+        let julian_day = const_try_opt!(self.to_julian_day().checked_sub(whole_days as _));
+        if let Ok(date) = Self::from_julian_day(julian_day) {
+            Some(date)
+        } else {
+            None
+        }
+    }
+    // endregion: checked arithmetic
+
+    // region: saturating arithmetic
+    /// Computes `self + duration`, saturating value on overflow.
+    ///
+    /// ```rust
+    /// # use time::{Date, ext::NumericalDuration, macros::date};
+    /// assert_eq!(Date::MAX.saturating_add(1.days()), Date::MAX);
+    /// assert_eq!(Date::MIN.saturating_add((-2).days()), Date::MIN);
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).saturating_add(2.days()),
+    ///     date!(2021 - 01 - 02)
+    /// );
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// This function only takes whole days into account.
+    ///
+    /// ```rust
+    /// # use time::{ext::NumericalDuration, macros::date};
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).saturating_add(23.hours()),
+    ///     date!(2020 - 12 - 31)
+    /// );
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).saturating_add(47.hours()),
+    ///     date!(2021 - 01 - 01)
+    /// );
+    /// ```
+    pub const fn saturating_add(self, duration: Duration) -> Self {
+        if let Some(datetime) = self.checked_add(duration) {
+            datetime
+        } else if duration.is_negative() {
+            Self::MIN
+        } else {
+            Self::MAX
+        }
+    }
+
+    /// Computes `self - duration`, saturating value on overflow.
+    ///
+    /// ```
+    /// # use time::{Date, ext::NumericalDuration, macros::date};
+    /// assert_eq!(Date::MAX.saturating_sub((-2).days()), Date::MAX);
+    /// assert_eq!(Date::MIN.saturating_sub(1.days()), Date::MIN);
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).saturating_sub(2.days()),
+    ///     date!(2020 - 12 - 29)
+    /// );
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// This function only takes whole days into account.
+    ///
+    /// ```
+    /// # use time::{ext::NumericalDuration, macros::date};
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).saturating_sub(23.hours()),
+    ///     date!(2020 - 12 - 31)
+    /// );
+    /// assert_eq!(
+    ///     date!(2020 - 12 - 31).saturating_sub(47.hours()),
+    ///     date!(2020 - 12 - 30)
+    /// );
+    /// ```
+    pub const fn saturating_sub(self, duration: Duration) -> Self {
+        if let Some(datetime) = self.checked_sub(duration) {
+            datetime
+        } else if duration.is_negative() {
+            Self::MAX
+        } else {
+            Self::MIN
+        }
+    }
+    // region: saturating arithmetic
+
+    // region: replacement
+    /// Replace the year. The month and day will be unchanged.
+    ///
+    /// ```rust
+    /// # use time::macros::date;
+    /// assert_eq!(
+    ///     date!(2022 - 02 - 18).replace_year(2019),
+    ///     Ok(date!(2019 - 02 - 18))
+    /// );
+    /// assert!(date!(2022 - 02 - 18).replace_year(-1_000_000_000).is_err()); // -1_000_000_000 isn't a valid year
+    /// assert!(date!(2022 - 02 - 18).replace_year(1_000_000_000).is_err()); // 1_000_000_000 isn't a valid year
+    /// ```
+    #[must_use = "This method does not mutate the original `Date`."]
+    pub const fn replace_year(self, year: i32) -> Result<Self, error::ComponentRange> {
+        ensure_value_in_range!(year in MIN_YEAR => MAX_YEAR);
+
+        let ordinal = self.ordinal();
+
+        // Dates in January and February are unaffected by leap years.
+        if ordinal <= 59 {
+            return Ok(Self {
+                value: year << 9 | ordinal as i32,
+            });
+        }
+
+        match (is_leap_year(self.year()), is_leap_year(year)) {
+            (false, false) | (true, true) => Ok(Self {
+                value: year << 9 | ordinal as i32,
+            }),
+            // February 29 does not exist in common years.
+            (true, false) if ordinal == 60 => Err(error::ComponentRange {
+                name: "day",
+                value: 29,
+                minimum: 1,
+                maximum: 28,
+                conditional_range: true,
+            }),
+            // We're going from a common year to a leap year. Shift dates in March and later by
+            // one day.
+            (false, true) => Ok(Self {
+                value: year << 9 | (ordinal + 1) as i32,
+            }),
+            // We're going from a leap year to a common year. Shift dates in January and
+            // February by one day.
+            (true, false) => Ok(Self {
+                value: year << 9 | (ordinal - 1) as i32,
+            }),
+        }
+    }
+
+    /// Replace the month of the year.
+    ///
+    /// ```rust
+    /// # use time::macros::date;
+    /// # use time::Month;
+    /// assert_eq!(
+    ///     date!(2022 - 02 - 18).replace_month(Month::January),
+    ///     Ok(date!(2022 - 01 - 18))
+    /// );
+    /// assert!(
+    ///     date!(2022 - 01 - 30)
+    ///         .replace_month(Month::February)
+    ///         .is_err()
+    /// ); // 30 isn't a valid day in February
+    /// ```
+    #[must_use = "This method does not mutate the original `Date`."]
+    pub const fn replace_month(self, month: Month) -> Result<Self, error::ComponentRange> {
+        let (year, _, day) = self.to_calendar_date();
+        Self::from_calendar_date(year, month, day)
+    }
+
+    /// Replace the day of the month.
+    ///
+    /// ```rust
+    /// # use time::macros::date;
+    /// assert_eq!(
+    ///     date!(2022 - 02 - 18).replace_day(1),
+    ///     Ok(date!(2022 - 02 - 01))
+    /// );
+    /// assert!(date!(2022 - 02 - 18).replace_day(0).is_err()); // 0 isn't a valid day
+    /// assert!(date!(2022 - 02 - 18).replace_day(30).is_err()); // 30 isn't a valid day in February
+    /// ```
+    #[must_use = "This method does not mutate the original `Date`."]
+    pub const fn replace_day(self, day: u8) -> Result<Self, error::ComponentRange> {
+        // Days 1-28 are present in every month, so we can skip checking.
+        if day == 0 || day >= 29 {
+            ensure_value_in_range!(
+                day conditionally in 1 => days_in_year_month(self.year(), self.month())
+            );
+        }
+
+        Ok(Self::__from_ordinal_date_unchecked(
+            self.year(),
+            (self.ordinal() as i16 - self.day() as i16 + day as i16) as _,
+        ))
+    }
+    // endregion replacement
 }
 
-/// Methods to add a `Time` component, resulting in a `PrimitiveDateTime`.
+// region: attach time
+/// Methods to add a [`Time`] component, resulting in a [`PrimitiveDateTime`].
 impl Date {
-    /// Create a `PrimitiveDateTime` using the existing date. The `Time` component will
-    /// be set to midnight.
+    /// Create a [`PrimitiveDateTime`] using the existing date. The [`Time`] component will be set
+    /// to midnight.
     ///
     /// ```rust
-    /// # use time::{date, time};
-    /// assert_eq!(
-    ///     date!(1970-01-01).midnight(),
-    ///     date!(1970-01-01).with_time(time!(0:00))
-    /// );
+    /// # use time::macros::{date, datetime};
+    /// assert_eq!(date!(1970-01-01).midnight(), datetime!(1970-01-01 0:00));
     /// ```
     pub const fn midnight(self) -> PrimitiveDateTime {
-        PrimitiveDateTime::new(self, Time::midnight())
+        PrimitiveDateTime::new(self, Time::MIDNIGHT)
     }
 
-    /// Create a `PrimitiveDateTime` using the existing date and the provided `Time`.
+    /// Create a [`PrimitiveDateTime`] using the existing date and the provided [`Time`].
     ///
     /// ```rust
-    /// # use time::{date, time};
+    /// # use time::macros::{date, datetime, time};
     /// assert_eq!(
     ///     date!(1970-01-01).with_time(time!(0:00)),
-    ///     date!(1970-01-01).midnight(),
+    ///     datetime!(1970-01-01 0:00),
     /// );
     /// ```
     pub const fn with_time(self, time: Time) -> PrimitiveDateTime {
         PrimitiveDateTime::new(self, time)
     }
 
-    /// Create a `PrimitiveDateTime` using the existing date and the provided time.
+    /// Attempt to create a [`PrimitiveDateTime`] using the existing date and the provided time.
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
-    /// # use time::{date, time};
-    /// assert_eq!(
-    ///     date!(1970-01-01).with_hms(0, 0, 0),
-    ///     date!(1970-01-01).with_time(time!(0:00)),
-    /// );
+    /// # use time::macros::date;
+    /// assert!(date!(1970 - 01 - 01).with_hms(0, 0, 0).is_ok());
+    /// assert!(date!(1970 - 01 - 01).with_hms(24, 0, 0).is_err());
     /// ```
-    #[cfg(feature = "panicking-api")]
-    #[cfg_attr(__time_02_docs, doc(cfg(feature = "panicking-api")))]
-    #[allow(deprecated)]
-    #[deprecated(
-        since = "0.2.3",
-        note = "For times knowable at compile-time, use the `time!` macro and `Date::with_time`. \
-                For situations where a value isn't known, use `Date::try_with_hms`."
-    )]
-    pub fn with_hms(self, hour: u8, minute: u8, second: u8) -> PrimitiveDateTime {
-        PrimitiveDateTime::new(self, Time::from_hms(hour, minute, second))
-    }
-
-    /// Attempt to create a `PrimitiveDateTime` using the existing date and the
-    /// provided time.
-    ///
-    /// ```rust
-    /// # use time::date;
-    /// assert!(date!(1970-01-01).try_with_hms(0, 0, 0).is_ok());
-    /// assert!(date!(1970-01-01).try_with_hms(24, 0, 0).is_err());
-    /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn try_with_hms(
+    pub const fn with_hms(
         self,
         hour: u8,
         minute: u8,
@@ -780,53 +847,18 @@ impl Date {
     ) -> Result<PrimitiveDateTime, error::ComponentRange> {
         Ok(PrimitiveDateTime::new(
             self,
-            const_try!(Time::try_from_hms(hour, minute, second)),
+            const_try!(Time::from_hms(hour, minute, second)),
         ))
     }
 
-    /// Create a `PrimitiveDateTime` using the existing date and the provided
-    /// time.
+    /// Attempt to create a [`PrimitiveDateTime`] using the existing date and the provided time.
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
-    /// # use time::{date, time};
-    /// assert_eq!(
-    ///     date!(1970-01-01).with_hms_milli(0, 0, 0, 0),
-    ///     date!(1970-01-01).with_time(time!(0:00)),
-    /// );
+    /// # use time::macros::date;
+    /// assert!(date!(1970 - 01 - 01).with_hms_milli(0, 0, 0, 0).is_ok());
+    /// assert!(date!(1970 - 01 - 01).with_hms_milli(24, 0, 0, 0).is_err());
     /// ```
-    #[cfg(feature = "panicking-api")]
-    #[cfg_attr(__time_02_docs, doc(cfg(feature = "panicking-api")))]
-    #[allow(deprecated)]
-    #[deprecated(
-        since = "0.2.3",
-        note = "For times knowable at compile-time, use the `time!` macro and `Date::with_time`. \
-                For situations where a value isn't known, use `Date::try_with_hms_milli`."
-    )]
-    pub fn with_hms_milli(
-        self,
-        hour: u8,
-        minute: u8,
-        second: u8,
-        millisecond: u16,
-    ) -> PrimitiveDateTime {
-        PrimitiveDateTime::new(
-            self,
-            Time::from_hms_milli(hour, minute, second, millisecond),
-        )
-    }
-
-    /// Attempt to create a `PrimitiveDateTime` using the existing date and the provided time.
-    ///
-    /// ```rust
-    /// # use time::date;
-    /// assert!(date!(1970-01-01).try_with_hms_milli(0, 0, 0, 0).is_ok());
-    /// assert!(date!(1970-01-01).try_with_hms_milli(24, 0, 0, 0).is_err());
-    /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn try_with_hms_milli(
+    pub const fn with_hms_milli(
         self,
         hour: u8,
         minute: u8,
@@ -835,57 +867,18 @@ impl Date {
     ) -> Result<PrimitiveDateTime, error::ComponentRange> {
         Ok(PrimitiveDateTime::new(
             self,
-            const_try!(Time::try_from_hms_milli(hour, minute, second, millisecond)),
+            const_try!(Time::from_hms_milli(hour, minute, second, millisecond)),
         ))
     }
 
-    /// Create a `PrimitiveDateTime` using the existing date and the provided time.
+    /// Attempt to create a [`PrimitiveDateTime`] using the existing date and the provided time.
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
-    /// # use time::{date, time};
-    /// assert_eq!(
-    ///     date!(1970-01-01).with_hms_micro(0, 0, 0, 0),
-    ///     date!(1970-01-01).with_time(time!(0:00)),
-    /// );
+    /// # use time::macros::date;
+    /// assert!(date!(1970 - 01 - 01).with_hms_micro(0, 0, 0, 0).is_ok());
+    /// assert!(date!(1970 - 01 - 01).with_hms_micro(24, 0, 0, 0).is_err());
     /// ```
-    #[cfg(feature = "panicking-api")]
-    #[cfg_attr(__time_02_docs, doc(cfg(feature = "panicking-api")))]
-    #[allow(deprecated)]
-    #[deprecated(
-        since = "0.2.3",
-        note = "For times knowable at compile-time, use the `time!` macro and `Date::with_time`. \
-                For situations where a value isn't known, use `Date::try_with_hms_micro`."
-    )]
-    pub fn with_hms_micro(
-        self,
-        hour: u8,
-        minute: u8,
-        second: u8,
-        microsecond: u32,
-    ) -> PrimitiveDateTime {
-        PrimitiveDateTime::new(
-            self,
-            Time::from_hms_micro(hour, minute, second, microsecond),
-        )
-    }
-
-    /// Attempt to create a `PrimitiveDateTime` using the existing date and the
-    /// provided time.
-    ///
-    /// ```rust
-    /// # use time::date;
-    /// assert!(date!(1970-01-01)
-    ///     .try_with_hms_micro(0, 0, 0, 0)
-    ///     .is_ok());
-    /// assert!(date!(1970-01-01)
-    ///     .try_with_hms_micro(24, 0, 0, 0)
-    ///     .is_err());
-    /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn try_with_hms_micro(
+    pub const fn with_hms_micro(
         self,
         hour: u8,
         minute: u8,
@@ -894,49 +887,18 @@ impl Date {
     ) -> Result<PrimitiveDateTime, error::ComponentRange> {
         Ok(PrimitiveDateTime::new(
             self,
-            const_try!(Time::try_from_hms_micro(hour, minute, second, microsecond)),
+            const_try!(Time::from_hms_micro(hour, minute, second, microsecond)),
         ))
     }
 
-    /// Create a `PrimitiveDateTime` using the existing date and the provided time.
+    /// Attempt to create a [`PrimitiveDateTime`] using the existing date and the provided time.
     ///
     /// ```rust
-    /// # #![allow(deprecated)]
-    /// # use time::{date, time};
-    /// assert_eq!(
-    ///     date!(1970-01-01).with_hms_nano(0, 0, 0, 0),
-    ///     date!(1970-01-01).with_time(time!(0:00)),
-    /// );
+    /// # use time::macros::date;
+    /// assert!(date!(1970 - 01 - 01).with_hms_nano(0, 0, 0, 0).is_ok());
+    /// assert!(date!(1970 - 01 - 01).with_hms_nano(24, 0, 0, 0).is_err());
     /// ```
-    #[cfg(feature = "panicking-api")]
-    #[cfg_attr(__time_02_docs, doc(cfg(feature = "panicking-api")))]
-    #[allow(deprecated)]
-    #[deprecated(
-        since = "0.2.3",
-        note = "For times knowable at compile-time, use the `time!` macro and `Date::with_time`. \
-                For situations where a value isn't known, use `Date::try_with_hms_nano`."
-    )]
-    pub fn with_hms_nano(
-        self,
-        hour: u8,
-        minute: u8,
-        second: u8,
-        nanosecond: u32,
-    ) -> PrimitiveDateTime {
-        PrimitiveDateTime::new(self, Time::from_hms_nano(hour, minute, second, nanosecond))
-    }
-
-    /// Attempt to create a `PrimitiveDateTime` using the existing date and the provided time.
-    ///
-    /// ```rust
-    /// # use time::date;
-    /// assert!(date!(1970-01-01).try_with_hms_nano(0, 0, 0, 0).is_ok());
-    /// assert!(date!(1970-01-01).try_with_hms_nano(24, 0, 0, 0).is_err());
-    /// ```
-    ///
-    /// This function is `const fn` when using rustc >= 1.46.
-    #[const_fn("1.46")]
-    pub const fn try_with_hms_nano(
+    pub const fn with_hms_nano(
         self,
         hour: u8,
         minute: u8,
@@ -945,124 +907,87 @@ impl Date {
     ) -> Result<PrimitiveDateTime, error::ComponentRange> {
         Ok(PrimitiveDateTime::new(
             self,
-            const_try!(Time::try_from_hms_nano(hour, minute, second, nanosecond)),
+            const_try!(Time::from_hms_nano(hour, minute, second, nanosecond)),
         ))
     }
 }
+// endregion attach time
 
-/// Methods that allow formatting the `Date`.
+// region: formatting & parsing
+#[cfg(feature = "formatting")]
 impl Date {
-    /// Format the `Date` using the provided string.
-    ///
-    /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-02).format("%Y-%m-%d"), "2019-01-02");
-    /// ```
-    pub fn format(self, format: impl AsRef<str>) -> String {
-        self.lazy_format(format).to_string()
+    /// Format the `Date` using the provided [format description](crate::format_description).
+    pub fn format_into(
+        self,
+        output: &mut impl io::Write,
+        format: &(impl Formattable + ?Sized),
+    ) -> Result<usize, error::Format> {
+        format.format_into(output, Some(self), None, None)
     }
 
-    /// Format the `Date` using the provided string.
+    /// Format the `Date` using the provided [format description](crate::format_description).
     ///
     /// ```rust
-    /// # use time::date;
-    /// assert_eq!(date!(2019-01-02).lazy_format("%Y-%m-%d").to_string(), "2019-01-02");
+    /// # use time::{format_description, macros::date};
+    /// let format = format_description::parse("[year]-[month]-[day]")?;
+    /// assert_eq!(date!(2020 - 01 - 02).format(&format)?, "2020-01-02");
+    /// # Ok::<_, time::Error>(())
     /// ```
-    pub fn lazy_format(self, format: impl AsRef<str>) -> impl Display {
-        DeferredFormat::new(format.as_ref()).with_date(self).clone()
-    }
-
-    /// Attempt to parse a `Date` using the provided string.
-    ///
-    /// ```rust
-    /// # use time::{Date, date};
-    /// assert_eq!(
-    ///     Date::parse("2019-01-02", "%F"),
-    ///     Ok(date!(2019-01-02))
-    /// );
-    /// assert_eq!(
-    ///     Date::parse("2019-002", "%Y-%j"),
-    ///     Ok(date!(2019-002))
-    /// );
-    /// assert_eq!(
-    ///     Date::parse("2019-W01-3", "%G-W%V-%u"),
-    ///     Ok(date!(2019-W01-3))
-    /// );
-    /// ```
-    pub fn parse(s: impl AsRef<str>, format: impl AsRef<str>) -> ParseResult<Self> {
-        Self::try_from_parsed_items(parse(s.as_ref(), &format.into())?)
-    }
-
-    /// Given the items already parsed, attempt to create a `Date`.
-    pub(crate) fn try_from_parsed_items(items: ParsedItems) -> ParseResult<Self> {
-        macro_rules! items {
-            ($($item:ident),* $(,)?) => {
-                ParsedItems { $($item: Some($item)),*, .. }
-            };
-        }
-
-        /// Get the value needed to adjust the ordinal day for Sunday and
-        /// Monday-based week numbering.
-        fn adjustment(year: i32) -> i16 {
-            match internals::Date::from_yo_unchecked(year, 1).weekday() {
-                Weekday::Monday => 7,
-                Weekday::Tuesday => 1,
-                Weekday::Wednesday => 2,
-                Weekday::Thursday => 3,
-                Weekday::Friday => 4,
-                Weekday::Saturday => 5,
-                Weekday::Sunday => 6,
-            }
-        }
-
-        match items {
-            items!(year, month, day) => {
-                Date::try_from_ymd(year, month.get(), day.get()).map_err(Into::into)
-            }
-            items!(year, ordinal_day) => {
-                Date::try_from_yo(year, ordinal_day.get()).map_err(Into::into)
-            }
-            items!(week_based_year, iso_week, weekday) => {
-                Date::try_from_iso_ywd(week_based_year, iso_week.get(), weekday).map_err(Into::into)
-            }
-            items!(year, sunday_week, weekday) => Date::try_from_yo(
-                year,
-                (sunday_week as i16 * 7 + weekday.number_days_from_sunday() as i16
-                    - adjustment(year)
-                    + 1) as u16,
-            )
-            .map_err(Into::into),
-            items!(year, monday_week, weekday) => Date::try_from_yo(
-                year,
-                (monday_week as i16 * 7 + weekday.number_days_from_monday() as i16
-                    - adjustment(year)
-                    + 1) as u16,
-            )
-            .map_err(Into::into),
-            _ => Err(error::Parse::InsufficientInformation),
-        }
+    pub fn format(self, format: &(impl Formattable + ?Sized)) -> Result<String, error::Format> {
+        format.format(Some(self), None, None)
     }
 }
 
-impl Display for Date {
+#[cfg(feature = "parsing")]
+impl Date {
+    /// Parse a `Date` from the input using the provided [format
+    /// description](crate::format_description).
+    ///
+    /// ```rust
+    /// # use time::{format_description, macros::date, Date};
+    /// let format = format_description::parse("[year]-[month]-[day]")?;
+    /// assert_eq!(Date::parse("2020-01-02", &format)?, date!(2020 - 01 - 02));
+    /// # Ok::<_, time::Error>(())
+    /// ```
+    pub fn parse(
+        input: &str,
+        description: &(impl Parsable + ?Sized),
+    ) -> Result<Self, error::Parse> {
+        description.parse_date(input.as_bytes())
+    }
+}
+
+impl fmt::Display for Date {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use crate::format::{date, Padding};
-
-        date::fmt_Y(f, *self, Padding::Zero)?;
-        f.write_str("-")?;
-        date::fmt_m(f, *self, Padding::Zero)?;
-        f.write_str("-")?;
-        date::fmt_d(f, *self, Padding::Zero)?;
-
-        Ok(())
+        if cfg!(feature = "large-dates") && self.year().abs() >= 10_000 {
+            write!(
+                f,
+                "{:+}-{:02}-{:02}",
+                self.year(),
+                self.month() as u8,
+                self.day()
+            )
+        } else {
+            write!(
+                f,
+                "{:0width$}-{:02}-{:02}",
+                self.year(),
+                self.month() as u8,
+                self.day(),
+                width = 4 + (self.year() < 0) as usize
+            )
+        }
     }
 }
+// endregion formatting & parsing
 
+// region: trait impls
 impl Add<Duration> for Date {
     type Output = Self;
 
     fn add(self, duration: Duration) -> Self::Output {
-        Self::from_julian_day(self.julian_day() + duration.whole_days())
+        self.checked_add(duration)
+            .expect("overflow adding duration to date")
     }
 }
 
@@ -1070,27 +995,19 @@ impl Add<StdDuration> for Date {
     type Output = Self;
 
     fn add(self, duration: StdDuration) -> Self::Output {
-        Self::from_julian_day(self.julian_day() + (duration.as_secs() / 86_400) as i64)
+        Self::from_julian_day(self.to_julian_day() + (duration.as_secs() / 86_400) as i32)
+            .expect("overflow adding duration to date")
     }
 }
 
-impl AddAssign<Duration> for Date {
-    fn add_assign(&mut self, duration: Duration) {
-        *self = *self + duration;
-    }
-}
-
-impl AddAssign<StdDuration> for Date {
-    fn add_assign(&mut self, duration: StdDuration) {
-        *self = *self + duration;
-    }
-}
+impl_add_assign!(Date: Duration, StdDuration);
 
 impl Sub<Duration> for Date {
     type Output = Self;
 
     fn sub(self, duration: Duration) -> Self::Output {
-        self + -duration
+        self.checked_sub(duration)
+            .expect("overflow subtracting duration from date")
     }
 }
 
@@ -1098,77 +1015,18 @@ impl Sub<StdDuration> for Date {
     type Output = Self;
 
     fn sub(self, duration: StdDuration) -> Self::Output {
-        Self::from_julian_day(self.julian_day() - (duration.as_secs() / 86_400) as i64)
+        Self::from_julian_day(self.to_julian_day() - (duration.as_secs() / 86_400) as i32)
+            .expect("overflow subtracting duration from date")
     }
 }
 
-impl SubAssign<Duration> for Date {
-    fn sub_assign(&mut self, duration: Duration) {
-        *self = *self - duration;
-    }
-}
+impl_sub_assign!(Date: Duration, StdDuration);
 
-impl SubAssign<StdDuration> for Date {
-    fn sub_assign(&mut self, duration: StdDuration) {
-        *self = *self - duration;
-    }
-}
-
-impl Sub<Date> for Date {
+impl Sub for Date {
     type Output = Duration;
 
     fn sub(self, other: Self) -> Self::Output {
-        Duration::days(self.julian_day() - other.julian_day())
+        Duration::days((self.to_julian_day() - other.to_julian_day()) as _)
     }
 }
-
-impl PartialOrd for Date {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Date {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.year()
-            .cmp(&other.year())
-            .then_with(|| self.ordinal().cmp(&other.ordinal()))
-    }
-}
-
-#[cfg(test)]
-#[rustfmt::skip::macros(date)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_days_in_year_month() {
-        // Common year
-        assert_eq!(days_in_year_month(2019, 1), 31);
-        assert_eq!(days_in_year_month(2019, 2), 28);
-        assert_eq!(days_in_year_month(2019, 3), 31);
-        assert_eq!(days_in_year_month(2019, 4), 30);
-        assert_eq!(days_in_year_month(2019, 5), 31);
-        assert_eq!(days_in_year_month(2019, 6), 30);
-        assert_eq!(days_in_year_month(2019, 7), 31);
-        assert_eq!(days_in_year_month(2019, 8), 31);
-        assert_eq!(days_in_year_month(2019, 9), 30);
-        assert_eq!(days_in_year_month(2019, 10), 31);
-        assert_eq!(days_in_year_month(2019, 11), 30);
-        assert_eq!(days_in_year_month(2019, 12), 31);
-
-        // Leap year
-        assert_eq!(days_in_year_month(2020, 1), 31);
-        assert_eq!(days_in_year_month(2020, 2), 29);
-        assert_eq!(days_in_year_month(2020, 3), 31);
-        assert_eq!(days_in_year_month(2020, 4), 30);
-        assert_eq!(days_in_year_month(2020, 5), 31);
-        assert_eq!(days_in_year_month(2020, 6), 30);
-        assert_eq!(days_in_year_month(2020, 7), 31);
-        assert_eq!(days_in_year_month(2020, 8), 31);
-        assert_eq!(days_in_year_month(2020, 9), 30);
-        assert_eq!(days_in_year_month(2020, 10), 31);
-        assert_eq!(days_in_year_month(2020, 11), 30);
-        assert_eq!(days_in_year_month(2020, 12), 31);
-    }
-}
+// endregion trait impls

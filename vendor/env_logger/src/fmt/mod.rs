@@ -136,13 +136,16 @@ impl fmt::Debug for Formatter {
     }
 }
 
+pub(crate) type FormatFn = Box<dyn Fn(&mut Formatter, &Record) -> io::Result<()> + Sync + Send>;
+
 pub(crate) struct Builder {
     pub format_timestamp: Option<TimestampPrecision>,
     pub format_module_path: bool,
+    pub format_target: bool,
     pub format_level: bool,
     pub format_indent: Option<usize>,
-    #[allow(unknown_lints, bare_trait_objects)]
-    pub custom_format: Option<Box<Fn(&mut Formatter, &Record) -> io::Result<()> + Sync + Send>>,
+    pub custom_format: Option<FormatFn>,
+    pub format_suffix: &'static str,
     built: bool,
 }
 
@@ -150,10 +153,12 @@ impl Default for Builder {
     fn default() -> Self {
         Builder {
             format_timestamp: Some(Default::default()),
-            format_module_path: true,
+            format_module_path: false,
+            format_target: true,
             format_level: true,
             format_indent: Some(4),
             custom_format: None,
+            format_suffix: "\n",
             built: false,
         }
     }
@@ -165,8 +170,7 @@ impl Builder {
     /// If the `custom_format` is `Some`, then any `default_format` switches are ignored.
     /// If the `custom_format` is `None`, then a default format is returned.
     /// Any `default_format` switches set to `false` won't be written by the format.
-    #[allow(unknown_lints, bare_trait_objects)]
-    pub fn build(&mut self) -> Box<Fn(&mut Formatter, &Record) -> io::Result<()> + Sync + Send> {
+    pub fn build(&mut self) -> FormatFn {
         assert!(!self.built, "attempt to re-use consumed builder");
 
         let built = mem::replace(
@@ -184,9 +188,11 @@ impl Builder {
                 let fmt = DefaultFormat {
                     timestamp: built.format_timestamp,
                     module_path: built.format_module_path,
+                    target: built.format_target,
                     level: built.format_level,
                     written_header_value: false,
                     indent: built.format_indent,
+                    suffix: built.format_suffix,
                     buf,
                 };
 
@@ -207,10 +213,12 @@ type SubtleStyle = &'static str;
 struct DefaultFormat<'a> {
     timestamp: Option<TimestampPrecision>,
     module_path: bool,
+    target: bool,
     level: bool,
     written_header_value: bool,
     indent: Option<usize>,
     buf: &'a mut Formatter,
+    suffix: &'a str,
 }
 
 impl<'a> DefaultFormat<'a> {
@@ -218,6 +226,7 @@ impl<'a> DefaultFormat<'a> {
         self.write_timestamp()?;
         self.write_level(record)?;
         self.write_module_path(record)?;
+        self.write_target(record)?;
         self.finish_header()?;
 
         self.write_args(record)
@@ -230,6 +239,7 @@ impl<'a> DefaultFormat<'a> {
                 .style()
                 .set_color(Color::Black)
                 .set_intense(true)
+                .clone()
                 .into_value(text)
         }
         #[cfg(not(feature = "termcolor"))]
@@ -306,6 +316,17 @@ impl<'a> DefaultFormat<'a> {
         }
     }
 
+    fn write_target(&mut self, record: &Record) -> io::Result<()> {
+        if !self.target {
+            return Ok(());
+        }
+
+        match record.target() {
+            "" => Ok(()),
+            target => self.write_header_value(target),
+        }
+    }
+
     fn finish_header(&mut self) -> io::Result<()> {
         if self.written_header_value {
             let close_brace = self.subtle_style("]");
@@ -318,7 +339,7 @@ impl<'a> DefaultFormat<'a> {
     fn write_args(&mut self, record: &Record) -> io::Result<()> {
         match self.indent {
             // Fast path for no indentation
-            None => writeln!(self.buf, "{}", record.args()),
+            None => write!(self.buf, "{}{}", record.args(), self.suffix),
 
             Some(indent_count) => {
                 // Create a wrapper around the buffer only if we have to actually indent the message
@@ -333,7 +354,13 @@ impl<'a> DefaultFormat<'a> {
                         let mut first = true;
                         for chunk in buf.split(|&x| x == b'\n') {
                             if !first {
-                                write!(self.fmt.buf, "\n{:width$}", "", width = self.indent_count)?;
+                                write!(
+                                    self.fmt.buf,
+                                    "{}{:width$}",
+                                    self.fmt.suffix,
+                                    "",
+                                    width = self.indent_count
+                                )?;
                             }
                             self.fmt.buf.write_all(chunk)?;
                             first = false;
@@ -356,7 +383,7 @@ impl<'a> DefaultFormat<'a> {
                     write!(wrapper, "{}", record.args())?;
                 }
 
-                writeln!(self.buf)?;
+                write!(self.buf, "{}", self.suffix)?;
 
                 Ok(())
             }
@@ -370,21 +397,31 @@ mod tests {
 
     use log::{Level, Record};
 
-    fn write(fmt: DefaultFormat) -> String {
+    fn write_record(record: Record, fmt: DefaultFormat) -> String {
         let buf = fmt.buf.buf.clone();
-
-        let record = Record::builder()
-            .args(format_args!("log\nmessage"))
-            .level(Level::Info)
-            .file(Some("test.rs"))
-            .line(Some(144))
-            .module_path(Some("test::path"))
-            .build();
 
         fmt.write(&record).expect("failed to write record");
 
         let buf = buf.borrow();
         String::from_utf8(buf.bytes().to_vec()).expect("failed to read record")
+    }
+
+    fn write_target<'a>(target: &'a str, fmt: DefaultFormat) -> String {
+        write_record(
+            Record::builder()
+                .args(format_args!("log\nmessage"))
+                .level(Level::Info)
+                .file(Some("test.rs"))
+                .line(Some(144))
+                .module_path(Some("test::path"))
+                .target(target)
+                .build(),
+            fmt,
+        )
+    }
+
+    fn write(fmt: DefaultFormat) -> String {
+        write_target("", fmt)
     }
 
     #[test]
@@ -398,9 +435,11 @@ mod tests {
         let written = write(DefaultFormat {
             timestamp: None,
             module_path: true,
+            target: false,
             level: true,
             written_header_value: false,
             indent: None,
+            suffix: "\n",
             buf: &mut f,
         });
 
@@ -418,9 +457,11 @@ mod tests {
         let written = write(DefaultFormat {
             timestamp: None,
             module_path: false,
+            target: false,
             level: false,
             written_header_value: false,
             indent: None,
+            suffix: "\n",
             buf: &mut f,
         });
 
@@ -438,9 +479,11 @@ mod tests {
         let written = write(DefaultFormat {
             timestamp: None,
             module_path: true,
+            target: false,
             level: true,
             written_header_value: false,
             indent: Some(4),
+            suffix: "\n",
             buf: &mut f,
         });
 
@@ -458,9 +501,11 @@ mod tests {
         let written = write(DefaultFormat {
             timestamp: None,
             module_path: true,
+            target: false,
             level: true,
             written_header_value: false,
             indent: Some(0),
+            suffix: "\n",
             buf: &mut f,
         });
 
@@ -478,12 +523,130 @@ mod tests {
         let written = write(DefaultFormat {
             timestamp: None,
             module_path: false,
+            target: false,
             level: false,
             written_header_value: false,
             indent: Some(4),
+            suffix: "\n",
             buf: &mut f,
         });
 
         assert_eq!("log\n    message\n", written);
+    }
+
+    #[test]
+    fn format_suffix() {
+        let writer = writer::Builder::new()
+            .write_style(WriteStyle::Never)
+            .build();
+
+        let mut f = Formatter::new(&writer);
+
+        let written = write(DefaultFormat {
+            timestamp: None,
+            module_path: false,
+            target: false,
+            level: false,
+            written_header_value: false,
+            indent: None,
+            suffix: "\n\n",
+            buf: &mut f,
+        });
+
+        assert_eq!("log\nmessage\n\n", written);
+    }
+
+    #[test]
+    fn format_suffix_with_indent() {
+        let writer = writer::Builder::new()
+            .write_style(WriteStyle::Never)
+            .build();
+
+        let mut f = Formatter::new(&writer);
+
+        let written = write(DefaultFormat {
+            timestamp: None,
+            module_path: false,
+            target: false,
+            level: false,
+            written_header_value: false,
+            indent: Some(4),
+            suffix: "\n\n",
+            buf: &mut f,
+        });
+
+        assert_eq!("log\n\n    message\n\n", written);
+    }
+
+    #[test]
+    fn format_target() {
+        let writer = writer::Builder::new()
+            .write_style(WriteStyle::Never)
+            .build();
+
+        let mut f = Formatter::new(&writer);
+
+        let written = write_target(
+            "target",
+            DefaultFormat {
+                timestamp: None,
+                module_path: true,
+                target: true,
+                level: true,
+                written_header_value: false,
+                indent: None,
+                suffix: "\n",
+                buf: &mut f,
+            },
+        );
+
+        assert_eq!("[INFO  test::path target] log\nmessage\n", written);
+    }
+
+    #[test]
+    fn format_empty_target() {
+        let writer = writer::Builder::new()
+            .write_style(WriteStyle::Never)
+            .build();
+
+        let mut f = Formatter::new(&writer);
+
+        let written = write(DefaultFormat {
+            timestamp: None,
+            module_path: true,
+            target: true,
+            level: true,
+            written_header_value: false,
+            indent: None,
+            suffix: "\n",
+            buf: &mut f,
+        });
+
+        assert_eq!("[INFO  test::path] log\nmessage\n", written);
+    }
+
+    #[test]
+    fn format_no_target() {
+        let writer = writer::Builder::new()
+            .write_style(WriteStyle::Never)
+            .build();
+
+        let mut f = Formatter::new(&writer);
+
+        let written = write_target(
+            "target",
+            DefaultFormat {
+                timestamp: None,
+                module_path: true,
+                target: false,
+                level: true,
+                written_header_value: false,
+                indent: None,
+                suffix: "\n",
+                buf: &mut f,
+            },
+        );
+
+        assert_eq!("[INFO  test::path] log\nmessage\n", written);
     }
 }
