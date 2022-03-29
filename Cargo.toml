@@ -5,4 +5,5 @@ members = [
   "dhcp",
   "pxe",
   "rpc",
+  "dns",
 ]
