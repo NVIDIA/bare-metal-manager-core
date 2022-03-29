@@ -1,6 +1,6 @@
 mod common;
 
-use std::fmt::format;
+
 
 use carbide::{
     db::{InstanceType, NewInstanceType},
@@ -35,7 +35,7 @@ async fn test_instance_type_crud() {
     .await;
 
     let unwrapped = &segment.unwrap();
-    assert!(matches!(unwrapped, InstanceType));
+    assert!(matches!(unwrapped, _InstanceType));
 
     let updatedType = UpdateInstanceType {
         id: unwrapped.id,
@@ -46,7 +46,7 @@ async fn test_instance_type_crud() {
     .update(&mut txn)
     .await;
 
-    assert!(matches!(updatedType.unwrap(), InstanceType));
+    assert!(matches!(updatedType.unwrap(), _InstanceType));
 
     let deletedType = DeactivateInstanceType { id: unwrapped.id }
         .deactivate(&mut txn)
@@ -54,5 +54,5 @@ async fn test_instance_type_crud() {
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(deletedType.unwrap(), InstanceType));
+    assert!(matches!(deletedType.unwrap(), _InstanceType));
 }

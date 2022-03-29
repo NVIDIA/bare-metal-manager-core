@@ -42,6 +42,7 @@ chrono = "0.4.19"
 # misc
 itertools = "*"
 thiserror = "1.0"
+async-trait = "*"
 
 # cli
 clap = { version = "~3.0.0", features = ["derive"] }

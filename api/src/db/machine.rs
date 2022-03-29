@@ -1,28 +1,23 @@
 //!
 //! Machine - represents a database-backed Machine object
 //!
-use std::convert::From;
-use std::net::IpAddr;
-use std::str;
-
+use super::{
+    MachineAction, MachineEvent, MachineInterface, MachineState, NetworkSegment,
+    UuidKeyedObjectFilter,
+};
+use crate::db::AddressSelectionStrategy;
+use crate::human_hash;
+use crate::{CarbideError, CarbideResult};
 use chrono::prelude::*;
 use ipnetwork::IpNetwork;
 use log::{debug, info, warn};
 use mac_address::MacAddress;
+use rpc::v0 as rpc;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
+use std::convert::From;
+use std::net::IpAddr;
 use uuid::Uuid;
-
-use rpc::v0 as rpc;
-
-use crate::db::address_selection_strategy::AbsentSubnetStrategy;
-use crate::human_hash;
-use crate::{CarbideError, CarbideResult};
-
-use super::{
-    AddressSelectionStrategy, Domain, MachineAction, MachineEvent, MachineInterface, MachineState,
-    NetworkSegment,
-};
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
@@ -58,6 +53,8 @@ pub struct Machine {
     interfaces: Vec<MachineInterface>,
 }
 
+// We need to implement FromRow because we can't associate dependent tables with the default derive
+// (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(Machine {
@@ -70,20 +67,6 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             interfaces: Vec::new(),
         })
     }
-}
-
-///
-/// A parameter to find() to filter machines by Uuid;
-///
-pub enum MachineIdsFilter {
-    /// Don't filter by uuid
-    All,
-
-    /// Filter by a list of uuids
-    List(Vec<uuid::Uuid>),
-
-    /// Retrieve a single machine
-    One(uuid::Uuid),
 }
 
 ///
@@ -145,7 +128,7 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         uuid: uuid::Uuid,
     ) -> CarbideResult<Option<Self>> {
-        Machine::find(txn, MachineIdsFilter::One(uuid))
+        Machine::find(txn, UuidKeyedObjectFilter::One(uuid))
             .await
             .map(|v| v.into_iter().next())
     }
@@ -180,10 +163,12 @@ impl Machine {
                 ON m.id = mi.machine_id
             INNER JOIN network_segments ns
                 ON mi.segment_id = ns.id
+            INNER JOIN network_prefixes np
+                ON np.segment_id = ns.id
             WHERE
                 mi.mac_address = $1::macaddr
                 AND
-                (($2::inet <<= ns.prefix_ipv4) OR ($2::inet <<= ns.prefix_ipv6));
+                $2::inet <<= np.prefix;
         "#;
 
         let mut machine_ids: Vec<(Uuid,)> = sqlx::query_as(sql)
@@ -200,7 +185,7 @@ impl Machine {
                     Some(segment) => {
                         let generated_hostname =
                             Self::generate_hostname_from_uuid(&uuid::Uuid::new_v4());
-                        let generated_fqdn = format!("{}", generated_hostname);
+                        let generated_fqdn = generated_hostname.to_string();
 
                         debug!("Generated hostname {}", generated_fqdn);
 
@@ -216,14 +201,15 @@ impl Machine {
                             None,
                             generated_hostname,
                             true,
-                            &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
-                            &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Ignore),
+                            AddressSelectionStrategy::Automatic,
                         )
                         .await?;
 
                         txn2.commit().await?;
 
-                        Ok(Self::find(txn, MachineIdsFilter::List(vec![machine.id()]))
+                        let uuid_list = vec![machine.id];
+
+                        Ok(Self::find(txn, UuidKeyedObjectFilter::List(&uuid_list))
                             .await?
                             .remove(0))
                     }
@@ -251,8 +237,8 @@ impl Machine {
     }
 
     /// Returns the UUID of the machine object
-    pub fn id(&self) -> uuid::Uuid {
-        self.id
+    pub fn id(&self) -> &uuid::Uuid {
+        &self.id
     }
 
     /// Returns the std::time::SystemTime for when the machine was initially discovered
@@ -351,23 +337,23 @@ impl Machine {
     ///
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
-        id_filter: MachineIdsFilter,
+        filter: UuidKeyedObjectFilter<'_>,
     ) -> CarbideResult<Vec<Machine>> {
         let base_query = "SELECT m.*,machine_state_machine(me.action,me.version) AS state FROM machines m JOIN machine_events me ON me.machine_id=m.id {where} GROUP BY m.id".to_owned();
 
-        let mut all_machines: Vec<Machine> = match id_filter {
-            MachineIdsFilter::All => {
+        let mut all_machines: Vec<Machine> = match filter {
+            UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
                     .await?
             }
-            MachineIdsFilter::One(uuid) => {
+            UuidKeyedObjectFilter::One(uuid) => {
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=$1"))
                     .bind(uuid)
                     .fetch_all(&mut *txn)
                     .await?
             }
-            MachineIdsFilter::List(list) => {
+            UuidKeyedObjectFilter::List(list) => {
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
                     .bind(list)
                     .fetch_all(&mut *txn)
@@ -375,13 +361,13 @@ impl Machine {
             }
         };
 
-        let all_uuids = all_machines.iter().map(|m| m.id()).collect::<Vec<Uuid>>();
+        let all_uuids = all_machines.iter().map(|m| m.id).collect::<Vec<Uuid>>();
 
         let mut events_for_machine =
-            MachineEvent::find_by_machine_ids(&mut *txn, all_uuids.as_slice()).await?;
+            MachineEvent::find_by_machine_ids(&mut *txn, &all_uuids).await?;
 
         let mut interfaces_for_machine =
-            MachineInterface::find_by_machine_ids(&mut *txn, all_uuids.as_slice()).await?;
+            MachineInterface::find_by_machine_ids(&mut *txn, &all_uuids).await?;
 
         all_machines.iter_mut().for_each(|machine| {
             if let Some(events) = events_for_machine.remove(&machine.id) {

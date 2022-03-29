@@ -1,6 +1,6 @@
 mod common;
 
-use carbide::db::{Domain, Machine, NewDomain, NewNetworkSegment};
+use carbide::db::{Domain, Machine, NewDomain, NewNetworkPrefix, NewNetworkSegment};
 
 use log::LevelFilter;
 
@@ -41,7 +41,7 @@ async fn return_existing_machine_on_rediscover() {
 
     let my_domain = "dwrt.com";
 
-    let new_domain: CarbideResult<Domain> = NewDomain {
+    let _new_domain: CarbideResult<Domain> = NewDomain {
         name: my_domain.to_string(),
     }
     .persist(&mut txn)
@@ -57,11 +57,18 @@ async fn return_existing_machine_on_rediscover() {
         name: "test-network".to_string(),
         subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
-        prefix_ipv4: Some("10.0.0.0/24".parse().unwrap()),
-        prefix_ipv6: None,
-        reserve_first_ipv4: Some(3),
-        reserve_first_ipv6: Some(0),
-        gateway_ipv4: Some("10.0.0.1".parse().unwrap()),
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "2001:db8:f::/64".parse().unwrap(),
+                gateway: None,
+                num_reserved: 100,
+            },
+            NewNetworkPrefix {
+                prefix: "192.0.2.0/24".parse().unwrap(),
+                gateway: "192.0.2.1".parse().ok(),
+                num_reserved: 2,
+            },
+        ],
     }
     .persist(&mut txn2)
     .await
@@ -69,11 +76,11 @@ async fn return_existing_machine_on_rediscover() {
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
 
-    let new_machine = Machine::discover(&mut txn2, test_mac, "10.0.0.1".parse().unwrap())
+    let new_machine = Machine::discover(&mut txn2, test_mac, "192.0.2.1".parse().unwrap())
         .await
         .expect("Unable to create machine");
 
-    let existing_machine = Machine::discover(&mut txn2, test_mac, "10.0.0.1".parse().unwrap())
+    let existing_machine = Machine::discover(&mut txn2, test_mac, "192.0.2.1".parse().unwrap())
         .await
         .expect("Unable to re-discover machine with same mac address");
 

@@ -1,6 +1,6 @@
 use crate::{CarbideError, CarbideResult};
 use sqlx::postgres::PgRow;
-use sqlx::{Error, Postgres, Row, Transaction};
+use sqlx::{Postgres, Row};
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
 
@@ -78,13 +78,10 @@ impl From<Project> for rpc::Project {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),
-            deleted: match src.deleted {
-                Some(t) => Some(rpc::Timestamp {
+            deleted: src.deleted.map(|t| rpc::Timestamp {
                     seconds: t.timestamp(),
                     nanos: 0,
                 }),
-                _ => None,
-            },
         }
     }
 }
@@ -93,7 +90,7 @@ impl TryFrom<rpc::Project> for NewProject {
     type Error = CarbideError;
 
     fn try_from(value: rpc::Project) -> Result<Self, Self::Error> {
-        if let Some(_) = value.id {
+        if value.id.is_some() {
             return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
                 "Project",
             )));
@@ -115,7 +112,7 @@ impl TryFrom<rpc::Project> for UpdateProject {
         Ok(UpdateProject {
             id: value
                 .id
-                .ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?
+                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
             name: value.name,
             organization: match value.organization {
@@ -133,14 +130,14 @@ impl TryFrom<rpc::ProjectDeletion> for DeleteProject {
         Ok(DeleteProject {
             id: value
                 .id
-                .ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?
+                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
         })
     }
 }
 
 impl From<Project> for rpc::ProjectDeletionResult {
-    fn from(src: Project) -> Self {
+    fn from(_src: Project) -> Self {
         rpc::ProjectDeletionResult {}
     }
 }

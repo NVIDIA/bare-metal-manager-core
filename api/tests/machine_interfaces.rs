@@ -6,7 +6,7 @@ use log::LevelFilter;
 use mac_address::MacAddress;
 
 use carbide::db::{
-    AbsentSubnetStrategy, AddressSelectionStrategy, Machine, MachineInterface, NetworkSegment,
+    AddressSelectionStrategy, Machine, MachineInterface, NetworkSegment, NewNetworkPrefix,
     NewNetworkSegment,
 };
 use carbide::CarbideError;
@@ -52,11 +52,19 @@ async fn only_one_primary_interface_per_machine() {
         name: "test-network".to_string(),
         subdomain_id: None,
         mtu: Some(1500i32),
-        prefix_ipv4: Some(Ipv4Network::from_str("10.0.0.0/24").expect("can't parse network")),
-        prefix_ipv6: None,
-        gateway_ipv4: Some("192.168.0.1/32".parse().unwrap()),
-        reserve_first_ipv4: Some(3),
-        reserve_first_ipv6: Some(3),
+
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "2001:db8:f::/64".parse().unwrap(),
+                gateway: None,
+                num_reserved: 100,
+            },
+            NewNetworkPrefix {
+                prefix: "192.0.2.0/24".parse().unwrap(),
+                gateway: "192.0.2.1".parse().ok(),
+                num_reserved: 2,
+            },
+        ],
     }
     .persist(&mut txn)
     .await
@@ -68,7 +76,7 @@ async fn only_one_primary_interface_per_machine() {
         .await
         .expect("Unable to create machine");
 
-    let machine_interface = MachineInterface::create(
+    MachineInterface::create(
         &mut txn2,
         &new_machine,
         &new_segment,
@@ -76,15 +84,14 @@ async fn only_one_primary_interface_per_machine() {
         None,
         "peppersmacker2".to_string(),
         true,
-        &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
-        &AddressSelectionStrategy::Empty,
+        AddressSelectionStrategy::Automatic,
     )
     .await
     .expect("Unable to create machine interface");
 
     txn2.commit().await.unwrap();
 
-    let machine_interface2 = MachineInterface::create(
+    let should_failed_machine_interface = MachineInterface::create(
         &mut txn3,
         &new_machine,
         &new_segment,
@@ -92,15 +99,14 @@ async fn only_one_primary_interface_per_machine() {
         None,
         "peppersmacker2".to_string(),
         true,
-        &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
-        &AddressSelectionStrategy::Empty,
+        AddressSelectionStrategy::Automatic,
     )
     .await;
 
     txn3.commit().await.unwrap();
 
     assert!(matches!(
-        machine_interface2,
+        should_failed_machine_interface,
         Err(CarbideError::OnePrimaryInterface)
     ));
 }
@@ -130,11 +136,19 @@ async fn many_non_primary_interfaces_per_machine() {
         name: "test-network".to_string(),
         subdomain_id: None,
         mtu: Some(1500i32),
-        prefix_ipv4: Some(Ipv4Network::from_str("10.0.0.0/24").expect("can't parse network")),
-        prefix_ipv6: None,
-        gateway_ipv4: Some("192.168.0.1/32".parse().unwrap()),
-        reserve_first_ipv4: Some(3),
-        reserve_first_ipv6: Some(3),
+
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "2001:db8:f::/64".parse().unwrap(),
+                gateway: None,
+                num_reserved: 100,
+            },
+            NewNetworkPrefix {
+                prefix: "192.0.2.0/24".parse().unwrap(),
+                gateway: "192.0.2.1".parse().ok(),
+                num_reserved: 2,
+            },
+        ],
     }
     .persist(&mut txn)
     .await
@@ -146,7 +160,7 @@ async fn many_non_primary_interfaces_per_machine() {
         .await
         .expect("Unable to create machine");
 
-    let machine_interface = MachineInterface::create(
+    MachineInterface::create(
         &mut txn2,
         &new_machine,
         &new_segment,
@@ -154,15 +168,14 @@ async fn many_non_primary_interfaces_per_machine() {
         None,
         "peppersmacker2".to_string(),
         true,
-        &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
-        &AddressSelectionStrategy::Empty,
+        AddressSelectionStrategy::Automatic,
     )
     .await
     .expect("Unable to create machine interface");
 
     txn2.commit().await.unwrap();
 
-    let machine_interface2 = MachineInterface::create(
+    let should_be_ok_interface = MachineInterface::create(
         &mut txn3,
         &new_machine,
         &new_segment,
@@ -170,12 +183,11 @@ async fn many_non_primary_interfaces_per_machine() {
         None,
         "peppersmacker2".to_string(),
         false,
-        &AddressSelectionStrategy::Automatic(AbsentSubnetStrategy::Fail),
-        &AddressSelectionStrategy::Empty,
+        AddressSelectionStrategy::Automatic,
     )
     .await;
 
     txn3.commit().await.unwrap();
 
-    assert!(matches!(machine_interface2, MachineInterface,));
+    assert!(should_be_ok_interface.is_ok());
 }

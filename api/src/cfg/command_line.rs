@@ -5,7 +5,6 @@ use clap::Parser;
 // TODO(ajf): always look at crate root
 static DEFAULT_CONFIG_PATH: &str = ".config.toml";
 static DEFAULT_DATASTORE: &str = "postgres://carbide_development@localhost";
-static DEFAULT_VAULT: &str = "http://localhost:8100";
 
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]

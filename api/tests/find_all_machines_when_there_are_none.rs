@@ -1,7 +1,6 @@
 mod common;
 
 use carbide::db::Machine;
-use carbide::db::MachineIdsFilter;
 
 use log::LevelFilter;
 use std::sync::Once;
@@ -32,7 +31,7 @@ async fn test_find_all_machines_when_there_arent_any() {
         .await
         .expect("Could create a transaction on database pool");
 
-    let machines = Machine::find(&mut txn, MachineIdsFilter::All)
+    let machines = Machine::find(&mut txn, carbide::db::UuidKeyedObjectFilter::All)
         .await
         .unwrap();
 

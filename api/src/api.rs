@@ -2,9 +2,8 @@ use std::convert::TryFrom;
 
 use carbide::{
     db::{
-        DeactivateInstanceType, DhcpRecord, Domain, Machine, MachineIdsFilter, NetworkSegment,
-        NewDomain, NewInstanceType, NewNetworkSegment, NewProject, Project, UpdateInstanceType,
-        UpdateProject,
+        DeactivateInstanceType, DhcpRecord, Machine, NetworkSegment, NewDomain, NewInstanceType,
+        NewNetworkSegment, NewProject, UpdateInstanceType, UpdateProject, UuidKeyedObjectFilter,
     },
     CarbideError,
 };
@@ -42,7 +41,7 @@ impl Metal for Api {
 
         let filter = match id {
             Some(id) if id.value.chars().count() > 0 => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => MachineIdsFilter::One(uuid),
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
                         "Supplied invalid UUID: {}",
@@ -50,7 +49,7 @@ impl Metal for Api {
                     )))
                 }
             },
-            _ => MachineIdsFilter::All,
+            _ => UuidKeyedObjectFilter::All,
         };
 
         Ok(Machine::find(&mut txn, filter)
@@ -89,7 +88,7 @@ impl Metal for Api {
             .unwrap();
 
         let response = Ok(Response::new(
-            DhcpRecord::find_by_id_ipv4(&mut txn, &parsed_mac, network.id())
+            DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, network.id())
                 .await?
                 .into(),
         ));
@@ -109,7 +108,7 @@ impl Metal for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let network = NetworkSegment::find(&mut txn)
+        let network = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::All)
             .await
             .map(|network| rpc::NetworkSegmentList {
                 network_segments: network.into_iter().map(rpc::NetworkSegment::from).collect(),

@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use chrono::prelude::*;
 use sqlx::types::uuid;
-use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
@@ -15,7 +15,7 @@ const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 /// Domain
 /// Dervied trait sqlx::FromRow consist of a series of calls to
 /// [`Row::try_get`] using the name from each struct field
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, FromRow)]
 pub struct Domain {
     /// Uuid is use
     id: uuid::Uuid,
@@ -62,25 +62,13 @@ impl TryFrom<rpc::Domain> for NewDomain {
     type Error = CarbideError;
 
     fn try_from(value: rpc::Domain) -> Result<Self, Self::Error> {
-        if let Some(id) = value.id {
+        if let Some(_id) = value.id {
             return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
                 "Domain",
             )));
         }
 
         Ok(NewDomain { name: value.name })
-    }
-}
-
-// Marshal Domain object from Row
-impl<'r> sqlx::FromRow<'r, PgRow> for Domain {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(Domain {
-            id: row.try_get("id")?,
-            name: row.try_get("name")?,
-            created: row.try_get("created")?,
-            updated: row.try_get("updated")?,
-        })
     }
 }
 
@@ -120,7 +108,7 @@ impl NewDomain {
 impl UpdateDomain {
     pub async fn persist(
         &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        _txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Domain> {
         todo!()
     }
@@ -169,22 +157,22 @@ impl Domain {
 
     // TODO make this work
     pub async fn find_by_uuid(
-        txn: &mut Transaction<'_, Postgres>,
-        uuid: Uuid,
+        _txn: &mut Transaction<'_, Postgres>,
+        _uuid: Uuid,
     ) -> CarbideResult<Option<Self>> {
         todo!()
     }
 
     pub async fn delete(
-        txn: &mut Transaction<'_, Postgres>,
-        uuid: Uuid,
+        _txn: &mut Transaction<'_, Postgres>,
+        _uuid: Uuid,
     ) -> CarbideResult<Option<Self>> {
         todo!()
     }
 
     pub async fn update(
-        txn: &mut Transaction<'_, Postgres>,
-        uuid: Uuid,
+        _txn: &mut Transaction<'_, Postgres>,
+        _uuid: Uuid,
     ) -> CarbideResult<Option<Self>> {
         todo!()
     }
@@ -205,6 +193,3 @@ impl Domain {
         self.updated
     }
 }
-
-#[cfg(test)]
-mod tests {}

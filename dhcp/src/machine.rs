@@ -4,7 +4,9 @@ use crate::vendor_class::MachineClientClass;
 use crate::vendor_class::VendorClass;
 use crate::CarbideDhcpContext;
 use crate::CONFIG;
-use log::error;
+use ipnetwork::IpNetwork;
+use log::warn;
+use log::{error, info};
 use rpc::v0 as rpc;
 use std::ffi::CString;
 use std::net::Ipv4Addr;
@@ -100,24 +102,44 @@ impl TryFrom<Discovery> for Machine {
 pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
-    let ret = u32::from_be_bytes(
-        machine
-            .inner
-            .address_ipv4
-            .as_ref()
-            .map(|address| {
-                address
-                    .gateway
-                    .as_ref()
-                    .unwrap()
-                    .parse::<Ipv4Addr>()
-                    .unwrap()
-            })
-            .unwrap()
-            .octets(),
-    );
+
+    // todo(ajf): I guess??
+    let default_router = "0.0.0.0".to_string();
+
+    let maybe_gateway = machine
+        .inner
+        .gateway
+        .as_ref()
+        .unwrap_or_else(|| {
+            warn!(
+                "No gateway provided for machine: {:?}",
+                &machine.inner.machine_id
+            );
+            &default_router
+        })
+        .parse::<IpNetwork>();
+
     std::mem::forget(machine);
-    ret
+
+    match maybe_gateway {
+        Ok(gateway) => match gateway {
+            IpNetwork::V4(gateway) => return u32::from_be_bytes(gateway.mask().octets()),
+            IpNetwork::V6(gateway) => {
+                error!(
+                    "Gateway ({}) is an IPv6 address, which is not supported.",
+                    gateway
+                );
+            }
+        },
+        Err(error) => {
+            error!(
+                "Gateway value in deserialized protobuf is not an IP Network: {0}",
+                error
+            );
+        }
+    };
+
+    0
 }
 
 /// Invoke the discovery processs
@@ -131,19 +153,29 @@ pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    // TODO: handle some errors
-    let ret = u32::from_be_bytes(
-        machine
-            .inner
-            .address_ipv4
-            .as_ref()
-            .map(|address| address.address.parse::<Ipv4Addr>().unwrap())
-            .unwrap()
-            .octets(),
-    );
+    let maybe_address = machine.inner.address.parse::<IpNetwork>();
 
     std::mem::forget(machine);
-    ret
+
+    match maybe_address {
+        Ok(address) => match address {
+            IpNetwork::V4(address) => return u32::from_be_bytes(address.mask().octets()),
+            IpNetwork::V6(address) => {
+                error!(
+                    "Address ({}) is an IPv6 address, which is not supported.",
+                    address
+                );
+            }
+        },
+        Err(error) => {
+            error!(
+                "Address value in deserialized protobuf is not an IP Network: {0}",
+                error
+            );
+        }
+    };
+
+    0
 }
 
 /// Get the machine fqdn
@@ -250,11 +282,30 @@ pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let ret = u32::from_be_bytes("192.168.0.255".parse::<Ipv4Addr>().unwrap().octets());
+    let maybe_prefix = machine.inner.prefix.parse::<IpNetwork>();
 
+    // We parsed the prefix, so we can forget this memory
     std::mem::forget(machine);
 
-    ret
+    match maybe_prefix {
+        Ok(prefix) => match prefix {
+            IpNetwork::V4(prefix) => return u32::from_be_bytes(prefix.broadcast().octets()),
+            IpNetwork::V6(prefix) => {
+                error!(
+                    "Prefix ({}) is an IPv6 network, which is not supported.",
+                    prefix
+                );
+            }
+        },
+        Err(error) => {
+            error!(
+                "prefix value in deserialized protobuf is not an IP Network: {0}",
+                error
+            );
+        }
+    };
+
+    return 0;
 }
 
 #[no_mangle]
@@ -313,19 +364,30 @@ pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    // TODO: handle some errors
-    let ret = u32::from_be_bytes(
-        machine
-            .inner
-            .address_ipv4
-            .as_ref()
-            .map(|address| address.mask.parse::<Ipv4Addr>().unwrap())
-            .unwrap()
-            .octets(),
-    );
+    let maybe_prefix = machine.inner.prefix.parse::<IpNetwork>();
 
+    // We parsed the prefix, so we can forget this memory
     std::mem::forget(machine);
-    ret
+
+    match maybe_prefix {
+        Ok(prefix) => match prefix {
+            IpNetwork::V4(prefix) => return u32::from_be_bytes(prefix.mask().octets()),
+            IpNetwork::V6(prefix) => {
+                error!(
+                    "Prefix ({}) is an IPv6 network, which is not supported.",
+                    prefix
+                );
+            }
+        },
+        Err(error) => {
+            error!(
+                "prefix value in deserialized protobuf is not an IP Network: {0}",
+                error
+            );
+        }
+    };
+
+    return 0;
 }
 
 /// Free the Machine object.

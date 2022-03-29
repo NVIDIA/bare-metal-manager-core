@@ -1,59 +1,34 @@
-use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
+use super::{AddressSelectionStrategy, Machine, NetworkSegment, UuidKeyedObjectFilter};
+use crate::{
+    db::network_segment::IpAllocationError, db::MachineInterfaceAddress, CarbideError,
+    CarbideResult,
+};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
+use log::warn;
 use mac_address::MacAddress;
-use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row, Transaction};
+use rpc::v0 as rpc;
+use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
+use std::collections::HashMap;
 use uuid::Uuid;
 
-use rpc::v0 as rpc;
-
-use crate::{CarbideError, CarbideResult, Domain};
-
-use super::{AbsentSubnetStrategy, AddressSelectionStrategy, Machine, NetworkSegment};
-
-const SQL_VIOLATION_DUPLICATE_MAC: &str = "prevent_duplicate_mac_for_network";
+const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
 
 #[derive(Debug)]
 pub struct MachineInterface {
     id: uuid::Uuid,
-
     domain_id: Option<uuid::Uuid>,
     machine_id: uuid::Uuid,
     segment_id: uuid::Uuid,
-    hostname: String,
-
     mac_address: MacAddress,
+    hostname: String,
     primary_interface: bool,
-
-    address_ipv4: Option<Ipv4Addr>,
-    address_ipv6: Option<Ipv6Addr>,
+    addresses: Vec<MachineInterfaceAddress>,
 }
 
-impl<'r> sqlx::FromRow<'r, PgRow> for MachineInterface {
+impl<'r> FromRow<'r, PgRow> for MachineInterface {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let address_ipv4 = if let Some(address_ipv4) = row.try_get("address_ipv4")? {
-            Some(
-                crate::network_to_host_ipv4(address_ipv4)
-                    .map_err(|err| sqlx::Error::Protocol(err.to_string()))?,
-            )
-        } else {
-            None
-        };
-
-        let address_ipv6 = if let Some(address_ipv6) = row.try_get("address_ipv6")? {
-            Some(
-                crate::network_to_host_ipv6(address_ipv6)
-                    .map_err(|err| sqlx::Error::Protocol(err.to_string()))?,
-            )
-        } else {
-            None
-        };
-
         Ok(MachineInterface {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
@@ -62,8 +37,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for MachineInterface {
             hostname: row.try_get("hostname")?,
             mac_address: row.try_get("mac_address")?,
             primary_interface: row.try_get("primary_interface")?,
-            address_ipv4,
-            address_ipv6,
+            addresses: Vec::new(),
         })
     }
 }
@@ -76,11 +50,13 @@ impl From<MachineInterface> for rpc::MachineInterface {
             segment_id: Some(machine_interface.segment_id.into()),
             hostname: machine_interface.hostname.into(),
             domain_id: machine_interface.domain_id.map(|d| d.into()),
-
             mac_address: machine_interface.mac_address.to_string(),
             primary_interface: machine_interface.primary_interface.into(),
-            address_ipv4: machine_interface.address_ipv4.map(|a| a.to_string()),
-            address_ipv6: machine_interface.address_ipv6.map(|a| a.to_string()),
+            address: machine_interface
+                .addresses
+                .iter()
+                .map(|addr| addr.address.to_string())
+                .collect(),
         }
     }
 }
@@ -111,6 +87,10 @@ impl MachineInterface {
         Ok(self)
     }
 
+    pub fn addresses(&self) -> &Vec<MachineInterfaceAddress> {
+        &self.addresses
+    }
+
     pub async fn find_by_mac_address(
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
@@ -125,39 +105,16 @@ impl MachineInterface {
         )
     }
 
-    pub async fn find_by_network_segment(
-        txn: &mut Transaction<'_, Postgres>,
-        segment: &NetworkSegment,
-    ) -> CarbideResult<Vec<MachineInterface>> {
-        Ok(
-            sqlx::query_as("SELECT * FROM machine_interfaces mi WHERE mi.segment_id = $1")
-                .bind(segment.id())
-                .fetch_all(txn)
-                .await?,
-        )
-    }
-
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
-        ids: &[uuid::Uuid],
+        machine_ids: &[uuid::Uuid],
     ) -> CarbideResult<HashMap<uuid::Uuid, Vec<MachineInterface>>> {
-        let interfaces: Vec<MachineInterface> =
-            sqlx::query_as("SELECT * FROM machine_interfaces mi WHERE mi.machine_id=ANY($1)")
-                .bind(ids)
-                .fetch_all(&mut *txn)
-                .await?;
-
-        Ok(interfaces
-            .into_iter()
-            .into_group_map_by(|interface| interface.machine_id))
-    }
-
-    pub fn address_ipv4(&self) -> Option<&Ipv4Addr> {
-        self.address_ipv4.as_ref()
-    }
-
-    pub fn address_ipv6(&self) -> Option<&Ipv6Addr> {
-        self.address_ipv6.as_ref()
+        Ok(
+            MachineInterface::find_by(txn, UuidKeyedObjectFilter::List(machine_ids), "machine_id")
+                .await?
+                .into_iter()
+                .into_group_map_by(|interface| interface.machine_id),
+        )
     }
 
     pub async fn create(
@@ -168,79 +125,91 @@ impl MachineInterface {
         domain_id: Option<uuid::Uuid>,
         hostname: String,
         primary_interface: bool,
-        address_v4: &AddressSelectionStrategy<Ipv4Addr>,
-        address_v6: &AddressSelectionStrategy<Ipv6Addr>,
+        addresses: AddressSelectionStrategy<'_>,
     ) -> CarbideResult<Self> {
+        // We're potentially about to insert a couple rows, so create a savepoint.
+        let mut inner_txn = txn.begin().await?;
+
         // If either requested addresses are auto-generated, we lock the entire table.
-        if matches!(address_v4, AddressSelectionStrategy::Automatic(_))
-            || matches!(address_v6, AddressSelectionStrategy::Automatic(_))
-        {
-            sqlx::query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE")
-                .execute(&mut *txn)
-                .await?;
+        let allocated_addresses = match addresses {
+            AddressSelectionStrategy::Automatic => {
+                sqlx::query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE")
+                    .execute(&mut inner_txn)
+                    .await?;
+
+                //
+                // Get the next address for each prefix on this network segment.  Split the result
+                // list into successes and failures.
+                //
+                let (success, failures) = segment
+                    .next_address(&mut inner_txn)
+                    .await?
+                    .into_iter()
+                    .fold((vec![], vec![]), |(mut successes, mut failures), item| {
+                        match item {
+                            Ok(address) => successes.push(address),
+                            Err(error) => failures.push(error),
+                        };
+
+                        (successes, failures)
+                    });
+
+                //
+                // If there's any failures, join the errors together and return it wrapped in a new
+                // error type.
+                //
+                if !failures.is_empty() {
+                    return Err(CarbideError::NetworkSegmentsExhausted(
+                        failures
+                            .into_iter()
+                            .map(|failure| match failure {
+                                IpAllocationError::PrefixExhausted(prefix) => format!(
+                                    "Prefix: {0} ({1}) has exhausted all address space",
+                                    prefix.id, prefix.prefix
+                                ),
+                            })
+                            .join(", "),
+                    ));
+                } else {
+                    //
+                    // Otherwise just return the list of allocated IPs
+                    //
+                    success.into_iter().map(IpNetwork::from).collect_vec()
+                }
+            }
+            _ => vec![],
         };
 
-        let interfaces = Self::find_by_network_segment(&mut *txn, segment).await?;
-
-        let new_ipv4 = match address_v4 {
-            AddressSelectionStrategy::Empty => None,
-            AddressSelectionStrategy::Static(ip) => Some(*ip),
-            AddressSelectionStrategy::Automatic(ignore_absent) => {
-                match segment.next_ipv4(
-                    interfaces
-                        .iter()
-                        .filter_map(|interface| interface.address_ipv4()),
-                ) {
-                    Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
-                        if *ignore_absent == AbsentSubnetStrategy::Ignore =>
-                    {
-                        None
-                    }
-                    Err(x) => return Err(x),
-                    Ok(addr) => Some(addr),
-                }
-            }
-        }
-        .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
-
-        let new_ipv6 = match address_v6 {
-            AddressSelectionStrategy::Empty => None,
-            AddressSelectionStrategy::Static(ip) => Some(*ip),
-            AddressSelectionStrategy::Automatic(ignore_absent) => {
-                match segment.next_ipv6(
-                    interfaces
-                        .iter()
-                        .filter_map(|interface| interface.address_ipv6()),
-                ) {
-                    Err(CarbideError::NetworkSegmentMissingAddressFamilyError(_))
-                        if *ignore_absent == AbsentSubnetStrategy::Ignore =>
-                    {
-                        None
-                    }
-                    Err(x) => return Err(x),
-                    Ok(addr) => Some(addr),
-                }
-            }
-        }
-        .map(IpAddr::from); // IpAddr implements ToSql but the variants don't
-
-        Ok(sqlx::query_as("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, hostname, domain_id, primary_interface, address_ipv4, address_ipv6) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::varchar, $5::uuid, $6::bool, $7::inet, $8::inet) RETURNING *")
+        let interface_id: (Uuid,) = sqlx::query_as("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, hostname, domain_id, primary_interface) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::varchar, $5::uuid, $6::bool) RETURNING id")
             .bind(machine.id())
-            .bind(segment.id)
+            .bind(segment.id())
             .bind(macaddr)
             .bind(hostname)
             .bind(domain_id)
             .bind(primary_interface)
-            .bind(new_ipv4.map(IpNetwork::from))
-            .bind(new_ipv6.map(IpNetwork::from))
-            .fetch_one(&mut *txn).await
+            .fetch_one(&mut *inner_txn).await
             .map_err(|err: sqlx::Error| {
                 match err {
                     sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr),
                     sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) => CarbideError::OnePrimaryInterface,
                     _ => CarbideError::from(err)
                 }
-            })?)
+            })?;
+
+        for address in allocated_addresses {
+            sqlx::query("INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)")
+                .bind(&interface_id.0)
+                .bind(address)
+                .fetch_all(&mut *inner_txn).await?;
+        }
+
+        inner_txn.commit().await?;
+
+        Ok(
+            MachineInterface::find_by(txn, UuidKeyedObjectFilter::One(interface_id.0), "id")
+                .await?
+                .remove(0),
+        )
     }
 
     /// Get a reference to the machine interface's segment id.
@@ -254,5 +223,64 @@ impl MachineInterface {
 
     pub fn primary_interface(&self) -> bool {
         self.primary_interface
+    }
+
+    #[allow(clippy::needless_lifetimes)]
+    async fn find_by<'a>(
+        txn: &mut Transaction<'_, Postgres>,
+        filter: UuidKeyedObjectFilter<'_>,
+        column: &'a str,
+    ) -> CarbideResult<Vec<MachineInterface>> {
+        let base_query = "SELECT * FROM machine_interfaces mi {where}".to_owned();
+
+        let mut interfaces = match filter {
+            UuidKeyedObjectFilter::All => {
+                sqlx::query_as::<_, MachineInterface>(&base_query.replace("{where}", ""))
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+            UuidKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as::<_, MachineInterface>(
+                    &base_query
+                        .replace("{where}", "WHERE mi.{column}=$1")
+                        .replace("{column}", column),
+                )
+                .bind(uuid)
+                .fetch_all(&mut *txn)
+                .await?
+            }
+            UuidKeyedObjectFilter::List(list) => {
+                sqlx::query_as::<_, MachineInterface>(
+                    &base_query
+                        .replace("{where}", "WHERE mi.{column}=ANY($1)")
+                        .replace("{column}", column),
+                )
+                .bind(list)
+                .fetch_all(&mut *txn)
+                .await?
+            }
+        };
+
+        let mut addresses_for_interfaces = MachineInterfaceAddress::find_for_interface(
+            &mut *txn,
+            UuidKeyedObjectFilter::List(
+                interfaces
+                    .iter()
+                    .map(|interface| interface.id)
+                    .collect::<Vec<Uuid>>()
+                    .as_slice(),
+            ),
+        )
+        .await?;
+
+        interfaces.iter_mut().for_each(|interface| {
+            if let Some(addresses) = addresses_for_interfaces.remove(&interface.id) {
+                interface.addresses = addresses;
+            } else {
+                warn!("Interface {0} has no addresses", &interface.id);
+            }
+        });
+
+        Ok(interfaces)
     }
 }

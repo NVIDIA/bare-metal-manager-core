@@ -57,7 +57,7 @@ impl TryFrom<rpc::InstanceType> for NewInstanceType {
     type Error = CarbideError;
 
     fn try_from(value: rpc::InstanceType) -> Result<Self, Self::Error> {
-        if let Some(_) = value.id {
+        if value.id.is_some() {
             return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
                 "Instance Type",
             )));
@@ -77,7 +77,7 @@ impl TryFrom<rpc::InstanceType> for UpdateInstanceType {
         Ok(UpdateInstanceType {
             id: value
                 .id
-                .ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?
+                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
             short_name: value.short_name,
             description: value.description,
@@ -93,7 +93,7 @@ impl TryFrom<rpc::InstanceTypeDeletion> for DeactivateInstanceType {
         Ok(DeactivateInstanceType {
             id: value
                 .id
-                .ok_or_else(|| CarbideError::IdentifierNotSpecifiedForObject())?
+                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
         })
     }
@@ -120,7 +120,7 @@ impl From<InstanceType> for rpc::InstanceType {
 }
 
 impl From<InstanceType> for rpc::InstanceTypeDeletionResult {
-    fn from(src: InstanceType) -> Self {
+    fn from(_src: InstanceType) -> Self {
         rpc::InstanceTypeDeletionResult {}
     }
 }
