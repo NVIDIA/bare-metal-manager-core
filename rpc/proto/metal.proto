@@ -6,10 +6,10 @@ import "google/protobuf/timestamp.proto";
 package metal.v0;
 
 service Metal {
-	// Domain0
-	rpc CreateDomain(Domain) returns (Domain);
-	rpc UpdateDomain(Domain) returns (Domain);
-	rpc DeleteDomain(DomainDeletion) returns (DomainDeletionResult);
+  // Domain
+  rpc CreateDomain(Domain) returns (Domain);
+  rpc UpdateDomain(Domain) returns (Domain);
+  rpc DeleteDomain(DomainDeletion) returns (DomainDeletionResult);
 	// Projects
 	rpc CreateProject(Project) returns (Project);
 	rpc UpdateProject(Project) returns (Project);
@@ -47,6 +47,14 @@ service Metal {
 	rpc CreateInstanceType(InstanceType) returns (InstanceType);
 	rpc UpdateInstanceType(InstanceType) returns (InstanceType);
 	rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
+}
+
+message DnsRequest {
+	string query = 1;
+}
+
+message DnsReply {
+	string reply = 1;
 }
 
 message Domain {
