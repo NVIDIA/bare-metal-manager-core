@@ -268,7 +268,7 @@ CREATE OR REPLACE VIEW machine_dhcp_records AS (
 	machines.id as machine_id,
 	network_segments.id as segment_id,
 	network_segments.subdomain_id as subdomain_id,
-	machines.fqdn as fqdn,
+	COALESCE(machines.fqdn,'NOHOSTNAME') as fqdn,
 	machine_interfaces.mac_address as mac_address,
 	machine_interface_addresses.address as address,
 	network_segments.mtu as mtu,
