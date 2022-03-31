@@ -215,6 +215,21 @@ https://netbox.nvidia.com/dcim/racks/6496/
 | forge004   | 10.146.38.235 | 10.146.38.226 | 10.146.38.245 | 10.150.115.236 / 10.150.115.237  | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 | forge005   | 10.146.38.236 | 10.146.38.225 | 10.146.38.246 | 10.150.51.228 / 10.150.51.227    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 
+### BGP Info
+
+| Device_A_name   | Device_A_Nic | IP Address     | Device_A_Loopback | Device_A_ASN | Peer_IP	Peer  | ASN   |
+|-----------------|--------------|----------------|-------------------|--------------|----------------|-------|
+| sjc4-d32-nv-01  | dpu_nic0     | 10.150.51.200  | 10.145.0.80       | 65280        | 10.150.51.193  | 65240 |
+| sjc4-d32-nv-01  | dpu_nic1     | 10.150.115.200 | 10.145.0.81       | 65281        | 10.150.115.193 | 65240 |
+| sjc4-d32-nv-02  | dpu_nic0     | 10.150.51.201  | 10.145.0.82       | 65280        | 10.150.51.193  | 65240 |
+| sjc4-d32-nv-02  | dpu_nic1     | 10.150.115.201 | 10.145.0.83       | 65281        | 10.150.115.193 | 65240 |
+| sjc4-d32-nv-03  | dpu_nic0     | 10.150.51.202  | 10.145.0.84       | 65280        | 10.150.51.193  | 65240 |
+| sjc4-d32-nv-03  | dpu_nic1     | 10.150.115.202 | 10.145.0.85       | 65281        | 10.150.115.193 | 65240 |
+| sjc4-d32-cpu-01 | dpu_nic0     | 10.150.51.203  | 10.145.0.86       | 65280        | 10.150.51.193  | 65240 |
+| sjc4-d32-cpu-01 | dpu_nic1     | 10.150.115.203 | 10.145.0.87       | 65281        | 10.150.115.193 | 65240 |
+| sjc4-d32-cpu-02 | dpu_nic0     | 10.150.51.204  | 10.145.0.88       | 65280        | 10.150.51.193  | 65240 |
+| sjc4-d32-cpu-02 | dpu_nic1     | 10.150.115.204 | 10.145.0.89       | 65281        | 10.150.115.193 | 65240 |
+
 ### Connecting to DPU
 The DPU shares a physical 1GB ethernet connection for both BMC and OOB access.  
 This one interface has two different MAC addresses. So, while the physical 
