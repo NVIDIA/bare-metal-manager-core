@@ -1,7 +1,9 @@
-use crate::db::UuidKeyedObjectFilter;
-use crate::CarbideResult;
+use crate::db::{NetworkSegment, UuidKeyedObjectFilter};
+use crate::{CarbideError, CarbideResult};
 use ipnetwork::IpNetwork;
+use rpc::v0 as rpc;
 use sqlx::{Acquire, FromRow, Postgres, Transaction};
+use std::convert::TryFrom;
 use uuid::Uuid;
 
 #[derive(Debug, FromRow)]
@@ -18,6 +20,32 @@ pub struct NewNetworkPrefix {
     pub prefix: IpNetwork,
     pub gateway: Option<IpNetwork>,
     pub num_reserved: i32,
+}
+
+impl TryFrom<rpc::NetworkPrefix> for NewNetworkPrefix {
+    type Error = CarbideError;
+
+    fn try_from(value: rpc::NetworkPrefix) -> Result<Self, Self::Error> {
+        Ok(NewNetworkPrefix {
+            prefix: value.prefix.parse()?,
+            gateway: match value.gateway {
+                Some(g) => Some(g.parse()?),
+                None => None,
+            },
+            num_reserved: value.reserve_first,
+        })
+    }
+}
+
+impl From<NetworkPrefix> for rpc::NetworkPrefix {
+    fn from(src: NetworkPrefix) -> Self {
+        rpc::NetworkPrefix {
+            id: Some(src.id.into()),
+            prefix: src.prefix.to_string(),
+            gateway: src.gateway.map(|v| v.to_string()),
+            reserve_first: src.num_reserved,
+        }
+    }
 }
 
 impl NetworkPrefix {
