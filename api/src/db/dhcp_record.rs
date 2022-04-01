@@ -47,7 +47,7 @@ impl DhcpRecord {
         mac_address: &MacAddress,
         segment_id: &uuid::Uuid,
     ) -> CarbideResult<DhcpRecord> {
-        Ok(sqlx::query_as("SELECT * FROM machine_dhcp_responses WHERE mac_address = $1::macaddr AND segment_id = $2::uuid")
+        Ok(sqlx::query_as("SELECT * FROM machine_dhcp_records WHERE mac_address = $1::macaddr AND segment_id = $2::uuid")
             .bind(mac_address)
             .bind(segment_id)
             .fetch_one(&mut *txn).await?)

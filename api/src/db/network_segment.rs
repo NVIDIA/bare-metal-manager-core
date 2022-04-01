@@ -82,7 +82,11 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
                 None => None,
             },
             mtu: value.mtu,
-            prefixes: vec![],
+            prefixes: value
+                .prefixes
+                .into_iter()
+                .map(NewNetworkPrefix::try_from)
+                .collect::<Result<Vec<NewNetworkPrefix>, CarbideError>>()?,
         })
     }
 }
@@ -109,8 +113,11 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),
-
-            prefixes: vec![],
+            prefixes: src
+                .prefixes
+                .into_iter()
+                .map(rpc::NetworkPrefix::from)
+                .collect_vec(),
 
             // TODO(ajf): Projects aren't modeled yet so just return 0 UUID.
             project: Some(uuid::Uuid::nil().into()),
