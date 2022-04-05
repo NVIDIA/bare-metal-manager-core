@@ -74,7 +74,7 @@ order to recompile on changes.
 QEMU and UEFI firmware are required to PXE boot a VM using Carbide
 
 Arch - `pacman -S qemu edk2-ovmf`
-Ubuntu - `apt-get install qemu edk2-ovmf`
+Ubuntu - `apt-get install qemu ovmf`
 
 You might need to modify or create `/etc/qemu/bridge.conf` and add `allow carbide0`
 
@@ -102,6 +102,14 @@ In `dev/terraform` directory, run:
    docker run -v ${PWD}:/junk --rm hashicorp/terraform -chdir=/junk init
 ```
 
+When you down your docker compose environment, sometimes stale data can persist on volumes. 
+Be sure to use the `-v` flag to remove all the volumes so you do not end up with "odd" behavior
+
+```
+docker-compose down -v
+docker-compose up
+```
+
 ### Bootstrapping Carbide
 1. Create a domain -
 
@@ -112,9 +120,22 @@ grpcurl -d '{"name":"forge.local"}' -plaintext 127.0.0.1:80 metal.v0.Metal/Creat
 2. Create a new `networkSegment` using the id returned from domain step 1
 
 ```
-grpcurl -d '{"name":"test", "prefix_ipv4": "172.20.0.0/24", "prefix_ipv6": "::1/128", "mtu": 1490, "reserve_first_ipv4": 0, "reserve_first_ipv6": 0, "gateway_ipv4": "172.20.0.1", "subdomain_id": { "value":"<UUID From domain>"}}' -plaintext 127.0.0.1:80 metal.v0.Metal/CreateNetworkSegment
+grpcurl -d '{"name":"test", "mtu": 1490, "prefixes":[{"prefix":"172.20.0.0/24","gateway":"172.20.0.1","reserve_first":0}, {"prefix":"::1/128", "reserve_first":0}], "subdomain_id": { "value":"<UUID From domain>"}}' -plaintext 127.0.0.1:80 metal.v0.Metal/CreateNetworkSegment
 ```
 
+### Building the ephemeral image
+in the `pxe/` subdirectory, run `cargo make`
+
+```
+cargo make create-ephemeral-image
+```
+
+and this should make and populate a directory in `pxe/static` and should have the following files therein.
+
+```
+static/blobs/internal/x86_64/carbide.root
+static/blobs/internal/x86_64/carbide.efi
+```
 
 ### PXE Client
 
@@ -125,6 +146,8 @@ sudo qemu-system-x86_64 -boot n -nographic -serial mon:stdio -cpu host \
   -device virtio-net-pci,netdev=carbidevm \
   -bios /usr/share/ovmf/OVMF.fd
 ```
+
+In order to exit use `ctrl-a x` 
 
 While not needed for PXE, it is sometimes helpful to seed DB entries 
 for debugging SQL queries: 
