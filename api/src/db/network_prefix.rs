@@ -26,6 +26,12 @@ impl TryFrom<rpc::NetworkPrefix> for NewNetworkPrefix {
     type Error = CarbideError;
 
     fn try_from(value: rpc::NetworkPrefix) -> Result<Self, Self::Error> {
+        if let Some(_id) = value.id {
+            return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
+                "Network Prefix",
+            )));
+        }
+
         Ok(NewNetworkPrefix {
             prefix: value.prefix.parse()?,
             gateway: match value.gateway {
