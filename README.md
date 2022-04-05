@@ -207,7 +207,7 @@ https://docs.google.com/spreadsheets/d/1wbRW8zcw_rx05fgP6ThK288d0W_WRIVe6uErUpqT
 https://netbox.nvidia.com/dcim/racks/6496/
 
 
-| hostname   | DPU BMC IP    | DPU OOB IP    | HOST OOB IP   | HOST IP                          | DPU BMC Credentials | DPU OOB Credentials | ILO Creds             | Host OS Creds   |
+| hostname   | DPU BMC IP    | DPU OOB IP    | HOST OOB IP   | HOST IP                          | DPU BMC Credentials | DPU OOB Credentials | HOST OOB ILO Creds    | Host OS Creds   |
 | ---------- | ------------- | ------------- | ------------- | -------------------------------- | ------------------- | ------------------- | --------------------- | --------------  |
 | forge001   | 10.146.38.232 | 10.146.38.229 | 10.146.38.242 | 10.150.51.235 / 10.150.51.236    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 | forge002   | 10.146.38.233 | 10.146.38.228 | 10.146.38.243 | 10.150.115.234 / 10.150.115.245  | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
@@ -291,13 +291,27 @@ echo 'SUBSYSTEM=="net", ACTION=="add", NAME=="p1", RUN+="/sbin/ethtool -s p1 aut
 
 ```
 ethtool p0 | grep -P 'Speed|Auto'
-ethtool p1 | grep -P 'Speed|Auto'
+ethtool p1 | grep -P 'Speed|Auto';
 
 Output should look like this assuming it is connecting to a 25G port
 
 	Speed: 25000Mb/s
 	Auto-negotiation: on
 ```
+
+#### Connecting to the Host/X86 OOB Interface
+The OOB of the servers in this lab is HP ilo.  In order to connect to the OOB you will
+first need to setup ssh port forwarding, as there is no direct access from your workstation
+
+`ssh -D 1080 <login>@<some jump host>`
+
+After that connection is established, open a browser (I am using firefox)
+![firefox_proxy](dev/static/firefox_proxy.gif "Firefox")
+
+
+Once you have configured firefox to use the ssh connection as a SOCKS proxy, you can 
+put use the ip address of the host OOB. e.g. `https://<host OOB IP>` and which point
+the HP iLO interface should show up and you can login with the credentials shown above.
 
 
 ## Production containers on Quay.io
