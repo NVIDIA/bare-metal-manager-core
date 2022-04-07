@@ -159,7 +159,7 @@ pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
 
     match maybe_address {
         Ok(address) => match address {
-            IpNetwork::V4(address) => return u32::from_be_bytes(address.mask().octets()),
+            IpNetwork::V4(address) => return u32::from_be_bytes(address.ip().octets()),
             IpNetwork::V6(address) => {
                 error!(
                     "Address ({}) is an IPv6 address, which is not supported.",
@@ -250,7 +250,7 @@ pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let ret = u32::from_be_bytes("172.16.0.110".parse::<Ipv4Addr>().unwrap().octets());
+    let ret = u32::from_be_bytes("172.20.0.18".parse::<Ipv4Addr>().unwrap().octets());
 
     std::mem::forget(machine);
 
