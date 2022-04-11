@@ -2,8 +2,9 @@ use std::convert::TryFrom;
 
 use carbide::{
     db::{
-        DeactivateInstanceType, DhcpRecord, Machine, NetworkSegment, NewDomain, NewInstanceType,
-        NewNetworkSegment, NewProject, UpdateInstanceType, UpdateProject, UuidKeyedObjectFilter,
+        DeactivateInstanceType, DeleteProject, DhcpRecord, Machine, MachineInterface,
+        NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewProject,
+        UpdateInstanceType, UpdateProject, UuidKeyedObjectFilter,
     },
     CarbideError,
 };
@@ -16,7 +17,6 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 
 use self::rpc::metal_server::Metal;
 use crate::cfg;
-use carbide::db::DeleteProject;
 use rpc::v0 as rpc;
 use tonic_reflection::server::Builder;
 
@@ -59,11 +59,13 @@ impl Metal for Api {
             })
             .map(Response::new)
             .map_err(CarbideError::from)?)
+
+        // TODO(baz): I just noticed, does this txn need a commit?
     }
 
-    async fn discover_machine(
+    async fn discover_dhcp(
         &self,
-        request: Request<rpc::MachineDiscovery>,
+        request: Request<rpc::DhcpDiscovery>,
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
         let mut txn = self
             .database_connection
@@ -71,7 +73,7 @@ impl Metal for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::MachineDiscovery {
+        let rpc::DhcpDiscovery {
             mac_address,
             relay_address,
             ..
@@ -81,21 +83,73 @@ impl Metal for Api {
             .parse::<MacAddress>()
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
-        Machine::discover(&mut txn, parsed_mac, relay_address.parse().unwrap()).await?;
+        let parsed_relay = relay_address.parse().unwrap();
 
-        let network = NetworkSegment::for_relay(&mut txn, relay_address.parse().unwrap())
-            .await?
-            .unwrap();
+        let existing_machines =
+            Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
 
-        let response = Ok(Response::new(
-            DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, network.id())
-                .await?
-                .into(),
-        ));
+        match &existing_machines.len() {
+            0 => {
+                info!("No existing machine with mac address {} using network with relay: {}, creating one.", parsed_mac, parsed_relay);
+                MachineInterface::validate_existing_mac_and_create(
+                    &mut txn,
+                    parsed_mac,
+                    parsed_relay,
+                )
+                .await
+            }
+            1 => {
+                let mut ifcs = MachineInterface::find_by_mac_address(&mut txn, parsed_mac).await?;
+                match ifcs.len() {
+                    1 => Ok(ifcs.remove(0)),
+                    n => {
+                        warn!(
+                            "{0} existing mac address ({1}) for network segment (relay ip: {2})",
+                            n, &mac_address, &relay_address
+                        );
+                        Err(CarbideError::NetworkSegmentDuplicateMacAddress(parsed_mac))
+                    }
+                }
+            }
+            _ => {
+                warn!(
+                    "More than machine found with mac address ({0}) for network segment (relay ip: {1})",
+                    &mac_address, &relay_address
+                );
+                Err(CarbideError::NetworkSegmentDuplicateMacAddress(parsed_mac))
+            }
+        }?;
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        // There is some small bit of duplicated logic in the existing machines lookup and this.
+        // A lookup for the machine interface is done above and could be combined with this if there
+        // is a speed issue to overcome.
+        let response = match NetworkSegment::for_relay(&mut txn, parsed_relay).await? {
+            None => Err(CarbideError::NoNetworkSegmentsForRelay(parsed_relay).into()),
+            Some(network) => Ok(Response::new(
+                DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, network.id())
+                    .await?
+                    .into(),
+            )),
+        };
 
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
+    }
+
+    async fn discover_machine(
+        &self,
+        _request: Request<rpc::MachineDiscovery>,
+    ) -> Result<Response<rpc::Machine>, Status> {
+        todo!();
     }
 
     async fn find_network_segments(

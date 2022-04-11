@@ -63,14 +63,14 @@ impl TryFrom<Discovery> for Machine {
         runtime.block_on(async move {
             match rpc::metal_client::MetalClient::connect(url).await {
                 Ok(mut client) => {
-                    let request = tonic::Request::new(rpc::MachineDiscovery {
+                    let request = tonic::Request::new(rpc::DhcpDiscovery {
                         mac_address: discovery.mac_address.to_string(),
                         relay_address: discovery.relay_address.to_string(),
                         //vendor_string: discovery.vendor_string.unwrap().to_string(),
                     });
 
                     client
-                        .discover_machine(request)
+                        .discover_dhcp(request)
                         .await
                         .map(|response| Machine {
                             inner: response.into_inner(),

@@ -11,7 +11,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 ///
 #[derive(Debug, FromRow)]
 pub struct DhcpRecord {
-    machine_id: uuid::Uuid,
+    machine_id: Option<uuid::Uuid>,
     segment_id: uuid::Uuid,
     subdomain_id: Option<uuid::Uuid>,
 
@@ -28,7 +28,7 @@ pub struct DhcpRecord {
 impl From<DhcpRecord> for rpc::DhcpRecord {
     fn from(record: DhcpRecord) -> Self {
         Self {
-            machine_id: Some(record.machine_id.into()),
+            machine_id: record.machine_id.map(rpc::Uuid::from),
             segment_id: Some(record.segment_id.into()),
             subdomain_id: record.subdomain_id.map(rpc::Uuid::from),
             fqdn: record.fqdn,

@@ -1,15 +1,17 @@
-use super::{AddressSelectionStrategy, Machine, NetworkSegment, UuidKeyedObjectFilter};
+use super::{AddressSelectionStrategy, NetworkSegment, UuidKeyedObjectFilter};
+use crate::db::Machine;
 use crate::{
     db::network_segment::IpAllocationError, db::MachineInterfaceAddress, CarbideError,
     CarbideResult,
 };
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use log::warn;
+use log::{debug, warn};
 use mac_address::MacAddress;
 use rpc::v0 as rpc;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 use std::collections::HashMap;
+use std::net::IpAddr;
 use uuid::Uuid;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
@@ -19,7 +21,7 @@ const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_mac
 pub struct MachineInterface {
     id: uuid::Uuid,
     domain_id: Option<uuid::Uuid>,
-    machine_id: uuid::Uuid,
+    machine_id: Option<uuid::Uuid>,
     segment_id: uuid::Uuid,
     mac_address: MacAddress,
     hostname: String,
@@ -46,7 +48,7 @@ impl From<MachineInterface> for rpc::MachineInterface {
     fn from(machine_interface: MachineInterface) -> rpc::MachineInterface {
         rpc::MachineInterface {
             id: Some(machine_interface.id.into()),
-            machine_id: Some(machine_interface.machine_id.into()),
+            machine_id: machine_interface.machine_id.map(|v| v.into()),
             segment_id: Some(machine_interface.segment_id.into()),
             hostname: machine_interface.hostname.into(),
             domain_id: machine_interface.domain_id.map(|d| d.into()),
@@ -87,6 +89,33 @@ impl MachineInterface {
         Ok(self)
     }
 
+    pub async fn associate_interface_with_machine(
+        &mut self,
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &uuid::Uuid,
+    ) -> CarbideResult<Self> {
+        Ok(sqlx::query_as(
+            "UPDATE machine_interfaces SET machine_id=$1::uuid where id=$2::uuid RETURNING *",
+        )
+        .bind(machine_id)
+        .bind(self.id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|err: sqlx::Error| match err {
+            sqlx::Error::Database(e)
+                if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
+            {
+                CarbideError::OnePrimaryInterface
+            }
+            _ => CarbideError::from(err),
+        })?)
+    }
+
+    /// Returns the UUID of the machine object
+    pub fn id(&self) -> &uuid::Uuid {
+        &self.id
+    }
+
     pub fn addresses(&self) -> &Vec<MachineInterfaceAddress> {
         &self.addresses
     }
@@ -113,13 +142,61 @@ impl MachineInterface {
             MachineInterface::find_by(txn, UuidKeyedObjectFilter::List(machine_ids), "machine_id")
                 .await?
                 .into_iter()
-                .into_group_map_by(|interface| interface.machine_id),
+                .into_group_map_by(|interface| interface.machine_id.unwrap()),
         )
+    }
+    /// Do basic validating on existing macs and create the interface if it does not exist
+    pub async fn validate_existing_mac_and_create(
+        txn: &mut Transaction<'_, Postgres>,
+        mac_address: MacAddress,
+        relay: IpAddr,
+    ) -> CarbideResult<Self> {
+        let mut existing_mac = MachineInterface::find_by_mac_address(txn, mac_address).await?;
+        match &existing_mac.len() {
+            0 => {
+                debug!(
+                    "No existing mac address[{0}] exists yet, creating one.",
+                    mac_address
+                );
+                match NetworkSegment::for_relay(txn, relay).await? {
+                    None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
+                    Some(segment) => {
+                        // actually create the interface
+                        let v = MachineInterface::create(
+                            txn,
+                            &segment,
+                            &mac_address,
+                            None,
+                            Machine::generate_hostname_from_uuid(&uuid::Uuid::new_v4()),
+                            true,
+                            AddressSelectionStrategy::Automatic,
+                        )
+                        .await?;
+                        Ok(v)
+                    }
+                }
+            }
+            1 => {
+                debug!("An existing mac address[{0}] exists yet, validating the relay and returning it.", mac_address);
+                let mac = existing_mac.remove(0);
+                // Ensure the relay segment exists before blindly giving the mac address back out
+                match NetworkSegment::for_relay(txn, relay).await? {
+                    None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
+                    Some(_) => Ok(mac),
+                }
+            }
+            _ => {
+                warn!(
+                    "More than existing mac address ({0}) for network segment (relay ip: {1})",
+                    &mac_address, &relay
+                );
+                Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
+            }
+        }
     }
 
     pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
-        machine: &Machine,
         segment: &NetworkSegment,
         macaddr: &MacAddress,
         domain_id: Option<uuid::Uuid>,
@@ -180,8 +257,7 @@ impl MachineInterface {
             _ => vec![],
         };
 
-        let interface_id: (Uuid,) = sqlx::query_as("INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, hostname, domain_id, primary_interface) VALUES ($1::uuid, $2::uuid, $3::macaddr, $4::varchar, $5::uuid, $6::bool) RETURNING id")
-            .bind(machine.id())
+        let interface_id: (Uuid,) = sqlx::query_as("INSERT INTO machine_interfaces (segment_id, mac_address, hostname, domain_id, primary_interface) VALUES ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id")
             .bind(segment.id())
             .bind(macaddr)
             .bind(hostname)

@@ -1,6 +1,6 @@
 mod common;
 
-use carbide::db::{Domain, Machine, NewDomain, NewNetworkPrefix, NewNetworkSegment};
+use carbide::db::{Domain, MachineInterface, NewDomain, NewNetworkPrefix, NewNetworkSegment};
 
 use log::LevelFilter;
 
@@ -76,13 +76,21 @@ async fn return_existing_machine_on_rediscover() {
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
 
-    let new_machine = Machine::discover(&mut txn2, test_mac, "192.0.2.1".parse().unwrap())
-        .await
-        .expect("Unable to create machine");
+    let new_machine = MachineInterface::validate_existing_mac_and_create(
+        &mut txn2,
+        test_mac,
+        "192.0.2.1".parse().unwrap(),
+    )
+    .await
+    .expect("Unable to create machine");
 
-    let existing_machine = Machine::discover(&mut txn2, test_mac, "192.0.2.1".parse().unwrap())
-        .await
-        .expect("Unable to re-discover machine with same mac address");
+    let existing_machine = MachineInterface::validate_existing_mac_and_create(
+        &mut txn2,
+        test_mac,
+        "192.0.2.1".parse().unwrap(),
+    )
+    .await
+    .expect("Unable to re-discover machine with same mac address");
 
     assert_eq!(new_machine.id(), existing_machine.id());
 }

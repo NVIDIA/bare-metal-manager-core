@@ -1,17 +1,13 @@
 use std::str::FromStr;
 use std::sync::Once;
 
-use carbide::db::NewNetworkPrefix;
+use carbide::db::{MachineInterface, NewNetworkPrefix};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::Domain;
-use carbide::db::MachineInterfaceAddress;
-use carbide::db::NetworkSegment;
-use carbide::db::NewNetworkSegment;
-use carbide::db::{Machine, NewDomain};
+use carbide::db::{Domain, NetworkSegment, NewDomain, NewNetworkSegment};
 use carbide::CarbideResult;
 
 mod common;
@@ -72,7 +68,7 @@ async fn test_machine_discovery_no_domain() {
     .await
     .expect("Unable to create network segment");
 
-    let machine = Machine::discover(
+    let machineInterface = MachineInterface::validate_existing_mac_and_create(
         &mut txn2,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         "192.0.2.1".parse().unwrap(),
@@ -86,10 +82,7 @@ async fn test_machine_discovery_no_domain() {
     ];
 
     assert_eq!(
-        machine
-            .interfaces()
-            .first()
-            .unwrap()
+        machineInterface
             .addresses()
             .iter()
             .map(|address| address.address)
@@ -123,7 +116,7 @@ async fn test_machine_discovery_with_domain() {
         .await
         .expect("Could not find domain in DB");
 
-    let segment: NetworkSegment = NewNetworkSegment {
+    NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
@@ -145,7 +138,7 @@ async fn test_machine_discovery_with_domain() {
     .await
     .expect("Unable to create network segment");
 
-    let machine = Machine::discover(
+    let machineInterface = MachineInterface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         "192.0.2.1".parse().unwrap(),
@@ -159,10 +152,7 @@ async fn test_machine_discovery_with_domain() {
     ];
 
     assert_eq!(
-        machine
-            .interfaces()
-            .first()
-            .unwrap()
+        machineInterface
             .addresses()
             .iter()
             .map(|address| address.address)
@@ -171,13 +161,7 @@ async fn test_machine_discovery_with_domain() {
         wanted_ips.into_iter().sorted().collect::<Vec<IpNetwork>>()
     );
 
-    let interface = machine
-        .interfaces()
-        .iter()
-        .find(|i| i.segment_id() == segment.id)
-        .unwrap();
-
-    assert!(interface
+    assert!(machineInterface
         .addresses()
         .iter()
         .any(|item| item.address == "192.0.2.3".parse().unwrap()));

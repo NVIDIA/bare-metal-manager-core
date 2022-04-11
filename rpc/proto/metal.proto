@@ -34,7 +34,8 @@ service Metal {
 	rpc InvokeInstancePower(InstancePowerRequest) returns (InstancePowerResult);
 
 	// PRIVILEGED: Creates a new machine from nothing
-	rpc DiscoverMachine(MachineDiscovery) returns (DhcpRecord);
+	rpc DiscoverMachine(MachineDiscovery) returns (Machine);
+	rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
 
 	// PRIVILEGED: Get a single machine
 	rpc GetMachine(UUID) returns (Machine);
@@ -259,8 +260,11 @@ enum MachineAction {
 	UNASSIGN = 9;
 	RELEASE = 10;
 }
-
 message MachineDiscovery {
+	bytes topology = 1;
+}
+
+message DhcpDiscovery {
 	string mac_address = 1;
 	string relay_address = 2;
 }

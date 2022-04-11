@@ -1,15 +1,12 @@
 use std::str::FromStr;
 use std::sync::Once;
 
-use carbide::db::NewNetworkPrefix;
+use carbide::db::{MachineInterface, NewNetworkPrefix};
 
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::Domain;
-use carbide::db::NetworkSegment;
-use carbide::db::NewNetworkSegment;
-use carbide::db::{Machine, NewDomain};
+use carbide::db::{Domain, NetworkSegment, NewDomain, NewNetworkSegment};
 use carbide::CarbideResult;
 
 mod common;
@@ -82,9 +79,13 @@ async fn test_machine_dhcp() {
     let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
     let test_gateway_address = "192.0.2.1".parse().unwrap();
 
-    let _machine = Machine::discover(&mut txn2, test_mac_address, test_gateway_address)
-        .await
-        .expect("Unable to create machine");
+    let _machine = MachineInterface::validate_existing_mac_and_create(
+        &mut txn2,
+        test_mac_address,
+        test_gateway_address,
+    )
+    .await
+    .expect("Unable to create machine");
 
     txn.commit().await.unwrap();
 

@@ -1,4 +1,4 @@
-use crate::db::{NetworkSegment, UuidKeyedObjectFilter};
+use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 use ipnetwork::IpNetwork;
 use rpc::v0 as rpc;

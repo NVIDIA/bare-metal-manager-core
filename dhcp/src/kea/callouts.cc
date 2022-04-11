@@ -205,10 +205,12 @@ extern "C" {
 			option_vendor->delOption(70);
 		}
 		char *machine_uuid = machine_get_uuid(machine);
-		vendor_option_70.reset(new OptionString(Option::V4, 70, machine_uuid));
-		option_vendor->addOption(vendor_option_6);
-		option_vendor->addOption(vendor_option_70);
-		response4_ptr->addOption(option_vendor);
+        if (strlen(machine_uuid) > 0) {
+            vendor_option_70.reset(new OptionString(Option::V4, 70, machine_uuid));
+            option_vendor->addOption(vendor_option_6);
+            option_vendor->addOption(vendor_option_70);
+            response4_ptr->addOption(option_vendor);
+        }
 
 		LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND).arg(response4_ptr->toText());
 
