@@ -120,7 +120,7 @@ grpcurl -d '{"name":"forge.local"}' -plaintext 127.0.0.1:80 metal.v0.Metal/Creat
 2. Create a new `networkSegment` using the id returned from domain step 1
 
 ```
-grpcurl -d '{"name":"test", "mtu": 1490, "prefixes":[{"prefix":"172.20.0.0/24","gateway":"172.20.0.1","reserve_first":20}, {"prefix":"::1/128", "reserve_first":20}], "subdomain_id": { "value":"<UUID From domain>"}}' -plaintext 127.0.0.1:80 metal.v0.Metal/CreateNetworkSegment
+grpcurl -d '{"name":"test", "mtu": 1490, "prefixes":[{"prefix":"172.20.0.0/24","gateway":"172.20.0.1","reserve_first":20}, {"prefix":"::1/128", "reserve_first":0}], "subdomain_id": { "value":"<UUID From domain>"}}' -plaintext 127.0.0.1:80 metal.v0.Metal/CreateNetworkSegment
 ```
 
 ### Building the ephemeral image
