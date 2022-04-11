@@ -10,10 +10,11 @@ service Metal {
   rpc CreateDomain(Domain) returns (Domain);
   rpc UpdateDomain(Domain) returns (Domain);
   rpc DeleteDomain(DomainDeletion) returns (DomainDeletionResult);
-  // Projects
+  // VPC
   rpc CreateVpc(Vpc) returns (Vpc);
   rpc UpdateVpc(Vpc) returns (Vpc);
   rpc DeleteVpc(VpcDeletion) returns (VpcDeletionResult);
+  rpc FindVpc(VpcSearchQuery) returns (VpcList);
 
   // Segments - i.e. Overlay Networks
   rpc FindNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
@@ -57,6 +58,10 @@ message DnsReply {
   string reply = 1;
 }
 
+message DomainsList {
+  repeated Domain domains = 1;
+}
+
 message Domain {
   UUID id = 1;
   string name = 2;
@@ -91,6 +96,11 @@ message UUID {
   string value = 1;
 }
 
+message VpcSearchQuery {
+  optional UUID id = 1;
+  optional string name = 2;
+}
+
 message Vpc {
   UUID id = 1;
   string name = 2;
@@ -108,9 +118,13 @@ message VpcDeletion {
 message VpcDeletionResult {
 }
 
+message VpcList {
+  repeated Vpc vpcs = 1;
+}
+
 message NetworkSegment {
   UUID id = 1;
-  UUID project = 2;
+  UUID vpc = 2;
 
   string name = 3;
 

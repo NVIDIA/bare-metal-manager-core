@@ -104,7 +104,9 @@ impl DnsServer {
                 todo!()
             }
             Err(err) => {
-                panic!("Unable to connect to carbide-api at {:?}", err);
+                let error_message = format!("Unable to connect to carbide-api at: {}", &url);
+                error!("{}", error_message);
+                panic!("{}", error_message);
             }
         }
 
