@@ -61,6 +61,8 @@ services:
       - .:/app/code
       - ca-certificate:/identity
     command: cargo watch -C api -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
+    ports:
+      - 1079:1079
 
   carbide-pxe:
     depends_on:

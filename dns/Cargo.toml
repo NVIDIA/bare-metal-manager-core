@@ -1,0 +1,33 @@
+[package]
+name = "carbide-dns"
+version = "0.0.1"
+edition = "2021"
+description = "Carbide is bare metal provisioning system with auto-discovery and API based machine manipulation"
+
+
+[[bin]]
+name = "carbide-dns"
+path = "src/main.rs"
+
+[dependencies]
+rpc = { path = "../rpc" }
+#carbide-api = { path = "../api"}
+
+tonic = { version = "0.6", features = ["tls"] }
+async-trait = "0.1.43"
+sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros" ]}
+tokio = { version = "1.9", features = ["full"] }
+trust-dns-server = { version = "0.21.1" }
+futures = "0.3"
+color-eyre = "0.5.11"
+pretty_env_logger = "*"
+log = { version = "*" }
+
+clap = { version = "~3.0.0", features = ["derive"]}
+
+thiserror = "1.0"
+itertools = "*"
+
+
+[dev-dependencies]
+rstest = "*"
