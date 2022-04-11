@@ -42,7 +42,7 @@ async fn test_machine_rename() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let new_machine = Machine::create(&mut txn)
+    Machine::create(&mut txn)
         .await
         .expect("Unable to create machine");
 
@@ -83,7 +83,6 @@ async fn test_machine_rename() {
 
     let mut machine_interface = MachineInterface::create(
         &mut txn2,
-        &new_machine,
         &new_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         None,

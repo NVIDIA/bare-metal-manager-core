@@ -227,7 +227,7 @@ CREATE UNIQUE INDEX network_prefix_family ON network_prefixes (family(prefix), s
 CREATE TABLE machine_interfaces(
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
 
-	machine_id uuid NOT NULL,
+	machine_id uuid,
 	segment_id uuid NOT NULL,
 
 	mac_address macaddr NOT NULL,
@@ -274,8 +274,8 @@ CREATE OR REPLACE VIEW machine_dhcp_records AS (
 	network_segments.mtu as mtu,
 	network_prefixes.prefix as prefix,
 	network_prefixes.gateway as gateway
-	FROM machines
-	INNER JOIN machine_interfaces ON machines.id=machine_interfaces.machine_id
+	FROM machine_interfaces
+	LEFT JOIN machines ON machine_interfaces.machine_id=machines.id
 	INNER JOIN network_segments ON network_segments.id=machine_interfaces.segment_id
 	INNER JOIN network_prefixes ON network_prefixes.segment_id=network_segments.id
 	INNER JOIN machine_interface_addresses ON machine_interface_addresses.interface_id=machine_interfaces.id
