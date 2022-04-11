@@ -2,9 +2,9 @@ use std::convert::TryFrom;
 
 use carbide::{
     db::{
-        DeactivateInstanceType, DeleteProject, DhcpRecord, Machine, MachineInterface,
-        NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewProject,
-        UpdateInstanceType, UpdateProject, UuidKeyedObjectFilter,
+        DeactivateInstanceType, DeleteVpc, DhcpRecord, Machine, MachineInterface, NetworkSegment,
+        NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType, UpdateVpc,
+        UuidKeyedObjectFilter,
     },
     CarbideError,
 };
@@ -46,7 +46,7 @@ impl Metal for Api {
                     return Err(Status::invalid_argument(format!(
                         "Supplied invalid UUID: {}",
                         err
-                    )))
+                    )));
                 }
             },
             _ => UuidKeyedObjectFilter::All,
@@ -249,20 +249,17 @@ impl Metal for Api {
         todo!()
     }
 
-    async fn create_project(
-        &self,
-        request: Request<rpc::Project>,
-    ) -> Result<Response<rpc::Project>, Status> {
+    async fn create_vpc(&self, request: Request<rpc::Vpc>) -> Result<Response<rpc::Vpc>, Status> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(NewProject::try_from(request.into_inner())?
+        let response = Ok(NewVpc::try_from(request.into_inner())?
             .persist(&mut txn)
             .await
-            .map(rpc::Project::from)
+            .map(rpc::Vpc::from)
             .map(Response::new)?);
 
         txn.commit().await.map_err(CarbideError::from)?;
@@ -270,20 +267,17 @@ impl Metal for Api {
         response
     }
 
-    async fn update_project(
-        &self,
-        request: Request<rpc::Project>,
-    ) -> Result<Response<rpc::Project>, Status> {
+    async fn update_vpc(&self, request: Request<rpc::Vpc>) -> Result<Response<rpc::Vpc>, Status> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(UpdateProject::try_from(request.into_inner())?
+        let response = Ok(UpdateVpc::try_from(request.into_inner())?
             .update(&mut txn)
             .await
-            .map(rpc::Project::from)
+            .map(rpc::Vpc::from)
             .map(Response::new)?);
 
         txn.commit().await.map_err(CarbideError::from)?;
@@ -291,20 +285,20 @@ impl Metal for Api {
         response
     }
 
-    async fn delete_project(
+    async fn delete_vpc(
         &self,
-        request: Request<rpc::ProjectDeletion>,
-    ) -> Result<Response<rpc::ProjectDeletionResult>, Status> {
+        request: Request<rpc::VpcDeletion>,
+    ) -> Result<Response<rpc::VpcDeletionResult>, Status> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(DeleteProject::try_from(request.into_inner())?
+        let response = Ok(DeleteVpc::try_from(request.into_inner())?
             .delete(&mut txn)
             .await
-            .map(rpc::ProjectDeletionResult::from)
+            .map(rpc::VpcDeletionResult::from)
             .map(Response::new)?);
 
         txn.commit().await.map_err(CarbideError::from)?;

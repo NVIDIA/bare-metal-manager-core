@@ -1,15 +1,16 @@
-use crate::{CarbideError, CarbideResult};
-use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row};
 use std::convert::{TryFrom, TryInto};
-use uuid::Uuid;
 
 use chrono::prelude::*;
+use sqlx::postgres::PgRow;
+use sqlx::{Postgres, Row};
+use uuid::Uuid;
 
 use rpc::v0 as rpc;
 
+use crate::{CarbideError, CarbideResult};
+
 #[derive(Clone, Debug)]
-pub struct Project {
+pub struct Vpc {
     pub id: Uuid,
     pub name: String,
     pub organization_id: Option<Uuid>,
@@ -19,26 +20,26 @@ pub struct Project {
 }
 
 #[derive(Clone, Debug)]
-pub struct NewProject {
+pub struct NewVpc {
     pub name: String,
     pub organization: Option<Uuid>,
 }
 
 #[derive(Clone, Debug)]
-pub struct UpdateProject {
+pub struct UpdateVpc {
     pub id: Uuid,
     pub name: String,
     pub organization: Option<Uuid>,
 }
 
 #[derive(Clone, Debug)]
-pub struct DeleteProject {
+pub struct DeleteVpc {
     pub id: Uuid,
 }
 
-impl<'r> sqlx::FromRow<'r, PgRow> for Project {
+impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(Project {
+        Ok(Vpc {
             id: row.try_get("id")?,
             name: row.try_get("name")?,
             organization_id: row.try_get("organization_id")?,
@@ -49,24 +50,21 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Project {
     }
 }
 
-impl NewProject {
-    pub async fn persist(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<Project> {
-        Ok(sqlx::query_as(
-            "INSERT INTO projects (name, organization_id) VALUES ($1, $2) RETURNING *",
+impl NewVpc {
+    pub async fn persist(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vpc> {
+        Ok(
+            sqlx::query_as("INSERT INTO vpcs (name, organization_id) VALUES ($1, $2) RETURNING *")
+                .bind(&self.name)
+                .bind(&self.organization)
+                .fetch_one(&mut *txn)
+                .await?,
         )
-        .bind(&self.name)
-        .bind(&self.organization)
-        .fetch_one(&mut *txn)
-        .await?)
     }
 }
 
-impl From<Project> for rpc::Project {
-    fn from(src: Project) -> Self {
-        rpc::Project {
+impl From<Vpc> for rpc::Vpc {
+    fn from(src: Vpc) -> Self {
+        rpc::Vpc {
             id: Some(src.id.into()),
             name: src.name,
             organization: src.organization_id.map(rpc::Uuid::from),
@@ -86,16 +84,16 @@ impl From<Project> for rpc::Project {
     }
 }
 
-impl TryFrom<rpc::Project> for NewProject {
+impl TryFrom<rpc::Vpc> for NewVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::Project) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::Vpc) -> Result<Self, Self::Error> {
         if value.id.is_some() {
             return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
-                "Project",
+                "VPC",
             )));
         }
-        Ok(NewProject {
+        Ok(NewVpc {
             name: value.name,
             organization: match value.organization {
                 Some(v) => Some(uuid::Uuid::try_from(v)?),
@@ -105,11 +103,11 @@ impl TryFrom<rpc::Project> for NewProject {
     }
 }
 
-impl TryFrom<rpc::Project> for UpdateProject {
+impl TryFrom<rpc::Vpc> for UpdateVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::Project) -> Result<Self, Self::Error> {
-        Ok(UpdateProject {
+    fn try_from(value: rpc::Vpc) -> Result<Self, Self::Error> {
+        Ok(UpdateVpc {
             id: value
                 .id
                 .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
@@ -123,11 +121,11 @@ impl TryFrom<rpc::Project> for UpdateProject {
     }
 }
 
-impl TryFrom<rpc::ProjectDeletion> for DeleteProject {
+impl TryFrom<rpc::VpcDeletion> for DeleteVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::ProjectDeletion) -> Result<Self, Self::Error> {
-        Ok(DeleteProject {
+    fn try_from(value: rpc::VpcDeletion) -> Result<Self, Self::Error> {
+        Ok(DeleteVpc {
             id: value
                 .id
                 .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
@@ -136,35 +134,32 @@ impl TryFrom<rpc::ProjectDeletion> for DeleteProject {
     }
 }
 
-impl From<Project> for rpc::ProjectDeletionResult {
-    fn from(_src: Project) -> Self {
-        rpc::ProjectDeletionResult {}
+impl From<Vpc> for rpc::VpcDeletionResult {
+    fn from(_src: Vpc) -> Self {
+        rpc::VpcDeletionResult {}
     }
 }
 
-impl UpdateProject {
-    pub async fn update(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<Project> {
-        Ok(sqlx::query_as("UPDATE projects SET name=$1, organization_id=$2, updated=NOW() WHERE id=$3 RETURNING *")
-            .bind(&self.name)
-            .bind(&self.organization)
-            .bind(&self.id)
-            .fetch_one(&mut *txn).await?)
-    }
-}
-
-impl DeleteProject {
-    pub async fn delete(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<Project> {
+impl UpdateVpc {
+    pub async fn update(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vpc> {
         Ok(sqlx::query_as(
-            "UPDATE projects SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
+            "UPDATE vpcs SET name=$1, organization_id=$2, updated=NOW() WHERE id=$3 RETURNING *",
         )
+        .bind(&self.name)
+        .bind(&self.organization)
         .bind(&self.id)
         .fetch_one(&mut *txn)
         .await?)
+    }
+}
+
+impl DeleteVpc {
+    pub async fn delete(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vpc> {
+        Ok(
+            sqlx::query_as("UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *")
+                .bind(&self.id)
+                .fetch_one(&mut *txn)
+                .await?,
+        )
     }
 }

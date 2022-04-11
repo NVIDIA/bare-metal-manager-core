@@ -1,21 +1,5 @@
 //use std::str::FromStr;
 
-pub mod migrations;
-
-mod address_selection_strategy;
-mod dhcp_record;
-mod domain;
-mod instance_type;
-mod machine;
-mod machine_action;
-mod machine_event;
-mod machine_interface;
-mod machine_interface_address;
-mod machine_state;
-mod network_prefix;
-mod network_segment;
-mod project;
-
 pub use address_selection_strategy::AddressSelectionStrategy;
 pub use dhcp_record::DhcpRecord;
 pub use domain::{Domain, NewDomain};
@@ -30,7 +14,23 @@ pub use machine_interface_address::MachineInterfaceAddress;
 pub use machine_state::MachineState;
 pub use network_prefix::{NetworkPrefix, NewNetworkPrefix};
 pub use network_segment::{IpAllocationResult, NetworkSegment, NewNetworkSegment};
-pub use project::{DeleteProject, NewProject, Project, UpdateProject};
+pub use vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
+
+pub mod migrations;
+
+mod address_selection_strategy;
+mod dhcp_record;
+mod domain;
+mod instance_type;
+mod machine;
+mod machine_action;
+mod machine_event;
+mod machine_interface;
+mod machine_interface_address;
+mod machine_state;
+mod network_prefix;
+mod network_segment;
+mod vpc;
 
 ///
 /// A parameter to find() to filter machines by Uuid;

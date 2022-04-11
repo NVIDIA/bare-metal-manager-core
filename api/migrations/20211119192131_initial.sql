@@ -314,8 +314,8 @@ AFTER INSERT OR UPDATE
 ON machine_interfaces
 FOR EACH row EXECUTE PROCEDURE update_fqdn();
 
-DROP TABLE IF EXISTS projects;
-CREATE TABLE projects(
+DROP TABLE IF EXISTS vpcs;
+CREATE TABLE vpcs(
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
 	name VARCHAR NOT NULL UNIQUE,
 	organization_id uuid,
