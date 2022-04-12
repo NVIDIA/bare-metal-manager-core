@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use chrono::prelude::*;
 use sqlx::types::uuid;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
@@ -137,6 +137,17 @@ impl Domain {
                 .fetch_one(&mut *txn)
                 .await?,
         )
+    }
+
+    pub async fn find_by_vpc(
+        txn: &mut Transaction<'_, Postgres>,
+        vpc_id: uuid::Uuid, // aka projects for now 4/7/2022
+    ) -> CarbideResult<Vec<Self>> {
+        let results: Vec<Self> = sqlx::query_as("SELECT * FROM domains where project_id = $1")
+            .bind(&vpc_id)
+            .fetch_all(&mut *txn)
+            .await?;
+        Ok(results)
     }
 
     pub async fn find_by_name(

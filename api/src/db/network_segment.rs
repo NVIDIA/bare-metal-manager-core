@@ -119,8 +119,8 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
                 .map(rpc::NetworkPrefix::from)
                 .collect_vec(),
 
-            // TODO(ajf): Projects aren't modeled yet so just return 0 UUID.
-            project: Some(uuid::Uuid::nil().into()),
+            // TODO(ajf): VPC aren't modeled yet so just return 0 UUID.
+            vpc: Some(uuid::Uuid::nil().into()),
         }
     }
 }

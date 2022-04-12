@@ -1,7 +1,7 @@
 use log::LevelFilter;
 use uuid::Uuid;
 
-use carbide::db::{DeleteVpc, UpdateVpc};
+use carbide::db::{DeleteVpc, UpdateVpc, UuidKeyedObjectFilter};
 use carbide::{
     db::{NewVpc, Vpc},
     CarbideResult,
@@ -74,4 +74,38 @@ async fn create_vpc() {
 
     assert!(matches!(vpc, _Vpc));
     assert!(vpc.deleted.is_some());
+}
+
+#[tokio::test]
+async fn find_vpc_by_id() {
+    let db = TestDatabaseManager::new()
+        .await
+        .expect("Could not create database manager");
+
+    let mut txn = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let vpc: CarbideResult<Vpc> = NewVpc {
+        name: "Metal no Org".to_string(),
+        organization: None,
+    }
+    .persist(&mut txn)
+    .await;
+
+    txn.commit().await.unwrap();
+
+    let mut txn2 = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let unwrapped = &vpc.unwrap();
+
+    let some_vpc = Vpc::find(&mut txn2, UuidKeyedObjectFilter::One(unwrapped.id)).await;
+
+    assert!(matches!(some_vpc, unwrapped));
 }

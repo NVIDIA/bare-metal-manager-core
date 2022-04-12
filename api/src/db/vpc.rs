@@ -2,11 +2,12 @@ use std::convert::{TryFrom, TryInto};
 
 use chrono::prelude::*;
 use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row};
+use sqlx::{Error, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
 
+use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Clone, Debug)]
@@ -37,6 +38,12 @@ pub struct DeleteVpc {
     pub id: Uuid,
 }
 
+#[derive(Clone, Debug)]
+pub struct VpcSearchQuery {
+    pub id: Option<uuid::Uuid>,
+    pub string: Option<String>,
+}
+
 impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(Vpc {
@@ -59,6 +66,35 @@ impl NewVpc {
                 .fetch_one(&mut *txn)
                 .await?,
         )
+    }
+}
+
+impl Vpc {
+    pub async fn find(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        filter: UuidKeyedObjectFilter<'_>,
+    ) -> CarbideResult<Vec<Vpc>> {
+        let mut results: Vec<Vpc> = match filter {
+            UuidKeyedObjectFilter::All => {
+                sqlx::query_as("SELECT * FROM vpcs RETURNING *")
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+            UuidKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as("SELECT * FROM vpcs WHERE id = $1 RETURNING *")
+                    .bind(uuid)
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+            UuidKeyedObjectFilter::List(list) => {
+                sqlx::query_as("select * from vpcs WHERE id = ANY($1)")
+                    .bind(list)
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+        };
+
+        Ok(results)
     }
 }
 

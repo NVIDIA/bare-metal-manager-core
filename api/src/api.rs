@@ -1,24 +1,25 @@
 use std::convert::TryFrom;
 
+use color_eyre::Report;
+use log::{debug, error, info, trace, warn, LevelFilter};
+use mac_address::MacAddress;
+use tonic::{Request, Response, Status};
+use tonic_reflection::server::Builder;
+
+use carbide::db::Vpc;
 use carbide::{
     db::{
-        DeactivateInstanceType, DeleteVpc, DhcpRecord, Machine, MachineInterface, NetworkSegment,
-        NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType, UpdateVpc,
-        UuidKeyedObjectFilter,
+        DeactivateInstanceType, DeleteVpc, DhcpRecord, Domain, Machine, MachineInterface,
+        NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType,
+        UpdateVpc, UuidKeyedObjectFilter,
     },
     CarbideError,
 };
-use color_eyre::Report;
-use mac_address::MacAddress;
-use tonic::{Request, Response, Status};
+use rpc::v0 as rpc;
 
-#[allow(unused_imports)]
-use log::{debug, error, info, trace, warn, LevelFilter};
+use crate::cfg;
 
 use self::rpc::metal_server::Metal;
-use crate::cfg;
-use rpc::v0 as rpc;
-use tonic_reflection::server::Builder;
 
 #[derive(Debug)]
 pub struct Api {
@@ -27,6 +28,42 @@ pub struct Api {
 
 #[tonic::async_trait]
 impl Metal for Api {
+    async fn find_vpc(
+        &self,
+        request: Request<rpc::VpcSearchQuery>,
+    ) -> Result<Response<rpc::VpcList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::VpcSearchQuery { id, .. } = request.into_inner();
+
+        let _uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => UuidKeyedObjectFilter::All,
+        };
+
+        let result = Vpc::find(&mut txn, _uuid)
+            .await
+            .map(|vpc| rpc::VpcList {
+                vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
+    }
+
     async fn find_machines(
         &self,
         request: Request<rpc::MachineSearchQuery>,
