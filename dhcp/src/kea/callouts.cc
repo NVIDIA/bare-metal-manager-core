@@ -55,7 +55,7 @@ extern "C" {
 		}
 
 		/*
-		 * Extract the "client architecture" - DHCP option 60 from the
+		 * Extract the "client architecture" - DHCP option 93 from the
 		 * packet, which will tell us what the booting architecture is
 		 * in order to figure out which filname to give back
 		 */
@@ -185,6 +185,15 @@ extern "C" {
 			option_filename.reset(new OptionString(Option::V4, DHO_BOOT_FILE_NAME, filename));
 			response4_ptr->addOption(option_filename);
 		}
+
+		OptionPtr option_vendor_class = response4_ptr->getOption(DHO_VENDOR_CLASS_IDENTIFIER);
+		if (option_vendor_class) {
+			response4_ptr->delOption(DHO_VENDOR_CLASS_IDENTIFIER);
+		}
+		// Hard coding this to HTTPClient ensures that only PXE via HTTP will work. We may need to revisit
+		// this in the future to support TFTP, but that is not the case today.
+		option_vendor_class.reset(new OptionString(Option::V4, DHO_VENDOR_CLASS_IDENTIFIER, "HTTPClient"));
+		response4_ptr->addOption(option_vendor_class);
 
 		/*
 		 * Encapsulate some PXE options in the vendor encapsulated

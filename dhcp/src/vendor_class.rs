@@ -30,11 +30,13 @@ impl FromStr for MachineArchitecture {
     type Err = VendorClassParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match u32::from_str_radix(s, 16) {
-            // Is this actually base 16?
-            Ok(0x0) => Ok(MachineArchitecture::BiosX86),
-            Ok(0x7) => Ok(MachineArchitecture::EfiX64),
-            Ok(0xa) => Ok(MachineArchitecture::Arm64),
+        match s.parse() {
+            // This is base 10 represented by the long vendor class
+            Ok(0) => Ok(MachineArchitecture::BiosX86),
+            Ok(7) => Ok(MachineArchitecture::EfiX64),
+            Ok(10) => Ok(MachineArchitecture::Arm64),
+            Ok(16) => Ok(MachineArchitecture::EfiX64), // HTTP version
+            Ok(18) => Ok(MachineArchitecture::Arm64), // HTTP version
             Ok(_) => Err(VendorClassParseError::UnsupportedArchitecture), // Unknown
             Err(_) => Err(VendorClassParseError::InvalidFormat),          // Better Error
         }
@@ -52,6 +54,10 @@ impl VendorClass {
 
     pub fn arm(&self) -> bool {
         self.client_architecture == MachineArchitecture::Arm64
+    }
+
+    pub fn x64(&self) -> bool {
+        self.client_architecture == MachineArchitecture::EfiX64
     }
 
     pub fn is_it_modern(&self) -> bool {
@@ -136,7 +142,7 @@ mod tests {
 
     #[test]
     fn is_it_arm() {
-        let vc: VendorClass = "PXEClient:Arch:0000a:UNDI:003000".parse().unwrap();
+        let vc: VendorClass = "PXEClient:Arch:00010:UNDI:003000".parse().unwrap();
         assert!(vc.arm());
     }
 
@@ -148,15 +154,22 @@ mod tests {
 
     #[test]
     fn is_it_modern() {
-        let vc: VendorClass = "HTTPClient:Arch:0000a:UNDI:003000".parse().unwrap();
+        let vc: VendorClass = "HTTPClient:Arch:00010:UNDI:003000".parse().unwrap();
         assert!(vc.is_it_modern());
     }
 
     #[test]
     fn it_is_http_capable() {
-        let vc: VendorClass = "HTTPClient:Arch:00007:UNDI:003000".parse().unwrap();
+        let vc: VendorClass = "HTTPClient:Arch:00016:UNDI:003001".parse().unwrap();
         assert!(vc.http());
         assert!(!vc.pxe());
+    }
+
+    #[test]
+    fn it_is_http_and_not_arm() {
+        let vc: VendorClass = "HTTPClient:Arch:00016:UNDI:003001".parse().unwrap();
+        assert!(vc.http());
+        assert!(vc.x64());
     }
 
     #[test]
@@ -174,7 +187,7 @@ mod tests {
 
     #[test]
     fn it_formats_the_parser_armuefi() {
-        let vc: VendorClass = "HTTPClient:Arch:0000a:UNDI:003000".parse().unwrap();
+        let vc: VendorClass = "HTTPClient:Arch:00010:UNDI:003000".parse().unwrap();
         assert_eq!(vc.to_string(), "ARM 64-bit UEFI (HTTP Client)");
     }
 
