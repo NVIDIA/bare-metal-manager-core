@@ -124,17 +124,26 @@ grpcurl -d '{"name":"test", "mtu": 1490, "prefixes":[{"prefix":"172.20.0.0/24","
 ```
 
 ### Building the ephemeral image
-in the `pxe/` subdirectory, run `cargo make`
+in the `pxe/` subdirectory, run `cargo make`. You may need to install `liblzma-dev` and `gcc-aarch64-linux-gnu`
 
 ```
+cargo make ipxe
 cargo make create-ephemeral-image
 ```
 
 and this should make and populate a directory in `pxe/static` and should have the following files therein.
 
 ```
-static/blobs/internal/x86_64/carbide.root
-static/blobs/internal/x86_64/carbide.efi
+static/
+└── blobs
+    └── internal
+        ├── aarch64
+        │   └── ipxe.efi
+        └── x86_64
+            ├── carbide.efi
+            ├── carbide.root
+            ├── ipxe.efi
+            └── ipxe.kpxe
 ```
 
 ### PXE Client

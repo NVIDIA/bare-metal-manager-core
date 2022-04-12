@@ -13,6 +13,9 @@ use std::net::Ipv4Addr;
 use std::primitive::u32;
 use std::ptr;
 
+// TODO(baz): make sure this ugly hack of next server becomes programatic one day
+const NEXT_SERVER: &str = "172.20.0.18";
+
 /// Machine: a machine that's currently trying to boot something
 ///
 /// This just stores the protobuf DHCP record and the discovery info the client used so we can add
@@ -205,6 +208,9 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
+    let arm_http_client = format!("http://{}:8080/public/blobs/internal/aarch64/ipxe.efi", NEXT_SERVER);
+    let x86_http_client = format!("http://{}:8080/public/blobs/internal/x86_64/ipxe.efi", NEXT_SERVER);
+
     let fqdn = if let Some(vendor_class) = &machine.vendor_class {
         let filename = match vendor_class {
             VendorClass {
@@ -222,11 +228,11 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
             VendorClass {
                 client_architecture: MachineArchitecture::EfiX64,
                 client_type: MachineClientClass::HTTPClient,
-            } => unimplemented!(),
+            } => x86_http_client.as_str(),
             VendorClass {
                 client_architecture: MachineArchitecture::Arm64,
                 client_type: MachineClientClass::HTTPClient,
-            } => unimplemented!(),
+            } => arm_http_client.as_str(),
             VendorClass {
                 client_architecture: MachineArchitecture::BiosX86,
                 client_type: MachineClientClass::HTTPClient,
@@ -250,7 +256,7 @@ pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let ret = u32::from_be_bytes("172.20.0.18".parse::<Ipv4Addr>().unwrap().octets());
+    let ret = u32::from_be_bytes(NEXT_SERVER.parse::<Ipv4Addr>().unwrap().octets());
 
     std::mem::forget(machine);
 
