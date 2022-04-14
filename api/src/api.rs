@@ -76,28 +76,23 @@ impl Metal for Api {
 
         let rpc::MachineSearchQuery { id, .. } = request.into_inner();
 
-        let filter = match id {
+        let response = match id {
             Some(id) if id.value.chars().count() > 0 => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
-                }
+                Ok(uuid) => Ok(rpc::MachineList {
+                    interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
+                }),
+                Err(err) => Err(CarbideError::GenericError(
+                    "Could not marshall an ID from the request".to_string(),
+                )
+                .into()),
             },
-            _ => UuidKeyedObjectFilter::All,
+            _ => Err(
+                CarbideError::GenericError("Could not find an ID in the request".to_string())
+                    .into(),
+            ),
         };
 
-        Ok(Machine::find(&mut txn, filter)
-            .await
-            .map(|machine| rpc::MachineList {
-                machines: machine.into_iter().map(rpc::Machine::from).collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?)
-
-        // TODO(baz): I just noticed, does this txn need a commit?
+        response.map(Response::new)
     }
 
     async fn discover_dhcp(

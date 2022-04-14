@@ -221,7 +221,7 @@ message InstanceDeletionResult {
 }
 
 message MachineList {
-  repeated Machine machines = 1;
+  repeated MachineInterface interfaces = 1;
 }
 
 message MachineSearchQuery {
@@ -293,17 +293,18 @@ message DhcpDiscovery {
 
 message DhcpRecord {
   UUID machine_id = 1;
-  UUID segment_id = 2;
-  UUID subdomain_id = 3;
+  UUID machine_interface_id = 2;
+  UUID segment_id = 3;
+  UUID subdomain_id = 4;
 
-  string fqdn = 4;
-  string mac_address = 5;
-  string address = 6;
+  string fqdn = 5;
+  string mac_address = 6;
+  string address = 7;
 
-  int32 mtu = 7;
+  int32 mtu = 8;
 
-  string prefix = 8;
-  optional string gateway = 9;
+  string prefix = 9;
+  optional string gateway = 10;
 }
 
 message NetworkSegmentList {

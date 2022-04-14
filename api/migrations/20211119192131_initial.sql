@@ -266,6 +266,7 @@ DROP VIEW IF EXISTS machine_dhcp_records;
 CREATE OR REPLACE VIEW machine_dhcp_records AS (
 	SELECT
 	machines.id as machine_id,
+	machine_interfaces.id as machine_interface_id,
 	network_segments.id as segment_id,
 	network_segments.subdomain_id as subdomain_id,
 	COALESCE(machines.fqdn,'NOHOSTNAME') as fqdn,

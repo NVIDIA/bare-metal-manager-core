@@ -145,6 +145,20 @@ impl MachineInterface {
                 .into_group_map_by(|interface| interface.machine_id.unwrap()),
         )
     }
+
+    pub async fn find_one(
+        txn: &mut Transaction<'_, Postgres>,
+        interface_id: uuid::Uuid,
+    ) -> CarbideResult<MachineInterface> {
+        let mut interfaces =
+            MachineInterface::find_by(txn, UuidKeyedObjectFilter::One(interface_id), "id").await?;
+        match interfaces.len() {
+            0 => Err(CarbideError::FindOneReturnedNoResultsError(interface_id)),
+            1 => Ok(interfaces.remove(0)),
+            _ => Err(CarbideError::FindOneReturnedManyResultsError(interface_id)),
+        }
+    }
+
     /// Do basic validating on existing macs and create the interface if it does not exist
     pub async fn validate_existing_mac_and_create(
         txn: &mut Transaction<'_, Postgres>,

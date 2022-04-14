@@ -115,8 +115,8 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
         .as_ref()
         .unwrap_or_else(|| {
             warn!(
-                "No gateway provided for machine: {:?}",
-                &machine.inner.machine_id
+                "No gateway provided for machine interface: {:?}",
+                &machine.inner.machine_interface_id
             );
             &default_router
         })
@@ -270,12 +270,32 @@ pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
 }
 
 #[no_mangle]
+pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_char {
+    assert!(!ctx.is_null());
+    let machine = unsafe { Box::from_raw(ctx) };
+
+    let vendor_class = if let Some(vendor_class) = &machine.vendor_class {
+        let display = match vendor_class.client_type {
+            MachineClientClass::PXEClient => "", // This has to be blank or it will not dhcp
+            MachineClientClass::HTTPClient => "HTTPClient",
+        };
+        CString::new(display).unwrap()
+    } else {
+        CString::new("").unwrap()
+    };
+
+    std::mem::forget(machine);
+
+    vendor_class.into_raw()
+}
+
+#[no_mangle]
 pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let uuid = if let Some(machine_id) = &machine.inner.machine_id {
-        CString::new(machine_id.to_string()).unwrap()
+    let uuid = if let Some(machine_interface_id) = &machine.inner.machine_interface_id {
+        CString::new(machine_interface_id.to_string()).unwrap()
     } else {
         error!(
             "Found a host missing UUID, dumping everything we know about it: {:?}",
@@ -328,6 +348,17 @@ pub extern "C" fn machine_free_filename(filename: *const libc::c_char) {
         }
 
         CString::from_raw(filename as *mut _)
+    };
+}
+
+#[no_mangle]
+pub extern "C" fn machine_free_client_type(client_type: *mut libc::c_char) {
+    unsafe {
+        if client_type.is_null() {
+            return;
+        }
+
+        CString::from_raw(client_type)
     };
 }
 

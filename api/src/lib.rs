@@ -96,6 +96,12 @@ pub enum CarbideError {
 
     #[error("Duplicate record for {0} that should be unique: {1}")]
     DuplicateRecordIdentifier(&'static str, uuid::Uuid),
+
+    #[error("Find one returned no results but should return one for uuid - {0}")]
+    FindOneReturnedNoResultsError(uuid::Uuid),
+
+    #[error("Find one returned many results but should return one for uuid - {0}")]
+    FindOneReturnedManyResultsError(uuid::Uuid),
 }
 
 impl From<CarbideError> for tonic::Status {

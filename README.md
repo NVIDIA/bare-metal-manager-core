@@ -153,7 +153,7 @@ sudo qemu-system-x86_64 -boot n -nographic -serial mon:stdio -cpu host \
   -accel kvm -device virtio-serial-pci -display none \
   -netdev bridge,id=carbidevm,br=carbide0 \
   -device virtio-net-pci,netdev=carbidevm \
-  -bios /usr/share/ovmf/OVMF.fd
+  -bios /usr/share/ovmf/OVMF.fd -m 1024
 ```
 
 In order to exit use `ctrl-a x` 

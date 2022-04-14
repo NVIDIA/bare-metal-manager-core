@@ -186,15 +186,16 @@ extern "C" {
 			response4_ptr->addOption(option_filename);
 		}
 
-		OptionPtr option_vendor_class = response4_ptr->getOption(DHO_VENDOR_CLASS_IDENTIFIER);
-		if (option_vendor_class) {
-			response4_ptr->delOption(DHO_VENDOR_CLASS_IDENTIFIER);
-		}
-		// Hard coding this to HTTPClient ensures that only PXE via HTTP will work. We may need to revisit
-		// this in the future to support TFTP, but that is not the case today.
-		option_vendor_class.reset(new OptionString(Option::V4, DHO_VENDOR_CLASS_IDENTIFIER, "HTTPClient"));
-		response4_ptr->addOption(option_vendor_class);
+		char *machine_client_type = machine_get_client_type(machine);
+		if (strlen(machine_client_type) > 0) {
+			OptionPtr option_vendor_class = response4_ptr->getOption(DHO_VENDOR_CLASS_IDENTIFIER);
+			if (option_vendor_class) {
+				response4_ptr->delOption(DHO_VENDOR_CLASS_IDENTIFIER);
+			}
 
+			option_vendor_class.reset(new OptionString(Option::V4, DHO_VENDOR_CLASS_IDENTIFIER, machine_client_type));
+			response4_ptr->addOption(option_vendor_class);
+		}
 		/*
 		 * Encapsulate some PXE options in the vendor encapsulated
 		 */
@@ -226,6 +227,7 @@ extern "C" {
 		// Tell rust code to free the memory, since we can't free memory that isn't ours
 		machine_free(machine);
 		machine_free_fqdn(hostname);
+		machine_free_client_type(machine_client_type);
 		machine_free_filename(filename);
 		machine_free_uuid(machine_uuid);
 
