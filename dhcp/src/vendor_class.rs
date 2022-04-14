@@ -36,9 +36,9 @@ impl FromStr for MachineArchitecture {
             Ok(7) => Ok(MachineArchitecture::EfiX64),
             Ok(10) => Ok(MachineArchitecture::Arm64),
             Ok(16) => Ok(MachineArchitecture::EfiX64), // HTTP version
-            Ok(18) => Ok(MachineArchitecture::Arm64), // HTTP version
+            Ok(18) => Ok(MachineArchitecture::Arm64),  // HTTP version
             Ok(_) => Err(VendorClassParseError::UnsupportedArchitecture), // Unknown
-            Err(_) => Err(VendorClassParseError::InvalidFormat),          // Better Error
+            Err(_) => Err(VendorClassParseError::InvalidFormat), // Better Error
         }
     }
 }

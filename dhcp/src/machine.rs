@@ -208,8 +208,14 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let arm_http_client = format!("http://{}:8080/public/blobs/internal/aarch64/ipxe.efi", NEXT_SERVER);
-    let x86_http_client = format!("http://{}:8080/public/blobs/internal/x86_64/ipxe.efi", NEXT_SERVER);
+    let arm_http_client = format!(
+        "http://{}:8080/public/blobs/internal/aarch64/ipxe.efi",
+        NEXT_SERVER
+    );
+    let x86_http_client = format!(
+        "http://{}:8080/public/blobs/internal/x86_64/ipxe.efi",
+        NEXT_SERVER
+    );
 
     let fqdn = if let Some(vendor_class) = &machine.vendor_class {
         let filename = match vendor_class {

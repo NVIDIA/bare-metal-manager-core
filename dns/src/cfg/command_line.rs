@@ -20,25 +20,20 @@ pub(crate) enum Command {
 #[derive(Parser)]
 pub struct Daemon {
     #[clap(
-    short,
-    long,
-    multiple_values(true),
-    require_equals(true),
-    default_value = "[::]:53"
-    )
-    ]
-
+        short,
+        long,
+        multiple_values(true),
+        require_equals(true),
+        default_value = "[::]:53"
+    )]
     pub listen: Vec<std::net::SocketAddr>,
 
-    #[clap(
-    short,
-    long,
-    default_value = "http://[::1]:1079"
-    )]
+    #[clap(short, long, default_value = "http://[::1]:1079")]
     pub carbide_url: String,
-
 }
 
 impl Options {
-    pub fn load() -> Self { Self::parse() }
+    pub fn load() -> Self {
+        Self::parse()
+    }
 }
