@@ -1,6 +1,8 @@
 mod common;
 
-use carbide::db::{Domain, MachineInterface, NewDomain, NewNetworkPrefix, NewNetworkSegment};
+use carbide::db::{
+    Domain, MachineInterface, NewDomain, NewNetworkPrefix, NewNetworkSegment, NewVpc,
+};
 
 use log::LevelFilter;
 
@@ -53,10 +55,20 @@ async fn return_existing_machine_on_rediscover() {
         .await
         .expect("Could not find domain in DB");
 
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: Some(uuid::Uuid::new_v4()),
+    }
+    .persist(&mut txn2)
+    .await
+    .expect("Unable to create VPC");
+
     NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
+
         prefixes: vec![
             NewNetworkPrefix {
                 prefix: "2001:db8:f::/64".parse().unwrap(),

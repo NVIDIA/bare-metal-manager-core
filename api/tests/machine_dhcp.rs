@@ -1,7 +1,7 @@
 use std::str::FromStr;
 use std::sync::Once;
 
-use carbide::db::{MachineInterface, NewNetworkPrefix};
+use carbide::db::{MachineInterface, NewNetworkPrefix, NewVpc};
 
 use log::LevelFilter;
 use mac_address::MacAddress;
@@ -55,10 +55,22 @@ async fn test_machine_dhcp() {
         .await
         .expect("Could not find domain in DB");
 
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: Some(uuid::Uuid::new_v4()),
+    }
+    .persist(&mut txn2)
+    .await
+    .expect("Unable to create VPC");
+
+    // txn.commit().await.unwrap();
+
     let _segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
+
         prefixes: vec![
             NewNetworkPrefix {
                 prefix: "2001:db8:f::/64".parse().unwrap(),

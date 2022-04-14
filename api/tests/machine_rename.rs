@@ -6,7 +6,7 @@ use mac_address::MacAddress;
 
 use carbide::db::{
     AddressSelectionStrategy, Domain, Machine, MachineInterface, NetworkSegment, NewDomain,
-    NewNetworkPrefix, NewNetworkSegment,
+    NewNetworkPrefix, NewNetworkSegment, NewVpc,
 };
 
 mod common;
@@ -59,10 +59,19 @@ async fn test_machine_rename() {
         .await
         .expect("Could not find domain in DB");
 
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: Some(uuid::Uuid::new_v4()),
+    }
+    .persist(&mut txn2)
+    .await
+    .expect("Unable to create VPC");
+
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
 
         prefixes: vec![
             NewNetworkPrefix {

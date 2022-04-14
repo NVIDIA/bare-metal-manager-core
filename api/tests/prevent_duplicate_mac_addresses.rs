@@ -1,7 +1,6 @@
 use log::LevelFilter;
 use std::sync::Once;
 
-use carbide::db::AddressSelectionStrategy;
 use carbide::db::Domain;
 use carbide::db::Machine;
 use carbide::db::MachineInterface;
@@ -9,8 +8,10 @@ use carbide::db::NetworkSegment;
 use carbide::db::NewDomain;
 use carbide::db::NewNetworkPrefix;
 use carbide::db::NewNetworkSegment;
+use carbide::db::{AddressSelectionStrategy, NewVpc};
 
 mod common;
+
 use carbide::{CarbideError, CarbideResult};
 
 static INIT: Once = Once::new();
@@ -49,10 +50,19 @@ async fn prevent_duplicate_mac_addresses() {
         .await
         .expect("Could not find domain in DB");
 
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: Some(uuid::Uuid::new_v4()),
+    }
+    .persist(&mut txn)
+    .await
+    .expect("Unable to create VPC");
+
     let segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
         mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
 
         prefixes: vec![
             NewNetworkPrefix {

@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use rpc::v0 as rpc;
 
+use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
@@ -115,6 +116,44 @@ impl UpdateDomain {
 }
 
 impl Domain {
+    /// Finds a  `domains` based on UUID
+    ///
+    /// Returns `Vec<Domain>`
+    ///
+    /// # Arguments
+    ///
+    /// * `UUIDKeyedObjectFilter` - An enum that determines the number of `UUID` to use in the query
+    ///
+    /// # Examples
+    ///
+    ///
+    pub async fn find(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        filter: UuidKeyedObjectFilter<'_>,
+    ) -> CarbideResult<Vec<Domain>> {
+        let results: Vec<Domain> = match filter {
+            UuidKeyedObjectFilter::All => {
+                sqlx::query_as("SELECT * FROM domains")
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+            UuidKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as("SELECT * FROM domains WHERE id = $1")
+                    .bind(uuid)
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+            UuidKeyedObjectFilter::List(list) => {
+                sqlx::query_as("select * from domains WHERE id = ANY($1)")
+                    .bind(list)
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+        };
+
+        Ok(results)
+    }
+
     pub fn new(name: &str) -> Domain {
         Self {
             id: Uuid::new_v4(),

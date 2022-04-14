@@ -1,17 +1,17 @@
 use std::convert::TryFrom;
 
 use color_eyre::Report;
+use futures::{StreamExt, TryStreamExt};
 use log::{debug, error, info, trace, warn, LevelFilter};
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 
-use carbide::db::Vpc;
 use carbide::{
     db::{
         DeactivateInstanceType, DeleteVpc, DhcpRecord, Domain, Machine, MachineInterface,
         NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType,
-        UpdateVpc, UuidKeyedObjectFilter,
+        UpdateVpc, UuidKeyedObjectFilter, Vpc,
     },
     CarbideError,
 };
@@ -28,7 +28,48 @@ pub struct Api {
 
 #[tonic::async_trait]
 impl Metal for Api {
-    async fn find_vpc(
+    async fn network_segments_for_vpc(
+        &self,
+        request: Request<rpc::VpcSearchQuery>,
+    ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::VpcSearchQuery { id, .. } = request.into_inner();
+
+        let _uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Did not supply a valid VPC_ID UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("A VPC_ID UUID is required"));
+            }
+        };
+
+        let results = NetworkSegment::for_vpc(&mut txn, _uuid)
+            .await
+            .map(|network_segment| rpc::NetworkSegmentList {
+                network_segments: network_segment
+                    .into_iter()
+                    .map(rpc::NetworkSegment::from)
+                    .collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(results)
+    }
+
+    async fn find_vpcs(
         &self,
         request: Request<rpc::VpcSearchQuery>,
     ) -> Result<Response<rpc::VpcList>, Status> {

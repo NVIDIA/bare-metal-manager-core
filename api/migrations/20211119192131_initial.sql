@@ -187,10 +187,24 @@ CREATE TABLE domains(
 	CONSTRAINT valid_domain_name_regex CHECK ( name ~ '^(?!.*?_.*?)(?!(?:[\w]+?\.)?\-[\w\.\-]*?)(?![\w]+?\-\.(?:[\w\.\-]+?))(?=[\w])(?=[\w\.\-]*?\.+[\w\.\-]*?)(?![\w\.\-]{254})(?!(?:\.?[\w\-\.]*?[\w\-]{64,}\.)+?)[\w\.\-]+?(?<![\w\-\.]*?\.[\d]+?)(?<=[\w\-]{2,})(?<![\w\-]{25})$')
 );
 
+DROP TABLE IF EXISTS vpcs;
+CREATE TABLE vpcs(
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
+	name VARCHAR NOT NULL UNIQUE,
+	organization_id uuid,
+
+	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	deleted TIMESTAMPTZ,
+
+	PRIMARY KEY(id)
+);
+
 CREATE TABLE network_segments(
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
 	name VARCHAR NOT NULL UNIQUE,
 	subdomain_id uuid,
+	vpc_id uuid,
 
 	mtu INTEGER NOT NULL DEFAULT 1500 CHECK(mtu >= 576 AND mtu <= 9000),
 
@@ -198,7 +212,8 @@ CREATE TABLE network_segments(
 	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
 	PRIMARY KEY(id),
-	FOREIGN KEY(subdomain_id) REFERENCES domains(id)
+	FOREIGN KEY(subdomain_id) REFERENCES domains(id),
+	FOREIGN KEY(vpc_id) REFERENCES vpcs(id)
 );
 
 CREATE TABLE network_prefixes(
@@ -314,15 +329,4 @@ AFTER INSERT OR UPDATE
 ON machine_interfaces
 FOR EACH row EXECUTE PROCEDURE update_fqdn();
 
-DROP TABLE IF EXISTS vpcs;
-CREATE TABLE vpcs(
-	id uuid DEFAULT gen_random_uuid() NOT NULL,
-	name VARCHAR NOT NULL UNIQUE,
-	organization_id uuid,
 
-	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	deleted TIMESTAMPTZ,
-
-	PRIMARY KEY(id)
-);
