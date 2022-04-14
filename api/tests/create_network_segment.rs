@@ -7,6 +7,7 @@ use carbide::{
     CarbideResult,
 };
 
+use carbide::db::NewVpc;
 use log::LevelFilter;
 use std::sync::Once;
 
@@ -38,17 +39,33 @@ async fn test_create_segment_with_domain() {
         .await
         .expect("Unable to create transaction on db pool");
 
+    let mut txn3 = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on db pool");
+
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: Some(uuid::Uuid::new_v4()),
+    }
+    .persist(&mut txn)
+    .await
+    .expect("Unable to create VPC");
+
+    txn.commit().await.unwrap();
+
     let my_domain = "dwrt.com";
 
     let _new_domain: CarbideResult<Domain> = NewDomain {
         name: my_domain.to_string(),
     }
-    .persist(&mut txn)
+    .persist(&mut txn2)
     .await;
 
-    txn.commit().await.unwrap();
+    txn2.commit().await.unwrap();
 
-    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string())
+    let domain = Domain::find_by_name(&mut txn3, my_domain.to_string())
         .await
         .expect("Could not find domain in DB");
 
@@ -57,6 +74,7 @@ async fn test_create_segment_with_domain() {
         name: "integration_test".to_string(),
         subdomain_id: Some(domain.unwrap().id().to_owned()),
         mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
 
         prefixes: vec![
             NewNetworkPrefix {
@@ -71,13 +89,13 @@ async fn test_create_segment_with_domain() {
             },
         ],
     }
-    .persist(&mut txn2)
+    .persist(&mut txn3)
     .await
     .expect("Unable to create network segment");
 
-    let next_address = segment.next_address(&mut txn2).await.expect("no query?");
+    let next_address = segment.next_address(&mut txn3).await.expect("no query?");
 
-    txn2.commit().await.unwrap();
+    txn3.commit().await.unwrap();
 
     let _next_ipv4: IpAddr = "192.0.2.2".parse().unwrap();
     let _next_ipv6: IpAddr = "2001:db8:f::64".parse().unwrap();
@@ -102,10 +120,28 @@ async fn test_create_segment_no_domain() {
         .await
         .expect("Unable to create transaction on database pool");
 
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: Some(uuid::Uuid::new_v4()),
+    }
+    .persist(&mut txn)
+    .await
+    .expect("Unable to create VPC");
+
+    txn.commit().await.unwrap();
+
+    let mut txn2 = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
     let segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain_id: None,
         mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
+
         prefixes: vec![
             NewNetworkPrefix {
                 prefix: "192.0.2.1/24".parse().expect("can't parse network"),
@@ -119,12 +155,12 @@ async fn test_create_segment_no_domain() {
             },
         ],
     }
-    .persist(&mut txn)
+    .persist(&mut txn2)
     .await
     .expect("Unable to create network segment");
 
-    let next_address = segment.next_address(&mut txn).await.expect("no query?");
-    txn.commit().await.unwrap();
+    let next_address = segment.next_address(&mut txn2).await.expect("no query?");
+    txn2.commit().await.unwrap();
 
     assert_eq!(next_address.len(), 2);
 }

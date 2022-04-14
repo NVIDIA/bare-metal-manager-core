@@ -27,6 +27,7 @@ pub struct NetworkSegment {
     pub id: Uuid,
     pub name: String,
     pub subdomain_id: Option<Uuid>,
+    pub vpc_id: Option<Uuid>,
     pub mtu: i32,
 
     pub created: DateTime<Utc>,
@@ -39,8 +40,15 @@ pub struct NetworkSegment {
 pub struct NewNetworkSegment {
     pub name: String,
     pub subdomain_id: Option<Uuid>,
+    pub vpc_id: Option<Uuid>,
     pub mtu: Option<i32>,
     pub prefixes: Vec<NewNetworkPrefix>,
+}
+
+pub enum VpcToNetworkSegmentQuery {
+    One(uuid::Uuid),
+
+    List(uuid::Uuid),
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -51,6 +59,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             id: row.try_get("id")?,
             name: row.try_get("name")?,
             subdomain_id: row.try_get("subdomain_id")?,
+            vpc_id: row.try_get("vpc_id")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             mtu: row.try_get("mtu")?,
@@ -78,6 +87,10 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
         Ok(NewNetworkSegment {
             name: value.name,
             subdomain_id: match value.subdomain_id {
+                Some(v) => Some(uuid::Uuid::try_from(v)?),
+                None => None,
+            },
+            vpc_id: match value.vpc_id {
                 Some(v) => Some(uuid::Uuid::try_from(v)?),
                 None => None,
             },
@@ -118,9 +131,7 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
                 .into_iter()
                 .map(rpc::NetworkPrefix::from)
                 .collect_vec(),
-
-            // TODO(ajf): VPC aren't modeled yet so just return 0 UUID.
-            vpc: Some(uuid::Uuid::nil().into()),
+            vpc_id: src.vpc_id.map(rpc::Uuid::from),
         }
     }
 }
@@ -130,11 +141,12 @@ impl NewNetworkSegment {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-        let mut segment: NetworkSegment = sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, mtu) VALUES ($1, $2, $3) RETURNING *")
-           .bind(&self.name)
-           .bind(&self.subdomain_id)
-           .bind(self.mtu)
-           .fetch_one(&mut *txn).await?;
+        let mut segment: NetworkSegment = sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, vpc_id, mtu) VALUES ($1, $2, $3, $4) RETURNING *")
+            .bind(&self.name)
+            .bind(&self.subdomain_id)
+            .bind(self.vpc_id)
+            .bind(self.mtu)
+            .fetch_one(&mut *txn).await?;
 
         segment.prefixes = NetworkPrefix::create_for(txn, &segment.id, &self.prefixes).await?;
 
@@ -143,6 +155,20 @@ impl NewNetworkSegment {
 }
 
 impl NetworkSegment {
+    pub async fn for_vpc(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        vpc_id: uuid::Uuid,
+    ) -> CarbideResult<Vec<Self>> {
+        let results: Vec<NetworkSegment> = {
+            sqlx::query_as("SELECT * FROM network_segments WHERE vpc_id=$1::uuid")
+                .bind(vpc_id)
+                .fetch_all(&mut *txn)
+                .await?
+        };
+
+        Ok(results)
+    }
+
     pub async fn for_relay(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         relay: IpAddr,
@@ -150,9 +176,9 @@ impl NetworkSegment {
         let mut results = sqlx::query_as(
             r#"SELECT network_segments.* FROM network_segments INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id WHERE $1::inet <<= network_prefixes.prefix"#,
         )
-        .bind(IpNetwork::from(relay))
-        .fetch_all(&mut *txn)
-        .await?;
+            .bind(IpNetwork::from(relay))
+            .fetch_all(&mut *txn)
+            .await?;
 
         match results.len() {
             0 => Ok(None),
@@ -256,7 +282,7 @@ impl NetworkSegment {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<Vec<IpAllocationResult>> {
-        let used_ips: Vec<(IpNetwork,)> = sqlx::query_as(r"
+        let used_ips: Vec<(IpNetwork, )> = sqlx::query_as(r"
              SELECT address FROM machine_interface_addresses
              INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
              INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id

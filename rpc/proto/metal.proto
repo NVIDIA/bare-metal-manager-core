@@ -14,13 +14,14 @@ service Metal {
   rpc CreateVpc(Vpc) returns (Vpc);
   rpc UpdateVpc(Vpc) returns (Vpc);
   rpc DeleteVpc(VpcDeletion) returns (VpcDeletionResult);
-  rpc FindVpc(VpcSearchQuery) returns (VpcList);
+  rpc FindVpcs(VpcSearchQuery) returns (VpcList);
 
   // Segments - i.e. Overlay Networks
   rpc FindNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
   rpc CreateNetworkSegment(NetworkSegment) returns (NetworkSegment);
   rpc UpdateNetworkSegment(NetworkSegment) returns (NetworkSegment);
   rpc DeleteNetworkSegment(NetworkSegmentDeletion) returns (NetworkSegmentDeletionResult);
+  rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
 
   // Manage instances on machines
   rpc CreateInstance(Instance) returns (Instance);
@@ -124,7 +125,7 @@ message VpcList {
 
 message NetworkSegment {
   UUID id = 1;
-  UUID vpc = 2;
+  UUID vpc_id = 2;
 
   string name = 3;
 

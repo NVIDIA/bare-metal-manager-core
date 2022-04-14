@@ -6,7 +6,7 @@ use mac_address::MacAddress;
 
 use carbide::db::{
     AddressSelectionStrategy, Machine, MachineInterface, NetworkSegment, NewNetworkPrefix,
-    NewNetworkSegment,
+    NewNetworkSegment, NewVpc,
 };
 use carbide::CarbideError;
 
@@ -47,10 +47,19 @@ async fn only_one_primary_interface_per_machine() {
         .await
         .expect("Unable to create transaction on database pool");
 
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: Some(uuid::Uuid::new_v4()),
+    }
+    .persist(&mut txn)
+    .await
+    .expect("Unable to create VPC");
+
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: None,
         mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
 
         prefixes: vec![
             NewNetworkPrefix {
@@ -136,10 +145,19 @@ async fn many_non_primary_interfaces_per_machine() {
         .await
         .expect("Unable to create transaction on database pool");
 
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: Some(uuid::Uuid::new_v4()),
+    }
+    .persist(&mut txn)
+    .await
+    .expect("Unable to create VPC");
+
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: None,
         mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
 
         prefixes: vec![
             NewNetworkPrefix {
@@ -198,11 +216,19 @@ async fn valdate_mac_address_before_creating_interface() {
         .pool;
 
     let mut txn = pool.begin().await.expect("Unable to create txn");
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: Some(uuid::Uuid::new_v4()),
+    }
+    .persist(&mut txn)
+    .await
+    .expect("Unable to create VPC");
 
     NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: None,
         mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
 
         prefixes: vec![
             NewNetworkPrefix {
