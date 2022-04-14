@@ -13,6 +13,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 pub struct DhcpRecord {
     machine_id: Option<uuid::Uuid>,
     segment_id: uuid::Uuid,
+    machine_interface_id: uuid::Uuid,
     subdomain_id: Option<uuid::Uuid>,
 
     fqdn: String,
@@ -29,6 +30,7 @@ impl From<DhcpRecord> for rpc::DhcpRecord {
     fn from(record: DhcpRecord) -> Self {
         Self {
             machine_id: record.machine_id.map(rpc::Uuid::from),
+            machine_interface_id: Some(record.machine_interface_id.into()),
             segment_id: Some(record.segment_id.into()),
             subdomain_id: record.subdomain_id.map(rpc::Uuid::from),
             fqdn: record.fqdn,

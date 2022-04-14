@@ -22,7 +22,7 @@ use rocket_dyn_templates::Template;
 use rpc::v0::{metal_client::MetalClient, MachineSearchQuery};
 
 #[derive(Debug)]
-pub struct Machine(rpc::v0::Machine);
+pub struct Machine(rpc::v0::MachineInterface);
 
 struct MetalUrl(String);
 
@@ -103,17 +103,19 @@ impl<'r> FromRequest<'r> for Machine {
             Some(url) => match MetalClient::connect(url.0.clone()).await {
                 Ok(client) => client,
                 Err(_err) => {
+                    eprintln!("error in connect - {:?} - url: {:?}", _err, url.0);
                     return request::Outcome::Failure((
                         Status::BadRequest,
                         RPCError::MissingClientConfig,
-                    ))
+                    ));
                 }
             },
             None => {
+                eprintln!("error in client returned none");
                 return request::Outcome::Failure((
                     Status::BadRequest,
                     RPCError::MissingClientConfig,
-                ))
+                ));
             }
         };
 
@@ -124,7 +126,7 @@ impl<'r> FromRequest<'r> for Machine {
 
         match client.find_machines(request).await {
             Ok(response) => {
-                request::Outcome::Success(Machine(response.into_inner().machines.remove(0)))
+                request::Outcome::Success(Machine(response.into_inner().interfaces.remove(0)))
             }
             Err(err) => {
                 request::Outcome::Failure((Status::BadRequest, RPCError::RequestError(err)))
