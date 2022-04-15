@@ -158,6 +158,26 @@ sudo qemu-system-x86_64 -boot n -nographic -serial mon:stdio -cpu host \
 
 In order to exit use `ctrl-a x` 
 
+**Note**: As of this commit, there is a bug that will cause the ipxe dhcp to fail the first time it is run. Wait for it to fail,
+and in the EFI Shell just type `reset` and it will restart the whole pxe process and it will run the ipxe image properly the second time.
+See https://jirasw.nvidia.com/browse/FORGE-243 for more information.
+
+It is expected to see this error once the PXE process has finished properly
+
+```asm
+[FAILED] Failed to start Switch Root.
+See 'systemctl status initrd-switch-root.service' for details.
+
+Generating "/run/initramfs/rdsosreport.txt"
+
+
+Entering emergency mode. Exit the shell to continue.
+Type "journalctl" to view system logs.
+You might want to save "/run/initramfs/rdsosreport.txt" to a USB stick or /boot
+after mounting them and attach it to a bug report.
+
+```
+
 While not needed for PXE, it is sometimes helpful to seed DB entries 
 for debugging SQL queries: 
 
