@@ -27,75 +27,6 @@ fancy wrapper around `dnf --installroot`, `debootstrap`, `pacstrap`
 and `zypper` that may generate disk images with a number of bells and
 whistles.
 
-## Supported output formats
-
-The following output formats are supported:
-
-* Raw *GPT* disk image, with ext4 as root (*gpt_ext4*)
-
-* Raw *GPT* disk image, with xfs as root (*gpt_xfs*)
-
-* Raw *GPT* disk image, with btrfs as root (*gpt_btrfs*)
-
-* Raw *GPT* disk image, with squashfs as read-only root (*gpt_squashfs*)
-
-* Plain squashfs image, without partition table, as read-only root
-  (*plain_squashfs*)
-
-* Plain directory, containing the OS tree (*directory*)
-
-* btrfs subvolume, with separate subvolumes for `/var`, `/home`,
-  `/srv`, `/var/tmp` (*subvolume*)
-
-* Tar archive (*tar*)
-
-* CPIO archive (*cpio*) in the format appropriate for a kernel initrd
-
-When a *GPT* disk image is created, the following additional
-options are available:
-
-* A swap partition may be added in
-
-* The image may be made bootable on *EFI* and *BIOS* systems
-
-* Separate partitions for `/srv` and `/home` may be added in
-
-* The root, `/srv` and `/home` partitions may optionally be encrypted with
-  LUKS.
-
-* A dm-verity partition may be added in that adds runtime integrity
-  data for the root partition
-
-## Other features
-
-* Optionally, create an *SHA256SUMS* checksum file for the result,
-  possibly even signed via `gpg`.
-
-* Optionally, place a specific `.nspawn` settings file along
-  with the result.
-
-* Optionally, build a local project's *source* tree in the image
-  and add the result to the generated image.
-
-* Optionally, share *RPM*/*DEB* package cache between multiple runs,
-  in order to optimize build speeds.
-
-* Optionally, the resulting image may be compressed with *XZ*.
-
-* Optionally, the resulting image may be converted into a *QCOW2* file
-  suitable for `qemu` storage.
-
-* Optionally, btrfs' read-only flag for the root subvolume may be
-  set.
-
-* Optionally, btrfs' compression may be enabled for all
-  created subvolumes.
-
-* By default images are created without all files marked as
-  documentation in the packages, on distributions where the package
-  manager supports this. Use the `WithDocs=yes` flag to build an image
-  with docs added.
-
 ## Command Line Verbs
 
 The following command line verbs are known:
@@ -292,6 +223,45 @@ build script?  -------exists----->     copy           .
                             .                         .
 ```
 
+## Supported output formats
+
+The following output formats are supported:
+
+* Raw *GPT* disk image, with ext4 as root (*gpt_ext4*)
+
+* Raw *GPT* disk image, with xfs as root (*gpt_xfs*)
+
+* Raw *GPT* disk image, with btrfs as root (*gpt_btrfs*)
+
+* Raw *GPT* disk image, with squashfs as read-only root (*gpt_squashfs*)
+
+* Plain squashfs image, without partition table, as read-only root
+  (*plain_squashfs*)
+
+* Plain directory, containing the OS tree (*directory*)
+
+* btrfs subvolume, with separate subvolumes for `/var`, `/home`,
+  `/srv`, `/var/tmp` (*subvolume*)
+
+* Tar archive (*tar*)
+
+* CPIO archive (*cpio*) in the format appropriate for a kernel initrd
+
+When a *GPT* disk image is created, the following additional
+options are available:
+
+* A swap partition may be added in
+
+* The image may be made bootable on *EFI* and *BIOS* systems
+
+* Separate partitions for `/srv` and `/home` may be added in
+
+* The root, `/srv` and `/home` partitions may optionally be encrypted with
+  LUKS.
+
+* A dm-verity partition may be added in that adds runtime integrity
+  data for the root partition
+
 ## Configuration Settings
 
 The following settings can be set through configuration files (the
@@ -344,13 +314,21 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
 
 `UseHostRepositories=`, `--use-host-repositories`
 
-: This option is only applicable for dnf-based distributions:
+: This option is only applicable for RPM-based distributions:
   *CentOS*, *Fedora Linux*, *Mageia*, *Photon*, *Rocky Linux*, *Alma Linux*
   and *OpenMandriva*.
-  Allows use of the host's existing dnf repositories.
-  By default, a hardcoded set of default dnf repositories is generated and used.
+  Allows use of the host's existing RPM repositories.
+  By default, a hardcoded set of default RPM repositories is generated and used.
   Use `--repositories=` to identify a custom set of repositories to be enabled
   and used for the build.
+
+`RepositoryDirectory`, `--repository-directory`
+
+: This option can (for now) only be used with RPM-based istributions and Arch
+  Linux. It identifies a directory containing extra repository definitions that
+  will be used when installing packages. The files are passed directly to the
+  corresponding package manager and should be written in the format expected by
+  the package manager of the image's distro.
 
 `Architecture=`, `--architecture=`
 
@@ -683,6 +661,12 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
   in building or further container import stages.  This option strips
   SELinux context attributes from the resulting tar archive.
 
+`MachineID=`, `--machine-id`
+
+: Set the machine's ID to the specified value. If unused, a random ID will
+be used while building the image and the final image will be shipped without
+a machine ID.
+
 ### [Content] Section
 
 `BasePackages=`, `--base-packages`
@@ -815,7 +799,7 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
 : Takes a comma-separated list of package specifications for removal, in the
   same format as `Packages=`. The removal will be performed as one of the last
   steps. This step is skipped if `CleanPackageMetadata=no` is used.
-  
+
 : This option is currently only implemented for distributions using `dnf`.
 
 `Environment=`, `--environment=`
@@ -1111,7 +1095,14 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
 : When used with the `qemu` verb, this options sets `qemu`'s `-m`
   argument which controls the amount of guest's RAM. Defaults to `1G`.
 
-`NetworkVeth=`, `--network-veth`
+`NspawnKeepUnit=`, `--nspawn-keep-unit`
+
+: When used, this option instructs underlying calls of systemd-nspawn to
+  use the current unit scope, instead of creating a dedicated transcient
+  scope unit for the containers. This option should be used when mkosi is
+  run by a service unit.
+
+`Netdev=`, `--netdev`
 
 : When used with the boot or qemu verbs, this option creates a virtual
   ethernet link between the host and the container/VM. The host
@@ -1162,7 +1153,7 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
 : When used with the `ssh` verb, `mkosi` will attempt to retry the SSH connection
   up to given timeout (in seconds) in case it fails. This option is useful mainly
   in scripted environments where the `qemu` and `ssh` verbs are used in a quick
-  succession and the veth device might not get enough time to configure itself.
+  succession and the virtual device might not get enough time to configure itself.
 
 ### Commandline-only Options
 
@@ -1532,6 +1523,10 @@ local directory:
   build result of a preceding run might be copied into a build image
   as part of the source tree (see above).
 
+* The **`mkosi.reposdir/`** directory, if it exists, is automatically
+  used as the repository directory for extra repository files. See
+  the `RepositoryDirectory` option for more information.
+
 All these files are optional.
 
 Note that the location of all these files may also be configured
@@ -1642,30 +1637,28 @@ variables:
 Create and run a raw *GPT* image with *ext4*, as `image.raw`:
 
 ```bash
-# mkosi
-# systemd-nspawn -b -i image.raw
+# mkosi --bootable --incremental boot
 ```
 
 Create and run a bootable btrfs *GPT* image, as `foobar.raw`:
 
 ```bash
-# mkosi -t gpt_btrfs --bootable -o foobar.raw
-# systemd-nspawn -b -i foobar.raw
-# qemu-kvm -m 512 -smp 2 -bios /usr/share/edk2/ovmf/OVMF_CODE.fd -drive format=raw,file=foobar.raw
+# mkosi --format gpt_btrfs --bootable -o foobar.raw
+# mkosi --output foobar.raw boot
+# mkosi --output foobar.raw qemu
 ```
 
 Create and run a *Fedora Linux* image into a plain directory:
 
 ```bash
-# mkosi -d fedora -t directory -o quux
-# systemd-nspawn -b -D quux
+# mkosi --distribution fedora --format directory boot
 ```
 
 Create a compressed image `image.raw.xz` and add a checksum file, and
 install *SSH* into it:
 
 ```bash
-# mkosi -d fedora -t gpt_squashfs --checksum --compress --package=openssh-clients
+# mkosi --distribution fedora --format gpt_squashfs --checksum --compress --package=openssh-clients
 ```
 
 Inside the source directory of an `automake`-based project, configure
@@ -1696,13 +1689,13 @@ make -j `nproc`
 make install
 EOF
 # chmod +x mkosi.build
-# mkosi
+# mkosi --bootable --incremental boot
 # systemd-nspawn -bi image.raw
 ```
 
 To create a *Fedora Linux* image with hostname:
 ```bash
-# mkosi -d fedora --hostname image
+# mkosi --distribution fedora --hostname image
 ```
 
 Also you could set hostname in configuration file:
