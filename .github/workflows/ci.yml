@@ -9,8 +9,96 @@ on:
       - main
 
 jobs:
-  ci:
+  unit-test:
     runs-on: ubuntu-20.04
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install
+      run: |
+        python3 -m pip install pytest mypy types-cryptography isort pyflakes
+        npm install -g pyright
+
+    - name: Check that imports are sorted
+      run: python3 -m isort --verbose --check-only mkosi/
+
+    - name: Run pyflakes
+      run: python3 -m pyflakes mkosi/ tests/
+
+    - name: Check that tabs are not used in code
+      run: sh -c '! git grep -P "\\t" "*.py"'
+
+    - name: Type Checking (mypy)
+      run: python3 -m mypy mkosi/ tests/
+
+    - name: Type Checking (pyright)
+      run: pyright .
+
+    - name: Unit Tests
+      run: python3 -m pytest tests
+
+    - name: Test execution from current working directory
+      run: python3 -m mkosi -h
+
+    - name: Test execution from current working directory (sudo call)
+      run: sudo python3 -m mkosi -h
+
+    - name: Test system installation
+      run: |
+        sudo python3 -m pip install .
+        sudo mkosi -h
+        sudo python3 -m pip uninstall --yes mkosi
+
+    - name: Test user installation
+      run: |
+        python3 -m pip install --user .
+        $HOME/.local/bin/mkosi -h
+        python3 -m pip uninstall --yes mkosi
+
+    - name: Test user installation (sudo call)
+      run: |
+        python3 -m pip install --user .
+        sudo $HOME/.local/bin/mkosi -h
+        python3 -m pip uninstall --yes mkosi
+
+    - name: Test editable user installation
+      run: |
+        python3 -m pip install --user --no-use-pep517 --editable .
+        $HOME/.local/bin/mkosi -h
+        python3 -m pip uninstall --yes mkosi
+
+    - name: Test editable user installation (sudo call)
+      run: |
+        python3 -m pip install --user --no-use-pep517 --editable .
+        sudo $HOME/.local/bin/mkosi -h
+        python3 -m pip uninstall --yes mkosi
+
+    - name: Test venv installation
+      run: |
+        python3 -m venv testvenv
+        testvenv/bin/python3 -m pip install .
+        testvenv/bin/mkosi -h
+
+    - name: Test venv installation (sudo call)
+      run: |
+        sudo testvenv/bin/mkosi -h
+
+    - name: Test zipapp creation
+      run: |
+        ./tools/generate-zipapp.sh
+        ./builddir/mkosi -h
+
+    - name: Test shell scripts
+      run: |
+        sudo apt-get update && sudo apt-get install --no-install-recommends shellcheck
+        bash -c 'shopt -s globstar; shellcheck **/*.sh'
+
+  integration-test:
+    runs-on: ubuntu-20.04
+    needs: unit-test
     concurrency:
       group: ${{ github.workflow }}-${{ matrix.distro }}-${{ matrix.format }}-${{ github.ref }}
       cancel-in-progress: true
@@ -52,7 +140,7 @@ jobs:
     - uses: ./
 
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install --no-install-recommends python3-pexpect
+      run: sudo apt-get update && sudo apt-get install --no-install-recommends python3-pexpect python3-pytest
 
     - name: Install Gentoo dependencies (portage)
       if: ${{ matrix.distro == 'gentoo' }}
@@ -88,7 +176,7 @@ jobs:
     - name: Install
       run: sudo python3 -m pip install .
 
-    - name: Write shared mkosi config
+    - name: Build/Boot ${{ matrix.distro }}/${{ matrix.format }}
       run: |
         mkdir -p mkosi.default.d
 
@@ -98,13 +186,6 @@ jobs:
 
         [Output]
         Format=${{ matrix.format }}
-
-        [Validation]
-        Password=
-
-        [Host]
-        Ssh=yes
-        NetworkVeth=yes
         EOF
 
         mkdir -p mkosi.skeleton/etc/portage
@@ -114,117 +195,35 @@ jobs:
         sync-uri = https://raw.githubusercontent.com/257/binpkgs/main
         EOF
 
-    # Ubuntu's systemd-nspawn doesn't support faccessat2() syscall, which is
-    # required, since current Arch's glibc implements faccessat() via faccessat2().
-    - name: Update systemd-nspawn
-      if: ${{ matrix.distro == 'arch' }}
-      run: |
-        echo "deb-src http://archive.ubuntu.com/ubuntu/ $(lsb_release -cs) main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
-        sudo apt update
-        sudo apt build-dep systemd
-        git clone https://github.com/systemd/systemd --depth=1 && cd systemd
-        meson build
-        ninja -C build
-        sudo ln -svf $PWD/build/systemd-nspawn `which systemd-nspawn`
-        systemd-nspawn --version
+        MKOSI_TEST_DEFAULT_VERB=boot sudo python3 -m pytest -m integration tests
 
-    - name: Build ${{ matrix.distro }}/${{ matrix.format }}
-      run: |
-        sudo python3 -m mkosi build
-
-    - name: Boot ${{ matrix.distro }}/${{ matrix.format }}
-      if: matrix.format != 'tar' &&
-          matrix.format != 'cpio'
-      run: sudo ./tests/pexpect/boot.py python3 -m mkosi boot
-
-    - name: Build ${{ matrix.distro }}/${{ matrix.format }} UEFI UKI
-      if: matrix.format != 'directory' &&
-          matrix.format != 'plain_squashfs' &&
-          matrix.format != 'tar' &&
-          matrix.format != 'cpio'
+    - name: Build/Boot ${{ matrix.distro }}/${{ matrix.format }} UEFI UKI
       run: |
         tee mkosi.default <<- EOF
         [Output]
-        Bootable=yes
         BootProtocols=uefi
-
-        [Host]
-        QemuHeadless=yes
         EOF
 
-        sudo python3 -m mkosi --force build
+        MKOSI_TEST_DEFAULT_VERB=qemu sudo python3 -m pytest -m integration tests
 
-    - name: Boot ${{ matrix.distro }}/${{ matrix.format }} UEFI UKI
-      if: matrix.format != 'directory' &&
-          matrix.format != 'plain_squashfs' &&
-          matrix.format != 'gpt_squashfs' &&
-          matrix.format != 'tar' &&
-          matrix.format != 'cpio' &&
-          !(matrix.distro == 'ubuntu' && matrix.format == 'gpt_squashfs')
-      run: sudo ./tests/pexpect/boot.py python3 -m mkosi qemu
-
-    - name: Build ${{ matrix.distro }}/${{ matrix.format }} UEFI
-      if: matrix.format != 'directory' &&
-          matrix.format != 'plain_squashfs' &&
-          matrix.format != 'tar' &&
-          matrix.format != 'cpio' && (
-          matrix.distro == 'arch' ||
-          matrix.distro == 'centos' ||
-          matrix.distro == 'rocky' ||
-          matrix.distro == 'alma' ||
-          matrix.distro == 'fedora' ||
-          matrix.distro == 'gentoo')
+    - name: Build/Boot ${{ matrix.distro }}/${{ matrix.format }} UEFI
       run: |
         tee mkosi.default <<- EOF
         [Output]
-        Bootable=yes
         BootProtocols=uefi
         WithUnifiedKernelImages=no
         # Boot with systemd.volatile=overlay so squashfs images can write to the filesystem
         KernelCommandLine=systemd.volatile=overlay
-
-        [Host]
-        QemuHeadless=yes
         EOF
 
-        sudo python3 -m mkosi --force build
+        MKOSI_TEST_DEFAULT_VERB=qemu sudo python3 -m pytest -m integration tests
 
-    - name: Boot ${{ matrix.distro }}/${{ matrix.format }} UEFI
-      if: matrix.format != 'directory' &&
-          matrix.format != 'plain_squashfs' &&
-          matrix.format != 'cpio' &&
-          matrix.format != 'tar' && (
-          matrix.distro == 'arch' ||
-          matrix.distro == 'centos' ||
-          matrix.distro == 'rocky' ||
-          matrix.distro == 'alma' ||
-          matrix.distro == 'fedora' ||
-          matrix.distro == 'gentoo')
-      run: sudo ./tests/pexpect/boot.py python3 -m mkosi qemu
-
-    - name: Build ${{ matrix.distro }}/${{ matrix.format }} BIOS
-      if: matrix.format != 'directory' &&
-          matrix.format != 'gpt_squashfs' &&
-          matrix.format != 'plain_squashfs' &&
-          matrix.format != 'tar' &&
-          matrix.format != 'cpio'
+    - name: Build/Boot ${{ matrix.distro }}/${{ matrix.format }} BIOS
       run: |
         tee mkosi.default <<- EOF
         [Output]
-        Bootable=yes
         BootProtocols=bios
         WithUnifiedKernelImages=no
-
-        [Host]
-        QemuHeadless=yes
         EOF
 
-        sudo python3 -m mkosi --force build
-
-    - name: Boot ${{ matrix.distro }}/${{ matrix.format }} BIOS
-      if: matrix.format != 'directory' &&
-          matrix.format != 'gpt_squashfs' &&
-          matrix.format != 'plain_squashfs' &&
-          matrix.format != 'cpio' &&
-          matrix.format != 'tar'
-      run: sudo ./tests/pexpect/boot.py python3 -m mkosi qemu
+        MKOSI_TEST_DEFAULT_VERB=qemu sudo python3 -m pytest -m integration tests

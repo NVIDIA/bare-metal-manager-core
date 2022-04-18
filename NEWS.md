@@ -1,5 +1,21 @@
 # mkosi Changelog
 
+## v13
+
+- The `--network-veth` option has been renamed `--netdev`, since it implies usage of a virtual ethernet device, which is not what is done when booting images with qemu where a TUN/TAP device is used.
+- The networkd config file installed by mkosi when the `--netdev`  option (what used to be `--network-veth`) is
+  used (formerly `/etc/systemd/network/80-mkosi-network-veth.network` in the image) now only matches against network interfaces using the virtio_net driver.
+  Please make sure you weren't relying on this file to configure any network
+  interfaces other than the tun/tap virtio-net interface created by mkosi when
+  booting the image in QEMU with the --netdev option. If you were relying
+  on this config file to configure other interfaces, you'll have to re-create it
+  with the correct match and a lower initial number in the filename to make sure networkd will keep configuring your
+  interface, e.g. via the `mkosi.skeleton` or `mkosi.extra` trees or a `mkosi.postinst` script.
+- The kernel-install script for building unified kernel images was removed. From v13 onwards, on systems using kernel-install,
+  mkosi won't automatically build new unified kernel images anymore when a kernel is updated or installed. To keep this
+  behavior, you can install the kernel-install script manually via a skeleton tree. The original script can be found
+  [here](https://github.com/systemd/mkosi/blob/3798eb0c2ebcdf7dac207a559a3cb5a65cdb77b0/mkosi/resources/dracut_unified_kernel_install.sh).
+
 ## v12
 
 - Fix handling of baselayout in Gentoo installations.
