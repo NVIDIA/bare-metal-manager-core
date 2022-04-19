@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import dataclasses
 import enum
+import functools
 import math
 import os
 import resource
@@ -26,10 +27,12 @@ from typing import (
     Dict,
     Iterator,
     List,
+    Mapping,
     NoReturn,
     Optional,
     Sequence,
     Set,
+    Type,
     Union,
     cast,
 )
@@ -76,6 +79,10 @@ class MkosiException(Exception):
     """Leads to sys.exit"""
 
 
+class MkosiNotSupportedException(MkosiException):
+    """Leads to sys.exit when an invalid combination of parsed arguments happens"""
+
+
 # This global should be initialized after parsing arguments
 ARG_DEBUG: Set[str] = set()
 
@@ -111,6 +118,24 @@ class PackageType(enum.Enum):
     ebuild = 5
 
 
+class Verb(enum.Enum):
+    build   = "build"
+    clean   = "clean"
+    summary = "summary"
+    shell   = "shell"
+    boot    = "boot"
+    qemu    = "qemu"
+    ssh     = "ssh"
+    serve   = "serve"
+    bump    = "bump"
+    help    = "help"
+    genkey  = "genkey"
+
+    # Defining __str__ is required to get "print_help()" output to include the human readable (values) of Verb.
+    def __str__(self) -> str:
+        return self.value
+
+
 class Distribution(enum.Enum):
     package_type: PackageType
 
@@ -138,10 +163,24 @@ class Distribution(enum.Enum):
         entry = object.__new__(cls)
         entry._value_ = number
         entry.package_type = package_type
-        return cast("Distribution", entry)
+        return entry
 
     def __str__(self) -> str:
         return self.name
+
+def is_rpm_distribution(d: Distribution) -> bool:
+    return d in (
+        Distribution.fedora,
+        Distribution.mageia,
+        Distribution.centos,
+        Distribution.centos_epel,
+        Distribution.photon,
+        Distribution.openmandriva,
+        Distribution.rocky,
+        Distribution.rocky_epel,
+        Distribution.alma,
+        Distribution.alma_epel
+    )
 
 
 class SourceFileTransfer(enum.Enum):
@@ -224,17 +263,17 @@ class ManifestFormat(Parseable, enum.Enum):
 
 
 class PartitionIdentifier(enum.Enum):
-    esp        = 'esp'
-    bios       = 'bios'
-    xbootldr   = 'xbootldr'
-    root       = 'root'
-    swap       = 'swap'
-    home       = 'home'
-    srv        = 'srv'
-    var        = 'var'
-    tmp        = 'tmp'
-    verity     = 'verity'
-    verity_sig = 'verity-sig'
+    esp        = "esp"
+    bios       = "bios"
+    xbootldr   = "xbootldr"
+    root       = "root"
+    swap       = "swap"
+    home       = "home"
+    srv        = "srv"
+    var        = "var"
+    tmp        = "tmp"
+    verity     = "verity"
+    verity_sig = "verity-sig"
 
 
 @dataclasses.dataclass
@@ -260,6 +299,18 @@ class Partition:
         return ', '.join(filter(None, desc))
 
 
+@functools.lru_cache(maxsize=None)
+def sfdisk_grain_is_supported() -> bool:
+    cmd: List[PathString] = ["sfdisk", "--no-reread", "--no-act", "--quiet", "/dev/full"]
+
+    try:
+        run(cmd, text=True, input='\n'.join(["label: gpt", "grain: 4096", "quit"]), stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        return False
+
+    return True
+
+
 @dataclasses.dataclass
 class PartitionTable:
     partitions: Dict[PartitionIdentifier, Partition] = dataclasses.field(default_factory=dict)
@@ -268,6 +319,10 @@ class PartitionTable:
     first_lba: Optional[int] = None
 
     grain: int = 4096
+
+    def __post_init__(self) -> None:
+        if not sfdisk_grain_is_supported():
+            self.grain = 1024 ** 2 # Use sfdisk default grain size of 1 MiB.
 
     def first_partition_offset(self, max_partitions: int = 128) -> int:
         if self.first_lba is not None:
@@ -323,7 +378,7 @@ class PartitionTable:
 
     def sfdisk_spec(self) -> str:
         table = ["label: gpt",
-                 f"grain: {self.grain}",
+                 f"grain: {self.grain}" if sfdisk_grain_is_supported() else '\n',
                  f"first-lba: {self.first_partition_offset() // self.sector_size}",
                  *(p.sfdisk_spec() for p in self.partitions.values())]
         return '\n'.join(table)
@@ -339,7 +394,11 @@ class PartitionTable:
         if quiet:
             cmd += ["--quiet"]
 
-        run(cmd, input=spec.encode("utf-8"))
+        try:
+            run(cmd, input=spec.encode("utf-8"))
+        except subprocess.CalledProcessError:
+            print_between_lines(spec)
+            raise
 
         if device.is_block_device():
             run(["sync"])
@@ -347,23 +406,24 @@ class PartitionTable:
 
 
 @dataclasses.dataclass
-class CommandLineArguments:
+class MkosiArgs:
     """Type-hinted storage for command line arguments."""
 
-    verb: str
+    verb: Verb
     cmdline: List[str]
+    force: int
 
     distribution: Distribution
     release: str
     mirror: Optional[str]
     repositories: List[str]
     use_host_repositories: bool
+    repos_dir: Optional[str]
     architecture: Optional[str]
     output_format: OutputFormat
     manifest_format: List[ManifestFormat]
     output: Path
     output_dir: Optional[Path]
-    force_count: int
     bootable: bool
     boot_protocols: List[str]
     kernel_command_line: List[str]
@@ -400,7 +460,7 @@ class CommandLineArguments:
     skeleton_trees: List[Path]
     clean_package_metadata: Union[bool, str]
     remove_files: List[Path]
-    environment: List[str]
+    environment: Dict[str, str]
     build_sources: Optional[Path]
     build_dir: Optional[Path]
     include_dir: Optional[Path]
@@ -436,7 +496,7 @@ class CommandLineArguments:
     password_is_hashed: bool
     autologin: bool
     extra_search_paths: List[Path]
-    network_veth: bool
+    netdev: bool
     ephemeral: bool
     ssh: bool
     ssh_key: Optional[Path]
@@ -450,17 +510,18 @@ class CommandLineArguments:
     debug: List[str]
     auto_bump: bool
     workspace_dir: Optional[Path]
+    machine_id: str
 
     # QEMU-specific options
     qemu_headless: bool
     qemu_smp: str
     qemu_mem: str
 
-    # Some extra stuff that's stored in CommandLineArguments for convenience but isn't populated by arguments
-    verity_size: Optional[int]
-    verity_sig_size: Optional[int]
-    machine_id: str
-    force: bool
+    # systemd-nspawn specific options
+    nspawn_keep_unit: bool
+
+    # Some extra stuff that's stored in MkosiArgs for convenience but isn't populated by arguments
+    machine_id_is_fixed: bool
     original_umask: int
     passphrase: Optional[Dict[str, str]]
 
@@ -480,9 +541,6 @@ class CommandLineArguments:
 
     partition_table: Optional[PartitionTable] = None
 
-    releasever: Optional[str] = None
-    ran_sfdisk: bool = False
-
     def get_partition(self, ident: PartitionIdentifier) -> Optional[Partition]:
         "A shortcut to check that we have a partition table and extract the partition object"
         if self.partition_table is None:
@@ -490,7 +548,7 @@ class CommandLineArguments:
         return self.partition_table.partitions.get(ident)
 
 
-def should_compress_fs(args: Union[argparse.Namespace, CommandLineArguments]) -> Union[bool, str]:
+def should_compress_fs(args: Union[argparse.Namespace, MkosiArgs]) -> Union[bool, str]:
     """True for the default compression, a string, or False.
 
     When explicitly configured with --compress-fs=, just return
@@ -504,7 +562,7 @@ def should_compress_fs(args: Union[argparse.Namespace, CommandLineArguments]) ->
     return False if c is None else c
 
 
-def should_compress_output(args: Union[argparse.Namespace, CommandLineArguments]) -> Union[bool, str]:
+def should_compress_output(args: Union[argparse.Namespace, MkosiArgs]) -> Union[bool, str]:
     """A string or False.
 
     When explicitly configured with --compress-output=, use
@@ -531,7 +589,7 @@ def var_tmp(root: Path) -> Path:
     return p
 
 
-def nspawn_params_for_blockdev_access(args: CommandLineArguments, loopdev: Path) -> List[str]:
+def nspawn_params_for_blockdev_access(args: MkosiArgs, loopdev: Path) -> List[str]:
     assert args.partition_table is not None
 
     params = [
@@ -549,7 +607,7 @@ def nspawn_params_for_blockdev_access(args: CommandLineArguments, loopdev: Path)
         if path and path.exists():
             params += [f"--bind-ro={path}", f"--property=DeviceAllow={path}"]
 
-    params += [f"--setenv={env}" for env in args.environment]
+    params += [f"--setenv={env}={value}" for env, value in args.environment.items()]
 
     return params
 
@@ -568,11 +626,11 @@ def nspawn_rlimit_params() -> Sequence[str]:
 
 
 def run_workspace_command(
-    args: CommandLineArguments,
+    args: MkosiArgs,
     root: Path,
     cmd: Sequence[PathString],
     network: bool = False,
-    env: Optional[Dict[str, str]] = None,
+    env: Optional[Mapping[str, str]] = None,
     nspawn_params: Optional[List[str]] = None,
     capture_stdout: bool = False,
 ) -> Optional[str]:
@@ -605,6 +663,9 @@ def run_workspace_command(
     if capture_stdout:
         stdout = subprocess.PIPE
         nspawn += ["--console=pipe"]
+
+    if args.nspawn_keep_unit:
+        nspawn += ["--keep-unit"]
 
     result = run([*nspawn, "--", *cmd], check=False, stdout=stdout, text=capture_stdout)
     if result.returncode != 0:
@@ -751,7 +812,7 @@ def path_relative_to_cwd(path: PathString) -> Path:
         return path
 
 
-def write_grub_config(args: CommandLineArguments, root: Path) -> None:
+def write_grub_config(args: MkosiArgs, root: Path) -> None:
     kernel_cmd_line = " ".join(args.kernel_command_line)
     grub_cmdline = f'GRUB_CMDLINE_LINUX="{kernel_cmd_line}"\n'
     os.makedirs(root / "etc/default", exist_ok=True, mode=0o755)
@@ -775,7 +836,7 @@ def write_grub_config(args: CommandLineArguments, root: Path) -> None:
                 f.write('GRUB_SERIAL_COMMAND="serial --unit=0 --speed 115200"\n')
 
 
-def install_grub(args: CommandLineArguments, root: Path, loopdev: Path, grub: str) -> None:
+def install_grub(args: MkosiArgs, root: Path, loopdev: Path, grub: str) -> None:
     assert args.partition_table is not None
 
     part = args.get_partition(PartitionIdentifier.bios)
@@ -794,9 +855,9 @@ def install_grub(args: CommandLineArguments, root: Path, loopdev: Path, grub: st
     run_workspace_command(args, root, cmdline, nspawn_params=nspawn_params)
 
 
-def die(message: str) -> NoReturn:
+def die(message: str, exception: Type[MkosiException] = MkosiException) -> NoReturn:
     MkosiPrinter.warn(f"Error: {message}")
-    raise MkosiException(message)
+    raise exception(message)
 
 
 def warn(message: str) -> None:

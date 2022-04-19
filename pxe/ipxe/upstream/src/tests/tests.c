@@ -75,3 +75,5 @@ REQUIRE_OBJECT ( pem_test );
 REQUIRE_OBJECT ( ntlm_test );
 REQUIRE_OBJECT ( zlib_test );
 REQUIRE_OBJECT ( gzip_test );
+REQUIRE_OBJECT ( utf8_test );
+REQUIRE_OBJECT ( acpi_test );
