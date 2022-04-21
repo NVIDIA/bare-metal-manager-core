@@ -18,6 +18,7 @@ fn main() {
 
     cbindgen::Builder::new()
         .with_crate(env!("CARGO_MANIFEST_DIR"))
+        .with_config(cbindgen::Config::from_file("cbindgen.toml").expect("Config file missing"))
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file(format!("{}/carbide_rust.h", kea_shim_root));

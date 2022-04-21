@@ -1,25 +1,171 @@
-#include <hooks/hooks.h>
-#include <dhcp/pkt4.h>
-#include <log/logger.h>
-#include <log/macros.h>
-#include <dhcpsrv/lease.h>
-#include <asiolink/io_address.h>
-#include <string>
-
-#include <dhcp/option_definition.h>
-#include <dhcp/option4_addrlst.h>
-#include <dhcp/option_string.h>
-
-#include <dhcp/option_int.h>
-
-#include "carbide_logger.h"
-#include "carbide_rust.h"
-
-using namespace isc::hooks;
-using namespace isc::dhcp;
-using namespace std;
+#include "callouts.h"
 
 isc::log::Logger logger("kea-carbide-callouts");
+
+void CDHCPOptionsHandler<Option>::resetOption(boost::any param) {
+    switch(option) {
+		case DHO_SUBNET_MASK:
+	        option_val.reset(new OptionInt<uint32_t>(
+	                    Option::V4, option, machine_get_interface_subnet_mask(
+	                        boost::any_cast<Machine *> (param))));
+		    break;
+		case DHO_BROADCAST_ADDRESS:
+		    option_val.reset(new OptionInt<uint32_t>(
+		                Option::V4, option, machine_get_broadcast_address(
+		                    boost::any_cast<Machine *>(param))));
+		    break;
+		case DHO_HOST_NAME:
+		    {
+		        char* hostname = machine_get_interface_hostname(boost::any_cast<Machine *>(param));
+		        option_val.reset(new OptionString(Option::V4, option, hostname));
+		        machine_free_fqdn(hostname);
+		    }
+		    break;
+		case DHO_BOOT_FILE_NAME:
+		    {
+		        const char *filename = machine_get_filename(boost::any_cast<Machine *>(param));
+		        if (filename) {
+			        option_val.reset(new OptionString(Option::V4, option, filename));
+		            machine_free_filename(filename);
+		        }
+		    }
+		    break;
+		case DHO_VENDOR_CLASS_IDENTIFIER:
+			option_val.reset(new OptionString(Option::V4, DHO_VENDOR_CLASS_IDENTIFIER, boost::any_cast<char *>(param)));
+			break;
+		default:
+		    LOG_ERROR(logger, "LOG_CARBIDE_PKT4_SEND: packet send error: Option [%1] is not implemented for reset.").arg(option);
+	}
+
+}
+
+void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
+    switch(option) {
+		case DHO_ROUTERS:
+		    response4_ptr->addOption(
+		            OptionPtr(
+		                new Option4AddrLst(
+		                    option, isc::asiolink::IOAddress(
+		                        machine_get_interface_router(boost::any_cast<Machine *> (param))))));
+		    break;
+		case DHO_NAME_SERVERS:
+		    response4_ptr->addOption(
+		            OptionPtr(
+		                new Option4AddrLst(
+		                    option, isc::asiolink::IOAddress(boost::any_cast<const char *>(param)))));
+		    break;
+		case DHO_SUBNET_MASK:
+		case DHO_BROADCAST_ADDRESS:
+		case DHO_HOST_NAME:
+		case DHO_BOOT_FILE_NAME:
+		case DHO_VENDOR_CLASS_IDENTIFIER:
+		    resetOption(param);
+	        response4_ptr->addOption(option_val);
+		    break;
+		default:
+		    LOG_ERROR(logger, "LOG_CARBIDE_PKT4_SEND: packet send error: Option [%1] is not implemented for addandreset.").arg(option);
+	}
+}
+
+/*
+ * The main function which updates the option in response4_ptr.
+ * Currntly as per implementation only Option and OptionUint16 templates are 
+ * implemented.
+ */
+template <typename T>
+void update_option(CalloutHandle &handle, Pkt4Ptr response4_ptr, const int option, boost::any param) {
+	try {
+        CDHCPOptionsHandler<T> option_handler(handle, response4_ptr, option);
+        option_handler.resetAndAddOption(param);
+	}
+	catch(exception& e) {
+		LOG_ERROR(logger, "LOG_CARBIDE_PKT4_SEND: packet send Exception for option [%1]. Exception: %2").arg(option).arg(e.what());
+		handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
+	}
+}
+
+void update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option, boost::shared_ptr<OptionString> option_val) {
+	switch(option) {
+        case DHO_VENDOR_CLASS_IDENTIFIER:
+			discovery_set_vendor_class(discovery, option_val->getValue().c_str());
+			break;
+    }
+}
+
+void update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option, boost::shared_ptr<OptionUint16> option_val) {
+	switch(option) {
+		case DHO_SYSTEM:
+			discovery_set_client_system(discovery, option_val->getValue());
+			break;
+    }
+}
+
+template <typename T>
+void update_discovery_parameters(Pkt4Ptr query4_ptr, DiscoveryBuilderFFI *discovery, int option) {
+	boost::shared_ptr<T> option_val =
+		boost::dynamic_pointer_cast<T>(query4_ptr->getOption(option));
+	if (option_val) {
+		LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(option_val->toText());
+		update_discovery_parameters(discovery, option, option_val);
+	} else {
+		LOG_ERROR(logger, "LOG_CARBIDE_PKT4_RECEIVE: Missing option [%1] in packet").arg(option_val);
+	}
+}
+
+void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr, Machine *machine) {
+	// Router Address
+	update_option<Option>(handle, response4_ptr, DHO_ROUTERS, machine);
+
+	// DNS servers
+	update_option<Option>(handle, response4_ptr, DHO_NAME_SERVERS, "192.168.0.1");
+
+	// Set Interface MTU
+	update_option<OptionUint16>(handle, response4_ptr, DHO_INTERFACE_MTU, 1500);
+
+	// Set subnet-mask
+	update_option<Option>(handle, response4_ptr, DHO_SUBNET_MASK, machine);
+
+	// Set broadcast address
+	update_option<Option>(handle, response4_ptr, DHO_BROADCAST_ADDRESS, machine);
+
+	// Set hostname, the RFC says this is the short name, but whatever.
+	update_option<Option>(handle, response4_ptr, DHO_HOST_NAME, machine);
+
+	// Set filename
+	update_option<Option>(handle, response4_ptr, DHO_BOOT_FILE_NAME, machine);
+
+	char *machine_client_type = machine_get_client_type(machine);
+	if (strlen(machine_client_type) > 0) {
+	    update_option<Option>(handle, response4_ptr, DHO_VENDOR_CLASS_IDENTIFIER, machine_client_type);
+	}
+	machine_free_client_type(machine_client_type);
+}
+
+void set_vendor_options(Pkt4Ptr response4_ptr, Machine *machine) {
+	OptionPtr option_vendor(new Option(Option::V4, DHO_VENDOR_ENCAPSULATED_OPTIONS));
+	LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(option_vendor->toText());
+
+	// Option 6 set to 0x8 tells iPXE not to wait for Proxy PXE since we don't care about that.
+	OptionPtr vendor_option_6 = option_vendor->getOption(6);
+	if (vendor_option_6) {
+		option_vendor->delOption(6);
+	}
+	vendor_option_6.reset(new OptionInt<uint32_t>(Option::V4, 6, 0x8));
+
+	// Option 70 we're using to set the UUID of the machine
+	OptionPtr vendor_option_70 = option_vendor->getOption(70);
+	if (vendor_option_70) {
+		option_vendor->delOption(70);
+	}
+	char *machine_uuid = machine_get_uuid(machine);
+    if (strlen(machine_uuid) > 0) {
+        vendor_option_70.reset(new OptionString(Option::V4, 70, machine_uuid));
+        option_vendor->addOption(vendor_option_6);
+        option_vendor->addOption(vendor_option_70);
+        response4_ptr->addOption(option_vendor);
+    }
+	machine_free_uuid(machine_uuid);
+}
 
 extern "C" {
 	int pkt4_receive(CalloutHandle &handle) {
@@ -46,27 +192,14 @@ extern "C" {
 		 * TODO(ajf): find out where this option format is documented
 		 * at all so maybe we can build a type around it.
 		 */
-		boost::shared_ptr<OptionString> vendor_class =
-			boost::dynamic_pointer_cast<OptionString>(query4_ptr->getOption(DHO_VENDOR_CLASS_IDENTIFIER));
-		if (vendor_class) {
-			discovery_set_vendor_class(discovery, vendor_class->getValue().c_str());
-		} else {
-			LOG_ERROR(logger, isc::log::LOG_CARBIDE_GENERIC).arg("Missing DHO_VENDOR_CLASS_IDENTIFIER (option 60) in packet");
-		}
+        update_discovery_parameters<OptionString>(query4_ptr, discovery, DHO_VENDOR_CLASS_IDENTIFIER);
 
 		/*
 		 * Extract the "client architecture" - DHCP option 93 from the
 		 * packet, which will tell us what the booting architecture is
 		 * in order to figure out which filname to give back
 		 */
-		boost::shared_ptr<OptionUint16> client_system = 
-			boost::static_pointer_cast<OptionUint16>(query4_ptr->getOption(DHO_SYSTEM));
-		if (client_system) {
-			LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(client_system->toText());
-			discovery_set_client_system(discovery, client_system->getValue());
-		} else {
-			LOG_ERROR(logger, isc::log::LOG_CARBIDE_GENERIC).arg("Missing DHO_SYSTEM (option 93) in packet");
-		}
+        update_discovery_parameters<OptionUint16>(query4_ptr, discovery, DHO_SYSTEM);
 
 		/*
 		 * There's helper functions for the basic stuff like mac
@@ -118,118 +251,26 @@ extern "C" {
 			handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
 			return 1;
 		}
+        
+	    /*
+	     * Fetch the interface address for this machine (i.e. this is the address assigned to the DHCP-ing host.
+	     */
+	    response4_ptr->setYiaddr(isc::asiolink::IOAddress(machine_get_interface_address(machine)));
 
-		/*
-		 * Fetch the interface address for this machine (i.e. this is the address assigned to the DHCP-ing host.
-		 */
-		response4_ptr->setYiaddr(isc::asiolink::IOAddress(machine_get_interface_address(machine)));
-
-		// Router Address
-		OptionPtr option_routers = response4_ptr->getOption(DHO_ROUTERS);
-		if(option_routers) {
-			response4_ptr->delOption(DHO_ROUTERS);
-		}
-		response4_ptr->addOption(OptionPtr(new Option4AddrLst(DHO_ROUTERS, isc::asiolink::IOAddress(machine_get_interface_router(machine)))));
-
-		// DNS servers
-		OptionPtr option_dns = response4_ptr->getOption(DHO_NAME_SERVERS);
-		if(option_dns) {
-			response4_ptr->delOption(DHO_NAME_SERVERS);
-		}
-		response4_ptr->addOption(OptionPtr(new Option4AddrLst(DHO_NAME_SERVERS, isc::asiolink::IOAddress("192.168.0.1"))));
-
-		// Set Interface MTU
-		boost::shared_ptr<OptionUint16> option_mtu = 
-			boost::static_pointer_cast<OptionUint16>(response4_ptr->getOption(DHO_INTERFACE_MTU));
-		if (option_mtu) {
-			response4_ptr->delOption(DHO_INTERFACE_MTU);
-		}
-		option_mtu.reset(new OptionInt<uint16_t>(Option::V4, DHO_INTERFACE_MTU, 1500));
-		response4_ptr->addOption(option_mtu);
-
-		// Set subnet-mask
-		OptionPtr option_subnet = response4_ptr->getOption(DHO_SUBNET_MASK);
-		if (option_subnet) {
-			response4_ptr->delOption(DHO_SUBNET_MASK);
-		}
-		option_subnet.reset(new OptionInt<uint32_t>(Option::V4, DHO_SUBNET_MASK, machine_get_interface_subnet_mask(machine)));
-		response4_ptr->addOption(option_subnet);
-
-		// Set broadcast address
-		OptionPtr option_broadcast = response4_ptr->getOption(DHO_BROADCAST_ADDRESS);
-		if (option_broadcast) {
-			response4_ptr->delOption(DHO_BROADCAST_ADDRESS);
-		}
-		option_broadcast.reset(new OptionInt<uint32_t>(Option::V4, DHO_BROADCAST_ADDRESS, machine_get_broadcast_address(machine)));
-		response4_ptr->addOption(option_broadcast);
-
-		// Set hostname, the RFC says this is the short name, but whatever.
-		OptionPtr option_hostname = response4_ptr->getOption(DHO_HOST_NAME);
-		if (option_hostname) {
-			response4_ptr->delOption(DHO_HOST_NAME);
-		}
-		char* hostname = machine_get_interface_hostname(machine);
-		option_hostname.reset(new OptionString(Option::V4, DHO_HOST_NAME, hostname));
-		response4_ptr->addOption(option_hostname);
+        set_options(handle, response4_ptr, machine);
 
 		// Set next-server (Siaddr) - server address
 		response4_ptr->setSiaddr(isc::asiolink::IOAddress(machine_get_next_server(machine)));
 
-		// Set filename
-		OptionPtr option_filename = response4_ptr->getOption(DHO_BOOT_FILE_NAME);
-		if (option_filename) {
-			response4_ptr->delOption(DHO_BOOT_FILE_NAME);
-		}
-		const char *filename = machine_get_filename(machine);
-		if (filename) {
-			option_filename.reset(new OptionString(Option::V4, DHO_BOOT_FILE_NAME, filename));
-			response4_ptr->addOption(option_filename);
-		}
-
-		char *machine_client_type = machine_get_client_type(machine);
-		if (strlen(machine_client_type) > 0) {
-			OptionPtr option_vendor_class = response4_ptr->getOption(DHO_VENDOR_CLASS_IDENTIFIER);
-			if (option_vendor_class) {
-				response4_ptr->delOption(DHO_VENDOR_CLASS_IDENTIFIER);
-			}
-
-			option_vendor_class.reset(new OptionString(Option::V4, DHO_VENDOR_CLASS_IDENTIFIER, machine_client_type));
-			response4_ptr->addOption(option_vendor_class);
-		}
 		/*
 		 * Encapsulate some PXE options in the vendor encapsulated
 		 */
-		OptionPtr option_vendor(new Option(Option::V4, DHO_VENDOR_ENCAPSULATED_OPTIONS));
-		LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(option_vendor->toText());
-
-		// Option 6 set to 0x8 tells iPXE not to wait for Proxy PXE since we don't care about that.
-		OptionPtr vendor_option_6 = option_vendor->getOption(6);
-		if (vendor_option_6) {
-			option_vendor->delOption(6);
-		}
-		vendor_option_6.reset(new OptionInt<uint32_t>(Option::V4, 6, 0x8));
-
-		// Option 70 we're using to set the UUID of the machine
-		OptionPtr vendor_option_70 = option_vendor->getOption(70);
-		if (vendor_option_70) {
-			option_vendor->delOption(70);
-		}
-		char *machine_uuid = machine_get_uuid(machine);
-        if (strlen(machine_uuid) > 0) {
-            vendor_option_70.reset(new OptionString(Option::V4, 70, machine_uuid));
-            option_vendor->addOption(vendor_option_6);
-            option_vendor->addOption(vendor_option_70);
-            response4_ptr->addOption(option_vendor);
-        }
+		set_vendor_options(response4_ptr, machine);
 
 		LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND).arg(response4_ptr->toText());
 
 		// Tell rust code to free the memory, since we can't free memory that isn't ours
 		machine_free(machine);
-		machine_free_fqdn(hostname);
-		machine_free_client_type(machine_client_type);
-		machine_free_filename(filename);
-		machine_free_uuid(machine_uuid);
 
 		return 0;
 	}
