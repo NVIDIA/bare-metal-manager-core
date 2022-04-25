@@ -111,19 +111,13 @@ docker-compose up
 ```
 
 ### Bootstrapping Carbide
-1. Create a new VPC
+Create a new VPC, Domain and networksegment.
 ```
-grpcurl -d '{"name":"test_vpc"}' -plaintext 127.0.0.1:80 metal.v0.Metal/CreateVpc
-```
-2. Create a domain -
+vpc=$(grpcurl -d '{"name":"test_vpc"}' -plaintext 127.0.0.1:80 metal.v0.Metal/CreateVpc | jq ".id.value" | tr -d '"')
 
-```
-grpcurl -d '{"name":"forge.local"}' -plaintext 127.0.0.1:80 metal.v0.Metal/CreateDomain
-```
-3. Create a new `networkSegment` using the id returned from domain step 1
+domain=$(grpcurl -d '{"name":"forge.local"}' -plaintext 127.0.0.1:80 metal.v0.Metal/CreateDomain | jq ".id.value" | tr -d '"')
 
-```
-grpcurl -d '{"name":"test", "mtu": 1490, "prefixes":[{"prefix":"172.20.0.0/24","gateway":"172.20.0.1","reserve_first":20}, {"prefix":"::1/128", "reserve_first":0}], "subdomain_id": { "value":"<UUID From domain>"}, "vpc_id": { "value": "<UUID From VPC>"}} -plaintext 127.0.0.1:80 metal.v0.Metal/CreateNetworkSegment
+grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"prefixes\":[{\"prefix\":\"172.20.0.0/24\",\"gateway\":\"172.20.0.1\",\"reserve_first\":20}, {\"prefix\":\"::1/128\", \"reserve_first\":0}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -plaintext 127.0.0.1:80 metal.v0.Metal/CreateNetworkSegment
 ```
 
 ### Building the ephemeral image
