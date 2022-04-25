@@ -42,7 +42,7 @@ pub async fn boot(machine: Machine) -> Template {
     let instructions = BootInstructionGenerator {
         kernel: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.efi".to_string(),
         initrd: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.root".to_string(),
-            command_line: format!("url=http://${{next-server}}:8080/public/blobs/ubuntu-21.10-live-server-amd64.iso console=ttyS0 ip=dhcp autoinstall ds=nocloud-net;s=http://${{next-server}}:8080/api/v0/cloud-init/{}/user-data", machine.0.id.unwrap()),
+        command_line: format!("root=live:http://${{next-server}}:8080/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp"),
     };
 
     let mut context = HashMap::new();

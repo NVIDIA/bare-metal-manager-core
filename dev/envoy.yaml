@@ -41,7 +41,9 @@ static_resources:
               domains: ["*"]
               routes:
               - match: { prefix: "/" }
-                route: { cluster: carbide-pxe }
+                route:
+                  cluster: carbide-pxe
+                  timeout: 0s # fix to allow large files to be proxied, like a file server
           http_filters:
           - name: envoy.filters.http.router
   clusters:
