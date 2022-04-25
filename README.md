@@ -145,13 +145,18 @@ static/
 
 ### PXE Client
 
+You can start qemu with or without graphics. If your LiveOS is a graphical OS, remove the `-nographic` and `-display none` to have an actual window pop up.
+
 ```
-sudo qemu-system-x86_64 -boot n -nographic -serial mon:stdio -cpu host \
-  -accel kvm -device virtio-serial-pci -display none \
+sudo qemu-system-x86_64 -boot n -nographic -display none \
+  -serial mon:stdio -cpu host \
+  -accel kvm -device virtio-serial-pci \
   -netdev bridge,id=carbidevm,br=carbide0 \
   -device virtio-net-pci,netdev=carbidevm \
-  -bios /usr/share/ovmf/OVMF.fd -m 1024
+  -bios /usr/share/ovmf/OVMF.fd -m 4096
 ```
+
+This should boot you into the prexec image, and its user is `root` and password is specified in the mkosi.default file.
 
 In order to exit use `ctrl-a x` 
 
@@ -159,21 +164,6 @@ In order to exit use `ctrl-a x`
 and in the EFI Shell just type `reset` and it will restart the whole pxe process and it will run the ipxe image properly the second time.
 See https://jirasw.nvidia.com/browse/FORGE-243 for more information.
 
-It is expected to see this error once the PXE process has finished properly
-
-```asm
-[FAILED] Failed to start Switch Root.
-See 'systemctl status initrd-switch-root.service' for details.
-
-Generating "/run/initramfs/rdsosreport.txt"
-
-
-Entering emergency mode. Exit the shell to continue.
-Type "journalctl" to view system logs.
-You might want to save "/run/initramfs/rdsosreport.txt" to a USB stick or /boot
-after mounting them and attach it to a bug report.
-
-```
 
 While not needed for PXE, it is sometimes helpful to seed DB entries 
 for debugging SQL queries: 
