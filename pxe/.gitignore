@@ -1,3 +1,4 @@
 mkosi.output/
 mkosi/builddir/
 .mkosi-*/
+static/blobs/*
