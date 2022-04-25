@@ -60,7 +60,9 @@ void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
 		case DHO_BOOT_FILE_NAME:
 		case DHO_VENDOR_CLASS_IDENTIFIER:
 		    resetOption(param);
-	        response4_ptr->addOption(option_val);
+		    if(option_val) {
+		        response4_ptr->addOption(option_val);
+		    }
 		    break;
 		default:
 		    LOG_ERROR(logger, "LOG_CARBIDE_PKT4_SEND: packet send error: Option [%1] is not implemented for addandreset.").arg(option);
