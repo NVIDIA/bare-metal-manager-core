@@ -283,8 +283,30 @@ enum MachineAction {
   UNASSIGN = 9;
   RELEASE = 10;
 }
+
+message MachineDiscoveryNic {
+  string mac_address = 1;
+  string device = 2;
+}
+
+message MachineDiscoveryCpu {
+  string vendor = 1;
+  string model = 2;
+  string frequency = 3;
+  int32 num = 4;
+}
+
+message MachineDiscoveryBlockDevice {
+  string path = 1;
+  string model = 2;
+  string revision = 3;
+  string serial = 4;
+}
+
 message MachineDiscovery {
-  bytes topology = 1;
+  repeated MachineDiscoveryNic nics = 1;
+  repeated MachineDiscoveryCpu cpus = 2;
+  repeated MachineDiscoveryBlockDevice devices = 3;
 }
 
 message DhcpDiscovery {

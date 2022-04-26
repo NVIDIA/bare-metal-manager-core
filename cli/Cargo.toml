@@ -1,0 +1,22 @@
+[package]
+name = "cli"
+version = "0.0.1"
+edition = "2018"
+
+[[bin]]
+name = "carbide-cli"
+path = "src/main.rs"
+
+[dependencies]
+# protobufs/rpc interface
+rpc = { path = "../rpc" }
+tonic = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+
+log = "*"
+once_cell = "*"
+tokio = { version = "*", features = ["rt"] }
+thiserror = "1.0"
+procfs = "*"
+libudev = "*"
