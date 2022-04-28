@@ -422,9 +422,12 @@ dependencies = [
 name = "cli"
 version = "0.0.1"
 dependencies = [
+ "clap 3.0.14",
+ "color-eyre",
  "libudev",
  "log",
  "once_cell",
+ "pretty_env_logger",
  "procfs",
  "rpc",
  "serde",

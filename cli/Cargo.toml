@@ -20,3 +20,8 @@ tokio = { version = "*", features = ["rt"] }
 thiserror = "1.0"
 procfs = "*"
 libudev = "*"
+color-eyre = "0.5.11"
+pretty_env_logger = "*"
+
+# cli
+clap = { version = "~3.0.0", features = ["derive"] }
