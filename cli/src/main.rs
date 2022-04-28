@@ -3,8 +3,8 @@
 mod cfg;
 mod discovery;
 
-use log::LevelFilter;
 use cfg::{Command, Options};
+use log::LevelFilter;
 
 fn main() -> Result<(), color_eyre::Report> {
     color_eyre::install()?;
@@ -29,7 +29,7 @@ fn main() -> Result<(), color_eyre::Report> {
     match config.subcmd {
         Command::Discovery(_) => {
             discovery::Discovery::run(config.listen)?;
-        },
+        }
     }
     Ok(())
 }

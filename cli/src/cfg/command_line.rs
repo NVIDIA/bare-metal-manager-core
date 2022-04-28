@@ -9,11 +9,11 @@ pub(crate) struct Options {
     pub debug: u8,
 
     #[clap(
-    short,
-    long,
-    multiple_values(false),
-    require_equals(true),
-    default_value = "https://[::1]:1079"
+        short,
+        long,
+        multiple_values(false),
+        require_equals(true),
+        default_value = "https://[::1]:1079"
     )]
     pub listen: String,
 
@@ -28,7 +28,7 @@ pub(crate) enum Command {
 }
 
 #[derive(Parser)]
-pub struct Discovery { }
+pub struct Discovery {}
 
 impl Options {
     pub fn load() -> Self {

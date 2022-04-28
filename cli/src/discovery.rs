@@ -3,14 +3,14 @@ extern crate libudev;
 use cli::{CarbideClientError, CarbideClientResult};
 use rpc::v0 as rpc;
 
-use log::{{debug, error}};
-use std::str::Utf8Error;
 use libudev::{Context, Device};
+use log::{debug, error};
 use once_cell::sync::Lazy;
+use std::str::Utf8Error;
 use tokio::runtime::{Builder, Runtime};
 use tonic::Response;
 
-pub struct Discovery { }
+pub struct Discovery {}
 
 pub fn get_tokio_runtime() -> &'static Runtime {
     static TOKIO: Lazy<Runtime> =
@@ -175,8 +175,7 @@ pub fn get_machine_details(context: &Context) -> CarbideClientResult<rpc::Machin
 impl Discovery {
     pub fn run(listen: String) -> CarbideClientResult<Response<rpc::Machine>> {
         let runtime = get_tokio_runtime();
-        let context =
-            libudev::Context::new().map_err(CarbideClientError::from)?;
+        let context = libudev::Context::new().map_err(CarbideClientError::from)?;
         let info = get_machine_details(&context)?;
 
         runtime.block_on(async move {
@@ -184,13 +183,12 @@ impl Discovery {
                 Ok(mut client) => {
                     let request = tonic::Request::new(info);
                     client.discover_machine(request).await.map_err(|error| {
-                    error!("Unable to discover machine via Carbide {:?}", error);
-                    CarbideClientError::from(error)
-                })
-                },
-                Err(err) => Err(CarbideClientError::from(err))
+                        error!("Unable to discover machine via Carbide {:?}", error);
+                        CarbideClientError::from(error)
+                    })
+                }
+                Err(err) => Err(CarbideClientError::from(err)),
             }
         })
-
     }
 }
