@@ -304,9 +304,10 @@ message MachineDiscoveryBlockDevice {
 }
 
 message MachineDiscovery {
-  repeated MachineDiscoveryNic nics = 1;
-  repeated MachineDiscoveryCpu cpus = 2;
-  repeated MachineDiscoveryBlockDevice devices = 3;
+  UUID uuid = 1;
+  repeated MachineDiscoveryNic nics = 2;
+  repeated MachineDiscoveryCpu cpus = 3;
+  repeated MachineDiscoveryBlockDevice devices = 4;
 }
 
 message DhcpDiscovery {

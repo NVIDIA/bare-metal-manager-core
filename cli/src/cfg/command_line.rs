@@ -28,7 +28,10 @@ pub(crate) enum Command {
 }
 
 #[derive(Parser)]
-pub struct Discovery {}
+pub struct Discovery {
+    #[clap(short, long, multiple_values(false), require_equals(true))]
+    pub uuid: String,
+}
 
 impl Options {
     pub fn load() -> Self {

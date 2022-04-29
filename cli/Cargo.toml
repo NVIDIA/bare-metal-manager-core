@@ -22,6 +22,7 @@ procfs = "*"
 libudev = "*"
 color-eyre = "0.5.11"
 pretty_env_logger = "*"
+uuid = "*"
 
 # cli
 clap = { version = "~3.0.0", features = ["derive"] }

@@ -27,8 +27,8 @@ fn main() -> Result<(), color_eyre::Report> {
         .init();
 
     match config.subcmd {
-        Command::Discovery(_) => {
-            discovery::Discovery::run(config.listen)?;
+        Command::Discovery(d) => {
+            discovery::Discovery::run(config.listen, &d.uuid)?;
         }
     }
     Ok(())

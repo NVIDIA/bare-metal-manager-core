@@ -61,7 +61,10 @@ fn convert_property_to_string<'a>(
     };
 }
 
-pub fn get_machine_details(context: &Context) -> CarbideClientResult<rpc::MachineDiscovery> {
+pub fn get_machine_details(
+    context: &Context,
+    uuid: &str,
+) -> CarbideClientResult<rpc::MachineDiscovery> {
     // Nics
     let mut enumerator = libudev::Enumerator::new(&context)
         .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
@@ -165,7 +168,12 @@ pub fn get_machine_details(context: &Context) -> CarbideClientResult<rpc::Machin
         }
     }
 
+    let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
+        .map(|m| m.into())
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+
     Ok(rpc::MachineDiscovery {
+        uuid: Some(rpc_uuid),
         nics,
         cpus,
         devices: disks,
@@ -173,10 +181,10 @@ pub fn get_machine_details(context: &Context) -> CarbideClientResult<rpc::Machin
 }
 
 impl Discovery {
-    pub fn run(listen: String) -> CarbideClientResult<Response<rpc::Machine>> {
+    pub fn run(listen: String, uuid: &str) -> CarbideClientResult<Response<rpc::Machine>> {
         let runtime = get_tokio_runtime();
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
-        let info = get_machine_details(&context)?;
+        let info = get_machine_details(&context, uuid)?;
 
         runtime.block_on(async move {
             match rpc::metal_client::MetalClient::connect(listen).await {
