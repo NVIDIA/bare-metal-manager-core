@@ -125,6 +125,13 @@ CREATE TABLE machines (
 	FOREIGN KEY (supported_instance_type) REFERENCES instance_types(id)
 );
 
+CREATE TABLE machine_topologies (
+    machine_id uuid NOT NULL,
+    topology jsonb NOT NULL,
+    PRIMARY KEY (machine_id),
+    FOREIGN KEY (machine_id) REFERENCES machines(id)
+);
+
 CREATE TABLE machine_events (
 	id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	machine_id uuid NOT NULL,

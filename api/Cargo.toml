@@ -21,7 +21,7 @@ tonic = { version = "0.6", features = ["tls"] }
 tonic-reflection = "0.3"
 
 # databases
-sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros" ] }
+sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json" ] }
 
 # async
 tokio = { version = "1.9", features = ["full"] }
@@ -29,6 +29,7 @@ log = { version = "*", features = ["serde"] }
 pretty_env_logger = "*"
 color-eyre = "0.5.11"
 serde = {version = "1.0", features = ["derive"] }
+serde_json = "*"
 tokio-stream = "*"
 futures = "0.3"
 

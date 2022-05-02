@@ -80,10 +80,6 @@ async fn only_one_primary_interface_per_machine() {
 
     txn.commit().await.unwrap();
 
-    let new_machine = Machine::create(&mut txn2)
-        .await
-        .expect("Unable to create machine");
-
     let mut new_interface = MachineInterface::create(
         &mut txn2,
         &new_segment,
@@ -96,10 +92,9 @@ async fn only_one_primary_interface_per_machine() {
     .await
     .expect("Unable to create machine interface");
 
-    new_interface
-        .associate_interface_with_machine(&mut txn2, new_machine.id())
+    let new_machine = Machine::create(&mut txn2, "{}".to_string(), new_interface)
         .await
-        .expect("Could not associate interface w machine");
+        .expect("Unable to create machine");
 
     txn2.commit().await.unwrap();
 

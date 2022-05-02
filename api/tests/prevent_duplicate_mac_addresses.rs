@@ -83,10 +83,6 @@ async fn prevent_duplicate_mac_addresses() {
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
 
-    let new_machine = Machine::create(&mut txn)
-        .await
-        .expect("Unable to create machine");
-
     let mut new_interface = MachineInterface::create(
         &mut txn,
         &segment,
@@ -99,11 +95,9 @@ async fn prevent_duplicate_mac_addresses() {
     .await
     .expect("Unable to create interface");
 
-    // update the machine
-    new_interface
-        .associate_interface_with_machine(&mut txn, new_machine.id())
+    let new_machine = Machine::create(&mut txn, "{}".to_string(), new_interface)
         .await
-        .expect("Could not associate interface w machine");
+        .expect("Unable to create machine");
 
     let duplicate_interface = MachineInterface::create(
         &mut txn,

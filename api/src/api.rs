@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 use color_eyre::Report;
 use futures::{StreamExt, TryStreamExt};
@@ -222,7 +222,43 @@ impl Metal for Api {
         &self,
         _request: Request<rpc::MachineDiscovery>,
     ) -> Result<Response<rpc::Machine>, Status> {
-        todo!();
+        let di = _request.into_inner();
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let uuid = match &di.uuid {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Did not supply a valid discovery machine id UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("An interface UUID is required"));
+            }
+        };
+
+        let interface = MachineInterface::find_one(&mut txn, uuid).await?;
+
+        let json =
+            serde_json::to_string(&di).map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+        let machine = Machine::create(&mut txn, json, interface)
+            .await
+            .map(rpc::Machine::from)
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        Ok(machine)
     }
 
     async fn find_network_segments(
