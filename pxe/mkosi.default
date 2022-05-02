@@ -13,5 +13,10 @@ OutputSplitRoot=carbide-preexec-x86_64.rootfs
 OutputSplitKernel=carbide-preexec-x86_64.kernel
 
 [Content]
-Packages=cloud-init
+Packages=
+     telnet
+     iputils-ping
+     libudev-dev
+     openssh-server
+     vim-nox
 Password=password
