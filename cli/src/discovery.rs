@@ -181,22 +181,11 @@ pub fn get_machine_details(
 }
 
 impl Discovery {
-    pub fn run(listen: String, uuid: &str) -> CarbideClientResult<Response<rpc::Machine>> {
-        let runtime = get_tokio_runtime();
+    pub async fn run(listen: String, uuid: &str) -> CarbideClientResult<Response<rpc::Machine>> {
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
         let info = get_machine_details(&context, uuid)?;
-
-        runtime.block_on(async move {
-            match rpc::metal_client::MetalClient::connect(listen).await {
-                Ok(mut client) => {
-                    let request = tonic::Request::new(info);
-                    client.discover_machine(request).await.map_err(|error| {
-                        error!("Unable to discover machine via Carbide {:?}", error);
-                        CarbideClientError::from(error)
-                    })
-                }
-                Err(err) => Err(CarbideClientError::from(err)),
-            }
-        })
+        let mut client = rpc::metal_client::MetalClient::connect(listen).await?;
+        let request = tonic::Request::new(info);
+        Ok(client.discover_machine(request).await?)
     }
 }

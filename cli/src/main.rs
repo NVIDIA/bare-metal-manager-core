@@ -6,7 +6,8 @@ mod discovery;
 use cfg::{Command, Options};
 use log::LevelFilter;
 
-fn main() -> Result<(), color_eyre::Report> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), color_eyre::Report> {
     color_eyre::install()?;
 
     let config = Options::load();
@@ -28,7 +29,7 @@ fn main() -> Result<(), color_eyre::Report> {
 
     match config.subcmd {
         Command::Discovery(d) => {
-            discovery::Discovery::run(config.listen, &d.uuid)?;
+            discovery::Discovery::run(config.listen, &d.uuid).await?;
         }
     }
     Ok(())
