@@ -9,6 +9,47 @@ dependencies = [
 	"book-compile",
 ]
 
+[tasks.create-kind-cluster]
+category = "Kind"
+description = "Build KinD cluster"
+workspace = false
+command = "kind"
+args = ["create", "cluster", "--config", "dev/kube/kind/cluster.yaml"]
+
+[tasks.configure_kind]
+category = "Kind"
+workspace=false
+description = "kubectl apply KinD configuration"
+script='''
+kubectl kustomize dev/kube/overlays/local | kubectl apply -f -
+'''
+
+[tasks.kind]
+category = "Kind"
+description = "Build carbide container and upload to KinD cluster"
+workspace=false
+dependencies = [
+  "create-kind-cluster",
+  "carbide-container",
+  "load-carbide-container",
+  "configure_kind"
+]
+
+[tasks.carbide-container]
+category = "Kind"
+description = "Build the carbide container"
+workspace = false
+command = "docker"
+args = ["build", "-t", "carbide:latest", "-f", "dev/deployment/Dockerfile", "."]
+
+
+[tasks.load-carbide-container]
+category = "Kind"
+description = "Push image to Kind"
+workspace = false
+command = "kind"
+args = ["load", "docker-image", "carbide:latest", "--name", "forge-local"]
+
 [tasks.runtime-container]
 category = "Docker Compose"
 description = "Build the runtime container base image for Carbide components"

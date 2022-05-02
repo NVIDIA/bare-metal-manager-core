@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-api-deployment
+  namespace: default
+  labels:
+    app: carbide-api
+spec:
+  selector:
+    matchLabels:
+      app: carbide-api
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: carbide-api
+    spec:
+      containers:
+        - name: carbide-api
+          image: carbide:latest
+          command: ["/bin/sh", "-c", "/opt/carbide/carbide-api run --listen=\"${CARBIDE_API_LISTEN_INTERFACE}\" --datastore=\"${CARBIDE_API_DATASTORE}\""]
+          envFrom:
+          - configMapRef:
+              name: carbide-api-configuration
+          imagePullPolicy:  IfNotPresent
+          ports:
+          - containerPort: 1079
+            name: carbide-http

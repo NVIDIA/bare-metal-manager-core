@@ -1,0 +1,12 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: forge-local
+networking:
+  disableDefaultCNI: false
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 31079
+    hostPort: 11079
+    protocol: TCP
+    listenAddress: "127.0.0.1"

@@ -4,7 +4,7 @@ FROM rust:latest as builder
 #COPY pgdg.list /etc/apt/sources.list.d/pgdg.list
 COPY dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
 COPY dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
-RUN apt update && apt-get install -y build-essential isc-kea-dev libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*
+RUN apt update && apt-get install -y build-essential isc-kea-dev libudev-dev libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*
 ENV KEA_INCLUDE_PATH /usr/include/kea
 ENV KEA_BIN_PATH /usr/bin
 ENV KEA_LIB_PATH /usr/lib/kea
@@ -16,7 +16,7 @@ COPY . ./
 
 RUN cargo build
 
-FROM ubuntu:latest as carbide
+FROM ubuntu:focal as carbide
 #RUN ln -snf /usr/share/zoneinfo/UTC /etc/localtime && echo UTC > /etc/timezone
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates curl iproute2
@@ -35,7 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/pxe/templates && \
   mkdir -p /opt/carbide/static
-COPY --from=builder ["/carbide/target/debug/carbide-api", "/carbide/target/debug/carbide","/opt/carbide/"]
+COPY --from=builder ["/carbide/target/debug/carbide-api", "/carbide/target/debug/carbide","/carbide/target/debug/carbide-dns", "/opt/carbide/"]
 COPY --from=builder /carbide/target/debug/libdhcp.so /usr/lib/x86_64-linux-gnu/kea/hooks
 COPY api/migrations/ /opt/carbide/migrations/
 COPY pxe/templates/*  /opt/carbide/pxe/templates/
