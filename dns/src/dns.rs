@@ -4,10 +4,10 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use color_eyre::Report;
+#[allow(unused_imports)]
 use log::{debug, error, info, warn};
 use tokio::net::{TcpListener, UdpSocket};
 use tonic::transport::Channel;
-use tonic::Response;
 use trust_dns_server::authority::MessageResponseBuilder;
 use trust_dns_server::client::op::{Header, ResponseCode};
 use trust_dns_server::client::rr::{DNSClass, Name, RData};
@@ -28,6 +28,7 @@ pub struct DnsServer {
 
 struct DnsReply(ResponseInfo);
 
+#[allow(dead_code)]
 impl DnsReply {
     pub fn serve_failed() -> ResponseInfo {
         let mut header = Header::new();
