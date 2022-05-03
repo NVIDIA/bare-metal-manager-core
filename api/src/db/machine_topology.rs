@@ -27,14 +27,14 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
 impl MachineTopology {
     pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: uuid::Uuid,
+        machine_id: &uuid::Uuid,
         discovery: String,
     ) -> CarbideResult<Self> {
         Ok(
             sqlx::query_as(
                 "INSERT INTO machine_topologies VALUES ($1::uuid, $2::json) RETURNING *",
             )
-            .bind(machine_id)
+            .bind(&machine_id)
             .bind(discovery)
             .fetch_one(&mut *txn)
             .await?,

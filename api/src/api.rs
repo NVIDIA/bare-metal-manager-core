@@ -271,7 +271,7 @@ impl Metal for Api {
             }
         };
 
-        MachineTopology::create(&mut txn, uuid, json).await?;
+        MachineTopology::create(&mut txn, &uuid, json).await?;
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {}));
 

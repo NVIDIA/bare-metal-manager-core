@@ -81,7 +81,7 @@ async fn test_new_machine_state() {
     .await
     .expect("Unable to create machine interface");
 
-    let machine = Machine::create(&mut txn, "{}".to_string(), new_interface)
+    let machine = Machine::create(&mut txn, new_interface)
         .await
         .expect("Unable to create machine");
 

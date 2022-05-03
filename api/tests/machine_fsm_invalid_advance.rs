@@ -2,8 +2,6 @@ use std::sync::Once;
 
 use std::str::FromStr;
 
-use ipnetwork::IpNetwork;
-use itertools::Itertools;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
@@ -70,7 +68,7 @@ async fn test_fsm_invalid_advance() {
     .await
     .expect("Unable to create network segment");
 
-    let mut new_interface = MachineInterface::create(
+    let new_interface = MachineInterface::create(
         &mut txn,
         &new_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -82,7 +80,7 @@ async fn test_fsm_invalid_advance() {
     .await
     .expect("Unable to create machine interface");
 
-    let machine = Machine::create(&mut txn, "{}".to_string(), new_interface)
+    let machine = Machine::create(&mut txn, new_interface)
         .await
         .expect("Unable to create machine");
 

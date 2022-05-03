@@ -92,7 +92,7 @@ async fn only_one_primary_interface_per_machine() {
     .await
     .expect("Unable to create machine interface");
 
-    let new_machine = Machine::create(&mut txn2, "{}".to_string(), new_interface)
+    let new_machine = Machine::create(&mut txn2, new_interface)
         .await
         .expect("Unable to create machine");
 

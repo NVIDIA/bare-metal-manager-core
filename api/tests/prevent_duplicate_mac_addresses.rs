@@ -95,7 +95,7 @@ async fn prevent_duplicate_mac_addresses() {
     .await
     .expect("Unable to create interface");
 
-    let new_machine = Machine::create(&mut txn, "{}".to_string(), new_interface)
+    let new_machine = Machine::create(&mut txn, new_interface)
         .await
         .expect("Unable to create machine");
 
