@@ -9,9 +9,9 @@ use tonic_reflection::server::Builder;
 
 use carbide::{
     db::{
-        DeactivateInstanceType, DeleteVpc, DhcpRecord, Machine, MachineInterface, NetworkSegment,
-        NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType, UpdateVpc,
-        UuidKeyedObjectFilter, Vpc,
+        DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
+        NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType,
+        UpdateVpc, UuidKeyedObjectFilter, Vpc,
     },
     CarbideError,
 };
@@ -28,6 +28,47 @@ pub struct Api {
 
 #[tonic::async_trait]
 impl Metal for Api {
+    async fn lookup_record(
+        &self,
+        request: Request<rpc::dns_message::DnsQuestion>,
+    ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::dns_message::DnsQuestion {
+            q_name,
+            q_type,
+            q_class,
+        } = request.into_inner();
+
+        let question = match q_name.clone() {
+            Some(q_name) => DnsQuestion {
+                q_name: Some(q_name),
+                q_type,
+                q_class,
+            },
+            None => {
+                return Err(Status::invalid_argument(
+                    "A valid q_name, q_type and q_class are required",
+                ))
+            }
+        };
+
+        let results = DnsQuestion::find_record(&mut txn, question)
+            .await
+            .map(|dnsrr| rpc::dns_message::DnsResponse {
+                rcode: dnsrr.rcode,
+                rrs: dnsrr.rrs.into_iter().map(|r| r.into()).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(results)
+    }
+
     async fn network_segments_for_vpc(
         &self,
         request: Request<rpc::VpcSearchQuery>,
