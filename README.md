@@ -120,6 +120,10 @@ domain=$(grpcurl -d '{"name":"forge.local"}' -plaintext 127.0.0.1:80 metal.v0.Me
 grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"prefixes\":[{\"prefix\":\"172.20.0.0/24\",\"gateway\":\"172.20.0.1\",\"reserve_first\":20}, {\"prefix\":\"::1/128\", \"reserve_first\":0}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -plaintext 127.0.0.1:80 metal.v0.Metal/CreateNetworkSegment
 ```
 
+```
+INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, domain_id, hostname,primary_interface) VALUES ('<machine_id>', '<segment_id>', 'de:af:de:ad:be:ed',  '<domain_id>','myhost', true);
+```
+
 ### Building the ephemeral image
 in the `pxe/` subdirectory, run `cargo make`. You may need to install `liblzma-dev` and `gcc-aarch64-linux-gnu`
 
@@ -171,10 +175,12 @@ for debugging SQL queries:
 ```
 INSERT INTO machines DEFAULT VALUES;
 
-INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, address_ipv4, address_ipv6, domain_id, hostname,
-primary_interface) VALUES ('<machine uuid>', '<segment uuid>', 'de:af:de:ad:be:ed', '172.20.0.5', '::2', '<domain uuid>', 'myhost', true);
-```
 
+INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, domain_id, hostname,primary_interface) VALUES ('<machine uuid>', '<segment uuid>', 'de:af:de:ad:be:ed', '<domain uuid>', 'myhost', true);
+
+
+INSERT INTO machine_interface_addresses (inteface_id, address) VALUES (<interface_id>, <address>);
+```
 ## SJC4 Lab Environments
 ### Required access groups
 In order to reach the any of IP's listed you will need to be a member of 
