@@ -49,12 +49,6 @@ pub struct Machine {
     interfaces: Vec<MachineInterface>,
 }
 
-#[derive(Debug)]
-pub struct MachineTopology {
-    machine_id: uuid::Uuid,
-    topologyJson: serde_json::Value,
-}
-
 // We need to implement FromRow because we can't associate dependent tables with the default derive
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for Machine {
@@ -67,15 +61,6 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             state: row.try_get("state")?,
             events: Vec::new(),
             interfaces: Vec::new(),
-        })
-    }
-}
-
-impl<'r> FromRow<'r, PgRow> for MachineTopology {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(MachineTopology {
-            machine_id: row.try_get("machine_id")?,
-            topologyJson: row.try_get("topology")?,
         })
     }
 }
@@ -125,7 +110,6 @@ impl Machine {
     ///
     pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
-        discovery: String,
         mut interface: MachineInterface,
     ) -> CarbideResult<Self> {
         let row: (Uuid,) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
@@ -138,16 +122,8 @@ impl Machine {
             Err(x) => Err(x),
         }?;
 
-        let topology: MachineTopology = sqlx::query_as(
-            "INSERT INTO machine_topologies VALUES ($1::uuid, $2::json) RETURNING *",
-        )
-        .bind(machine.id)
-        .bind(discovery)
-        .fetch_one(&mut *txn)
-        .await?;
-
         interface
-            .associate_interface_with_machine(txn, &topology.machine_id)
+            .associate_interface_with_machine(txn, &machine.id)
             .await?;
 
         Ok(machine)

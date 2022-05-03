@@ -128,6 +128,10 @@ CREATE TABLE machines (
 CREATE TABLE machine_topologies (
     machine_id uuid NOT NULL,
     topology jsonb NOT NULL,
+
+    created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
     PRIMARY KEY (machine_id),
     FOREIGN KEY (machine_id) REFERENCES machines(id)
 );
