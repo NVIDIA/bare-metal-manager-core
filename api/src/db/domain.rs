@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use chrono::prelude::*;
 use sqlx::types::uuid;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
@@ -34,6 +34,7 @@ pub struct NewDomain {
     pub name: String,
 }
 
+#[allow(dead_code)]
 pub struct UpdateDomain {
     pub name: String,
     pub updated: DateTime<Utc>,
@@ -107,6 +108,7 @@ impl NewDomain {
 }
 
 impl UpdateDomain {
+    #[allow(dead_code)]
     pub async fn persist(
         &self,
         _txn: &mut sqlx::Transaction<'_, Postgres>,

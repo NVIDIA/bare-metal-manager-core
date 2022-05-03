@@ -22,6 +22,7 @@ static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 pub struct CarbideDhcpContext {
     api_endpoint: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
+    #[allow(dead_code)]
     provisioning_server_ipv6: Option<Ipv6Addr>,
 }
 

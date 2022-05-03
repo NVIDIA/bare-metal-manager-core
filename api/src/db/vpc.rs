@@ -2,7 +2,7 @@ use std::convert::{TryFrom, TryInto};
 
 use chrono::prelude::*;
 use sqlx::postgres::PgRow;
-use sqlx::{Error, Postgres, Row, Transaction};
+use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;
@@ -74,7 +74,7 @@ impl Vpc {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
     ) -> CarbideResult<Vec<Vpc>> {
-        let mut results: Vec<Vpc> = match filter {
+        let results: Vec<Vpc> = match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as("SELECT * FROM vpcs RETURNING *")
                     .fetch_all(&mut *txn)

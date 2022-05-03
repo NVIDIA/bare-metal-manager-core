@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use color_eyre::Report;
-use futures::{StreamExt, TryStreamExt};
+#[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
@@ -9,9 +9,9 @@ use tonic_reflection::server::Builder;
 
 use carbide::{
     db::{
-        DeactivateInstanceType, DeleteVpc, DhcpRecord, Domain, Machine, MachineInterface,
-        NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType,
-        UpdateVpc, UuidKeyedObjectFilter, Vpc,
+        DeactivateInstanceType, DeleteVpc, DhcpRecord, Machine, MachineInterface, NetworkSegment,
+        NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType, UpdateVpc,
+        UuidKeyedObjectFilter, Vpc,
     },
     CarbideError,
 };
@@ -122,7 +122,7 @@ impl Metal for Api {
                 Ok(uuid) => Ok(rpc::MachineList {
                     interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
                 }),
-                Err(err) => Err(CarbideError::GenericError(
+                Err(_) => Err(CarbideError::GenericError(
                     "Could not marshall an ID from the request".to_string(),
                 )
                 .into()),
