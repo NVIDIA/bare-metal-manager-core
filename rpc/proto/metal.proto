@@ -28,6 +28,9 @@ service Metal {
   rpc UpdateInstance(Instance) returns (Instance);
   rpc DeleteInstance(InstanceDeletionRequest) returns (InstanceDeletionResult);
 
+  rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
+//  rpc LookupPTRRecord(DnsRequest) returns (DnsReply);
+
   // TODO(ajf): Harder to implement bi-directional streaming, commented out for now
   // rpc StreamConsole(stream ConsoleInput) returns (stream ConsoleOutput);
   // rpc StreamInstanceEvents(UUID) returns (stream InstanceEvent);
@@ -49,6 +52,24 @@ service Metal {
   rpc CreateInstanceType(InstanceType) returns (InstanceType);
   rpc UpdateInstanceType(InstanceType) returns (InstanceType);
   rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
+}
+
+message DNSMessage {
+
+  message DNSQuestion {
+    optional string qName = 1;  // FQDN including trailing dot
+    optional uint32 qType = 2;  //
+    optional uint32 qClass = 3; // Usually 1 (IN)
+  }
+  message DNSResponse {
+    message DNSRR {
+      optional string rdata = 5;
+    }
+    optional uint32 rcode = 1;
+    repeated DNSRR rrs = 2;
+  }
+  optional DNSQuestion question = 1;
+  optional DNSResponse response = 2;
 }
 
 message DnsRequest {

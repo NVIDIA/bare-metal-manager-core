@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use chrono::prelude::*;
 use sqlx::types::uuid;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
 use rpc::v0 as rpc;

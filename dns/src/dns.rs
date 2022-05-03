@@ -1,18 +1,19 @@
-//extern crate trust_dns_server;
-
 use std::iter;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::time::Duration;
 
 use color_eyre::Report;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use tokio::net::{TcpListener, UdpSocket};
+use tonic::transport::Channel;
+use tonic::Response;
 use trust_dns_server::authority::MessageResponseBuilder;
 use trust_dns_server::client::op::{Header, ResponseCode};
 use trust_dns_server::client::rr::{DNSClass, Name, RData};
+use trust_dns_server::proto::op::ResponseCode::{NXDomain, NoError};
 use trust_dns_server::proto::rr::Record;
-use trust_dns_server::proto::rr::RecordType::{A, PTR, SOA};
+use trust_dns_server::proto::rr::RecordType::A;
 use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 use trust_dns_server::ServerFuture;
 
@@ -20,23 +21,12 @@ use rpc::v0 as rpc;
 
 use crate::cfg;
 
-#[derive(Debug)]
-pub struct DnsServer;
-
-#[derive(Debug)]
-struct DnsRequest;
+#[derive(Debug, Default)]
+pub struct DnsServer {
+    url: String,
+}
 
 struct DnsReply(ResponseInfo);
-
-struct Carbide {
-    api_endpoint: String,
-}
-
-impl Carbide {
-    fn new(url: String) -> Self {
-        Self { api_endpoint: url }
-    }
-}
 
 impl DnsReply {
     pub fn serve_failed() -> ResponseInfo {
@@ -47,72 +37,122 @@ impl DnsReply {
 }
 
 #[async_trait::async_trait]
-impl RequestHandler for DnsRequest {
+impl RequestHandler for DnsServer {
     async fn handle_request<R: ResponseHandler>(
         &self,
         request: &Request,
         mut response_handle: R,
     ) -> ResponseInfo {
+        let request_info = request.request_info();
+
+        let mut response_header = Header::response_from_request(request.header());
+
+        let message = MessageResponseBuilder::from_message_request(request);
+
+        let client = match rpc::metal_client::MetalClient::connect(String::from(&self.url)).await {
+            Ok(client) => client,
+            Err(err) => {
+                let message = format!(
+                    "Unable to connect to carbide-api at: {}, error was: {}",
+                    &self.url, err
+                );
+                error!("{}", message);
+                panic!("{}", message);
+            }
+        };
+
         match request.query().query_type() {
-            a => {
-                let mut response_header = Header::response_from_request(request.header());
+            A => {
+                // TODO After examining what is included as part of request_info.query(), class and type are already
+                // included.  We can simplify DnsQuestion to one field "query" which we can deconstruct ohe receiving
+                // side.
+                let carbide_dns_request = tonic::Request::new(rpc::dns_message::DnsQuestion {
+                    q_name: Some(request_info.query.name().to_string()),
+                    q_class: Some(1),
+                    q_type: Some(1),
+                });
 
-                let mut x = Record::new()
-                    .set_ttl(30)
-                    .set_record_type(A)
-                    .set_name(Name::from_str("foo.bar.com").unwrap())
-                    .set_data(Some(RData::A(Ipv4Addr::new(192, 168, 2, 2))))
-                    .set_dns_class(DNSClass::IN)
-                    .clone();
+                info!("Sending {} to api server", request_info.query.original());
 
-                let mut message = MessageResponseBuilder::from_message_request(request).build(
+                let record: Option<Record> =
+                    match DnsServer::retrieve_record(client, carbide_dns_request).await {
+                        Ok(value) => {
+                            response_header.set_response_code(NoError);
+                            let a_record = Record::new()
+                                .set_ttl(30)
+                                .set_name(Name::from(request_info.query.name()))
+                                .set_record_type(A)
+                                .set_dns_class(DNSClass::IN)
+                                .set_data(Some(RData::A(value)))
+                                .clone();
+                            Some(a_record)
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Unable to find record: {} error was {}",
+                                request_info.query.name(),
+                                e
+                            );
+                            response_header.set_response_code(NXDomain);
+                            None
+                        }
+                    };
+
+                let message = message.build(
                     response_header,
-                    iter::once(&x),
-                    iter::once(&x),
-                    iter::once(&x),
+                    &record,
+                    iter::empty(),
+                    iter::empty(),
                     iter::empty(),
                 );
 
-                let foo = response_handle.send_response(message).await;
-                foo.unwrap()
-            }
-            CNAME => {
-                todo!()
-            }
-            PTR => {
-                todo!()
-            }
-            SOA => {
-                todo!()
+                let response_info = response_handle.send_response(message).await;
+                response_info.unwrap()
             }
             _ => {
-                error!("Unsupported query type");
-                DnsReply::serve_failed()
-            } //DnsReply::serve_failed()
+                warn!("Unsupported query type: {}", request.query());
+                let response = MessageResponseBuilder::from_message_request(request);
+                response_handle
+                    .send_response(response.error_msg(request.header(), ResponseCode::NotImp))
+                    .await
+                    .unwrap()
+            }
         }
     }
 }
 
 impl DnsServer {
+    pub fn new(url: &str) -> Self {
+        Self { url: url.into() }
+    }
+
+    pub async fn retrieve_record(
+        mut client: rpc::metal_client::MetalClient<Channel>,
+        request: tonic::Request<rpc::dns_message::DnsQuestion>,
+    ) -> Result<Ipv4Addr, Report> {
+        let response = client.lookup_record(request).await?;
+
+        info!("Received response from API server");
+
+        response
+            .into_inner()
+            .rrs
+            .into_iter()
+            .map(|r| Ipv4Addr::from_str(r.rdata.unwrap().as_ref()).map_err(Report::from))
+            .next()
+            .unwrap()
+    }
+
     pub async fn run(daemon_config: &cfg::Daemon) -> Result<(), Report> {
-        let url = daemon_config.carbide_url.to_string();
+        let carbide_url = daemon_config.carbide_url.to_string();
 
-        info!("Connecting to carbide-api at {:?}", &url);
+        let api = DnsServer::new(&carbide_url);
 
-        match rpc::metal_client::MetalClient::connect(String::from(&url)).await {
-            Ok(mut client) => {
-                todo!()
-            }
-            Err(err) => {
-                let error_message = format!("Unable to connect to carbide-api at: {}", &url);
-                error!("{}", error_message);
-                panic!("{}", error_message);
-            }
-        }
+        info!("Connecting to carbide-api at {:?}", &carbide_url);
 
-        info!("Starting DNS server on {:?}", daemon_config.listen[0]);
+        //info!("Starting DNS server on {:?}", daemon_config.listen[0]);
 
-        let mut server = ServerFuture::new(DnsRequest);
+        let mut server = ServerFuture::new(api);
 
         let udp_socket = UdpSocket::bind("127.0.0.1:5356").await?;
         server.register_socket(udp_socket);
