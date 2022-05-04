@@ -17,6 +17,7 @@ mac_address = "*"
 ipnetwork = "*"
 log = "*"
 derive_builder = "*"
+const_env = "*"
 
 [build-dependencies]
 cc = "1.0"
