@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 use color_eyre::Report;
 #[allow(unused_imports)]
@@ -10,8 +10,8 @@ use tonic_reflection::server::Builder;
 use carbide::{
     db::{
         DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
-        NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType,
-        UpdateVpc, UuidKeyedObjectFilter, Vpc,
+        MachineTopology, NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc,
+        UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
     },
     CarbideError,
 };
@@ -261,9 +261,64 @@ impl Metal for Api {
 
     async fn discover_machine(
         &self,
-        _request: Request<rpc::MachineDiscovery>,
-    ) -> Result<Response<rpc::Machine>, Status> {
-        todo!();
+        request: Request<rpc::MachineDiscovery>,
+    ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
+        let di = request.into_inner();
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let interface_id = match &di.uuid {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Did not supply a valid discovery machine id UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("An interface UUID is required"));
+            }
+        };
+
+        let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
+
+        let json =
+            serde_json::to_string(&di).map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+        let machine = Machine::create(&mut txn, interface)
+            .await
+            .map(rpc::Machine::from)?;
+
+        let uuid = match &machine.id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Created machine did not return an proper UUID : {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument(
+                    "No ID was associated with the machine",
+                ));
+            }
+        };
+
+        MachineTopology::create(&mut txn, &uuid, json).await?;
+
+        let response = Ok(Response::new(rpc::MachineDiscoveryResult {}));
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn find_network_segments(

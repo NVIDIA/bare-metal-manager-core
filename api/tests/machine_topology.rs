@@ -1,13 +1,15 @@
-use std::str::FromStr;
 use std::sync::Once;
+
+use std::str::FromStr;
 
 use log::LevelFilter;
 use mac_address::MacAddress;
 
 use carbide::db::{
-    AddressSelectionStrategy, Domain, Machine, MachineInterface, NetworkSegment, NewDomain,
+    AddressSelectionStrategy, Machine, MachineInterface, MachineTopology, NetworkSegment,
     NewNetworkPrefix, NewNetworkSegment, NewVpc,
 };
+use carbide::CarbideError;
 
 mod common;
 
@@ -24,48 +26,28 @@ fn init_logger() {
 }
 
 #[tokio::test]
-async fn test_machine_rename() {
+async fn test_crud_machine_topology() {
     setup();
 
-    let pool = common::TestDatabaseManager::new()
+    let mut txn = common::TestDatabaseManager::new()
         .await
         .expect("Could not create database manager")
-        .pool;
-
-    let mut txn = pool
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-
-    let mut txn2 = pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    let new_domain: Domain = NewDomain {
-        name: "foobar.com".to_string(),
-    }
-    .persist(&mut txn)
-    .await
-    .expect("Unable top create domain");
-
-    txn.commit().await.unwrap();
-
-    let domain = Domain::find_by_name(&mut txn2, new_domain.name().to_owned())
-        .await
-        .expect("Could not find domain in DB");
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
         organization: Some(uuid::Uuid::new_v4()),
     }
-    .persist(&mut txn2)
+    .persist(&mut txn)
     .await
     .expect("Unable to create VPC");
 
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
-        subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
+        subdomain_id: None,
         mtu: Some(1500i32),
         vpc_id: Some(vpc.id),
 
@@ -82,12 +64,12 @@ async fn test_machine_rename() {
             },
         ],
     }
-    .persist(&mut txn2)
+    .persist(&mut txn)
     .await
     .expect("Unable to create network segment");
 
-    let mut machine_interface = MachineInterface::create(
-        &mut txn2,
+    let new_interface = MachineInterface::create(
+        &mut txn,
         &new_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         None,
@@ -98,12 +80,13 @@ async fn test_machine_rename() {
     .await
     .expect("Unable to create machine interface");
 
-    machine_interface
-        .update_hostname(&mut txn2, "peppersmacker400")
+    let machine = Machine::create(&mut txn, new_interface)
         .await
-        .expect("Could not update hostname");
+        .expect("Unable to create machine");
 
-    txn2.commit().await.unwrap();
+    MachineTopology::create(&mut txn, machine.id(), "{\"some\":\"json\"}".to_string())
+        .await
+        .expect("Unable to create topology");
 
-    assert_eq!(machine_interface.hostname(), "peppersmacker400");
+    txn.commit().await.unwrap();
 }

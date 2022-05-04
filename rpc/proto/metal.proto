@@ -39,7 +39,7 @@ service Metal {
   rpc InvokeInstancePower(InstancePowerRequest) returns (InstancePowerResult);
 
   // PRIVILEGED: Creates a new machine from nothing
-  rpc DiscoverMachine(MachineDiscovery) returns (Machine);
+  rpc DiscoverMachine(MachineDiscovery) returns (MachineDiscoveryResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
 
   // PRIVILEGED: Get a single machine
@@ -329,6 +329,10 @@ message MachineDiscovery {
   repeated MachineDiscoveryNic nics = 2;
   repeated MachineDiscoveryCpu cpus = 3;
   repeated MachineDiscoveryBlockDevice devices = 4;
+}
+
+message MachineDiscoveryResult {
+  // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
 }
 
 message DhcpDiscovery {
