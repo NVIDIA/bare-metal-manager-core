@@ -65,21 +65,59 @@ pub mod v0 {
             state.end()
         }
     }
-    impl Serialize for Machine {
+
+    impl Serialize for MachineDiscovery {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer,
         {
-            let mut state = serializer.serialize_struct("Machine", 8)?;
+            let mut state = serializer.serialize_struct("MachineDiscovery", 3)?;
+            state.serialize_field("nics", &self.nics)?;
+            state.serialize_field("cpus", &self.cpus)?;
+            state.serialize_field("devices", &self.devices)?;
+            state.end()
+        }
+    }
 
-            state.serialize_field("id", &self.id)?;
-            //state.serialize_field("fqdn", &self.fqdn)?;
-            state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
-            state.serialize_field("modified", &self.updated.as_ref().map(|ts| ts.seconds))?;
-            state.serialize_field("events", &self.events)?;
-            state.serialize_field("interfaces", &self.interfaces)?;
-            state.serialize_field("state", &self.state)?;
+    impl Serialize for MachineDiscoveryNic {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("MachineDiscoveryNic", 2)?;
 
+            state.serialize_field("device", &self.device)?;
+            state.serialize_field("mac_address", &self.mac_address)?;
+            state.end()
+        }
+    }
+
+    impl Serialize for MachineDiscoveryCpu {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("MachineDiscoveryCpu", 4)?;
+
+            state.serialize_field("frequency", &self.frequency)?;
+            state.serialize_field("num", &self.num)?;
+            state.serialize_field("model", &self.model)?;
+            state.serialize_field("vendor", &self.vendor)?;
+            state.end()
+        }
+    }
+
+    impl Serialize for MachineDiscoveryBlockDevice {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("MachineDiscoveryBlockDevice", 4)?;
+
+            state.serialize_field("serial", &self.serial)?;
+            state.serialize_field("model", &self.model)?;
+            state.serialize_field("path", &self.path)?;
+            state.serialize_field("revision", &self.revision)?;
             state.end()
         }
     }

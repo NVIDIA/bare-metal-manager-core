@@ -249,6 +249,7 @@ dependencies = [
  "rpc",
  "rstest",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror",
  "tokio",
@@ -2695,6 +2696,7 @@ version = "1.0.78"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d23c1ba4cf0efd44be32017709280b32d1cea5c3f1275c3b6d9e8bc54f758085"
 dependencies = [
+ "indexmap",
  "itoa",
  "ryu",
  "serde",
@@ -2920,6 +2922,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
+ "serde_json",
  "sha2 0.9.9",
  "sqlx-core",
  "sqlx-rt",

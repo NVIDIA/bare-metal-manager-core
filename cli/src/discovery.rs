@@ -181,7 +181,10 @@ pub fn get_machine_details(
 }
 
 impl Discovery {
-    pub async fn run(listen: String, uuid: &str) -> CarbideClientResult<Response<rpc::Machine>> {
+    pub async fn run(
+        listen: String,
+        uuid: &str,
+    ) -> CarbideClientResult<Response<rpc::MachineDiscoveryResult>> {
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
         let info = get_machine_details(&context, uuid)?;
         let mut client = rpc::metal_client::MetalClient::connect(listen).await?;

@@ -108,16 +108,25 @@ impl Machine {
     ///
     /// * `txn` - A reference to a currently open database transaction
     ///
-    pub async fn create(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Self> {
+    pub async fn create(
+        txn: &mut Transaction<'_, Postgres>,
+        mut interface: MachineInterface,
+    ) -> CarbideResult<Self> {
         let row: (Uuid,) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
             .fetch_one(&mut *txn)
             .await?;
 
-        match Machine::find_one(&mut *txn, row.0).await {
+        let machine = match Machine::find_one(&mut *txn, row.0).await {
             Ok(Some(x)) => Ok(x),
             Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),
             Err(x) => Err(x),
-        }
+        }?;
+
+        interface
+            .associate_interface_with_machine(txn, &machine.id)
+            .await?;
+
+        Ok(machine)
     }
 
     pub async fn find_one(
