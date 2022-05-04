@@ -1,10 +1,10 @@
-use super::{MachineEvent, MachineInterface, MachineState, UuidKeyedObjectFilter};
 use crate::CarbideResult;
 use chrono::prelude::*;
 
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct MachineTopology {
     machine_id: uuid::Uuid,
