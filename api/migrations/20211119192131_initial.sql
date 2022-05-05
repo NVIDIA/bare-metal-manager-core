@@ -349,8 +349,6 @@ BEGIN
   END;
 $$;
 
-SELECT gen_random_uuid();
-
 CREATE TRIGGER trigger_update_fqdn
 AFTER INSERT OR UPDATE
 ON machine_interfaces
