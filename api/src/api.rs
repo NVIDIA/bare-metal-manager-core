@@ -10,7 +10,8 @@ use carbide::{
     db::{
         DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
         MachineTopology, NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc,
-        UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc, TagCreate, TagDelete, TagsList,
+        Tag, TagAssociation, TagCreate, TagDelete, TagsList, UpdateInstanceType, UpdateVpc,
+        UuidKeyedObjectFilter, Vpc,
     },
     CarbideError,
 };
@@ -590,9 +591,9 @@ impl Metal for Api {
             .map_err(CarbideError::from)?;
 
         let response = Ok(TagCreate::try_from(request.into_inner())?
-                          .create(&mut txn)
-                          .await
-                          .map(Response::new)?);
+            .create(&mut txn)
+            .await
+            .map(Response::new)?);
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -610,9 +611,9 @@ impl Metal for Api {
             .map_err(CarbideError::from)?;
 
         let response = Ok(TagDelete::try_from(request.into_inner())?
-                          .delete(&mut txn)
-                          .await
-                          .map(Response::new)?);
+            .delete(&mut txn)
+            .await
+            .map(Response::new)?);
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -623,7 +624,20 @@ impl Metal for Api {
         &self,
         request: Request<rpc::TagsList>,
     ) -> Result<Response<rpc::TagResult>, Status> {
-        Ok(Response::new(rpc::TagResult{result: true}))
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagsList::try_from(request.into_inner())?
+            .assign(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn list_tags(
@@ -636,9 +650,7 @@ impl Metal for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(TagsList::find_all(&mut txn)
-                          .await
-                          .map(Response::new)?);
+        let response = Ok(Tag::list_all(&mut txn).await.map(Response::new)?);
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -649,16 +661,41 @@ impl Metal for Api {
         &self,
         request: Request<rpc::TagAssign>,
     ) -> Result<Response<rpc::TagResult>, Status> {
-        Ok(Response::new(rpc::TagResult{result: true}))
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagAssociation::try_from(request.into_inner())?
+            .assign(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn remove_tag(
         &self,
         request: Request<rpc::TagRemove>,
     ) -> Result<Response<rpc::TagResult>, Status> {
-        Ok(Response::new(rpc::TagResult{result: true}))
-    }
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
 
+        let response = Ok(TagAssociation::try_from(request.into_inner())?
+            .remove(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
 }
 
 impl Api {

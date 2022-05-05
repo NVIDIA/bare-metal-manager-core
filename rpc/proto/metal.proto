@@ -56,11 +56,11 @@ service Metal {
   // Tags handling
   rpc CreateTag(TagCreate) returns (TagResult);
   rpc DeleteTag(TagDelete) returns (TagResult);
-  rpc SetTags(TagsList) returns (TagResult);
   rpc ListTags(TagVoid) returns (TagsListResult);
 
   rpc AssignTag(TagAssign) returns (TagResult);
   rpc RemoveTag(TagRemove) returns (TagResult);
+  rpc SetTags(TagsList) returns (TagResult);
 }
 
 message DNSMessage {
@@ -375,41 +375,43 @@ message Tag {
 }
 
 message TagCreate {
-    Tag tag = 1;
+  Tag tag = 1;
 }
 
 message TagDelete {
-    Tag tag = 1;
+  Tag tag = 1;
 }
 
 message TagResult {
-    bool result = 1;
+  bool result = 1;
 }
 
 message TagVoid {
 }
 
 message TagsList {
-    repeated Tag tags = 1;
+  repeated string slugs = 1;
+  UUID target = 2;
+  TagTargetKind target_kind = 3;
 }
 
 message TagsListResult {
-    repeated Tag tags = 1;
+  repeated Tag tags = 1;
 }
 
 enum TagTargetKind {
-    MACHINE = 0;
-    NETWORK_SEGMENT = 1;
+  MACHINE = 0;
+  NETWORK_SEGMENT = 1;
 }
 
 message TagAssign {
   string slug = 1;
-  string target = 2;
+  UUID target = 2;
   TagTargetKind target_kind = 3;
 }
 
 message TagRemove {
   string slug = 1;
-  string target = 2;
+  UUID target = 2;
   TagTargetKind target_kind = 3;
 }

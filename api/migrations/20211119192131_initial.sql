@@ -287,25 +287,27 @@ CREATE TABLE machine_interface_addresses(
 );
 
 CREATE TABLE tags(
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
     slug VARCHAR(50) NOT NULL,
     name VARCHAR(50) NOT NULL,
     
-    PRIMARY KEY(slug)
+    PRIMARY KEY(id),
+    UNIQUE(slug)
 );
 
 CREATE TABLE tags_machine(
-    slug VARCHAR(50), 
+    tag_id uuid,
     target_id uuid,
-    UNIQUE(slug, target_id),
-    CONSTRAINT fk_tags_machine_slug FOREIGN KEY(slug) REFERENCES tags(slug) ON DELETE CASCADE,
+    UNIQUE(tag_id, target_id),
+    CONSTRAINT fk_tags_machine_slug FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE,
     CONSTRAINT fk_tags_machine FOREIGN KEY(target_id) REFERENCES machines(id) ON DELETE CASCADE
 );
 
 CREATE TABLE tags_networksegment(
-    slug VARCHAR(50), 
+    tag_id uuid,
     target_id uuid,
-    UNIQUE(slug, target_id),
-    CONSTRAINT fk_tags_ns_slug FOREIGN KEY(slug) REFERENCES tags(slug) ON DELETE CASCADE,
+    UNIQUE(tag_id, target_id),
+    CONSTRAINT fk_tags_machine_slug FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE,
     CONSTRAINT fk_tags_ns FOREIGN KEY(target_id) REFERENCES network_segments(id) ON DELETE CASCADE
 );
 
@@ -360,7 +362,7 @@ BEGIN
   END;
 $$;
 
-DROP TRIGGER IF EXISTS trigger_update_fqdn;
+DROP TRIGGER IF EXISTS trigger_update_fqdn ON machine_interfaces;
 CREATE TRIGGER trigger_update_fqdn
 AFTER INSERT OR UPDATE
 ON machine_interfaces
