@@ -126,7 +126,7 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
 
     match maybe_gateway {
         Ok(gateway) => match gateway {
-            IpNetwork::V4(gateway) => return u32::from_be_bytes(gateway.mask().octets()),
+            IpNetwork::V4(gateway) => return u32::from_be_bytes(gateway.ip().octets()),
             IpNetwork::V6(gateway) => {
                 error!(
                     "Gateway ({}) is an IPv6 address, which is not supported.",
