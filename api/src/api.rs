@@ -1,6 +1,7 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 
 use color_eyre::Report;
+#[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
@@ -162,7 +163,7 @@ impl Metal for Api {
                 Ok(uuid) => Ok(rpc::MachineList {
                     interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
                 }),
-                Err(err) => Err(CarbideError::GenericError(
+                Err(_) => Err(CarbideError::GenericError(
                     "Could not marshall an ID from the request".to_string(),
                 )
                 .into()),

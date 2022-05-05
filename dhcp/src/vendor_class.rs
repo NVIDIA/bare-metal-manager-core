@@ -43,6 +43,7 @@ impl FromStr for MachineArchitecture {
     }
 }
 
+#[allow(dead_code)]
 impl VendorClass {
     pub fn pxe(&self) -> bool {
         self.client_type == MachineClientClass::PXEClient

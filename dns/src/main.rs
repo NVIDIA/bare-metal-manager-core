@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
 
 use cfg::{Command, Options};

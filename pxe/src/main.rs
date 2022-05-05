@@ -12,9 +12,9 @@ mod routes;
 use rocket::{
     fairing::AdHoc,
     form::Errors,
-    fs::{relative, FileServer},
+    fs::FileServer,
     http::Status,
-    request::{self, FromParam, FromRequest},
+    request::{self, FromRequest},
     Request,
 };
 use rocket_dyn_templates::Template;

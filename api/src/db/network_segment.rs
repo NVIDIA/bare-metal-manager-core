@@ -45,12 +45,6 @@ pub struct NewNetworkSegment {
     pub prefixes: Vec<NewNetworkPrefix>,
 }
 
-pub enum VpcToNetworkSegmentQuery {
-    One(uuid::Uuid),
-
-    List(uuid::Uuid),
-}
-
 // We need to implement FromRow because we can't associate dependent tables with the default derive
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for NetworkSegment {
