@@ -512,9 +512,25 @@ impl Metal for Api {
 
     async fn get_machine(
         &self,
-        _request: Request<rpc::Uuid>,
+        request: Request<rpc::Uuid>,
     ) -> Result<Response<rpc::Machine>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+
+        let response = match Machine::find_one(&mut txn, uuid).await? {
+            None => Err(CarbideError::NotFoundError(uuid).into()),
+            Some(machine) => Ok(rpc::Machine::from(machine)),
+        }
+        .map(Response::new);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn create_instance_type(
