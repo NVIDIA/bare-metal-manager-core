@@ -290,7 +290,7 @@ CREATE TABLE tags_machine(
     CONSTRAINT fk_tags_machine FOREIGN KEY(target_id) REFERENCES machines(id) ON DELETE CASCADE
 );
 
-CREATE TABLE tags_network_segment(
+CREATE TABLE tags_networksegment(
     slug VARCHAR(50), 
     target_id uuid,
     UNIQUE(slug, target_id),
