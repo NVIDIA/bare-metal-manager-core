@@ -13,8 +13,8 @@ use std::net::Ipv4Addr;
 use std::primitive::u32;
 use std::ptr;
 
-// TODO(baz): make sure this ugly hack of next server becomes programatic one day
-const NEXT_SERVER: &str = "172.20.0.18";
+#[const_env::from_env("PROXY_IP")]
+const NEXT_SERVER: &'static str = "172.20.0.18";
 
 /// Machine: a machine that's currently trying to boot something
 ///

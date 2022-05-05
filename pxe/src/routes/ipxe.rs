@@ -42,7 +42,8 @@ pub async fn boot(machine: Machine) -> Template {
     let instructions = BootInstructionGenerator {
         kernel: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.efi".to_string(),
         initrd: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.root".to_string(),
-        command_line: format!("root=live:http://${{next-server}}:8080/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp"),
+        // TODO(baz): make sure this dhcp next_server envoy IP is removed
+        command_line: format!("root=live:http://${{next-server}}:8080/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp machine_id={} server_uri=https://${{next-server}}:80", machine.0.id.unwrap()),
     };
 
     let mut context = HashMap::new();

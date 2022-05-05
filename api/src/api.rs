@@ -1,7 +1,6 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 use color_eyre::Report;
-use futures::{StreamExt, TryStreamExt};
 use log::{debug, error, info, trace, warn, LevelFilter};
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
@@ -9,9 +8,9 @@ use tonic_reflection::server::Builder;
 
 use carbide::{
     db::{
-        DeactivateInstanceType, DeleteVpc, DhcpRecord, Domain, Machine, MachineInterface,
-        NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType,
-        UpdateVpc, UuidKeyedObjectFilter, Vpc, TagCreate, TagDelete, TagsList
+        DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
+        MachineTopology, NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc,
+        UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc, TagCreate, TagDelete, TagsList,
     },
     CarbideError,
 };
@@ -28,6 +27,47 @@ pub struct Api {
 
 #[tonic::async_trait]
 impl Metal for Api {
+    async fn lookup_record(
+        &self,
+        request: Request<rpc::dns_message::DnsQuestion>,
+    ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::dns_message::DnsQuestion {
+            q_name,
+            q_type,
+            q_class,
+        } = request.into_inner();
+
+        let question = match q_name.clone() {
+            Some(q_name) => DnsQuestion {
+                q_name: Some(q_name),
+                q_type,
+                q_class,
+            },
+            None => {
+                return Err(Status::invalid_argument(
+                    "A valid q_name, q_type and q_class are required",
+                ))
+            }
+        };
+
+        let results = DnsQuestion::find_record(&mut txn, question)
+            .await
+            .map(|dnsrr| rpc::dns_message::DnsResponse {
+                rcode: dnsrr.rcode,
+                rrs: dnsrr.rrs.into_iter().map(|r| r.into()).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(results)
+    }
+
     async fn network_segments_for_vpc(
         &self,
         request: Request<rpc::VpcSearchQuery>,
@@ -220,9 +260,64 @@ impl Metal for Api {
 
     async fn discover_machine(
         &self,
-        _request: Request<rpc::MachineDiscovery>,
-    ) -> Result<Response<rpc::Machine>, Status> {
-        todo!();
+        request: Request<rpc::MachineDiscovery>,
+    ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
+        let di = request.into_inner();
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let interface_id = match &di.uuid {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Did not supply a valid discovery machine id UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("An interface UUID is required"));
+            }
+        };
+
+        let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
+
+        let json =
+            serde_json::to_string(&di).map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+        let machine = Machine::create(&mut txn, interface)
+            .await
+            .map(rpc::Machine::from)?;
+
+        let uuid = match &machine.id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Created machine did not return an proper UUID : {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument(
+                    "No ID was associated with the machine",
+                ));
+            }
+        };
+
+        MachineTopology::create(&mut txn, &uuid, json).await?;
+
+        let response = Ok(Response::new(rpc::MachineDiscoveryResult {}));
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn find_network_segments(

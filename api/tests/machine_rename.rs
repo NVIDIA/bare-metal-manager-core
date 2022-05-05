@@ -42,10 +42,6 @@ async fn test_machine_rename() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    Machine::create(&mut txn)
-        .await
-        .expect("Unable to create machine");
-
     let new_domain: Domain = NewDomain {
         name: "foobar.com".to_string(),
     }

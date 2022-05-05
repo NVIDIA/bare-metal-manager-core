@@ -10,8 +10,17 @@ category = "Ephemeral Image"
 dependencies = [
 	"mkosi-generate-zipapp",
 	"mkosi-clean-artifacts",
+	"copy-debug-artifacts",
 	"mkosi-build-image",
 	"mkosi-remove-unnecessary-files",
+]
+
+[tasks.copy-debug-artifacts]
+category = "Copy Debug Artifacts"
+command = "cp"
+args = [
+	"../target/debug/carbide-cli",
+	"mkosi.extra/carbide/",
 ]
 
 # We don't need the Disk image it creates yet

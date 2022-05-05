@@ -12,8 +12,10 @@ pub use machine_event::MachineEvent;
 pub use machine_interface::MachineInterface;
 pub use machine_interface_address::MachineInterfaceAddress;
 pub use machine_state::MachineState;
+pub use machine_topology::MachineTopology;
 pub use network_prefix::{NetworkPrefix, NewNetworkPrefix};
 pub use network_segment::{IpAllocationResult, NetworkSegment, NewNetworkSegment};
+pub use resource_record::{DnsQuestion, DnsResponse, Dnsrr, ResourceRecord};
 pub use vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
 pub use tags::{Tag, TagCreate, TagDelete, TagsList};
 
@@ -29,8 +31,10 @@ mod machine_event;
 mod machine_interface;
 mod machine_interface_address;
 mod machine_state;
+mod machine_topology;
 mod network_prefix;
 mod network_segment;
+mod resource_record;
 mod vpc;
 mod tags;
 

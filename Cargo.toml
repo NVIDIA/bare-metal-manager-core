@@ -2,6 +2,7 @@
 
 members = [
   "api",
+  "cli",
   "dhcp",
   "pxe",
   "rpc",

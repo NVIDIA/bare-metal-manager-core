@@ -126,6 +126,17 @@ CREATE TABLE machines (
 	FOREIGN KEY (supported_instance_type) REFERENCES instance_types(id)
 );
 
+CREATE TABLE machine_topologies (
+    machine_id uuid NOT NULL,
+    topology jsonb NOT NULL,
+
+    created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    PRIMARY KEY (machine_id),
+    FOREIGN KEY (machine_id) REFERENCES machines(id)
+);
+
 CREATE TABLE machine_events (
 	id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	machine_id uuid NOT NULL,
@@ -349,8 +360,17 @@ BEGIN
   END;
 $$;
 
+DROP TRIGGER IF EXISTS trigger_update_fqdn;
 CREATE TRIGGER trigger_update_fqdn
 AFTER INSERT OR UPDATE
 ON machine_interfaces
 FOR EACH row EXECUTE PROCEDURE update_fqdn();
 
+DROP VIEW IF EXISTS dns_records;
+CREATE OR REPLACE VIEW dns_records AS (
+  SELECT
+  CONCAT(CONCAT(hostname,'.', name), '.') as q_name, address as resource_record
+  from machine_interfaces
+  INNER JOIN machine_interface_addresses on machine_interface_addresses.interface_id = interface_id
+  INNER JOIN domains on domains.id = machine_interfaces.domain_id AND primary_interface=true
+);
