@@ -483,6 +483,49 @@ impl Metal for Api {
 
         response
     }
+
+    async fn create_tag(
+        &self,
+        request: Request<rpc::TagCreate>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        Ok(Response::new(rpc::TagResult{result: true}))
+    }
+
+    async fn delete_tag(
+        &self,
+        request: Request<rpc::TagDelete>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        Ok(Response::new(rpc::TagResult{result: true}))
+    }
+
+    async fn set_tags(
+        &self,
+        request: Request<rpc::TagsList>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        Ok(Response::new(rpc::TagResult{result: true}))
+    }
+
+    async fn list_tags(
+        &self,
+        request: Request<rpc::TagVoid>,
+    ) -> Result<Response<rpc::TagsListResult>, Status> {
+        Ok(Response::new(rpc::TagsListResult{tags: vec![]}))
+    }
+
+    async fn assign_tag(
+        &self,
+        request: Request<rpc::TagAssign>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        Ok(Response::new(rpc::TagResult{result: true}))
+    }
+
+    async fn remove_tag(
+        &self,
+        request: Request<rpc::TagRemove>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        Ok(Response::new(rpc::TagResult{result: true}))
+    }
+
 }
 
 impl Api {
