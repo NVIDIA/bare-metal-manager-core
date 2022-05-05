@@ -11,7 +11,7 @@ use carbide::{
     db::{
         DeactivateInstanceType, DeleteVpc, DhcpRecord, Domain, Machine, MachineInterface,
         NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType,
-        UpdateVpc, UuidKeyedObjectFilter, Vpc,
+        UpdateVpc, UuidKeyedObjectFilter, Vpc, TagCreate, TagDelete, TagsList
     },
     CarbideError,
 };
@@ -488,14 +488,40 @@ impl Metal for Api {
         &self,
         request: Request<rpc::TagCreate>,
     ) -> Result<Response<rpc::TagResult>, Status> {
-        Ok(Response::new(rpc::TagResult{result: true}))
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagCreate::try_from(request.into_inner())?
+                          .create(&mut txn)
+                          .await
+                          .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn delete_tag(
         &self,
         request: Request<rpc::TagDelete>,
     ) -> Result<Response<rpc::TagResult>, Status> {
-        Ok(Response::new(rpc::TagResult{result: true}))
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagDelete::try_from(request.into_inner())?
+                          .delete(&mut txn)
+                          .await
+                          .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn set_tags(
@@ -507,9 +533,21 @@ impl Metal for Api {
 
     async fn list_tags(
         &self,
-        request: Request<rpc::TagVoid>,
+        _request: Request<rpc::TagVoid>,
     ) -> Result<Response<rpc::TagsListResult>, Status> {
-        Ok(Response::new(rpc::TagsListResult{tags: vec![]}))
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagsList::find_all(&mut txn)
+                          .await
+                          .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn assign_tag(

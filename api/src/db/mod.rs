@@ -15,6 +15,7 @@ pub use machine_state::MachineState;
 pub use network_prefix::{NetworkPrefix, NewNetworkPrefix};
 pub use network_segment::{IpAllocationResult, NetworkSegment, NewNetworkSegment};
 pub use vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
+pub use tags::{Tag, TagCreate, TagDelete, TagsList};
 
 pub mod migrations;
 
@@ -31,6 +32,7 @@ mod machine_state;
 mod network_prefix;
 mod network_segment;
 mod vpc;
+mod tags;
 
 ///
 /// A parameter to find() to filter machines by Uuid;
