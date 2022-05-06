@@ -24,9 +24,9 @@ pub struct Daemon {
         long,
         multiple_values(true),
         require_equals(true),
-        default_value = "[::]:53"
+        default_value = "[::]:1053"
     )]
-    pub listen: Vec<std::net::SocketAddr>,
+    pub listen: std::net::SocketAddr,
 
     #[clap(short, long, default_value = "http://[::1]:1079")]
     pub carbide_url: String,
