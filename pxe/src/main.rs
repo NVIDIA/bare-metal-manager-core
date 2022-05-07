@@ -139,6 +139,20 @@ impl<'r> FromRequest<'r> for Machine {
 async fn main() -> Result<(), rocket::Error> {
     let opts = Args::parse();
 
+    let static_path = std::path::Path::new(&opts.static_dir);
+
+    if !&static_path.exists() {
+        info!(
+            "Static path {} does not exist. Creating directory",
+            &static_path.display()
+        );
+
+        match std::fs::create_dir_all(&static_path) {
+            Ok(_) => info!("Directory {}, created", &static_path.display()),
+            Err(e) => error!("Could not create directory: {}", e),
+        }
+    }
+
     rocket::build()
         .mount("/api/v0/pxe", routes::ipxe::routes())
         .mount("/api/v0/cloud-init", routes::cloud_init::routes())
