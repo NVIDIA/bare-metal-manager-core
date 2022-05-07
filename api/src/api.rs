@@ -195,9 +195,9 @@ impl Metal for Api {
 
         let parsed_mac: MacAddress = mac_address
             .parse::<MacAddress>()
-            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+            .map_err(CarbideError::from)?;
 
-        let parsed_relay = relay_address.parse().unwrap();
+        let parsed_relay = relay_address.parse().map_err(CarbideError::from)?;
 
         let existing_machines =
             Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
@@ -288,8 +288,7 @@ impl Metal for Api {
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
 
-        let json =
-            serde_json::to_string(&di).map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        let json = serde_json::to_string(&di).map_err(CarbideError::from)?;
 
         let machine = Machine::create(&mut txn, interface)
             .await
