@@ -125,8 +125,8 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr, Machine *machine)
 	update_option<Option>(handle, response4_ptr, DHO_ROUTERS, machine);
 
 	// DNS servers
-	update_option<Option>(handle, response4_ptr, DHO_NAME_SERVERS, "8.8.8.8");
-	update_option<Option>(handle, response4_ptr, DHO_DOMAIN_NAME_SERVERS, "8.8.8.8");
+	update_option<Option>(handle, response4_ptr, DHO_NAME_SERVERS, "1.1.1.1");
+	update_option<Option>(handle, response4_ptr, DHO_DOMAIN_NAME_SERVERS, "1.1.1.1");
 
 	// Set Interface MTU
 	update_option<OptionUint16>(handle, response4_ptr, DHO_INTERFACE_MTU, 1500);
