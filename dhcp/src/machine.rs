@@ -5,8 +5,8 @@ use crate::vendor_class::VendorClass;
 use crate::CarbideDhcpContext;
 use crate::CONFIG;
 use ipnetwork::IpNetwork;
-use log::warn;
-use log::{error, info};
+#[allow(unused_imports)]
+use log::{debug, error, info, trace, warn, LevelFilter};
 use rpc::v0 as rpc;
 use std::ffi::CString;
 use std::net::Ipv4Addr;

@@ -38,18 +38,49 @@ pub async fn whoami(machine: Machine) -> Template {
 }
 
 #[get("/boot")]
-pub async fn boot(machine: Machine) -> Template {
-    let instructions = BootInstructionGenerator {
-        kernel: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.efi".to_string(),
-        initrd: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.root".to_string(),
-        // TODO(baz): make sure this dhcp next_server envoy IP is removed
-        command_line: format!("root=live:http://${{next-server}}:8080/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp machine_id={} server_uri=https://${{next-server}}:80", machine.0.id.unwrap()),
+pub async fn boot(contents: Machine) -> Template {
+    let instructions = match contents.machine {
+        None => boot_into_discovery(contents.interface),
+        Some(m) => determine_boot_from_state(m, contents.interface),
     };
 
     let mut context = HashMap::new();
-    context.insert("ipxe", String::from(instructions));
+    context.insert("ipxe", instructions);
 
     Template::render("pxe", &context)
+}
+
+fn determine_boot_from_state(
+    machine: rpc::v0::Machine,
+    interface: rpc::v0::MachineInterface,
+) -> String {
+    match machine.state.as_str() {
+        "init" => boot_into_discovery(interface),
+        "assigned" => boot_into_netbootxyz(),
+        // any unrecognized state will cause ipxe to stop working with this message
+        _ => r#"
+echo could not continue boot due to invalid status ||
+sleep 5 ||
+exit ||
+"#
+        .to_string(),
+    }
+}
+
+fn boot_into_netbootxyz() -> String {
+    r#"
+chain --autofree https://boot.netboot.xyz
+"#
+    .to_string()
+}
+
+fn boot_into_discovery(interface: rpc::v0::MachineInterface) -> String {
+    let instructions = BootInstructionGenerator {
+        kernel: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.efi".to_string(),
+        initrd: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.root".to_string(),
+        command_line: format!("root=live:http://${{next-server}}:8080/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp machine_id={} server_uri=https://${{next-server}}:80", interface.id.unwrap()),
+    };
+    String::from(instructions)
 }
 
 pub fn routes() -> Vec<Route> {

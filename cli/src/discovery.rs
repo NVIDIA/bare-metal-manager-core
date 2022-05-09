@@ -4,20 +4,12 @@ use cli::{CarbideClientError, CarbideClientResult};
 use rpc::v0 as rpc;
 
 use libudev::{Context, Device};
-use log::{debug, error};
-use once_cell::sync::Lazy;
+#[allow(unused_imports)]
+use log::{debug, error, info, trace, warn};
 use std::str::Utf8Error;
-use tokio::runtime::{Builder, Runtime};
 use tonic::Response;
 
 pub struct Discovery {}
-
-pub fn get_tokio_runtime() -> &'static Runtime {
-    static TOKIO: Lazy<Runtime> =
-        Lazy::new(|| Builder::new_current_thread().enable_all().build().unwrap());
-
-    &TOKIO
-}
 
 fn convert_udev_to_mac(udev: String) -> CarbideClientResult<String> {
     // udevs format is enx112233445566 first, then the string of octets without a colon

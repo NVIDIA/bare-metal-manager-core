@@ -12,9 +12,9 @@ mod routes;
 use rocket::{
     fairing::AdHoc,
     form::Errors,
-    fs::{relative, FileServer},
+    fs::FileServer,
     http::Status,
-    request::{self, FromParam, FromRequest},
+    request::{self, FromRequest},
     Request,
 };
 use rocket_dyn_templates::Template;
@@ -22,7 +22,11 @@ use rocket_dyn_templates::Template;
 use rpc::v0::{metal_client::MetalClient, MachineSearchQuery};
 
 #[derive(Debug)]
-pub struct Machine(rpc::v0::MachineInterface);
+pub struct Machine {
+    interface: rpc::v0::MachineInterface,
+    #[allow(dead_code)]
+    machine: Option<rpc::v0::Machine>,
+}
 
 struct MetalUrl(String);
 
@@ -44,7 +48,7 @@ impl Serialize for Machine {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_newtype_struct("Machine", &self.0)
+        serializer.serialize_newtype_struct("Machine", &self.interface)
     }
 }
 
@@ -124,12 +128,30 @@ impl<'r> FromRequest<'r> for Machine {
             ..Default::default()
         });
 
-        match client.find_machines(request).await {
-            Ok(response) => {
-                request::Outcome::Success(Machine(response.into_inner().interfaces.remove(0)))
-            }
+        let interface = match client.find_machines(request).await {
+            // TODO(baz): fix this blatantly ugly remove(0) w/o checking the size
+            Ok(response) => response.into_inner().interfaces.remove(0),
             Err(err) => {
-                request::Outcome::Failure((Status::BadRequest, RPCError::RequestError(err)))
+                return request::Outcome::Failure((Status::BadRequest, RPCError::RequestError(err)))
+            }
+        };
+
+        match interface.machine_id.clone() {
+            None => request::Outcome::Success(Machine {
+                interface,
+                machine: None,
+            }),
+            Some(machine_id) => {
+                let request = tonic::Request::new(machine_id);
+                match client.get_machine(request).await {
+                    Ok(machine) => request::Outcome::Success(Machine {
+                        interface,
+                        machine: Some(machine.into_inner()),
+                    }),
+                    Err(err) => {
+                        request::Outcome::Failure((Status::BadRequest, RPCError::RequestError(err)))
+                    }
+                }
             }
         }
     }

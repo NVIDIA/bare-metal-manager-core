@@ -18,5 +18,6 @@ Packages=
      iputils-ping
      libudev-dev
      openssh-server
+     net-tools
      vim-nox
 Password=password

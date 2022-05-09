@@ -4,10 +4,10 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use color_eyre::Report;
+#[allow(unused_imports)]
 use log::{debug, error, info, warn};
 use tokio::net::{TcpListener, UdpSocket};
 use tonic::transport::Channel;
-use tonic::Response;
 use trust_dns_server::authority::MessageResponseBuilder;
 use trust_dns_server::client::op::{Header, ResponseCode};
 use trust_dns_server::client::rr::{DNSClass, Name, RData};
@@ -28,6 +28,7 @@ pub struct DnsServer {
 
 struct DnsReply(ResponseInfo);
 
+#[allow(dead_code)]
 impl DnsReply {
     pub fn serve_failed() -> ResponseInfo {
         let mut header = Header::new();
@@ -150,15 +151,15 @@ impl DnsServer {
 
         info!("Connecting to carbide-api at {:?}", &carbide_url);
 
-        //info!("Starting DNS server on {:?}", daemon_config.listen[0]);
-
         let mut server = ServerFuture::new(api);
 
-        let udp_socket = UdpSocket::bind("127.0.0.1:5356").await?;
+        let udp_socket = UdpSocket::bind(&daemon_config.listen).await?;
         server.register_socket(udp_socket);
 
-        let tcp_socket = TcpListener::bind("127.0.0.1:5356").await?;
+        let tcp_socket = TcpListener::bind(&daemon_config.listen).await?;
         server.register_listener(tcp_socket, Duration::new(5, 0));
+
+        info!("Started DNS server on {:?}", &daemon_config.listen);
 
         match server.block_until_done().await {
             Ok(()) => {

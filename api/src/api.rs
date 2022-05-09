@@ -1,6 +1,7 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 
 use color_eyre::Report;
+#[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
@@ -162,7 +163,7 @@ impl Metal for Api {
                 Ok(uuid) => Ok(rpc::MachineList {
                     interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
                 }),
-                Err(err) => Err(CarbideError::GenericError(
+                Err(_) => Err(CarbideError::GenericError(
                     "Could not marshall an ID from the request".to_string(),
                 )
                 .into()),
@@ -194,9 +195,9 @@ impl Metal for Api {
 
         let parsed_mac: MacAddress = mac_address
             .parse::<MacAddress>()
-            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+            .map_err(CarbideError::from)?;
 
-        let parsed_relay = relay_address.parse().unwrap();
+        let parsed_relay = relay_address.parse().map_err(CarbideError::from)?;
 
         let existing_machines =
             Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
@@ -287,8 +288,7 @@ impl Metal for Api {
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
 
-        let json =
-            serde_json::to_string(&di).map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        let json = serde_json::to_string(&di).map_err(CarbideError::from)?;
 
         let machine = Machine::create(&mut txn, interface)
             .await
@@ -511,9 +511,25 @@ impl Metal for Api {
 
     async fn get_machine(
         &self,
-        _request: Request<rpc::Uuid>,
+        request: Request<rpc::Uuid>,
     ) -> Result<Response<rpc::Machine>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+
+        let response = match Machine::find_one(&mut txn, uuid).await? {
+            None => Err(CarbideError::NotFoundError(uuid).into()),
+            Some(machine) => Ok(rpc::Machine::from(machine)),
+        }
+        .map(Response::new);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn create_instance_type(
