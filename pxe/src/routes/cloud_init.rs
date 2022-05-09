@@ -8,7 +8,7 @@ use std::collections::HashMap;
 #[get("/<uuid>/user-data")]
 pub async fn user_data(uuid: uuid::Uuid, machine: Machine) -> String {
     let mut context = tera::Context::new();
-    context.insert("machine", &machine.0);
+    context.insert("machine", &machine.interface);
 
     tera::Tera::one_off("", &context, false).unwrap()
 }

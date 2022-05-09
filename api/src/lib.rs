@@ -43,6 +43,9 @@ pub enum CarbideError {
     #[error("Uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
 
+    #[error("Uuid was not found: {0}")]
+    NotFoundError(uuid::Uuid),
+
     #[error("Database Query Error: {0}")]
     DatabaseError(sqlx::Error),
 
