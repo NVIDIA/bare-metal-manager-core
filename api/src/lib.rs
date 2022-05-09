@@ -1,7 +1,7 @@
 use log::info;
 use mac_address::MacAddress;
-use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
-use std::net::{AddrParseError, IpAddr};
+use sqlx::postgres::PgDatabaseError;
+use std::net::IpAddr;
 use tonic::Status;
 
 pub mod db;
@@ -35,7 +35,10 @@ pub enum CarbideError {
     NetworkParseError(#[from] ipnetwork::IpNetworkError),
 
     #[error("Unable to parse string into IP Address: {0}")]
-    AddressParseError(#[from] AddrParseError),
+    AddressParseError(#[from] std::net::AddrParseError),
+
+    #[error("Unable to parse string into Mac Address: {0}")]
+    MacAddressParseError(#[from] mac_address::MacParseError),
 
     #[error("Uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
@@ -50,7 +53,7 @@ pub enum CarbideError {
     DatabaseTypeConversionError(String),
 
     #[error("Database migration error: {0}")]
-    DatabaseMigrationError(#[from] MigrateError),
+    DatabaseMigrationError(#[from] sqlx::migrate::MigrateError),
 
     #[error("Multiple network segments defined for relay address: {0}")]
     MultipleNetworkSegmentsForRelay(IpAddr),
@@ -102,6 +105,9 @@ pub enum CarbideError {
 
     #[error("Find one returned many results but should return one for uuid - {0}")]
     FindOneReturnedManyResultsError(uuid::Uuid),
+
+    #[error("JSON Parse failure - {0}")]
+    JSONParseError(#[from] serde_json::Error),
 }
 
 impl From<CarbideError> for tonic::Status {
