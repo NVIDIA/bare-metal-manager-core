@@ -4,7 +4,7 @@ CREATE TYPE machine_state AS ENUM (
 	'new',
 	'adopted',
 	'tested',
-	'commissioned',
+	'ready',
 	'assigned',
 	'broken',
 	'decommissioned',
@@ -97,7 +97,6 @@ CREATE TYPE instance_type_capabilities as ENUM (
 	'default'
 );
 
-
 CREATE TABLE instance_types (
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
 	short_name VARCHAR(32) NOT NULL,
@@ -123,6 +122,17 @@ CREATE TABLE machines (
 
 	PRIMARY KEY (id),
 	FOREIGN KEY (supported_instance_type) REFERENCES instance_types(id)
+);
+
+CREATE TABLE instances (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    machine_id uuid NOT NULL,
+    requested TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished TIMESTAMPTZ NULL,
+
+    PRIMARY KEY (id),
+    FOREIGN KEY (machine_id) REFERENCES machines(id)
 );
 
 CREATE TABLE machine_topologies (
@@ -154,12 +164,12 @@ INSERT INTO machine_transition (state, event, next_state) VALUES
 ('init', 'discover', 'new'),
 ('new', 'adopt', 'adopted'),
 ('adopted', 'test', 'tested'),
-('tested', 'commission', 'commissioned'),
-('commissioned', 'assign', 'assigned'),
+('tested', 'commission', 'ready'),
+('ready', 'assign', 'assigned'),
 ('new', 'fail', 'broken'),
 ('adopted', 'fail', 'broken'),
 ('tested', 'fail', 'broken'),
-('commissioned', 'fail', 'broken'),
+('ready', 'fail', 'broken'),
 ('assigned', 'fail', 'broken'),
 ('broken', 'recommission', 'tested'),
 ('decommissioned', 'recommission', 'tested'),

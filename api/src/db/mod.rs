@@ -3,6 +3,7 @@
 pub use address_selection_strategy::AddressSelectionStrategy;
 pub use dhcp_record::DhcpRecord;
 pub use domain::{Domain, NewDomain};
+pub use instance::{Instance, NewInstance};
 pub use instance_type::{
     DeactivateInstanceType, InstanceType, NewInstanceType, UpdateInstanceType,
 };
@@ -23,6 +24,7 @@ pub mod migrations;
 mod address_selection_strategy;
 mod dhcp_record;
 mod domain;
+mod instance;
 mod instance_type;
 mod machine;
 mod machine_action;

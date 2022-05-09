@@ -224,8 +224,8 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         action: &MachineAction,
     ) -> CarbideResult<bool> {
-        let id: (Uuid,) = sqlx::query_as(
-            "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING id",
+        let id: (i64,) = sqlx::query_as(
+            "INSERT INTO machine_events (machine_id, action) VALUES ($1::uuid, $2) RETURNING id",
         )
         .bind(self.id())
         .bind(action)

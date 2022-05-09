@@ -85,7 +85,7 @@ pub enum CarbideError {
     #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier")]
     IdentifierSpecifiedForNewObject(String),
 
-    #[error("A unique identifier was nopt specified for an existing object.  Please specify an identifier")]
+    #[error("A unique identifier was not specified for an existing object.  Please specify an identifier")]
     IdentifierNotSpecifiedForObject(),
 
     #[error("The Domain named {0} already exists. Domain names must be unique")]
