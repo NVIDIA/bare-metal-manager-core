@@ -7,4 +7,5 @@ members = [
   "pxe",
   "rpc",
   "dns",
+  "ipmi/freeipmi-sys",
 ]
