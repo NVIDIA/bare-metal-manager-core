@@ -146,21 +146,21 @@ impl Metal for Api {
         Ok(result)
     }
 
-    async fn find_machines(
+    async fn find_interfaces(
         &self,
-        request: Request<rpc::MachineSearchQuery>,
-    ) -> Result<Response<rpc::MachineList>, Status> {
+        request: Request<rpc::InterfaceSearchQuery>,
+    ) -> Result<Response<rpc::InterfaceList>, Status> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::MachineSearchQuery { id, .. } = request.into_inner();
+        let rpc::InterfaceSearchQuery { id, .. } = request.into_inner();
 
         let response = match id {
             Some(id) if id.value.chars().count() > 0 => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => Ok(rpc::MachineList {
+                Ok(uuid) => Ok(rpc::InterfaceList {
                     interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
                 }),
                 Err(_) => Err(CarbideError::GenericError(
@@ -175,6 +175,42 @@ impl Metal for Api {
         };
 
         response.map(Response::new)
+    }
+
+    async fn find_machines(
+        &self,
+        request: Request<rpc::MachineSearchQuery>,
+    ) -> Result<Response<rpc::MachineList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::MachineSearchQuery { id, .. } = request.into_inner();
+
+        let _uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => UuidKeyedObjectFilter::All,
+        };
+
+        let result = Machine::find(&mut txn, _uuid)
+            .await
+            .map(|m| rpc::MachineList {
+                machines: m.into_iter().map(rpc::Machine::from).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
     }
 
     async fn discover_dhcp(

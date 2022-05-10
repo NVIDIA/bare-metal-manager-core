@@ -19,7 +19,7 @@ use rocket::{
 };
 use rocket_dyn_templates::Template;
 
-use rpc::v0::{metal_client::MetalClient, MachineSearchQuery};
+use rpc::v0::{metal_client::MetalClient, InterfaceSearchQuery};
 
 #[derive(Debug)]
 pub struct Machine {
@@ -123,12 +123,12 @@ impl<'r> FromRequest<'r> for Machine {
             }
         };
 
-        let request = tonic::Request::new(MachineSearchQuery {
+        let request = tonic::Request::new(InterfaceSearchQuery {
             id: Some(uuid.into()),
             ..Default::default()
         });
 
-        let interface = match client.find_machines(request).await {
+        let interface = match client.find_interfaces(request).await {
             // TODO(baz): fix this blatantly ugly remove(0) w/o checking the size
             Ok(response) => response.into_inner().interfaces.remove(0),
             Err(err) => {
