@@ -1,0 +1,52 @@
+---
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: external
+  namespace: forge-system
+spec:
+  tenantIdentifier: test-tenant
+# CHANGE_ME
+  dhcpServer: 192.168.100.2
+  overlayIPPool: overlay-ipv4
+  networkImplementationType: Fabric
+---
+apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: Leaf
+metadata:
+  name: leaf-3
+  namespace: forge-system
+spec:
+  control:
+    vendor: cumulus
+    # CHANGE_ME
+    managementIP: 172.17.0.1:8890
+    # CHANGE_ME
+    # maintenanceMode: true
+  hosts:
+    # CHANGE_ME
+    server3-eth1: swp1
+    server3-eth2: swp2
+---
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ManagedResource
+metadata:
+  name: server3-eth1
+  namespace: forge-system
+spec:
+  resourceGroup: internal
+  type: BareMetal
+  identifier: server3-eth1
+  hostAccess: IsolatedAccess
+---
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ManagedResource
+metadata:
+  name: server3-eth2
+  namespace: forge-system
+spec:
+  resourceGroup: external
+  type: BareMetal
+  identifier: server3-eth2
+  hostAccess: FabricAccessDirect
+  hostIP: 10.10.10.2

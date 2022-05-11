@@ -1,0 +1,184 @@
+// Copyright 2021 NVIDIA CORPORATION & AFFILIATES.
+
+syntax = "proto3";
+
+option go_package = "gitlab-master.nvidia.com/forge/vpc/rpc";
+
+package rpc;
+
+// Interface exported by the ResourceGroup.
+service ResourceGroup {
+  // Creates a resource group.
+  rpc CreateResourceGroup(ResourceGroupSpec) returns (ServiceStatus) {}
+
+  // Completely update ResourceGroup, used to add/remove ManagedResource in the ResourceGroup.
+  rpc UpdateResourceGroup(ResourceGroupSpec) returns (ServiceStatus) {}
+
+  // ListResourceGroup get one or all ResourceGroups.
+  rpc ListResourceGroup(ResourceGroupName) returns (stream ResourceGroupStatus) {}
+
+  // Delete ResourceGroup.
+  rpc DeleteResourceGroup(ResourceGroupSpec) returns (ServiceStatus) {}
+
+  // Update a ManagedResource. The ResourceGroup it belongs must already exist.
+  rpc UpdateManagedResource(ManagedResourceSpec) returns (ServiceStatus) {}
+
+  // Retrieve ManagedResource status from a ResourceGroup. It also returns IP addresses
+  // to access the hosts if applicable.
+  rpc ListManagedResource(ResourceGroupName) returns (stream ManagedResourceStatus) {}
+}
+
+service AgentService {
+  // Probe agent aliveness.
+  rpc AliveProbe(Probe) returns (AgentStatus) {}
+  // Start or stop ovn controller on DPU.
+  rpc SetOvn(OVNConfig) returns (ServiceStatus) {}
+  // Add or remove dhcp relay agent on DPU.
+  rpc SetDHCPRelay(DHCPRelay) returns (ServiceStatus) {}
+}
+
+message Probe {}
+
+message AgentStatus {
+  // DPU ID
+  string identifier = 1;
+  // Agent status
+  ServiceStatus status = 2;
+  // OVN managed port's external ID.
+  string portExternalID = 3;
+  // DHCP port's external ID.
+  string dhcpExternalID = 4;
+  // Fabric default GW.
+  string defaultGW = 5;
+}
+
+message OVNConfig {
+  string ovnServiceIP = 1;
+  string tunnelEndPointIP = 2;
+}
+
+message DHCPRelay {
+  string dhcpInterfaceName = 1;
+  string dhcpInterfaceMAC = 2;
+  string dhcpInterfaceIP = 3;
+  string dhcpServer = 4;
+}
+
+enum ErrorCode {
+  OK = 0;
+  AlreadyExist = -1;
+  OpFailed = -2;
+  Invalid = -3;
+  InProgress = -4;
+}
+
+enum OverlayNetworkImplementationType {
+  Unknown = 0;
+  Fabric = 1;
+  Software = 2;
+}
+
+// ServiceStatus is request status returned by the server.
+message ServiceStatus {
+  ErrorCode status = 1;
+  string message = 2;
+}
+
+// ListRequest request one or all resources.
+message ResourceGroupName {
+  // Request only resource Name, otherwise request to get all resources.
+  string name = 1;
+}
+
+// IPNet describes an IPv4 or IPv6 network.
+message IPNet {
+  bytes ip = 1;
+  uint32 prefixLength = 2;
+  bytes gateway = 3;
+}
+
+// IPAssociation describes BM host IP to DPU IP to Public IP association.
+message IPAssociation {
+  // HostIP is an overlay IP assigned to the host.
+  bytes hostIP = 1;
+  // FabricIP is a fabric IP assigned to DPU, it is used to access the host if HostIP is specified.
+  bytes fabricIP  = 2;
+  // PublicIP is public IP associated with the FabricIP.
+  bytes publicIP = 3;
+}
+
+// ResourceGroupSpec contains ResourceGroup properties.
+message ResourceGroupSpec {
+  // Name is the ResourceGroup name
+  string name = 1;
+  // TenantIdentifier identifies tenant associated with this ResourceGroup.
+  string tenantIdentifier = 2;
+  // Network defines overlay L2 network (ipv4 or ipv6) for this ResourceGroup. It is immutable.
+  IPNet network  = 3;
+  OverlayNetworkImplementationType networkImplementationType = 4;
+  // ManagedResources are resources belongs to this ResourceGroup.
+  repeated string managedResources = 5;
+}
+
+// ResourceGroupStatus contains ResourceGroup status.
+message ResourceGroupStatus {
+  // Name is the ResourceGroup name
+  string name = 1;
+  // Status is the ResourceGroup status.
+  ServiceStatus status = 2;
+  // SNATIPs are snat ips for overlay traffic entering the network fabric.
+  repeated bytes snatIPs = 3;
+
+}
+
+enum ResourceType {
+  BareMetal = 0;
+}
+
+enum ResourceState {
+  Up = 0;
+  Down = 1;
+  Error = 2;
+}
+
+enum HostAccess {
+  // Isolated requests no IP to access the host from outside of the ResourceGroup overlay.
+  Isolated = 0;
+  // FabricAccess requests an IP to at least access from within the DC.
+  FabricAccess = 1;
+  // PublicAccess requests IP(s) to at least access from within and outside of DC.
+  PublicAccess = 2;
+}
+
+// ManagedResourceSpec contains ManagedResource properties
+message  ManagedResourceSpec {
+  // name is ManagedResource name.
+  string name = 1;
+  // Type is this ManagedResource type.
+  ResourceType resourceType = 2;
+  // ResourceGroup this ManagedResource belongs.
+  string resourceGroup = 3;
+  // HostIP is host IP of this ManagedResource.
+  bytes  hostIP = 4;
+  // HostMAC is host MAC of this ManagedResource.
+  bytes  hostMAC = 5;
+  // DPUIPs are IPs on DPU.
+  // if HostAccess >= FabricAccess it must contains second IP which will be used
+  // to access the host from DC or internet.
+  repeated bytes DPUIPs  = 6;
+  // HostAccess specifies how should host be accessed.
+  HostAccess hostAccess = 7;
+  // DPUState is the DPU state.
+  ResourceState dpuState = 8;
+}
+
+// ManagedResourceSpec contains ManagedResource status.
+message  ManagedResourceStatus {
+  // name is ManagedResource name.
+  string name = 1;
+  // Status is the ManagedResource status.
+  ServiceStatus status = 2;
+  // HostAccessIP are IPs to access the host from within DC and from internet.
+  IPAssociation    hostAccessIPs = 3;
+}
+

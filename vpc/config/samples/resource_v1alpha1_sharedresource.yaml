@@ -1,0 +1,7 @@
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: SharedResource
+metadata:
+  name: sharedresource-sample
+spec:
+  # Add fields here
+  foo: bar

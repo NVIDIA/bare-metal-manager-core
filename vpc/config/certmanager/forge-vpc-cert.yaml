@@ -1,0 +1,38 @@
+---
+# VPC controller cert
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cacert
+  namespace: system
+spec:
+  dnsNames:
+    - "*.$(SERVICE_NAMESPACE).svc"
+  isCA: true
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: forge-cacert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: caissuer
+  namespace: system
+spec:
+  ca:
+    secretName: forge-cacert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vpc-cert  # this name should match the one appeared in kustomizeconfig.yaml
+  namespace: system
+spec:
+  dnsNames:
+    - forge-vpc.$(SERVICE_NAMESPACE).svc
+    - forge-vpc.$(SERVICE_NAMESPACE).svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: caissuer
+  secretName: forge-vpc-cert # this secret will not be prefixed, since it's not managed by kustomize

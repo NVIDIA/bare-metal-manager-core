@@ -1,0 +1,10 @@
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+- name: frr-config
+  files:
+  - daemons
+  - bgpd.conf
+  - zebra.conf
+  - staticd.conf
