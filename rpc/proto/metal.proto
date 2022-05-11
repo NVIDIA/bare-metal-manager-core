@@ -47,6 +47,7 @@ service Metal {
 
   // PRIVILEGED: Find a list of machines
   rpc FindMachines(MachineSearchQuery) returns (MachineList);
+  rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
 
   // PRIVILEGED: Define and manage new instance types
   rpc CreateInstanceType(InstanceType) returns (InstanceType);
@@ -252,12 +253,20 @@ message InstanceDeletionResult {
 }
 
 message MachineList {
-  repeated MachineInterface interfaces = 1;
+  repeated Machine machines = 1;
 }
 
 message MachineSearchQuery {
   optional UUID id = 1;
   optional string fqdn = 2;
+}
+
+message InterfaceList {
+  repeated MachineInterface interfaces = 1;
+}
+
+message InterfaceSearchQuery {
+  optional UUID id = 1;
 }
 
 message Machine {
