@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: forge-vpc-agent
+  namespace: forge-system
+spec:
+  selector:
+    matchLabels:
+      app: forge-vpc-agent
+  template:
+    metadata:
+      labels:
+        app: forge-vpc-agent
+    spec:
+      containers:
+        - name: ovs
+          image: "quay.io/nvidia/nvmetal-hydrazine:latest"
+          imagePullPolicy: "IfNotPresent"
+          command:
+            - /start_ovs.sh
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              add: ["SYS_NICE", "NET_ADMIN"]
+          terminationMessagePolicy: FallbackToLogsOnError
+          resources:
+            requests:
+              cpu: 100m
+              memory: 300Mi
+          volumeMounts:
+            - name: host-var-run-forge
+              mountPath: /var/run/openvswitch
+              subPath: openvswitch
+        - name: agent
+          image: "quay.io/nvidia/nvmetal-hydrazine:latest"
+          imagePullPolicy: "IfNotPresent"
+          command:
+            - /agent
+          args:
+            - --host-link=p0
+            - --uplink=eth0
+            - --transport-bridge=br-transport
+            - --service-port=:6666
+            - --certificate-dir=
+            - --ovn-certificate-dir=
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              add: ["SYS_NICE", "NET_ADMIN"]
+          terminationMessagePolicy: FallbackToLogsOnError
+          resources:
+            requests:
+              cpu: 100m
+              memory: 300Mi
+          volumeMounts:
+            - name: ovn-cert
+              mountPath: /ovn-cert
+            - name: host-var-run-forge
+              mountPath: /var/run/openvswitch
+              subPath: openvswitch
+            - name: host-etc-forge
+              mountPath: /etc/openvswitch
+              subPath: openvswitch
+      volumes:
+        - name: ovn-cert
+          secret:
+            secretName: ovn-controller-cert
+        - name: host-var-run-forge
+          hostPath:
+            path: /var/run/forge
+            type: DirectoryOrCreate
+        - name: host-etc-forge
+          hostPath:
+            path: /etc/forge
+            type: DirectoryOrCreate
+      hostNetwork: true
+      nodeSelector:
+        vpc.forge.nvidia.com/node: dpu
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ovn-controller-cert
+  namespace: forge-system
+spec:
+  dnsNames:
+    - ovn-controller.forge-system.svc
+    - ovn-controller.forge-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: forge-vpc-caissuer
+  secretName: ovn-controller-cert

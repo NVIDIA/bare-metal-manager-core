@@ -1,0 +1,12 @@
+---
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: internal
+  namespace: forge-system
+spec:
+  tenantIdentifier: test-tenant
+  # CHANGE_ME
+  dhcpServer: 10.150.51.235
+  overlayIPPool: overlay-ipv4
+  networkImplementationType: Fabric

@@ -1,0 +1,76 @@
+# Leaf fabric template
+nv set evpn enable on
+nv set router bgp enable on
+nv set router bgp autonomous-system leaf
+nv set router bgp router-id 192.168.1.1
+nv set router policy prefix-list FORGE_FROM_UNDERLAY rule 65535 action permit
+nv set router policy prefix-list FORGE_FROM_UNDERLAY rule 65535 match any
+nv set router policy route-map FORGE_TO_UNDERLAY rule 65535 action permit
+nv set vrf default router bgp address-family ipv4-unicast enable on
+nv set vrf default router bgp address-family ipv4-unicast redistribute connected enable on
+nv set vrf default router bgp address-family l2vpn-evpn enable on
+nv set vrf default router bgp enable on
+nv set vrf default router bgp neighbor swp21 peer-group FORGE_UPLINK
+nv set vrf default router bgp neighbor swp21 type unnumbered
+nv set vrf default router bgp neighbor swp22 peer-group FORGE_UPLINK
+nv set vrf default router bgp neighbor swp22 type unnumbered
+nv set vrf default router bgp peer-group FORGE_UPLINK address-family ipv4-unicast policy inbound prefix-list FORGE_FROM_UNDERLAY
+nv set vrf default router bgp peer-group FORGE_UPLINK address-family ipv4-unicast policy outbound route-map FORGE_TO_UNDERLAY
+nv set vrf default router bgp peer-group FORGE_UPLINK address-family l2vpn-evpn enable on
+nv set vrf default router bgp peer-group FORGE_UPLINK remote-as external
+nv set interface lo ip address 192.168.1.1/32
+nv set interface lo type loopback
+nv set interface swp21-22 type swp
+nv set service dhcp-relay default giaddress-interface lo
+nv set service dhcp-relay default interface swp21
+nv set service dhcp-relay default interface swp22
+
+// Spine fabric template
+// nv config show -o commands
+nv set router bgp autonomous-system spine
+nv set router bgp enable on
+nv set router bgp router-id 192.168.2.1
+nv set vrf default router bgp address-family ipv4-unicast enable on
+nv set vrf default router bgp address-family ipv4-unicast redistribute connected enable on
+nv set vrf default router bgp address-family l2vpn-evpn enable on
+nv set vrf default router bgp enable on
+nv set vrf default router bgp neighbor swp1 peer-group FORGE_LEAFS
+nv set vrf default router bgp neighbor swp1 type unnumbered
+nv set vrf default router bgp neighbor swp2 peer-group FORGE_LEAFS
+nv set vrf default router bgp neighbor swp2 type unnumbered
+nv set vrf default router bgp neighbor swp21 peer-group FORGE_INTERNET
+nv set vrf default router bgp neighbor swp21 type unnumbered
+nv set vrf default router bgp neighbor swp3 peer-group FORGE_LEAFS
+nv set vrf default router bgp neighbor swp3 type unnumbered
+nv set vrf default router bgp neighbor swp31 peer-group FORGE_SPINES
+nv set vrf default router bgp neighbor swp31 type unnumbered
+nv set vrf default router bgp neighbor swp32 peer-group FORGE_SPINES
+nv set vrf default router bgp neighbor swp32 type unnumbered
+nv set vrf default router bgp neighbor swp4 peer-group FORGE_LEAFS
+nv set vrf default router bgp neighbor swp4 type unnumbered
+nv set vrf default router bgp peer-group FORGE_INTERNET remote-as external
+nv set vrf default router bgp peer-group FORGE_LEAFS remote-as external
+nv set vrf default router bgp peer-group FORGE_SPINES remote-as internal
+nv set vrf default router bgp peer-group FORGE_LEAFS address-family l2vpn-evpn enable on
+nv set vrf default router bgp peer-group FORGE_SPINES address-family l2vpn-evpn enable on
+nv set interface lo ip address 192.168.2.1/32
+nv set interface lo type loopback
+nv set interface swp1-4,21,31-32 type swp
+
+// Internet fabric template
+// nv config show -o commands
+nv set router bgp autonomous-system 65000
+nv set router bgp enable on
+nv set router bgp router-id 192.168.3.1
+nv set vrf default router bgp address-family ipv4-unicast enable on
+nv set vrf default router bgp address-family ipv4-unicast redistribute connected enable on
+nv set vrf default router bgp address-family l2vpn-evpn enable on
+nv set vrf default router bgp enable on
+nv set vrf default router bgp neighbor swp1 peer-group FORGE_SPINES
+nv set vrf default router bgp neighbor swp1 type unnumbered
+nv set vrf default router bgp neighbor swp2 peer-group FORGE_SPINES
+nv set vrf default router bgp neighbor swp2 type unnumbered
+nv set vrf default router bgp peer-group FORGE_SPINES remote-as external
+nv set interface lo ip address 192.168.3.1/32
+nv set interface lo type loopback
+nv set interface swp1-2 type swp

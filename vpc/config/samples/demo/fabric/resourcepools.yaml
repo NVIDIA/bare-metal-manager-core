@@ -1,0 +1,80 @@
+---
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: administration-resource-group
+  namespace: forge-system
+spec:
+  tenantIdentifier: admin
+  dhcpServer: 10.150.51.235
+  network:
+    ip: 30.30.30.0
+    prefixLength: 24
+    gateway: 30.30.30.1
+---
+apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ConfigurationResourcePool
+metadata:
+  name: vni
+  namespace: forge-system
+spec:
+  type: integer
+  ranges:
+    - start: "35500"
+      end: "36600"
+---
+apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ConfigurationResourcePool
+metadata:
+  name: vlan-id
+  namespace: forge-system
+spec:
+  type: integer
+  ranges:
+    - start: "100"
+      end: "200"
+---
+apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ConfigurationResourcePool
+metadata:
+  name: overlay-ipv4
+  namespace: forge-system
+spec:
+  type: ipv4
+  ranges:
+    - start: 20.10.10.0
+      end: 20.10.12.0
+  allocationBlockSize: 8
+---
+apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ConfigurationResourcePool
+metadata:
+  name: lo-ip
+  namespace: forge-system
+spec:
+  type: ipv4
+  ranges:
+    - start: 10.145.0.150
+      end: 10.145.0.160
+---
+apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ConfigurationResourcePool
+metadata:
+  name: public-ipv4
+  namespace: forge-system
+spec:
+  type: ipv4
+  ranges:
+    - start: 2.3.4.0
+      end: 2.3.5.0
+---
+apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ConfigurationResourcePool
+metadata:
+  name: dc-ipv4
+  namespace: forge-system
+spec:
+  type: ipv4
+  ranges:
+    - start: 192.168.254.0
+      end: 192.168.255.0
