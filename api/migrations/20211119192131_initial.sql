@@ -1,4 +1,5 @@
 -- Modeled after https://raphael.medaer.me/2019/06/12/pgfsm.html
+CREATE EXTENSION pgcrypto;
 CREATE TYPE machine_state AS ENUM (
 	'init',
 	'new',
@@ -247,7 +248,7 @@ CREATE TABLE network_prefixes(
 	CONSTRAINT gateway_within_network CHECK (gateway << prefix)
 );
 
--- Make sure there's at most one IPv4 prefix or one IPv6 prefix on a network segment
+-- Make sure there''s at most one IPv4 prefix or one IPv6 prefix on a network segment
 CREATE UNIQUE INDEX network_prefix_family ON network_prefixes (family(prefix), segment_id);
 
 CREATE TABLE machine_interfaces(
@@ -285,7 +286,32 @@ CREATE TABLE machine_interface_addresses(
 	UNIQUE (interface_id, address)
 );
 
--- Make sure there's at most one IPv4 address or one IPv6 address on an interface, i guess?
+CREATE TABLE tags(
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
+    slug VARCHAR(50) NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    
+    PRIMARY KEY(id),
+    UNIQUE(slug)
+);
+
+CREATE TABLE tags_machine(
+    tag_id uuid,
+    target_id uuid,
+    UNIQUE(tag_id, target_id),
+    CONSTRAINT fk_tags_machine_slug FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE,
+    CONSTRAINT fk_tags_machine FOREIGN KEY(target_id) REFERENCES machines(id) ON DELETE CASCADE
+);
+
+CREATE TABLE tags_networksegment(
+    tag_id uuid,
+    target_id uuid,
+    UNIQUE(tag_id, target_id),
+    CONSTRAINT fk_tags_machine_slug FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE,
+    CONSTRAINT fk_tags_ns FOREIGN KEY(target_id) REFERENCES network_segments(id) ON DELETE CASCADE
+);
+
+-- Make sure there''s at most one IPv4 address or one IPv6 address on an interface, i guess?
 CREATE UNIQUE INDEX unique_address_family_on_interface ON machine_interface_addresses (family(address), interface_id);
 
 DROP VIEW IF EXISTS machine_dhcp_records;
@@ -336,7 +362,8 @@ BEGIN
   END;
 $$;
 
-CREATE OR REPLACE TRIGGER trigger_update_fqdn
+DROP TRIGGER IF EXISTS trigger_update_fqdn ON machine_interfaces;
+CREATE TRIGGER trigger_update_fqdn
 AFTER INSERT OR UPDATE
 ON machine_interfaces
 FOR EACH row EXECUTE PROCEDURE update_fqdn();
