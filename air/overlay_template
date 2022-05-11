@@ -1,0 +1,25 @@
+# VxLAN
+nv set interface swp1 bridge domain br_default access 10
+nv set bridge domain br_default vlan 10 vni 10
+# nv set interface vlan10 vlan 10
+
+# GW IP on VxLAN
+nv set interface vlan10 ip address 10.10.10.1/24
+# DHCP agent relay on VxLAN
+nv set interface vlan10 ip address 10.10.10.254/32
+
+# DHCP relay agent
+nv set service dhcp-relay default interface vlan10
+nv set service dhcp-relay default server 192.168.100.2
+
+# Advertise host route to fabric
+nv set vrf default router bgp address-family ipv4-unicast network 10.10.10.2/32
+nv set vrf default router static 10.10.10.2/32 via vlan10 type interface
+
+# Filter overlay network from fabric
+nv set router policy route-map FORGE_TO_UNDERLAY rule 10 action deny
+nv set router policy route-map FORGE_TO_UNDERLAY rule 10 match interface vlan10
+
+# Centralized GW, DHCP agent
+# GW IP on single leaf, and on every leaf
+nv set evpn evi 10 route-advertise default-gateway on

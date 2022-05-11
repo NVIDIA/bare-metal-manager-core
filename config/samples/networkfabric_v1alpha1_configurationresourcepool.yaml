@@ -1,0 +1,5 @@
+apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ConfigurationResourcePool
+metadata:
+  name: configurationresourcepool-sample
+spec:
