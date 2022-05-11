@@ -64,3 +64,28 @@ args = ["build", "-d", "../public", "book"]
 workspace = false
 command = "cargo"
 args = ["license", "--avoid-build-deps", "--avoid-dev-deps", "--json"]
+
+[tasks.update-vpc-submodule]
+workspace = false
+script = '''
+mkdir -p tmp
+git fetch ssh://git@gitlab-master.nvidia.com:12051/nvmetal/vpc.git main
+git subtree pull --prefix vpc/ ssh://git@gitlab-master.nvidia.com:12051/nvmetal/vpc.git main --squash -m 'updated rust structs for vpc crds'
+kustomize build vpc/config/crd/ -o tmp/
+'''
+
+[tasks.generate-rust-from-crd]
+workspace = false
+script = '''
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_configurationresourcepools.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/configuration_resource_pool.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/leaf.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_managedresources.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/managed_resource.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_resourcegroups.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/resource_group.rs
+'''
+
+[tasks.update-kube-structs]
+workspace = false
+dependencies = [
+  "update-vpc-submodule",
+  "generate-rust-from-crd",
+]
