@@ -47,11 +47,21 @@ service Metal {
 
   // PRIVILEGED: Find a list of machines
   rpc FindMachines(MachineSearchQuery) returns (MachineList);
+  rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
 
   // PRIVILEGED: Define and manage new instance types
   rpc CreateInstanceType(InstanceType) returns (InstanceType);
   rpc UpdateInstanceType(InstanceType) returns (InstanceType);
   rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
+
+  // Tags handling
+  rpc CreateTag(TagCreate) returns (TagResult);
+  rpc DeleteTag(TagDelete) returns (TagResult);
+  rpc ListTags(TagVoid) returns (TagsListResult);
+
+  rpc AssignTag(TagAssign) returns (TagResult);
+  rpc RemoveTag(TagRemove) returns (TagResult);
+  rpc SetTags(TagsList) returns (TagResult);
 }
 
 message DNSMessage {
@@ -243,12 +253,20 @@ message InstanceDeletionResult {
 }
 
 message MachineList {
-  repeated MachineInterface interfaces = 1;
+  repeated Machine machines = 1;
 }
 
 message MachineSearchQuery {
   optional UUID id = 1;
   optional string fqdn = 2;
+}
+
+message InterfaceList {
+  repeated MachineInterface interfaces = 1;
+}
+
+message InterfaceSearchQuery {
+  optional UUID id = 1;
 }
 
 message Machine {
@@ -358,4 +376,51 @@ message DhcpRecord {
 
 message NetworkSegmentList {
   repeated NetworkSegment network_segments = 1;
+}
+
+message Tag {
+  string slug = 1;
+  optional string name = 3;  // Mandatory in case of CREATE action.
+}
+
+message TagCreate {
+  Tag tag = 1;
+}
+
+message TagDelete {
+  Tag tag = 1;
+}
+
+message TagResult {
+  bool result = 1;
+}
+
+message TagVoid {
+}
+
+message TagsList {
+  repeated string slugs = 1;
+  UUID target = 2;
+  TagTargetKind target_kind = 3;
+}
+
+message TagsListResult {
+  repeated Tag tags = 1;
+}
+
+enum TagTargetKind {
+  MACHINE = 0;
+  NETWORK_SEGMENT = 1;
+}
+
+message TagAssign {
+  string slug = 1;
+  UUID target = 2;
+  TagTargetKind target_kind = 3;
+}
+
+message TagRemove {
+  string slug = 1;
+  UUID target = 2;
+  TagTargetKind target_kind = 3;
 }

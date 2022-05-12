@@ -1,0 +1,69 @@
+domain: vpc.forge.gitlab-master.nvidia.com
+layout:
+- go.kubebuilder.io/v3
+multigroup: true
+projectName: vpc
+repo: gitlab-master.nvidia.com/forge/vpc
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: vpc.forge.gitlab-master.nvidia.com
+  group: resource
+  kind: ResourceGroup
+  path: gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1
+  version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: vpc.forge.gitlab-master.nvidia.com
+  group: resource
+  kind: ManagedResource
+  path: gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1
+  version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: vpc.forge.gitlab-master.nvidia.com
+  group: resource
+  kind: SharedResource
+  path: gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: vpc.forge.gitlab-master.nvidia.com
+  group: networkfabric
+  kind: ConfigurationResourcePool
+  path: gitlab-master.nvidia.com/forge/vpc/apis/networkfabric/v1alpha1
+  version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: vpc.forge.gitlab-master.nvidia.com
+  group: networkfabric
+  kind: Leaf
+  path: gitlab-master.nvidia.com/forge/vpc/apis/networkfabric/v1alpha1
+  version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
+version: "3"

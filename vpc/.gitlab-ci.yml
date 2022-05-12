@@ -1,0 +1,121 @@
+#variables:
+  # see https://docs.gitlab.com/ee/ci/docker/using_docker_build.html#tls-enabled for Dind configuration
+  # DOCKER_HOST: tcp://docker:2375 --> this should only be configured when using Kubernetes runners
+  # When using dind, it's wise to use the overlayfs driver for
+  # improved performance.
+#  DOCKER_DRIVER: overlay2
+  # Specify to Docker where to create the certificates, Docker will
+  # create them automatically on boot, and will create
+  # `/certs/client` that will be shared between the service and job
+  # container, thanks to volume mount from config.toml
+#  DOCKER_TLS_CERTDIR: "/certs"
+  # see usage of Namespaces at https://docs.gitlab.com/ee/user/group/#namespaces
+#  REGISTRY_GROUP_PROJECT: $CI_REGISTRY/root/gitlab-ci-dind-example
+
+# One of the new trends in Continuous Integration/Deployment is to:
+# (see https://docs.gitlab.com/ee/ci/docker/using_docker_build.html)
+#
+# 1. Create an application image
+# 2. Run tests against the created image
+# 3. Push image to a remote registry
+# 4. Deploy to a server from the pushed image
+
+stages:
+  - build
+  - test
+  - push
+  - e2e
+#  - deploy
+
+build-binary:
+  stage: build
+  image: golang:1.16
+  before_script:
+    - apt-get update
+    - apt install -y protobuf-compiler
+    - go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.26
+    - go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1
+    - export PATH="$PATH:$(go env GOPATH)/bin"
+    - go mod download
+  script:
+    - make
+    - make manifests
+    - ci/check-codegen.sh
+    - ci/check-manifest.sh
+  artifacts:
+    paths:
+      - bin/manager
+      - bin/grpc-server
+      - bin/agent
+      - config/forge.yaml
+    expire_in: 1 day
+  only:
+    - main
+    - merge_requests
+  tags:
+    - forge
+
+test:
+  stage: test
+  image: golang:1.16
+  before_script:
+    - echo "deb http://deb.debian.org/debian bullseye-backports main" >> /etc/apt/sources.list
+    - export DEBIAN_FRONTEND=noninteractive
+    - apt-get update
+    - apt-get install -y --no-install-recommends protobuf-compiler curl openvswitch-switch ovn-common ovn-host ovn-central isc-dhcp-relay
+    - go install github.com/golang/mock/mockgen@v1.6.0
+    - go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.26
+    - go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1
+    - export PATH="$PATH:$(go env GOPATH)/bin"
+    - go mod download
+    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - chmod +x kubectl
+  script:
+    - make test
+  only:
+    - main
+    - merge_requests
+  tags:
+    - forge
+
+push:
+  stage: push
+  image:
+    name: docker:20.10.9-dind
+    entrypoint: [""]
+  before_script:
+    - dockerd > /dev/null 2>&1 &
+    - sleep 5
+    - docker info
+    - echo "$QUAY_IO_PWD" | docker login -u "$QUAY_IO_USER" --password-stdin quay.io
+  script:
+    - export FORGE_TAG=$(date --utc '+%Y%m%d%H%M%S')
+    - docker build -t quay.io/nvidia/nvmetal-hydrazine:$FORGE_TAG -f build/images/forge/Dockerfile.nobuild .
+    - docker tag quay.io/nvidia/nvmetal-hydrazine:$FORGE_TAG quay.io/nvidia/nvmetal-hydrazine:latest
+    - docker push quay.io/nvidia/nvmetal-hydrazine:$FORGE_TAG
+    - docker push quay.io/nvidia/nvmetal-hydrazine:latest
+    - echo "FORGE_TAG=$FORGE_TAG" >> build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+  rules:
+    - if: $nightly == "true"
+      when: on_success
+    - if: $CI_COMMIT_MESSAGE =~ /.*test-all.*/
+      when: on_success
+  tags:
+    - forge
+
+e2e:
+  stage: e2e
+  variables:
+    FORGE_TAG: $FORGE_TAG
+  needs:
+    job: push
+    artifacts: true
+  trigger:
+    project: nvmetal/e2e-test
+    strategy: depend
+  rules:
+    - if: $CI_COMMIT_MESSAGE =~ /.*test-all.*/
+      when: on_success

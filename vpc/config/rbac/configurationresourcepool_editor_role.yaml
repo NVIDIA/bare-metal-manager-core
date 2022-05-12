@@ -1,0 +1,24 @@
+# permissions for end users to edit configurationresourcepools.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: configurationresourcepool-editor-role
+rules:
+- apiGroups:
+  - networkfabric.vpc.forge.gitlab-master.nvidia.com
+  resources:
+  - configurationresourcepools
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networkfabric.vpc.forge.gitlab-master.nvidia.com
+  resources:
+  - configurationresourcepools/status
+  verbs:
+  - get

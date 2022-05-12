@@ -1,0 +1,24 @@
+# permissions for end users to edit managedresources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: managedresource-editor-role
+rules:
+- apiGroups:
+  - resource.vpc.forge.gitlab-master.nvidia.com
+  resources:
+  - managedresources
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - resource.vpc.forge.gitlab-master.nvidia.com
+  resources:
+  - managedresources/status
+  verbs:
+  - get

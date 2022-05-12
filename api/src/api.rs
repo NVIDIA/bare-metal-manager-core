@@ -11,8 +11,8 @@ use carbide::{
     db::{
         DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineAction,
         MachineInterface, MachineState, MachineTopology, NetworkSegment, NewDomain, NewInstance,
-        NewInstanceType, NewNetworkSegment, NewVpc, UpdateInstanceType, UpdateVpc,
-        UuidKeyedObjectFilter, Vpc,
+        NewInstanceType, NewNetworkSegment, NewVpc, Tag, TagAssociation, TagCreate, TagDelete,
+        TagsList, UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
     },
     CarbideError,
 };
@@ -147,21 +147,21 @@ impl Metal for Api {
         Ok(result)
     }
 
-    async fn find_machines(
+    async fn find_interfaces(
         &self,
-        request: Request<rpc::MachineSearchQuery>,
-    ) -> Result<Response<rpc::MachineList>, Status> {
+        request: Request<rpc::InterfaceSearchQuery>,
+    ) -> Result<Response<rpc::InterfaceList>, Status> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::MachineSearchQuery { id, .. } = request.into_inner();
+        let rpc::InterfaceSearchQuery { id, .. } = request.into_inner();
 
         let response = match id {
             Some(id) if id.value.chars().count() > 0 => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => Ok(rpc::MachineList {
+                Ok(uuid) => Ok(rpc::InterfaceList {
                     interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
                 }),
                 Err(_) => Err(CarbideError::GenericError(
@@ -176,6 +176,42 @@ impl Metal for Api {
         };
 
         response.map(Response::new)
+    }
+
+    async fn find_machines(
+        &self,
+        request: Request<rpc::MachineSearchQuery>,
+    ) -> Result<Response<rpc::MachineList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::MachineSearchQuery { id, .. } = request.into_inner();
+
+        let _uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => UuidKeyedObjectFilter::All,
+        };
+
+        let result = Machine::find(&mut txn, _uuid)
+            .await
+            .map(|m| rpc::MachineList {
+                machines: m.into_iter().map(rpc::Machine::from).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
     }
 
     async fn discover_dhcp(
@@ -668,6 +704,123 @@ impl Metal for Api {
             .deactivate(&mut txn)
             .await
             .map(rpc::InstanceTypeDeletionResult::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn create_tag(
+        &self,
+        request: Request<rpc::TagCreate>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagCreate::try_from(request.into_inner())?
+            .create(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn delete_tag(
+        &self,
+        request: Request<rpc::TagDelete>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagDelete::try_from(request.into_inner())?
+            .delete(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn set_tags(
+        &self,
+        request: Request<rpc::TagsList>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagsList::try_from(request.into_inner())?
+            .assign(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn list_tags(
+        &self,
+        _request: Request<rpc::TagVoid>,
+    ) -> Result<Response<rpc::TagsListResult>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(Tag::list_all(&mut txn).await.map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn assign_tag(
+        &self,
+        request: Request<rpc::TagAssign>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagAssociation::try_from(request.into_inner())?
+            .assign(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn remove_tag(
+        &self,
+        request: Request<rpc::TagRemove>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagAssociation::try_from(request.into_inner())?
+            .remove(&mut txn)
+            .await
             .map(Response::new)?);
 
         txn.commit().await.map_err(CarbideError::from)?;

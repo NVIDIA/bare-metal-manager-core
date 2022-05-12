@@ -1,0 +1,10 @@
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ManagedResource
+metadata:
+  name: mr-1
+  namespace: forge-system
+spec:
+  resourceGroup: internal
+  type: BareMetal
+  hostInterface: forge4-en0
+  hostInterfaceAccess: IsolatedAccess
