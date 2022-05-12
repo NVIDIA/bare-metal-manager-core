@@ -180,7 +180,7 @@ impl MachineInterface {
                             txn,
                             &segment,
                             &mac_address,
-                            None,
+                            segment.subdomain_id,
                             Machine::generate_hostname_from_uuid(&uuid::Uuid::new_v4()),
                             true,
                             AddressSelectionStrategy::Automatic,
