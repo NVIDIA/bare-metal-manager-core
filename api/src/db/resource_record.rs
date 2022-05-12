@@ -83,7 +83,7 @@ impl DnsQuestion {
         let _record = match question.q_type {
             Some(1) => {
                 let result = sqlx::query_as::<_, ResourceRecord>(
-                    "SELECT resource_record from dns_records WHERE q_name=$1",
+                    "SELECT resource_record from dns_records WHERE q_name=$1 AND family(resource_record) = 4;",
                 )
                 .bind(Some(question.q_name))
                 .fetch_one(&mut *txn)
