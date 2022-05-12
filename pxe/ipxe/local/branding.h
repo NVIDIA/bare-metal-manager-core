@@ -1,11 +1,11 @@
 #undef PRODUCT_NAME
-#define PRODUCT_NAME "NVIDIA Metal"
+#define PRODUCT_NAME "NVIDIA Forge"
 
 #undef PRODUCT_SHORT_NAME
-#define PRODUCT_SHORT_NAME "nvmetal"
+#define PRODUCT_SHORT_NAME "forge"
 
 #undef PRODUCT_URI
-#define PRODUCT_URI "http://metal.nvidia.com"
+#define PRODUCT_URI "http://forge.nvidia.com"
 
 #undef PRODUCT_TAG_LINE
-#define PRODUCT_TAG_LINE "NVIDIA Metal Bare Metal provisioning"
+#define PRODUCT_TAG_LINE "NVIDIA Forge Bare Metal provisioning"

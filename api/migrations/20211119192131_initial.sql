@@ -331,7 +331,7 @@ CREATE OR REPLACE VIEW machine_dhcp_records AS (
 	machine_interfaces.id as machine_interface_id,
 	network_segments.id as segment_id,
 	network_segments.subdomain_id as subdomain_id,
-	COALESCE(machines.fqdn,'NOHOSTNAME') as fqdn,
+	CONCAT(machine_interfaces.hostname,'.', domains.name) as fqdn,
 	machine_interfaces.mac_address as mac_address,
 	machine_interface_addresses.address as address,
 	network_segments.mtu as mtu,
@@ -342,6 +342,7 @@ CREATE OR REPLACE VIEW machine_dhcp_records AS (
 	INNER JOIN network_segments ON network_segments.id=machine_interfaces.segment_id
 	INNER JOIN network_prefixes ON network_prefixes.segment_id=network_segments.id
 	INNER JOIN machine_interface_addresses ON machine_interface_addresses.interface_id=machine_interfaces.id
+	INNER JOIN domains on domains.id = machine_interfaces.domain_id
 	WHERE address << prefix
 );
 

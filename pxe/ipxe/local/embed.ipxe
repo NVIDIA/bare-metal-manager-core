@@ -11,7 +11,7 @@ set white ${esc:string}[37m
 #cpair --foreground 7 --background 9 0
 
 :start
-echo ${bold}${nvgreen}NVIDIA${white} Metal${boldoff} - v${version}
+echo ${bold}${nvgreen}NVIDIA${white} Forge${boldoff} - v${version}
 prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open default menu... && goto default || goto carbide
 
 :whoami
@@ -27,7 +27,7 @@ prompt --key x Hit the ${bold}x${boldoff} key to continue
 goto default
 
 :default
-menu NGC Metal - ${hostname}
+menu NGC Forge - ${hostname}
 item carbide Boot according to Carbide workflow
 item whoami Print information about this machine
 item localboot Boot to local drive
