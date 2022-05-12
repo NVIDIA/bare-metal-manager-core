@@ -155,7 +155,7 @@ services:
   carbide-dns:
     depends_on:
       - terraform
-      - postgres
+      - postgresql
       - carbide-api
     build: dns
     networks:
