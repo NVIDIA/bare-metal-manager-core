@@ -15,8 +15,7 @@ services:
     networks:
       carbide:
         ipv4_address: 172.20.0.11
-    image:
-      alpine:latest
+    image: alpine:latest
     command: >
       sh -c "/sbin/apk add dhcp-helper && /usr/sbin/dhcp-helper -s carbide-dhcp -i eth0 -n -d"
   carbide-dhcp:
@@ -80,6 +79,7 @@ services:
       - ROCKET_port=1080
     command: cargo watch -C pxe -x run
 
+    
   postgresql:
     depends_on:
       - terraform
@@ -146,11 +146,26 @@ services:
       interval: 1s
       timeout: 5s
       retries: 5
-      test: ["CMD", "vault", "status"]
+      test: [ "CMD", "vault", "status" ]
     volumes:
       - vault-data:/vault/file
       - ca-certificate:/identity
     domainname: metal.dev
+
+  carbide-dns:
+    depends_on:
+      - terraform
+      - postgres
+      - carbide-api
+    build: dns
+    networks:
+      carbide:
+        ipv4_address: 172.20.0.20
+    volumes:
+      - .:/app/code
+    ports:
+      - "1053:1053/udp"   
+    command: cargo watch -C dns -x "run -- run --carbide-url=http://172.20.0.14:1079"
 
 volumes:
   db-data: {}
