@@ -6,7 +6,6 @@ Format=gpt_squashfs
 ManifestFormat=changelog
 Bootable=true
 #Minimize=true
-Hostname=carbide-preexec
 WithUnifiedKernelImages=true
 SplitArtifacts=true
 OutputSplitRoot=carbide-preexec-x86_64.rootfs
