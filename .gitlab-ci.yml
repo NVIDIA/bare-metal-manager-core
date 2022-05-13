@@ -29,11 +29,12 @@ build:cargo:
 
 build:ipxe:
   stage: build
+  image:
+    name: docker:20.10.9-dind
   only:
     - branches
   script:
     - cargo make --cwd pxe ipxe
-
 build:docker:
   stage: release
   variables: 
