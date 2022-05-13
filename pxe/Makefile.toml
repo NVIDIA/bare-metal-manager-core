@@ -1,8 +1,9 @@
 [tasks.build-boot-artifacts]
 dependencies = [
-	"build",
-	"create-ephemeral-image",
-	"ipxe",
+        "build",
+        "create-ephemeral-image",
+        "ipxe-x86_64",
+        "ipxe-arm64",
 ]
 
 [tasks.create-ephemeral-image]
@@ -62,11 +63,18 @@ cwd = "mkosi"
 [tasks.ipxe]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and aarch64 (EFI), and move to the carbide static webroot"
+depenencies = [
+  "ipxe-x86_64",
+  "ipxe-arm64",
+]
+
+[tasks.ipxe-x86_64]
+category = "iPXE Kernel"
+description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
 	"ipxe-config",
 	"ipxe-install-pcbios-x86_64",
 	"ipxe-install-efi-x86_64",
-	"ipxe-install-efi-arm64",
 ]
 
 [tasks.ipxe-config]
@@ -90,6 +98,14 @@ command = "mv"
 args = ["ipxe/upstream/src/bin-x86_64-efi/ipxe.efi", "static/blobs/internal/x86_64/ipxe.efi"]
 dependencies = [
 	"ipxe-build-efi-x86_64",
+]
+
+[tasks.ipxe-arm64]
+category = "iPXE Kernel"
+description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
+dependencies = [
+  "ipxe-config",
+  "ipxe-install-efi-arm64",
 ]
 
 [tasks.ipxe-install-efi-arm64]
