@@ -1,10 +1,10 @@
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{self, Ident};
+use syn::Ident;
 
-use codegen::{ExtractAttribute, OuterFromImpl, TraitImpl};
-use options::{DataShape, ForwardAttrs};
-use util::PathList;
+use crate::codegen::{ExtractAttribute, OuterFromImpl, TraitImpl};
+use crate::options::{DataShape, ForwardAttrs};
+use crate::util::PathList;
 
 pub struct FromVariantImpl<'a> {
     pub base: TraitImpl<'a>,
@@ -66,7 +66,7 @@ impl<'a> ToTokens for FromVariantImpl<'a> {
         let supports = self.supports.map(|i| {
             quote! {
                 #i
-                __validate_data(&#input.fields)?;
+                __errors.handle(__validate_data(&#input.fields));
             }
         });
 
@@ -108,12 +108,8 @@ impl<'a> ExtractAttribute for FromVariantImpl<'a> {
         self.base.local_declarations()
     }
 
-    fn immutable_declarations(&self) -> TokenStream {
-        self.base.immutable_declarations()
-    }
-
     fn attr_names(&self) -> &PathList {
-        &self.attr_names
+        self.attr_names
     }
 
     fn forwarded_attrs(&self) -> Option<&ForwardAttrs> {

@@ -2,11 +2,11 @@ use proc_macro2::TokenStream;
 use quote::ToTokens;
 use syn::{DeriveInput, Field, Ident, Meta};
 
-use codegen::FromVariantImpl;
-use options::{DataShape, OuterFrom, ParseAttribute, ParseData};
-use {FromMeta, Result};
+use crate::codegen::FromVariantImpl;
+use crate::options::{DataShape, OuterFrom, ParseAttribute, ParseData};
+use crate::{FromMeta, Result};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct FromVariantOptions {
     pub base: OuterFrom,
     /// The field on the deriving struct into which the discriminant expression

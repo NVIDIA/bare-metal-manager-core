@@ -5,7 +5,7 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, TokenStreamExt};
 use syn::{Meta, NestedMeta};
 
-use {Error, FromMeta, Result};
+use crate::{Error, FromMeta, Result};
 
 /// Receiver struct for shape validation. Shape validation allows a deriving type
 /// to declare that it only accepts - for example - named structs, or newtype enum
@@ -72,18 +72,28 @@ impl ToTokens for Shape {
         } else {
             let en = &self.enum_values;
             let st = &self.struct_values;
+
+            let enum_validation = if en.supports_none() {
+                let ty = en.prefix.trim_end_matches('_');
+                quote!(return ::darling::export::Err(::darling::Error::unsupported_shape(#ty));)
+            } else {
+                quote! {
+                    fn validate_variant(data: &::syn::Fields) -> ::darling::Result<()> {
+                        #en
+                    }
+
+                    for variant in &data.variants {
+                        validate_variant(&variant.fields)?;
+                    }
+
+                    Ok(())
+                }
+            };
+
             quote! {
                 match *__body {
                     ::syn::Data::Enum(ref data) => {
-                        fn validate_variant(data: &::syn::Fields) -> ::darling::Result<()> {
-                            #en
-                        }
-
-                        for variant in &data.variants {
-                            validate_variant(&variant.fields)?;
-                        }
-
-                        Ok(())
+                        #enum_validation
                     }
                     ::syn::Data::Struct(ref struct_data) => {
                         let data = &struct_data.fields;
@@ -162,24 +172,18 @@ impl DataShape {
 
 impl FromMeta for DataShape {
     fn from_list(items: &[NestedMeta]) -> Result<Self> {
-        let mut errors = Vec::new();
+        let mut errors = Error::accumulator();
         let mut new = DataShape::default();
 
         for item in items {
             if let NestedMeta::Meta(Meta::Path(ref path)) = *item {
-                if let Err(e) = new.set_word(&path.segments.first().unwrap().ident.to_string()) {
-                    errors.push(e.with_span(&path));
-                }
+                errors.handle(new.set_word(&path.segments.first().unwrap().ident.to_string()));
             } else {
                 errors.push(Error::unsupported_format("non-word").with_span(item));
             }
         }
 
-        if !errors.is_empty() {
-            Err(Error::multiple(errors))
-        } else {
-            Ok(new)
-        }
+        errors.finish_with(new)
     }
 }
 
@@ -228,15 +232,14 @@ fn match_arm(name: &'static str, is_supported: bool) -> TokenStream {
 #[cfg(test)]
 mod tests {
     use proc_macro2::TokenStream;
-    use syn;
 
     use super::Shape;
-    use FromMeta;
+    use crate::FromMeta;
 
     /// parse a string as a syn::Meta instance.
     fn pm(tokens: TokenStream) -> ::std::result::Result<syn::Meta, String> {
         let attribute: syn::Attribute = parse_quote!(#[#tokens]);
-        attribute.parse_meta().or(Err("Unable to parse".into()))
+        attribute.parse_meta().map_err(|_| "Unable to parse".into())
     }
 
     fn fm<T: FromMeta>(tokens: TokenStream) -> T {
@@ -247,22 +250,22 @@ mod tests {
     #[test]
     fn supports_any() {
         let decl = fm::<Shape>(quote!(ignore(any)));
-        assert_eq!(decl.any, true);
+        assert!(decl.any);
     }
 
     #[test]
     fn supports_struct() {
         let decl = fm::<Shape>(quote!(ignore(struct_any, struct_newtype)));
-        assert_eq!(decl.struct_values.any, true);
-        assert_eq!(decl.struct_values.newtype, true);
+        assert!(decl.struct_values.any);
+        assert!(decl.struct_values.newtype);
     }
 
     #[test]
     fn supports_mixed() {
         let decl = fm::<Shape>(quote!(ignore(struct_newtype, enum_newtype, enum_tuple)));
-        assert_eq!(decl.struct_values.newtype, true);
-        assert_eq!(decl.enum_values.newtype, true);
-        assert_eq!(decl.enum_values.tuple, true);
-        assert_eq!(decl.struct_values.any, false);
+        assert!(decl.struct_values.newtype);
+        assert!(decl.enum_values.newtype);
+        assert!(decl.enum_values.tuple);
+        assert!(!decl.struct_values.any);
     }
 }

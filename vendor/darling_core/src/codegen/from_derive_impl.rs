@@ -1,11 +1,13 @@
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{self, Ident};
+use syn::Ident;
 
-use ast::Data;
-use codegen::{ExtractAttribute, OuterFromImpl, TraitImpl};
-use options::{ForwardAttrs, Shape};
-use util::PathList;
+use crate::{
+    ast::Data,
+    codegen::{ExtractAttribute, OuterFromImpl, TraitImpl},
+    options::{ForwardAttrs, Shape},
+    util::PathList,
+};
 
 pub struct FromDeriveInputImpl<'a> {
     pub ident: Option<&'a Ident>,
@@ -61,7 +63,7 @@ impl<'a> ToTokens for FromDeriveInputImpl<'a> {
         let supports = self.supports.map(|i| {
             quote! {
                 #i
-                __validate_body(&#input.data)?;
+                __errors.handle(__validate_body(&#input.data));
             }
         });
 
@@ -110,7 +112,7 @@ impl<'a> ToTokens for FromDeriveInputImpl<'a> {
 
 impl<'a> ExtractAttribute for FromDeriveInputImpl<'a> {
     fn attr_names(&self) -> &PathList {
-        &self.attr_names
+        self.attr_names
     }
 
     fn forwarded_attrs(&self) -> Option<&ForwardAttrs> {
@@ -127,10 +129,6 @@ impl<'a> ExtractAttribute for FromDeriveInputImpl<'a> {
 
     fn local_declarations(&self) -> TokenStream {
         self.base.local_declarations()
-    }
-
-    fn immutable_declarations(&self) -> TokenStream {
-        self.base.immutable_declarations()
     }
 }
 

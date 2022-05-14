@@ -1,16 +1,12 @@
+// The use of fields in debug print commands does not count as "used",
+// which causes the fields to trigger an unwanted dead code warning.
+#![allow(dead_code)]
+
 //! This example shows how to do struct and field parsing using darling.
 
-#[macro_use]
-extern crate darling;
-extern crate proc_macro2;
-#[macro_use]
-extern crate quote;
-extern crate syn;
-
-use darling::ast;
-use darling::FromDeriveInput;
+use darling::{ast, FromDeriveInput, FromField, FromMeta};
 use proc_macro2::TokenStream;
-use quote::ToTokens;
+use quote::{quote, ToTokens};
 use syn::parse_str;
 
 /// A speaking volume. Deriving `FromMeta` will cause this to be usable
@@ -121,7 +117,7 @@ impl ToTokens for MyInputReceiver {
         tokens.extend(quote! {
             impl #imp Speak for #ident #ty #wher {
                 fn speak(&self, writer: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                    write!(#fmt_string, #(#field_list),*)
+                    write!(writer, #fmt_string, #(#field_list),*)
                 }
             }
         });
@@ -141,7 +137,8 @@ struct MyFieldReceiver {
     /// We declare this as an `Option` so that during tokenization we can write
     /// `field.volume.unwrap_or(derive_input.volume)` to facilitate field-level
     /// overrides of struct-level settings.
-    #[darling(default)]
+    ///
+    /// Because this field is an `Option`, we don't need to include `#[darling(default)]`
     volume: Option<Volume>,
 }
 
