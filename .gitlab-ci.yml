@@ -33,7 +33,6 @@ build:ipxe:
     - branches
   script:
     - cargo make --cwd pxe ipxe
-
 build:docker:
   stage: release
   variables: 
