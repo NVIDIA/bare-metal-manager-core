@@ -10,7 +10,7 @@ use std::path::Path;
 use tar::Archive;
 use walkdir::DirEntry;
 
-const REVISION: &str = "5e57faa78aa7661c6000204591558f6665f11abc";
+const REVISION: &str = "e95b10ba4ac4564ed25f7eef143e3182c33b3902";
 
 #[rustfmt::skip]
 static EXCLUDE: &[&str] = &[

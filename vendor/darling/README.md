@@ -18,6 +18,7 @@ Darling
 2. `FromDeriveInput` is implemented or derived by each proc-macro crate which depends on `darling`. This is the root for input parsing; it gets access to the identity, generics, and visibility of the target type, and can specify which attribute names should be parsed or forwarded from the input AST.
 3. `FromField` is implemented or derived by each proc-macro crate which depends on `darling`. Structs deriving this trait will get access to the identity (if it exists), type, and visibility of the field.
 4. `FromVariant` is implemented or derived by each proc-macro crate which depends on `darling`. Structs deriving this trait will get access to the identity and contents of the variant, which can be transformed the same as any other `darling` input.
+5. `FromAttributes` is a lower-level version of the more-specific `FromDeriveInput`, `FromField`, and `FromVariant` traits. Structs deriving this trait get a meta-item extractor and error collection which works for any syntax element, including traits, trait items, and functions. This is useful for non-derive proc macros.
 
 ## Additional Modules
 * `darling::ast` provides generic types for representing the AST.
@@ -40,7 +41,7 @@ pub struct Lorem {
 }
 
 #[derive(FromDeriveInput)]
-#[darling(from_ident, attributes(my_crate), forward_attrs(allow, doc, cfg))]
+#[darling(attributes(my_crate), forward_attrs(allow, doc, cfg))]
 pub struct MyTraitOpts {
     ident: syn::Ident,
     attrs: Vec<syn::Attribute>,
@@ -53,7 +54,7 @@ The above code will then be able to parse this input:
 ```rust,ignore
 /// A doc comment which will be available in `MyTraitOpts::attrs`.
 #[derive(MyTrait)]
-#[my_crate(lorem(dolor = "Hello", ipsum))]
+#[my_crate(lorem(dolor = "Hello", sit))]
 pub struct ConsumingType;
 ```
 
@@ -103,7 +104,8 @@ fn do_stuff() {
 # Features
 Darling's features are built to work well for real-world projects.
 
-* **Defaults**: Supports struct- and field-level defaults, using the same path syntax as `serde`.
+* **Defaults**: Supports struct- and field-level defaults, using the same path syntax as `serde`. 
+  Additionally, `Option<T>` and `darling::util::Flag` fields are innately optional; you don't need to declare `#[darling(default)]` for those.
 * **Field Renaming**: Fields can have different names in usage vs. the backing code.
 * **Auto-populated fields**: Structs deriving `FromDeriveInput` and `FromField` can declare properties named `ident`, `vis`, `ty`, `attrs`, and `generics` to automatically get copies of the matching values from the input AST. `FromDeriveInput` additionally exposes `data` to get access to the body of the deriving type, and `FromVariant` exposes `fields`.
 * **Mapping function**: Use `#[darling(map="path")]` or `#[darling(and_then="path")]` to specify a function that runs on the result of parsing a meta-item field. This can change the return type, which enables you to parse to an intermediate form and convert that to the type you need in your struct.

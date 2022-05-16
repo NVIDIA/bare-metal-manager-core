@@ -1,0 +1,16 @@
+parameters:
+  toolchain: stable
+jobs:
+  - job: rustfmt
+    pool:
+      vmImage: ubuntu-16.04
+    steps:
+      - template: steps-install-rust.yml
+        parameters:
+          toolchain: ${{ parameters.toolchain }}
+          components:
+            - rustfmt
+      - script: |
+          cargo fmt -- --check
+        displayName: cargo fmt -- --check
+

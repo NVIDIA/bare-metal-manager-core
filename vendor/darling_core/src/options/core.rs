@@ -1,16 +1,14 @@
 use ident_case::RenameRule;
-use syn;
 
-use ast::{Data, Fields, Style};
-use codegen;
-use codegen::PostfixTransform;
-use options::{DefaultExpression, InputField, InputVariant, ParseAttribute, ParseData};
-use util::Flag;
-use {Error, FromMeta, Result};
+use crate::ast::{Data, Fields, Style};
+use crate::codegen;
+use crate::codegen::PostfixTransform;
+use crate::options::{DefaultExpression, InputField, InputVariant, ParseAttribute, ParseData};
+use crate::{Error, FromMeta, Result};
 
 /// A struct or enum which should have `FromMeta` or `FromDeriveInput` implementations
 /// generated.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Core {
     /// The type identifier.
     pub ident: syn::Ident,
@@ -41,7 +39,7 @@ pub struct Core {
     pub bound: Option<Vec<syn::WherePredicate>>,
 
     /// Whether or not unknown fields should produce an error at compilation time.
-    pub allow_unknown_fields: Flag,
+    pub allow_unknown_fields: Option<bool>,
 }
 
 impl Core {
@@ -65,7 +63,7 @@ impl Core {
         })
     }
 
-    fn as_codegen_default<'a>(&'a self) -> Option<codegen::DefaultExpression<'a>> {
+    fn as_codegen_default(&self) -> Option<codegen::DefaultExpression<'_>> {
         self.default.as_ref().map(|expr| match *expr {
             DefaultExpression::Explicit(ref path) => codegen::DefaultExpression::Explicit(path),
             DefaultExpression::Inherit | DefaultExpression::Trait => {
@@ -116,7 +114,7 @@ impl ParseAttribute for Core {
 
             self.allow_unknown_fields = FromMeta::from_meta(mi)?;
         } else {
-            return Err(Error::unknown_field_path(&path).with_span(mi));
+            return Err(Error::unknown_field_path(path).with_span(mi));
         }
 
         Ok(())
@@ -125,7 +123,7 @@ impl ParseAttribute for Core {
 
 impl ParseData for Core {
     fn parse_variant(&mut self, variant: &syn::Variant) -> Result<()> {
-        let v = InputVariant::from_variant(variant, Some(&self))?;
+        let v = InputVariant::from_variant(variant, Some(self))?;
 
         match self.data {
             Data::Enum(ref mut variants) => {
@@ -137,7 +135,7 @@ impl ParseData for Core {
     }
 
     fn parse_field(&mut self, field: &syn::Field) -> Result<()> {
-        let f = InputField::from_field(field, Some(&self))?;
+        let f = InputField::from_field(field, Some(self))?;
 
         match self.data {
             Data::Struct(Fields {
@@ -165,7 +163,7 @@ impl<'a> From<&'a Core> for codegen::TraitImpl<'a> {
             default: v.as_codegen_default(),
             post_transform: v.post_transform.as_ref(),
             bound: v.bound.as_ref().map(|i| i.as_slice()),
-            allow_unknown_fields: v.allow_unknown_fields.into(),
+            allow_unknown_fields: v.allow_unknown_fields.unwrap_or_default(),
         }
     }
 }

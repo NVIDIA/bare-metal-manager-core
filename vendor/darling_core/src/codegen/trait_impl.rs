@@ -1,11 +1,12 @@
 use proc_macro2::TokenStream;
 use syn::{Generics, Ident, WherePredicate};
 
-use ast::{Data, Fields};
-use codegen::error::{ErrorCheck, ErrorDeclaration};
-use codegen::field;
-use codegen::{DefaultExpression, Field, FieldsGen, PostfixTransform, Variant};
-use usage::{CollectTypeParams, IdentSet, Purpose};
+use crate::ast::{Data, Fields};
+use crate::codegen::{
+    error::{ErrorCheck, ErrorDeclaration},
+    DefaultExpression, Field, FieldsGen, PostfixTransform, Variant,
+};
+use crate::usage::{CollectTypeParams, IdentSet, Purpose};
 
 #[derive(Debug)]
 pub struct TraitImpl<'a> {
@@ -34,7 +35,7 @@ impl<'a> TraitImpl<'a> {
         self.type_params_matching(|f| !f.skip, |v| !v.skip)
     }
 
-    fn type_params_matching<'b, F, V>(&'b self, field_filter: F, variant_filter: V) -> IdentSet
+    fn type_params_matching<F, V>(&self, field_filter: F, variant_filter: V) -> IdentSet
     where
         F: Fn(&&Field) -> bool,
         V: Fn(&&Variant) -> bool,
@@ -86,7 +87,7 @@ impl<'a> TraitImpl<'a> {
     }
 
     /// Generate local variable declarations for all fields.
-    pub(in codegen) fn local_declarations(&self) -> TokenStream {
+    pub(in crate::codegen) fn local_declarations(&self) -> TokenStream {
         if let Data::Struct(ref vd) = self.data {
             let vdr = vd.as_ref().map(Field::as_declaration);
             let decls = vdr.fields.as_slice();
@@ -96,23 +97,12 @@ impl<'a> TraitImpl<'a> {
         }
     }
 
-    /// Generate immutable variable declarations for all fields.
-    pub(in codegen) fn immutable_declarations(&self) -> TokenStream {
-        if let Data::Struct(ref vd) = self.data {
-            let vdr = vd.as_ref().map(|f| field::Declaration::new(f, false));
-            let decls = vdr.fields.as_slice();
-            quote!(#(#decls)*)
-        } else {
-            quote!()
-        }
-    }
-
-    pub(in codegen) fn post_transform_call(&self) -> Option<TokenStream> {
+    pub(in crate::codegen) fn post_transform_call(&self) -> Option<TokenStream> {
         self.post_transform.map(|pt| quote!(#pt))
     }
 
     /// Generate local variable declaration and initialization for instance from which missing fields will be taken.
-    pub(in codegen) fn fallback_decl(&self) -> TokenStream {
+    pub(in crate::codegen) fn fallback_decl(&self) -> TokenStream {
         let default = self.default.as_ref().map(DefaultExpression::as_declaration);
         quote!(#default)
     }
@@ -127,12 +117,12 @@ impl<'a> TraitImpl<'a> {
         }
     }
 
-    pub(in codegen) fn initializers(&self) -> TokenStream {
+    pub(in crate::codegen) fn initializers(&self) -> TokenStream {
         self.make_field_ctx().initializers()
     }
 
     /// Generate the loop which walks meta items looking for property matches.
-    pub(in codegen) fn core_loop(&self) -> TokenStream {
+    pub(in crate::codegen) fn core_loop(&self) -> TokenStream {
         self.make_field_ctx().core_loop()
     }
 

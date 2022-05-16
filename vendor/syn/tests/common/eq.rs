@@ -1,3 +1,5 @@
+#![allow(unused_macro_rules)]
+
 extern crate rustc_ast;
 extern crate rustc_data_structures;
 extern crate rustc_span;
@@ -9,18 +11,19 @@ use rustc_ast::ast::{
     Defaultness, EnumDef, Expr, ExprField, ExprKind, Extern, FieldDef, FloatTy, Fn, FnDecl,
     FnHeader, FnRetTy, FnSig, ForeignItemKind, ForeignMod, GenericArg, GenericArgs, GenericBound,
     GenericParam, GenericParamKind, Generics, Impl, ImplPolarity, Inline, InlineAsm,
-    InlineAsmOperand, InlineAsmOptions, InlineAsmRegOrRegClass, InlineAsmTemplatePiece, IntTy,
-    IsAuto, Item, ItemKind, Label, Lifetime, Lit, LitFloatType, LitIntType, LitKind, Local,
-    LocalKind, MacArgs, MacCall, MacCallStmt, MacDelimiter, MacStmtStyle, MacroDef, ModKind,
-    Movability, MutTy, Mutability, NodeId, Param, ParenthesizedArgs, Pat, PatField, PatKind, Path,
-    PathSegment, PolyTraitRef, QSelf, RangeEnd, RangeLimits, RangeSyntax, Stmt, StmtKind, StrLit,
-    StrStyle, StructExpr, StructRest, Term, Trait, TraitBoundModifier, TraitObjectSyntax, TraitRef,
-    Ty, TyAlias, TyKind, UintTy, UnOp, Unsafe, UnsafeSource, UseTree, UseTreeKind, Variant,
-    VariantData, Visibility, VisibilityKind, WhereBoundPredicate, WhereClause, WhereEqPredicate,
-    WherePredicate, WhereRegionPredicate,
+    InlineAsmOperand, InlineAsmOptions, InlineAsmRegOrRegClass, InlineAsmSym,
+    InlineAsmTemplatePiece, IntTy, IsAuto, Item, ItemKind, Label, Lifetime, Lit, LitFloatType,
+    LitIntType, LitKind, Local, LocalKind, MacArgs, MacArgsEq, MacCall, MacCallStmt, MacDelimiter,
+    MacStmtStyle, MacroDef, ModKind, ModSpans, Movability, MutTy, Mutability, NodeId, Param,
+    ParenthesizedArgs, Pat, PatField, PatKind, Path, PathSegment, PolyTraitRef, QSelf, RangeEnd,
+    RangeLimits, RangeSyntax, Stmt, StmtKind, StrLit, StrStyle, StructExpr, StructRest, Term,
+    Trait, TraitBoundModifier, TraitObjectSyntax, TraitRef, Ty, TyAlias, TyAliasWhereClause,
+    TyKind, UintTy, UnOp, Unsafe, UnsafeSource, UseTree, UseTreeKind, Variant, VariantData,
+    Visibility, VisibilityKind, WhereBoundPredicate, WhereClause, WhereEqPredicate, WherePredicate,
+    WhereRegionPredicate,
 };
 use rustc_ast::ptr::P;
-use rustc_ast::token::{self, CommentKind, DelimToken, Nonterminal, Token, TokenKind};
+use rustc_ast::token::{self, CommentKind, Delimiter, Nonterminal, Token, TokenKind};
 use rustc_ast::tokenstream::{
     AttrAnnotatedTokenStream, AttrAnnotatedTokenTree, AttributesData, DelimSpan, LazyTokenStream,
     Spacing, TokenStream, TokenTree,
@@ -141,7 +144,7 @@ spanless_eq_partial_eq!(char);
 spanless_eq_partial_eq!(String);
 spanless_eq_partial_eq!(Symbol);
 spanless_eq_partial_eq!(CommentKind);
-spanless_eq_partial_eq!(DelimToken);
+spanless_eq_partial_eq!(Delimiter);
 spanless_eq_partial_eq!(InlineAsmOptions);
 spanless_eq_partial_eq!(token::LitKind);
 
@@ -302,7 +305,7 @@ spanless_eq_struct!(Attribute; kind id style span);
 spanless_eq_struct!(AttributesData; attrs tokens);
 spanless_eq_struct!(BareFnTy; unsafety ext generic_params decl);
 spanless_eq_struct!(Block; stmts id rules span tokens could_be_bare_literal);
-spanless_eq_struct!(Crate; attrs items span id is_placeholder);
+spanless_eq_struct!(Crate; attrs items spans id is_placeholder);
 spanless_eq_struct!(EnumDef; variants);
 spanless_eq_struct!(Expr; id kind span attrs !tokens);
 spanless_eq_struct!(ExprField; attrs id span ident expr is_shorthand is_placeholder);
@@ -312,10 +315,11 @@ spanless_eq_struct!(FnHeader; constness asyncness unsafety ext);
 spanless_eq_struct!(Fn; defaultness generics sig body);
 spanless_eq_struct!(FnSig; header decl span);
 spanless_eq_struct!(ForeignMod; unsafety abi items);
-spanless_eq_struct!(GenericParam; id ident attrs bounds is_placeholder kind);
+spanless_eq_struct!(GenericParam; id ident attrs bounds is_placeholder kind !colon_span);
 spanless_eq_struct!(Generics; params where_clause span);
 spanless_eq_struct!(Impl; defaultness unsafety generics constness polarity of_trait self_ty items);
 spanless_eq_struct!(InlineAsm; template template_strs operands clobber_abis options line_spans);
+spanless_eq_struct!(InlineAsmSym; id qself path);
 spanless_eq_struct!(Item<K>; attrs id span vis ident kind !tokens);
 spanless_eq_struct!(Label; ident);
 spanless_eq_struct!(Lifetime; id ident);
@@ -324,6 +328,7 @@ spanless_eq_struct!(Local; pat ty kind id span attrs !tokens);
 spanless_eq_struct!(MacCall; path args prior_type_ascription);
 spanless_eq_struct!(MacCallStmt; mac style attrs tokens);
 spanless_eq_struct!(MacroDef; body macro_rules);
+spanless_eq_struct!(ModSpans; !inner_span !inject_use_span);
 spanless_eq_struct!(MutTy; ty mutbl);
 spanless_eq_struct!(ParenthesizedArgs; span inputs inputs_span output);
 spanless_eq_struct!(Pat; id kind span tokens);
@@ -339,7 +344,8 @@ spanless_eq_struct!(Token; kind span);
 spanless_eq_struct!(Trait; unsafety is_auto generics bounds items);
 spanless_eq_struct!(TraitRef; path ref_id);
 spanless_eq_struct!(Ty; id kind span tokens);
-spanless_eq_struct!(TyAlias; defaultness generics bounds ty);
+spanless_eq_struct!(TyAlias; defaultness generics where_clauses !where_predicates_split bounds ty);
+spanless_eq_struct!(TyAliasWhereClause; !0 1);
 spanless_eq_struct!(UseTree; prefix kind span);
 spanless_eq_struct!(Variant; attrs id span !vis ident data disr_expr is_placeholder);
 spanless_eq_struct!(Visibility; kind span tokens);
@@ -380,6 +386,7 @@ spanless_eq_enum!(LitFloatType; Suffixed(0) Unsuffixed);
 spanless_eq_enum!(LitIntType; Signed(0) Unsigned(0) Unsuffixed);
 spanless_eq_enum!(LocalKind; Decl Init(0) InitElse(0 1));
 spanless_eq_enum!(MacArgs; Empty Delimited(0 1 2) Eq(0 1));
+spanless_eq_enum!(MacArgsEq; Ast(0) Hir(0));
 spanless_eq_enum!(MacDelimiter; Parenthesis Bracket Brace);
 spanless_eq_enum!(MacStmtStyle; Semicolon Braces NoBraces);
 spanless_eq_enum!(ModKind; Loaded(0 1 2) Unloaded);
@@ -408,10 +415,10 @@ spanless_eq_enum!(ExprKind; Box(0) Array(0) ConstBlock(0) Call(0 1)
     Closure(0 1 2 3 4 5) Block(0 1) Async(0 1 2) Await(0) TryBlock(0)
     Assign(0 1 2) AssignOp(0 1 2) Field(0 1) Index(0 1) Underscore Range(0 1 2)
     Path(0 1) AddrOf(0 1 2) Break(0 1) Continue(0) Ret(0) InlineAsm(0)
-    MacCall(0) Struct(0) Repeat(0 1) Paren(0) Try(0) Yield(0) Err);
+    MacCall(0) Struct(0) Repeat(0 1) Paren(0) Try(0) Yield(0) Yeet(0) Err);
 spanless_eq_enum!(InlineAsmOperand; In(reg expr) Out(reg late expr)
     InOut(reg late expr) SplitInOut(reg late in_expr out_expr) Const(anon_const)
-    Sym(expr));
+    Sym(sym));
 spanless_eq_enum!(ItemKind; ExternCrate(0) Use(0) Static(0 1 2) Const(0 1 2)
     Fn(0) Mod(0 1) ForeignMod(0) GlobalAsm(0) TyAlias(0) Enum(0 1) Struct(0 1)
     Union(0 1) Trait(0) TraitAlias(0 1) Impl(0) MacCall(0) MacroDef(0));
@@ -542,7 +549,7 @@ fn doc_comment(
         }
     }
     let stream = match trees.next() {
-        Some(TokenTree::Delimited(_span, DelimToken::Bracket, stream)) => stream,
+        Some(TokenTree::Delimited(_span, Delimiter::Bracket, stream)) => stream,
         _ => return false,
     };
     let mut trees = stream.trees();
@@ -562,31 +569,48 @@ fn doc_comment(
     }
     match trees.next() {
         Some(TokenTree::Token(token)) => {
-            is_escaped_literal(&token, unescaped) && trees.next().is_none()
+            is_escaped_literal_token(&token, unescaped) && trees.next().is_none()
         }
         _ => false,
     }
 }
 
-fn is_escaped_literal(token: &Token, unescaped: Symbol) -> bool {
-    match match token {
+fn is_escaped_literal_token(token: &Token, unescaped: Symbol) -> bool {
+    match token {
         Token {
             kind: TokenKind::Literal(lit),
             span: _,
-        } => Lit::from_lit_token(*lit, DUMMY_SP),
+        } => match Lit::from_lit_token(*lit, DUMMY_SP) {
+            Ok(lit) => is_escaped_literal(&lit, unescaped),
+            Err(_) => false,
+        },
         Token {
             kind: TokenKind::Interpolated(nonterminal),
             span: _,
         } => match nonterminal.as_ref() {
             Nonterminal::NtExpr(expr) => match &expr.kind {
-                ExprKind::Lit(lit) => Ok(lit.clone()),
-                _ => return false,
+                ExprKind::Lit(lit) => is_escaped_literal(lit, unescaped),
+                _ => false,
             },
-            _ => return false,
+            _ => false,
         },
-        _ => return false,
-    } {
-        Ok(Lit {
+        _ => false,
+    }
+}
+
+fn is_escaped_literal_macro_arg(arg: &MacArgsEq, unescaped: Symbol) -> bool {
+    match arg {
+        MacArgsEq::Ast(expr) => match &expr.kind {
+            ExprKind::Lit(lit) => is_escaped_literal(lit, unescaped),
+            _ => false,
+        },
+        MacArgsEq::Hir(lit) => is_escaped_literal(lit, unescaped),
+    }
+}
+
+fn is_escaped_literal(lit: &Lit, unescaped: Symbol) -> bool {
+    match lit {
+        Lit {
             token:
                 token::Lit {
                     kind: token::LitKind::Str,
@@ -595,7 +619,7 @@ fn is_escaped_literal(token: &Token, unescaped: Symbol) -> bool {
                 },
             kind: LitKind::Str(symbol, StrStyle::Cooked),
             span: _,
-        }) => symbol.as_str().replace('\r', "") == unescaped.as_str().replace('\r', ""),
+        } => symbol.as_str().replace('\r', "") == unescaped.as_str().replace('\r', ""),
         _ => false,
     }
 }
@@ -625,7 +649,9 @@ impl SpanlessEq for AttrKind {
                 SpanlessEq::eq(&path, &item2.path)
                     && match &item2.args {
                         MacArgs::Empty | MacArgs::Delimited(..) => false,
-                        MacArgs::Eq(_span, token) => is_escaped_literal(token, *unescaped),
+                        MacArgs::Eq(_span, token) => {
+                            is_escaped_literal_macro_arg(token, *unescaped)
+                        }
                     }
             }
             (AttrKind::Normal(..), AttrKind::DocComment(..)) => SpanlessEq::eq(other, self),

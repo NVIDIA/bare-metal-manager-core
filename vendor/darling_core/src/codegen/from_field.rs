@@ -1,10 +1,12 @@
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{self, Ident};
+use syn::Ident;
 
-use codegen::{ExtractAttribute, OuterFromImpl, TraitImpl};
-use options::ForwardAttrs;
-use util::PathList;
+use crate::{
+    codegen::{ExtractAttribute, OuterFromImpl, TraitImpl},
+    options::ForwardAttrs,
+    util::PathList,
+};
 
 /// `impl FromField` generator. This is used for parsing an individual
 /// field and its attributes.
@@ -77,7 +79,7 @@ impl<'a> ToTokens for FromFieldImpl<'a> {
 
 impl<'a> ExtractAttribute for FromFieldImpl<'a> {
     fn attr_names(&self) -> &PathList {
-        &self.attr_names
+        self.attr_names
     }
 
     fn forwarded_attrs(&self) -> Option<&ForwardAttrs> {
@@ -94,10 +96,6 @@ impl<'a> ExtractAttribute for FromFieldImpl<'a> {
 
     fn local_declarations(&self) -> TokenStream {
         self.base.local_declarations()
-    }
-
-    fn immutable_declarations(&self) -> TokenStream {
-        self.base.immutable_declarations()
     }
 }
 
