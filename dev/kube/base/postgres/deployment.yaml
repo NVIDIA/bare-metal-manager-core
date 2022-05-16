@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-deployment
+  labels:
+    app: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: carbide-postgres
+          image: postgres:14.1-alpine
+          envFrom:
+          - configMapRef:
+              name: postgres-configuration
+          ports:
+          - containerPort: 5432
+            name: postgresdb
+          volumeMounts:
+          - name:  postgres-data-storage
+            mountPath: /var/lib/postgres
+      volumes:
+        - name: postgres-data-storage
+          emptyDir: {}

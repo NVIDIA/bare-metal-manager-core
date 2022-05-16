@@ -1,7 +1,5 @@
 # Carbide - Bare Metal Provisioning
-
 ![pipeline status](https://gitlab-master.nvidia.com/aforgue/carbide/badges/trunk/pipeline.svg)
-
 ## Introduction
 
 Carbide is a bare metal provisioning system used to manage the lifecycle of
@@ -382,6 +380,43 @@ If you're new or bored, feel free to do one of these:
 
 If you see possible improvements or doing things that are sub-optimial, but don't have time to fix it, just file a jira and move on.
 
+
+---
+# Local kube setup
+Download and install KinD (Kubernetes in docker)
+https://kind.sigs.k8s.io/docs/user/quick-start/#installing-from-release-binaries
+
+You will also want to install kubectl (version 1.24+)
+https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
+
+```
+cargo make kind
+```
+
+If for some reason you need to delete the cluster and start over:
+```
+kind delete cluster --name forge-local
+```
+This will spin up a kind cluster, build and upload the carbide image, and apply
+all the kubernetes primitives to expose carbide services.
+
+When booting the test VM from your local workstation, use the new bridge that 
+KinD created for kubernetes.
+
+To interact with carbide-api use the url `http://127.0.0.1:11079`
+
+To view logs for a particular application, the most straightforward way is to
+```
+kubectl get pods
+kubectl logs <podname> -f 
+```
+
+You can also reference pods by labels (metadata -> labels) which are defined 
+in podspec or deploymentspec files.
+
+```
+kubectl logs -n default -l app=carbide-dhcp -f
+```
 
 ---
 
