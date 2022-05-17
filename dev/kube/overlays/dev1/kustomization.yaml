@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+bases:
+  - ../../base
+images:
+  - name: carbide:latest
+    newName: gitlab-master.nvidia.com:5005/nvmetal/carbide/carbide-dev
+resources:
+  - configs/certificate.yaml
+  - secrets/dockersecret.yaml
+  - configs/postgres_carbide.yaml
+ #  - github.com/metallb/metallb/manifests?ref=v0.12.1 // not used yet
+namespace: forge-system
+patchesStrategicMerge:
+  - patches/carbide-api_image_pull_service_account.yaml
+  - patches/carbide-dns_image_pull.yaml
+  - patches/carbide-relay_deployment_delete.yaml
+  - patches/carbide-pxe_image_pull.yaml
+  - patches/postgres_deployment_delete.yaml
+  - patches/postgres_service_delete.yaml
+  - patches/postgres_cm_delete.yaml
+  - patches/kea-dhcp_image_pull.yaml
+  - patches/carbide-api_envoy.yaml
+  - patches/carbide-api_db_migrate_job.yaml
+  - patches/carbide-pxe_envoy.yaml
+  - patches/nodePort_we_already_failed.yaml
+configMapGenerator:
+  - name: envoy-carbide-api-config
+    behavior: create
+    files:
+      - envoy.yaml=configs/envoy.yaml
+  - name: envoy-resource-tls
+    files:
+      - configs/tls_certificate_sds_secret.yaml
+  - name: envoy-resource-tls-ca
+    files:
+      - configs/validation_context_sds_secret.yaml
+  - name: envoy-carbide-pxe-config
+    files:
+      - envoy.yaml=configs/envoy_pxe.yaml

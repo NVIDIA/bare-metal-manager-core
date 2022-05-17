@@ -5,4 +5,6 @@ resources:
   - ./carbide-dhcp
   - ./carbide-dns
   - ./carbide-pxe
+  - ./carbide-relay
   - ./postgres
+  - ./serviceAccount.yaml

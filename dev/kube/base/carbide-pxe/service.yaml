@@ -4,8 +4,8 @@ metadata:
   name: carbide-pxe
 spec:
   ports:
-  - port: 8000
-    name: carbide-pxe-web
+  - port: 8088
     protocol: TCP
+    targetPort: pxe-envoy
   selector:
     app: carbide-pxe

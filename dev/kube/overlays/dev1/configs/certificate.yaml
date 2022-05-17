@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: forge-provisioner-cert
+spec:
+  dnsNames:
+  - carbide-api.forge-system.svc
+  - carbide-api.forge-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: forge-caissuer
+  secretName: forge-provisioner-cert

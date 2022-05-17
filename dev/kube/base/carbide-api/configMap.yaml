@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: carbide-api-configuration
-  namespace: default
-data:
-  CARBIDE_API_LISTEN_INTERFACE: "0.0.0.0:1079"
-  CARBIDE_API_DATASTORE: "postgres://carbide_development:notforprod@postgres"

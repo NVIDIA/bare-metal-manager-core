@@ -4,6 +4,8 @@ bases:
   - ../../base
 resources:
 
+namespace: forge-system
+
 images:
   - name: carbide:latest
     newName: quay.io/nvmetal/carbide

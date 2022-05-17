@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-api-deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: carbide-api
+          envFrom:
+            - configMapRef:
+                name: carbide-api-config

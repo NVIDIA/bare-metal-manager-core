@@ -4,6 +4,8 @@ bases:
   - ../../base
 resources:
 
+namespace: kube-system
+
 images:
   - name: carbide:latest
     newName: quay.io/nvmetal/carbide

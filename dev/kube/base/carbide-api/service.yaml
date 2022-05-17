@@ -6,6 +6,6 @@ spec:
   ports:
   - port: 1079
     protocol: TCP
-    targetPort: carbide-http
+    targetPort: api-envoy
   selector:
     app: carbide-api
