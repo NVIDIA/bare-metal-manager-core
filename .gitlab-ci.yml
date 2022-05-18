@@ -33,6 +33,18 @@ build:ipxe:
     - branches
   script:
     - cargo make --cwd pxe ipxe
+
+build:dev-docker:
+  stage: build
+  only:
+    - trunk
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+  - |
+    echo "This is where i build dev container release"
+
 build:docker:
   stage: release
   variables: 
