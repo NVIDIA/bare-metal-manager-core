@@ -44,10 +44,13 @@ build:dev-docker:
   script:
   - |
     echo "This is where i build dev container release"
+    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/carbide-dev:latest "; 
+    FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
+
     mkdir -p /kaniko/.docker
     echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
     echo "Kaniko arguments to run: --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile $KANIKO_CACHE_ARGS"
-    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/deployment/Dockerfile $KANIKO_CACHE_ARGS --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/carbide-dev:latest 
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/deployment/Dockerfile $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST
 
 build:docker:
   stage: release
