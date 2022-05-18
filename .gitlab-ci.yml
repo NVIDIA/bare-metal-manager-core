@@ -44,7 +44,7 @@ build:dev-docker:
   script:
   - |
     echo "This is where i build dev container release"
-    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/carbide-dev:latest "; 
+    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/forge/carbide/carbide-dev:latest "; 
     FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
 
     mkdir -p /kaniko/.docker
