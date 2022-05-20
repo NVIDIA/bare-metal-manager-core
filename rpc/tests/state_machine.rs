@@ -14,7 +14,7 @@ fn test_state_machine() {
         .consume(&rpc::v0::MachineStateMachineInput::Adopt)
         .unwrap();
 
-    let _: StateMachine<rpc::v0::MachineStateMachine> =
+    let machine: StateMachine<rpc::v0::MachineStateMachine> =
         StateMachine::from_state(rpc::v0::MachineStateMachineState::Ready);
     assert!(matches!(
         machine.state(),

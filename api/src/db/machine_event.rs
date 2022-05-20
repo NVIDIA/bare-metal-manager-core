@@ -27,8 +27,6 @@ pub struct MachineEvent {
     /// The action that was performed
     pub action: MachineAction,
 
-    // /// The version of the state machine that generated this event
-    // version: i32,
     /// The timestamp of the event
     timestamp: DateTime<Utc>,
 }
@@ -44,7 +42,6 @@ impl From<MachineEvent> for rpc::MachineEvent {
                 seconds: event.timestamp.timestamp(),
                 nanos: 0,
             }),
-            // version: event.version,
             event: 0, // 0 is usually null in protobuf I guess
         };
 

@@ -226,28 +226,7 @@ impl Machine {
         let mut machine: StateMachine<rpc::MachineStateMachine> = StateMachine::new();
         events
             .into_iter()
-            .map(|event| match event.action {
-                MachineAction::Discover => {
-                    machine.consume(&rpc::MachineStateMachineInput::Discover)
-                }
-                MachineAction::Adopt => machine.consume(&rpc::MachineStateMachineInput::Adopt),
-                MachineAction::Test => machine.consume(&rpc::MachineStateMachineInput::Test),
-                MachineAction::Commission => {
-                    machine.consume(&rpc::MachineStateMachineInput::Commission)
-                }
-                MachineAction::Assign => machine.consume(&rpc::MachineStateMachineInput::Assign),
-                MachineAction::Fail => machine.consume(&rpc::MachineStateMachineInput::Fail),
-                MachineAction::Decommission => {
-                    machine.consume(&rpc::MachineStateMachineInput::Decommission)
-                }
-                MachineAction::Recommission => {
-                    machine.consume(&rpc::MachineStateMachineInput::Recommission)
-                }
-                MachineAction::Unassign => {
-                    machine.consume(&rpc::MachineStateMachineInput::Unassign)
-                }
-                MachineAction::Release => machine.consume(&rpc::MachineStateMachineInput::Release),
-            })
+            .map(|event| machine.consume(&rpc::MachineStateMachineInput::from(&event.action)))
             .collect::<Result<Vec<_>, _>>()
             .map_err(CarbideError::InvalidState)?;
 
