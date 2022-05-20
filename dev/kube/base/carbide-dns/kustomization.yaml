@@ -5,4 +5,8 @@ commonLabels:
 resources:
   - deployment.yaml
   - service.yaml
-  - configMap.yaml
+configMapGenerator:
+  - name: carbide-dns-configuration
+    behavior:  create
+    literals:
+      - "CARBIDE_API=http://carbide-api:1079"

@@ -33,7 +33,16 @@ spec:
           imagePullPolicy:  IfNotPresent
           ports:
             - containerPort: 8000
+        - name: envoy
+          image: envoyproxy/envoy-dev:35f8d59b1172a85f02dd119791a9ef42c728cfa8
+          envFrom:
+          - configMapRef:
+              name: envoy-carbide-pxe-config
+          imagePullPolicy:  IfNotPresent
+          ports:
+          - containerPort: 8088
+            name: pxe-envoy
       volumes:
         - name: config-volume
           configMap:
-            name: carbide-pxe-configuration
+            name: carbide-pxe-config

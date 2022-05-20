@@ -9,8 +9,5 @@ spec:
       - name: carbide-db-migrations
         image: carbide:latest
         command: ["sh",  "-c", "/opt/carbide/carbide-api migrate --datastore=\"${CARBIDE_API_DATASTORE}\""]
-        envFrom:
-        - configMapRef:
-            name:  carbide-api-configuration
         imagePullPolicy:  IfNotPresent
       restartPolicy: OnFailure

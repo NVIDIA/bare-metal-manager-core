@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: carbide-api-deployment
-  namespace: default
   labels:
     app: carbide-api
 spec:
@@ -20,11 +19,17 @@ spec:
       containers:
         - name: carbide-api
           image: carbide:latest
-          command: ["/bin/sh", "-c", "/opt/carbide/carbide-api run --listen=\"${CARBIDE_API_LISTEN_INTERFACE}\" --datastore=\"${CARBIDE_API_DATASTORE}\""]
-          envFrom:
-          - configMapRef:
-              name: carbide-api-configuration
           imagePullPolicy:  IfNotPresent
+          command: ["/bin/sh", "-c", "/opt/carbide/carbide-api run --datastore=\"${CARBIDE_API_DATASTORE}\" --listen=\"127.0.0.1:1079\""]
           ports:
           - containerPort: 1079
             name: carbide-http
+        - name: envoy
+          image: envoyproxy/envoy-dev:35f8d59b1172a85f02dd119791a9ef42c728cfa8
+          envFrom:
+          - configMapRef:
+              name: envoy-carbide-api-config
+          imagePullPolicy:  IfNotPresent
+          ports:
+          - containerPort: 11079
+            name: api-envoy
