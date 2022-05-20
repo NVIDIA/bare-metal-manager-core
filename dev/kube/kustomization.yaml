@@ -6,5 +6,4 @@ bases:
   - ./base/carbide-pxe
   - ./base/carbide-dns
   - ./base/postgres
-  - ./base/envoy
   - ./base/carbide-relay
