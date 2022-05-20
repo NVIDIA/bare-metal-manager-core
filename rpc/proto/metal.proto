@@ -289,9 +289,8 @@ message MachineEvent {
   UUID  machine_id = 2;
 
   MachineAction event = 3;
-  int32 version = 4;
 
-  google.protobuf.Timestamp time = 5;
+  google.protobuf.Timestamp time = 4;
 }
 
 message MachineInterface {

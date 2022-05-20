@@ -1,5 +1,6 @@
 use log::info;
 use mac_address::MacAddress;
+use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
 use std::net::IpAddr;
 use tonic::Status;
@@ -48,6 +49,9 @@ pub enum CarbideError {
 
     #[error("Database Query Error: {0}")]
     DatabaseError(sqlx::Error),
+
+    #[error("Could not transition across states in the state machine: {0}")]
+    InvalidState(TransitionImpossibleError),
 
     #[error("Invalid machine state transition: {0}")]
     MachineStateTransitionViolation(String, Option<String>),

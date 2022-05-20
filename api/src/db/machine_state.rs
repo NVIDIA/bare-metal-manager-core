@@ -1,9 +1,7 @@
-use crate::{CarbideError, CarbideResult};
+use crate::CarbideError;
 use std::str::FromStr;
 
-use sqlx::{postgres::PgRow, Postgres, Row};
-
-use super::Machine;
+use sqlx::{postgres::PgRow, Row};
 
 use rpc::v0 as rpc;
 
@@ -22,6 +20,7 @@ pub enum MachineState {
     Assigned,
     Broken,
     Decommissioned,
+    Unknown,
 }
 
 impl Display for MachineState {
@@ -38,6 +37,7 @@ impl Display for MachineState {
                 Self::Assigned => "assigned",
                 Self::Broken => "broken",
                 Self::Decommissioned => "decommissioned",
+                Self::Unknown => "unknown",
             }
         )
     }
@@ -70,21 +70,25 @@ impl FromStr for MachineState {
     }
 }
 
+impl From<&rpc::MachineStateMachineState> for MachineState {
+    fn from(state: &rpc::MachineStateMachineState) -> Self {
+        match state {
+            rpc::MachineStateMachineState::Init => MachineState::Init,
+            rpc::MachineStateMachineState::New => MachineState::New,
+            rpc::MachineStateMachineState::Adopted => MachineState::Adopted,
+            rpc::MachineStateMachineState::Tested => MachineState::Tested,
+            rpc::MachineStateMachineState::Ready => MachineState::Ready,
+            rpc::MachineStateMachineState::Assigned => MachineState::Assigned,
+            rpc::MachineStateMachineState::Broken => MachineState::Broken,
+            rpc::MachineStateMachineState::Decommissioned => MachineState::Decommissioned,
+        }
+    }
+}
+
 impl From<MachineState> for rpc::MachineState {
     fn from(machine_state: MachineState) -> rpc::MachineState {
         rpc::MachineState {
             state: machine_state.to_string(),
         }
-    }
-}
-
-impl MachineState {
-    pub async fn for_machine(
-        machine: &Machine,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<Self> {
-        Ok(sqlx::query_as("SELECT machine_state_machine(action, version) OVER (PARTITION BY machine_id ORDER BY ID) FROM machine_events WHERE machine_id=$1::uuid;")
-            .bind(&machine.id())
-            .fetch_one(txn).await?)
     }
 }

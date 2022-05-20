@@ -58,11 +58,14 @@ fn determine_boot_from_state(
         "new" => boot_into_discovery(interface),
         "assigned" => boot_into_netbootxyz(),
         // any unrecognized state will cause ipxe to stop working with this message
-        s => format!(r#"
+        s => format!(
+            r#"
 echo could not continue boot due to invalid status - {} ||
 sleep 5 ||
 exit ||
-"#, s)
+"#,
+            s
+        )
         .to_string(),
     }
 }

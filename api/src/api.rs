@@ -9,10 +9,10 @@ use tonic_reflection::server::Builder;
 
 use carbide::{
     db::{
-        DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineAction,
-        MachineInterface, MachineState, MachineTopology, NetworkSegment, NewDomain, NewInstance,
-        NewInstanceType, NewNetworkSegment, NewVpc, Tag, TagAssociation, TagCreate, TagDelete,
-        TagsList, UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
+        DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
+        MachineState, MachineTopology, NetworkSegment, NewDomain, NewInstance, NewInstanceType,
+        NewNetworkSegment, NewVpc, Tag, TagAssociation, TagCreate, TagDelete, TagsList,
+        UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
     },
     CarbideError,
 };
@@ -551,31 +551,45 @@ impl Metal for Api {
             }
             MachineState::New => {
                 // Blindly march forward to ready
-                machine.advance(&mut txn, &MachineAction::Adopt).await?;
-                machine.advance(&mut txn, &MachineAction::Test).await?;
                 machine
-                    .advance(&mut txn, &MachineAction::Commission)
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Adopt)
                     .await?;
-                machine.advance(&mut txn, &MachineAction::Assign).await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Test)
+                    .await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
+                    .await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .await?;
             }
             MachineState::Adopted => {
                 // Blindly march forward to ready
-                machine.advance(&mut txn, &MachineAction::Test).await?;
                 machine
-                    .advance(&mut txn, &MachineAction::Commission)
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Test)
                     .await?;
-                machine.advance(&mut txn, &MachineAction::Assign).await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
+                    .await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .await?;
             }
             MachineState::Tested => {
                 // Blindly march forward to ready
                 machine
-                    .advance(&mut txn, &MachineAction::Commission)
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
                     .await?;
-                machine.advance(&mut txn, &MachineAction::Assign).await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .await?;
             }
             MachineState::Ready => {
                 // This is where we want to be for PXE to show the correct menu
-                machine.advance(&mut txn, &MachineAction::Assign).await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .await?;
             }
             MachineState::Assigned => {
                 return Err(Status::invalid_argument(format!(
@@ -585,8 +599,8 @@ impl Metal for Api {
             }
             rest => {
                 return Err(Status::invalid_argument(format!(
-                    "Could not create instance given machine state {}",
-                    rest.to_string()
+                    "Could not create instance given machine state {:?}",
+                    rest
                 )))
             }
         }
