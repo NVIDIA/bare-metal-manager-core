@@ -3,9 +3,10 @@ kind: Service
 metadata:
   name: carbide-api
 spec:
+  selector:
+    app: carbide-api
   ports:
   - port: 1079
     protocol: TCP
     targetPort: api-envoy
-  selector:
-    app: carbide-api
+    name: carbide-api

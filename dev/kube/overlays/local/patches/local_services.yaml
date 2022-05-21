@@ -15,18 +15,6 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: carbide-api
-spec:
-  ports:
-   - nodePort: 31079
-     port: 11079
-     protocol: TCP
-     targetPort: api-envoy
-  type: NodePort
----
-apiVersion: v1
-kind: Service
-metadata:
   name: carbide-pxe
 spec:
   ports:
@@ -34,4 +22,17 @@ spec:
      port: 8088
      protocol: TCP
      targetPort: pxe-envoy
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-api
+spec:
+  ports:
+   - nodePort: 31079
+     port: 11079
+     protocol: TCP
+     targetPort: api-envoy
+     name: api-local
   type: NodePort

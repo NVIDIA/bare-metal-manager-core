@@ -31,6 +31,7 @@ spec:
      port: 11079
      protocol: TCP
      targetPort: api-envoy
+     name: api-dev1
   type: NodePort
 ---
 apiVersion: v1
