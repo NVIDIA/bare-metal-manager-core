@@ -1,31 +1,18 @@
 use std::convert::{TryFrom, TryInto};
 
 use chrono::prelude::*;
-use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row};
+use sqlx::{Postgres, FromRow};
 
 use crate::{CarbideError, CarbideResult};
 use rpc::v0 as rpc;
 
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 pub struct Instance {
     pub id: uuid::Uuid,
     pub machine_id: uuid::Uuid,
     pub requested: DateTime<Utc>,
     pub started: DateTime<Utc>,
     pub finished: Option<DateTime<Utc>>,
-}
-
-impl<'r> sqlx::FromRow<'r, PgRow> for Instance {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(Instance {
-            id: row.try_get("id")?,
-            machine_id: row.try_get("machine_id")?,
-            requested: row.try_get("requested")?,
-            started: row.try_get("started")?,
-            finished: row.try_get("finished")?,
-        })
-    }
 }
 
 pub struct NewInstance {
