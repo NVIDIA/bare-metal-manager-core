@@ -3,13 +3,13 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
-  name: forge-system
+  name: forge-canary-system
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: forge-system/forge-serving-cert
+    cert-manager.io/inject-ca-from: forge-canary-system/forge-canary-serving-cert
     controller-gen.kubebuilder.io/version: v0.4.1
   name: configurationresourcepools.networkfabric.vpc.forge.gitlab-master.nvidia.com
 spec:
@@ -18,8 +18,8 @@ spec:
     webhook:
       clientConfig:
         service:
-          name: forge-webhook-service
-          namespace: forge-system
+          name: forge-canary-webhook-service
+          namespace: forge-canary-system
           path: /convert
       conversionReviewVersions:
       - v1
@@ -204,7 +204,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: forge-system/forge-serving-cert
+    cert-manager.io/inject-ca-from: forge-canary-system/forge-canary-serving-cert
     controller-gen.kubebuilder.io/version: v0.4.1
   name: managedresources.resource.vpc.forge.gitlab-master.nvidia.com
 spec:
@@ -213,8 +213,8 @@ spec:
     webhook:
       clientConfig:
         service:
-          name: forge-webhook-service
-          namespace: forge-system
+          name: forge-canary-webhook-service
+          namespace: forge-canary-system
           path: /convert
       conversionReviewVersions:
       - v1
@@ -351,7 +351,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: forge-system/forge-serving-cert
+    cert-manager.io/inject-ca-from: forge-canary-system/forge-canary-serving-cert
     controller-gen.kubebuilder.io/version: v0.4.1
   name: resourcegroups.resource.vpc.forge.gitlab-master.nvidia.com
 spec:
@@ -360,8 +360,8 @@ spec:
     webhook:
       clientConfig:
         service:
-          name: forge-webhook-service
-          namespace: forge-system
+          name: forge-canary-webhook-service
+          namespace: forge-canary-system
           path: /convert
       conversionReviewVersions:
       - v1
@@ -611,14 +611,14 @@ status:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: forge-controller-manager
-  namespace: forge-system
+  name: forge-canary-controller-manager
+  namespace: forge-canary-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: forge-leader-election-role
-  namespace: forge-system
+  name: forge-canary-leader-election-role
+  namespace: forge-canary-system
 rules:
 - apiGroups:
   - ""
@@ -656,8 +656,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   creationTimestamp: null
-  name: forge-manager-ns-role
-  namespace: forge-system
+  name: forge-canary-manager-ns-role
+  namespace: forge-canary-system
 rules:
 - apiGroups:
   - ""
@@ -689,7 +689,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   creationTimestamp: null
-  name: forge-manager-role
+  name: forge-canary-manager-role
 rules:
 - apiGroups:
   - networkfabric.vpc.forge.gitlab-master.nvidia.com
@@ -825,7 +825,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: forge-metrics-reader
+  name: forge-canary-metrics-reader
 rules:
 - nonResourceURLs:
   - /metrics
@@ -835,7 +835,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: forge-proxy-role
+  name: forge-canary-proxy-role
 rules:
 - apiGroups:
   - authentication.k8s.io
@@ -853,56 +853,56 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: forge-leader-election-rolebinding
-  namespace: forge-system
+  name: forge-canary-leader-election-rolebinding
+  namespace: forge-canary-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: forge-leader-election-role
+  name: forge-canary-leader-election-role
 subjects:
 - kind: ServiceAccount
-  name: forge-controller-manager
-  namespace: forge-system
+  name: forge-canary-controller-manager
+  namespace: forge-canary-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: forge-manager-ns-rolebinding
-  namespace: forge-system
+  name: forge-canary-manager-ns-rolebinding
+  namespace: forge-canary-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: forge-manager-ns-role
+  name: forge-canary-manager-ns-role
 subjects:
 - kind: ServiceAccount
-  name: forge-controller-manager
-  namespace: forge-system
+  name: forge-canary-controller-manager
+  namespace: forge-canary-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: forge-manager-rolebinding
+  name: forge-canary-manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: forge-manager-role
+  name: forge-canary-manager-role
 subjects:
 - kind: ServiceAccount
-  name: forge-controller-manager
-  namespace: forge-system
+  name: forge-canary-controller-manager
+  namespace: forge-canary-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: forge-proxy-rolebinding
+  name: forge-canary-proxy-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: forge-proxy-role
+  name: forge-canary-proxy-role
 subjects:
 - kind: ServiceAccount
-  name: forge-controller-manager
-  namespace: forge-system
+  name: forge-canary-controller-manager
+  namespace: forge-canary-system
 ---
 apiVersion: v1
 data:
@@ -918,8 +918,8 @@ data:
     stopwaitsecs = 10
 kind: ConfigMap
 metadata:
-  name: forge-hbn-dhcrelay-config
-  namespace: forge-system
+  name: forge-canary-hbn-dhcrelay-config
+  namespace: forge-canary-system
 ---
 apiVersion: v1
 data:
@@ -999,8 +999,8 @@ data:
                     remote-as: external
 kind: ConfigMap
 metadata:
-  name: forge-hbn-nvue-config
-  namespace: forge-system
+  name: forge-canary-hbn-nvue-config
+  namespace: forge-canary-system
 ---
 apiVersion: v1
 data:
@@ -1024,16 +1024,16 @@ data:
       # defaultASN: 65535
 kind: ConfigMap
 metadata:
-  name: forge-manager-config
-  namespace: forge-system
+  name: forge-canary-manager-config
+  namespace: forge-canary-system
 ---
 apiVersion: v1
 kind: Service
 metadata:
   labels:
     control-plane: controller-manager
-  name: forge-controller-manager-metrics-service
-  namespace: forge-system
+  name: forge-canary-controller-manager-metrics-service
+  namespace: forge-canary-system
 spec:
   ports:
   - name: https
@@ -1045,8 +1045,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: forge-grpc-server
-  namespace: forge-system
+  name: forge-canary-grpc-server
+  namespace: forge-canary-system
 spec:
   ports:
   - name: server-port
@@ -1058,8 +1058,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: forge-webhook-service
-  namespace: forge-system
+  name: forge-canary-webhook-service
+  namespace: forge-canary-system
 spec:
   ports:
   - port: 443
@@ -1072,8 +1072,8 @@ kind: Deployment
 metadata:
   labels:
     control-plane: controller-manager
-  name: forge-controller-manager
-  namespace: forge-system
+  name: forge-canary-controller-manager
+  namespace: forge-canary-system
 spec:
   replicas: 1
   selector:
@@ -1105,7 +1105,7 @@ spec:
         - name: DISABLE_CUMULUS_CERT_VERIFY
           value: "true"
         - name: K8S_NAMESPACE
-          value: forge-system
+          value: forge-canary-system
         image: quay.io/nvidia/forge-connectivity:latest
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -1163,7 +1163,7 @@ spec:
         vpc.forge.nvidia.com/node: control
       securityContext:
         runAsNonRoot: false
-      serviceAccountName: forge-controller-manager
+      serviceAccountName: forge-canary-controller-manager
       terminationGracePeriodSeconds: 10
       volumes:
       - name: cert
@@ -1171,13 +1171,13 @@ spec:
           defaultMode: 420
           secretName: webhook-server-cert
       - configMap:
-          name: forge-manager-config
+          name: forge-canary-manager-config
         name: manager-config
       - configMap:
-          name: forge-hbn-nvue-config
+          name: forge-canary-hbn-nvue-config
         name: hbn-nvue-config
       - configMap:
-          name: forge-hbn-dhcrelay-config
+          name: forge-canary-hbn-dhcrelay-config
         name: hbn-dhcrelay-config
       - name: manager-cert
         secret:
@@ -1188,8 +1188,8 @@ kind: Deployment
 metadata:
   labels:
     control-plane: grpc-server
-  name: forge-grpc-server
-  namespace: forge-system
+  name: forge-canary-grpc-server
+  namespace: forge-canary-system
 spec:
   replicas: 1
   selector:
@@ -1217,56 +1217,56 @@ spec:
           allowPrivilegeEscalation: false
       securityContext:
         runAsNonRoot: true
-      serviceAccountName: forge-controller-manager
+      serviceAccountName: forge-canary-controller-manager
       terminationGracePeriodSeconds: 10
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: forge-cacert
-  namespace: forge-system
+  name: forge-canary-cacert
+  namespace: forge-canary-system
 spec:
   dnsNames:
-  - '*.forge-system.svc'
+  - '*.forge-canary-system.svc'
   isCA: true
   issuerRef:
     kind: Issuer
-    name: forge-selfsigned-issuer
+    name: forge-canary-selfsigned-issuer
   secretName: forge-cacert
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: forge-serving-cert
-  namespace: forge-system
+  name: forge-canary-serving-cert
+  namespace: forge-canary-system
 spec:
   dnsNames:
-  - forge-webhook-service.forge-system.svc
-  - forge-webhook-service.forge-system.svc.cluster.local
+  - forge-canary-webhook-service.forge-canary-system.svc
+  - forge-canary-webhook-service.forge-canary-system.svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: forge-selfsigned-issuer
+    name: forge-canary-selfsigned-issuer
   secretName: webhook-server-cert
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: forge-vpc-cert
-  namespace: forge-system
+  name: forge-canary-vpc-cert
+  namespace: forge-canary-system
 spec:
   dnsNames:
-  - forge-vpc.forge-system.svc
-  - forge-vpc.forge-system.svc.cluster.local
+  - forge-vpc.forge-canary-system.svc
+  - forge-vpc.forge-canary-system.svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: forge-caissuer
+    name: forge-canary-caissuer
   secretName: forge-vpc-cert
 ---
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: forge-caissuer
-  namespace: forge-system
+  name: forge-canary-caissuer
+  namespace: forge-canary-system
 spec:
   ca:
     secretName: forge-cacert
@@ -1274,8 +1274,8 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: forge-selfsigned-issuer
-  namespace: forge-system
+  name: forge-canary-selfsigned-issuer
+  namespace: forge-canary-system
 spec:
   selfSigned: {}
 ---
@@ -1283,16 +1283,16 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: forge-system/forge-serving-cert
-  name: forge-mutating-webhook-configuration
+    cert-manager.io/inject-ca-from: forge-canary-system/forge-canary-serving-cert
+  name: forge-canary-mutating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
   - v1
   - v1beta1
   clientConfig:
     service:
-      name: forge-webhook-service
-      namespace: forge-system
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
       path: /mutate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-configurationresourcepool
   failurePolicy: Fail
   name: mconfigurationresourcepool.kb.io
@@ -1312,8 +1312,8 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: forge-webhook-service
-      namespace: forge-system
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
       path: /mutate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-leaf
   failurePolicy: Fail
   name: mleaf.kb.io
@@ -1333,8 +1333,8 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: forge-webhook-service
-      namespace: forge-system
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
       path: /mutate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-managedresource
   failurePolicy: Fail
   name: mmanagedresource.kb.io
@@ -1354,8 +1354,8 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: forge-webhook-service
-      namespace: forge-system
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
       path: /mutate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-resourcegroup
   failurePolicy: Fail
   name: mresourcegroup.kb.io
@@ -1375,16 +1375,16 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: forge-system/forge-serving-cert
-  name: forge-validating-webhook-configuration
+    cert-manager.io/inject-ca-from: forge-canary-system/forge-canary-serving-cert
+  name: forge-canary-validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
   - v1
   - v1beta1
   clientConfig:
     service:
-      name: forge-webhook-service
-      namespace: forge-system
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
       path: /validate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-configurationresourcepool
   failurePolicy: Fail
   name: vconfigurationresourcepool.kb.io
@@ -1404,8 +1404,8 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: forge-webhook-service
-      namespace: forge-system
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
       path: /validate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-leaf
   failurePolicy: Fail
   name: vleaf.kb.io
@@ -1425,8 +1425,8 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: forge-webhook-service
-      namespace: forge-system
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
       path: /validate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-managedresource
   failurePolicy: Fail
   name: vmanagedresource.kb.io
@@ -1446,8 +1446,8 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: forge-webhook-service
-      namespace: forge-system
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
       path: /validate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-resourcegroup
   failurePolicy: Fail
   name: vresourcegroup.kb.io

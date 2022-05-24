@@ -161,6 +161,8 @@ var _ = Describe("Hbn", func() {
 				}
 				if cmd == "sudo ls /var/lib/hbn/etc/nvue.d/" {
 					return "startup.yaml", nil
+				} else if cmd == "sudo ls /var/lib/hbn/etc/supervisor/conf.d/" {
+					return "supervisor-isc-dhcp-relay.conf", nil
 				} else if cmd == "sudo cat /var/lib/hbn/etc/nvue.d/startup.yaml" {
 					return startupYaml.String(), nil
 				} else if cmd == "sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf" {
@@ -217,7 +219,8 @@ var _ = Describe("Hbn", func() {
 				if err != nil {
 					return err
 				}
-				if !devProp.Alive || len(devProp.LoopbackIP) == 0 || devProp.ASN == 0 {
+				if !devProp.Alive || len(devProp.LoopbackIP) == 0 || devProp.ASN == 0 ||
+					len(devProp.AdminDHCPServer) == 0 || len(devProp.AdminHostIPs) == 0 {
 					return fmt.Errorf("wait for liveness")
 				}
 				return nil
@@ -259,6 +262,7 @@ var _ = Describe("Hbn", func() {
 			"sudo systemctl enable containerd.service":                                   1,
 			"sudo systemctl start kubelet.service":                                       1,
 			"sudo systemctl enable kubelet.service":                                      1,
+			"sudo ls /var/lib/hbn/etc/supervisor/conf.d/":                                1,
 			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 1,
 		}
 
@@ -273,6 +277,7 @@ var _ = Describe("Hbn", func() {
 	It("Add new leaf for existing HBN", func() {
 		sshCmds := map[string]int{
 			"echo -e": 2, // generate startup and dhcrelay file
+			"sudo ls /var/lib/hbn/etc/supervisor/conf.d/":                                1,
 			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 1,
 		}
 		hbnCmds := map[string]int{
@@ -320,6 +325,7 @@ var _ = Describe("Hbn", func() {
 		sshCmds := map[string]int{
 			"sudo ls /var/lib/hbn/etc/nvue.d/":                                           1,
 			"sudo cat /var/lib/hbn/etc/nvue.d/startup.yaml":                              1,
+			"sudo ls /var/lib/hbn/etc/supervisor/conf.d/":                                1,
 			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 1,
 		}
 		hbnCmds := map[string]int{
@@ -335,6 +341,7 @@ var _ = Describe("Hbn", func() {
 			"sudo systemctl enable containerd.service":                                   1,
 			"sudo systemctl start kubelet.service":                                       1,
 			"sudo systemctl enable kubelet.service":                                      1,
+			"sudo ls /var/lib/hbn/etc/supervisor/conf.d/":                                2,
 			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 2,
 		}
 
@@ -358,14 +365,16 @@ var _ = Describe("Hbn", func() {
 	It("Delete a existing leaf", func() {
 		sshCmds := map[string]int{
 			"echo -e": 2, // generate startup and dhcrelay file
-			"sudo systemctl start containerd.service":                                    1,
-			"sudo systemctl enable containerd.service":                                   1,
-			"sudo systemctl start kubelet.service":                                       1,
-			"sudo systemctl enable kubelet.service":                                      1,
-			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 1,
-			"sudo systemctl stop kubelet.service":                                        1,
-			"sudo systemctl disable kubelet.service":                                     1,
-			"sudo crictl rm -f " + hbnContainerID:                                        1,
+			"sudo systemctl start containerd.service":                                      1,
+			"sudo systemctl enable containerd.service":                                     1,
+			"sudo systemctl start kubelet.service":                                         1,
+			"sudo systemctl enable kubelet.service":                                        1,
+			"sudo ls /var/lib/hbn/etc/supervisor/conf.d/":                                  1,
+			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf":   1,
+			"sudo systemctl stop kubelet.service":                                          1,
+			"sudo systemctl disable kubelet.service":                                       1,
+			"sudo crictl rm -f " + hbnContainerID:                                          1,
+			"sudo rm -f /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 1,
 		}
 
 		hbnCmds := map[string]int{

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/time/rate"
@@ -158,6 +159,10 @@ func (m *vpcManager) CreateOrUpdateOverlayNetwork(ctx context.Context, resourceG
 	if err := m.Get(ctx, rgKey, rg); err != nil {
 		return err
 	}
+	if err := m.checkResourceGroupPrerequisites(rg); err != nil {
+		return err
+	}
+
 	var t *TenantNetwork
 	var req *NetworkRequest
 	done := false
@@ -385,6 +390,9 @@ func (m *vpcManager) RemoveResourceToNetwork(ctx context.Context, managedResourc
 // CreateOrUpdateNetworkDevice updates a network device and optionally probe the device,
 func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name string) error {
 	m.log.V(1).Info("CreateOrUpdateNetworkDevice", "Kind", kind, "Name", name)
+	if err := m.checkLeafPrerequisites(); err != nil {
+		return err
+	}
 	var device NetworkDevice
 	if kind != networkfabric.LeafName {
 		return NewNetworkDeviceNotAvailableError(kind, "")
@@ -431,8 +439,6 @@ func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name
 
 func (m *vpcManager) GetNetworkDeviceProperties(_ context.Context, kind, name string) (*properties.NetworkDeviceProperties, error) {
 	m.log.V(1).Info("GetNetworkDeviceProperties", "Kind", kind, "Name", name)
-	var device NetworkDevice
-	var err error
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	key := getInternalNetworkDeviceName(kind, name)
@@ -440,17 +446,7 @@ func (m *vpcManager) GetNetworkDeviceProperties(_ context.Context, kind, name st
 	if !ok {
 		return nil, NewNetworkDeviceNotAvailableError(kind, name)
 	}
-	device = d.(NetworkDevice)
-	var loopbackIP string
-	var asn uint32
-	if loopbackIP, err = device.GetLoopbackIP(); err == nil {
-		asn, err = device.GetASN()
-	}
-	return &properties.NetworkDeviceProperties{
-		LoopbackIP: loopbackIP,
-		ASN:        asn,
-		Alive:      device.IsReachable(),
-	}, err
+	return d.(NetworkDevice).GetProperties()
 }
 
 // RemoveNetworkDevice removes a network device.
@@ -545,4 +541,46 @@ func (m *vpcManager) getCredential(kind, name string) (string, string, string, s
 		return "", "", "", "", fmt.Errorf("cannot get pwd from env for device: %v:%v", kind, name)
 	}
 	return usr, pwd, os.Getenv(EnvSSHUser), os.Getenv(EnvSSHPwd), nil
+}
+
+func (m *vpcManager) checkResourceGroupPrerequisites(rg *resource.ResourceGroup) error {
+	if rg.Name == resource.WellKnownAdminResourceGroup ||
+		rg.Spec.NetworkImplementationType == resource.OverlayNetworkImplementationTypeSoftware {
+		return nil
+	}
+
+	resourcepools := []networkfabric.WellKnownConfigurationResourcePool{
+		// networkfabric.OverlayIPv4ResourcePool,
+		networkfabric.VNIResourcePool,
+		networkfabric.VlanIDResourcePool,
+	}
+	if HBNConfig.HBNDevice {
+		resourcepools = append(resourcepools, networkfabric.LoopbackIPResourcePool)
+	}
+	for _, name := range resourcepools {
+		if ipPool := m.resourceMgr.GetIPv4Pool(name); ipPool != nil {
+			continue
+		}
+		if intPool := m.resourceMgr.GetIntegerPool(name); intPool == nil {
+			return NewMissingResourcePoolError(string(name))
+		}
+	}
+	return nil
+}
+
+func (m *vpcManager) checkLeafPrerequisites() error {
+	if !HBNConfig.HBNDevice {
+		return nil
+	}
+	objKey := client.ObjectKey{
+		Namespace: m.namespace,
+		Name:      resource.WellKnownAdminResourceGroup,
+	}
+	rg := &resource.ResourceGroup{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+	if err := m.Get(ctx, objKey, rg); err != nil {
+		return NewMissingResourcePoolError(resource.WellKnownAdminResourceGroup)
+	}
+	return nil
 }

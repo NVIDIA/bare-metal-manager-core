@@ -17,17 +17,13 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -57,45 +53,6 @@ func init() {
 	utilruntime.Must(resourcev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(networkfabricv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
-}
-
-// ResourceGroup cannot be created unless prerequisite is met.
-func checkResourceGroupPrerequisites(rscMgr *resourcepool.Manager, hbnDevice bool) error {
-	resourcepools := []networkfabricv1alpha1.WellKnownConfigurationResourcePool{
-		networkfabricv1alpha1.OverlayIPv4ResourcePool,
-		networkfabricv1alpha1.VNIResourcePool,
-		networkfabricv1alpha1.VlanIDResourcePool,
-	}
-	if hbnDevice {
-		resourcepools = append(resourcepools, networkfabricv1alpha1.LoopbackIPResourcePool)
-	}
-	for _, name := range resourcepools {
-		if ipPool := rscMgr.GetIPv4Pool(name); ipPool != nil {
-			continue
-		}
-		if intPool := rscMgr.GetIntegerPool(name); intPool == nil {
-			return fmt.Errorf("required resource pool %s in not found", name)
-		}
-	}
-	return nil
-}
-
-// leaf cannot be created unless prerequisite is met.
-func checkLeafPrerequisites(mgr ctrl.Manager, ns string, hbnDevice bool) error {
-	if !hbnDevice {
-		return nil
-	}
-	objKey := client.ObjectKey{
-		Namespace: ns,
-		Name:      resourcev1alpha1.WellKnownAdminResourceGroup,
-	}
-	rg := &resourcev1alpha1.ResourceGroup{}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
-	if err := mgr.GetClient().Get(ctx, objKey, rg); err != nil {
-		return fmt.Errorf("ResourceGroup %s not found: %s", resourcev1alpha1.WellKnownAdminResourceGroup, err)
-	}
-	return nil
 }
 
 func main() {
@@ -138,28 +95,32 @@ func main() {
 	setupLog.WithName("NVUE").Info(fmt.Sprintln(string(vpc.HBNConfig.NVUEConfig)))
 	setupLog.WithName("DHCRelay").Info(fmt.Sprintln(string(vpc.HBNConfig.DHCPRelayConfig)))
 
+	ns := os.Getenv("K8S_NAMESPACE")
+	if len(ns) == 0 {
+		ns = "forge-system"
+	}
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
 		MetricsBindAddress:      config.Metrics.BindAddress,
-		Namespace:               config.Namespace,
+		Namespace:               ns,
 		Port:                    config.Webhook.Port,
 		HealthProbeBindAddress:  config.Health.HealthProbeBindAddress,
 		LeaderElection:          config.LeaderElection.LeaderElect,
 		LeaderElectionID:        config.LeaderElection.ResourceName,
-		LeaderElectionNamespace: config.Namespace,
+		LeaderElectionNamespace: ns,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
-	podController := controllers.NewPodController(mgr.GetClient(), mgr.GetScheme(), config.Namespace)
+	podController := controllers.NewPodController(mgr.GetClient(), mgr.GetScheme(), ns)
 	if err = podController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Pod")
 		os.Exit(1)
 	}
-	resourceMgr := resourcepool.NewManager(mgr.GetClient(), config.Namespace)
-	vpcMgr := vpc.NewVPCManager(mgr.GetClient(), podController, config.Namespace, resourceMgr)
+	resourceMgr := resourcepool.NewManager(mgr.GetClient(), ns)
+	vpcMgr := vpc.NewVPCManager(mgr.GetClient(), podController, ns, resourceMgr)
 	_ = mgr.Add(vpcMgr)
 	rgMgr := &resourcecontrollers.ResourceGroupReconciler{
 		Client: mgr.GetClient(),
@@ -231,14 +192,6 @@ func main() {
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
-	}
-
-	// Prerequisite checks in webhooks.
-	resourcev1alpha1.CheckPrerequisites = func() error {
-		return checkResourceGroupPrerequisites(resourceMgr, config.Forge.HBNDevice)
-	}
-	networkfabricv1alpha1.CheckPrerequisites = func() error {
-		return checkLeafPrerequisites(mgr, config.Namespace, config.Forge.HBNDevice)
 	}
 
 	setupLog.Info("starting manager")

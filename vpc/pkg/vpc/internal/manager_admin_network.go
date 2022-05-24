@@ -11,8 +11,8 @@ import (
 )
 
 func (m *vpcManager) GetAdminDHCPServer() (string, error) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	// m.mutex.Lock()
+	// defer m.mutex.Unlock()
 	if m.adminResourceGroup == nil {
 		return "", NewUnknownResourceGroupError(v1alpha1.WellKnownAdminResourceGroup)
 	}
@@ -20,8 +20,8 @@ func (m *vpcManager) GetAdminDHCPServer() (string, error) {
 }
 
 func (m *vpcManager) GetAdminNetworkGW() (string, error) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	// m.mutex.Lock()
+	// defer m.mutex.Unlock()
 	if m.adminResourceGroup == nil {
 		return "", NewUnknownResourceGroupError(v1alpha1.WellKnownAdminResourceGroup)
 	}

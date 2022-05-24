@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: ovs
-          image: "quay.io/nvidia/nvmetal-hydrazine:latest"
+          image: "quay.io/nvidia/forge-connectivity:latest"
           imagePullPolicy: "IfNotPresent"
           command:
             - /start_ovs.sh
@@ -32,7 +32,7 @@ spec:
               mountPath: /var/run/openvswitch
               subPath: openvswitch
         - name: agent
-          image: "quay.io/nvidia/nvmetal-hydrazine:latest"
+          image: "quay.io/nvidia/forge-connectivity:latest"
           imagePullPolicy: "IfNotPresent"
           command:
             - /agent

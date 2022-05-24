@@ -15,7 +15,7 @@ COPY controllers/ controllers/
 COPY pkg pkg/
 COPY rpc/ rpc/
 COPY cmd/ cmd/
-COPY config/forge.yaml .
+COPY config/forge*.yaml /workspace/
 
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o manager cmd/controller/main.go
@@ -25,7 +25,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o agent cmd/agent/main.go
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 # FROM gcr.io/distroless/static:nonroot
-FROM quay.io/nvidia/nvmetal-hydrazine-ovn:v21.06
+FROM quay.io/nvidia/forge-connectivity-ovn:v21.06
 RUN groupadd -r -g 65532 forge && useradd --no-log-init -r -u 65532 -g 65532 forge
 RUN apt-get update && apt-get install -y curl isc-dhcp-relay
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
@@ -36,7 +36,7 @@ WORKDIR /
 COPY --from=builder /workspace/manager .
 COPY --from=builder /workspace/grpc-server .
 COPY --from=builder /workspace/agent .
-COPY --from=builder /workspace/forge.yaml .
+COPY --from=builder /workspace/forge*.yaml /
 COPY build/images/ovn/scripts/*.sh /
 
 USER 65532:65532

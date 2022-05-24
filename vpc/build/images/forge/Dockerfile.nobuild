@@ -1,4 +1,4 @@
-FROM quay.io/nvidia/nvmetal-hydrazine-ovn:v21.06
+FROM quay.io/nvidia/forge-connectivity-ovn:v21.06
 RUN groupadd -r -g 65532 forge && useradd --no-log-init -r -u 65532 -g 65532 forge
 RUN apt-get update && apt-get install -y ovn-common curl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
@@ -8,6 +8,6 @@ WORKDIR /
 COPY bin/manager .
 COPY bin/grpc-server .
 COPY bin/agent .
-COPY config/forge.yaml .
+COPY config/forge*.yaml /
 
 USER 65532:65532

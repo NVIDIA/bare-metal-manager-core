@@ -81,6 +81,10 @@ type LeafStatus struct {
 	ASN uint32 `json:"asn,omitempty"`
 	// LoobackIP assigned to this leaf.
 	LoopbackIP string `json:"loopbackIP,omitempty"`
+	// HostAdminIPs are host IPs in un-assigned state.
+	HostAdminIPs map[string]string `json:"hostAdminIPs,omitempty"`
+	// HostAdminDHCPServer is the DHCPServer for hosts in un-assigned state.
+	HostAdminDHCPServer string `json:"hostAdminDHCPServer,omitempty"`
 }
 
 //+kubebuilder:object:root=true

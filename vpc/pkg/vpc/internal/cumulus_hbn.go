@@ -71,6 +71,18 @@ func (h *HBN) getHBNOperationStartup() (string, error) {
 	return h.Ssh("sudo cat /var/lib/hbn/etc/nvue.d/startup.yaml")
 }
 
+// getHBNDhcRealyConf retrieves startu from the HBN device.
+func (h *HBN) getHBNDhcRealyConf() (string, error) {
+	output, err := h.Ssh("sudo ls /var/lib/hbn/etc/supervisor/conf.d/")
+	if err != nil {
+		return "", err
+	}
+	if !strings.Contains(output, "supervisor-isc-dhcp-relay.conf") {
+		return "", nil
+	}
+	return h.Ssh("sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf")
+}
+
 // getHBNDesiredStartup returns desired NVUE startup.yaml that may or may not
 // exists on the HBN device.
 func (h *HBN) getHBNDesiredStartup() (string, error) {
@@ -212,6 +224,9 @@ func (h *HBN) Stop(forced bool) (err error) {
 		return nil
 	}
 	if _, err = h.Ssh("sudo crictl rm -f " + id); err != nil {
+		return err
+	}
+	if _, err = h.Ssh("sudo rm -f /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf"); err != nil {
 		return err
 	}
 	h.state = nextState
