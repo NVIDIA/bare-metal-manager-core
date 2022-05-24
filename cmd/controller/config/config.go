@@ -42,7 +42,6 @@ type ForgeConfig struct {
 
 // Config contains caller specified Controller configurations.
 type Config struct {
-	Namespace      string               `yaml:"namespace,omitempty"`
 	Health         HealthConfig         `yaml:"health,omitempty"`
 	Metrics        MetricConfig         `yaml:"metrics,omitempty"`
 	Webhook        WebhookConfig        `yaml:"webhook,omitempty"`
@@ -68,9 +67,6 @@ func (c *Config) Parse(in []byte) error {
 	}
 	if c.Webhook.Port == 0 {
 		c.Webhook.Port = 9443
-	}
-	if len(c.Namespace) == 0 {
-		c.Namespace = "forge-system"
 	}
 	if c.Forge.DefaultASN == 0 {
 		c.Forge.DefaultASN = 65535

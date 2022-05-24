@@ -27,6 +27,8 @@ var _ = Describe("Resourcepool", func() {
 				Expect(err).To(HaveOccurred())
 			} else {
 				Expect(err).ToNot(HaveOccurred())
+				err = pool.ValidateUpdate(pool)
+				Expect(err).ToNot(HaveOccurred())
 			}
 		},
 		table.Entry("Overlay IP", v1alpha1.OverlayIPv4ResourcePool, v1alpha1.RangeTypeIPv4,

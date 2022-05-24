@@ -92,10 +92,8 @@ type NetworkDevice interface {
 	Unmanage() error
 	// IsUnmanaged indicates the device is not managed by the controller, do any cleanup.
 	IsUnmanaged() bool
-	// GetLoopbackIP returns loopback ip of this network device.
-	GetLoopbackIP() (string, error)
-	// GetASN returns ASN of this network device.
-	GetASN() (uint32, error)
+	// GetProperties returns networkDevice Properties
+	GetProperties() (*properties.NetworkDeviceProperties, error)
 }
 
 type ManagedResourceBackendState int

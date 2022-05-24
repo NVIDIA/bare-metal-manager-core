@@ -50,6 +50,8 @@ func GetErrorNextPollAfter(err error) (*time.Duration, error) {
 		return nil, nil
 	case *internal.BackendConfigurationInProgress:
 		return nil, nil
+	case *internal.MissingResourcePoolError:
+		return nil, nil
 	}
 	return nil, err
 }
