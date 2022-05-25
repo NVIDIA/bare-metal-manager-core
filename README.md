@@ -255,8 +255,8 @@ https://netbox.nvidia.com/dcim/racks/6496/
 | forge001   | 10.146.38.232 | 10.146.38.229 | 10.146.38.242 | 10.150.51.235 / 10.150.51.236    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 | forge002   | 10.146.38.233 | 10.146.38.247 | 10.146.38.243 | 10.150.115.234 / 10.150.115.245  | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 | forge003   | 10.146.38.234 | 10.146.38.230 | 10.146.38.244 | 10.150.51.230 / 10.150.51.229    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
-| forge004   | 10.146.38.235 | 10.146.38.226 | 10.146.38.245 | 10.150.115.236 / 10.150.115.237  | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
-| forge005   | 10.146.38.236 | 10.146.38.225 | 10.146.38.246 | 10.150.51.228 / 10.150.51.227    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge004   | 10.146.38.235 | 10.146.38.226 | 10.146.38.245 | Dynamic                          | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge005   | 10.146.38.236 | 10.146.38.225 | 10.146.38.246 | Dynamic                          | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 
 ### BGP Info
 
@@ -268,10 +268,12 @@ https://netbox.nvidia.com/dcim/racks/6496/
 | sjc4-d32-nv-02  | dpu_nic1     | 10.150.115.201 | 10.145.0.83       | 65281        | 10.150.115.193 | 65240 |
 | sjc4-d32-nv-03  | dpu_nic0     | 10.150.51.202  | 10.145.0.84       | 65280        | 10.150.51.193  | 65240 |
 | sjc4-d32-nv-03  | dpu_nic1     | 10.150.115.202 | 10.145.0.85       | 65281        | 10.150.115.193 | 65240 |
-| sjc4-d32-cpu-01 | dpu_nic0     | 10.150.51.203  | 10.145.0.86       | 65280        | 10.150.51.193  | 65240 |
-| sjc4-d32-cpu-01 | dpu_nic1     | 10.150.115.203 | 10.145.0.87       | 65281        | 10.150.115.193 | 65240 |
-| sjc4-d32-cpu-02 | dpu_nic0     | 10.150.51.204  | 10.145.0.88       | 65280        | 10.150.51.193  | 65240 |
-| sjc4-d32-cpu-02 | dpu_nic1     | 10.150.115.204 | 10.145.0.89       | 65281        | 10.150.115.193 | 65240 |
+| sjc4-d32-cpu-01 | dpu_nic0     | Unnumbered     | Dynamic           | Dynamic      | 10.150.51.193  | 65240 |
+| sjc4-d32-cpu-01 | dpu_nic1     | Unnumbered     | Dynamic           | Dynamic      | 10.150.115.193 | 65240 |
+| sjc4-d32-cpu-02 | dpu_nic0     | Unnumbered     | Dynamic           | Dynamic       | 10.150.51.193  | 65240 |
+| sjc4-d32-cpu-02 | dpu_nic1     | Unnumbered     | Dynamic           | Dynamic        | 10.150.115.193 | 65240 |
+
+Note: **Dynamic** indicates resources are managed by Forge, and Forge allocates these resources from [SJC4 Forge Dev](https://docs.google.com/spreadsheets/d/1wbRW8zcw_rx05fgP6ThK288d0W_WRIVe6uErUpqT0Eg/edit#gid=701174353).
 
 ### Connecting to DPU
 The DPU shares a physical 1GB ethernet connection for both BMC and OOB access.  
