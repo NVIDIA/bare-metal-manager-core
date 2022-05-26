@@ -12,8 +12,6 @@ variables:
 
 
 stages:
-  - build-x86-build-container
-  - build-arm-build-container
   - build
   - release
   - doc
@@ -37,7 +35,7 @@ build:ipxe:
     - cargo make --cwd pxe ipxe
 
 build:build-container-x86:
-  stage: build-x86-build-container
+  stage: build
   rules:
     - changes:
       - "dev/docker/Dockerfile.build-container"
@@ -58,7 +56,7 @@ build:build-container-x86:
     - x86_64
 
 build:build-container-arm:
-  stage: build-arm-build-container
+  stage: build
   rules:
     - changes:
       - "dev/docker/Dockerfile.build-container-arm"
