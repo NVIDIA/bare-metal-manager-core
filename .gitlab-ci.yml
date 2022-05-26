@@ -84,7 +84,7 @@ build:dev-docker:
   stage: build
   rules:
     - if: $CI_COMMIT_BRANCH == 'trunk'
-    - changes:
+      changes:
       - api/**/*
       - dns/**/*
       - rpc/**/*
