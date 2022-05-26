@@ -55,7 +55,7 @@ build:build-container-x86:
     echo "Kaniko arguments to run: --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container $KANIKO_CACHE_ARGS"
     /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST
   tags:
-    - x86
+    - x86_64
 
 build:build-container-arm:
   stage: build-arm-build-container
@@ -76,7 +76,7 @@ build:build-container-arm:
     echo "Kaniko arguments to run: --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $KANIKO_CACHE_ARGS"
     /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST
   tags:
-    - arm64
+    - aarch64
 
 build:dev-docker:
   stage: build
