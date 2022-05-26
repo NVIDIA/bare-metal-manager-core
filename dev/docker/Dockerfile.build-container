@@ -9,4 +9,4 @@ RUN apt update && apt-get install -y curl postgresql-14 build-essential isc-kea-
 RUN rustup component add rustfmt
 RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid && cargo cache -r registry-index,registry-sources
 RUN /etc/init.d/postgresql start && su postgres -c "/usr/lib/postgresql/14/bin/createuser -d root" && /etc/init.d/postgresql stop
-cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
+RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
