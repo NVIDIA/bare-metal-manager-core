@@ -5,7 +5,8 @@ COPY pgdg.list /etc/apt/sources.list.d/pgdg.list
 COPY isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
 COPY isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
 
-RUN apt update && apt-get install -y postgresql-14 build-essential isc-kea-dhcp4-server isc-kea-dhcp6-server isc-kea-dev libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libudev-dev libfreeipmi-dev libfreeipmi17 libssl-dev clang automake cmake pkg-config sudo && rm -rf /var/lib/apt/lists/*
+RUN apt update && apt-get install -y curl postgresql-14 build-essential isc-kea-dhcp4-server isc-kea-dhcp6-server isc-kea-dev libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libudev-dev libfreeipmi-dev libfreeipmi17 libssl-dev clang automake cmake pkg-config sudo && rm -rf /var/lib/apt/lists/*
 RUN rustup component add rustfmt
 RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid && cargo cache -r registry-index,registry-sources
 RUN /etc/init.d/postgresql start && su postgres -c "/usr/lib/postgresql/14/bin/createuser -d root" && /etc/init.d/postgresql stop
+cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
