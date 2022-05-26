@@ -98,7 +98,7 @@ func (r *ResourceGroup) ValidateDelete() error {
 }
 
 func validateResourceGroup(r *ResourceGroup) error {
-	if r.Name != WellKnownAdminResourceGroup && CheckPrerequisites != nil {
+	if CheckPrerequisites != nil {
 		if err := CheckPrerequisites(); err != nil {
 			return err
 		}

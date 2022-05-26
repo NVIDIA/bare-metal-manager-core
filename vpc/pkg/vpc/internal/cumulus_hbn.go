@@ -286,6 +286,7 @@ func (h *HBN) start() error {
 		}
 		return len(id) > 0, nil
 	}); err != nil {
+		h.log.Info("Error waiting for HBN to come up", "Error", err)
 		return err
 	}
 	if err := wait.Poll(time.Second, cumulusConnTimeout, func() (bool, error) {

@@ -183,7 +183,7 @@ func (i *OvnOverlayNetworkImplementation) CreateOrUpdateNetwork(req *NetworkRequ
 }
 
 // AddOrUpdateResourceToNetwork add dpu to resource group and configures overlay network connecting to the dpu.
-func (i *OvnOverlayNetworkImplementation) AddOrUpdateResourceToNetwork(req *PortRequest) error {
+func (i *OvnOverlayNetworkImplementation) AddOrUpdateResourceToNetwork(req *PortRequest, _ bool) error {
 	i.log.V(1).Info("AddOrUpdateResourceToNetwork", "HostInterface", req.Identifier)
 	if req.HostIP == nil {
 		return NewMissingSpecError("HostInterfaceIP missing")

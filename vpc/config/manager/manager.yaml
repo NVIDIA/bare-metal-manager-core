@@ -3,7 +3,7 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
-    # namespace: $(SERVICE_NAMESPACE)
+    namespace: $(SERVICE_NAMESPACE)
   name: system
 ---
 apiVersion: apps/v1

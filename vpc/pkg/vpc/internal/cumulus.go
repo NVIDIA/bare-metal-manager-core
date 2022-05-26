@@ -139,16 +139,48 @@ func (t *cumulusTransport) Ssh(cmd string) (string, error) {
 	return outBuf.String(), nil
 }
 
+func ParseContainerID(in []byte) (string, error) {
+	v := make(map[string]interface{})
+	var err error
+	if err = json.Unmarshal(in, &v); err != nil {
+		return "", err
+	}
+	vv, ok := v["containers"]
+	if !ok {
+		return "", nil
+	}
+	vvv, ok := vv.([]interface{})
+	if !ok {
+		return "", nil
+	}
+	if len(vvv) == 0 {
+		return "", nil
+	}
+	cont, ok := vvv[0].(map[string]interface{})
+	if !ok {
+		return "", nil
+	}
+	vvvv, ok := cont["id"]
+	if !ok {
+		return "", nil
+	}
+	id, ok := vvvv.(string)
+	if !(ok) {
+		return "", nil
+	}
+	return id, nil
+}
+
 func (t *cumulusTransport) GetHBNContainerID() (string, error) {
 	if output, err := t.Ssh("sudo systemctl start containerd.service"); err != nil {
 		t.log.Info("Failed to start containerd", "Error", err, "Output", output)
 		return "", err
 	}
-	out, err := t.Ssh("sudo crictl ps --name=doca-app-hbn -o=json |jq -r .containers[].id")
+	out, err := t.Ssh("sudo crictl ps --name=doca-hbn -o=json")
 	if err != nil {
 		return out, err
 	}
-	return strings.TrimSpace(strings.Replace(out, "\r\n", "", -1)), nil
+	return ParseContainerID([]byte(out))
 }
 
 // SshHBN sends command to HBN on DPU via ssh.
@@ -157,7 +189,6 @@ func (t *cumulusTransport) SshHBN(cmd string) (string, error) {
 	if err != nil {
 		return id, err
 	}
-	// out is container id.
 	return t.Ssh(fmt.Sprintf("sudo crictl exec %s bash -c '%s'", id, cmd))
 }
 
@@ -180,6 +211,7 @@ type Cumulus struct {
 	configRev             string
 	unManaged             bool
 	unManagedDone         bool
+	inReconcile           bool
 }
 
 func modifyRequest(req *http.Request, params map[string]string) {
@@ -287,11 +319,18 @@ func (c *Cumulus) GetPortByHostIdentifier(identifier string) string {
 	return port
 }
 
-func (c *Cumulus) SetHostAdminIPs(adminIPs map[string]string) {
+func (c *Cumulus) SetHostAdminIPs(adminIPs map[string]string, doReconcile bool) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.desiredHostAdminIPs = adminIPs
 	if reflect.DeepEqual(c.desiredHostAdminIPs, c.operationHostAdminIPs) {
+		return
+	}
+	if doReconcile && len(c.operationState) == 0 && len(c.desiredState) == 0 {
+		c.operationHostAdminIPs = make(map[string]string)
+		for k, v := range adminIPs {
+			c.operationHostAdminIPs[k] = v
+		}
 		return
 	}
 	c.queueDevice()
@@ -357,7 +396,14 @@ func (c *Cumulus) queueDevice() {
 
 // UpdateConfiguration updates desired state and returns true if device's desired and operation states
 // are in sync with respect to the incoming request.
-func (c *Cumulus) updateConfiguration(req *PortRequest, isDelete bool) (bool, error) {
+func (c *Cumulus) updateConfiguration(req *PortRequest, doReconcile, isDelete bool) (bool, error) {
+	if doReconcile && c.inReconcile {
+		c.log.Info("Update configuration, reconcile", "ManagedResource", req.Key)
+		c.operationState[req.Key.String()] = req
+		c.desiredState[req.Key.String()] = req
+		c.operationHostAdminIPs = nil
+		return true, nil
+	}
 	operation := c.operationState[req.Key.String()]
 	desired := c.desiredState[req.Key.String()]
 	// Config does not exist.
@@ -384,22 +430,27 @@ func (c *Cumulus) updateConfiguration(req *PortRequest, isDelete bool) (bool, er
 		}
 		return false, nil
 	}
+
 	// config is already in place.
-	if operation != nil && reflect.DeepEqual(operation, req) {
+	if operation != nil && operation.Equal(req) {
 		return true, nil
 	}
+
 	if c.unManaged {
 		return false, NewNetworkDeviceNotAvailableError(v1alpha1.LeafName, c.key)
 	}
+
+	c.log.V(1).Info("Update configuration", "Current", operation, "Desired", req)
 	c.desiredState[req.Key.String()] = req
 	return false, nil
 }
 
-func (c *Cumulus) UpdateConfiguration(req *PortRequest, isDelete bool) (bool, error) {
-	c.log.V(1).Info("UpdateConfiguration called", "ManagedResource", req.Key, "IsDelete", isDelete)
+func (c *Cumulus) UpdateConfiguration(req *PortRequest, doReconcile, isDelete bool) (bool, error) {
+	c.log.V(1).Info("UpdateConfiguration called", "ManagedResource", req.Key, "doReconcile", doReconcile,
+		"IsDelete", isDelete)
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	insync, err := c.updateConfiguration(req, isDelete)
+	insync, err := c.updateConfiguration(req, doReconcile, isDelete)
 	if err != nil {
 		return insync, err
 	}
@@ -432,6 +483,9 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 	oldDesiredState := make(map[string]*PortRequest)
 
 	defer func() {
+		if fErr != nil {
+			return
+		}
 		var call func() error
 		unmanaged := false
 		inAdmin := false
@@ -487,7 +541,7 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 		defer c.mutex.Unlock()
 		for k, v := range c.desiredState {
 			oldDesiredState[k] = v
-			if vv, ok := c.operationState[k]; !ok || !reflect.DeepEqual(vv, v) {
+			if vv, ok := c.operationState[k]; !ok || !vv.Equal(v) {
 				updates := delta[false]
 				if updates == nil {
 					updates = make(map[string]*PortRequest)
@@ -549,6 +603,7 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 				c.log.Error(nil, "ManagedResource runtime not found", "ManagedResource", v.Key)
 				continue
 			}
+			v.Update(rt)
 			retry, err = c.updateOne(rt, v, &c.configRev, isDelete)
 			if err != nil {
 				if rt.State != BackendStateError {
@@ -666,7 +721,11 @@ func (c *Cumulus) updateHostInAdmin(adminState bool) (bool, func(), error) {
 		if len(ip) > 0 {
 			hostRoute = ip + "/32"
 		}
-		if _, err = c.updateOne2(0, 0, port, gwIP, dhcpServer, hostRoute, &c.configRev, false, isDelete); err != nil {
+		var vlanid uint32
+		if vlanid, err = c.manager.GetAdminNetworkVLan(); err != nil {
+			return false, nil, err
+		}
+		if _, err = c.updateOne2(vlanid, 0, port, gwIP, dhcpServer, hostRoute, &c.configRev, false, isDelete); err != nil {
 			return false, nil, err
 		}
 		if len(ip) == 0 && !isDelete {
@@ -694,7 +753,10 @@ func (c *Cumulus) liveness() {
 	go func() {
 		c.log.V(1).Info("Liveness probe starts")
 		tick := time.NewTicker(CumulusLivenessInterval)
-		c.manager.networkDevices.Add(c, false)
+		if !c.inReconcile {
+			// Allow time to reconcile resources already created.
+			c.manager.networkDevices.Add(c, false)
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -702,6 +764,7 @@ func (c *Cumulus) liveness() {
 				c.log.V(1).Info("Exit liveness probe.")
 				return
 			case <-tick.C:
+				c.inReconcile = false
 				c.manager.networkDevices.Add(c, false)
 			}
 		}
@@ -710,9 +773,14 @@ func (c *Cumulus) liveness() {
 }
 
 // Liveness probes device liveness.
-func (c *Cumulus) Liveness() {
+func (c *Cumulus) Liveness(doReconcile bool) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+	c.inReconcile = doReconcile
+	if c.inReconcile {
+		c.log.Info("Reconcile existing device")
+		c.manager.networkDevices.NotifyChange(c.key, c.getHostIdentifiers())
+	}
 	c.liveness()
 }
 
@@ -757,7 +825,9 @@ func (c *Cumulus) IsReachable() bool {
 
 func (c *Cumulus) isReachable() bool {
 	hbnState := c.hbn.GetHBNState()
-
+	if c.inReconcile {
+		return true
+	}
 	return !c.maintenanceMode && (hbnState == HBNConnected || hbnState == HBNInvalid) && len(c.configRev) > 0
 }
 
