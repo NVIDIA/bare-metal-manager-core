@@ -253,8 +253,8 @@ https://netbox.nvidia.com/dcim/racks/6496/
 | hostname   | DPU BMC IP    | DPU OOB IP    | HOST OOB IP   | HOST IP                          | DPU BMC Credentials | DPU OOB Credentials | HOST OOB ILO Creds    | Host OS Creds   |
 | ---------- | ------------- | ------------- | ------------- | -------------------------------- | ------------------- | ------------------- | --------------------- | --------------  |
 | forge001   | 10.146.38.232 | 10.146.38.229 | 10.146.38.242 | 10.150.51.235 / 10.150.51.236    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
-| forge002   | 10.146.38.233 | 10.146.38.247 | 10.146.38.243 | 10.150.115.234 / 10.150.115.245  | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
-| forge003   | 10.146.38.234 | 10.146.38.230 | 10.146.38.244 | 10.150.51.230 / 10.150.51.229    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge002   | 10.146.38.231 | 10.146.38.247 | 10.146.38.243 | 10.150.51.242 / 10.150.115.235  | `root:M/uz{HKh@fz6S-%8`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge003   | 10.146.38.241 | 10.146.38.240 | 10.146.38.244 | 10.150.51.230 / 10.150.115.242    | `root:M/uz{HKh@fz6S-%8`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 | forge004   | 10.146.38.235 | 10.146.38.226 | 10.146.38.245 | Dynamic                          | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 | forge005   | 10.146.38.236 | 10.146.38.225 | 10.146.38.246 | Dynamic                          | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 
