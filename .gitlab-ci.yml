@@ -47,7 +47,7 @@ build:build-container-x86:
     entrypoint: [""]
   script:
   - |
-    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest "; 
+    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest"; 
     FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
 
     mkdir -p /kaniko/.docker
@@ -68,7 +68,7 @@ build:build-container-arm:
     entrypoint: [""]
   script:
   - |
-    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/arm64v8/build-container:latest "; 
+    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/arm64v8/build-container:latest"; 
     FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
 
     mkdir -p /kaniko/.docker
