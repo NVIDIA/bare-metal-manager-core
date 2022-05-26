@@ -8,9 +8,9 @@ spec:
   tenantIdentifier: admin
   dhcpServer: 10.150.51.235
   network:
-    ip: 30.30.30.0
-    prefixLength: 24
-    gateway: 30.30.30.1
+    ip: 10.151.179.192
+    prefixLength: 27
+    gateway: 10.151.179.193
 ---
 apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
 kind: ConfigurationResourcePool
@@ -42,9 +42,9 @@ metadata:
 spec:
   type: ipv4
   ranges:
-    - start: 20.10.10.0
-      end: 20.10.12.0
-  allocationBlockSize: 8
+    - start: 10.151.179.224
+      end: 10.151.180.0
+  allocationBlockSize: 4
 ---
 apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
 kind: ConfigurationResourcePool
@@ -54,8 +54,8 @@ metadata:
 spec:
   type: ipv4
   ranges:
-    - start: 10.145.0.150
-      end: 10.145.0.160
+    - start: 10.145.0.86
+      end: 10.145.0.89
 ---
 apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
 kind: ConfigurationResourcePool

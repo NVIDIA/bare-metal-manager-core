@@ -32,7 +32,7 @@ build-binary:
   image: golang:1.16
   before_script:
     - apt-get update
-    - apt install -y protobuf-compiler
+    - apt install -y protobuf-compiler gettext-base
     - go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.26
     - go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1
     - export PATH="$PATH:$(go env GOPATH)/bin"
@@ -48,6 +48,8 @@ build-binary:
       - bin/grpc-server
       - bin/agent
       - config/forge.yaml
+      - config/forge-dev.yaml
+      - config/forge-canary.yaml
     expire_in: 1 day
   only:
     - main
@@ -90,10 +92,10 @@ push:
     - echo "$QUAY_IO_PWD" | docker login -u "$QUAY_IO_USER" --password-stdin quay.io
   script:
     - export FORGE_TAG=$(date --utc '+%Y%m%d%H%M%S')
-    - docker build -t quay.io/nvidia/nvmetal-hydrazine:$FORGE_TAG -f build/images/forge/Dockerfile.nobuild .
-    - docker tag quay.io/nvidia/nvmetal-hydrazine:$FORGE_TAG quay.io/nvidia/nvmetal-hydrazine:latest
-    - docker push quay.io/nvidia/nvmetal-hydrazine:$FORGE_TAG
-    - docker push quay.io/nvidia/nvmetal-hydrazine:latest
+    - docker build -t quay.io/nvidia/forge-connectivity:$FORGE_TAG -f build/images/forge/Dockerfile.nobuild .
+    - docker tag quay.io/nvidia/forge-connectivity:$FORGE_TAG quay.io/nvidia/forge-connectivity:latest
+    - docker push quay.io/nvidia/forge-connectivity:$FORGE_TAG
+    - docker push quay.io/nvidia/forge-connectivity:latest
     - echo "FORGE_TAG=$FORGE_TAG" >> build.env
   artifacts:
     reports:

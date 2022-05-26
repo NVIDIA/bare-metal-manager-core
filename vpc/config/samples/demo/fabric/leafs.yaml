@@ -7,13 +7,33 @@ spec:
   control:
     vendor: cumulus
     # CHANGE_ME
-    managementIP: 172.18.0.1:8765
+    managementIP: 10.146.38.226 
     # CHANGE_ME
     # maintenanceMode: true
   hostInterfaces:
     # CHANGE_ME
-    forge4-en0: pf0hpf
-    #forge4-en1: pf1hpf
+    # forge4-en0: pf0hpf
+    # forge4-en1: pf1hpf
   hostAdminIPs:
-    pf0hpf: 30.30.30.2
-    # pf0hpf: ""
+    #pf0hpf: 30.30.30.2
+    pf0hpf: ""
+---
+apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: Leaf
+metadata:
+  name: dpu-5
+  namespace: forge-system
+spec:
+  control:
+    vendor: cumulus
+    # CHANGE_ME
+    managementIP: 10.146.38.225
+    # CHANGE_ME
+    # maintenanceMode: true
+  hostInterfaces:
+  # CHANGE_ME
+  # forge4-en0: pf0hpf
+  # forge4-en1: pf1hpf
+  hostAdminIPs:
+    #pf0hpf: 30.30.30.2
+    pf0hpf: ""

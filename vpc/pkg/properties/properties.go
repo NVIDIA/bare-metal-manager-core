@@ -24,7 +24,9 @@ type ResourceProperties struct {
 }
 
 type NetworkDeviceProperties struct {
-	LoopbackIP string
-	ASN        uint32
-	Alive      bool
+	LoopbackIP      string
+	ASN             uint32
+	Alive           bool
+	AdminHostIPs    map[string]string
+	AdminDHCPServer string
 }

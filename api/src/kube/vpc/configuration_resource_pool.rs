@@ -1,15 +1,10 @@
 use kube::CustomResource;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize};
 
 /// ConfigurationResourcePoolSpec defines the desired state of ConfigurationResourcePool
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[kube(
-    group = "networkfabric.vpc.forge.gitlab-master.nvidia.com",
-    version = "v1alpha1",
-    kind = "ConfigurationResourcePool",
-    plural = "configurationresourcepools"
-)]
+#[kube(group = "networkfabric.vpc.forge.gitlab-master.nvidia.com", version = "v1alpha1", kind = "ConfigurationResourcePool", plural = "configurationresourcepools")]
 #[kube(namespaced)]
 #[kube(status = "ConfigurationResourcePoolStatus")]
 pub struct ConfigurationResourcePoolSpec {
@@ -38,4 +33,6 @@ pub struct ConfigurationResourcePoolRanges {
 
 /// ConfigurationResourcePoolStatus defines the observed state of ConfigurationResourcePool
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct ConfigurationResourcePoolStatus {}
+pub struct ConfigurationResourcePoolStatus {
+}
+

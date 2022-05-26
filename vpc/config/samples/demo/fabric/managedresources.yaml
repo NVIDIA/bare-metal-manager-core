@@ -6,5 +6,7 @@ metadata:
 spec:
   resourceGroup: internal
   type: BareMetal
+  hostInterfaceIP: 20.10.11.2
   hostInterface: forge4-en0
-  hostInterfaceAccess: IsolatedAccess
+  # hostInterfaceAccess: IsolatedAccess
+  hostInterfaceAccess: FabricAccessDirect

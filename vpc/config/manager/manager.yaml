@@ -3,6 +3,7 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
+    # namespace: $(SERVICE_NAMESPACE)
   name: system
 ---
 apiVersion: apps/v1
@@ -43,7 +44,9 @@ spec:
           value: ""
         - name: DISABLE_CUMULUS_CERT_VERIFY
           value: "true"
-        image: quay.io/nvidia/nvmetal-hydrazine:latest
+        - name: K8S_NAMESPACE
+          value: $(DEPLOYMENT_NAMESPACE)
+        image: quay.io/nvidia/forge-connectivity:latest
         imagePullPolicy: IfNotPresent
         name: manager
         securityContext:
@@ -107,7 +110,7 @@ spec:
       containers:
         - command:
             - /grpc-server
-          image: quay.io/nvidia/nvmetal-hydrazine:latest
+          image: quay.io/nvidia/forge-connectivity:latest
           imagePullPolicy: IfNotPresent
           name: grpc-server
           securityContext:

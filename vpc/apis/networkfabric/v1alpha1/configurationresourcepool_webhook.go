@@ -59,7 +59,7 @@ var (
 		},
 		string(OverlayIPv4ResourcePool): {
 			Type:             RangeTypeIPv4,
-			SupportedBitSize: []uint32{0, 8},
+			SupportedBitSize: []uint32{0, 3, 4, 5, 6, 7, 8},
 		},
 		string(VNIResourcePool): {
 			Type: RangeTypeInteger,
@@ -145,8 +145,12 @@ func (r *ConfigurationResourcePool) ValidateCreate() error {
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *ConfigurationResourcePool) ValidateUpdate(_ runtime.Object) error {
+func (r *ConfigurationResourcePool) ValidateUpdate(old runtime.Object) error {
 	configurationresourcepoollog.Info("validate update", "name", r.Name)
+	op := old.(*ConfigurationResourcePool)
+	if op.Spec.AllocationBlockSize != r.Spec.AllocationBlockSize {
+		return fmt.Errorf("field AllocationBlockSize is immutable")
+	}
 	return validate(r)
 }
 

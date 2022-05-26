@@ -306,7 +306,7 @@ func (c *Cumulus) updateDHCPRelayAgent(vlanid uint32, intf string, dhcpServer st
 		if err := t.Execute(dhcRelayConfig, dparam); err != nil {
 			return err
 		}
-		cConfig, err := c.Ssh("sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf")
+		cConfig, err := c.hbn.getHBNDhcRealyConf()
 		if err != nil {
 			return err
 		}
