@@ -82,8 +82,14 @@ build:build-container-arm:
 
 build:dev-docker:
   stage: build
-  only:
-    - trunk
+  rules:
+    - if: $CI_COMMIT_BRANCH == 'trunk'
+    - changes:
+      - api/**/*
+      - dns/**/*
+      - rpc/**/*
+      - dhcp/**/*
+      - pxe/**/*
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
