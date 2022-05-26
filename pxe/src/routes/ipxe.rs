@@ -55,14 +55,17 @@ fn determine_boot_from_state(
     interface: rpc::v0::MachineInterface,
 ) -> String {
     match machine.state.as_str() {
-        "init" => boot_into_discovery(interface),
+        "new" => boot_into_discovery(interface),
         "assigned" => boot_into_netbootxyz(),
         // any unrecognized state will cause ipxe to stop working with this message
-        _ => r#"
-echo could not continue boot due to invalid status ||
+        s => format!(
+            r#"
+echo could not continue boot due to invalid status - {} ||
 sleep 5 ||
 exit ||
-"#
+"#,
+            s
+        )
         .to_string(),
     }
 }

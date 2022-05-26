@@ -9,6 +9,7 @@ use ipnetwork::IpNetwork;
 use log::warn;
 use mac_address::MacAddress;
 use rpc::v0 as rpc;
+use rust_fsm::StateMachine;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use std::convert::From;
@@ -58,7 +59,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
-            state: row.try_get("state")?,
+            state: MachineState::Unknown,
             events: Vec::new(),
             interfaces: Vec::new(),
         })
@@ -124,6 +125,11 @@ impl Machine {
 
         interface
             .associate_interface_with_machine(txn, &machine.id)
+            .await?;
+
+        // Add the initial state
+        machine
+            .advance(txn, &rpc::MachineStateMachineInput::Discover)
             .await?;
 
         Ok(machine)
@@ -208,7 +214,23 @@ impl Machine {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<MachineState> {
-        MachineState::for_machine(self, txn).await
+        let events = MachineEvent::for_machine(txn, &self.id).await?;
+        let state_machine = self.state_machine(&events)?;
+        Ok(MachineState::from(state_machine.state()))
+    }
+
+    fn state_machine(
+        &self,
+        events: &Vec<MachineEvent>,
+    ) -> CarbideResult<StateMachine<rpc::MachineStateMachine>> {
+        let mut machine: StateMachine<rpc::MachineStateMachine> = StateMachine::new();
+        events
+            .into_iter()
+            .map(|event| machine.consume(&rpc::MachineStateMachineInput::from(&event.action)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(CarbideError::InvalidState)?;
+
+        Ok(machine)
     }
 
     /// Perform an arbitrary action to a Machine and advance it to the next state given the last
@@ -222,41 +244,26 @@ impl Machine {
     pub async fn advance(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        action: &MachineAction,
+        action: &rpc::MachineStateMachineInput,
     ) -> CarbideResult<bool> {
-        let id: (Uuid,) = sqlx::query_as(
-            "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING id",
+        // first validate the state change by getting the current state in the db
+        let events = MachineEvent::for_machine(txn, &self.id).await?;
+        let mut state_machine = self.state_machine(&events)?;
+        state_machine
+            .consume(action)
+            .map_err(CarbideError::InvalidState)?;
+
+        let id: (i64,) = sqlx::query_as(
+            "INSERT INTO machine_events (machine_id, action) VALUES ($1::uuid, $2) RETURNING id",
         )
         .bind(self.id())
-        .bind(action)
+        .bind(MachineAction::from(action))
         .fetch_one(txn)
         .await?;
 
         log::info!("Event ID is {}", id.0);
 
         Ok(true)
-    }
-
-    /// Perform action `Fail` on the Machine advancing it to the next state given the last
-    /// state
-    ///
-    /// Arguments:
-    ///
-    /// * `txn` - A reference to a currently open database transaction
-    ///
-    pub async fn fail(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<bool> {
-        self.advance(txn, &MachineAction::Fail).await
-    }
-
-    /// Perform action `Commission` on the Machine advancing it to the next state given the last
-    /// state
-    ///
-    /// Arguments:
-    ///
-    /// * `txn` - A reference to a currently open database transaction
-    ///
-    pub async fn commission(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<bool> {
-        self.advance(txn, &MachineAction::Commission).await
     }
 
     /// Find machines given a set of criteria, right now just returns all machines because there's
@@ -272,7 +279,7 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
     ) -> CarbideResult<Vec<Machine>> {
-        let base_query = "SELECT m.*,machine_state_machine(me.action,me.version) AS state FROM machines m JOIN machine_events me ON me.machine_id=m.id {where} GROUP BY m.id".to_owned();
+        let base_query = "SELECT * FROM machines m {where} GROUP BY m.id".to_owned();
 
         let mut all_machines: Vec<Machine> = match filter {
             UuidKeyedObjectFilter::All => {
@@ -314,6 +321,10 @@ impl Machine {
             } else {
                 warn!("Machine {0} () has no interfaces", machine.id);
             }
+
+            machine.state = machine
+                .state_machine(&machine.events)
+                .map_or(MachineState::Unknown, |m| MachineState::from(m.state()));
         });
 
         Ok(all_machines)

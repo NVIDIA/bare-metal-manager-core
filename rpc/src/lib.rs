@@ -3,6 +3,7 @@
 //! This module contains the gRPC and protocol buffer definitions to generate a client or server to
 //! interact with the API Service
 //!
+
 pub mod v0 {
     use mac_address::{MacAddress, MacParseError};
     use prost::Message;
@@ -15,6 +16,8 @@ pub mod v0 {
     use serde::ser::SerializeStruct;
 
     pub use prost_types::Timestamp;
+
+    use rust_fsm::*;
 
     // In order for CLion to grok the generated files, we need to use include! instead of
     // tonic's built in include. To include the proto build in CLion, ensure that the experimental
@@ -44,7 +47,6 @@ pub mod v0 {
             state.serialize_field("id", &self.id)?;
             state.serialize_field("machine_id", &self.machine_id)?;
             state.serialize_field("event", &self.event)?;
-            state.serialize_field("version", &self.version)?;
             state.serialize_field("time", &self.time.as_ref().map(|ts| ts.seconds))?;
 
             state.end()
@@ -157,5 +159,19 @@ pub mod v0 {
         pub fn parsed_mac_address(&self) -> Result<Option<MacAddress>, MacParseError> {
             Ok(Some(MacAddress::from_str(&self.mac_address)?))
         }
+    }
+
+    state_machine! {
+        derive(Debug)
+        pub MachineStateMachine(Init)
+
+        Init(Discover) => New,
+        New => {Adopt => Adopted, Fail => Broken,},
+        Adopted => {Test => Tested, Fail => Broken,},
+        Tested => {Commission => Ready, Fail => Broken,},
+        Ready => {Assign => Assigned, Decommission => Decommissioned, Fail => Broken,},
+        Assigned => {Unassign => Ready, Fail => Broken},
+        Broken(Recommission) => Tested,
+        Decommissioned => {Recommission => Tested, Release => New},
     }
 }
