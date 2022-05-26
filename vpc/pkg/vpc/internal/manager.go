@@ -10,10 +10,10 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/time/rate"
+	"k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,7 +35,7 @@ type vpcManager struct {
 	resourceMgr            *resourcepool.Manager
 	podController          *controllers.PodReconciler
 	managedResources       *vpcManagerManagedResource
-	adminResourceGroup     *resource.ResourceGroup
+	adminResourceGroup     *FabricOverlayNetworkImplementation
 	eventQueue             *vpcManagerEventQueue
 	networkDevices         *vpcManagerDevice
 	networkDeviceTransport map[string]func(string, string, string, string, string) (NetworkDeviceTransport, error)
@@ -129,7 +129,6 @@ func (m *vpcManager) Start(ctx context.Context) error {
 			m.networkDevices.RunWorker()
 		}()
 	}
-
 	<-ctx.Done()
 	for _, n := range m.overlayNetworks {
 		n.Stop <- struct{}{}
@@ -156,46 +155,52 @@ func (m *vpcManager) CreateOrUpdateOverlayNetwork(ctx context.Context, resourceG
 		Namespace: m.namespace,
 		Name:      resourceGroup,
 	}
-	if err := m.Get(ctx, rgKey, rg); err != nil {
+	var err error
+	if err = m.Get(ctx, rgKey, rg); err != nil {
 		return err
 	}
-	if err := m.checkResourceGroupPrerequisites(rg); err != nil {
-		return err
-	}
-
 	var t *TenantNetwork
 	var req *NetworkRequest
-	done := false
+	notifyMRs := false
 	func() {
 		m.mutex.Lock()
 		defer m.mutex.Unlock()
-		if rg.Name == resource.WellKnownAdminResourceGroup {
-			m.adminResourceGroup = rg
-			done = true
-		}
-
 		req = (&NetworkRequest{}).Populate(rg)
 		t = m.getNetwork(resourceGroup)
 		if t == nil {
+			if err = m.checkResourceGroupPrerequisites(rg); err != nil {
+				return
+			}
 			stop := make(chan struct{})
 			if rg.Spec.NetworkImplementationType == resource.OverlayNetworkImplementationTypeSoftware {
-				t = NewTenantNetwork(NewOvnNetwork(m, resourceGroup), stop)
+				impl := NewOvnNetwork(m, resourceGroup)
+				t = NewTenantNetwork(impl, stop)
 			} else {
-				t = NewTenantNetwork(NewFabricNetwork(m, resourceGroup), stop)
+				impl := NewFabricNetwork(m, resourceGroup)
+				if rg.Name == resource.WellKnownAdminResourceGroup {
+					m.adminResourceGroup = impl.(*FabricOverlayNetworkImplementation)
+				}
+				t = NewTenantNetwork(impl, stop)
 			}
 			m.setNetwork(t, resourceGroup)
 			go t.Run(resourceGroup)
+			notifyMRs = IsResourceGroupReady(rg)
 		}
 	}()
-	if done {
-		return nil
+	if err != nil {
+		return err
 	}
 	item := &WorkItem{
 		Call: func() (interface{}, error) {
 			return nil, t.CreateOrUpdateNetwork(req)
 		},
 	}
-	_, err := m.waitTenantWorkComplete(ctx, t, item)
+	if _, err = m.waitTenantWorkComplete(ctx, t, item); err != nil {
+		return err
+	}
+	if notifyMRs {
+		m.managedResources.NotifyResourceGroupChange(rgKey, m.Client, ctx)
+	}
 	return err
 }
 
@@ -208,11 +213,6 @@ func (m *vpcManager) GetOverlayNetworkProperties(ctx context.Context, resourceGr
 	func() {
 		m.mutex.Lock()
 		defer m.mutex.Unlock()
-		if resourceGroup == resource.WellKnownAdminResourceGroup {
-			err = nil
-			out = &properties.OverlayNetworkProperties{}
-			return
-		}
 		t = m.getNetwork(resourceGroup)
 		if t == nil {
 			out = nil
@@ -259,6 +259,10 @@ func (m *vpcManager) DeleteOverlayNetwork(ctx context.Context, resourceGroup str
 		m.mutex.Lock()
 		defer m.mutex.Unlock()
 		m.setNetwork(nil, resourceGroup)
+		if resourceGroup == resource.WellKnownAdminResourceGroup {
+			m.adminResourceGroup = nil
+		}
+
 	}()
 	return nil
 }
@@ -281,33 +285,44 @@ func (m *vpcManager) AddOrUpdateResourceToNetwork(ctx context.Context, managedRe
 	}
 	rg := &resource.ResourceGroup{}
 	if err = m.Get(ctx, rgKey, rg); err != nil {
-		return nil
+		return err
 	}
 	var t *TenantNetwork
 	var req *PortRequest
+	var rt *managedResourceRuntime
 	func() {
 		m.mutex.Lock()
 		defer m.mutex.Unlock()
 		t = m.getNetwork(mr.Spec.ResourceGroup)
 		if t == nil {
-			err = NewUnknownResourceGroupError(mr.Spec.ResourceGroup)
 			return
 		}
 		req = (&PortRequest{}).Populate(mr, rg)
-		err = m.managedResources.CreateOrUpdate(req, t.OverlayNetworkImplementation)
+		rt, err = m.managedResources.CreateOrUpdate(req, t.OverlayNetworkImplementation, mr)
 	}()
 	if err != nil {
 		return err
 	}
+	// Network may not have been created.
+	if t == nil {
+		if IsManagedResourceReady(mr) {
+			return NewAlreadyExistError(resource.ManagedResourceName, managedResource)
+		}
+		return NewUnknownResourceGroupError(rg.Name)
+	}
 	item := &WorkItem{
 		Call: func() (interface{}, error) {
-			return nil, t.AddOrUpdateResourceToNetwork(req)
+			return nil, t.AddOrUpdateResourceToNetwork(req, rt.InReconcile)
 		},
 	}
-	if _, err := m.waitTenantWorkComplete(ctx, t, item); err != nil {
-		return err
+	_, err = m.waitTenantWorkComplete(ctx, t, item)
+	_, ok := err.(*NetworkDeviceNotAvailableError)
+	if rt.InReconcile && ok {
+		return NewAlreadyExistError(resource.ManagedResourceName, managedResource)
 	}
-	return nil
+	rt.InReconcile = false
+	_ = m.managedResources.Update(rt)
+	return err
 }
 
 // GetResourceProperties retrieves properties of a ManagedResource from the backend.
@@ -390,9 +405,6 @@ func (m *vpcManager) RemoveResourceToNetwork(ctx context.Context, managedResourc
 // CreateOrUpdateNetworkDevice updates a network device and optionally probe the device,
 func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name string) error {
 	m.log.V(1).Info("CreateOrUpdateNetworkDevice", "Kind", kind, "Name", name)
-	if err := m.checkLeafPrerequisites(); err != nil {
-		return err
-	}
 	var device NetworkDevice
 	if kind != networkfabric.LeafName {
 		return NewNetworkDeviceNotAvailableError(kind, "")
@@ -407,6 +419,7 @@ func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name
 	}
 	key := getInternalNetworkDeviceName(kind, name)
 	d, ok, _ := m.networkDevices.GetByKey(key)
+	var doReconcile bool
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	if ok {
@@ -414,8 +427,11 @@ func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name
 		device.SetMaintenanceMode(leaf.Spec.Control.MaintenanceMode)
 		device.SetMgmtIP(leaf.Spec.Control.ManagementIP)
 		device.SetHostIdentifiers(leaf.Spec.HostInterfaces)
-		device.SetHostAdminIPs(leaf.Spec.HostAdminIPs)
+		device.SetHostAdminIPs(leaf.Spec.HostAdminIPs, false)
 	} else {
+		if err := m.checkLeafPrerequisites(leaf); err != nil {
+			return err
+		}
 		user, pwd, sshUser, sshPwd, err := m.getCredential(kind, name)
 		if err != nil {
 			return err
@@ -431,10 +447,17 @@ func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name
 		if err != nil {
 			return err
 		}
-		device.SetHostAdminIPs(leaf.Spec.HostAdminIPs)
-		go device.Liveness()
+		doReconcile = IsNetworkDeviceAlive(leaf)
+		device.SetHostAdminIPs(leaf.Spec.HostAdminIPs, doReconcile)
+		go device.Liveness(doReconcile)
 	}
-	return m.networkDevices.Update(device)
+	if err := m.networkDevices.Update(device); err != nil {
+		return err
+	}
+	if doReconcile {
+		return NewAlreadyExistError(kind, name)
+	}
+	return nil
 }
 
 func (m *vpcManager) GetNetworkDeviceProperties(_ context.Context, kind, name string) (*properties.NetworkDeviceProperties, error) {
@@ -544,8 +567,11 @@ func (m *vpcManager) getCredential(kind, name string) (string, string, string, s
 }
 
 func (m *vpcManager) checkResourceGroupPrerequisites(rg *resource.ResourceGroup) error {
-	if rg.Name == resource.WellKnownAdminResourceGroup ||
-		rg.Spec.NetworkImplementationType == resource.OverlayNetworkImplementationTypeSoftware {
+	if rg.Spec.NetworkImplementationType == resource.OverlayNetworkImplementationTypeSoftware {
+		return nil
+	}
+
+	if IsResourceGroupReady(rg) {
 		return nil
 	}
 
@@ -568,19 +594,53 @@ func (m *vpcManager) checkResourceGroupPrerequisites(rg *resource.ResourceGroup)
 	return nil
 }
 
-func (m *vpcManager) checkLeafPrerequisites() error {
+func (m *vpcManager) checkLeafPrerequisites(leaf *networkfabric.Leaf) error {
 	if !HBNConfig.HBNDevice {
 		return nil
 	}
-	objKey := client.ObjectKey{
-		Namespace: m.namespace,
-		Name:      resource.WellKnownAdminResourceGroup,
+
+	if IsNetworkDeviceAlive(leaf) {
+		return nil
 	}
-	rg := &resource.ResourceGroup{}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
-	if err := m.Get(ctx, objKey, rg); err != nil {
+
+	if m.adminResourceGroup == nil {
 		return NewMissingResourcePoolError(resource.WellKnownAdminResourceGroup)
 	}
 	return nil
+}
+
+func IsResourceGroupReady(rg *resource.ResourceGroup) bool {
+	if !rg.ObjectMeta.DeletionTimestamp.IsZero() {
+		return false
+	}
+	for _, cond := range rg.Status.Conditions {
+		if cond.Type == resource.ResourceGroupConditionTypeCreate && cond.Status == v1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func IsManagedResourceReady(mr *resource.ManagedResource) bool {
+	if !mr.ObjectMeta.DeletionTimestamp.IsZero() {
+		return false
+	}
+	for _, cond := range mr.Status.Conditions {
+		if cond.Type == resource.ManagedResourceConditionTypeAdd && cond.Status == v1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func IsNetworkDeviceAlive(leaf *networkfabric.Leaf) bool {
+	if !leaf.ObjectMeta.DeletionTimestamp.IsZero() {
+		return false
+	}
+	for _, cond := range leaf.Status.Conditions {
+		if cond.Type == networkfabric.NetworkDeviceConditionTypeLiveness && cond.Status == v1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }

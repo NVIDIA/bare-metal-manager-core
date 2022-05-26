@@ -33,10 +33,6 @@ import (
 	"gitlab-master.nvidia.com/forge/vpc/pkg/vpc"
 )
 
-const (
-	ResourceGroupFinalizer = "resourcegroup.resource.vpc.forge/finalizer"
-)
-
 // ResourceGroupReconciler reconciles a ResourceGroup object
 type ResourceGroupReconciler struct {
 	client.Client
@@ -123,13 +119,13 @@ func (r *ResourceGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	if rg.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Register finalizer.
-		if !controllerutil.ContainsFinalizer(rg, ResourceGroupFinalizer) {
-			controllerutil.AddFinalizer(rg, ResourceGroupFinalizer)
+		if !controllerutil.ContainsFinalizer(rg, resource.ResourceGroupFinalizer) {
+			controllerutil.AddFinalizer(rg, resource.ResourceGroupFinalizer)
 			update = true
 		}
 	} else {
 		// ResourceGroup is being deleted.
-		if controllerutil.ContainsFinalizer(rg, ResourceGroupFinalizer) {
+		if controllerutil.ContainsFinalizer(rg, resource.ResourceGroupFinalizer) {
 			ownerCnt := 0
 			// Delete any ManagedResources in this ResourceGroup.
 			for _, mr := range mrList.Items {
@@ -154,7 +150,7 @@ func (r *ResourceGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 					return HandleReconcileReturnErr(err)
 				}
 				// Remove finalizer.
-				controllerutil.RemoveFinalizer(rg, ResourceGroupFinalizer)
+				controllerutil.RemoveFinalizer(rg, resource.ResourceGroupFinalizer)
 				update = true
 				updateStatus = false
 				return ctrl.Result{}, nil
@@ -165,16 +161,11 @@ func (r *ResourceGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// Create or update.
 	if err := r.VPCMgr.CreateOrUpdateOverlayNetwork(ctx, req.Name); err != nil {
-		if vpc.IsAlreadyExistError(err) {
-			log.V(1).Info("Overlay network already exists", "ResourceGroup", req)
-			if len(rg.Status.Conditions) == 0 || rg.Status.Conditions[0].Status == corev1.ConditionTrue {
-				return ctrl.Result{}, nil
-			}
-		} else {
+		if !vpc.IsAlreadyExistError(err) {
 			log.V(1).Info("Failed to create overlay network", "ResourceGroup", req, "Error", err)
 			updateStatus = r.updateConditions(rg, resource.ResourceGroupConditionTypeCreate, err)
-			return HandleReconcileReturnErr(err)
 		}
+		return HandleReconcileReturnErr(err)
 	}
 	properties, err := r.VPCMgr.GetOverlayNetworkProperties(ctx, req.Name)
 	if err != nil {

@@ -31,18 +31,14 @@ import (
 
 	resource "gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1"
 	controllers2 "gitlab-master.nvidia.com/forge/vpc/controllers"
-	controllers "gitlab-master.nvidia.com/forge/vpc/pkg/vpc"
-)
-
-const (
-	ManagedResourceFinalizer = "managedresource.resource.vpc.forge/finalizer"
+	"gitlab-master.nvidia.com/forge/vpc/pkg/vpc"
 )
 
 // ManagedResourceReconciler reconciles a ManagedResource object
 type ManagedResourceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-	VPCMgr controllers.VPCManager
+	VPCMgr vpc.VPCManager
 }
 
 //+kubebuilder:rbac:groups=resource.vpc.forge.gitlab-master.nvidia.com,resources=managedresources,verbs=get;list;watch;create;update;patch;delete
@@ -88,18 +84,18 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				}
 			}
 		}
-		fErr = controllers.IgnoreNetworkDeviceNotAvailableError(fErr)
+		fErr = vpc.IgnoreNetworkDeviceNotAvailableError(fErr)
 	}()
 
 	if mr.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Register finalizer.
-		if !controllerutil.ContainsFinalizer(mr, ManagedResourceFinalizer) {
-			controllerutil.AddFinalizer(mr, ManagedResourceFinalizer)
+		if !controllerutil.ContainsFinalizer(mr, resource.ManagedResourceFinalizer) {
+			controllerutil.AddFinalizer(mr, resource.ManagedResourceFinalizer)
 			update = true
 		}
 	} else {
 		// ManagedResource is being deleted.
-		if controllerutil.ContainsFinalizer(mr, ManagedResourceFinalizer) {
+		if controllerutil.ContainsFinalizer(mr, resource.ManagedResourceFinalizer) {
 			if len(mr.Spec.ResourceGroup) > 0 {
 				if err := r.VPCMgr.RemoveResourceToNetwork(ctx, req.Name); err != nil {
 					log.V(1).Info("Failed to remove managed resource", "ManagedResource", req, "Error", err)
@@ -108,7 +104,7 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				}
 			}
 			// Remove finalizer.
-			controllerutil.RemoveFinalizer(mr, ManagedResourceFinalizer)
+			controllerutil.RemoveFinalizer(mr, resource.ManagedResourceFinalizer)
 			update = true
 			return ctrl.Result{}, nil
 		}
@@ -139,11 +135,11 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 	if err := r.VPCMgr.AddOrUpdateResourceToNetwork(ctx, req.Name); err != nil {
-		if !controllers.IsAlreadyExistError(err) {
+		if !vpc.IsAlreadyExistError(err) {
 			log.V(1).Info("Failed to add resource to overlay network", "ManagedResource", req, "Err", err)
 			updateStatus = r.updateConditions(mr, resource.ManagedResourceConditionTypeAdd, err)
-			return HandleReconcileReturnErr(err)
 		}
+		return HandleReconcileReturnErr(err)
 	}
 
 	// Get ManagedResource from the backend.

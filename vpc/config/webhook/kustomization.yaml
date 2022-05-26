@@ -3,7 +3,7 @@ resources:
 - service.yaml
 
 patchesStrategicMerge:
-#  - patches/namespace_selector.yaml
+- patches/namespace_selector.yaml
 
 configurations:
 - kustomizeconfig.yaml

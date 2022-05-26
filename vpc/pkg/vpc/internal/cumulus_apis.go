@@ -229,7 +229,7 @@ func (c *Cumulus) updateInterface(vlanid, vni uint32, link string, gwIP string,
 	}
 
 	// Add Bridge domain.
-	if vlanid > 0 {
+	if vni > 0 {
 		bridgeDomainPatch := map[string]*BridgeDomain{
 			BrDefault: {Vlan: map[uint32]*BridgeDomainVlan{
 				vlanid: {
@@ -239,6 +239,8 @@ func (c *Cumulus) updateInterface(vlanid, vni uint32, link string, gwIP string,
 		if _, _, err := c.sendContentAndGetResponse(http.MethodPatch, c.getBaseURI()+BridgeDomainURI, bridgeDomainPatch, rev); err != nil {
 			return true, err
 		}
+	}
+	if vlanid > 0 {
 		// Add interface.
 		intfPatch = map[string]*Interface{
 			link: {

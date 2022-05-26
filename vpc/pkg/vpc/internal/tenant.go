@@ -19,7 +19,7 @@ type WorkItem struct {
 
 type OverlayNetworkImplementation interface {
 	CreateOrUpdateNetwork(*NetworkRequest) error
-	AddOrUpdateResourceToNetwork(*PortRequest) error
+	AddOrUpdateResourceToNetwork(*PortRequest, bool) error
 	DeleteResourceFromNetwork(*PortRequest) error
 	GetNetworkProperties() (*properties.OverlayNetworkProperties, error)
 	GetResourceProperties(*PortRequest) (*properties.ResourceProperties, error)

@@ -36,10 +36,6 @@ import (
 	"gitlab-master.nvidia.com/forge/vpc/pkg/vpc"
 )
 
-const (
-	LeafFinalizer = "leaf.networkfabric.vpc.forge/finalizer"
-)
-
 // LeafReconciler reconciles a Leaf object
 type LeafReconciler struct {
 	client.Client
@@ -90,19 +86,19 @@ func (r *LeafReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctr
 	}()
 	if leaf.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Register finalizer.
-		if !controllerutil.ContainsFinalizer(leaf, LeafFinalizer) {
-			controllerutil.AddFinalizer(leaf, LeafFinalizer)
+		if !controllerutil.ContainsFinalizer(leaf, networkfabric.LeafFinalizer) {
+			controllerutil.AddFinalizer(leaf, networkfabric.LeafFinalizer)
 			update = true
 		}
 	} else {
 		// Leaf is being deleted.
-		if controllerutil.ContainsFinalizer(leaf, LeafFinalizer) {
+		if controllerutil.ContainsFinalizer(leaf, networkfabric.LeafFinalizer) {
 			if err := r.VPCMgr.RemoveNetworkDevice(ctx, reflect.TypeOf(leaf).Elem().Name(), req.Name); err != nil {
 				log.V(1).Info("Failed to remove network device ", "Leaf", req, "Error", err)
 				updateStatus = updateNetworkDeviceStatus(leaf, nil, err)
 				return resource.HandleReconcileReturnErr(err)
 			}
-			controllerutil.RemoveFinalizer(leaf, LeafFinalizer)
+			controllerutil.RemoveFinalizer(leaf, networkfabric.LeafFinalizer)
 			update = true
 		}
 		return ctrl.Result{}, nil
