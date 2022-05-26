@@ -275,6 +275,40 @@ https://netbox.nvidia.com/dcim/racks/6496/
 
 Note: **Dynamic** indicates resources are managed by Forge, and Forge allocates these resources from [SJC4 Forge Dev](https://docs.google.com/spreadsheets/d/1wbRW8zcw_rx05fgP6ThK288d0W_WRIVe6uErUpqT0Eg/edit#gid=701174353).
 
+### Reno host info
+There is not presently much information other than the DPUs BMCs in Reno. The machines are in unknown state
+and the forge discovery image will reset the BMCs. DC Ops may have to set them all to pxe boot though.
+
+Note: .53 is currently not responding as the x86 it was in died, it will come online when new gear arrives
+
+- https://docs.google.com/spreadsheets/d/172XpZFYMAo_Ph98FMflqztnBE5fILUIeWe9b20R2cQE/edit#gid=0
+- B17 - https://netbox.nvidia.com/dcim/racks/9953/
+- B18 - https://netbox.nvidia.com/dcim/racks/9954/
+- B19 - https://netbox.nvidia.com/dcim/racks/9955/
+
+| BMC IP | BMC Eth | OOB IP | OOB Eth | Serial |
+| ---------- | ------------- | ------------- | ------------- | ------------------- | 
+| 10.180.222.11 |	10:70:fd:18:0f:3e	| 10.180.222.18 |	10:70:fd:18:0f:4a |	MT2203X26565 |
+| 10.180.222.15 |	10:70:fd:18:10:5e	| 10.180.222.13 |	10:70:fd:18:10:6a |	MT2203X26583 |
+| 10.180.222.16 |	10:70:fd:18:0f:ee	| 10.180.222.35 |	10:70:fd:18:0f:fa |	MT2203X26576 |
+| 10.180.222.17 |	10:70:fd:18:0f:6e |	10.180.222.43 |	10:70:fd:18:0f:7a |	MT2203X26568 |
+| 10.180.222.19 |	10:70:fd:18:0f:0e |	10.180.222.25 |	10:70:fd:18:0f:1a |	MT2203X26562 |
+| 10.180.222.20 |	10:70:fd:18:0f:8e |	10.180.222.45 |	10:70:fd:18:0f:9a |	MT2203X26570 |
+| 10.180.222.21 |	10:70:fd:18:0f:2e |	10.180.222.14 |	10:70:fd:18:0f:3a |	MT2203X26564 |
+| 10.180.222.23 |	10:70:fd:18:0f:fe |	10.180.222.46 |	10:70:fd:18:10:0a |	MT2203X26577 |
+| 10.180.222.26 |	10:70:fd:18:0f:ce |	10.180.222.47 |	10:70:fd:18:0f:da |	MT2203X26574 |
+| 10.180.222.27 |	10:70:fd:18:0f:5e |	10.180.222.48 |	10:70:fd:18:0f:6a |	MT2203X26567 |
+| 10.180.222.28 |	10:70:fd:18:0f:be |	10.180.222.10 |	10:70:fd:18:0f:ca |	MT2203X26573 |
+| 10.180.222.29 |	10:70:fd:18:10:6e |	10.180.222.24 |	10:70:fd:18:10:7a |	MT2203X26584 |
+| 10.180.222.30 |	10:70:fd:18:10:0e |	10.180.222.31 |	10:70:fd:18:10:1a | MT2203X26578 |
+| 10.180.222.33 |	10:70:fd:18:10:3e |	10.180.222.40 |	10:70:fd:18:10:4a	| MT2203X26581 |
+| 10.180.222.34 |	10:70:fd:18:0f:ae |	10.180.222.38 |	10:70:fd:18:0f:ba |	MT2203X26572 |
+| 10.180.222.36 |	10:70:fd:18:10:2e |	10.180.222.42 |	10:70:fd:18:10:3a | MT2203X26580 |
+| 10.180.222.37 |	10:70:fd:18:0f:9e |	10.180.222.39 |	10:70:fd:18:0f:aa |	MT2203X26571 |
+| 10.180.222.41 |	10:70:fd:18:10:7e |	10.180.222.49 |	10:70:fd:18:10:8a |	MT2203X26585 |
+| 10.180.222.53 |	6a:7c:1a:43:16:64 |	10.180.222.44 |	10:70:fd:18:10:5a |	MT2203X26582 |
+
+
 ### Connecting to DPU
 The DPU shares a physical 1GB ethernet connection for both BMC and OOB access.  
 This one interface has two different MAC addresses. So, while the physical 
