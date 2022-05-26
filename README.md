@@ -281,6 +281,11 @@ and the forge discovery image will reset the BMCs. DC Ops may have to set them a
 
 Note: .53 is currently not responding as the x86 it was in died, it will come online when new gear arrives
 
+Credentials
+- ARM OS: `ubuntu:ubuntu`
+- DPU BMC: `root:M/uz{HKh@fz6S-%8`
+
+Details
 - https://docs.google.com/spreadsheets/d/172XpZFYMAo_Ph98FMflqztnBE5fILUIeWe9b20R2cQE/edit#gid=0
 - B17 - https://netbox.nvidia.com/dcim/racks/9953/
 - B18 - https://netbox.nvidia.com/dcim/racks/9954/
@@ -308,6 +313,17 @@ Note: .53 is currently not responding as the x86 it was in died, it will come on
 | 10.180.222.41 |	10:70:fd:18:10:7e |	10.180.222.49 |	10:70:fd:18:10:8a |	MT2203X26585 |
 | 10.180.222.53 |	6a:7c:1a:43:16:64 |	10.180.222.44 |	10:70:fd:18:10:5a |	MT2203X26582 |
 
+The following 3 nodes are the control plane and have manually set IPs with no dhcp helper on the switch.
+
+Credentials
+- OS: `ubuntu:ubuntu`
+- BMC: `ADMIN:ADMIN`
+
+| ip | bmc ip |
+| ---------- | ------------- |
+| 10.180.32.10 | 10.180.222.50 |
+| 10.180.32.74 | 10.180.222.52 |
+| 10.180.32.138 | 10.180.222.51 |
 
 ### Connecting to DPU
 The DPU shares a physical 1GB ethernet connection for both BMC and OOB access.  
