@@ -38,7 +38,7 @@ spec:
     spec:
       containers:
         - name: ovn-central
-          image: "quay.io/nvidia/nvmetal-hydrazine:latest"
+          image: "quay.io/nvidia/forge-connectivity:latest"
           imagePullPolicy: "IfNotPresent"
           command:
             - /start_ovn_central.sh

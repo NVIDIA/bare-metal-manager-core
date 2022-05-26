@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-pxe-deployment
+  labels:
+    app: carbide-pxe
+spec:
+  selector:
+    matchLabels:
+      app: carbide-pxe
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: carbide-pxe
+    spec:
+      containers:
+        - name: carbide-pxe
+          image: carbide:latest
+          env:
+            - name: ROCKET_CONFIG
+              value: "/tmp/carbide/Rocket.toml"
+            - name: ROCKET_TEMPLATE_DIR
+              value: "/opt/carbide/pxe/templates/"
+          command: ["/opt/carbide/carbide"]
+          args:
+            - "-s /opt/carbide/static"
+          volumeMounts:
+            - name: config-volume
+              mountPath: "/tmp/carbide"
+          imagePullPolicy:  IfNotPresent
+          ports:
+            - containerPort: 8000
+        - name: envoy
+          image: envoyproxy/envoy-dev:35f8d59b1172a85f02dd119791a9ef42c728cfa8
+          envFrom:
+          - configMapRef:
+              name: envoy-carbide-pxe-config
+          imagePullPolicy:  IfNotPresent
+          ports:
+          - containerPort: 8088
+            name: pxe-envoy
+      volumes:
+        - name: config-volume
+          configMap:
+            name: carbide-pxe-config

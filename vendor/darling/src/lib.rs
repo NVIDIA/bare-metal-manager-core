@@ -3,7 +3,7 @@
 //!
 //!
 //! ## Design
-//! Darling takes considerable design inspiration from [`serde`]. A data structure that can be
+//! Darling takes considerable design inspiration from [`serde`](https://serde.rs). A data structure that can be
 //! read from any attribute implements `FromMeta` (or has an implementation automatically
 //! generated using `derive`). Any crate can provide `FromMeta` implementations, even one not
 //! specifically geared towards proc-macro authors.
@@ -65,7 +65,6 @@
 //! |`attrs`|`Vec<syn::Attribute>`|The forwarded attributes from the passed in variant. These are controlled using the `forward_attrs` attribute.|
 
 extern crate core;
-extern crate darling_core;
 
 #[allow(unused_imports)]
 #[macro_use]
@@ -76,8 +75,8 @@ pub use darling_macro::*;
 
 #[doc(inline)]
 pub use darling_core::{
-    FromDeriveInput, FromField, FromGenericParam, FromGenerics, FromMeta, FromTypeParam,
-    FromVariant,
+    FromAttributes, FromDeriveInput, FromField, FromGenericParam, FromGenerics, FromMeta,
+    FromTypeParam, FromVariant,
 };
 
 #[doc(inline)]

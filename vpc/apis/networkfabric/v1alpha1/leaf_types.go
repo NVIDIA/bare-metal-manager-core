@@ -27,6 +27,10 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+const (
+	LeafFinalizer = "leaf.networkfabric.vpc.forge/finalizer"
+)
+
 type NetworkDeviceConditionType string
 
 const (
@@ -81,6 +85,10 @@ type LeafStatus struct {
 	ASN uint32 `json:"asn,omitempty"`
 	// LoobackIP assigned to this leaf.
 	LoopbackIP string `json:"loopbackIP,omitempty"`
+	// HostAdminIPs are host IPs in un-assigned state.
+	HostAdminIPs map[string]string `json:"hostAdminIPs,omitempty"`
+	// HostAdminDHCPServer is the DHCPServer for hosts in un-assigned state.
+	HostAdminDHCPServer string `json:"hostAdminDHCPServer,omitempty"`
 }
 
 //+kubebuilder:object:root=true

@@ -1,12 +1,12 @@
-use syn::{self, Field, Ident, Meta};
+use syn::{Field, Ident, Meta};
 
-use options::{Core, DefaultExpression, ForwardAttrs, ParseAttribute, ParseData};
-use util::PathList;
-use {FromMeta, Result};
+use crate::options::{Core, DefaultExpression, ForwardAttrs, ParseAttribute, ParseData};
+use crate::util::PathList;
+use crate::{FromMeta, Result};
 
 /// Reusable base for `FromDeriveInput`, `FromVariant`, `FromField`, and other top-level
 /// `From*` traits.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct OuterFrom {
     /// The field on the target struct which should receive the type identifier, if any.
     pub ident: Option<Ident>,

@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dns
+spec:
+  ports:
+  - nodePort: 31053
+    port: 1053
+    protocol: UDP
+    targetPort: 1053
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kea
+spec:
+  ports:
+   - nodePort: 31067
+     port: 67
+     protocol: UDP
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-api
+spec:
+  ports:
+   - nodePort: 31079
+     port: 11079
+     protocol: TCP
+     targetPort: api-envoy
+     name: api-dev1
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-pxe
+spec:
+  ports:
+   - nodePort: 31800
+     port: 8088
+     protocol: TCP
+     targetPort: pxe-envoy
+  type: NodePort

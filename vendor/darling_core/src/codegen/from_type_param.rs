@@ -1,10 +1,10 @@
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{self, Ident};
+use syn::Ident;
 
-use codegen::{ExtractAttribute, OuterFromImpl, TraitImpl};
-use options::ForwardAttrs;
-use util::PathList;
+use crate::codegen::{ExtractAttribute, OuterFromImpl, TraitImpl};
+use crate::options::ForwardAttrs;
+use crate::util::PathList;
 
 pub struct FromTypeParamImpl<'a> {
     pub base: TraitImpl<'a>,
@@ -78,7 +78,7 @@ impl<'a> ToTokens for FromTypeParamImpl<'a> {
 
 impl<'a> ExtractAttribute for FromTypeParamImpl<'a> {
     fn attr_names(&self) -> &PathList {
-        &self.attr_names
+        self.attr_names
     }
 
     fn forwarded_attrs(&self) -> Option<&ForwardAttrs> {
@@ -95,10 +95,6 @@ impl<'a> ExtractAttribute for FromTypeParamImpl<'a> {
 
     fn local_declarations(&self) -> TokenStream {
         self.base.local_declarations()
-    }
-
-    fn immutable_declarations(&self) -> TokenStream {
-        self.base.immutable_declarations()
     }
 }
 

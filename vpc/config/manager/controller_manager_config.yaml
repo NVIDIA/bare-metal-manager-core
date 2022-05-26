@@ -9,11 +9,9 @@ webhook:
 leaderElection:
   leaderElect: false
   #resourceName: f1cf94cd.vpc.forge.gitlab-master.nvidia.com
-namespace: forge-system
 forge:
   # hbnDevice is true if managed leaf devices are HBN on DPUs.
   hbnDevice: false
-
   # defaultASN is default ASN assigned to leaf devices.
   # default value is 65535
   # defaultASN: 65535

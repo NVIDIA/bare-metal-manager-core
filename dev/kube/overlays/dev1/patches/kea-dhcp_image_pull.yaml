@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kea-dhcp-deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: kea-dhcp
+          imagePullPolicy: Always
+      imagePullSecrets:
+        - name: gitlab-container-registry

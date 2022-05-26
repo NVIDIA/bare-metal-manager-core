@@ -16,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	vpcresource "gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1"
-	"gitlab-master.nvidia.com/forge/vpc/controllers/resource"
 	"gitlab-master.nvidia.com/forge/vpc/pkg/properties"
 	"gitlab-master.nvidia.com/forge/vpc/pkg/vpc/testing"
 )
@@ -151,7 +150,7 @@ var _ = Describe("ResourceGroup", func() {
 		if !reflect.DeepEqual(&rg.Spec, spec) {
 			return fmt.Errorf("waiting for updates")
 		}
-		if !controllerutil.ContainsFinalizer(rg, resource.ResourceGroupFinalizer) {
+		if !controllerutil.ContainsFinalizer(rg, vpcresource.ResourceGroupFinalizer) {
 			return fmt.Errorf("missing finalizer")
 		}
 		clen := len(rg.Status.Conditions)
@@ -223,7 +222,7 @@ var _ = Describe("ResourceGroup", func() {
 		if !reflect.DeepEqual(&mr.Spec, spec) {
 			return fmt.Errorf("waiting for updates")
 		}
-		if !controllerutil.ContainsFinalizer(mr, resource.ManagedResourceFinalizer) {
+		if !controllerutil.ContainsFinalizer(mr, vpcresource.ManagedResourceFinalizer) {
 			return fmt.Errorf("missing finalizer")
 		}
 		clen := len(mr.Status.Conditions)

@@ -8,6 +8,8 @@ use tonic::Status;
 pub mod db;
 mod human_hash;
 
+pub mod kube;
+
 /// Special user-defined code for PostgreSQL level state transition violation
 ///
 /// This error code is generated when we attempt to move a machine to a new desired state that is

@@ -1,0 +1,19 @@
+parameters:
+  toolchain: stable
+jobs:
+  - job: check
+    pool:
+      vmImage: ubuntu-16.04
+    steps:
+      - template: steps-install-rust.yml
+        parameters:
+          toolchain: ${{ parameters.toolchain }}
+          components:
+            - clippy
+      - script: |
+          cargo check --all --all-targets
+        displayName: cargo check
+      - script: |
+          cargo clippy --all
+        displayName: cargo clippy --all
+

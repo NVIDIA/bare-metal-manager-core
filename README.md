@@ -1,7 +1,5 @@
 # Carbide - Bare Metal Provisioning
-
 ![pipeline status](https://gitlab-master.nvidia.com/aforgue/carbide/badges/trunk/pipeline.svg)
-
 ## Introduction
 
 Carbide is a bare metal provisioning system used to manage the lifecycle of
@@ -117,7 +115,7 @@ vpc=$(grpcurl -d '{"name":"test_vpc"}' -plaintext 127.0.0.1:80 metal.v0.Metal/Cr
 
 domain=$(grpcurl -d '{"name":"forge.local"}' -plaintext 127.0.0.1:80 metal.v0.Metal/CreateDomain | jq ".id.value" | tr -d '"')
 
-grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"prefixes\":[{\"prefix\":\"172.20.0.0/24\",\"gateway\":\"172.20.0.1\",\"reserve_first\":20}, {\"prefix\":\"::1/128\", \"reserve_first\":0}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -plaintext 127.0.0.1:80 metal.v0.Metal/CreateNetworkSegment
+grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"prefixes\":[{\"prefix\":\"172.20.0.0/24\",\"gateway\":\"172.20.0.1\",\"reserve_first\":21}, {\"prefix\":\"::1/128\", \"reserve_first\":0}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -plaintext 127.0.0.1:80 metal.v0.Metal/CreateNetworkSegment
 ```
 
 ```
@@ -255,10 +253,10 @@ https://netbox.nvidia.com/dcim/racks/6496/
 | hostname   | DPU BMC IP    | DPU OOB IP    | HOST OOB IP   | HOST IP                          | DPU BMC Credentials | DPU OOB Credentials | HOST OOB ILO Creds    | Host OS Creds   |
 | ---------- | ------------- | ------------- | ------------- | -------------------------------- | ------------------- | ------------------- | --------------------- | --------------  |
 | forge001   | 10.146.38.232 | 10.146.38.229 | 10.146.38.242 | 10.150.51.235 / 10.150.51.236    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
-| forge002   | 10.146.38.233 | 10.146.38.247 | 10.146.38.243 | 10.150.115.234 / 10.150.115.245  | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
-| forge003   | 10.146.38.234 | 10.146.38.230 | 10.146.38.244 | 10.150.51.230 / 10.150.51.229    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
-| forge004   | 10.146.38.235 | 10.146.38.226 | 10.146.38.245 | 10.150.115.236 / 10.150.115.237  | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
-| forge005   | 10.146.38.236 | 10.146.38.225 | 10.146.38.246 | 10.150.51.228 / 10.150.51.227    | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge002   | 10.146.38.231 | 10.146.38.247 | 10.146.38.243 | 10.150.51.242 / 10.150.115.235  | `root:M/uz{HKh@fz6S-%8`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge003   | 10.146.38.241 | 10.146.38.240 | 10.146.38.244 | 10.150.51.230 / 10.150.115.242    | `root:M/uz{HKh@fz6S-%8`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge004   | 10.146.38.235 | 10.146.38.226 | 10.146.38.245 | Dynamic                          | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
+| forge005   | 10.146.38.236 | 10.146.38.225 | 10.146.38.246 | Dynamic                          | `root/0penBmc123`   | `ubuntu:ubuntu`     | `sjc4dcops:sjc4dcops` | `ubuntu:ubuntu` |
 
 ### BGP Info
 
@@ -270,10 +268,62 @@ https://netbox.nvidia.com/dcim/racks/6496/
 | sjc4-d32-nv-02  | dpu_nic1     | 10.150.115.201 | 10.145.0.83       | 65281        | 10.150.115.193 | 65240 |
 | sjc4-d32-nv-03  | dpu_nic0     | 10.150.51.202  | 10.145.0.84       | 65280        | 10.150.51.193  | 65240 |
 | sjc4-d32-nv-03  | dpu_nic1     | 10.150.115.202 | 10.145.0.85       | 65281        | 10.150.115.193 | 65240 |
-| sjc4-d32-cpu-01 | dpu_nic0     | 10.150.51.203  | 10.145.0.86       | 65280        | 10.150.51.193  | 65240 |
-| sjc4-d32-cpu-01 | dpu_nic1     | 10.150.115.203 | 10.145.0.87       | 65281        | 10.150.115.193 | 65240 |
-| sjc4-d32-cpu-02 | dpu_nic0     | 10.150.51.204  | 10.145.0.88       | 65280        | 10.150.51.193  | 65240 |
-| sjc4-d32-cpu-02 | dpu_nic1     | 10.150.115.204 | 10.145.0.89       | 65281        | 10.150.115.193 | 65240 |
+| sjc4-d32-cpu-01 | dpu_nic0     | Unnumbered     | Dynamic           | Dynamic      | 10.150.51.193  | 65240 |
+| sjc4-d32-cpu-01 | dpu_nic1     | Unnumbered     | Dynamic           | Dynamic      | 10.150.115.193 | 65240 |
+| sjc4-d32-cpu-02 | dpu_nic0     | Unnumbered     | Dynamic           | Dynamic       | 10.150.51.193  | 65240 |
+| sjc4-d32-cpu-02 | dpu_nic1     | Unnumbered     | Dynamic           | Dynamic        | 10.150.115.193 | 65240 |
+
+Note: **Dynamic** indicates resources are managed by Forge, and Forge allocates these resources from [SJC4 Forge Dev](https://docs.google.com/spreadsheets/d/1wbRW8zcw_rx05fgP6ThK288d0W_WRIVe6uErUpqT0Eg/edit#gid=701174353).
+
+### Reno host info
+There is not presently much information other than the DPUs BMCs in Reno. The machines are in unknown state
+and the forge discovery image will reset the BMCs. DC Ops may have to set them all to pxe boot though.
+
+Note: .53 is currently not responding as the x86 it was in died, it will come online when new gear arrives
+
+Credentials
+- ARM OS: `ubuntu:ubuntu`
+- DPU BMC: `root:M/uz{HKh@fz6S-%8`
+
+Details
+- https://docs.google.com/spreadsheets/d/172XpZFYMAo_Ph98FMflqztnBE5fILUIeWe9b20R2cQE/edit#gid=0
+- B17 - https://netbox.nvidia.com/dcim/racks/9953/
+- B18 - https://netbox.nvidia.com/dcim/racks/9954/
+- B19 - https://netbox.nvidia.com/dcim/racks/9955/
+
+| BMC IP | BMC Eth | OOB IP | OOB Eth | Serial |
+| ---------- | ------------- | ------------- | ------------- | ------------------- | 
+| 10.180.222.11 |	10:70:fd:18:0f:3e	| 10.180.222.18 |	10:70:fd:18:0f:4a |	MT2203X26565 |
+| 10.180.222.15 |	10:70:fd:18:10:5e	| 10.180.222.13 |	10:70:fd:18:10:6a |	MT2203X26583 |
+| 10.180.222.16 |	10:70:fd:18:0f:ee	| 10.180.222.35 |	10:70:fd:18:0f:fa |	MT2203X26576 |
+| 10.180.222.17 |	10:70:fd:18:0f:6e |	10.180.222.43 |	10:70:fd:18:0f:7a |	MT2203X26568 |
+| 10.180.222.19 |	10:70:fd:18:0f:0e |	10.180.222.25 |	10:70:fd:18:0f:1a |	MT2203X26562 |
+| 10.180.222.20 |	10:70:fd:18:0f:8e |	10.180.222.45 |	10:70:fd:18:0f:9a |	MT2203X26570 |
+| 10.180.222.21 |	10:70:fd:18:0f:2e |	10.180.222.14 |	10:70:fd:18:0f:3a |	MT2203X26564 |
+| 10.180.222.23 |	10:70:fd:18:0f:fe |	10.180.222.46 |	10:70:fd:18:10:0a |	MT2203X26577 |
+| 10.180.222.26 |	10:70:fd:18:0f:ce |	10.180.222.47 |	10:70:fd:18:0f:da |	MT2203X26574 |
+| 10.180.222.27 |	10:70:fd:18:0f:5e |	10.180.222.48 |	10:70:fd:18:0f:6a |	MT2203X26567 |
+| 10.180.222.28 |	10:70:fd:18:0f:be |	10.180.222.10 |	10:70:fd:18:0f:ca |	MT2203X26573 |
+| 10.180.222.29 |	10:70:fd:18:10:6e |	10.180.222.24 |	10:70:fd:18:10:7a |	MT2203X26584 |
+| 10.180.222.30 |	10:70:fd:18:10:0e |	10.180.222.31 |	10:70:fd:18:10:1a | MT2203X26578 |
+| 10.180.222.33 |	10:70:fd:18:10:3e |	10.180.222.40 |	10:70:fd:18:10:4a	| MT2203X26581 |
+| 10.180.222.34 |	10:70:fd:18:0f:ae |	10.180.222.38 |	10:70:fd:18:0f:ba |	MT2203X26572 |
+| 10.180.222.36 |	10:70:fd:18:10:2e |	10.180.222.42 |	10:70:fd:18:10:3a | MT2203X26580 |
+| 10.180.222.37 |	10:70:fd:18:0f:9e |	10.180.222.39 |	10:70:fd:18:0f:aa |	MT2203X26571 |
+| 10.180.222.41 |	10:70:fd:18:10:7e |	10.180.222.49 |	10:70:fd:18:10:8a |	MT2203X26585 |
+| 10.180.222.53 |	6a:7c:1a:43:16:64 |	10.180.222.44 |	10:70:fd:18:10:5a |	MT2203X26582 |
+
+The following 3 nodes are the control plane and have manually set IPs with no dhcp helper on the switch.
+
+Credentials
+- OS: `ubuntu:ubuntu`
+- BMC: `ADMIN:ADMIN`
+
+| ip | bmc ip |
+| ---------- | ------------- |
+| 10.180.32.10 | 10.180.222.50 |
+| 10.180.32.74 | 10.180.222.52 |
+| 10.180.32.138 | 10.180.222.51 |
 
 ### Connecting to DPU
 The DPU shares a physical 1GB ethernet connection for both BMC and OOB access.  
@@ -382,6 +432,43 @@ If you're new or bored, feel free to do one of these:
 
 If you see possible improvements or doing things that are sub-optimial, but don't have time to fix it, just file a jira and move on.
 
+
+---
+# Local kube setup
+Download and install KinD (Kubernetes in docker)
+https://kind.sigs.k8s.io/docs/user/quick-start/#installing-from-release-binaries
+
+You will also want to install kubectl (version 1.24+)
+https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
+
+```
+cargo make kind
+```
+
+If for some reason you need to delete the cluster and start over:
+```
+kind delete cluster --name forge-local
+```
+This will spin up a kind cluster, build and upload the carbide image, and apply
+all the kubernetes primitives to expose carbide services.
+
+When booting the test VM from your local workstation, use the new bridge that 
+KinD created for kubernetes.
+
+To interact with carbide-api use the url `http://127.0.0.1:11079`
+
+To view logs for a particular application, the most straightforward way is to
+```
+kubectl get pods
+kubectl logs <podname> -f 
+```
+
+You can also reference pods by labels (metadata -> labels) which are defined 
+in podspec or deploymentspec files.
+
+```
+kubectl logs -n default -l app=carbide-dhcp -f
+```
 
 ---
 

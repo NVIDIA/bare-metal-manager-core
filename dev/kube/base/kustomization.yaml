@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./carbide-api
+  - ./carbide-dhcp
+  - ./carbide-dns
+  - ./carbide-pxe
+  - ./carbide-relay
+  - ./postgres
+  - ./serviceAccount.yaml

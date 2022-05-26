@@ -1,0 +1,10 @@
+[default]
+address = "127.0.0.1"
+carbide_api_url = "http://carbide-api:1079"
+port = 8000
+
+[development]
+template_dir = "/opt/carbide/pxe/templates"
+
+[production]
+template_dir = "/opt/carbide/pxe/templates"
