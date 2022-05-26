@@ -1,4 +1,4 @@
 FROM arm64v8/ubuntu:focal
 
 RUN apt update && apt-get install -y curl build-essential automake autoconf && rm -rf /var/lib/apt/lists/*
-cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
+RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
