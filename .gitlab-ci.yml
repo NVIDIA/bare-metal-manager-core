@@ -12,7 +12,8 @@ variables:
 
 
 stages:
-  - build-build-container
+  - build-x86-build-container
+  - build-arm-build-container
   - build
   - release
   - doc
@@ -36,7 +37,7 @@ build:ipxe:
     - cargo make --cwd pxe ipxe
 
 build:build-container-x86:
-  stage: build-build-container
+  stage: build-x86-build-container
   rules:
     - changes:
       - "dev/docker/Dockerfile.build-container"
@@ -55,6 +56,27 @@ build:build-container-x86:
     /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST
   tags:
     - x86
+
+build:build-container-arm:
+  stage: build-arm-build-container
+  rules:
+    - changes:
+      - "dev/docker/Dockerfile.build-container-arm"
+      when: always
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+  - |
+    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/arm64v8/build-container:latest "; 
+    FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
+
+    mkdir -p /kaniko/.docker
+    echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
+    echo "Kaniko arguments to run: --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $KANIKO_CACHE_ARGS"
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST
+  tags:
+    - arm
 
 build:dev-docker:
   stage: build
