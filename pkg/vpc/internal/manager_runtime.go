@@ -5,6 +5,7 @@ Copyright 2022 NVIDIA CORPORATION & AFFILIATES.
 package internal
 
 import (
+	"context"
 	"net"
 
 	"github.com/go-logr/logr"
@@ -13,6 +14,7 @@ import (
 
 	networkfabric "gitlab-master.nvidia.com/forge/vpc/apis/networkfabric/v1alpha1"
 	resource "gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1"
+	"gitlab-master.nvidia.com/forge/vpc/controllers"
 	"gitlab-master.nvidia.com/forge/vpc/pkg/resourcepool"
 )
 
@@ -23,6 +25,7 @@ type managedResourceRuntime struct {
 	FabricIPPool *resourcepool.IPv4BlockPool
 	NetworkImpl  OverlayNetworkImplementation
 	State        ManagedResourceBackendState
+	InReconcile  bool
 	Error        error
 }
 
@@ -35,6 +38,7 @@ func (m *managedResourceRuntime) Copy() *managedResourceRuntime {
 		NetworkImpl:  m.NetworkImpl,
 		State:        m.State,
 		Error:        m.Error,
+		InReconcile:  m.InReconcile,
 	}
 }
 
@@ -56,6 +60,30 @@ func (r *vpcManagerManagedResource) NotifyNetworkDeviceChange(hostNICs []string)
 	}
 }
 
+// NotifyResourceGroupChange notifies the front end ManagedResource changes due to
+// associated ResourceGroup change. It notifies only if the corresponding runtime of the
+// ManagedResource has yet created.
+func (r *vpcManagerManagedResource) NotifyResourceGroupChange(rg client.ObjectKey, cl client.Client, ctx context.Context) {
+	mrList := &resource.ManagedResourceList{}
+	if err := cl.List(ctx, mrList,
+		client.InNamespace(rg.Namespace),
+		client.MatchingFields{controllers.ManagedResourceByGroup: rg.Name}); err != nil {
+		r.log.Error(err, "Failed to list ManagedResources in ResourceGroup", "ResourceGroup", rg)
+		return
+	}
+	for _, mr := range mrList.Items {
+		key := &client.ObjectKey{
+			Namespace: mr.Namespace,
+			Name:      mr.Name,
+		}
+		if _, ok, _ := r.indexer.GetByKey(key.String()); ok {
+			continue
+		}
+
+		r.eventQueue.AddEvent(resource.ManagedResourceName, *key)
+	}
+}
+
 // NotifyChange notifies the front end ManagedResource changes.
 func (r *vpcManagerManagedResource) NotifyChange(key client.ObjectKey) {
 	rt := r.Get(key)
@@ -67,7 +95,9 @@ func (r *vpcManagerManagedResource) NotifyChange(key client.ObjectKey) {
 }
 
 // CreateOrUpdate creates or updates a ManagedResource runtime.
-func (r *vpcManagerManagedResource) CreateOrUpdate(req *PortRequest, impl OverlayNetworkImplementation) error {
+func (r *vpcManagerManagedResource) CreateOrUpdate(req *PortRequest, impl OverlayNetworkImplementation,
+	mr *resource.ManagedResource) (
+	*managedResourceRuntime, error) {
 	rt := &managedResourceRuntime{
 		Identifier:  req.Identifier,
 		Key:         req.Key,
@@ -77,18 +107,18 @@ func (r *vpcManagerManagedResource) CreateOrUpdate(req *PortRequest, impl Overla
 		rt.FabricIPPool = r.resourceMgr.GetIPv4Pool(
 			networkfabric.WellKnownConfigurationResourcePool(req.FabricIPPool))
 		if rt.FabricIPPool == nil {
-			return NewMissingResourcePoolError(req.FabricIPPool)
+			return nil, NewMissingResourcePoolError(req.FabricIPPool)
 		}
 	}
 	if req.FabricIP != nil {
 		rt.FabricIP = req.FabricIP
 	} else if req.NeedFabricIP {
 		if rt.FabricIPPool == nil {
-			return NewMissingResourcePoolError(req.FabricIPPool)
+			return nil, NewMissingResourcePoolError(req.FabricIPPool)
 		}
 		ip, err := rt.FabricIPPool.Get()
 		if err != nil {
-			return NewMissingResourcePoolError(req.FabricIPPool)
+			return nil, NewMissingResourcePoolError(req.FabricIPPool)
 		}
 		rt.FabricIP = net.ParseIP(ip)
 	}
@@ -96,8 +126,15 @@ func (r *vpcManagerManagedResource) CreateOrUpdate(req *PortRequest, impl Overla
 		// Preserve state from backend.
 		rt.State = i.(*managedResourceRuntime).State
 		rt.Error = i.(*managedResourceRuntime).Error
+	} else {
+		// new rt.
+		if IsManagedResourceReady(mr) {
+			// controller restarted, reconcile with existing ManagedResources.
+			rt.State = StringToManagedResourceBackendState(mr.Status.NetworkFabricReference.ConfigurationState)
+			rt.InReconcile = true
+		}
 	}
-	return r.indexer.Update(rt)
+	return rt, r.indexer.Update(rt)
 }
 
 // Update updates an existing ManagedResource runtime.

@@ -26,6 +26,11 @@ func IsAlreadyExistError(err error) bool {
 	return ok
 }
 
+func IsBackendConfigurationInProgress(err error) bool {
+	_, ok := err.(*internal.BackendConfigurationInProgress)
+	return ok
+}
+
 func IgnoreNetworkDeviceNotAvailableError(err error) error {
 	if IsNetworkDeviceNotAvailableError(err) || IsNetworkDeviceInMaintenanceError(err) {
 		return nil

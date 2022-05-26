@@ -3,6 +3,7 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
+    namespace: forge-canary-system
   name: forge-canary-system
 ---
 apiVersion: apiextensions.k8s.io/v1
@@ -1296,6 +1297,9 @@ webhooks:
       path: /mutate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-configurationresourcepool
   failurePolicy: Fail
   name: mconfigurationresourcepool.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
   rules:
   - apiGroups:
     - networkfabric.vpc.forge.gitlab-master.nvidia.com
@@ -1317,6 +1321,9 @@ webhooks:
       path: /mutate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-leaf
   failurePolicy: Fail
   name: mleaf.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
   rules:
   - apiGroups:
     - networkfabric.vpc.forge.gitlab-master.nvidia.com
@@ -1338,6 +1345,9 @@ webhooks:
       path: /mutate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-managedresource
   failurePolicy: Fail
   name: mmanagedresource.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
   rules:
   - apiGroups:
     - resource.vpc.forge.gitlab-master.nvidia.com
@@ -1359,6 +1369,9 @@ webhooks:
       path: /mutate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-resourcegroup
   failurePolicy: Fail
   name: mresourcegroup.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
   rules:
   - apiGroups:
     - resource.vpc.forge.gitlab-master.nvidia.com
@@ -1388,6 +1401,9 @@ webhooks:
       path: /validate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-configurationresourcepool
   failurePolicy: Fail
   name: vconfigurationresourcepool.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
   rules:
   - apiGroups:
     - networkfabric.vpc.forge.gitlab-master.nvidia.com
@@ -1409,6 +1425,9 @@ webhooks:
       path: /validate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-leaf
   failurePolicy: Fail
   name: vleaf.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
   rules:
   - apiGroups:
     - networkfabric.vpc.forge.gitlab-master.nvidia.com
@@ -1430,6 +1449,9 @@ webhooks:
       path: /validate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-managedresource
   failurePolicy: Fail
   name: vmanagedresource.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
   rules:
   - apiGroups:
     - resource.vpc.forge.gitlab-master.nvidia.com
@@ -1451,6 +1473,9 @@ webhooks:
       path: /validate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-resourcegroup
   failurePolicy: Fail
   name: vresourcegroup.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
   rules:
   - apiGroups:
     - resource.vpc.forge.gitlab-master.nvidia.com

@@ -28,6 +28,10 @@ type ManagedResourceState string
 type HostAccess string
 
 const (
+	ManagedResourceFinalizer = "managedresource.resource.vpc.forge/finalizer"
+)
+
+const (
 	ManagedResourceConditionTypeRemove ManagedResourceConditionType = "Destroy"
 	ManagedResourceConditionTypeAdd    ManagedResourceConditionType = "Create"
 )
