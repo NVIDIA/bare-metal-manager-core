@@ -118,10 +118,10 @@ kustomize build vpc/config/crd/ -o tmp/
 [tasks.generate-rust-from-crd]
 workspace = false
 script = '''
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_configurationresourcepools.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/configuration_resource_pool.rs
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/leaf.rs
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_managedresources.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/managed_resource.rs
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_resourcegroups.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/resource_group.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_configurationresourcepools.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/configuration_resource_pool.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/leaf.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_managedresources.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/managed_resource.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_resourcegroups.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/resource_group.rs
 '''
 
 [tasks.update-kube-structs]
