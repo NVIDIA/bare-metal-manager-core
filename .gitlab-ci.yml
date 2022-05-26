@@ -41,9 +41,9 @@ build:ipxe:
 build:build-container-x86:
   stage: build
   rules:
-    - changes:
+    - if: $CI_COMMIT_BRANCH == 'trunk'
+      changes:
       - "dev/docker/Dockerfile.build-container"
-      when: always
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
@@ -62,9 +62,9 @@ build:build-container-x86:
 build:build-container-arm:
   stage: build
   rules:
-    - changes:
+    - if: $CI_COMMIT_BRANCH == 'trunk'
+      changes:
       - "dev/docker/Dockerfile.build-container-arm"
-      when: always
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
