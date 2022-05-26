@@ -76,7 +76,7 @@ build:build-container-arm:
     echo "Kaniko arguments to run: --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $KANIKO_CACHE_ARGS"
     /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST
   tags:
-    - arm
+    - arm64
 
 build:dev-docker:
   stage: build
