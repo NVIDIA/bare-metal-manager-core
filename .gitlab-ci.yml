@@ -53,6 +53,8 @@ build:build-container-x86:
     echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
     echo "Kaniko arguments to run: --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container $KANIKO_CACHE_ARGS"
     /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST
+  tags:
+    - x86
 
 build:dev-docker:
   stage: build
