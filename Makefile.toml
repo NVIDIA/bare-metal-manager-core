@@ -43,6 +43,22 @@ command = "docker"
 args = ["build", "-t", "carbide:latest", "-f", "dev/deployment/Dockerfile", "."]
 
 
+[tasks.build-x86-build-container]
+category = "Kind"
+description = "Build the x86 build container"
+workspace = false
+command = "docker"
+args = ["build", "-t", "gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest", "-f", "dev/docker/Dockerfile.build-container", "."]
+
+
+[tasks.build-arm-build-container]
+category = "Kind"
+description = "Build the ARM build container"
+workspace = false
+command = "docker"
+args = ["build", "-t", "gitlab-master.nvidia.com:5005/nvmetal/carbide/arm64v8/build-container:latest", "-f", "dev/docker/Dockerfile.build-container-arm", "."]
+
+
 [tasks.load-carbide-container]
 category = "Kind"
 description = "Push image to Kind"
