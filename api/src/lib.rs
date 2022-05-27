@@ -4,6 +4,7 @@ use sqlx::postgres::PgDatabaseError;
 use std::net::IpAddr;
 use tonic::Status;
 
+pub mod bg;
 pub mod db;
 mod human_hash;
 
