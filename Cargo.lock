@@ -53,6 +53,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94a45b455c14666b85fc40a019e8ab9eb75e3a124e05494f5397122bc9eb06e0"
 
 [[package]]
+name = "anymap2"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d301b3b94cb4b2f23d7917810addbbaff90738e0ca2be692bd027e70d7e0330c"
+
+[[package]]
 name = "async-stream"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -266,6 +272,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "sqlxmq",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -3391,6 +3398,35 @@ dependencies = [
  "once_cell",
  "tokio",
  "tokio-rustls",
+]
+
+[[package]]
+name = "sqlxmq"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "045d8c9fd3c9b4500ea320fc89a3ce50c9ae65df4e8b6b6d0eb288a2617a3e3f"
+dependencies = [
+ "anymap2",
+ "chrono",
+ "dotenv",
+ "log",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "sqlxmq_macros",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "sqlxmq_macros"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0496eb68f9efe23edbb13fb585d062438c30c361c44abf31b2e879ddadcb11b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
