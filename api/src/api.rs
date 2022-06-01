@@ -10,9 +10,9 @@ use tonic_reflection::server::Builder;
 use carbide::{
     db::{
         DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
-        MachineTopology, NetworkSegment, NewDomain, NewInstanceType, NewNetworkSegment, NewVpc,
-        Tag, TagAssociation, TagCreate, TagDelete, TagsList, UpdateInstanceType, UpdateVpc,
-        UuidKeyedObjectFilter, Vpc,
+        MachineState, MachineTopology, NetworkSegment, NewDomain, NewInstance, NewInstanceType,
+        NewNetworkSegment, NewVpc, Tag, TagAssociation, TagCreate, TagDelete, TagsList,
+        UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
     },
     CarbideError,
 };
@@ -520,9 +520,102 @@ impl Metal for Api {
 
     async fn create_instance(
         &self,
-        _request: Request<rpc::Instance>,
+        request: Request<rpc::Instance>,
     ) -> Result<Response<rpc::Instance>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let instance = NewInstance::try_from(request.into_inner())?;
+        let machine_id = &instance.machine_id.clone();
+        // check the state of the machine
+        let machine = match Machine::find_one(&mut txn, *machine_id).await? {
+            None => {
+                return Err(Status::invalid_argument(format!(
+                    "Supplied invalid UUID: {}",
+                    machine_id
+                )))
+            }
+            Some(m) => m,
+        };
+
+        match machine.current_state(&mut txn).await? {
+            // TODO(baz): make these different states matter
+            MachineState::Init => {
+                return Err(Status::invalid_argument(format!(
+                    "Machine was was not discovered yet but is in the database {}",
+                    machine_id
+                )))
+            }
+            MachineState::New => {
+                // Blindly march forward to ready
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Adopt)
+                    .await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Test)
+                    .await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
+                    .await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .await?;
+            }
+            MachineState::Adopted => {
+                // Blindly march forward to ready
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Test)
+                    .await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
+                    .await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .await?;
+            }
+            MachineState::Tested => {
+                // Blindly march forward to ready
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
+                    .await?;
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .await?;
+            }
+            MachineState::Ready => {
+                // This is where we want to be for PXE to show the correct menu
+                machine
+                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .await?;
+            }
+            MachineState::Assigned => {
+                return Err(Status::invalid_argument(format!(
+                    "Machine was already assigned {}",
+                    machine_id
+                )))
+            }
+            rest => {
+                return Err(Status::invalid_argument(format!(
+                    "Could not create instance given machine state {:?}",
+                    rest
+                )))
+            }
+        }
+
+        let response = Ok(instance
+            .persist(&mut txn)
+            .await
+            .map(rpc::Instance::from)
+            .map(Response::new)?);
+
+        // TODO(baz): reboot the machine
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn update_instance(

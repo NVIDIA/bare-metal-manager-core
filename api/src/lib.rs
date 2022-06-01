@@ -1,9 +1,11 @@
 use log::info;
 use mac_address::MacAddress;
+use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
 use std::net::IpAddr;
 use tonic::Status;
 
+pub mod bg;
 pub mod db;
 mod human_hash;
 
@@ -51,6 +53,9 @@ pub enum CarbideError {
     #[error("Database Query Error: {0}")]
     DatabaseError(sqlx::Error),
 
+    #[error("Could not transition across states in the state machine: {0}")]
+    InvalidState(TransitionImpossibleError),
+
     #[error("Invalid machine state transition: {0}")]
     MachineStateTransitionViolation(String, Option<String>),
 
@@ -87,7 +92,7 @@ pub enum CarbideError {
     #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier")]
     IdentifierSpecifiedForNewObject(String),
 
-    #[error("A unique identifier was nopt specified for an existing object.  Please specify an identifier")]
+    #[error("A unique identifier was not specified for an existing object.  Please specify an identifier")]
     IdentifierNotSpecifiedForObject(),
 
     #[error("The Domain named {0} already exists. Domain names must be unique")]

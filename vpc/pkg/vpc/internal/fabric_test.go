@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/json"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,6 +38,7 @@ var _ = Describe("fabric", func() {
 		manager              vpc.VPCManager
 		resourceManager      *resourcepool.Manager
 		rg                   *resource.ResourceGroup
+		adminRg              *resource.ResourceGroup
 		mockCumulusTransport *testing.MockNetworkDeviceTransport
 		mr                   *resource.ManagedResource
 		leaf                 *networkfabric.Leaf
@@ -71,6 +73,22 @@ var _ = Describe("fabric", func() {
 					IP:           "10.10.10.0",
 					PrefixLength: 24,
 					Gateway:      "10.10.10.1",
+				},
+				DHCPServer:                "20.20.20.1",
+				NetworkImplementationType: resource.OverlayNetworkImplementationTypeFabric,
+			},
+		}
+		adminRg = &resource.ResourceGroup{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      resource.WellKnownAdminResourceGroup,
+				Namespace: namespace,
+			},
+			Spec: resource.ResourceGroupSpec{
+				TenantIdentifier: "test-",
+				Network: &resource.IPNet{
+					IP:           "30.30.30.0",
+					PrefixLength: 24,
+					Gateway:      "30.30.30.1",
 				},
 				DHCPServer:                "20.20.20.1",
 				NetworkImplementationType: resource.OverlayNetworkImplementationTypeFabric,
@@ -114,6 +132,8 @@ var _ = Describe("fabric", func() {
 		ctxCancel()
 		err := k8sClient.Delete(context.Background(), rg)
 		Expect(err).ToNot(HaveOccurred())
+		err = k8sClient.Delete(context.Background(), adminRg)
+		Expect(client.IgnoreNotFound(err)).ToNot(HaveOccurred())
 	})
 
 	validateNetworkProperties := func(prop *properties.OverlayNetworkProperties, spec *resource.ResourceGroupSpec) {
@@ -191,8 +211,15 @@ var _ = Describe("fabric", func() {
 			rg.Spec.FabricIPPool = string(networkfabric.DatacenterIPv4ResourcePool)
 		}
 
+		var err error
+		if vni && vlan {
+			err = k8sClient.Create(context.Background(), adminRg)
+			Expect(err).ToNot(HaveOccurred())
+			err = manager.CreateOrUpdateOverlayNetwork(context.Background(), adminRg.Name)
+			Expect(err).ToNot(HaveOccurred())
+		}
 		// Create resource group
-		err := k8sClient.Create(context.Background(), rg)
+		err = k8sClient.Create(context.Background(), rg)
 		Expect(err).ToNot(HaveOccurred())
 		retErr := manager.CreateOrUpdateOverlayNetwork(context.Background(), rg.Name)
 		if expErr == nil {
@@ -248,7 +275,7 @@ var _ = Describe("fabric", func() {
 		err = manager.AddOrUpdateResourceToNetwork(context.Background(), mr.Name)
 		Expect(err).ToNot(HaveOccurred())
 	}
-	testManagedResource := func(fabricIP bool, commits int,
+	testManagedResource := func(commits int,
 		modifyTest func(_, _ <-chan client.ObjectKey)) {
 		// Setup mock transport
 		impl := internal.GetVPCManagerImpl(manager)
@@ -295,54 +322,69 @@ var _ = Describe("fabric", func() {
 		// Create network device.
 		err := k8sClient.Create(context.Background(), leaf)
 		Expect(err).ToNot(HaveOccurred())
+		if len(leaf.Status.Conditions) > 0 {
+			err = k8sClient.Status().Update(context.Background(), leaf)
+			Expect(err).ToNot(HaveOccurred())
+		}
 		err = manager.CreateOrUpdateNetworkDevice(context.Background(), networkfabric.LeafName, leaf.Name)
-		Expect(err).ToNot(HaveOccurred())
-		Eventually(func() error {
-			stop := time.Tick(time.Second)
-			select {
-			case leafEvt := <-leafEventChan:
-				err = manager.CreateOrUpdateNetworkDevice(context.Background(), networkfabric.LeafName, leafEvt.Name)
-				if err != nil {
-					return err
-				}
-				devProp, err := manager.GetNetworkDeviceProperties(context.Background(), networkfabric.LeafName, leaf.Name)
-				if err != nil {
-					return err
-				}
-				if !devProp.Alive {
-					return fmt.Errorf("wait for liveness")
-				}
-				return nil
-			case <-stop:
-				return fmt.Errorf("no Event")
+		Expect(vpc.IsAlreadyExistError(err) || err == nil).To(BeTrue())
+		if !vpc.IsAlreadyExistError(err) {
+			Eventually(func() error {
+				stop := time.Tick(time.Second)
+				select {
+				case leafEvt := <-leafEventChan:
+					err = manager.CreateOrUpdateNetworkDevice(context.Background(), networkfabric.LeafName, leafEvt.Name)
+					if err != nil {
+						return err
+					}
+					devProp, err := manager.GetNetworkDeviceProperties(context.Background(), networkfabric.LeafName, leaf.Name)
+					if err != nil {
+						return err
+					}
+					if !devProp.Alive {
+						return fmt.Errorf("wait for liveness")
+					}
+					return nil
+				case <-stop:
+					return fmt.Errorf("no Event")
 
-			}
-		}, 10, 1).Should(BeNil())
-
+				}
+			}, 10, 1).Should(BeNil())
+		}
 		// Create managed resource.
 		err = k8sClient.Create(context.Background(), mr)
 		Expect(err).ToNot(HaveOccurred())
+		if len(mr.Status.Conditions) > 0 {
+			err = k8sClient.Status().Update(context.Background(), mr)
+			Expect(err).ToNot(HaveOccurred())
+		}
 		err = manager.AddOrUpdateResourceToNetwork(context.Background(), mr.Name)
-		Expect(err).To(BeAssignableToTypeOf(&internal.BackendConfigurationInProgress{}))
+		Expect(vpc.IsBackendConfigurationInProgress(err) || err == nil).To(BeTrue())
 		var prop *properties.ResourceProperties
-		Eventually(func() error {
-			stop := time.Tick(time.Second)
-			select {
-			case mrEvt := <-mrEventChan:
-				err = manager.AddOrUpdateResourceToNetwork(context.Background(), mrEvt.Name)
-				if err != nil {
-					return err
+		if err == nil {
+			prop, err = manager.GetResourceProperties(context.Background(), mr.Name)
+			Expect(err).ToNot(HaveOccurred())
+			validateResourceProperties(prop, &mr.Spec, internal.BackendStateComplete.String())
+		} else {
+			Eventually(func() error {
+				stop := time.Tick(time.Second)
+				select {
+				case mrEvt := <-mrEventChan:
+					err = manager.AddOrUpdateResourceToNetwork(context.Background(), mrEvt.Name)
+					if err != nil {
+						return err
+					}
+					prop, err = manager.GetResourceProperties(context.Background(), mrEvt.Name)
+					if err != nil {
+						return err
+					}
+					validateResourceProperties(prop, &mr.Spec, internal.BackendStateComplete.String())
+					return nil
+				case <-stop:
+					return fmt.Errorf("no event")
 				}
-				prop, err = manager.GetResourceProperties(context.Background(), mrEvt.Name)
-				if err != nil {
-					return err
-				}
-				validateResourceProperties(prop, &mr.Spec, internal.BackendStateComplete.String())
-				return err
-			case <-stop:
-				return fmt.Errorf("no event")
-			}
-		}, 10, 1).ShouldNot(HaveOccurred())
+			}, 10, 1).ShouldNot(HaveOccurred())
+		}
 
 		if modifyTest != nil {
 			modifyTest(leafEventChan, mrEventChan)
@@ -403,13 +445,35 @@ var _ = Describe("fabric", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		table.DescribeTable("life cycle",
+		table.DescribeTable("Life cycle",
 			func(commits int, // changes commit to the device.
 				modifyTest func(_, _ <-chan client.ObjectKey)) {
-				testManagedResource(true, commits, modifyTest)
+				testManagedResource(commits, modifyTest)
 			},
 			table.Entry("Normal", 4, nil),                      // 2 commits for overlay; 2 commits for adminIPs
 			table.Entry("Modify host IP", 5, testHostIPChange), // 3 commits for overlay; 2 commits for adminIPs
 		)
+
+		It("Reconcile", func() {
+			mr.Status.Conditions = []resource.ManagedResourceCondition{{
+				Type:               resource.ManagedResourceConditionTypeAdd,
+				Status:             v1.ConditionTrue,
+				LastTransitionTime: metav1.Time{Time: time.Now()},
+			}}
+			mr.Status.NetworkFabricReference = &resource.NetworkFabricReference{
+				ConfigurationState: internal.BackendStateComplete.String(),
+			}
+			mr.Status.HostAccessIPs = &resource.IPAssociation{}
+			leaf.Status.Conditions = []networkfabric.NetworkDeviceCondition{{
+				Type:               networkfabric.NetworkDeviceConditionTypeLiveness,
+				Status:             v1.ConditionTrue,
+				LastTransitionTime: metav1.Time{Time: time.Now()},
+			}}
+			oldIntv := internal.CumulusLivenessInterval
+			defer func() { internal.CumulusLivenessInterval = oldIntv }()
+			internal.CumulusLivenessInterval = 3 * time.Second
+			// 1 commit for delete overlay, 1 commit for reconfigure underlay.
+			testManagedResource(2, func(_, _ <-chan client.ObjectKey) { time.Sleep(time.Second * 5) })
+		})
 	})
 })

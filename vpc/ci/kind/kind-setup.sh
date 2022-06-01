@@ -18,7 +18,7 @@
 CLUSTER_NAME=""
 NUM_WORKERS=2
 DHCPD_CONTAINER="vpc_dhcpd"
-IMAGES="quay.io/nvidia/nvmetal-hydrazine:latest"
+IMAGES="quay.io/nvidia/forge-connectivity:latest"
 
 set -eo pipefail
 function echoerr {

@@ -1,8 +1,8 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= quay.io/nvidia/nvmetal-hydrazine:latest
-OVN_IMG ?= quay.io/nvidia/nvmetal-hydrazine-ovn:v21.06
-TEST_IMG ?= hydrazine/test:latest
+IMG ?= quay.io/nvidia/forge-connectivity:latest
+OVN_IMG ?= quay.io/nvidia/forge-connectivity-ovn:v21.06
+TEST_IMG ?= forge-connectivity/test:latest
 
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
@@ -60,7 +60,13 @@ help: ## Display this help.
 
 manifests: controller-gen kustomize ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	FORGE_CONTROL_PLANE=forge envsubst < config/default/kustomization.template.yaml > config/default/kustomization.yaml
 	$(KUSTOMIZE) build config/default > config/forge.yaml
+	FORGE_CONTROL_PLANE=forge-canary envsubst < config/default/kustomization.template.yaml > config/default/kustomization.yaml
+	$(KUSTOMIZE) build config/default > config/forge-canary.yaml
+	FORGE_CONTROL_PLANE=forge-dev envsubst < config/default/kustomization.template.yaml > config/default/kustomization.yaml
+	$(KUSTOMIZE) build config/default > config/forge-dev.yaml
+	rm config/default/kustomization.yaml
 
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."

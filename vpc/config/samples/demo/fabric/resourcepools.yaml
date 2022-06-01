@@ -1,17 +1,4 @@
 ---
-apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
-kind: ResourceGroup
-metadata:
-  name: administration-resource-group
-  namespace: forge-system
-spec:
-  tenantIdentifier: admin
-  dhcpServer: 10.150.51.235
-  network:
-    ip: 30.30.30.0
-    prefixLength: 24
-    gateway: 30.30.30.1
----
 apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
 kind: ConfigurationResourcePool
 metadata:
@@ -42,9 +29,9 @@ metadata:
 spec:
   type: ipv4
   ranges:
-    - start: 20.10.10.0
-      end: 20.10.12.0
-  allocationBlockSize: 8
+    - start: 10.146.200.128
+      end: 10.146.201.0
+  allocationBlockSize: 6
 ---
 apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
 kind: ConfigurationResourcePool
@@ -54,8 +41,8 @@ metadata:
 spec:
   type: ipv4
   ranges:
-    - start: 10.145.0.150
-      end: 10.145.0.160
+    - start: 10.146.201.0
+      end: 10.146.202.0
 ---
 apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
 kind: ConfigurationResourcePool
@@ -78,3 +65,16 @@ spec:
   ranges:
     - start: 192.168.254.0
       end: 192.168.255.0
+---
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: administration-resource-group
+  namespace: forge-system
+spec:
+  tenantIdentifier: admin
+  dhcpServer: 10.150.51.235
+  network:
+    ip: 10.146.200.0
+    prefixLength: 25
+    gateway: 10.146.200.1

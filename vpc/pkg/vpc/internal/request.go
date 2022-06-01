@@ -73,6 +73,7 @@ func (p *PortRequest) Populate(mr *resource.ManagedResource, rg *resource.Resour
 	if mr.Status.HostAccessIPs != nil {
 		p.FabricIP = net.ParseIP(string(mr.Status.HostAccessIPs.FabricIP))
 	}
+
 	for _, dpuIP := range mr.Spec.DPUIPs {
 		p.DPUIPs = append(p.DPUIPs, net.ParseIP(string(dpuIP)))
 	}
@@ -83,4 +84,22 @@ func (p *PortRequest) Populate(mr *resource.ManagedResource, rg *resource.Resour
 		p.DCHPServer = net.ParseIP(string(rg.Spec.DHCPServer))
 	}
 	return p
+}
+
+func (p *PortRequest) Update(rt *managedResourceRuntime) {
+	if rt.FabricIP != nil && !p.FabricIP.Equal(rt.FabricIP) {
+		p.FabricIP = rt.FabricIP
+	}
+}
+
+func (p *PortRequest) Equal(o *PortRequest) bool {
+	eq := p.Key == o.Key && p.DCHPServer.Equal(o.DCHPServer) && p.Isolated == o.Isolated && p.HostIP.Equal(o.HostIP) &&
+		p.NeedFabricIP == o.NeedFabricIP
+	if !eq {
+		return false
+	}
+	if !p.NeedFabricIP {
+		return true
+	}
+	return p.FabricIP.Equal(o.FabricIP)
 }

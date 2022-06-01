@@ -73,9 +73,9 @@ type NetworkDevice interface {
 	// IsInMaintenanceMode returns whether the device is in maintenance mode.
 	IsInMaintenanceMode() bool
 	// SetHostAdminIPs sets admin IPs for hosts.
-	SetHostAdminIPs(map[string]string)
+	SetHostAdminIPs(map[string]string, bool)
 	// Liveness continuously probes the liveness of the device.
-	Liveness()
+	Liveness(doReconcile bool)
 	// IsReachable is true if the device is alive and operating.
 	IsReachable() bool
 	// GetHostIdentifiers returns all hosts connected to this device.
@@ -85,17 +85,15 @@ type NetworkDevice interface {
 	// GetPortByHostIdentifier returns the port connected to the host (identifier).
 	GetPortByHostIdentifier(identifier string) string
 	// UpdateConfiguration updates configures on the device.
-	UpdateConfiguration(req *PortRequest, isDelete bool) (bool, error)
+	UpdateConfiguration(req *PortRequest, doReconcile, isDelete bool) (bool, error)
 	// ExecuteConfiguration sends configuration updates to the device.
 	ExecuteConfiguration() (bool, error)
 	// Unmanage attempts to remove all configurations on the device.
 	Unmanage() error
 	// IsUnmanaged indicates the device is not managed by the controller, do any cleanup.
 	IsUnmanaged() bool
-	// GetLoopbackIP returns loopback ip of this network device.
-	GetLoopbackIP() (string, error)
-	// GetASN returns ASN of this network device.
-	GetASN() (uint32, error)
+	// GetProperties returns networkDevice Properties
+	GetProperties() (*properties.NetworkDeviceProperties, error)
 }
 
 type ManagedResourceBackendState int
@@ -119,6 +117,20 @@ func (s ManagedResourceBackendState) String() string {
 		return "Errored"
 	}
 	return "N/A"
+}
+
+func StringToManagedResourceBackendState(in string) ManagedResourceBackendState {
+	switch in {
+	case "Initializing":
+		return BackendStateInit
+	case "Modifying":
+		return BackendStateModifying
+	case "Completed":
+		return BackendStateComplete
+	case "Errored":
+		return BackendStateError
+	}
+	return -1
 }
 
 type FabricOverlayNetworkImplementation struct {
@@ -269,7 +281,7 @@ func (i *FabricOverlayNetworkImplementation) GetNetworkProperties() (*properties
 	}, nil
 }
 
-func (i *FabricOverlayNetworkImplementation) AddOrUpdateResourceToNetwork(req *PortRequest) error {
+func (i *FabricOverlayNetworkImplementation) AddOrUpdateResourceToNetwork(req *PortRequest, doReconcile bool) error {
 	i.log.V(1).Info("AddOrUpdateResourceToNetwork", "ManagedResource", req.Key)
 	l, err := i.manager.networkDevices.ByIndex(networkDeviceByConnectedHosts, req.Identifier)
 	if err != nil {
@@ -297,7 +309,7 @@ func (i *FabricOverlayNetworkImplementation) AddOrUpdateResourceToNetwork(req *P
 			return NewNetworkDeviceNotAvailableError(v1alpha1.LeafName, device.Key())
 		}
 
-		ok, err := device.UpdateConfiguration(req, false)
+		ok, err := device.UpdateConfiguration(req, doReconcile, false)
 		if err != nil {
 			return err
 		}
@@ -328,7 +340,7 @@ func (i *FabricOverlayNetworkImplementation) DeleteResourceFromNetwork(req *Port
 		if !device.IsReachable() {
 			return NewNetworkDeviceNotReachableError(v1alpha1.LeafName, device.Key())
 		}
-		ok, err := device.UpdateConfiguration(req, true)
+		ok, err := device.UpdateConfiguration(req, false, true)
 		if err != nil {
 			return err
 		}

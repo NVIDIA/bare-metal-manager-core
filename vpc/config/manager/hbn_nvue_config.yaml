@@ -57,11 +57,17 @@
               {{.UplinkGroup}}:
                 address-family:
                   ipv4-unicast:
+                    aspath:
+                      allow-my-asn:
+                        enable: on
                     policy:
                       inbound:
                         prefix-list: {{.FromUnderlayFilter}}
                       outbound:
                         route-map: {{.ToUnderlayFilter}}
                   l2vpn-evpn:
+                    aspath:
+                      allow-my-asn:
+                        enable: on
                     enable: on
                 remote-as: external

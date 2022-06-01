@@ -26,6 +26,11 @@ func IsAlreadyExistError(err error) bool {
 	return ok
 }
 
+func IsBackendConfigurationInProgress(err error) bool {
+	_, ok := err.(*internal.BackendConfigurationInProgress)
+	return ok
+}
+
 func IgnoreNetworkDeviceNotAvailableError(err error) error {
 	if IsNetworkDeviceNotAvailableError(err) || IsNetworkDeviceInMaintenanceError(err) {
 		return nil
@@ -49,6 +54,8 @@ func GetErrorNextPollAfter(err error) (*time.Duration, error) {
 	case *internal.MissingSpecError:
 		return nil, nil
 	case *internal.BackendConfigurationInProgress:
+		return nil, nil
+	case *internal.MissingResourcePoolError:
 		return nil, nil
 	}
 	return nil, err

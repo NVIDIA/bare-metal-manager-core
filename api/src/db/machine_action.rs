@@ -58,6 +58,40 @@ impl FromStr for MachineAction {
     }
 }
 
+impl From<&rpc::MachineStateMachineInput> for MachineAction {
+    fn from(action: &rpc::MachineStateMachineInput) -> Self {
+        match action {
+            rpc::MachineStateMachineInput::Discover => MachineAction::Discover,
+            rpc::MachineStateMachineInput::Adopt => MachineAction::Adopt,
+            rpc::MachineStateMachineInput::Test => MachineAction::Test,
+            rpc::MachineStateMachineInput::Commission => MachineAction::Commission,
+            rpc::MachineStateMachineInput::Assign => MachineAction::Assign,
+            rpc::MachineStateMachineInput::Fail => MachineAction::Fail,
+            rpc::MachineStateMachineInput::Decommission => MachineAction::Decommission,
+            rpc::MachineStateMachineInput::Recommission => MachineAction::Recommission,
+            rpc::MachineStateMachineInput::Unassign => MachineAction::Unassign,
+            rpc::MachineStateMachineInput::Release => MachineAction::Release,
+        }
+    }
+}
+
+impl From<&MachineAction> for rpc::MachineStateMachineInput {
+    fn from(event: &MachineAction) -> Self {
+        match event {
+            MachineAction::Discover => rpc::MachineStateMachineInput::Discover,
+            MachineAction::Adopt => rpc::MachineStateMachineInput::Adopt,
+            MachineAction::Test => rpc::MachineStateMachineInput::Test,
+            MachineAction::Commission => rpc::MachineStateMachineInput::Commission,
+            MachineAction::Assign => rpc::MachineStateMachineInput::Assign,
+            MachineAction::Fail => rpc::MachineStateMachineInput::Fail,
+            MachineAction::Decommission => rpc::MachineStateMachineInput::Decommission,
+            MachineAction::Recommission => rpc::MachineStateMachineInput::Recommission,
+            MachineAction::Unassign => rpc::MachineStateMachineInput::Unassign,
+            MachineAction::Release => rpc::MachineStateMachineInput::Release,
+        }
+    }
+}
+
 /// Conversion from a MachineAction instance into a protobuf representation for the same type.
 impl From<MachineAction> for rpc::MachineAction {
     fn from(action: MachineAction) -> rpc::MachineAction {

@@ -26,6 +26,8 @@ build:cargo:
     - env
     - /etc/init.d/postgresql start
     - cargo make workspace-ci-flow
+  tags:
+    - x86_64
 
 build:ipxe:
   stage: build
@@ -33,11 +35,61 @@ build:ipxe:
     - branches
   script:
     - cargo make --cwd pxe ipxe
+  tags:
+    - x86_64
+
+build:build-container-x86:
+  stage: build
+  rules:
+    - if: $CI_COMMIT_BRANCH == 'trunk'
+      changes:
+      - "dev/docker/Dockerfile.build-container"
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+  - |
+    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest "; 
+    FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
+
+    mkdir -p /kaniko/.docker
+    echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
+    echo "Kaniko arguments to run: --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container $KANIKO_CACHE_ARGS"
+    /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container $FORMATTEDTAGLIST
+  tags:
+    - x86_64
+
+build:build-container-arm:
+  stage: build
+  rules:
+    - if: $CI_COMMIT_BRANCH == 'trunk'
+      changes:
+      - "dev/docker/Dockerfile.build-container-arm"
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+  - |
+    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/arm64v8/build-container:latest "; 
+    FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
+
+    mkdir -p /kaniko/.docker
+    echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
+    echo "Kaniko arguments to run: --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $KANIKO_CACHE_ARGS"
+    /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $FORMATTEDTAGLIST
+  tags:
+    - aarch64
 
 build:dev-docker:
   stage: build
-  only:
-    - trunk
+  rules:
+    - if: $CI_COMMIT_BRANCH == 'trunk'
+      changes:
+      - api/**/*
+      - dns/**/*
+      - rpc/**/*
+      - dhcp/**/*
+      - pxe/**/*
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
@@ -50,7 +102,9 @@ build:dev-docker:
     mkdir -p /kaniko/.docker
     echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
     echo "Kaniko arguments to run: --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile $KANIKO_CACHE_ARGS"
-    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/deployment/Dockerfile $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/deployment/Dockerfile $FORMATTEDTAGLIST
+  tags:
+    - x86_64
 
 build:docker:
   stage: release
@@ -107,6 +161,8 @@ build:docker:
       echo "{\"auths\":{\"quay.io\":{\"auth\":\"$(echo -n $QUAY_LOGIN_RW:$QUAY_LOGIN_RW_PASS | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
       echo "Kaniko arguments to run: --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST $IMAGE_LABELS"
       /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/deployment/Dockerfile $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST $IMAGE_LABELS
+  tags:
+    - x86_64
 
 pages:
   stage: doc
@@ -117,6 +173,8 @@ pages:
       - public
   only:
     - trunk
+  tags:
+    - x86_64
 
 cache:
   paths:

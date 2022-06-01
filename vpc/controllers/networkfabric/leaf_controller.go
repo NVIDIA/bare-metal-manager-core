@@ -36,10 +36,6 @@ import (
 	"gitlab-master.nvidia.com/forge/vpc/pkg/vpc"
 )
 
-const (
-	LeafFinalizer = "leaf.networkfabric.vpc.forge/finalizer"
-)
-
 // LeafReconciler reconciles a Leaf object
 type LeafReconciler struct {
 	client.Client
@@ -90,19 +86,19 @@ func (r *LeafReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctr
 	}()
 	if leaf.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Register finalizer.
-		if !controllerutil.ContainsFinalizer(leaf, LeafFinalizer) {
-			controllerutil.AddFinalizer(leaf, LeafFinalizer)
+		if !controllerutil.ContainsFinalizer(leaf, networkfabric.LeafFinalizer) {
+			controllerutil.AddFinalizer(leaf, networkfabric.LeafFinalizer)
 			update = true
 		}
 	} else {
 		// Leaf is being deleted.
-		if controllerutil.ContainsFinalizer(leaf, LeafFinalizer) {
+		if controllerutil.ContainsFinalizer(leaf, networkfabric.LeafFinalizer) {
 			if err := r.VPCMgr.RemoveNetworkDevice(ctx, reflect.TypeOf(leaf).Elem().Name(), req.Name); err != nil {
 				log.V(1).Info("Failed to remove network device ", "Leaf", req, "Error", err)
-				updateStatus = updateNetworkDeviceCondition(leaf, nil, err)
+				updateStatus = updateNetworkDeviceStatus(leaf, nil, err)
 				return resource.HandleReconcileReturnErr(err)
 			}
-			controllerutil.RemoveFinalizer(leaf, LeafFinalizer)
+			controllerutil.RemoveFinalizer(leaf, networkfabric.LeafFinalizer)
 			update = true
 		}
 		return ctrl.Result{}, nil
@@ -111,12 +107,12 @@ func (r *LeafReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctr
 	if err := r.VPCMgr.CreateOrUpdateNetworkDevice(ctx, networkfabric.LeafName, req.Name); err != nil {
 		if !vpc.IsAlreadyExistError(err) {
 			log.V(1).Info("Failed to add network device", "Device", req, "Error", err)
-			updateStatus = updateNetworkDeviceCondition(leaf, nil, err)
+			updateStatus = updateNetworkDeviceStatus(leaf, nil, err)
 		}
 		return resource.HandleReconcileReturnErr(err)
 	}
 	properties, err := r.VPCMgr.GetNetworkDeviceProperties(ctx, networkfabric.LeafName, req.Name)
-	updateStatus = updateNetworkDeviceCondition(leaf, properties, err)
+	updateStatus = updateNetworkDeviceStatus(leaf, properties, err)
 	return ctrl.Result{}, nil
 }
 
@@ -144,7 +140,31 @@ func (r *LeafReconciler) Start(ctx context.Context) error {
 	}
 }
 
-func updateNetworkDeviceCondition(leaf *networkfabric.Leaf, properties *properties.NetworkDeviceProperties, err error) bool {
+func needUpdateStatus(properties *properties.NetworkDeviceProperties, status *networkfabric.LeafStatus) bool {
+	if properties == nil {
+		return status.ASN > 0 || len(status.LoopbackIP) > 0 && len(status.HostAdminIPs) > 0 ||
+			len(status.HostAdminDHCPServer) > 0
+	}
+	return properties.ASN != status.ASN || properties.LoopbackIP != status.LoopbackIP ||
+		properties.AdminDHCPServer != status.HostAdminDHCPServer ||
+		!reflect.DeepEqual(properties.AdminHostIPs, status.HostAdminIPs)
+}
+
+func updateStatus(properties *properties.NetworkDeviceProperties, status *networkfabric.LeafStatus) {
+	if properties == nil {
+		status.ASN = 0
+		status.LoopbackIP = ""
+		status.HostAdminIPs = nil
+		status.HostAdminDHCPServer = ""
+		return
+	}
+	status.ASN = properties.ASN
+	status.HostAdminIPs = properties.AdminHostIPs
+	status.HostAdminDHCPServer = properties.AdminDHCPServer
+	status.LoopbackIP = properties.LoopbackIP
+}
+
+func updateNetworkDeviceStatus(leaf *networkfabric.Leaf, properties *properties.NetworkDeviceProperties, err error) bool {
 	status := corev1.ConditionFalse
 	if properties != nil && properties.Alive {
 		status = corev1.ConditionTrue
@@ -156,7 +176,7 @@ func updateNetworkDeviceCondition(leaf *networkfabric.Leaf, properties *properti
 	conds := leaf.Status.Conditions
 	if len(conds) >= 1 && conds[0].Status == status &&
 		conds[0].Type == networkfabric.NetworkDeviceConditionTypeLiveness &&
-		conds[0].Message == msg {
+		conds[0].Message == msg && !needUpdateStatus(properties, &leaf.Status) {
 		return false
 	}
 	leaf.Status.Conditions = []networkfabric.NetworkDeviceCondition{
@@ -167,9 +187,6 @@ func updateNetworkDeviceCondition(leaf *networkfabric.Leaf, properties *properti
 			Message:            msg,
 		},
 	}
-	if properties != nil {
-		leaf.Status.LoopbackIP = properties.LoopbackIP
-		leaf.Status.ASN = properties.ASN
-	}
+	updateStatus(properties, &leaf.Status)
 	return true
 }

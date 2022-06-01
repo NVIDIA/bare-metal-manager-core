@@ -17,6 +17,8 @@ nv set vrf default router bgp neighbor swp22 type unnumbered
 nv set vrf default router bgp peer-group FORGE_UPLINK address-family ipv4-unicast policy inbound prefix-list FORGE_FROM_UNDERLAY
 nv set vrf default router bgp peer-group FORGE_UPLINK address-family ipv4-unicast policy outbound route-map FORGE_TO_UNDERLAY
 nv set vrf default router bgp peer-group FORGE_UPLINK address-family l2vpn-evpn enable on
+nv set vrf default router bgp peer-group FORGE_UPLINK address-family l2vpn-evpn aspath allow-my-asn enable on
+nv set vrf default router bgp peer-group FORGE_UPLINK address-family ipv4-unicast aspath allow-my-asn enable on
 nv set vrf default router bgp peer-group FORGE_UPLINK remote-as external
 nv set interface lo ip address 192.168.1.1/32
 nv set interface lo type loopback

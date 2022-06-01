@@ -22,6 +22,8 @@ tonic-reflection = "0.3"
 
 # databases
 sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json" ] }
+sqlxmq = { version = "0.3.4", default-features = false, features = [ "runtime-tokio-rustls"]}
+
 
 # async
 tokio = { version = "1.9", features = ["full"] }
@@ -44,6 +46,7 @@ chrono = "0.4.19"
 itertools = "*"
 thiserror = "1.0"
 async-trait = "*"
+rust-fsm = "0.6.0"
 
 # cli
 clap = { version = "~3.0.0", features = ["derive"] }

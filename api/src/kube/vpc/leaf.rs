@@ -47,6 +47,14 @@ pub struct LeafStatus {
     /// Conditions are the conditions of this Leaf device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conditions: Option<Vec<LeafStatusConditions>>,
+    /// HostAdminDHCPServer is the DHCPServer for hosts in un-assigned state.
+    #[serde(rename = "hostAdminDHCPServer")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_admin_dhcp_server: Option<String>,
+    /// HostAdminIPs are host IPs in un-assigned state.
+    #[serde(rename = "hostAdminIPs")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_admin_i_ps: Option<BTreeMap<String, String>>,
     /// LoobackIP assigned to this leaf.
     #[serde(rename = "loopbackIP")]
     #[serde(default, skip_serializing_if = "Option::is_none")]

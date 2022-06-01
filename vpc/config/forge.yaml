@@ -3,6 +3,7 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
+    namespace: forge-system
   name: forge-system
 ---
 apiVersion: apiextensions.k8s.io/v1
@@ -176,6 +177,14 @@ spec:
                       type: string
                   type: object
                 type: array
+              hostAdminDHCPServer:
+                description: HostAdminDHCPServer is the DHCPServer for hosts in un-assigned state.
+                type: string
+              hostAdminIPs:
+                additionalProperties:
+                  type: string
+                description: HostAdminIPs are host IPs in un-assigned state.
+                type: object
               loopbackIP:
                 description: LoobackIP assigned to this leaf.
                 type: string
@@ -975,12 +984,18 @@ data:
                   {{.UplinkGroup}}:
                     address-family:
                       ipv4-unicast:
+                        aspath:
+                          allow-my-asn:
+                            enable: on
                         policy:
                           inbound:
                             prefix-list: {{.FromUnderlayFilter}}
                           outbound:
                             route-map: {{.ToUnderlayFilter}}
                       l2vpn-evpn:
+                        aspath:
+                          allow-my-asn:
+                            enable: on
                         enable: on
                     remote-as: external
 kind: ConfigMap
@@ -1002,11 +1017,9 @@ data:
     leaderElection:
       leaderElect: false
       #resourceName: f1cf94cd.vpc.forge.gitlab-master.nvidia.com
-    namespace: forge-system
     forge:
       # hbnDevice is true if managed leaf devices are HBN on DPUs.
       hbnDevice: false
-
       # defaultASN is default ASN assigned to leaf devices.
       # default value is 65535
       # defaultASN: 65535
@@ -1092,7 +1105,9 @@ spec:
           value: ""
         - name: DISABLE_CUMULUS_CERT_VERIFY
           value: "true"
-        image: quay.io/nvidia/nvmetal-hydrazine:latest
+        - name: K8S_NAMESPACE
+          value: forge-system
+        image: quay.io/nvidia/forge-connectivity:latest
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
@@ -1189,7 +1204,7 @@ spec:
       containers:
       - command:
         - /grpc-server
-        image: quay.io/nvidia/nvmetal-hydrazine:latest
+        image: quay.io/nvidia/forge-connectivity:latest
         imagePullPolicy: IfNotPresent
         name: grpc-server
         resources:
@@ -1282,6 +1297,9 @@ webhooks:
       path: /mutate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-configurationresourcepool
   failurePolicy: Fail
   name: mconfigurationresourcepool.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-system
   rules:
   - apiGroups:
     - networkfabric.vpc.forge.gitlab-master.nvidia.com
@@ -1303,6 +1321,9 @@ webhooks:
       path: /mutate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-leaf
   failurePolicy: Fail
   name: mleaf.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-system
   rules:
   - apiGroups:
     - networkfabric.vpc.forge.gitlab-master.nvidia.com
@@ -1324,6 +1345,9 @@ webhooks:
       path: /mutate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-managedresource
   failurePolicy: Fail
   name: mmanagedresource.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-system
   rules:
   - apiGroups:
     - resource.vpc.forge.gitlab-master.nvidia.com
@@ -1345,6 +1369,9 @@ webhooks:
       path: /mutate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-resourcegroup
   failurePolicy: Fail
   name: mresourcegroup.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-system
   rules:
   - apiGroups:
     - resource.vpc.forge.gitlab-master.nvidia.com
@@ -1374,6 +1401,9 @@ webhooks:
       path: /validate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-configurationresourcepool
   failurePolicy: Fail
   name: vconfigurationresourcepool.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-system
   rules:
   - apiGroups:
     - networkfabric.vpc.forge.gitlab-master.nvidia.com
@@ -1395,6 +1425,9 @@ webhooks:
       path: /validate-networkfabric-vpc-forge-gitlab-master-nvidia-com-v1alpha1-leaf
   failurePolicy: Fail
   name: vleaf.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-system
   rules:
   - apiGroups:
     - networkfabric.vpc.forge.gitlab-master.nvidia.com
@@ -1416,6 +1449,9 @@ webhooks:
       path: /validate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-managedresource
   failurePolicy: Fail
   name: vmanagedresource.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-system
   rules:
   - apiGroups:
     - resource.vpc.forge.gitlab-master.nvidia.com
@@ -1437,6 +1473,9 @@ webhooks:
       path: /validate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-resourcegroup
   failurePolicy: Fail
   name: vresourcegroup.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-system
   rules:
   - apiGroups:
     - resource.vpc.forge.gitlab-master.nvidia.com

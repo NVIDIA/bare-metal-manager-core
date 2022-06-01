@@ -25,10 +25,7 @@ pub struct MachineEvent {
     machine_id: uuid::Uuid,
 
     /// The action that was performed
-    action: MachineAction,
-
-    /// The version of the state machine that generated this event
-    version: i32,
+    pub action: MachineAction,
 
     /// The timestamp of the event
     timestamp: DateTime<Utc>,
@@ -45,7 +42,6 @@ impl From<MachineEvent> for rpc::MachineEvent {
                 seconds: event.timestamp.timestamp(),
                 nanos: 0,
             }),
-            version: event.version,
             event: 0, // 0 is usually null in protobuf I guess
         };
 
@@ -76,6 +72,18 @@ impl MachineEvent {
                 .await?
                 .into_iter()
                 .into_group_map_by(|event| event.machine_id),
+        )
+    }
+
+    pub async fn for_machine(
+        txn: &mut Transaction<'_, Postgres>,
+        id: &uuid::Uuid,
+    ) -> CarbideResult<Vec<Self>> {
+        Ok(
+            sqlx::query_as::<_, Self>("SELECT * FROM machine_events WHERE machine_id=$1::uuid;")
+                .bind(id)
+                .fetch_all(&mut *txn)
+                .await?,
         )
     }
 }

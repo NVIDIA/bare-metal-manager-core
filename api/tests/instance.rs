@@ -6,10 +6,10 @@ use log::LevelFilter;
 use mac_address::MacAddress;
 
 use carbide::db::{
-    AddressSelectionStrategy, Machine, MachineInterface, NetworkSegment, NewNetworkPrefix,
-    NewNetworkSegment, NewVpc,
+    AddressSelectionStrategy, Instance, Machine, MachineInterface, MachineTopology, NetworkSegment,
+    NewInstance, NewNetworkPrefix, NewNetworkSegment, NewVpc,
 };
-use carbide::CarbideError;
+use carbide::{CarbideError, CarbideResult};
 
 mod common;
 
@@ -26,7 +26,7 @@ fn init_logger() {
 }
 
 #[tokio::test]
-async fn test_fsm_invalid_advance() {
+async fn test_crud_instance() {
     setup();
 
     let mut txn = common::TestDatabaseManager::new()
@@ -84,11 +84,18 @@ async fn test_fsm_invalid_advance() {
         .await
         .expect("Unable to create machine");
 
-    // Can't commission from new
-    assert!(matches!(
-        machine.commission(&mut txn).await.unwrap_err(),
-        CarbideError::MachineStateTransitionViolation { .. }
-    ));
+    MachineTopology::create(&mut txn, machine.id(), "{\"some\":\"json\"}".to_string())
+        .await
+        .expect("Unable to create topology");
+
+    let instance: Instance = NewInstance {
+        machine_id: *machine.id(),
+    }
+    .persist(&mut txn)
+    .await
+    .expect("Unable to create new instance");
+
+    assert!(matches!(instance, _Instance));
 
     txn.commit().await.unwrap();
 }

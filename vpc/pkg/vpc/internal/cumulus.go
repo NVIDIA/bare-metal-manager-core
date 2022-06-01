@@ -21,6 +21,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"gitlab-master.nvidia.com/forge/vpc/apis/networkfabric/v1alpha1"
+	"gitlab-master.nvidia.com/forge/vpc/pkg/properties"
 )
 
 const (
@@ -138,16 +139,48 @@ func (t *cumulusTransport) Ssh(cmd string) (string, error) {
 	return outBuf.String(), nil
 }
 
+func ParseContainerID(in []byte) (string, error) {
+	v := make(map[string]interface{})
+	var err error
+	if err = json.Unmarshal(in, &v); err != nil {
+		return "", err
+	}
+	vv, ok := v["containers"]
+	if !ok {
+		return "", nil
+	}
+	vvv, ok := vv.([]interface{})
+	if !ok {
+		return "", nil
+	}
+	if len(vvv) == 0 {
+		return "", nil
+	}
+	cont, ok := vvv[0].(map[string]interface{})
+	if !ok {
+		return "", nil
+	}
+	vvvv, ok := cont["id"]
+	if !ok {
+		return "", nil
+	}
+	id, ok := vvvv.(string)
+	if !(ok) {
+		return "", nil
+	}
+	return id, nil
+}
+
 func (t *cumulusTransport) GetHBNContainerID() (string, error) {
 	if output, err := t.Ssh("sudo systemctl start containerd.service"); err != nil {
 		t.log.Info("Failed to start containerd", "Error", err, "Output", output)
 		return "", err
 	}
-	out, err := t.Ssh("sudo crictl ps --name=doca-app-hbn -o=json |jq -r .containers[].id")
+	out, err := t.Ssh("sudo crictl ps --name=doca-hbn -o=json")
 	if err != nil {
 		return out, err
 	}
-	return strings.TrimSpace(strings.Replace(out, "\r\n", "", -1)), nil
+	return ParseContainerID([]byte(out))
 }
 
 // SshHBN sends command to HBN on DPU via ssh.
@@ -156,7 +189,6 @@ func (t *cumulusTransport) SshHBN(cmd string) (string, error) {
 	if err != nil {
 		return id, err
 	}
-	// out is container id.
 	return t.Ssh(fmt.Sprintf("sudo crictl exec %s bash -c '%s'", id, cmd))
 }
 
@@ -178,6 +210,8 @@ type Cumulus struct {
 	pendingChanges        uint
 	configRev             string
 	unManaged             bool
+	unManagedDone         bool
+	inReconcile           bool
 }
 
 func modifyRequest(req *http.Request, params map[string]string) {
@@ -285,11 +319,18 @@ func (c *Cumulus) GetPortByHostIdentifier(identifier string) string {
 	return port
 }
 
-func (c *Cumulus) SetHostAdminIPs(adminIPs map[string]string) {
+func (c *Cumulus) SetHostAdminIPs(adminIPs map[string]string, doReconcile bool) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.desiredHostAdminIPs = adminIPs
 	if reflect.DeepEqual(c.desiredHostAdminIPs, c.operationHostAdminIPs) {
+		return
+	}
+	if doReconcile && len(c.operationState) == 0 && len(c.desiredState) == 0 {
+		c.operationHostAdminIPs = make(map[string]string)
+		for k, v := range adminIPs {
+			c.operationHostAdminIPs[k] = v
+		}
 		return
 	}
 	c.queueDevice()
@@ -331,10 +372,14 @@ func (c *Cumulus) getHostAdminIPsChangeLocked(inAdminState bool) (ret map[string
 func (c *Cumulus) updateOperationHostAdminIPsLocked(adminIPs map[string]string, inAdminState bool) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+	old := c.operationHostAdminIPs
 	if inAdminState && len(adminIPs) > 0 {
 		c.operationHostAdminIPs = adminIPs
 	} else {
 		c.operationHostAdminIPs = nil
+	}
+	if !c.unManaged && !reflect.DeepEqual(c.operationHostAdminIPs, old) {
+		c.manager.networkDevices.NotifyChange(c.key, nil)
 	}
 }
 
@@ -351,7 +396,14 @@ func (c *Cumulus) queueDevice() {
 
 // UpdateConfiguration updates desired state and returns true if device's desired and operation states
 // are in sync with respect to the incoming request.
-func (c *Cumulus) updateConfiguration(req *PortRequest, isDelete bool) (bool, error) {
+func (c *Cumulus) updateConfiguration(req *PortRequest, doReconcile, isDelete bool) (bool, error) {
+	if doReconcile && c.inReconcile {
+		c.log.Info("Update configuration, reconcile", "ManagedResource", req.Key)
+		c.operationState[req.Key.String()] = req
+		c.desiredState[req.Key.String()] = req
+		c.operationHostAdminIPs = nil
+		return true, nil
+	}
 	operation := c.operationState[req.Key.String()]
 	desired := c.desiredState[req.Key.String()]
 	// Config does not exist.
@@ -378,22 +430,27 @@ func (c *Cumulus) updateConfiguration(req *PortRequest, isDelete bool) (bool, er
 		}
 		return false, nil
 	}
+
 	// config is already in place.
-	if operation != nil && reflect.DeepEqual(operation, req) {
+	if operation != nil && operation.Equal(req) {
 		return true, nil
 	}
+
 	if c.unManaged {
 		return false, NewNetworkDeviceNotAvailableError(v1alpha1.LeafName, c.key)
 	}
+
+	c.log.V(1).Info("Update configuration", "Current", operation, "Desired", req)
 	c.desiredState[req.Key.String()] = req
 	return false, nil
 }
 
-func (c *Cumulus) UpdateConfiguration(req *PortRequest, isDelete bool) (bool, error) {
-	c.log.V(1).Info("UpdateConfiguration called", "ManagedResource", req.Key, "IsDelete", isDelete)
+func (c *Cumulus) UpdateConfiguration(req *PortRequest, doReconcile, isDelete bool) (bool, error) {
+	c.log.V(1).Info("UpdateConfiguration called", "ManagedResource", req.Key, "doReconcile", doReconcile,
+		"IsDelete", isDelete)
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	insync, err := c.updateConfiguration(req, isDelete)
+	insync, err := c.updateConfiguration(req, doReconcile, isDelete)
 	if err != nil {
 		return insync, err
 	}
@@ -417,18 +474,28 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 	if c.IsInMaintenanceMode() {
 		return false, nil
 	}
+	if c.unmanagedDoneLocked() {
+		return false, nil
+	}
+
+	var adminIPCallback func()
 	delta := make(map[bool]map[string]*PortRequest)
 	oldDesiredState := make(map[string]*PortRequest)
 
 	defer func() {
+		if fErr != nil {
+			return
+		}
 		var call func() error
 		unmanaged := false
 		inAdmin := false
+		unmanagedDone := false
 		func() {
 			c.mutex.Lock()
 			defer c.mutex.Unlock()
 			unmanaged = c.unManaged
 			inAdmin = len(c.desiredState) == 0 && len(c.operationState) == 0
+			unmanagedDone = unmanaged && len(c.desiredState) == 0 && len(c.operationState) == 0
 			if inAdmin {
 				if unmanaged {
 					call = func() error { return c.hbn.Stop(true) }
@@ -448,14 +515,20 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 		if inAdmin && !unmanaged && fErr == nil && len(changes) > 0 {
 			change := false
 			if c.configRev, fErr = c.getRevision(""); fErr == nil {
-				change, fErr = c.updateHostInAdmin(inAdmin)
+				change, adminIPCallback, fErr = c.updateHostInAdmin(inAdmin)
 				if change {
 					fErr = c.applyRevision(c.configRev)
 				}
 			}
 		}
 		if unmanaged {
+			if fErr == nil {
+				c.setUnmanagedDoneLocked(unmanagedDone)
+			}
 			c.manager.networkDevices.NotifyChange(c.key, nil)
+		}
+		if adminIPCallback != nil && fErr == nil {
+			adminIPCallback()
 		}
 		retry = fErr != nil
 	}()
@@ -468,7 +541,7 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 		defer c.mutex.Unlock()
 		for k, v := range c.desiredState {
 			oldDesiredState[k] = v
-			if vv, ok := c.operationState[k]; !ok || !reflect.DeepEqual(vv, v) {
+			if vv, ok := c.operationState[k]; !ok || !vv.Equal(v) {
 				updates := delta[false]
 				if updates == nil {
 					updates = make(map[string]*PortRequest)
@@ -517,7 +590,7 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 
 	// Delete leaf host admin state configurations if host is assigned to a tenant.
 	if _, ok := delta[false]; ok {
-		_, err = c.updateHostInAdmin(false)
+		_, adminIPCallback, err = c.updateHostInAdmin(false)
 		if err != nil {
 			return true, err
 		}
@@ -530,7 +603,8 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 				c.log.Error(nil, "ManagedResource runtime not found", "ManagedResource", v.Key)
 				continue
 			}
-			retry, err := c.updateOne(rt, v, &c.configRev, isDelete)
+			v.Update(rt)
+			retry, err = c.updateOne(rt, v, &c.configRev, isDelete)
 			if err != nil {
 				if rt.State != BackendStateError {
 					rt.State = BackendStateError
@@ -633,37 +707,42 @@ func (c *Cumulus) updateOne2(vlanid, vni uint32, port string, gwIP string, dhcpS
 }
 
 // updateHostInAdmin updates leaf when hosts are in admin state. It returns true if there is change on device.
-func (c *Cumulus) updateHostInAdmin(adminState bool) (bool, error) {
+func (c *Cumulus) updateHostInAdmin(adminState bool) (bool, func(), error) {
 	adminIPs, isDelete := c.getHostAdminIPsChangeLocked(adminState)
 	c.log.V(1).Info("updateHostInAdmin", "HostAdminIPs", adminIPs, "adminState", adminState)
-	if len(adminIPs) > 0 {
-		var err error
-		for port, ip := range adminIPs {
-			gwIP, _ := c.manager.GetAdminNetworkGW()
-			dhcpServer, _ := c.manager.GetAdminDHCPServer()
-			hostRoute := ""
+	if len(adminIPs) == 0 {
+		return false, nil, nil
+	}
+	var err error
+	for port, ip := range adminIPs {
+		gwIP, _ := c.manager.GetAdminNetworkGW()
+		dhcpServer, _ := c.manager.GetAdminDHCPServer()
+		hostRoute := ""
+		if len(ip) > 0 {
+			hostRoute = ip + "/32"
+		}
+		var vlanid uint32
+		if vlanid, err = c.manager.GetAdminNetworkVLan(); err != nil {
+			return false, nil, err
+		}
+		if _, err = c.updateOne2(vlanid, 0, port, gwIP, dhcpServer, hostRoute, &c.configRev, false, isDelete); err != nil {
+			return false, nil, err
+		}
+		if len(ip) == 0 && !isDelete {
+			// Adding is nil hostRoute means deleting hostRoute in op.
+			c.mutex.Lock()
+			ip = c.operationHostAdminIPs[port]
+			c.mutex.Unlock()
 			if len(ip) > 0 {
 				hostRoute = ip + "/32"
-			}
-			if _, err = c.updateOne2(0, 0, port, gwIP, dhcpServer, hostRoute, &c.configRev, false, isDelete); err != nil {
-				return false, err
-			}
-			if len(ip) == 0 && !isDelete {
-				// Adding is nil hostRoute means deleting hostRoute in op.
-				c.mutex.Lock()
-				ip = c.operationHostAdminIPs[port]
-				c.mutex.Unlock()
-				if len(ip) > 0 {
-					hostRoute = ip + "/32"
-					if err := c.updateRouteFilter(0, port, hostRoute, &c.configRev, true); err != nil {
-						return false, err
-					}
+				if err = c.updateRouteFilter(0, port, hostRoute, &c.configRev, true); err != nil {
+					return false, nil, err
 				}
 			}
 		}
 	}
-	c.updateOperationHostAdminIPsLocked(adminIPs, adminState)
-	return len(adminIPs) > 0, nil
+	// Delay update admin operation state until configuring device is successful.
+	return true, func() { c.updateOperationHostAdminIPsLocked(adminIPs, adminState) }, nil
 }
 
 func (c *Cumulus) liveness() {
@@ -674,7 +753,10 @@ func (c *Cumulus) liveness() {
 	go func() {
 		c.log.V(1).Info("Liveness probe starts")
 		tick := time.NewTicker(CumulusLivenessInterval)
-		c.manager.networkDevices.Add(c, false)
+		if !c.inReconcile {
+			// Allow time to reconcile resources already created.
+			c.manager.networkDevices.Add(c, false)
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -682,6 +764,7 @@ func (c *Cumulus) liveness() {
 				c.log.V(1).Info("Exit liveness probe.")
 				return
 			case <-tick.C:
+				c.inReconcile = false
 				c.manager.networkDevices.Add(c, false)
 			}
 		}
@@ -690,21 +773,28 @@ func (c *Cumulus) liveness() {
 }
 
 // Liveness probes device liveness.
-func (c *Cumulus) Liveness() {
+func (c *Cumulus) Liveness(doReconcile bool) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+	c.inReconcile = doReconcile
+	if c.inReconcile {
+		c.log.Info("Reconcile existing device")
+		c.manager.networkDevices.NotifyChange(c.key, c.getHostIdentifiers())
+	}
 	c.liveness()
 }
 
 // Unmanage removes any configurations on the device as the device becomes un-managed.
 func (c *Cumulus) Unmanage() error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	if c.maintenanceMode {
+	if c.IsInMaintenanceMode() {
 		// backdoor, allow NetworkDevice to be removed without reaching to the device.
 		return nil
 	}
-
+	if c.unmanagedDoneLocked() {
+		return nil
+	}
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	hbnState := c.hbn.GetHBNState()
 	if len(c.operationState) == 0 && (hbnState == HBNInvalid || hbnState == HBNInit) {
 		return nil
@@ -735,7 +825,9 @@ func (c *Cumulus) IsReachable() bool {
 
 func (c *Cumulus) isReachable() bool {
 	hbnState := c.hbn.GetHBNState()
-
+	if c.inReconcile {
+		return true
+	}
 	return !c.maintenanceMode && (hbnState == HBNConnected || hbnState == HBNInvalid) && len(c.configRev) > 0
 }
 
@@ -745,12 +837,43 @@ func (c *Cumulus) IsUnmanaged() bool {
 	return c.unManaged
 }
 
-func (c *Cumulus) GetLoopbackIP() (string, error) {
-	return c.hbn.GetLoopbackIP(), c.hbn.GetError()
+// GetProperties returns networkDevice Properties
+func (c *Cumulus) GetProperties() (*properties.NetworkDeviceProperties, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.hbn == nil {
+		return &properties.NetworkDeviceProperties{
+			Alive: c.isReachable(),
+		}, nil
+	}
+	dhcpServer := ""
+	var adminIPs map[string]string
+	if len(c.operationHostAdminIPs) > 0 {
+		dhcpServer, _ = c.manager.GetAdminDHCPServer()
+		adminIPs = make(map[string]string)
+		for k, v := range c.operationHostAdminIPs {
+			adminIPs[k] = v
+		}
+	}
+	return &properties.NetworkDeviceProperties{
+		LoopbackIP:      c.hbn.loopbackIP,
+		ASN:             c.hbn.asn,
+		Alive:           c.isReachable(),
+		AdminDHCPServer: dhcpServer,
+		AdminHostIPs:    adminIPs,
+	}, c.hbn.GetError()
 }
 
-func (c *Cumulus) GetASN() (uint32, error) {
-	return c.hbn.GetASN(), c.hbn.GetError()
+func (c *Cumulus) setUnmanagedDoneLocked(val bool) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.unManagedDone = val
+}
+
+func (c *Cumulus) unmanagedDoneLocked() bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.unManagedDone
 }
 
 func (c *Cumulus) handleResponse(resp []byte) (map[string]interface{}, error) {

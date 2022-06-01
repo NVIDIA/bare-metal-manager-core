@@ -109,6 +109,15 @@ spec:
                       type: string
                   type: object
                 type: array
+              hostAdminDHCPServer:
+                description: HostAdminDHCPServer is the DHCPServer for hosts in un-assigned
+                  state.
+                type: string
+              hostAdminIPs:
+                additionalProperties:
+                  type: string
+                description: HostAdminIPs are host IPs in un-assigned state.
+                type: object
               loopbackIP:
                 description: LoobackIP assigned to this leaf.
                 type: string

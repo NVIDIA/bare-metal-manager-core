@@ -27,6 +27,10 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
+	ResourceGroupFinalizer = "resourcegroup.resource.vpc.forge/finalizer"
+)
+
+const (
 	// WellKnownAdminResourceGroup provides network properties shared by all un-assigned hosts.
 	WellKnownAdminResourceGroup = "administration-resource-group"
 )

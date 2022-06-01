@@ -57,7 +57,7 @@ var (
 					Containers: []corev1.Container{
 						{
 							Name:    "ovn-central",
-							Image:   "quay.io/nvidia/nvmetal-hydrazine:latest",
+							Image:   "quay.io/nvidia/forge-connectivity:latest",
 							Command: []string{"/start_ovn_central.sh"},
 							Env: []corev1.EnvVar{
 								{Name: "OVN_SSL_ENABLE", Value: "no"},
@@ -169,7 +169,7 @@ spec:
     spec:
       containers:
         - name: ovn-central
-          image: "quay.io/nvidia/nvmetal-hydrazine:latest"
+          image: "quay.io/nvidia/forge-connectivity:latest"
           imagePullPolicy: "IfNotPresent"
           command:
             - /start_ovn_central.sh
