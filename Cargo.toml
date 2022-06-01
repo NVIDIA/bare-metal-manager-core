@@ -6,5 +6,6 @@ members = [
   "dhcp",
   "pxe",
   "rpc",
-  "dns"
+  "dns",
+  "ipmi/freeipmi-sys",
 ]
