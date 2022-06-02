@@ -1,7 +1,7 @@
 image: "gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest"
 before_script:
   - mkdir ~/.jfrog
-  - cat $JFROG_CONFIG > ~/.jfrog/jfrog-cli.conf.v5
+  - cat "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   - /usr/local/bin/jfrog rt ping
 variables:
   KANIKO_CACHE_ARGS: "--cache=false --cache-copy-layers=true --cache-ttl=24h"
