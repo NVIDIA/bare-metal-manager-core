@@ -4,7 +4,7 @@ FROM rust:latest as builder
 #COPY pgdg.list /etc/apt/sources.list.d/pgdg.list
 COPY dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
 COPY dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
-RUN apt update && apt-get install -y build-essential isc-kea-dev libudev-dev libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*
+RUN apt update && apt-get install -y build-essential isc-kea-dev libudev-dev libfreeipmi-dev libfreeipmi17 libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*
 ENV KEA_INCLUDE_PATH /usr/include/kea
 ENV KEA_BIN_PATH /usr/bin
 ENV KEA_LIB_PATH /usr/lib/kea
