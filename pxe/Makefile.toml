@@ -131,6 +131,13 @@ command = "make"
 args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=../../local/embed.ipxe"]
 cwd = "ipxe/upstream/src"
 
+[tasks.ipxe-build-efi-aarch64]
+category = "iPXE kernel"
+description = "Build the aarch64 EFI iPXE kernel on ARM gitlab runner"
+command = "make"
+args = [ "bin-arm64-efi/ipxe.efi", "EMBED=../../local/embed.ipxe"]
+cwd = "ipxe/upstream/src"
+
 [tasks.ipxe-build-efi-arm64]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel"
@@ -138,3 +145,13 @@ env = { "CROSS_COMPILE" = "aarch64-linux-gnu-", "ARCH" = "arm64", CC="aarch64-li
 command = "make"
 args = [ "bin-arm64-efi/ipxe.efi", "EMBED=../../local/embed.ipxe"]
 cwd = "ipxe/upstream/src"
+
+[tasks.package-boot-artifacts-x86_64]
+category = "iPXE kernel"
+description = "Package x86_64 EFI iPXE kernel and rootdisk"
+command = "tar"
+args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz", "ipxe.kpxe", "ipxe.efi", "carbide.root", "carbide.efi"]
+cwd = "static/blobs/internal/x86_64"
+dependencies = [
+  "ipxe-build-efi-x86_64"
+]
