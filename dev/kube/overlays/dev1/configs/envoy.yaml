@@ -29,7 +29,7 @@ static_resources:
               domains: ["*"]
               routes:
                 - match: { prefix: "/", grpc: {}}
-                route: { cluster: carbide-api }
+                  route: { cluster: carbide-api }
           http_filters:
           - name: envoy.filters.http.router
             typed_config:
@@ -65,5 +65,5 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: carbide-api
+                address: 127.0.0.1
                 port_value: 1079

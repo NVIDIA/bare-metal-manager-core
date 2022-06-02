@@ -24,6 +24,7 @@ patchesStrategicMerge:
   - patches/carbide-api_db_migrate_job.yaml
   - patches/carbide-pxe_envoy.yaml
   - patches/nodePort_we_already_failed.yaml
+  - patches/carbide-pxe_volume.yaml
 configMapGenerator:
   - name: envoy-carbide-api-config
     behavior: create

@@ -7,6 +7,9 @@ spec:
     spec:
       containers:
         - name: kea-dhcp
+          securityContext:
+            capabilities:
+              add: ['NET_ADMIN']
           imagePullPolicy: Always
       imagePullSecrets:
         - name: gitlab-container-registry

@@ -16,7 +16,7 @@ metadata:
   name: kea
 spec:
   ports:
-   - nodePort: 31067
+   - nodePort: 67
      port: 67
      protocol: UDP
   type: NodePort
