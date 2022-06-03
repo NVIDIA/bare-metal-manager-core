@@ -9,6 +9,7 @@ resources:
   - configs/certificate.yaml
   - secrets/dockersecret.yaml
   - configs/postgres_carbide.yaml
+  - configs/carbide-http-service.yaml
  #  - github.com/metallb/metallb/manifests?ref=v0.12.1 // not used yet
 namespace: forge-system
 patchesStrategicMerge:
@@ -39,3 +40,7 @@ configMapGenerator:
   - name: envoy-carbide-pxe-config
     files:
       - envoy.yaml=configs/envoy_pxe.yaml
+  - name: kea-dhcp-configuration
+    behavior: replace
+    files:
+      - kea_config.conf=configs/kea.json
