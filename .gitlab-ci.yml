@@ -30,6 +30,7 @@ build:cargo:
 
 build:ipxe-x86_64:
   before_script:
+  - whoami
   - mkdir ~/.jfrog
   - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
