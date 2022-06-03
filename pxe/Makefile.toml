@@ -1,9 +1,17 @@
 [tasks.build-boot-artifacts-x86_64]
 dependencies = [
         "build",
-        "create-ephemeral-image",
+        "create-ephemeral-image-x86_64-ci",
         "ipxe-x86_64",
 ]
+
+[tasks.build-boot-artifacts-x86_64-ci]
+dependencies = [
+        "build",
+        "create-ephemeral-image-x86_64-ci",
+        "ipxe-x86_64",
+]
+
 
 [tasks.build-boot-artifacts-aarch64]
 dependencies = [
@@ -20,6 +28,17 @@ dependencies = [
 	"mkosi-build-image",
 	"mkosi-remove-unnecessary-files",
 ]
+
+[tasks.create-ephemeral-image-x86_64-ci]
+category = "Ephemeral Image"
+dependencies = [
+	"mkosi-generate-zipapp",
+	"mkosi-clean-artifacts-x86_64-ci",
+	"copy-debug-artifacts",
+	"mkosi-build-image-x86_64-ci",
+	"mkosi-remove-unnecessary-files",
+]
+
 
 [tasks.copy-debug-artifacts]
 category = "Copy Debug Artifacts"
@@ -58,6 +77,25 @@ args = [
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"build"
 ]
+
+[tasks.mkosi-clean-artifacts-x86_64-ci]
+category = "Ephemeral Image"
+command = "mkosi/builddir/mkosi"
+args = [
+	"--split-artifacts",
+	"--output", "static/blobs/internal/x86_64/carbide",
+	"clean"
+]
+
+[tasks.mkosi-build-image-x86_64-ci]
+category = "Ephemeral Image"
+command = "mkosi/builddir/mkosi"
+args = [
+	"--split-artifacts",
+	"--output", "static/blobs/internal/x86_64/carbide",
+	"build"
+]
+
 
 [tasks.mkosi-generate-zipapp]
 category = "Ephemeral Image"
