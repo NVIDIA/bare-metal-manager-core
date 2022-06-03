@@ -37,7 +37,7 @@ build:ipxe-x86_64:
   only:
     - branches
   script:
-    - cargo make --cwd pxe build-boot-artifacts-x86_64
+    - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
     - x86_64
   when: manual 
 
@@ -49,7 +49,7 @@ build:ipxe-aarch64:
   only:
     - branches
   script:
-    - cargo make --cwd pxe build-boot-artifacts-aarch64
+    - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
   tags:
     - aarch64
   when: manual
