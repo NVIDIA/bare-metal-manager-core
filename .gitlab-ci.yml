@@ -32,14 +32,25 @@ build:cargo:
   tags:
     - x86_64
 
-build:ipxe:
+build:ipxe-x86_64:
   stage: build
   only:
     - branches
   script:
-    - cargo make --cwd pxe ipxe
+    - cargo make --cwd pxe ipxe-x86_64
   tags:
     - x86_64
+  when: manual 
+
+build:ipxe-aarch64:
+  stage: build
+  only:
+    - branches
+  script:
+    - cargo make --cwd pxe ipxe-aarch64
+  tags:
+    - aarch64
+  when: manual
 
 build:build-container-x86:
   stage: build
