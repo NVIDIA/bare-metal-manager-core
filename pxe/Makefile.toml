@@ -3,7 +3,7 @@ dependencies = [
         "build",
         "create-ephemeral-image",
         "ipxe-x86_64",
-        "ipxe-arm64",
+        "ipxe-aarch64",
 ]
 
 [tasks.create-ephemeral-image]
@@ -60,13 +60,13 @@ description = "Compile the mkosi executable from the mkosi sources"
 command = "tools/generate-zipapp.sh"
 cwd = "mkosi"
 
-[tasks.ipxe]
-category = "iPXE Kernel"
-description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and aarch64 (EFI), and move to the carbide static webroot"
-depenencies = [
-  "ipxe-x86_64",
-  "ipxe-arm64",
-]
+#[tasks.ipxe]
+#category = "iPXE Kernel"
+#description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and aarch64 (EFI), and move to the carbide static webroot"
+#depenencies = [
+#  "ipxe-x86_64",
+#  "ipxe-aarch64",
+#]
 
 [tasks.ipxe-x86_64]
 category = "iPXE Kernel"
@@ -75,6 +75,8 @@ dependencies = [
 	"ipxe-config",
 	"ipxe-install-pcbios-x86_64",
 	"ipxe-install-efi-x86_64",
+  "package-boot-artifacts-x86_64",
+  "upload-boot-artifacts-x86_64",
 ]
 
 [tasks.ipxe-config]
@@ -100,21 +102,23 @@ dependencies = [
 	"ipxe-build-efi-x86_64",
 ]
 
-[tasks.ipxe-arm64]
+[tasks.ipxe-aarch64]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 dependencies = [
   "ipxe-config",
-  "ipxe-install-efi-arm64",
+  "ipxe-install-efi-aarch64",
+  "package-boot-artifacts-aarch64",
+  "upload-boot-artifacts-aarch64",
 ]
 
-[tasks.ipxe-install-efi-arm64]
+[tasks.ipxe-install-efi-aarch64]
 category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
 args = ["ipxe/upstream/src/bin-arm64-efi/ipxe.efi", "static/blobs/internal/aarch64/ipxe.efi"]
 dependencies = [
-	"ipxe-build-efi-arm64",
+	"ipxe-build-efi-aarch64",
 ]
 
 [tasks.ipxe-build-pcbios-x86_64]
@@ -132,26 +136,40 @@ args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=../../local/embed.ipxe"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
-category = "iPXE kernel"
-description = "Build the aarch64 EFI iPXE kernel on ARM gitlab runner"
-command = "make"
-args = [ "bin-arm64-efi/ipxe.efi", "EMBED=../../local/embed.ipxe"]
-cwd = "ipxe/upstream/src"
-
-[tasks.ipxe-build-efi-arm64]
 category = "iPXE Kernel"
-description = "Build the aarch64 EFI iPXE kernel"
-env = { "CROSS_COMPILE" = "aarch64-linux-gnu-", "ARCH" = "arm64", CC="aarch64-linux-gnu-gcc-11" }
+description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
 args = [ "bin-arm64-efi/ipxe.efi", "EMBED=../../local/embed.ipxe"]
 cwd = "ipxe/upstream/src"
 
 [tasks.package-boot-artifacts-x86_64]
-category = "iPXE kernel"
+category = "iPXE Kernel"
 description = "Package x86_64 EFI iPXE kernel and rootdisk"
 command = "tar"
 args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz", "ipxe.kpxe", "ipxe.efi", "carbide.root", "carbide.efi"]
 cwd = "static/blobs/internal/x86_64"
+
+[tasks.package-boot-artifacts-aarch64]
+category = "iPXE Kernel"
+description = "Package aarch64 EFI iPXE kernel and rootdisk"
+command = "tar"
+args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz", "ipxe.efi"]
+cwd = "static/blobs/internal/aarch64"
+
+[tasks.upload-boot-artifacts-x86_64]
+category = "iPXE Kernel"
+description = "Upload x86_64 EFI iPXE kernel and rootdisk"
+command = "/usr/local/bin/jfrog"
+args = [ "rt", "u", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz", "sw-forge-generic/x86_64/boot-artifacts"]
 dependencies = [
-  "ipxe-build-efi-x86_64"
+  "package-boot-artifacts-x86_64"
+]
+
+[tasks.upload-boot-artifacts-aarch64]
+category = "iPXE Kernel"
+description = "Upload aarch64 EFI iPXE kernel and rootdisk"
+command = "/usr/local/bin/jfrog"
+args = [ "rt", "u", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz", "sw-forge-generic/aarch64/boot-artifacts"]
+dependencies = [
+  "package-boot-artifacts-aarch64"
 ]
