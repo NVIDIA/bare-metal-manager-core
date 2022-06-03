@@ -1,10 +1,15 @@
-[tasks.build-boot-artifacts]
+[tasks.build-boot-artifacts-x86_64]
 dependencies = [
         "build",
         "create-ephemeral-image",
         "ipxe-x86_64",
+]
+
+[tasks.build-boot-artifacts-aarch64]
+dependencies = [
         "ipxe-aarch64",
 ]
+
 
 [tasks.create-ephemeral-image]
 category = "Ephemeral Image"
