@@ -29,6 +29,23 @@ CREATE TYPE instance_type_capabilities as ENUM (
 	'default'
 );
 
+-- initialize = add resource was added to forge-provisioner database
+-- submit = we sent the resource CRD to forge-vpc
+-- submit_fail = we could not communicate with kube-api to create CRD
+-- acknowledge = forge-vpc has ack'd our submission of a CRD
+-- wait = we are waiting for forge-vpc to complete the configuration of a resource
+-- complete = forge-vpc work completed
+-- fail = we never received a forge-vpc status indicating that work was completed
+CREATE TYPE kube_vpc_action AS ENUM (
+    'initialize',
+    'submit',
+    'submit_fail'
+    'acknowledge',
+    'wait',
+    'complete',
+    'fail'
+);
+
 CREATE TABLE instance_types (
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
 	short_name VARCHAR(32) NOT NULL,
@@ -41,19 +58,39 @@ CREATE TABLE instance_types (
 	PRIMARY KEY (id)
 );
 
+
+-- a leaf is a hbn endpoint configured by forge-vpc
+CREATE TABLE vpc_leafs(
+    -- uuid is used for the 'name' of the leaf CRD
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    PRIMARY KEY (id)
+);
+
+
+CREATE table vpc_leaf_events(
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  vpc_leaf_id uuid NOT NULL,
+  action kube_vpc_action NOT NULL,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (vpc_leaf_id) REFERENCES vpc_leafs(id)
+);
+
 CREATE TABLE machines (
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
 
-	supported_instance_type uuid NULL,
+	-- if !null == at the moment this is a hbn endpoint (dpu), but could be expanded to other network api endpoints
+	-- null == x86
+	vpc_leaf_id uuid NULL,
 
-	fqdn VARCHAR(64) UNIQUE,
+	supported_instance_type uuid NULL,
 
 	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	deployed TIMESTAMPTZ NULL,
 
 	PRIMARY KEY (id),
-	FOREIGN KEY (supported_instance_type) REFERENCES instance_types(id)
+	FOREIGN KEY (supported_instance_type) REFERENCES instance_types(id),
+	FOREIGN KEY (vpc_leaf_id) REFERENCES vpc_leafs(id)
 );
 
 CREATE TABLE instances (
@@ -62,6 +99,7 @@ CREATE TABLE instances (
     requested TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     finished TIMESTAMPTZ NULL,
+
 
     PRIMARY KEY (id),
     FOREIGN KEY (machine_id) REFERENCES machines(id)
@@ -122,21 +160,40 @@ CREATE TABLE vpcs(
 	PRIMARY KEY(id)
 );
 
+-- different types of network_segments
+--
+-- type    |  admin	| vni	  |=> managed by vpc |
+--------------------------------------------------
+-- underlay | false	| NULL	  |=> no
+-- overlay	| false	| VNI ID  |=> yes
+---admin	| true	| NULL	  |=> yes
+
+
 CREATE TABLE network_segments(
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
 	name VARCHAR NOT NULL UNIQUE,
-	subdomain_id uuid,
-	vpc_id uuid,
+	subdomain_id uuid NULL,
+	vpc_id uuid NULL,
 
 	mtu INTEGER NOT NULL DEFAULT 1500 CHECK(mtu >= 576 AND mtu <= 9000),
 
 	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
+	-- An admin network is not a vxlan but still needs to be sent to froge-vpc
+	-- Forge-vpc has a reserved ResourceGroup name used for 'admin' network
+	admin_network BOOLEAN NOT NULL default 'f',
+
+	-- if an overlay, will be used to disambiguate overlapping IP space in future
+	vni_id INT NULL,
+
 	PRIMARY KEY(id),
 	FOREIGN KEY(subdomain_id) REFERENCES domains(id),
 	FOREIGN KEY(vpc_id) REFERENCES vpcs(id)
 );
+
+-- only one admin network permitted per Site (control plane)
+CREATE UNIQUE INDEX idx_one_admin_network ON network_segments (admin_network) WHERE admin_network = true;
 
 CREATE TABLE network_prefixes(
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -161,8 +218,20 @@ CREATE TABLE network_prefixes(
 -- Make sure there''s at most one IPv4 prefix or one IPv6 prefix on a network segment
 CREATE UNIQUE INDEX network_prefix_family ON network_prefixes (family(prefix), segment_id);
 
+-- network_prefixes / network_segments are ResourceGroups in forge-vpc
+CREATE TABLE network_prefix_events(
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  network_prefix_id uuid NOT NULL,
+  action kube_vpc_action NOT NULL,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (network_prefix_id) REFERENCES network_prefixes(id)
+);
+
 CREATE TABLE machine_interfaces(
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
+
+    -- if machine is a dpu, this creates the relationship for the interface
+	attached_dpu_machine_id uuid REFERENCES machines(id) NULL,
 
 	machine_id uuid,
 	segment_id uuid NOT NULL,
@@ -246,38 +315,7 @@ CREATE OR REPLACE VIEW machine_dhcp_records AS (
 	WHERE address << prefix
 );
 
-CREATE OR REPLACE function fqdn(machine_uuid uuid)
-	RETURNS varchar
-	LANGUAGE plpgsql AS $$
-	DECLARE
-	fqdn_result varchar;
-begin
-	SELECT CONCAT_WS('.', hostname, name) INTO fqdn_result
-	FROM machine_interfaces
-	INNER JOIN domains on domains.id = machine_interfaces.domain_id
-	WHERE machine_id = machine_uuid AND primary_interface=true;
 
-	return fqdn_result;
-end;
-$$;
-
-CREATE OR REPLACE function update_fqdn()
-RETURNS TRIGGER
-LANGUAGE PLPGSQL
-AS
-$$
-BEGIN
-	UPDATE machines SET fqdn = (fqdn(NEW.machine_id)) WHERE id = new.machine_id;
-
-	RETURN NEW;
-  END;
-$$;
-
-DROP TRIGGER IF EXISTS trigger_update_fqdn ON machine_interfaces;
-CREATE TRIGGER trigger_update_fqdn
-AFTER INSERT OR UPDATE
-ON machine_interfaces
-FOR EACH row EXECUTE PROCEDURE update_fqdn();
 
 DROP VIEW IF EXISTS dns_records;
 CREATE OR REPLACE VIEW dns_records AS (
@@ -286,4 +324,61 @@ CREATE OR REPLACE VIEW dns_records AS (
   from machine_interfaces
   INNER JOIN machine_interface_addresses on machine_interface_addresses.interface_id = interface_id
   INNER JOIN domains on domains.id = machine_interfaces.domain_id AND primary_interface=true
+);
+
+
+CREATE TABLE instance_subnets(
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+
+  machine_interface_id uuid NOT NULL,
+
+  network_segment_id uuid NOT NULL,
+
+  -- an instance _can_ have more than one subnet assigned
+  instance_id uuid NOT NULL REFERENCES instances(id),
+
+  -- if null = PF, !null = vfX where X is vfnum
+  vfid int NULL,
+
+  PRIMARY KEY(id),
+  FOREIGN KEY(machine_interface_id) REFERENCES machine_interfaces(id),
+  FOREIGN KEY(network_segment_id) REFERENCES network_segments(id),
+
+  -- If vfid is not null, skip constraint. Otherwise check that its between 0 and 15
+  CONSTRAINT valid_vfid check (case when vfid IS NOT NULL THEN vfid <= 15 and vfid >= 0 END)
+
+  -- NEED constraint on preventing the deletion of an instance_subnet
+  -- if vfid = null(pf) without first deleting the related instance.
+  -- deleting an instance_subnet where vfid != null should be permitted as
+  -- !null = vf
+  -- when that VF is deleted we need to tell forge-vpc to re-map that VF device to a blackhole network
+);
+
+-- only one null vfid (pf) per (instance_id, machine_interface_id)
+CREATE UNIQUE INDEX idx_one_null_vfid ON instance_subnets (vfid, instance_id, machine_interface_id) WHERE vfid = NULL;
+
+
+CREATE TABLE instance_subnet_addresses(
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+
+  instance_subnet_id uuid NOT NULL,
+  address inet NOT NULL,
+
+  UNIQUE(instance_subnet_id, address),
+
+  PRIMARY KEY(id),
+  FOREIGN KEY (instance_subnet_id) REFERENCES instance_subnets(id)
+
+  -- ADD constraint to verify address belongs in the instance_subnet
+  -- e.g. we do not allow address 191.168.1.5/24 into instance_subnet 192.168.250.0/24
+
+);
+
+-- instance subnets and instance_subnet_addresses = ManagedResource in forge-fpc
+CREATE table instance_subnets_events(
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  instance_subnet_id uuid NOT NULL,
+  action kube_vpc_action NOT NULL,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (instance_subnet_id) REFERENCES instance_subnets(id)
 );
