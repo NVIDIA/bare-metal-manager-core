@@ -22,6 +22,12 @@ workspace=false
 description = "kubectl apply KinD configuration"
 script='''
 kubectl kustomize dev/kube/overlays/local | kubectl apply -f -
+kubectl rollout status deploy/cert-manager -n cert-manager
+kubectl rollout status deploy/cert-manager-webhook -n cert-manager
+kubectl rollout status deploy/cert-manager-cainjector -n cert-manager
+kubectl kustomize dev/kube/overlays/local/forge/resources/certs | kubectl apply -f -
+kubectl wait certs/forge-vpc-cert --for condition=Ready -n forge-system
+kubectl apply -f vpc/config/forge.yaml
 '''
 
 [tasks.kind]
@@ -32,6 +38,9 @@ dependencies = [
   "create-kind-cluster",
   "carbide-container",
   "load-carbide-container",
+  "build-vpc-container",
+  "load-vpc-container",
+  "build-vpc-manifests",
   "configure_kind"
 ]
 
@@ -122,6 +131,8 @@ workspace = false
 command = "cargo"
 args = ["license", "--avoid-build-deps", "--avoid-dev-deps", "--json"]
 
+
+## - VPC Related tasks
 [tasks.update-vpc-submodule]
 workspace = false
 script = '''
@@ -146,3 +157,37 @@ dependencies = [
   "update-vpc-submodule",
   "generate-rust-from-crd",
 ]
+
+[tasks.prep-build-vpc]
+workspace = false
+script = '''
+mkdir -p vpc/bin
+GOBIN=`pwd`/vpc/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.4.1
+GOBIN=`pwd`/vpc/bin go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
+GOBIN=`pwd`/vpc/bin go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
+GOBIN=`pwd`/vpc/bin go install sigs.k8s.io/kustomize/kustomize/v4@v4.5.5
+'''
+
+[tasks.build-vpc-manifests]
+workspace=false
+command = "make"
+args = ["manifests"]
+cwd = 'vpc'
+
+[tasks.build-vpc-container]
+workspace = false
+command = "make"
+args = ["docker-build"]
+cwd = 'vpc'
+dependencies = [
+  "prep-build-vpc"
+]
+
+[tasks.load-vpc-container]
+category = "Kind"
+description = "Push image to Kind"
+workspace = false
+command = "kind"
+args = ["load", "docker-image", "quay.io/nvidia/forge-connectivity", "--name", "forge-local"]
+
+

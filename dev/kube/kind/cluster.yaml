@@ -5,6 +5,12 @@ networking:
   disableDefaultCNI: false
 nodes:
 - role: control-plane
+  kubeadmConfigPatches:
+    - |
+      kind: InitConfiguration
+      nodeRegistration:
+        kubeletExtraArgs:
+          node-labels: "vpc.forge.nvidia.com/node=control"
   extraPortMappings:
   - containerPort: 31079
     hostPort: 11079
