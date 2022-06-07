@@ -1,0 +1,59 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: forge-cacert
+  namespace: forge-system
+spec:
+  dnsNames:
+  - '*.forge-system.svc'
+  isCA: true
+  issuerRef:
+    kind: Issuer
+    name: forge-selfsigned-issuer
+  secretName: forge-cacert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: forge-serving-cert
+  namespace: forge-system
+spec:
+  dnsNames:
+  - forge-webhook-service.forge-system.svc
+  - forge-webhook-service.forge-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: forge-selfsigned-issuer
+  secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: forge-vpc-cert
+  namespace: forge-system
+spec:
+  dnsNames:
+  - forge-vpc.forge-system.svc
+  - forge-vpc.forge-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: forge-caissuer
+  secretName: forge-vpc-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: forge-caissuer
+  namespace: forge-system
+spec:
+  ca:
+    secretName: forge-cacert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: forge-selfsigned-issuer
+  namespace: forge-system
+spec:
+  selfSigned: {}
