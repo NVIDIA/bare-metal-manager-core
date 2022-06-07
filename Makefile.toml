@@ -40,7 +40,6 @@ dependencies = [
   "load-carbide-container",
   "build-vpc-container",
   "load-vpc-container",
-  "build-vpc-manifests",
   "configure_kind"
 ]
 
@@ -167,12 +166,6 @@ GOBIN=`pwd`/vpc/bin go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.2
 GOBIN=`pwd`/vpc/bin go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
 GOBIN=`pwd`/vpc/bin go install sigs.k8s.io/kustomize/kustomize/v4@v4.5.5
 '''
-
-[tasks.build-vpc-manifests]
-workspace=false
-command = "make"
-args = ["manifests"]
-cwd = 'vpc'
 
 [tasks.build-vpc-container]
 workspace = false
