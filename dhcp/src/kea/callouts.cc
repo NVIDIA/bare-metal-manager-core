@@ -116,7 +116,7 @@ void update_discovery_parameters(Pkt4Ptr query4_ptr, DiscoveryBuilderFFI *discov
 		LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(option_val->toText());
 		update_discovery_parameters(discovery, option, option_val);
 	} else {
-		LOG_ERROR(logger, "LOG_CARBIDE_PKT4_RECEIVE: Missing option [%1] in packet").arg(option_val);
+		LOG_ERROR(logger, "LOG_CARBIDE_PKT4_RECEIVE: Missing option [%1] in packet").arg(option);
 	}
 }
 
