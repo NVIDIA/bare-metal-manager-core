@@ -34,9 +34,9 @@ impl FromStr for MachineArchitecture {
             // This is base 10 represented by the long vendor class
             Ok(0) => Ok(MachineArchitecture::BiosX86),
             Ok(7) => Ok(MachineArchitecture::EfiX64),
-            Ok(10) => Ok(MachineArchitecture::Arm64),
+            Ok(11) => Ok(MachineArchitecture::Arm64),
             Ok(16) => Ok(MachineArchitecture::EfiX64), // HTTP version
-            Ok(18) => Ok(MachineArchitecture::Arm64),  // HTTP version
+            Ok(19) => Ok(MachineArchitecture::Arm64),  // HTTP version
             Ok(_) => Err(VendorClassParseError::UnsupportedArchitecture), // Unknown
             Err(_) => Err(VendorClassParseError::InvalidFormat), // Better Error
         }
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn is_it_arm() {
-        let vc: VendorClass = "PXEClient:Arch:00010:UNDI:003000".parse().unwrap();
+        let vc: VendorClass = "PXEClient:Arch:00011:UNDI:003000".parse().unwrap();
         assert!(vc.arm());
     }
 
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn is_it_modern() {
-        let vc: VendorClass = "HTTPClient:Arch:00010:UNDI:003000".parse().unwrap();
+        let vc: VendorClass = "HTTPClient:Arch:00011:UNDI:003000".parse().unwrap();
         assert!(vc.is_it_modern());
     }
 
@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn it_formats_the_parser_armuefi() {
-        let vc: VendorClass = "HTTPClient:Arch:00010:UNDI:003000".parse().unwrap();
+        let vc: VendorClass = "HTTPClient:Arch:00011:UNDI:003000".parse().unwrap();
         assert_eq!(vc.to_string(), "ARM 64-bit UEFI (HTTP Client)");
     }
 
