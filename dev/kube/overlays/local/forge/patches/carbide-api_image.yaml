@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-api-deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: carbide-api
+          command: ["/bin/sh", "-c", "/data/debug/carbide-api run --datastore=\"${CARBIDE_API_DATASTORE}\" --listen=\"127.0.0.1:1079\""]
+          volumeMounts:
+            - mountPath: /data
+              name: data
+
+      volumes:
+        - name: data
+          hostPath:
+            path: /target

@@ -5,6 +5,9 @@ networking:
   disableDefaultCNI: false
 nodes:
 - role: control-plane
+  extraMounts:
+  - hostPath: target/
+    containerPath: /target
   kubeadmConfigPatches:
     - |
       kind: InitConfiguration

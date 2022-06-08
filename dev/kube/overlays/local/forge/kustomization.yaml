@@ -15,6 +15,16 @@ patchesStrategicMerge:
   - patches/carbide-pxe_envoy.yaml
   - patches/carbide-api_configmapref.yaml
   - patches/carbide-api_db_migrate_job.yaml
+  - patches/carbide-api_image.yaml
+  - patches/carbide-pxe_image.yaml
+  - patches/carbide-dns_image.yaml
+patches:
+  - path: override_api_image.json
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: carbide-api-deployment
 namespace: forge-system
 configMapGenerator:
   - name: envoy-carbide-api-config

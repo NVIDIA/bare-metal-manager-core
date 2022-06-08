@@ -441,9 +441,31 @@ https://kind.sigs.k8s.io/docs/user/quick-start/#installing-from-release-binaries
 You will also want to install kubectl (version 1.24+)
 https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
 
+Make sure you have the following installed prior to attempting to start Kind.
+* golang (vpc)
+* rust 
+* cargo make (cargo install cargo-make)
+* docker
+
+### Running binaries from your workstation in a kubernetes pod
+
+To run forge binaries which are built on your local workstation, inside 
+a container we will use the `hostPath` resource.  
+In order for this to work -
+
+1. copy `dev/kube/overlays/local/forge/override_api_image.json.example` to 
+`dev/kube/overlays/local/forge/override_api_image.json` 
+2. change the `value` field in `overide_api_image.json` to a docker container 
+that matches your workstation operating system. (Ubuntu:focal is default)
+
+Once that is set, `cd $REPO_ROOT`
+
 ```
 cargo make kind
 ```
+
+`forge-system` is the namespace where `forge-provisioner` and `forge-vpc` components
+are running 
 
 If for some reason you need to delete the cluster and start over:
 ```
@@ -459,7 +481,7 @@ To interact with carbide-api use the url `http://127.0.0.1:11079`
 
 To view logs for a particular application, the most straightforward way is to
 ```
-kubectl get pods
+kubectl get pods -A
 kubectl logs <podname> -f 
 ```
 
