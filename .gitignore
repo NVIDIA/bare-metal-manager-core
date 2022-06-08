@@ -6,3 +6,4 @@ public/
 **/.env
 .vscode/
 tmp/
+dev/kube/overlays/local/forge/override_api_image.json
