@@ -2,16 +2,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
 use sqlx::types::Json;
 pub use sqlx::{self, postgres::PgRow, PgPool, Postgres, Row};
-pub use sqlxmq::{job, CurrentJob, JobRegistry};
+pub use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
 pub struct Status {}
 
 #[derive(Debug)]
 pub struct BgStatus {
-    id: Uuid,
+    _id: Uuid,
     status: Result<Json<CurrentState>, sqlx::Error>,
-    last_updated: chrono::DateTime<chrono::Utc>,
+    _last_updated: chrono::DateTime<chrono::Utc>,
 }
 
 /// TaskState and CurrentState are sued to update status into bg_status table.
@@ -25,43 +25,56 @@ pub enum TaskState {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CurrentState {
-    checkpoint: u32,
-    msg: String,
-    state: TaskState,
+    pub checkpoint: u32, // Checkpoint location. It can be used in case of retries to identify last failure location.
+    pub msg: String, // Any message which can be fetched during poll. Can be used to store json also.
+    pub state: TaskState, // Task state. Check TaskState for more details.
 }
 
 struct MqMsgs {
     // Limited dummy implementation to make FromRow happy.
+    attempts: i32,
 }
 
 impl<'r> sqlx::FromRow<'r, PgRow> for BgStatus {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(BgStatus {
-            id: row.try_get("id")?,
+            _id: row.try_get("id")?,
             status: row.try_get("status"),
-            last_updated: row.try_get("last_updated")?,
+            _last_updated: row.try_get("last_updated")?,
         })
     }
 }
 
 impl<'r> sqlx::FromRow<'r, PgRow> for MqMsgs {
-    fn from_row(_row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(MqMsgs {})
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        Ok(MqMsgs {
+            attempts: row.try_get("attempts")?,
+        })
     }
+}
+
+async fn mq_msgs_entry(pool: &PgPool, id: Uuid) -> Result<MqMsgs, sqlx::Error> {
+    let query = "SELECT attempts from mq_msgs WHERE id=$1";
+    let mut txn: sqlx::Transaction<'_, Postgres> = pool.clone().begin().await?;
+
+    sqlx::query_as::<_, MqMsgs>(query)
+        .bind(id)
+        .fetch_one(&mut txn)
+        .await
 }
 
 impl Status {
     /// User is responsible to set periodic or final status by calling `update` method. This is
     /// complete user specific implementation when user wants to update status.
     pub async fn update(
-        pool: PgPool,
+        pool: &PgPool,
         id: Uuid,
         current_state: CurrentState,
     ) -> Result<(), sqlx::Error> {
         let query = r#"INSERT INTO bg_status(id, status) values($1, $2) 
                             ON CONFLICT (id) DO UPDATE 
                             SET last_updated = now(), status=$2;"#;
-        let mut txn: sqlx::Transaction<'_, Postgres> = pool.begin().await?;
+        let mut txn: sqlx::Transaction<'_, Postgres> = pool.clone().begin().await?;
 
         match sqlx::query_as::<_, BgStatus>(query)
             .bind(id)
@@ -79,9 +92,9 @@ impl Status {
 
     /// This method will read from `bg_status` table based on `id` and resturn json status message.
     /// User should use `update` method to update status periodically.
-    pub async fn poll(pool: PgPool, id: Uuid) -> Result<CurrentState, sqlx::Error> {
+    pub async fn poll(pool: &PgPool, id: Uuid) -> Result<CurrentState, sqlx::Error> {
         let query = "SELECT id, status, last_updated from bg_status WHERE id=$1";
-        let mut txn: sqlx::Transaction<'_, Postgres> = pool.begin().await?;
+        let mut txn: sqlx::Transaction<'_, Postgres> = pool.clone().begin().await?;
 
         match sqlx::query_as::<_, BgStatus>(query)
             .bind(id)
@@ -95,42 +108,38 @@ impl Status {
     }
 
     /// This method will read from `bg_status` table based on `id` and resturn boolean to indicate
-    /// if task is finished or not.
+    /// if task is finished or not. It also check if all retries are exhausted.
     /// User should use `update` method to update status periodically.
-    pub async fn is_finished(pool: PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
-        match Status::poll(pool, id).await {
-            Ok(value) => Ok(value.state == TaskState::Finished),
+    pub async fn is_finished(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
+        match mq_msgs_entry(pool, id).await {
+            Ok(msg) => Ok(msg.attempts == 0),
+            Err(sqlx::Error::RowNotFound) => Ok(true),
             Err(x) => Err(x),
         }
     }
 
     /// This method will read from `bg_status` table based on `id` and resturn boolean to indicate
-    /// if task is finished or not.
+    /// if task is finished or not. It also check if all retries are exhausted.
     /// User should use `update` method to update status periodically.
-    pub async fn is_failed(pool: PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
-        match Status::poll(pool, id).await {
+    pub async fn is_failed(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
+        let status: Result<bool, sqlx::Error> = match Status::poll(pool, id).await {
             Ok(value) => match value.state {
                 TaskState::Error(_) => Ok(true),
                 _ => Ok(false),
             },
             Err(x) => Err(x),
-        }
-    }
+        };
 
-    /// If task IS NOT picked, this method will return false.
-    /// If this method returns true, indicates task is not present in mq_mesg table and thus
-    /// assumed that task is picked for execution.
-    pub async fn is_picked(pool: PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
-        let query = "SELECT id from mq_msgs WHERE id=$1";
-        let mut txn: sqlx::Transaction<'_, Postgres> = pool.begin().await?;
-
-        match sqlx::query_as::<_, MqMsgs>(query)
-            .bind(id)
-            .fetch_one(&mut txn)
-            .await
-        {
-            Ok(_) => Ok(true),
-            Err(sqlx::Error::RowNotFound) => Ok(false),
+        match mq_msgs_entry(pool, id).await {
+            Ok(msg) => {
+                if msg.attempts == 0 {
+                    // 0 indicates that even last retry exhausted and task didn't call complete method.
+                    Ok(true)
+                } else {
+                    status
+                }
+            }
+            Err(sqlx::Error::RowNotFound) => status,
             Err(x) => Err(x),
         }
     }
@@ -156,7 +165,7 @@ mod tests {
                 std::env::var("TESTDB_HOST").unwrap(),
             )
         } else {
-            format!("postgres://%2Fvar%2Frun%2Fpostgresql")
+            "postgres://%2Fvar%2Frun%2Fpostgresql".to_string()
         }
     }
 
@@ -190,7 +199,7 @@ mod tests {
         state: TaskState,
     ) {
         match Status::update(
-            current_job.pool().clone(),
+            current_job.pool(),
             current_job.id(),
             CurrentState {
                 checkpoint,
@@ -237,7 +246,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_everything() {
+    async fn test_bg() {
         unsafe {
             TEST_VAR = 0;
         }
@@ -260,29 +269,16 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(Status::is_picked(pool.clone(), job_id).await.unwrap());
-
         // Let task execute.
         loop {
-            match Status::poll(pool.clone(), job_id).await {
-                Ok(x) => {
-                    println!("{:?}", x);
-                    if x.state == TaskState::Finished {
-                        break;
-                    }
-                }
-                Err(sqlx::Error::RowNotFound) => {
-                    println!("Status is not updated yet by task.");
-                }
-                Err(x) => {
-                    println!("Error while fetching poll: {:?}", x);
-                }
-            };
+            if Status::is_finished(&pool, job_id).await.unwrap() {
+                break;
+            }
             time::sleep(time::Duration::from_millis(1000)).await;
         }
 
-        assert!(Status::is_finished(pool.clone(), job_id).await.unwrap());
-        assert!(!Status::is_failed(pool.clone(), job_id).await.unwrap());
+        assert!(Status::is_finished(&pool, job_id).await.unwrap());
+        assert!(!Status::is_failed(&pool, job_id).await.unwrap());
         unsafe {
             assert_eq!(TEST_VAR, 1);
         }

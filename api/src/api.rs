@@ -1,3 +1,4 @@
+use carbide::ipmi::ipmi_handler;
 use std::convert::TryFrom;
 
 use color_eyre::Report;
@@ -848,7 +849,7 @@ impl Api {
         info!("Starting API server on {:?}", daemon_config.listen[0]);
 
         let database_connection = sqlx::Pool::connect(&daemon_config.datastore).await?;
-
+        let conn_clone = database_connection.clone();
         let api_service = Api {
             database_connection,
         };
@@ -856,6 +857,9 @@ impl Api {
         let reflection_service = Builder::configure()
             .register_encoded_file_descriptor_set(rpc::REFLECTION_SERVICE_DESCRIPTOR)
             .build()?;
+
+        // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
+        let _handle = ipmi_handler(conn_clone).await?;
 
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?

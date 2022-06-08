@@ -47,6 +47,7 @@ itertools = "*"
 thiserror = "1.0"
 async-trait = "*"
 rust-fsm = "0.6.0"
+shell-words = "1.0.0"
 
 # cli
 clap = { version = "~3.0.0", features = ["derive"] }
