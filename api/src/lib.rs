@@ -8,6 +8,7 @@ use tonic::Status;
 pub mod bg;
 pub mod db;
 mod human_hash;
+pub mod ipmi;
 
 pub mod kube;
 
