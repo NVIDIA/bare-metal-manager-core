@@ -13,9 +13,6 @@ use std::net::Ipv4Addr;
 use std::primitive::u32;
 use std::ptr;
 
-#[const_env::from_env("PROXY_IP")]
-const NEXT_SERVER: &'static str = "172.20.0.18";
-
 /// Machine: a machine that's currently trying to boot something
 ///
 /// This just stores the protobuf DHCP record and the discovery info the client used so we can add
@@ -208,13 +205,23 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
+    let url = if let Some(next_server) = CONFIG
+        .read()
+        .unwrap() // TODO(ajf): don't unwrap
+        .provisioning_server_ipv4
+        .clone() {
+        next_server.to_string()
+    } else {
+        "127.0.0.1".to_string()
+    };
+
     let arm_http_client = format!(
         "http://{}:8080/public/blobs/internal/aarch64/ipxe.efi",
-        NEXT_SERVER
+        url
     );
     let x86_http_client = format!(
         "http://{}:8080/public/blobs/internal/x86_64/ipxe.efi",
-        NEXT_SERVER
+        url
     );
 
     let fqdn = if let Some(vendor_class) = &machine.vendor_class {
@@ -262,11 +269,33 @@ pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { Box::from_raw(ctx) };
 
-    let ret = u32::from_be_bytes(NEXT_SERVER.parse::<Ipv4Addr>().unwrap().octets());
+    let ip_addr = if let Some(next_server) = CONFIG
+        .read()
+        .unwrap() // TODO(ajf): don't unwrap
+        .provisioning_server_ipv4 {
+        next_server.octets()
+    } else {
+        "127.0.0.1".to_string().parse::<Ipv4Addr>().unwrap().octets()
+    };
+
+    let ret = u32::from_be_bytes(ip_addr);
 
     std::mem::forget(machine);
 
     ret
+}
+
+#[no_mangle]
+pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_char {
+    assert!(!ctx.is_null());
+    let machine = unsafe { Box::from_raw(ctx) };
+
+    let nameservers = CString::new(CONFIG.read().unwrap().nameservers.clone()).unwrap();
+    debug!("Nameservers are {:?}", nameservers);
+
+    std::mem::forget(machine);
+
+    nameservers.into_raw()
 }
 
 #[no_mangle]
@@ -385,13 +414,13 @@ pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
 }
 
 #[no_mangle]
-pub extern "C" fn machine_free_next_server(next_server: *mut libc::c_char) {
+pub extern "C" fn machine_free_nameservers(nameservers: *mut libc::c_char) {
     unsafe {
-        if next_server.is_null() {
+        if nameservers.is_null() {
             return;
         }
 
-        CString::from_raw(next_server)
+        CString::from_raw(nameservers)
     };
 }
 

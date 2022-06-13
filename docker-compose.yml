@@ -27,8 +27,6 @@ services:
         ipv4_address: 172.20.0.12
     ports:
       - "67:67/udp"
-    environment:
-      - PROXY_IP=172.20.0.18
     volumes:
       - .:/app/code
       - ca-certificate:/identity

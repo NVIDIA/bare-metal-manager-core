@@ -21,6 +21,7 @@ static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 #[derive(Debug)]
 pub struct CarbideDhcpContext {
     api_endpoint: String,
+    nameservers: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
     #[allow(dead_code)]
     provisioning_server_ipv6: Option<Ipv6Addr>,
@@ -30,6 +31,7 @@ impl Default for CarbideDhcpContext {
     fn default() -> Self {
         Self {
             api_endpoint: "https://[::1]:1079".to_string(),
+            nameservers: "1.1.1.1".to_string(),
             provisioning_server_ipv4: None,
             provisioning_server_ipv6: None,
         }
@@ -69,4 +71,17 @@ pub extern "C" fn carbide_set_config_api(api: *const c_char) {
 pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
     CONFIG.write().unwrap().provisioning_server_ipv4 =
         Some(Ipv4Addr::from(next_server.to_be_bytes()));
+}
+
+/// Take the name servers for configuring nameservers in the dhcp responses
+///
+/// # Safety
+///
+/// None, todo!()
+///
+#[no_mangle]
+pub extern "C" fn carbide_set_config_name_servers(nameservers: *const c_char) {
+    let nameserver_str = unsafe { CStr::from_ptr(nameservers) }.to_str().unwrap().to_owned();
+
+    CONFIG.write().unwrap().nameservers = nameserver_str;
 }
