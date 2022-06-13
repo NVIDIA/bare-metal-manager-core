@@ -26,6 +26,7 @@
 				"library": "/home/andrew/NVIDIA/carbide/target/debug/libdhcp.so",
 				"parameters": {
 					"carbide-api-url": "https://[::1]:1079",
+					"carbide-nameservers": "##CHANGEME##",
 					"carbide-provisioning-server-ipv4": "##CHANGEME##"
 				}
 			}

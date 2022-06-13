@@ -52,13 +52,13 @@ void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
 		    response4_ptr->addOption(
 		            OptionPtr(
 		                new Option4AddrLst(
-		                    option, isc::asiolink::IOAddress(boost::any_cast<const char *>(param)))));
+		                    option, isc::asiolink::IOAddress(boost::any_cast<char *>(param)))));
 		    break;
 		case DHO_DOMAIN_NAME_SERVERS:
             response4_ptr->addOption(
                     OptionPtr(
                             new Option4AddrLst(
-                                    option, isc::asiolink::IOAddress(boost::any_cast<const char *>(param)))));
+                                    option, isc::asiolink::IOAddress(boost::any_cast<char *>(param)))));
 			break;
 		case DHO_SUBNET_MASK:
 		case DHO_BROADCAST_ADDRESS:
@@ -125,8 +125,10 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr, Machine *machine)
 	update_option<Option>(handle, response4_ptr, DHO_ROUTERS, machine);
 
 	// DNS servers
-	update_option<Option>(handle, response4_ptr, DHO_NAME_SERVERS, "1.1.1.1");
-	update_option<Option>(handle, response4_ptr, DHO_DOMAIN_NAME_SERVERS, "1.1.1.1");
+    char *machine_nameservers = machine_get_nameservers(machine);
+	update_option<Option>(handle, response4_ptr, DHO_NAME_SERVERS, machine_nameservers);
+	update_option<Option>(handle, response4_ptr, DHO_DOMAIN_NAME_SERVERS, machine_nameservers);
+    machine_free_nameservers(machine_nameservers);
 
 	// Set Interface MTU
 	update_option<OptionUint16>(handle, response4_ptr, DHO_INTERFACE_MTU, 1500);
