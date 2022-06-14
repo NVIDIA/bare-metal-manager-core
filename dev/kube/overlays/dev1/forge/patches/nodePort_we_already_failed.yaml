@@ -45,15 +45,3 @@ spec:
      protocol: TCP
      targetPort: pxe-envoy
   type: NodePort
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: carbide-pxe
-spec:
-  ports:
-    - nodePort: 8080
-      port: 8088
-      protocol: TCP
-      targetPort: pxe-envoy
-  type: NodePort
