@@ -8,7 +8,8 @@ spec:
       containers:
         - name: carbide-pxe
           args:
-            - "-s /forge-boot-artifacts"
+            - "-s"
+            - "forge-boot-artifacts"
           volumeMounts:
             - mountPath: /forge-boot-artifacts
               name: boot-artifacts
