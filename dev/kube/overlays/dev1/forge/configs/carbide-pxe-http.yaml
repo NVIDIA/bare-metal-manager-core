@@ -4,9 +4,11 @@ kind: Service
 metadata:
   name: carbide-pxe-http
 spec:
+  selector:
+    app: carbide-pxe
   ports:
     - nodePort: 8080
-      port: 8088
+      port: 8080
       protocol: TCP
-      targetPort: pxe-envoy
+      targetPort: pxe-envoy-http
   type: NodePort
