@@ -8,6 +8,29 @@ node:
 
 static_resources:
   listeners:
+  - name: http-pxe
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 8080}
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          codec_type: AUTO
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              - match: { prefix: "/" }
+                route: { cluster: carbide-pxe }
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
   - name: https-pxe
     address:
       socket_address: { address: 0.0.0.0, port_value: 8088}
