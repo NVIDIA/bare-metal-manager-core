@@ -73,6 +73,8 @@ QEMU and UEFI firmware are required to PXE boot a VM using Carbide
 
 Arch - `pacman -S qemu edk2-ovmf`
 Ubuntu - `apt-get install qemu ovmf`
+Libs needed for building the things - `build-essential libfreeipmi-dev pkg-config libssl-dev libudev-dev `
+Please talk to another dev about the kea install and the next person who reads this has to document it.
 
 You might need to modify or create `/etc/qemu/bridge.conf` and add `allow carbide0`
 
