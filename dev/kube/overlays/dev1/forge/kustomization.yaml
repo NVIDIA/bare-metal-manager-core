@@ -49,3 +49,7 @@ configMapGenerator:
     behavior: replace
     files:
       - kea_config.conf=configs/kea.json
+  - name: carbide-pxe-config
+    behavior: replace
+    files:
+      - Rocket.toml=configs/rocket.toml
