@@ -8,5 +8,8 @@ COPY isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
 RUN apt update && apt-get install -y curl postgresql-14 build-essential isc-kea-dhcp4-server isc-kea-dhcp6-server isc-kea-dev libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libudev-dev libfreeipmi-dev libfreeipmi17 libssl-dev clang automake cmake pkg-config sudo && rm -rf /var/lib/apt/lists/*
 RUN rustup component add rustfmt
 RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid && cargo cache -r registry-index,registry-sources
+RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.14.0/kind-linux-amd64  && chmod +x ./kind && mv kind /usr/local/bin
 RUN /etc/init.d/postgresql start && su postgres -c "/usr/lib/postgresql/14/bin/createuser -d root" && /etc/init.d/postgresql stop
 RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
+RUN mkdir /usr/local/go && cd /usr/local/go && curl -Lo go.tar.gz https://go.dev/dl/go1.18.3.linux-amd64.tar.gz && tar --strip-components 1 -zxf go.tar.gz && rm -f go.tar.gz
+ENV PATH "$PATH:/usr/local/go/bin"
