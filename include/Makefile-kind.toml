@@ -1,0 +1,61 @@
+[tasks.create-kind-cluster]
+category = "Kind"
+description = "Build KinD cluster"
+workspace = false
+command = "kind"
+args = ["create", "cluster", "--config", "dev/kube/kind/${CARBIDE_ENVIRONMENT}/cluster.yaml"]
+cwd="${REPO_ROOT}"
+
+
+[tasks.configure_kind]
+category = "Kind"
+workspace=false
+description = "kubectl apply KinD configuration"
+script='''
+kubectl kustomize dev/kube/overlays/${CARBIDE_ENVIRONMENT} | kubectl apply -f -
+kubectl rollout status deploy/cert-manager -n cert-manager
+kubectl rollout status deploy/cert-manager-webhook -n cert-manager
+kubectl rollout status deploy/cert-manager-cainjector -n cert-manager
+kubectl kustomize dev/kube/overlays/local/forge/resources/certs | kubectl apply -f -
+kubectl wait certs/forge-vpc-cert --for condition=Ready -n forge-system
+kubectl apply -f vpc/config/forge.yaml
+'''
+cwd="${REPO_ROOT}"
+
+
+[tasks.load-carbide-container]
+condition = {env = {"CARBIDE_ENVIRONMENT" = "local"}}
+category = "Kind"
+description = "Push image to Kind"
+workspace = false
+command = "kind"
+args = ["load", "docker-image", "carbide:latest", "--name", "forge-${CARBIDE_ENVIRONMENT}"]
+
+
+[tasks.load-vpc-container]
+condition = {env = {"CARBIDE_ENVIRONMENT" = "local"}}
+category = "Kind"
+description = "Push image to Kind"
+workspace = false
+command = "kind"
+args = ["load", "docker-image", "quay.io/nvidia/forge-connectivity", "--name", "forge-${CARBIDE_ENVIRONMENT}"]
+
+[tasks.carbide-container]
+condition = {env = {"CARBIDE_ENVIRONMENT" = "local"}}
+category = "Kind"
+description = "Build the carbide container"
+workspace = false
+command = "docker"
+args = ["build", "-t", "carbide:latest", "-f", "dev/deployment/Dockerfile", "."]
+cwd="${REPO_ROOT}"
+
+
+[tasks.config-kind-ci]
+category = "Kind-Ci"
+description = "Build CI Kind cluster"
+condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
+workspace = false
+script = '''
+sed -e "s/##CHANGEME##/${CI_BUILD_DIR}/" ${CI_BUILD_DIR}/dev/kube/kind/ci/cluster.template > ${CI_BUILD_DIR}/dev/kube/kind/ci/cluster.yaml
+'''
+cwd="${REPO_ROOT}"
