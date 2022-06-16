@@ -637,12 +637,15 @@ pub mod ipmi {
 
             unsafe {
                 let obj_cmd_rs: fiid_obj_t = fiid_obj_create(&tmpl_cmd_chassis_control_rs);
+                if obj_cmd_rs.is_null() {
+                    return Err(ipmi_error::ipmi_error_fiid_obj_alloc(IPMI_ERR_OUT_OF_MEMORY as i32));
+                }
                 let ret: c_int = ipmi_cmd_chassis_control(self.freeipmi_ctx,
                                                               action as u8, obj_cmd_rs);
+                fiid_obj_destroy(obj_cmd_rs);
                 if ret < 0 {
                     return Err(ipmi_error::ipmi_error_pwr_ctrl_fail(ret as i32));
                 }
-                fiid_obj_destroy(obj_cmd_rs);
             }
             Ok(())
         }
