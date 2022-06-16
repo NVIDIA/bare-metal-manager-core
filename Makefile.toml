@@ -1,6 +1,7 @@
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 REPO_ROOT = { script = ["echo ${REPO_ROOT}"] }
+CI_BUILD_DIR = { script = ["echo ${CI_BUILD_DIR}"] }
 
 [tasks.book]
 workspace = false
@@ -190,4 +191,15 @@ workspace = false
 command = "kind"
 args = ["load", "docker-image", "quay.io/nvidia/forge-connectivity", "--name", "forge-local"]
 
+
+[tasks.build-ci-kind]
+categoy = "Kind-Ci"
+description = "Build CI Kind cluster"
+workspace = false
+script = '''
+sed -e "s/##CHANGEME##/${CI_BUILD_DIR}/" > ${CI_BUILD_DIR}/cluster-ci.yaml
+kind create cluster --config ${CI_BUILD_DIR}/cluster-ci.yaml
+kind export kubeconfig --name forge-ci
+'''
+cwd="${REPO_ROOT}"
 

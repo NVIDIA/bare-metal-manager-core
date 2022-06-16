@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - secrets/dockersecret.yaml
+  - ./serviceAccount.yaml
+patches:
+  - path: ci_image.json
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: carbide-api-deployment
+namespace: forge-system
+configMapGenerator:
+  - name: carbide-api-config
+    behavior: create
+    literals:
+    - CARBIDE_API_LISTEN_INTERFACE=127.0.0.1:1079
+    - CARBIDE_API_DATASTORE="postgres://carbide_development:notforprod@postgres"
