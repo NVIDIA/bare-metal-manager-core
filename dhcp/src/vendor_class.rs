@@ -30,15 +30,22 @@ impl FromStr for MachineArchitecture {
     type Err = VendorClassParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse() {
-            // This is base 10 represented by the long vendor class
-            Ok(0) => Ok(MachineArchitecture::BiosX86),
-            Ok(7) => Ok(MachineArchitecture::EfiX64),
-            Ok(11) => Ok(MachineArchitecture::Arm64),
-            Ok(16) => Ok(MachineArchitecture::EfiX64), // HTTP version
-            Ok(19) => Ok(MachineArchitecture::Arm64),  // HTTP version
-            Ok(_) => Err(VendorClassParseError::UnsupportedArchitecture), // Unknown
-            Err(_) => Err(VendorClassParseError::InvalidFormat), // Better Error
+        match s {
+            // When a DPU (and presumably other hardware) has an OS
+            // the vendor class no longer is a UEFI vendor
+            "nvidia-bluefield-dpu aarch64" => Ok(MachineArchitecture::Arm64),
+            _ => {
+                match s.parse() {
+                    // This is base 10 represented by the long vendor class
+                    Ok(0) => Ok(MachineArchitecture::BiosX86),
+                    Ok(7) => Ok(MachineArchitecture::EfiX64),
+                    Ok(11) => Ok(MachineArchitecture::Arm64),
+                    Ok(16) => Ok(MachineArchitecture::EfiX64), // HTTP version
+                    Ok(19) => Ok(MachineArchitecture::Arm64),  // HTTP version
+                    Ok(_) => Err(VendorClassParseError::UnsupportedArchitecture), // Unknown
+                    Err(_) => Err(VendorClassParseError::InvalidFormat), // Better Error
+                }
+            }
         }
     }
 }
