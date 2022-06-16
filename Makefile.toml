@@ -2,6 +2,7 @@
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 REPO_ROOT = { script = ["echo ${REPO_ROOT}"] }
 CI_BUILD_DIR = { script = ["echo ${CI_BUILD_DIR}"] }
+CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = ["CARBIDE_ENVIRONMENT"] } }
 
 [tasks.book]
 workspace = false
@@ -11,49 +12,26 @@ dependencies = [
 	"book-compile",
 ]
 
-[tasks.create-kind-cluster]
+[tasks.build-kind]
 category = "Kind"
-description = "Build KinD cluster"
-workspace = false
-command = "kind"
-args = ["create", "cluster", "--config", "dev/kube/kind/cluster.yaml"]
-cwd="${REPO_ROOT}"
-
-[tasks.configure_kind]
-category = "Kind"
+description = "Build carbide container and upload to KinD cluster"
 workspace=false
-description = "kubectl apply KinD configuration"
-script='''
-kubectl kustomize dev/kube/overlays/local | kubectl apply -f -
-kubectl rollout status deploy/cert-manager -n cert-manager
-kubectl rollout status deploy/cert-manager-webhook -n cert-manager
-kubectl rollout status deploy/cert-manager-cainjector -n cert-manager
-kubectl kustomize dev/kube/overlays/local/forge/resources/certs | kubectl apply -f -
-kubectl wait certs/forge-vpc-cert --for condition=Ready -n forge-system
-kubectl apply -f vpc/config/forge.yaml
-'''
+dependencies = [
+  {name = "config-kind-ci", path="include/Makefile-kind.toml"},
+  {name = "create-kind-cluster", path="include/Makefile-kind.toml"},
+  {name = "carbide-container", path="include/Makefile-kind.toml"},
+  {name = "load-carbide-container", path="include/Makefile-kind.toml"},
+  {name = "build-vpc-container", path="include/Makefile-vpc.toml"},
+  {name = "load-vpc-container", path="include/Makefile-kind.toml"},
+  {name = "configure_kind", path="include/Makefile-kind.toml"}
+]
 cwd="${REPO_ROOT}"
 
 [tasks.kind]
 category = "Kind"
 description = "Build carbide container and upload to KinD cluster"
 workspace=false
-dependencies = [
-  "create-kind-cluster",
-  "carbide-container",
-  "load-carbide-container",
-  "build-vpc-container",
-  "load-vpc-container",
-  "configure_kind"
-]
-cwd="${REPO_ROOT}"
-
-[tasks.carbide-container]
-category = "Kind"
-description = "Build the carbide container"
-workspace = false
-command = "docker"
-args = ["build", "-t", "carbide:latest", "-f", "dev/deployment/Dockerfile", "."]
+run_task = "build-kind"
 cwd="${REPO_ROOT}"
 
 [tasks.build-x86-build-container]
@@ -71,13 +49,6 @@ workspace = false
 command = "docker"
 args = ["build", "-t", "gitlab-master.nvidia.com:5005/nvmetal/carbide/arm64v8/build-container:latest", "-f", "dev/docker/Dockerfile.build-container-arm", "."]
 
-
-[tasks.load-carbide-container]
-category = "Kind"
-description = "Push image to Kind"
-workspace = false
-command = "kind"
-args = ["load", "docker-image", "carbide:latest", "--name", "forge-local"]
 
 [tasks.runtime-container]
 category = "Docker Compose"
@@ -106,23 +77,9 @@ category = "Docker Compose"
 description = "Renews all the certificates in the containers and reloads the services"
 workspace=false
 dependencies = [
-	"fullstack-terraform",
-	"fullstack-refresh-postgresql",
+	{name="fullstack-terraform", path="include/Makefile-docker-compose.toml"},
+	{name="fullstack-refresh-postgresql", path="include/Makefile-docker-compose.toml"},
 ]
-
-[tasks.fullstack-terraform]
-category = "Docker Compose"
-description = "Re-runs terraform in the running environment"
-workspace = false
-command = "docker-compose"
-args = ["run", "terraform", "apply", "-auto-approve"]
-
-[tasks.fullstack-refresh-postgresql]
-category = "Docker Compose"
-description = "Reloads postgres in the running container"
-workspace = false
-command = "docker-compose"
-args = ["exec", "postgresql", "kill", "-HUP", "1"]
 
 
 [tasks.book-compile]
@@ -147,59 +104,11 @@ kustomize build vpc/config/crd/ -o tmp/
 '''
 cwd="${REPO_ROOT}"
 
-[tasks.generate-rust-from-crd]
-workspace = false
-script = '''
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_configurationresourcepools.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/configuration_resource_pool.rs
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/leaf.rs
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_managedresources.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/managed_resource.rs
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_resourcegroups.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/resource_group.rs
-'''
-cwd="${REPO_ROOT}"
 
 [tasks.update-kube-structs]
 workspace = false
 dependencies = [
-  "update-vpc-submodule",
-  "generate-rust-from-crd",
+  {name="update-vpc-submodule", path="include/Makefile-vpc.toml"},
+  {name="generate-rust-from-crd", path="include/Makefile-vpc.toml"}
 ]
-
-[tasks.prep-build-vpc]
-workspace = false
-script = '''
-mkdir -p vpc/bin
-GOBIN=`pwd`/vpc/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.4.1
-GOBIN=`pwd`/vpc/bin go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
-GOBIN=`pwd`/vpc/bin go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
-GOBIN=`pwd`/vpc/bin go install sigs.k8s.io/kustomize/kustomize/v4@v4.5.5
-'''
-cwd="${REPO_ROOT}"
-
-[tasks.build-vpc-container]
-workspace = false
-command = "make"
-args = ["docker-build"]
-cwd = "${REPO_ROOT}/vpc"
-dependencies = [
-  "prep-build-vpc"
-]
-
-[tasks.load-vpc-container]
-category = "Kind"
-description = "Push image to Kind"
-workspace = false
-command = "kind"
-args = ["load", "docker-image", "quay.io/nvidia/forge-connectivity", "--name", "forge-local"]
-
-
-[tasks.build-ci-kind]
-categoy = "Kind-Ci"
-description = "Build CI Kind cluster"
-workspace = false
-script = '''
-sed -e "s/##CHANGEME##/${CI_BUILD_DIR}/" > ${CI_BUILD_DIR}/cluster-ci.yaml
-kind create cluster --config ${CI_BUILD_DIR}/cluster-ci.yaml
-kind export kubeconfig --name forge-ci
-'''
-cwd="${REPO_ROOT}"
 
