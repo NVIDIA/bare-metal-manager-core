@@ -216,11 +216,11 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
     };
 
     let arm_http_client = format!(
-        "http://{}:8080/public/blobs/internal/aarch64/ipxe.efi",
+        "http://{}/public/blobs/internal/aarch64/ipxe.efi",
         url
     );
     let x86_http_client = format!(
-        "http://{}:8080/public/blobs/internal/x86_64/ipxe.efi",
+        "http://{}/public/blobs/internal/x86_64/ipxe.efi",
         url
     );
 
