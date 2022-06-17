@@ -34,6 +34,14 @@ workspace=false
 run_task = "build-kind"
 cwd="${REPO_ROOT}"
 
+[tasks.kind-ci]
+category = "Kind"
+description = "Build carbide container and upload to KinD cluster"
+workspace=false
+run_task = "build-kind"
+cwd="${CI_BUILD_DIR}"
+
+
 [tasks.build-x86-build-container]
 category = "Kind"
 description = "Build the x86 build container"
