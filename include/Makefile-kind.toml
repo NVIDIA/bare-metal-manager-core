@@ -3,7 +3,7 @@ category = "Kind"
 description = "Build KinD cluster"
 workspace = false
 command = "kind"
-args = ["create", "cluster", "--config", "dev/kube/kind/${CARBIDE_ENVIRONMENT}/cluster.yaml"]
+args = ["create", "cluster", "--config", "${REPO_ROOT}/dev/kube/kind/${CARBIDE_ENVIRONMENT}/cluster.yaml"]
 cwd="${REPO_ROOT}"
 
 
@@ -12,11 +12,11 @@ category = "Kind"
 workspace=false
 description = "kubectl apply KinD configuration"
 script='''
-kubectl kustomize dev/kube/overlays/${CARBIDE_ENVIRONMENT} | kubectl apply -f -
+kubectl kustomize ${REPO_ROOT}/dev/kube/overlays/${CARBIDE_ENVIRONMENT} | kubectl apply -f -
 kubectl rollout status deploy/cert-manager -n cert-manager
 kubectl rollout status deploy/cert-manager-webhook -n cert-manager
 kubectl rollout status deploy/cert-manager-cainjector -n cert-manager
-kubectl kustomize dev/kube/overlays/${CARBIDE_ENVIRONMENT}/forge/resources/certs | kubectl apply -f -
+kubectl kustomize ${REPO_ROOT}/dev/kube/overlays/${CARBIDE_ENVIRONMENT}/forge/resources/certs | kubectl apply -f -
 kubectl wait certs/forge-vpc-cert --for condition=Ready -n forge-system
 kubectl apply -f vpc/config/forge.yaml
 '''
