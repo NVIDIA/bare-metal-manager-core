@@ -36,6 +36,7 @@ cwd="${REPO_ROOT}"
 
 [tasks.build-vpc-container]
 workspace = false
+condition = {env = {"CARBIDE_ENVIRONMENT" = "local"}}
 category = "vpc"
 command = "make"
 args = ["docker-build"]

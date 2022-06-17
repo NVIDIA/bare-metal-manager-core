@@ -53,15 +53,25 @@ cwd="${REPO_ROOT}"
 [tasks.config-kind-ci]
 category = "Kind-Ci"
 description = "Build CI Kind cluster"
-#condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
+condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
 workspace = false
 script = '''
 cat<<EOF > ${REPO_ROOT}/dev/kube/kind/ci/cluster.yaml
 kind: Cluster
+networking:
+  apiServerAddress: "0.0.0.0"
 apiVersion: kind.x-k8s.io/v1alpha4
 name: forge-ci
 networking:
   disableDefaultCNI: false
+kubeadmConfigPatchesJSON6902:
+  - group: kubeadm.k8s.io
+    version: v1beta2
+    kind: ClusterConfiguration
+    patch: |
+      - op: add
+        path: /apiServer/certSANs/-
+        value: docker
 nodes:
 - role: control-plane
   extraMounts:
