@@ -19,6 +19,7 @@ path = "src/lib.rs"
 libc = { version = "0.2", optional = true }
 thiserror = "1.0"
 num_enum = "0.5.7"
+serde = {version = "1.0", features = ["derive"] }
 
 [build-dependencies]
 pkg-config = "0.3.25"
