@@ -1,18 +1,25 @@
 use crate::bg::{job, CurrentJob, CurrentState, JobRegistry, OwnedHandle, Status, TaskState};
 use crate::{CarbideError, CarbideResult};
+use freeipmi_sys::{
+    self, auth_type, cipher_suite, ipmi::ipmi_ctx, ipmi_interface, power_control, privilege_level,
+};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use shell_words;
 use sqlx;
-use std::process::Command;
 use uuid::Uuid;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+enum IpmiTask {
+    Status,
+    PowerControl(power_control),
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct IpmiCommand {
     host: String,
     user: String,
     password: String,
-    cmd: Option<String>,
+    action: Option<IpmiTask>,
 }
 
 async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, state: TaskState) {
@@ -34,14 +41,59 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
     }
 }
 
-#[cfg(not(test))]
-fn get_command_name() -> String {
-    "ipmitool".to_string()
+#[cfg(test)]
+async fn handle_ipmi_command(cmd: IpmiCommand) -> CarbideResult<String> {
+    match cmd.action.unwrap() {
+        IpmiTask::PowerControl(_task) => Ok("Power Control".to_string()),
+        IpmiTask::Status => Ok("Status".to_string()),
+    }
 }
 
-#[cfg(test)]
-fn get_command_name() -> String {
-    "sh".to_string()
+#[cfg(not(test))]
+async fn handle_ipmi_command(cmd: IpmiCommand) -> CarbideResult<String> {
+    let intf: ipmi_interface = ipmi_interface::IPMI_DEVICE_LAN_2_0;
+    let cipher: cipher_suite = cipher_suite::IPMI_CIPHER_HMAC_SHA256_AES_CBC_128;
+    let auth: auth_type = auth_type::IPMI_AUTHENTICATION_TYPE_MD5;
+    let mode: privilege_level = privilege_level::IPMI_PRIVILEGE_LEVEL_ADMIN;
+    let result: CarbideResult<String>;
+
+    let mut ctx = ipmi_ctx::new(
+        cmd.host,
+        cmd.user,
+        cmd.password,
+        Option::from(intf),
+        Option::from(cipher),
+        Option::from(mode),
+        Option::from(auth),
+    );
+
+    if ctx.connect().is_ok() {
+        result = match cmd.action.unwrap() {
+            IpmiTask::PowerControl(task) => match ctx.power_control(task) {
+                Ok(()) => Ok("Success".to_string()),
+                Err(e) => {
+                    let error_msg = format!("Failed to run power control command {}", e);
+                    Err(CarbideError::GenericError(error_msg))
+                }
+            },
+            IpmiTask::Status => match ctx.chassis_status() {
+                Ok(status) => Ok(status
+                    .iter()
+                    .map(|x| format!("{}", x))
+                    .collect::<Vec<String>>()
+                    .join("\n")),
+                Err(e) => {
+                    let error_msg = format!("Failed to run status command {}", e);
+                    Err(CarbideError::GenericError(error_msg))
+                }
+            },
+        };
+        let _ = ctx.disconnect();
+    } else {
+        result = Err(CarbideError::GenericError("Failed to connect".to_string()))
+    }
+    ctx.destroy();
+    result
 }
 
 #[job(channel_name = "ipmi_handler")]
@@ -58,101 +110,51 @@ async fn command_handler(mut current_job: CurrentJob) -> CarbideResult<()> {
     )
     .await;
 
-    if cmd.cmd.is_none() {
+    if cmd.action.is_none() {
         return Err(CarbideError::GenericError(
             "Didn't received any command in job.".to_string(),
         ));
     }
 
-    let args: String = if cfg!(test) {
-        cmd.cmd.unwrap() // Don't expect it to be None.
-    } else {
-        format!(
-            "-I lanplus -U {user} -P {password} -H {host} {cmd}",
-            user = cmd.user,
-            password = cmd.password,
-            host = cmd.host,
-            cmd = cmd.cmd.unwrap()
-        )
-    };
-
-    let args = shell_words::split(&args)
-        .map_err(|_| CarbideError::GenericError("Parsing failed".to_string()))?;
-
-    let output = match Command::new(get_command_name()).args(args).output() {
-        Ok(sts) => sts,
+    let result = handle_ipmi_command(cmd).await;
+    match result {
+        Ok(s) => {
+            update_status(&current_job, 4, s, TaskState::Finished).await;
+            let _ = current_job.complete().await.map_err(CarbideError::from);
+            Ok(())
+        }
         Err(e) => {
             update_status(
                 &current_job,
-                3,
-                "Command execution failed.".to_string(),
+                6,
+                "Failed.".to_string(),
                 TaskState::Error(e.to_string()),
             )
             .await;
-            return Err(CarbideError::GenericError(e.to_string()));
+            Err(e)
         }
-    };
-
-    if output.status.success() {
-        let output_text = String::from_utf8(output.stdout)
-            .unwrap_or_else(|_| "Couldn't parse output.".to_string());
-        update_status(
-            &current_job,
-            4,
-            output_text.to_string(),
-            TaskState::Finished,
-        )
-        .await;
-        let _ = current_job.complete().await.map_err(CarbideError::from);
-    } else {
-        let output_text = String::from_utf8(output.stderr)
-            .unwrap_or_else(|_| "Couldn't parse output.".to_string());
-        update_status(
-            &current_job,
-            5,
-            "Failed.".to_string(),
-            TaskState::Error(output_text.clone()),
-        )
-        .await;
-        return Err(CarbideError::GenericError(output_text));
     }
-
-    Ok(())
-}
-
-enum Actions {
-    PowerUp,
-    PowerDown,
-    PowerStatus,
-    PowerReset,
-    NetworkBoot,
 }
 
 impl IpmiCommand {
-    #[cfg(not(test))]
-    fn update_option(mut self, action: Actions) -> Self {
-        let cmd = match action {
-            Actions::PowerUp => "chassis power up",
-            Actions::PowerDown => "chassis power down",
-            Actions::PowerStatus => "chassis power status",
-            Actions::PowerReset => "chassis power reset",
-            Actions::NetworkBoot => "chassis bootdev pxe options=efiboot",
-        }
-        .to_string();
-
-        self.cmd = Some(cmd);
+    fn update_action(mut self, action: power_control) -> Self {
+        self.action = Some(IpmiTask::PowerControl(action));
         self
     }
 
-    #[cfg(test)]
-    fn update_option(mut self, _action: Actions) -> Self {
-        self.cmd = Some("-c \"echo test\"".to_string());
+    fn update_status(mut self) -> Self {
+        self.action = Some(IpmiTask::Status);
         self
     }
 
     async fn launch_command(&self, pool: sqlx::PgPool) -> CarbideResult<Uuid> {
+        if self.host.is_empty() || self.user.is_empty() || self.password.is_empty() {
+            return Err(CarbideError::GenericError(format!(
+                "Hostname or Username or Password not specified for lan connection"
+            )));
+        }
         let json = serde_json::to_string(self)?;
-        if self.cmd.is_none() {
+        if self.action.is_none() {
             return Err(CarbideError::GenericError(
                 "Didn't received any command.".to_string(),
             ));
@@ -174,34 +176,37 @@ impl IpmiCommand {
             host,
             user,
             password,
-            cmd: None,
+            action: None,
         }
     }
     pub async fn power_up(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_option(Actions::PowerUp)
+        self.update_action(power_control::IPMI_CHASSIS_CONTROL_POWER_UP)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_down(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_option(Actions::PowerDown)
+        self.update_action(power_control::IPMI_CHASSIS_CONTROL_POWER_DOWN)
             .launch_command(pool.clone())
             .await
     }
-    pub async fn power_status(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_option(Actions::PowerStatus)
+    pub async fn power_cycle(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
+        self.update_action(power_control::IPMI_CHASSIS_CONTROL_POWER_CYCLE)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_reset(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_option(Actions::PowerReset)
+        self.update_action(power_control::IPMI_CHASSIS_CONTROL_HARD_RESET)
             .launch_command(pool.clone())
             .await
     }
-    pub async fn boot_from_network(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_option(Actions::NetworkBoot)
-            .launch_command(pool.clone())
-            .await
+    pub async fn ipmi_status(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
+        self.update_status().launch_command(pool.clone()).await
     }
+    //pub async fn boot_from_network(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
+    //    self.update_option(Actions::NetworkBoot)
+    //        .launch_command(pool.clone())
+    //        .await
+    //}
 }
 
 pub async fn ipmi_handler(pool: sqlx::PgPool) -> CarbideResult<OwnedHandle> {
@@ -285,6 +290,6 @@ mod tests {
 
         let fs = Status::poll(&pool, job_id).await.unwrap();
         assert_eq!(fs.state, TaskState::Finished);
-        assert_eq!(fs.msg.trim(), "test");
+        assert_eq!(fs.msg.trim(), "Power Control");
     }
 }
