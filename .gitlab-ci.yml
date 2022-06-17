@@ -29,7 +29,7 @@ build:cargo:
   tags:
     - x86_64
   after_script:
-    - kind delete cluster forge-ci
+    - kind delete cluster --name forge-ci
 
 build:ipxe-x86_64:
   before_script:
