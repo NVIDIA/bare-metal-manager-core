@@ -56,6 +56,6 @@ description = "Build CI Kind cluster"
 condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
 workspace = false
 script = '''
-sed -e "s/##CHANGEME##/${CI_BUILD_DIR}/" ${CI_BUILD_DIR}/dev/kube/kind/ci/cluster.template > ${CI_BUILD_DIR}/dev/kube/kind/ci/cluster.yaml
+sed -e "s/##CHANGEME##/${REPO_ROOT}/" ${REPO_ROOT}/dev/kube/kind/ci/cluster.template > ${REPO_ROOT}/dev/kube/kind/ci/cluster.yaml
 '''
 cwd="${REPO_ROOT}"
