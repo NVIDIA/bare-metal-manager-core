@@ -20,6 +20,9 @@ rpc = { path = "../rpc" }
 tonic = { version = "0.7.0", features = ["tls"] }
 tonic-reflection = "0.4.0"
 
+# http/service
+tower-layer = "0.3"
+
 # authentication
 jsonwebtoken = { version = "8.1", default-features = false }
 
