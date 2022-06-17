@@ -12,7 +12,8 @@ category = "Kind"
 workspace=false
 description = "kubectl apply KinD configuration"
 dependencies = [
-  "export-kubeconfig"
+  "export-kubeconfig",
+  "fix-kubectl-ci"
 ]
 script='''
 kubectl kustomize ${REPO_ROOT}/dev/kube/overlays/${CARBIDE_ENVIRONMENT} | kubectl apply -f -
@@ -60,7 +61,7 @@ workspace = false
 script = '''
 kind export kubeconfig --name forge-ci
 REAL_IP=$(ip route|awk '/default/ { print $3 }')
-sed -i -e "s/127\.0\.0\.1/$REAL_IP/g" /root/.kube/config
+sed -i -e "s/0.0.0.0/$REAL_IP/g" /root/.kube/config
 '''
 
 [tasks.export-kubeconfig]
