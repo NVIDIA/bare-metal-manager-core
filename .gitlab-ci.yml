@@ -28,6 +28,8 @@ build:cargo:
     - cargo make workspace-ci-flow
   tags:
     - x86_64
+  after_script:
+    - kind delete cluster forge-ci
 
 build:ipxe-x86_64:
   before_script:
