@@ -1,7 +1,7 @@
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
-REPO_ROOT = { script = ["echo ${REPO_ROOT}"] }
-CI_BUILD_DIR = { script = ["echo ${CI_BUILD_DIR}"] }
+REPO_ROOT = { script = ["echo ${REPO_ROOT}"], condition = {env_not_set = ["CI_BUILDS_DIR"]} }
+REPO_ROOT = { script = ["echo ${CI_BUILDS_DIR}"], condition = {env_set = ["CI_BUILDS_DIR"]}}
 CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = ["CARBIDE_ENVIRONMENT"] } }
 
 [tasks.book]
@@ -32,15 +32,14 @@ category = "Kind"
 description = "Build carbide container and upload to KinD cluster"
 workspace=false
 run_task = "build-kind"
+dependencies = [
+  "echo"
+]
 cwd="${REPO_ROOT}"
 
-[tasks.kind-ci]
-category = "Kind"
-description = "Build carbide container and upload to KinD cluster"
-workspace=false
-run_task = "build-kind"
-cwd="${CI_BUILD_DIR}"
-
+[tasks.echo]
+command = "echo"
+args = ["${REPO_ROOT}"]
 
 [tasks.build-x86-build-container]
 category = "Kind"
