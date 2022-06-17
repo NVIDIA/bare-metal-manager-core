@@ -32,14 +32,7 @@ category = "Kind"
 description = "Build carbide container and upload to KinD cluster"
 workspace=false
 run_task = "build-kind"
-dependencies = [
-  "echo"
-]
 cwd="${REPO_ROOT}"
-
-[tasks.echo]
-command = "echo"
-args = ["${REPO_ROOT}"]
 
 [tasks.build-x86-build-container]
 category = "Kind"
