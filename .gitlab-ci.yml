@@ -24,6 +24,7 @@ build:cargo:
   script:
     - env
     - /etc/init.d/postgresql start
+    - cargo make kind
     - cargo make workspace-ci-flow
   tags:
     - x86_64
