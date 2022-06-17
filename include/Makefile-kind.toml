@@ -58,12 +58,10 @@ workspace = false
 script = '''
 cat<<EOF > ${REPO_ROOT}/dev/kube/kind/ci/cluster.yaml
 kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
 networking:
   apiServerAddress: "0.0.0.0"
-apiVersion: kind.x-k8s.io/v1alpha4
 name: forge-ci
-networking:
-  disableDefaultCNI: false
 kubeadmConfigPatchesJSON6902:
   - group: kubeadm.k8s.io
     version: v1beta2
