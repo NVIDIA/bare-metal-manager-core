@@ -11,6 +11,9 @@ cwd="${REPO_ROOT}"
 category = "Kind"
 workspace=false
 description = "kubectl apply KinD configuration"
+dependencies = [
+  "fix-kubectl-ci"
+]
 script='''
 kubectl kustomize ${REPO_ROOT}/dev/kube/overlays/${CARBIDE_ENVIRONMENT} | kubectl apply -f -
 kubectl rollout status deploy/cert-manager -n cert-manager
@@ -49,6 +52,14 @@ command = "docker"
 args = ["build", "-t", "carbide:latest", "-f", "dev/deployment/Dockerfile", "."]
 cwd="${REPO_ROOT}"
 
+[tasks.fix-kubectl-ci]
+category = "Kind-Ci"
+description = "Change kubeconfig in CI"
+condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
+workspace = false
+script = '''
+sed -i -E -e 's/localhost|0\.0\.0\.0/docker/g' /root/.kube/config
+'''
 
 [tasks.config-kind-ci]
 category = "Kind-Ci"
