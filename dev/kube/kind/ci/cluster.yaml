@@ -6,7 +6,7 @@ networking:
 nodes:
 - role: control-plane
   extraMounts:
-  - hostPath: ##CHANGEME##
+  - hostPath: /home/ian/src/gitlab-master.nvidia.com/carbide/target
     containerPath: /target
   kubeadmConfigPatches:
     - |
