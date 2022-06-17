@@ -12,6 +12,7 @@ category = "Kind"
 workspace=false
 description = "kubectl apply KinD configuration"
 dependencies = [
+  "export-kubeconfig",
   "fix-kubectl-ci"
 ]
 script='''
@@ -59,6 +60,15 @@ condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
 workspace = false
 script = '''
 sed -i -E -e 's/localhost|0\.0\.0\.0/docker/g' /root/.kube/config
+'''
+
+[tasks.export-kubeconfig]
+category = "Kind-Ci"
+description = "Generate kubeconfig in CI"
+condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
+workspace = false
+script = '''
+kind export kubeconfig --name forge-ci
 '''
 
 [tasks.config-kind-ci]
