@@ -59,7 +59,9 @@ description = "Change kubeconfig in CI"
 condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
 workspace = false
 script = '''
-sed -i -E -e 's/localhost|0\.0\.0\.0/docker/g' /root/.kube/config
+export KUBECONFIG="$(kind get kubeconfig-path --name forge-ci)"
+REAL_IP=$(ip route|awk '/default/ { print $3 }')
+sed -i -e "s/localhost/$REAL_IP/g" $KUBECONFIG
 '''
 
 [tasks.export-kubeconfig]
