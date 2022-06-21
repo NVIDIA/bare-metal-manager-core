@@ -59,7 +59,7 @@ description = "Change kubeconfig in CI"
 condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
 workspace = false
 script = '''
-kind export kubeconfig --name forge-ci
+kind export kubeconfig --name ${CI_PIPELINE_ID}
 REAL_IP=$(ip route|awk '/default/ { print $3 }')
 sed -i -e "s/0.0.0.0/$REAL_IP/g" /root/.kube/config
 '''
@@ -85,7 +85,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 networking:
   apiServerAddress: "0.0.0.0"
-name: forge-ci
+name: ${CI_PIPELINE_ID}
 nodes:
 - role: control-plane
   extraMounts:
