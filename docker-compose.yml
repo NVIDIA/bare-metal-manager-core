@@ -93,6 +93,8 @@ services:
       - POSTGRES_DB=${DBNAME:-carbide_development}
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
     command: -c ssl=on -c ssl_cert_file=/identity/postgresql.metal.dev.pem -c ssl_key_file=/identity/postgresql.metal.dev.key
+    ports:
+      - 5432:5432
 
   terraform:
     image: hashicorp/terraform:latest

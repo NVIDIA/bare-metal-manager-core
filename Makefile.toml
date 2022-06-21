@@ -63,7 +63,7 @@ category = "Docker Compose"
 description = "Brings up a full Carbide stack"
 workspace = false
 command = "docker-compose"
-args = ["up", "-d"]
+args = ["up", "-d", "--build"]
 
 [tasks.fullstack-down]
 category = "Docker Compose"
@@ -92,6 +92,11 @@ workspace = false
 command = "cargo"
 args = ["license", "--avoid-build-deps", "--avoid-dev-deps", "--json"]
 
+[tasks.bootstrap-forge-docker]
+workspace = false
+dependencies = [
+  {name="build-bootstrap-forge-docker", path="include/Makefile-bootstrap.toml"}
+]
 
 ## - VPC Related tasks
 [tasks.update-vpc-submodule]
