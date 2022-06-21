@@ -3,7 +3,7 @@ category = "Kind"
 description = "Build KinD cluster"
 workspace = false
 command = "kind"
-args = ["create", "cluster", "--config", "${REPO_ROOT}/dev/kube/kind/${CARBIDE_ENVIRONMENT}/cluster.yaml"]
+args = ["create", "cluster", "--config", "${REPO_ROOT}/dev/kube/kind/${CARBIDE_ENVIRONMENT}/cluster.yaml", "--wait=30s"]
 cwd="${REPO_ROOT}"
 
 
@@ -79,31 +79,37 @@ description = "Build CI Kind cluster"
 condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
 workspace = false
 script = '''
+REAL_IP=$(ip route|awk '/default/ { print $3 }'| tr -d '\n')
 cat<<EOF > ${REPO_ROOT}/dev/kube/kind/ci/cluster.yaml
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 networking:
   apiServerAddress: "0.0.0.0"
 name: forge-ci
-kubeadmConfigPatchesJSON6902:
-  - group: kubeadm.k8s.io
-    version: v1beta2
-    kind: ClusterConfiguration
-    patch: |
-      - op: add
-        path: /apiServer/certSANs/-
-        value: docker
 nodes:
 - role: control-plane
   extraMounts:
   - hostPath: ${REPO_ROOT}/target
     containerPath: /target
+  kubeadmConfigPatchesJSON6902:
+  - group: kubeadm.k8s.io
+    version: v1beta3
+    kind: ClusterConfiguration
+    patch: |
+      - op: add
+        path: /apiServer/certSANs/-
+        value: docker
+      - op: add
+        path: /apiServer/certSANs/-
+        value: ${REAL_IP}
   kubeadmConfigPatches:
-    - |
-      kind: InitConfiguration
-      nodeRegistration:
-        kubeletExtraArgs:
-          node-labels: "vpc.forge.nvidia.com/node=control"
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "vpc.forge.nvidia.com/node=control"
 EOF
+
+cat ${REPO_ROOT}/dev/kube/kind/ci/cluster.yaml
 '''
 cwd="${REPO_ROOT}"
