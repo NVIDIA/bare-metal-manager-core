@@ -63,7 +63,7 @@ category = "Docker Compose"
 description = "Brings up a full Carbide stack"
 workspace = false
 command = "docker-compose"
-args = ["up", "-d"]
+args = ["up", "-d", "--build"]
 
 [tasks.fullstack-down]
 category = "Docker Compose"
