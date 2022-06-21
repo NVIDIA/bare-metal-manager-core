@@ -33,7 +33,7 @@ impl FromStr for MachineArchitecture {
         match s {
             // When a DPU (and presumably other hardware) has an OS
             // the vendor class no longer is a UEFI vendor
-            "nvidia-bluefield-dpu aarch64" => Ok(MachineArchitecture::Arm64),
+            "aarch64" => Ok(MachineArchitecture::Arm64),
             _ => {
                 match s.parse() {
                     // This is base 10 represented by the long vendor class
@@ -113,6 +113,7 @@ impl FromStr for MachineClientClass {
         match s {
             "PXEClient" => Ok(Self::PXEClient),
             "HTTPClient" => Ok(Self::HTTPClient),
+            "nvidia-bluefield-dpu" => Ok(Self::PXEClient),
             _ => Err(VendorClassParseError::UnsupportedClientType),
         }
     }
@@ -124,14 +125,28 @@ impl FromStr for VendorClass {
     type Err = VendorClassParseError;
 
     fn from_str(vendor_class: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = vendor_class.split(':').collect();
-
-        match parts.len() {
-            5 => Ok(VendorClass {
-                client_type: parts[0].parse()?,
-                client_architecture: parts[2].parse()?,
-            }),
-            _ => Err(VendorClassParseError::InvalidFormat),
+        if vendor_class.contains(':') {
+            // this is the UEFI version
+            let parts: Vec<&str> = vendor_class.split(':').collect();
+            match parts.len() {
+                5 => Ok(VendorClass {
+                    client_type: parts[0].parse()?,
+                    client_architecture: parts[2].parse()?,
+                }),
+                _ => Err(VendorClassParseError::InvalidFormat),
+            }
+        } else if vendor_class.contains(' ') {
+            // This is the OS (bluefield so far, maybe host OS's too)
+            let parts: Vec<&str> = vendor_class.split(' ').collect();
+            match parts.len() {
+                2 =>  Ok(VendorClass {
+                    client_type: parts[0].parse()?,
+                    client_architecture: parts[1].parse()?,
+                }),
+                _ => Err(VendorClassParseError::InvalidFormat),
+            }
+        } else {
+            Err(VendorClassParseError::InvalidFormat)
         }
     }
 }
@@ -146,6 +161,12 @@ mod tests {
 
         assert!(vc.pxe());
         assert!(!vc.http());
+    }
+
+    #[test]
+    fn is_it_arm_non_uefi() {
+        let vc: VendorClass = "nvidia-bluefield-dpu aarch64".parse().unwrap();
+        assert!(vc.arm());
     }
 
     #[test]
