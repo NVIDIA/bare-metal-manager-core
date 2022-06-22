@@ -10,7 +10,7 @@ on:
 
 jobs:
   unit-test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -38,19 +38,13 @@ jobs:
       run: pyright .
 
     - name: Unit Tests
-      run: python3 -m pytest tests
+      run: python3 -m pytest -sv tests
 
     - name: Test execution from current working directory
       run: python3 -m mkosi -h
 
     - name: Test execution from current working directory (sudo call)
       run: sudo python3 -m mkosi -h
-
-    - name: Test system installation
-      run: |
-        sudo python3 -m pip install .
-        sudo mkosi -h
-        sudo python3 -m pip uninstall --yes mkosi
 
     - name: Test user installation
       run: |
@@ -86,6 +80,12 @@ jobs:
       run: |
         sudo testvenv/bin/mkosi -h
 
+    - name: Test system installation
+      run: |
+        sudo python3 -m pip install .
+        sudo mkosi -h
+        sudo python3 -m pip uninstall --yes mkosi
+
     - name: Test zipapp creation
       run: |
         ./tools/generate-zipapp.sh
@@ -97,7 +97,7 @@ jobs:
         bash -c 'shopt -s globstar; shellcheck **/*.sh'
 
   integration-test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: unit-test
     concurrency:
       group: ${{ github.workflow }}-${{ matrix.distro }}-${{ matrix.format }}-${{ github.ref }}
@@ -118,22 +118,8 @@ jobs:
           - directory
           - tar
           - cpio
-          - gpt_btrfs
+          - gpt_ext4
           - plain_squashfs
-        exclude:
-          # CentOS 8/Rocky/Alma Linux does not support btrfs.
-          - distro: centos
-            format: gpt_btrfs
-          - distro: centos_epel
-            format: gpt_btrfs
-          - distro: rocky
-            format: gpt_btrfs
-          - distro: rocky_epel
-            format: gpt_btrfs
-          - distro: alma
-            format: gpt_btrfs
-          - distro: alma_epel
-            format: gpt_btrfs
 
     steps:
     - uses: actions/checkout@v2
@@ -195,16 +181,19 @@ jobs:
         sync-uri = https://raw.githubusercontent.com/257/binpkgs/main
         EOF
 
-        MKOSI_TEST_DEFAULT_VERB=boot sudo python3 -m pytest -m integration tests
+        sudo MKOSI_TEST_DEFAULT_VERB=boot python3 -m pytest -m integration -sv tests
 
     - name: Build/Boot ${{ matrix.distro }}/${{ matrix.format }} UEFI UKI
       run: |
         tee mkosi.default <<- EOF
         [Output]
         BootProtocols=uefi
+
+        [Host]
+        QemuBoot=uefi
         EOF
 
-        MKOSI_TEST_DEFAULT_VERB=qemu sudo python3 -m pytest -m integration tests
+        sudo MKOSI_TEST_DEFAULT_VERB=qemu python3 -m pytest -m integration -sv tests
 
     - name: Build/Boot ${{ matrix.distro }}/${{ matrix.format }} UEFI
       run: |
@@ -212,11 +201,12 @@ jobs:
         [Output]
         BootProtocols=uefi
         WithUnifiedKernelImages=no
-        # Boot with systemd.volatile=overlay so squashfs images can write to the filesystem
-        KernelCommandLine=systemd.volatile=overlay
+
+        [Host]
+        QemuBoot=uefi
         EOF
 
-        MKOSI_TEST_DEFAULT_VERB=qemu sudo python3 -m pytest -m integration tests
+        sudo MKOSI_TEST_DEFAULT_VERB=qemu python3 -m pytest -m integration -sv tests
 
     - name: Build/Boot ${{ matrix.distro }}/${{ matrix.format }} BIOS
       run: |
@@ -224,6 +214,22 @@ jobs:
         [Output]
         BootProtocols=bios
         WithUnifiedKernelImages=no
+
+        [Host]
+        QemuBoot=bios
         EOF
 
-        MKOSI_TEST_DEFAULT_VERB=qemu sudo python3 -m pytest -m integration tests
+        sudo MKOSI_TEST_DEFAULT_VERB=qemu python3 -m pytest -m integration -sv tests
+
+    - name: Build/Boot ${{ matrix.distro }}/${{ matrix.format}} QEMU Linux Boot
+      run: |
+        tee mkosi.default <<- EOF
+        [Output]
+        BootProtocols=linux
+        WithUnifiedKernelImages=no
+
+        [Host]
+        QemuBoot=linux
+        EOF
+
+        sudo MKOSI_TEST_DEFAULT_VERB=qemu python3 -m pytest -m integration -sv tests

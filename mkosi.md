@@ -20,10 +20,20 @@ mkosi — Build Bespoke OS Images
 
 `mkosi [options…] qemu`
 
+`mkosi [options…] ssh`
+
+`mkosi [options…] serve`
+
+`mkosi [options…] bump`
+
+`mkosi [options…] genkey`
+
+`mkosi [options…] help`
+
 # DESCRIPTION
 
 `mkosi` is a tool for easily building customized OS images. It's a
-fancy wrapper around `dnf --installroot`, `debootstrap`, `pacstrap`
+fancy wrapper around `dnf --installroot`, `debootstrap`, `pacman`
 and `zypper` that may generate disk images with a number of bells and
 whistles.
 
@@ -104,6 +114,12 @@ The following command line verbs are known:
   bumped in preparation for the subsequent build. Note that
   `--auto-bump`/`-B` may be used to automatically bump the version
   after each successful build.
+
+`genkey`
+
+: Generate a pair of SecureBoot keys for usage with the
+  `SecureBootKey=`/`--secure-boot-key=` and
+  `SecureBootCertificate=`/`--secure-boot-certificate=` options.
 
 `help`
 
@@ -440,10 +456,14 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
 
 : Pick one or more boot protocols to support when generating a
   bootable image, as enabled with `Bootable=`. Takes a comma-separated
-  list of `uefi` or `bios`. May be specified more than once in which
+  list of `uefi`, `bios`, or `linux`. May be specified more than once in which
   case the specified lists are merged. If `uefi` is specified the
   `sd-boot` UEFI boot loader is used, if `bios` is specified the GNU
-  Grub boot loader is used. Use "!\*" to remove all previously added
+  Grub boot loader is used. If `linux` is specified, the kernel image, initrd
+  and kernel cmdline are extracted from the image and stored in the output
+  directory. When running the `qemu` verb and setting the `--qemu-boot` option
+  to `linux`, qemu will be instructed to do a direct Linux kernel boot using
+  the previously extracted files. Use "!\*" to remove all previously added
   protocols or "!protocol" to remove one protocol.
 
 `KernelCommandLine=`, `--kernel-command-line=`
@@ -949,8 +969,8 @@ a machine ID.
   `BuildSources=`) is transferred into the container image during the
   first phase of the build. Takes one of `copy-all` (to copy all files
   from the source tree), `copy-git-cached` (to copy only those files
-  `git-ls-files --cached` lists), `copy-git-others` (to copy only
-  those files `git-ls-files --others` lists), `mount` to bind mount
+  `git ls-files --cached` lists), `copy-git-others` (to copy only
+  those files `git ls-files --others` lists), `mount` to bind mount
   the source tree directly. Defaults to `copy-git-cached` if a `git`
   source tree is detected, otherwise `copy-all`. When you specify
   `copy-git-more`, it is the same as `copy-git-cached`, except it also
@@ -1095,12 +1115,30 @@ a machine ID.
 : When used with the `qemu` verb, this options sets `qemu`'s `-m`
   argument which controls the amount of guest's RAM. Defaults to `1G`.
 
+`QemuKvm=`, `--qemu-kvm=`
+
+: When used with the `qemu` verb, this option specifies whether QEMU
+  should use KVM acceleration. Defaults to yes if the host machine
+  supports KVM acceleration, no otherwise.
+
+`QemuArgs=`
+
+: Space-delimited list of additional arguments to pass when invoking
+  qemu.
+
 `NspawnKeepUnit=`, `--nspawn-keep-unit`
 
 : When used, this option instructs underlying calls of systemd-nspawn to
   use the current unit scope, instead of creating a dedicated transcient
   scope unit for the containers. This option should be used when mkosi is
   run by a service unit.
+
+`QemuBoot=`, `--qemu-boot=`
+
+: When used with the `qemu` verb, this option sets the boot protocol to be used
+  by qemu. Can be set to either `uefi`, `bios`, or `linux`. Note that a boot
+  procotol needs to be included in `BootProtocols=` when building the image for
+  it to be usable with this option.
 
 `Netdev=`, `--netdev`
 
@@ -1232,6 +1270,13 @@ Those settings cannot be configured in the configuration files.
   each build in a series will have a version number one higher then
   the previous one.
 
+### Environment Variables
+
+`MKOSI_NSPAWN_EXECUTABLE`
+
+: Takes a path. If specified, mkosi will use this path as the systemd-nspawn
+  executable instead of the system installation of systemd-nspawn.
+
 ## Supported distributions
 
 Images may be created containing installations of the
@@ -1268,7 +1313,7 @@ images containing any other distribution, as long as the necessary
 tools are available. Specifically, any distribution that packages
 `debootstrap` may be used to build *Debian* or *Ubuntu* images. Any
 distribution that packages `dnf` may be used to build *Fedora Linux*,
-*Mageia* or *OpenMandriva* images. Any distro that packages `pacstrap` may be used to
+*Mageia* or *OpenMandriva* images. Any distro that packages `pacman` may be used to
 build *Arch Linux* images. Any distribution that packages `zypper` may
 be used to build *openSUSE* images. Any distribution that packages
 `yum` (or the newer replacement `dnf`) may be used to build *CentOS*, *Rocky Linux*,

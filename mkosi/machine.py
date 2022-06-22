@@ -6,9 +6,11 @@ import contextlib
 import os
 import signal
 import subprocess
+import sys
+import time
 import unittest
 from textwrap import dedent
-from typing import Any, Iterator, Optional, Sequence
+from typing import Any, Iterator, Optional, Sequence, TextIO, Union
 
 import pexpect  # type: ignore
 
@@ -25,20 +27,31 @@ from . import (
     parse_args,
     parse_boolean,
     prepend_to_environ_path,
-    run_command_image,
     run_qemu_cmdline,
     run_shell_cmdline,
+    run_ssh_cmdline,
+    run_systemd_cmdline,
     unlink_output,
 )
-from .backend import MkosiArgs, MkosiNotSupportedException, Verb, die
+from .backend import MkosiArgs, MkosiNotSupportedException, Verb, die, run
+
+
+class LogfileAdapter:
+    def __init__(self, file: TextIO) -> None:
+        self.file = file
+
+    def write(self, s: str) -> None:
+        self.file.write(s.replace("\r\n", "\n"))
+
+    def flush(self) -> None:
+        self.file.flush()
 
 
 class Machine:
-    def __init__(self, args: Sequence[str] = [], debug: bool = False) -> None:
+    def __init__(self, args: Sequence[str] = []) -> None:
         # Remains None until image is built and booted, then receives pexpect process.
         self._serial: Optional[pexpect.spawn] = None
         self.exit_code: int = -1
-        self.debug = debug
         self.stack = contextlib.ExitStack()
         self.args: MkosiArgs
 
@@ -63,12 +76,12 @@ class Machine:
         tmp.force = 1
         tmp.autologin = True
         tmp.ephemeral = True
-        tmp.bootable = True
         if tmp.verb == Verb.qemu:
+            tmp.bootable = True
             tmp.qemu_headless = True
-            tmp.hostonly_initrd = True
             tmp.netdev = True
             tmp.ssh = True
+            tmp.ssh_timeout = 240
         elif tmp.verb not in (Verb.shell, Verb.boot):
             die("No valid verb was entered.")
 
@@ -127,26 +140,51 @@ class Machine:
             else:
                 die("No valid verb was entered.")
 
-            cmd = " ".join(str(x) for x in cmdline)
+            cmd = [str(x) for x in cmdline]
 
             # Here we have something equivalent to the command lines used on spawn() and run() from backend.py.
             # We use pexpect to boot an image that we will be able to interact with in the future.
             # Then we tell the process to look for the # sign, which indicates the CLI for that image is active.
             # Once we've build/boot an image the CLI will prompt "root@image ~]# ".
             # Then, when pexpects finds the '#' it means we're ready to interact with the process.
-            self._serial = pexpect.spawnu(cmd, logfile=None, timeout=240)
+            self._serial = pexpect.spawnu(command=cmd[0], args=cmd[1:], logfile=LogfileAdapter(sys.stdout),
+                                          timeout=240)
             self._serial.expect("#")
             self.stack = stack.pop_all()
 
-    def run(self, commands: Sequence[str], timeout: int = 900, check: bool = True) -> CompletedProcess:
+    def run(
+        self,
+        commands: Sequence[str],
+        timeout: int = 900,
+        check: bool = True,
+        capture_output: bool = False,
+    ) -> CompletedProcess:
         self._ensure_booted()
 
-        process = run_command_image(self.args, commands, timeout, check, subprocess.PIPE, subprocess.PIPE)
-        if self.debug:
-            print(f"Stdout:\n {process.stdout}")
-            print(f"Stderr:\n {process.stderr}")
+        stdout: Union[int, TextIO] = subprocess.PIPE if capture_output else sys.stdout
+        stderr: Union[int, TextIO] = subprocess.PIPE if capture_output else sys.stderr
 
-        return process
+        if self.args.verb == Verb.qemu:
+            cmdline = run_ssh_cmdline(self.args, commands)
+        elif self.args.verb == Verb.boot:
+            cmdline = run_systemd_cmdline(self.args, commands)
+        else:
+            cmdline = run_shell_cmdline(self.args, pipe=True, commands=commands)
+
+        # The retry logic only applies when running commands against a VM.
+
+        for _ in range(0, 30):
+            try:
+                return run(cmdline, check=check, stdout=stdout, stderr=stderr, text=True, timeout=timeout)
+            except subprocess.CalledProcessError as e:
+                # Return code 255 is used for connection errors by ssh.
+                if self.args.verb != Verb.qemu or e.returncode != 255:
+                    raise
+
+                time.sleep(1)
+
+        die("Failed to establish SSH connection")
+
 
     def kill(self) -> None:
         self.__exit__(None, None, None)
@@ -160,7 +198,7 @@ class Machine:
 
 
 @contextlib.contextmanager
-def test_skip_not_supported() -> Iterator[None]:
+def skip_not_supported() -> Iterator[None]:
     """See if load_args() raises exception about args and added configurations on __init__()."""
     try:
         yield
@@ -177,7 +215,7 @@ class MkosiMachineTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        with test_skip_not_supported():
+        with skip_not_supported():
             cls.machine = Machine(cls.args)
 
         verb = cls.machine.args.verb
@@ -189,14 +227,23 @@ class MkosiMachineTest(unittest.TestCase):
         if no_qemu and verb == Verb.qemu:
             raise unittest.SkipTest("Qemu test skipped due to environment variable.")
 
-        cls.machine.build()
+        try:
+            cls.machine.build()
+        except subprocess.CalledProcessError as e:
+            raise cls.failureException(f'Failed to build image because "{e.cmd}" failed with exit status {e.returncode}') from None
 
     def setUp(self) -> None:
         # Replacing underscores which makes name invalid.
         # Necessary for shell otherwise racing conditions to the disk image will happen.
         test_name = self.id().split(".")[3]
         self.machine.args.hostname = test_name.replace("_", "-")
-        self.machine.boot()
+
+        try:
+            self.machine.boot()
+        except pexpect.EOF:
+            raise self.failureException(f'Failed to boot machine with command "{self.machine.serial.args}"') from None
+        except pexpect.TIMEOUT:
+            raise self.failureException(f'Timed out while waiting for machine to boot with command "{self.machine.serial.args}"') from None
 
     def tearDown(self) -> None:
         self.machine.kill()
