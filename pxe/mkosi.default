@@ -1,6 +1,5 @@
 [Distribution]
 Distribution=debian
-Release=bullseye
 
 [Output]
 Format=gpt_squashfs
@@ -13,7 +12,6 @@ OutputSplitRoot=carbide-preexec-x86_64.rootfs
 OutputSplitKernel=carbide-preexec-x86_64.kernel
 
 [Content]
-BasePackages=true
 Packages=
      telnet
      iputils-ping

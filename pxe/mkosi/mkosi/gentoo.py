@@ -240,8 +240,6 @@ class Gentoo:
             elif args.get_partition(PartitionIdentifier.bios):
                 self.pkgs_boot = ["sys-boot/grub"]
                 self.grub_platforms = ["coreboot", "qemu", "pc"]
-            else:
-                self.pkgs_boot = []
 
             self.pkgs_boot += ["sys-kernel/gentoo-kernel-bin",
                                "sys-firmware/edk2-ovmf"]
