@@ -88,6 +88,7 @@ class Manifest:
             ["rpm", f"--root={root}", "-qa", "--qf",
              r"%{NEVRA}\t%{SOURCERPM}\t%{NAME}\t%{ARCH}\t%{SIZE}\t%{INSTALLTIME}\n"],
             stdout=PIPE,
+            stderr=DEVNULL,
             text=True,
         )
 
@@ -139,6 +140,7 @@ class Manifest:
             ["dpkg-query", f"--admindir={root}/var/lib/dpkg", "--show", "--showformat",
              r'${Package}\t${source:Package}\t${Version}\t${Architecture}\t${Installed-Size}\t${db-fsys:Last-Modified}\n'],
             stdout=PIPE,
+            stderr=DEVNULL,
             text=True,
         )
 
@@ -147,8 +149,8 @@ class Manifest:
         for package in packages:
             name, source, version, arch, size, installtime = package.split("\t")
 
-            # dpkg records the size in KBs, the field is optional
-            size = int(size) * 1024 if size else 0
+            # dpkg records the size in KBs
+            size = int(size) * 1024
             installtime = datetime.fromtimestamp(int(installtime))
 
             # If we are creating a layer based on a BaseImage=, e.g. a sysext, filter by
@@ -188,8 +190,8 @@ class Manifest:
                 # We have to run from the root, because if we use the RootDir option to make
                 # apt from the host look at the repositories in the image, it will also pick
                 # the 'methods' executables from there, but the ABI might not be compatible.
-                result = run_workspace_command(self.args, root, cmd, network=not self.args.with_docs, capture_stdout=True)
-                source_package = SourcePackageManifest(source, result.stdout.strip())
+                changelog = run_workspace_command(self.args, root, cmd, network=not self.args.with_docs, capture_stdout=True)
+                source_package = SourcePackageManifest(source, changelog)
                 self.source_packages[source] = source_package
 
             source_package.add(package)

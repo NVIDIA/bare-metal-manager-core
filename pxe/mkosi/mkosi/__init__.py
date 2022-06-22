@@ -21,7 +21,6 @@ import glob
 import hashlib
 import http.server
 import importlib.resources
-import itertools
 import json
 import os
 import platform
@@ -33,7 +32,6 @@ import string
 import subprocess
 import sys
 import tempfile
-import textwrap
 import time
 import urllib.parse
 import urllib.request
@@ -66,6 +64,7 @@ from typing import (
 )
 
 from .backend import (
+    _FILE,
     ARG_DEBUG,
     Distribution,
     ManifestFormat,
@@ -83,10 +82,8 @@ from .backend import (
     die,
     install_grub,
     is_rpm_distribution,
-    nspawn_executable,
     nspawn_params_for_blockdev_access,
     nspawn_rlimit_params,
-    nspawn_version,
     patch_file,
     path_relative_to_cwd,
     run,
@@ -105,7 +102,7 @@ from .manifest import Manifest
 
 complete_step = MkosiPrinter.complete_step
 
-__version__ = "13"
+__version__ = "12"
 
 
 # These types are only generic during type checking and not at runtime, leading
@@ -130,10 +127,8 @@ DRACUT_SYSTEMD_EXTRAS = [
     "/usr/lib/systemd/system-generators/systemd-veritysetup-generator",
     "/usr/lib/systemd/system/initrd-root-fs.target.wants/systemd-repart.service",
     "/usr/lib/systemd/system/initrd-usr-fs.target",
-    "/usr/lib/systemd/system/sysinit.target.wants/veritysetup.target",
     "/usr/lib/systemd/system/systemd-repart.service",
     "/usr/lib/systemd/system/systemd-volatile-root.service",
-    "/usr/lib/systemd/system/veritysetup.target",
     "/usr/lib/systemd/systemd-veritysetup",
     "/usr/lib/systemd/systemd-volatile-root",
     "/usr/bin/systemd-ask-password",
@@ -178,13 +173,6 @@ def dictify(f: Callable[..., Iterator[Tuple[T, V]]]) -> Callable[..., Dict[T, V]
 
     return functools.update_wrapper(wrapper, f)
 
-
-def list_to_string(seq: Iterator[str]) -> str:
-    """Print contents of a list to a comma-separated string
-
-    ['a', "b", 11] → "'a', 'b', 11"
-    """
-    return str(list(seq))[1:-1]
 
 @dictify
 def read_os_release() -> Iterator[Tuple[str, str]]:
@@ -450,7 +438,7 @@ def gpt_root_native(arch: Optional[str], usr_only: bool = False) -> GPTRootTypeT
         elif arch == "riscv64":
             return GPTRootTypeTriplet(GPT_USR_RISCV64, GPT_USR_RISCV64_VERITY, GPT_USR_RISCV64_VERITY_SIG)
         elif arch == "s390":
-            return GPTRootTypeTriplet(GPT_USR_S390, GPT_USR_S390_VERITY, GPT_USR_S390_VERITY_SIG)
+            return GPTRootTypeTriplet(GPT_USR_S390, GPT_USR_S390_VERITY, GPT_USR_S390X)
         elif arch == "s390x":
             return GPTRootTypeTriplet(GPT_USR_S390X, GPT_USR_S390X_VERITY, GPT_USR_S390X_VERITY_SIG)
         elif arch == "tilegx":
@@ -489,7 +477,7 @@ def gpt_root_native(arch: Optional[str], usr_only: bool = False) -> GPTRootTypeT
         elif arch == "riscv64":
             return GPTRootTypeTriplet(GPT_ROOT_RISCV64, GPT_ROOT_RISCV64_VERITY, GPT_ROOT_RISCV64_VERITY_SIG)
         elif arch == "s390":
-            return GPTRootTypeTriplet(GPT_ROOT_S390, GPT_ROOT_S390_VERITY, GPT_ROOT_S390_VERITY_SIG)
+            return GPTRootTypeTriplet(GPT_ROOT_S390, GPT_ROOT_S390_VERITY, GPT_ROOT_S390X)
         elif arch == "s390x":
             return GPTRootTypeTriplet(GPT_ROOT_S390X, GPT_ROOT_S390X_VERITY, GPT_ROOT_S390X_VERITY_SIG)
         elif arch == "tilegx":
@@ -550,17 +538,13 @@ _IOC_WRITE = 1  # NOQA: E221
 _IOC_READ  = 2  # NOQA: E221
 
 
-def _IOC(dir_rw: int, type_drv: int, nr: int, argtype: Optional[str] = None) -> int:
-    size = {"int": 4, "size_t": 8}[argtype] if argtype else 0
+def _IOC(dir_rw: int, type_drv: int, nr: int, argtype: str) -> int:
+    size = {"int": 4, "size_t": 8}[argtype]
     return dir_rw << _IOC_DIRSHIFT | type_drv << _IOC_TYPESHIFT | nr << _IOC_NRSHIFT | size << _IOC_SIZESHIFT
 
 
 def _IOW(type_drv: int, nr: int, size: str) -> int:
     return _IOC(_IOC_WRITE, type_drv, nr, size)
-
-
-def _IO(type_drv: int, nr: int) -> int:
-    return _IOC(_IOC_NONE, type_drv, nr)
 
 
 FICLONE = _IOW(0x94, 9, "int")
@@ -628,7 +612,7 @@ def symlink_f(target: str, path: Path) -> None:
         path.symlink_to(target)
 
 
-def copy_path(oldpath: PathString, newpath: Path, *, copystat: bool = True) -> None:
+def copy_path(oldpath: PathString, newpath: Path) -> None:
     try:
         newpath.mkdir(exist_ok=True)
     except FileExistsError:
@@ -651,9 +635,7 @@ def copy_path(oldpath: PathString, newpath: Path, *, copystat: bool = True) -> N
             else:
                 print("Ignoring", entry.path)
                 continue
-
-    if copystat:
-        shutil.copystat(oldpath, newpath, follow_symlinks=True)
+    shutil.copystat(oldpath, newpath, follow_symlinks=True)
 
 
 @complete_step("Detaching namespace")
@@ -942,54 +924,11 @@ def reuse_cache_image(
     return f, True
 
 
-BLKPG = _IO(0x12, 105)
-BLKPG_ADD_PARTITION = 1
-BLKPG_DEL_PARTITION = 2
-
-
-class blkpg_ioctl_arg(ctypes.Structure):
-    _fields_ = [
-        ('op', ctypes.c_int),
-        ('flags', ctypes.c_int),
-        ('datalen', ctypes.c_int),
-        ('data', ctypes.c_void_p),
-    ]
-
-
-class blkpg_partition(ctypes.Structure):
-    _fields_ = [
-        ('start', ctypes.c_longlong),
-        ('length', ctypes.c_longlong),
-        ('pno', ctypes.c_int),
-        ('devname', ctypes.c_char * 64),
-        ('volname', ctypes.c_char * 64),
-    ]
-
-
-def ioctl_partition_add(fd: int, nr: int, start: int, size: int) -> None:
-    bp = blkpg_partition(pno=nr, start=start, length=size)
-    ba = blkpg_ioctl_arg(op=BLKPG_ADD_PARTITION, data=ctypes.addressof(bp), datalen=ctypes.sizeof(bp))
-    try:
-        fcntl.ioctl(fd, BLKPG, ba)
-    except OSError as e:
-        # EBUSY means the kernel has already initialized the partition device.
-        if e.errno != errno.EBUSY:
-            raise
-
-
-def ioctl_partition_remove(fd: int, nr: int) -> None:
-    bp = blkpg_partition(pno=nr)
-    ba = blkpg_ioctl_arg(op=BLKPG_DEL_PARTITION, data=ctypes.addressof(bp), datalen=ctypes.sizeof(bp))
-    fcntl.ioctl(fd, BLKPG, ba)
-
-
 @contextlib.contextmanager
-def attach_image_loopback(image: Optional[BinaryIO], table: Optional[PartitionTable]) -> Iterator[Optional[Path]]:
+def attach_image_loopback(image: Optional[BinaryIO]) -> Iterator[Optional[Path]]:
     if image is None:
         yield None
         return
-
-    assert table
 
     with complete_step(f"Attaching {image.name} as loopback…", "Attached {}") as output:
         c = run(["losetup", "--find", "--show", "--partscan", image.name],
@@ -998,30 +937,14 @@ def attach_image_loopback(image: Optional[BinaryIO], table: Optional[PartitionTa
         loopdev = Path(c.stdout.strip())
         output += [loopdev]
 
-        # losetup --partscan instructs the kernel to scan the partition table and add separate partition
-        # devices for each of the partitions it finds. However, this operation is asynchronous which means
-        # losetup will return before all partition devices have been initialized. This can result in a race
-        # condition where we try to access a partition device before it's been initialized by the kernel. To
-        # avoid this race condition, let's explicitly try to add all the partitions ourselves using
-        # the BLKPKG BLKPG_ADD_PARTITION ioctl().
-        with open(loopdev, 'rb+') as f:
-            for p in table.partitions.values():
-                ioctl_partition_add(f.fileno(), p.number, table.partition_offset(p), table.partition_size(p))
-
     try:
         yield loopdev
     finally:
-        with complete_step(f"Detaching {loopdev}"), open(loopdev, 'rb+') as f:
-            # Similarly to above, partition devices are removed asynchronously by the kernel, so again let's
-            # avoid race conditions by explicitly removing all partition devices before detaching the loop
-            # device using the BLKPG BLKPG_DEL_PARTITION ioctl().
-            for p in table.partitions.values():
-                ioctl_partition_remove(f.fileno(), p.number)
-
+        with complete_step(f"Detaching {loopdev}"):
             run(["losetup", "--detach", loopdev])
 
 @contextlib.contextmanager
-def attach_base_image(base_image: Optional[Path], table: Optional[PartitionTable]) -> Iterator[Optional[Path]]:
+def attach_base_image(base_image: Optional[Path]) -> Iterator[Optional[Path]]:
     """Context manager that attaches/detaches the base image directory or device"""
 
     if base_image is None:
@@ -1033,7 +956,7 @@ def attach_base_image(base_image: Optional[Path], table: Optional[PartitionTable
             yield base_image
         else:
             with base_image.open('rb') as f, \
-                 attach_image_loopback(f, table) as loopdev:
+                 attach_image_loopback(f) as loopdev:
 
                 yield loopdev
 
@@ -1617,30 +1540,6 @@ def mount_image(
             umount(root)
 
 
-def install_etc_locale(args: MkosiArgs, root: Path, cached: bool) -> None:
-    if cached:
-        return
-
-    etc_locale = root / "etc/locale.conf"
-
-    try:
-        etc_locale.unlink()
-    except FileNotFoundError:
-        pass
-
-    # Let's ensure we use a UTF-8 locale everywhere.
-    etc_locale.write_text("LANG=C.UTF-8\n")
-
-    # Debian/Ubuntu use a different path to store the locale so let's make sure that path is a symlink to
-    # etc/locale.conf.
-    if args.distribution in (Distribution.debian, Distribution.ubuntu):
-        try:
-            root.joinpath("etc/default/locale").unlink()
-        except FileNotFoundError:
-            pass
-        root.joinpath("etc/default/locale").symlink_to("../locale.conf")
-
-
 def install_etc_hostname(args: MkosiArgs, root: Path, cached: bool) -> None:
     if cached:
         return
@@ -1738,6 +1637,7 @@ def configure_dracut(args: MkosiArgs, packages: Set[str], root: Path) -> None:
     )
 
     dracut_dir.joinpath("30-mkosi-qemu.conf").write_text('add_dracutmodules+=" qemu "\n')
+    dracut_dir.joinpath("31-live.conf").write_text('add_dracutmodules+=" livenet "\n')
 
     with dracut_dir.joinpath("30-mkosi-systemd-extras.conf").open("w") as f:
         for extra in DRACUT_SYSTEMD_EXTRAS:
@@ -1789,9 +1689,6 @@ def prepare_tree(args: MkosiArgs, root: Path, do_run_build_script: bool, cached:
     if cached:
         # Reuse machine-id from cached image.
         args.machine_id = uuid.UUID(root.joinpath("etc/machine-id").read_text().strip()).hex
-        # Always update kernel command line.
-        if not do_run_build_script and args.bootable:
-            root.joinpath("etc/kernel/cmdline").write_text(" ".join(args.kernel_command_line) + "\n")
         return
 
     with complete_step("Setting up basic OS tree…"):
@@ -1818,13 +1715,6 @@ def prepare_tree(args: MkosiArgs, root: Path, do_run_build_script: bool, cached:
             else:
                 # If this is not enabled, let's create an empty directory on /boot
                 root.joinpath("boot").mkdir(mode=0o700)
-                # Make sure kernel-install actually runs when needed by creating the machine-id subdirectory
-                # under /boot. For "bios" on Debian/Ubuntu, it's required for grub to pick up the generated
-                # initrd. For "linux", we need kernel-install to run so we can extract the generated initrd
-                # from /boot later.
-                if ((args.distribution in (Distribution.debian, Distribution.ubuntu) and "bios" in args.boot_protocols) or
-                    ("linux" in args.boot_protocols and "uefi" not in args.boot_protocols)):
-                    root.joinpath("boot", args.machine_id).mkdir(mode=0o700)
 
             if args.get_partition(PartitionIdentifier.esp):
                 root.joinpath("efi/EFI").mkdir(mode=0o700)
@@ -1846,7 +1736,6 @@ def prepare_tree(args: MkosiArgs, root: Path, do_run_build_script: bool, cached:
             root.joinpath("etc/kernel").mkdir(mode=0o755)
 
             root.joinpath("etc/kernel/cmdline").write_text(" ".join(args.kernel_command_line) + "\n")
-            root.joinpath("etc/kernel/entry-token").write_text(f"{args.machine_id}\n")
 
         if do_run_build_script or args.ssh:
             root_home(args, root).mkdir(mode=0o750)
@@ -1947,97 +1836,111 @@ def make_rpm_list(args: MkosiArgs, packages: Set[str], do_run_build_script: bool
     return packages
 
 
-def flatten(lists: Iterable[Iterable[T]]) -> List[T]:
-    """Flatten a sequence of sequences into a single list."""
-    return list(itertools.chain.from_iterable(lists))
-
-
-def clean_paths(
-        root: Path,
-        globs: Sequence[str],
-        tool: str,
-        always: bool) -> None:
-    """Remove globs under root if always or if tool is not found under root."""
-
-    toolp = root / tool.lstrip('/')
-    cond = always or not os.access(toolp, os.F_OK, follow_symlinks=False)
-
-    paths = flatten(root.glob(glob.lstrip('/')) for glob in globs)
-
-    if not cond or not paths:
-        return
-
-    with complete_step(f"Cleaning {toolp.name} metadata…"):
-        for path in paths:
-            unlink_try_hard(path)
-
-
 def clean_dnf_metadata(root: Path, always: bool) -> None:
     """Remove dnf metadata if /bin/dnf is not present in the image
 
-    If dnf is not installed, there doesn't seem to be much use in keeping the
-    dnf metadata, since it's not usable from within the image anyway.
+    If dnf is not installed, there doesn't seem to be much use in
+    keeping the dnf metadata, since it's not usable from within the
+    image anyway.
     """
     paths = [
-        "/var/lib/dnf",
-        "/var/log/dnf.*",
-        "/var/log/hawkey.*",
-        "/var/cache/dnf",
+        root / "var/lib/dnf",
+        *root.glob("var/log/dnf.*"),
+        *root.glob("var/log/hawkey.*"),
+        root / "var/cache/dnf",
     ]
 
-    clean_paths(root, paths, tool='/bin/dnf', always=always)
+    cond = always or not os.access(root / "bin/dnf", os.F_OK, follow_symlinks=False)
+
+    if not cond or not any(path.exists() for path in paths):
+        return
+
+    with complete_step("Cleaning dnf metadata…"):
+        for path in paths:
+            unlink_try_hard(path)
 
 
 def clean_yum_metadata(root: Path, always: bool) -> None:
     """Remove yum metadata if /bin/yum is not present in the image"""
     paths = [
-        "/var/lib/yum",
-        "/var/log/yum.*",
-        "/var/cache/yum",
+        root / "var/lib/yum",
+        *root.glob("var/log/yum.*"),
+        root / "var/cache/yum",
     ]
 
-    clean_paths(root, paths, tool='/bin/yum', always=always)
+    cond = always or not os.access(root / "bin/yum", os.F_OK, follow_symlinks=False)
+
+    if not cond or not any(path.exists() for path in paths):
+        return
+
+    with complete_step("Cleaning yum metadata…"):
+        for path in paths:
+            unlink_try_hard(path)
 
 
 def clean_rpm_metadata(root: Path, always: bool) -> None:
     """Remove rpm metadata if /bin/rpm is not present in the image"""
-    paths = [
-        "/var/lib/rpm",
-        "/usr/lib/sysimage/rpm",
-    ]
+    path = root / "var/lib/rpm"
 
-    clean_paths(root, paths, tool='/bin/rpm', always=always)
+    cond = always or not os.access(root / "bin/rpm", os.F_OK, follow_symlinks=False)
+
+    if not cond or not path.exists():
+        return
+
+    with complete_step("Cleaning rpm metadata…"):
+        unlink_try_hard(path)
 
 
 def clean_tdnf_metadata(root: Path, always: bool) -> None:
-    """Remove tdnf metadata if /usr/bin/tdnf is not present in the image"""
+    """Remove tdnf metadata if /bin/tdnf is not present in the image"""
     paths = [
-        "/var/log/tdnf.*",
-        "/var/cache/tdnf",
+        *root.glob("var/log/tdnf.*"),
+        root / "var/cache/tdnf",
     ]
 
-    clean_paths(root, paths, tool='/usr/bin/tdnf', always=always)
+    cond = always or not os.access(root / "usr/bin/tdnf", os.F_OK, follow_symlinks=False)
+
+    if not cond or not any(path.exists() for path in paths):
+        return
+
+    with complete_step("Cleaning tdnf metadata…"):
+        for path in paths:
+            unlink_try_hard(path)
 
 
 def clean_apt_metadata(root: Path, always: bool) -> None:
     """Remove apt metadata if /usr/bin/apt is not present in the image"""
     paths = [
-        "/var/lib/apt",
-        "/var/log/apt",
-        "/var/cache/apt",
+        root / "var/lib/apt",
+        root / "var/log/apt",
+        root / "var/cache/apt",
     ]
 
-    clean_paths(root, paths, tool='/usr/bin/apt', always=always)
+    cond = always or not os.access(root / "usr/bin/apt", os.F_OK, follow_symlinks=False)
+
+    if not cond or not any(path.exists() for path in paths):
+        return
+
+    with complete_step("Cleaning apt metadata…"):
+        for path in paths:
+            unlink_try_hard(path)
 
 
 def clean_dpkg_metadata(root: Path, always: bool) -> None:
     """Remove dpkg metadata if /usr/bin/dpkg is not present in the image"""
     paths = [
-        "/var/lib/dpkg",
-        "/var/log/dpkg.log",
+        root / "var/lib/dpkg",
+        root / "var/log/dpkg.log",
     ]
 
-    clean_paths(root, paths, tool='/usr/bin/dpkg', always=always)
+    cond = always or not os.access(root / "usr/bin/dpkg", os.F_OK, follow_symlinks=False)
+
+    if not cond or not any(path.exists() for path in paths):
+        return
+
+    with complete_step("Cleaning dpkg metadata…"):
+        for path in paths:
+            unlink_try_hard(path)
 
 
 def clean_package_manager_metadata(args: MkosiArgs, root: Path) -> None:
@@ -2053,13 +1956,12 @@ def clean_package_manager_metadata(args: MkosiArgs, root: Path) -> None:
 
     # we try then all: metadata will only be touched if any of them are in the
     # final image
-    always = args.clean_package_metadata is True
-    clean_dnf_metadata(root, always=always)
-    clean_yum_metadata(root, always=always)
-    clean_rpm_metadata(root, always=always)
-    clean_tdnf_metadata(root, always=always)
-    clean_apt_metadata(root, always=always)
-    clean_dpkg_metadata(root, always=always)
+    clean_dnf_metadata(root, always=args.clean_package_metadata is True)
+    clean_yum_metadata(root, always=args.clean_package_metadata is True)
+    clean_rpm_metadata(root, always=args.clean_package_metadata is True)
+    clean_tdnf_metadata(root, always=args.clean_package_metadata is True)
+    clean_apt_metadata(root, always=args.clean_package_metadata is True)
+    clean_dpkg_metadata(root, always=args.clean_package_metadata is True)
     # FIXME: implement cleanup for other package managers: swupd, pacman
 
 
@@ -2114,7 +2016,7 @@ def invoke_dnf(
     cmdline += [command, *sort_packages(packages)]
 
     with mount_api_vfs(args, root):
-        run(cmdline, env=dict(KERNEL_INSTALL_BYPASS="1"))
+        run(cmdline)
 
     distribution, release = detect_distribution()
     if distribution not in (Distribution.debian, Distribution.ubuntu):
@@ -2131,17 +2033,6 @@ def invoke_dnf(
             rpmdb = root / "var/lib/rpm"
         unlink_try_hard(rpmdb)
         shutil.move(cast(str, rpmdb_home), rpmdb)
-
-
-def link_rpm_db(root: Path) -> None:
-    """Link /var/lib/rpm to /usr/lib/sysimage/rpm for compat with old rpm"""
-    rpmdb = root / "usr/lib/sysimage/rpm"
-    rpmdb_old = root / "var/lib/rpm"
-    if rpmdb.exists() and not rpmdb_old.is_symlink():
-        # We create the symlink in exactly the same fashion that Fedora do
-        with complete_step("Creating compat symlink /var/lib/rpm → /usr/lib/sysimage/rpm"):
-            unlink_try_hard(rpmdb_old)
-            rpmdb_old.symlink_to("../../usr/lib/sysimage/rpm")
 
 
 def install_packages_dnf(
@@ -2380,13 +2271,13 @@ def install_fedora(args: MkosiArgs, root: Path, do_run_build_script: bool) -> No
     setup_dnf(args, root, repos)
 
     packages = {*args.packages}
-    add_packages(args, packages, "fedora-release", "systemd", "util-linux")
+    add_packages(args, packages, "fedora-release", "systemd")
 
     if fedora_release_cmp(args.release, "34") < 0:
         add_packages(args, packages, "glibc-minimal-langpack", conditional="glibc")
 
     if not do_run_build_script and args.bootable:
-        add_packages(args, packages, "kernel-core", "kernel-modules", "dracut")
+        add_packages(args, packages, "kernel-core", "kernel-modules", "dracut", "binutils")
         add_packages(args, packages, "systemd-udev", conditional="systemd")
         configure_dracut(args, packages, root)
     if do_run_build_script:
@@ -2394,6 +2285,8 @@ def install_fedora(args: MkosiArgs, root: Path, do_run_build_script: bool) -> No
     if not do_run_build_script and args.netdev:
         add_packages(args, packages, "systemd-networkd", conditional="systemd")
     install_packages_dnf(args, root, packages, do_run_build_script)
+
+    root.joinpath("etc/locale.conf").write_text("LANG=C.UTF-8\n")
 
     # FIXME: should this be conditionalized on args.with_docs like in install_debian_or_ubuntu()?
     #        But we set LANG=C.UTF-8 anyway.
@@ -2421,7 +2314,7 @@ def install_mageia(args: MkosiArgs, root: Path, do_run_build_script: bool) -> No
     packages = {*args.packages}
     add_packages(args, packages, "basesystem-minimal")
     if not do_run_build_script and args.bootable:
-        add_packages(args, packages, "kernel-server-latest", "dracut")
+        add_packages(args, packages, "kernel-server-latest", "dracut", "binutils")
         configure_dracut(args, packages, root)
         # Mageia ships /etc/50-mageia.conf that omits systemd from the initramfs and disables hostonly.
         # We override that again so our defaults get applied correctly on Mageia as well.
@@ -2470,7 +2363,7 @@ def install_openmandriva(args: MkosiArgs, root: Path, do_run_build_script: bool)
     add_packages(args, packages, "basesystem-minimal", "systemd")
     if not do_run_build_script and args.bootable:
         add_packages(args, packages, "systemd-boot", "systemd-cryptsetup", conditional="systemd")
-        add_packages(args, packages, "kernel-release-server", "dracut", "timezone")
+        add_packages(args, packages, "kernel-release-server", "dracut", "binutils", "timezone")
         configure_dracut(args, packages, root)
     if args.netdev:
         add_packages(args, packages, "systemd-networkd", conditional="systemd")
@@ -2491,17 +2384,17 @@ def install_centos_repos_old(args: MkosiArgs, root: Path, epel_release: int) -> 
     epel_gpgurl = f"https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{epel_release}"
 
     if args.mirror:
-        release_url = f"baseurl={args.mirror}/centos/{args.release}/os/$basearch"
-        updates_url = f"baseurl={args.mirror}/centos/{args.release}/updates/$basearch/"
-        extras_url = f"baseurl={args.mirror}/centos/{args.release}/extras/$basearch/"
-        centosplus_url = f"baseurl={args.mirror}/centos/{args.release}/centosplus/$basearch/"
-        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/$basearch/"
+        release_url = f"baseurl={args.mirror}/centos/{args.release}/os/x86_64"
+        updates_url = f"baseurl={args.mirror}/centos/{args.release}/updates/x86_64/"
+        extras_url = f"baseurl={args.mirror}/centos/{args.release}/extras/x86_64/"
+        centosplus_url = f"baseurl={args.mirror}/centos/{args.release}/centosplus/x86_64/"
+        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/x86_64/"
     else:
-        release_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=$basearch&repo=os"
-        updates_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=$basearch&repo=updates"
-        extras_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=$basearch&repo=extras"
-        centosplus_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=$basearch&repo=centosplus"
-        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=$basearch"
+        release_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=x86_64&repo=os"
+        updates_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=x86_64&repo=updates"
+        extras_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=x86_64&repo=extras"
+        centosplus_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=x86_64&repo=centosplus"
+        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=x86_64"
 
     repos = [Repo("base", f"CentOS-{args.release} - Base", release_url, gpgpath, gpgurl),
              Repo("updates", f"CentOS-{args.release} - Updates", updates_url, gpgpath, gpgurl),
@@ -2524,19 +2417,19 @@ def install_centos_repos_new(args: MkosiArgs, root: Path, epel_release: int) -> 
     epel_gpgurl = f"https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{epel_release}"
 
     if args.mirror:
-        appstream_url = f"baseurl={args.mirror}/centos/{args.release}/AppStream/$basearch/os"
-        baseos_url = f"baseurl={args.mirror}/centos/{args.release}/BaseOS/$basearch/os"
-        extras_url = f"baseurl={args.mirror}/centos/{args.release}/extras/$basearch/os"
-        centosplus_url = f"baseurl={args.mirror}/centos/{args.release}/centosplus/$basearch/os"
-        powertools_url = f"baseurl={args.mirror}/centos/{args.release}/PowerTools/$basearch/os"
-        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/Everything/$basearch"
+        appstream_url = f"baseurl={args.mirror}/centos/{args.release}/AppStream/x86_64/os"
+        baseos_url = f"baseurl={args.mirror}/centos/{args.release}/BaseOS/x86_64/os"
+        extras_url = f"baseurl={args.mirror}/centos/{args.release}/extras/x86_64/os"
+        centosplus_url = f"baseurl={args.mirror}/centos/{args.release}/centosplus/x86_64/os"
+        powertools_url = f"baseurl={args.mirror}/centos/{args.release}/PowerTools/x86_64/os"
+        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/Everything/x86_64"
     else:
-        appstream_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=$basearch&repo=AppStream"
-        baseos_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=$basearch&repo=BaseOS"
-        extras_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=$basearch&repo=extras"
-        centosplus_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=$basearch&repo=centosplus"
-        powertools_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=$basearch&repo=PowerTools"
-        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=$basearch"
+        appstream_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=x86_64&repo=AppStream"
+        baseos_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=x86_64&repo=BaseOS"
+        extras_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=x86_64&repo=extras"
+        centosplus_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=x86_64&repo=centosplus"
+        powertools_url = f"mirrorlist=http://mirrorlist.centos.org/?release={args.release}&arch=x86_64&repo=PowerTools"
+        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=x86_64"
 
     repos = [Repo("AppStream", f"CentOS-{args.release} - AppStream", appstream_url, gpgpath, gpgurl),
              Repo("BaseOS", f"CentOS-{args.release} - Base", baseos_url, gpgpath, gpgurl),
@@ -2562,15 +2455,15 @@ def install_centos_stream_repos(args: MkosiArgs, root: Path, epel_release: int) 
     release = f"{epel_release}-stream"
 
     if args.mirror:
-        appstream_url = f"baseurl={args.mirror}/centos-stream/{release}/AppStream/$basearch/os"
-        baseos_url = f"baseurl={args.mirror}/centos-stream/{release}/BaseOS/$basearch/os"
-        crb_url = f"baseurl={args.mirror}/centos-stream/{release}/CRB/$basearch/os"
-        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/Everything/$basearch"
+        appstream_url = f"baseurl={args.mirror}/centos-stream/{release}/AppStream/x86_64/os"
+        baseos_url = f"baseurl={args.mirror}/centos-stream/{release}/BaseOS/x86_64/os"
+        crb_url = f"baseurl={args.mirror}/centos-stream/{release}/CRB/x86_64/os"
+        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/Everything/x86_64"
     else:
         appstream_url = f"metalink=https://mirrors.centos.org/metalink?repo=centos-appstream-{release}&arch=$basearch"
         baseos_url = f"metalink=https://mirrors.centos.org/metalink?repo=centos-baseos-{release}&arch=$basearch"
         crb_url = f"metalink=https://mirrors.centos.org/metalink?repo=centos-crb-{release}&arch=$basearch"
-        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=$basearch"
+        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=x86_64"
 
     repos = [Repo("AppStream", f"CentOS Stream {release} - AppStream", appstream_url, gpgpath, gpgurl),
              Repo("BaseOS", f"CentOS Stream {release} - BaseOS", baseos_url, gpgpath, gpgurl),
@@ -2585,31 +2478,25 @@ def install_centos_stream_repos(args: MkosiArgs, root: Path, epel_release: int) 
 
 def install_rocky_repos(args: MkosiArgs, root: Path, epel_release: int) -> None:
     # Repos for Rocky Linux 8 and later
-
-    if epel_release >= 9:
-        keyname = f"Rocky-{epel_release}"
-    else:
-        keyname = "rockyofficial"
-
-    gpgpath = Path(f"/etc/pki/rpm-gpg/RPM-GPG-KEY-{keyname}")
-    gpgurl = f"https://download.rockylinux.org/pub/rocky/RPM-GPG-KEY-{keyname}"
+    gpgpath = Path("/etc/pki/rpm-gpg/RPM-GPG-KEY-rockyofficial")
+    gpgurl = "https://download.rockylinux.org/pub/rocky/RPM-GPG-KEY-rockyofficial"
     epel_gpgpath = Path(f"/etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-{epel_release}")
     epel_gpgurl = f"https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{epel_release}"
 
     if args.mirror:
-        appstream_url = f"baseurl={args.mirror}/rocky/{args.release}/AppStream/$basearch/os"
-        baseos_url = f"baseurl={args.mirror}/rocky/{args.release}/BaseOS/$basearch/os"
-        extras_url = f"baseurl={args.mirror}/rocky/{args.release}/extras/$basearch/os"
-        plus_url = f"baseurl={args.mirror}/rocky/{args.release}/plus/$basearch/os"
-        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/Everything/$basearch"
+        appstream_url = f"baseurl={args.mirror}/rocky/{args.release}/AppStream/x86_64/os"
+        baseos_url = f"baseurl={args.mirror}/rocky/{args.release}/BaseOS/x86_64/os"
+        extras_url = f"baseurl={args.mirror}/rocky/{args.release}/extras/x86_64/os"
+        plus_url = f"baseurl={args.mirror}/rocky/{args.release}/plus/x86_64/os"
+        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/Everything/x86_64"
     else:
         appstream_url = (
-            f"mirrorlist=https://mirrors.rockylinux.org/mirrorlist?arch=$basearch&repo=AppStream-{args.release}"
+            f"mirrorlist=https://mirrors.rockylinux.org/mirrorlist?arch=x86_64&repo=AppStream-{args.release}"
         )
-        baseos_url = f"mirrorlist=https://mirrors.rockylinux.org/mirrorlist?arch=$basearch&repo=BaseOS-{args.release}"
-        extras_url = f"mirrorlist=https://mirrors.rockylinux.org/mirrorlist?arch=$basearch&repo=extras-{args.release}"
-        plus_url = f"mirrorlist=https://mirrors.rockylinux.org/mirrorlist?arch=$basearch&repo=rockyplus-{args.release}"
-        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=$basearch"
+        baseos_url = f"mirrorlist=https://mirrors.rockylinux.org/mirrorlist?arch=x86_64&repo=BaseOS-{args.release}"
+        extras_url = f"mirrorlist=https://mirrors.rockylinux.org/mirrorlist?arch=x86_64&repo=extras-{args.release}"
+        plus_url = f"mirrorlist=https://mirrors.rockylinux.org/mirrorlist?arch=x86_64&repo=rockyplus-{args.release}"
+        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=x86_64"
 
     repos = [Repo("AppStream", f"Rocky-{args.release} - AppStream", appstream_url, gpgpath, gpgurl),
              Repo("BaseOS", f"Rocky-{args.release} - Base", baseos_url, gpgpath, gpgurl),
@@ -2630,19 +2517,19 @@ def install_alma_repos(args: MkosiArgs, root: Path, epel_release: int) -> None:
     epel_gpgurl = f"https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{epel_release}"
 
     if args.mirror:
-        appstream_url = f"baseurl={args.mirror}/almalinux/{args.release}/AppStream/$basearch/os"
-        baseos_url = f"baseurl={args.mirror}/almalinux/{args.release}/BaseOS/$basearch/os"
-        extras_url = f"baseurl={args.mirror}/almalinux/{args.release}/extras/$basearch/os"
-        powertools_url = f"baseurl={args.mirror}/almalinux/{args.release}/PowerTools/$basearch/os"
-        ha_url = f"baseurl={args.mirror}/almalinux/{args.release}/HighAvailability/$basearch/os"
-        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/Everything/$basearch"
+        appstream_url = f"baseurl={args.mirror}/almalinux/{args.release}/AppStream/x86_64/os"
+        baseos_url = f"baseurl={args.mirror}/almalinux/{args.release}/BaseOS/x86_64/os"
+        extras_url = f"baseurl={args.mirror}/almalinux/{args.release}/extras/x86_64/os"
+        powertools_url = f"baseurl={args.mirror}/almalinux/{args.release}/PowerTools/x86_64/os"
+        ha_url = f"baseurl={args.mirror}/almalinux/{args.release}/HighAvailability/x86_64/os"
+        epel_url = f"baseurl={args.mirror}/epel/{epel_release}/Everything/x86_64"
     else:
         appstream_url = f"mirrorlist=https://mirrors.almalinux.org/mirrorlist/{args.release}/appstream"
         baseos_url = f"mirrorlist=https://mirrors.almalinux.org/mirrorlist/{args.release}/baseos"
         extras_url = f"mirrorlist=https://mirrors.almalinux.org/mirrorlist/{args.release}/extras"
         powertools_url = f"mirrorlist=https://mirrors.almalinux.org/mirrorlist/{args.release}/powertools"
         ha_url = f"mirrorlist=https://mirrors.almalinux.org/mirrorlist/{args.release}/ha"
-        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=$basearch"
+        epel_url = f"mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=epel-{epel_release}&arch=x86_64"
 
     repos = [Repo("AppStream", f"AlmaLinux-{args.release} - AppStream", appstream_url, gpgpath, gpgurl),
              Repo("BaseOS", f"AlmaLinux-{args.release} - Base", baseos_url, gpgpath, gpgurl),
@@ -2692,7 +2579,7 @@ def install_centos(args: MkosiArgs, root: Path, do_run_build_script: bool) -> No
     packages = {*args.packages}
     add_packages(args, packages, "centos-release", "systemd")
     if not do_run_build_script and args.bootable:
-        add_packages(args, packages, "kernel", "dracut")
+        add_packages(args, packages, "kernel", "dracut", "binutils")
         configure_dracut(args, packages, root)
         if epel_release <= 7:
             add_packages(
@@ -2744,7 +2631,7 @@ def install_rocky(args: MkosiArgs, root: Path, do_run_build_script: bool) -> Non
     packages = {*args.packages}
     add_packages(args, packages, "rocky-release", "systemd")
     if not do_run_build_script and args.bootable:
-        add_packages(args, packages, "kernel", "dracut")
+        add_packages(args, packages, "kernel", "dracut", "binutils")
         configure_dracut(args, packages, root)
         add_packages(args, packages, "systemd-udev", conditional="systemd")
 
@@ -2762,10 +2649,6 @@ def install_rocky(args: MkosiArgs, root: Path, do_run_build_script: bool) -> Non
 
     install_packages_dnf(args, root, packages, do_run_build_script)
 
-    if root.joinpath("usr/bin/rpm").exists():
-        cmdline = ["rpm", "--rebuilddb", "--define", "_db_backend bdb"]
-        run_workspace_command(args, root, cmdline)
-
 
 
 @complete_step("Installing Alma Linux…")
@@ -2776,7 +2659,7 @@ def install_alma(args: MkosiArgs, root: Path, do_run_build_script: bool) -> None
     packages = {*args.packages}
     add_packages(args, packages, "almalinux-release", "systemd")
     if not do_run_build_script and args.bootable:
-        add_packages(args, packages, "kernel", "dracut")
+        add_packages(args, packages, "kernel", "dracut", "binutils")
         configure_dracut(args, packages, root)
         add_packages(args, packages, "systemd-udev", conditional="systemd")
 
@@ -2808,11 +2691,10 @@ def invoke_apt(
 ) -> None:
 
     cmdline = ["/usr/bin/apt-get", "--assume-yes", command, *extra]
-    env = dict(
-        DEBIAN_FRONTEND="noninteractive",
-        DEBCONF_NONINTERACTIVE_SEEN="true",
-        INITRD="No",
-    )
+    env = {
+        "DEBIAN_FRONTEND": "noninteractive",
+        "DEBCONF_NONINTERACTIVE_SEEN": "true",
+    }
 
     run_workspace_command(args, root, cmdline, network=True, env=env)
 
@@ -2834,7 +2716,6 @@ def install_debian_or_ubuntu(args: MkosiArgs, root: Path, *, do_run_build_script
         cmdline: List[PathString] = [
             "debootstrap",
             "--variant=minbase",
-            "--include=ca-certificates",
             "--merged-usr",
             f"--components={','.join(repos)}",
         ]
@@ -2862,7 +2743,7 @@ def install_debian_or_ubuntu(args: MkosiArgs, root: Path, *, do_run_build_script
         extra_packages.update(args.build_packages)
 
     if not do_run_build_script and args.bootable:
-        add_packages(args, extra_packages, "dracut")
+        add_packages(args, extra_packages, "dracut", "dracut-live", "binutils")
         configure_dracut(args, extra_packages, root)
 
         if args.distribution == Distribution.ubuntu:
@@ -2931,15 +2812,7 @@ def install_debian_or_ubuntu(args: MkosiArgs, root: Path, *, do_run_build_script
 
         root.joinpath(f"etc/apt/sources.list.d/{args.release}-security.list").write_text(f"{security}\n")
 
-    install_skeleton_trees(args, root, False, late=True)
-
     invoke_apt(args, do_run_build_script, root, "update", [])
-
-    if args.bootable and not do_run_build_script and args.get_partition(PartitionIdentifier.esp):
-        if run_workspace_command(args, root, ["apt-cache", "search", "--names-only", "^systemd-boot$"],
-                                 capture_stdout=True).stdout.strip() != "":
-            add_packages(args, extra_packages, "systemd-boot")
-
     invoke_apt(args, do_run_build_script, root, "install", ["--no-install-recommends", *extra_packages])
 
     policyrcd.unlink()
@@ -2959,6 +2832,17 @@ def install_debian_or_ubuntu(args: MkosiArgs, root: Path, *, do_run_build_script
         root.joinpath("etc/resolv.conf").symlink_to("../run/systemd/resolve/resolv.conf")
         run(["systemctl", "--root", root, "enable", "systemd-resolved"])
 
+    if args.bootable and not do_run_build_script and "uefi" in args.boot_protocols:
+        for kver, kimg in gen_kernel_images(args, root):
+            run_workspace_command(args, root, ["kernel-install", "add", kver, Path("/") / kimg])
+
+    root.joinpath("etc/locale.conf").write_text("LANG=C.UTF-8\n")
+    try:
+        root.joinpath("etc/default/locale").unlink()
+    except FileNotFoundError:
+        pass
+    root.joinpath("etc/default/locale").symlink_to("/etc/locale.conf")
+
 
 @complete_step("Installing Debian…")
 def install_debian(args: MkosiArgs, root: Path, do_run_build_script: bool) -> None:
@@ -2970,8 +2854,30 @@ def install_ubuntu(args: MkosiArgs, root: Path, do_run_build_script: bool) -> No
     install_debian_or_ubuntu(args, root, do_run_build_script=do_run_build_script)
 
 
-def invoke_pacman(root: Path, pacman_conf: Path, packages: Set[str]) -> None:
-    run(["pacman", "--config", pacman_conf, "--noconfirm", "-Sy", *sort_packages(packages)], env=dict(KERNEL_INSTALL_BYPASS="1"))
+def run_pacman(root: Path, pacman_conf: Path, packages: Set[str]) -> None:
+    try:
+        run(["pacman-key", "--config", pacman_conf, "--init"])
+        run(["pacman-key", "--config", pacman_conf, "--populate"])
+        run(["pacman", "--config", pacman_conf, "--noconfirm", "-Sy", *sort_packages(packages)])
+    finally:
+        # Kill the gpg-agent started by pacman and pacman-key.
+        run(["gpgconf", "--homedir", root / "etc/pacman.d/gnupg", "--kill", "all"])
+
+
+def patch_locale_gen(args: MkosiArgs, root: Path) -> None:
+    # If /etc/locale.gen exists, uncomment the desired locale and leave the rest of the file untouched.
+    # If it doesn’t exist, just write the desired locale in it.
+    try:
+
+        def _patch_line(line: str) -> str:
+            if line.startswith("#C.UTF-8"):
+                return line[1:]
+            return line
+
+        patch_file(root / "etc/locale.gen", _patch_line)
+
+    except FileNotFoundError:
+        root.joinpath("etc/locale.gen").write_text("C.UTF-8 UTF-8\n")
 
 
 @complete_step("Installing Arch Linux…")
@@ -3005,7 +2911,7 @@ def install_arch(args: MkosiArgs, root: Path, do_run_build_script: bool) -> None
 
     # Permissions on these directories are all 0o777 because of 'mount --bind'
     # limitations but pacman expects them to be 0o755 so we fix them before
-    # calling pacman (except /var/tmp which is 0o1777).
+    # calling pacstrap (except /var/tmp which is 0o1777).
     fix_permissions_dirs = {
         "boot": 0o755,
         "etc": 0o755,
@@ -3032,7 +2938,7 @@ def install_arch(args: MkosiArgs, root: Path, do_run_build_script: bool) -> None
                 RootDir = {root}
                 LogFile = /dev/null
                 CacheDir = {root}/var/cache/pacman/pkg/
-                GPGDir = /etc/pacman.d/gnupg/
+                GPGDir = {root}/etc/pacman.d/gnupg/
                 HookDir = {root}/etc/pacman.d/hooks/
                 HoldPkg = pacman glibc
                 Architecture = auto
@@ -3114,7 +3020,7 @@ def install_arch(args: MkosiArgs, root: Path, do_run_build_script: bool) -> None
         if args.get_partition(PartitionIdentifier.bios):
             add_packages(args, packages, "grub")
 
-        add_packages(args, packages, "dracut")
+        add_packages(args, packages, "dracut", "binutils")
         configure_dracut(args, packages, root)
 
     packages.update(args.packages)
@@ -3138,7 +3044,12 @@ def install_arch(args: MkosiArgs, root: Path, do_run_build_script: bool) -> None
         add_packages(args, packages, "openssh")
 
     with mount_api_vfs(args, root):
-        invoke_pacman(root, pacman_conf, packages)
+        run_pacman(root, pacman_conf, packages)
+
+    patch_locale_gen(args, root)
+    run_workspace_command(args, root, ["/usr/bin/locale-gen"])
+
+    root.joinpath("etc/locale.conf").write_text("LANG=C.UTF-8\n")
 
     # Arch still uses pam_securetty which prevents root login into
     # systemd-nspawn containers. See https://bugs.archlinux.org/task/45903.
@@ -3184,7 +3095,7 @@ def install_opensuse(args: MkosiArgs, root: Path, do_run_build_script: bool) -> 
         add_packages(args, packages, "patterns-base-minimal_base")
 
     if not do_run_build_script and args.bootable:
-        add_packages(args, packages, "kernel-default", "dracut")
+        add_packages(args, packages, "kernel-default", "dracut", "binutils")
         configure_dracut(args, packages, root)
 
         if args.get_partition(PartitionIdentifier.bios):
@@ -3234,6 +3145,11 @@ def install_opensuse(args: MkosiArgs, root: Path, do_run_build_script: bool) -> 
     if args.autologin:
         # copy now, patch later (in set_autologin())
         shutil.copy2(root / "usr/etc/pam.d/login", root / "etc/pam.d/login")
+
+    # Zypper doesn't run dracut automatically so we have to do it manually.
+    if args.bootable and not do_run_build_script and "uefi" in args.boot_protocols:
+        for kver, kimg in gen_kernel_images(args, root):
+            run_workspace_command(args, root, ["kernel-install", "add", kver, Path("/") / kimg])
 
 
 @complete_step("Installing Gentoo…")
@@ -3292,11 +3208,6 @@ def install_distribution(args: MkosiArgs, root: Path, do_run_build_script: bool,
     with mount_cache(args, root):
         install[args.distribution](args, root, do_run_build_script)
 
-    # Link /var/lib/rpm→/usr/lib/sysimage/rpm for compat with old rpm.
-    # We do this only if the new location is used, which depends on the dnf
-    # version and configuration on the host. Thus we do this reactively, after the
-    # installation has completed.
-    link_rpm_db(root)
 
 def remove_packages(args: MkosiArgs, root: Path) -> None:
     """Remove packages listed in args.remove_packages"""
@@ -3406,11 +3317,9 @@ def invoke_fstrim(args: MkosiArgs, root: Path, do_run_build_script: bool, for_ca
 
 
 def pam_add_autologin(root: Path, ttys: List[str]) -> None:
-    login = root / "etc/pam.d/login"
-    original = login.read_text() if login.exists() else ""
-
-    login.parent.mkdir(exist_ok=True)
-    with open(login, "w") as f:
+    with open(root / "etc/pam.d/login", "r+") as f:
+        original = f.read()
+        f.seek(0)
         for tty in ttys:
             # Some PAM versions require the /dev/ prefix, others don't. Just add both variants.
             f.write(f"auth sufficient pam_succeed_if.so tty = {tty}\n")
@@ -3643,27 +3552,24 @@ def install_extra_trees(args: MkosiArgs, root: Path, for_cache: bool) -> None:
     with complete_step("Copying in extra file trees…"):
         for tree in args.extra_trees:
             if tree.is_dir():
-                copy_path(tree, root, copystat=False)
+                copy_path(tree, root)
             else:
                 # unpack_archive() groks Paths, but mypy doesn't know this.
                 # Pretend that tree is a str.
                 shutil.unpack_archive(cast(str, tree), root)
 
 
-def install_skeleton_trees(args: MkosiArgs, root: Path, cached: bool, *, late: bool=False) -> None:
+def install_skeleton_trees(args: MkosiArgs, root: Path, cached: bool) -> None:
     if not args.skeleton_trees:
         return
 
     if cached:
         return
 
-    if not late and args.distribution in (Distribution.debian, Distribution.ubuntu):
-        return
-
     with complete_step("Copying in skeleton file trees…"):
         for tree in args.skeleton_trees:
             if tree.is_dir():
-                copy_path(tree, root, copystat=False)
+                copy_path(tree, root)
             else:
                 # unpack_archive() groks Paths, but mypy doesn't know this.
                 # Pretend that tree is a str.
@@ -3675,9 +3581,7 @@ def copy_git_files(src: Path, dest: Path, *, source_file_transfer: SourceFileTra
     if source_file_transfer == SourceFileTransfer.copy_git_others:
         what_files += ["--others", "--exclude=.mkosi-*"]
 
-    uid = int(os.getenv("SUDO_UID", 0))
-
-    c = run(["git", "-C", src, "ls-files", "-z", *what_files], stdout=PIPE, text=False, user=uid)
+    c = run(["git", "-C", src, "ls-files", "-z", *what_files], stdout=PIPE, text=False)
     files = {x.decode("utf-8") for x in c.stdout.rstrip(b"\0").split(b"\0")}
 
     # Add the .git/ directory in as well.
@@ -3690,10 +3594,10 @@ def copy_git_files(src: Path, dest: Path, *, source_file_transfer: SourceFileTra
                 files.add(fr)
 
     # Get submodule files
-    c = run(["git", "-C", src, "submodule", "status", "--recursive"], stdout=PIPE, text=True, user=uid)
+    c = run(["git", "-C", src, "submodule", "status", "--recursive"], stdout=PIPE, text=True)
     submodules = {x.split()[1] for x in c.stdout.splitlines()}
 
-    # workaround for git ls-files returning the path of submodules that we will
+    # workaround for git-ls-files returning the path of submodules that we will
     # still parse
     files -= submodules
 
@@ -3702,7 +3606,6 @@ def copy_git_files(src: Path, dest: Path, *, source_file_transfer: SourceFileTra
             ["git", "-C", os.path.join(src, sm), "ls-files", "-z"] + what_files,
             stdout=PIPE,
             text=False,
-            user=uid,
         )
         files |= {os.path.join(sm, x.decode("utf-8")) for x in c.stdout.rstrip(b"\0").split(b"\0")}
         files -= submodules
@@ -3777,7 +3680,7 @@ def install_build_dest(args: MkosiArgs, root: Path, do_run_build_script: bool, f
         return
 
     with complete_step("Copying in build tree…"):
-        copy_path(install_dir(args, root), root, copystat=False)
+        copy_path(install_dir(args, root), root)
 
 
 def make_read_only(args: MkosiArgs, root: Path, for_cache: bool, b: bool = True) -> None:
@@ -4246,11 +4149,11 @@ def patch_root_uuid(
     # Use the first 128bit of the root hash as partition UUID of the root partition
     u = uuid.UUID(root_hash[:32])
 
-    part = args.get_partition(PartitionIdentifier.root)
-    assert part is not None
-    part.part_uuid = u
+    with complete_step("Patching root partition UUID…"):
+        part = args.get_partition(PartitionIdentifier.root)
+        assert part is not None
 
-    print('Root partition-type UUID:', u)
+        run(["sfdisk", "--part-uuid", loopdev, str(part.number), str(u)])
 
 
 def extract_partition(
@@ -4272,7 +4175,7 @@ def extract_partition(
 def gen_kernel_images(args: MkosiArgs, root: Path) -> Iterator[Tuple[str, Path]]:
     # Apparently openmandriva hasn't yet completed its usrmerge so we use lib here instead of usr/lib.
     for kver in root.joinpath("lib/modules").iterdir():
-        if not kver.is_dir():
+        if not (kver.is_dir() and os.path.isfile(os.path.join(kver, "modules.dep"))): # type: ignore
             continue
 
         if args.distribution == Distribution.gentoo:
@@ -4344,11 +4247,11 @@ def install_unified_kernel(
                 partlabel = None
 
             if args.image_version:
-                boot_binary = root / prefix / f"EFI/Linux/{image_id}_{args.image_version}.efi"
+                boot_binary = Path(prefix) / f"EFI/Linux/{image_id}_{args.image_version}.efi"
             elif root_hash:
-                boot_binary = root / prefix / f"EFI/Linux/{image_id}-{kver}-{root_hash}.efi"
+                boot_binary = Path(prefix) / f"EFI/Linux/{image_id}-{kver}-{root_hash}.efi"
             else:
-                boot_binary = root / prefix / f"EFI/Linux/{image_id}-{kver}.efi"
+                boot_binary = Path(prefix) / f"EFI/Linux/{image_id}-{kver}.efi"
 
             if root.joinpath("etc/kernel/cmdline").exists():
                 boot_options = root.joinpath("etc/kernel/cmdline").read_text().strip()
@@ -4363,24 +4266,17 @@ def install_unified_kernel(
             elif partlabel:
                 boot_options = f"{boot_options} root=PARTLABEL={partlabel}"
 
-            osrelease = root / "usr/lib/os-release"
-            cmdline = workspace(root) / "cmdline"
-            cmdline.write_text(boot_options)
-            initrd = root / prefix / args.machine_id / kver / "initrd"
-
             cmd: Sequence[PathString] = [
-                "objcopy",
-                "--add-section", f".osrel={osrelease}",   "--change-section-vma", ".osrel=0x20000",
-                "--add-section", f".cmdline={cmdline}",   "--change-section-vma", ".cmdline=0x30000",
-                "--add-section", f".linux={root / kimg}", "--change-section-vma", ".linux=0x2000000",
-                "--add-section", f".initrd={initrd}",     "--change-section-vma", ".initrd=0x3000000",
-                root / "lib/systemd/boot/efi/linuxx64.efi.stub",
+                "dracut",
+                "--uefi",
+                "--kver", kver,
+                "--kernel-image", Path("/") / kimg,
+                "--kernel-cmdline", boot_options,
+                "--force",
                 boot_binary,
             ]
 
-            run(cmd)
-
-            cmdline.unlink()
+            run_workspace_command(args, root, cmd)
 
 
 def secure_boot_sign(
@@ -4459,70 +4355,6 @@ def extract_unified_kernel(
         assert args.output_split_kernel is not None
 
         f = copy_file_temporary(kernel, args.output_split_kernel.parent)
-
-    return f
-
-
-def extract_kernel_image_initrd(
-    args: MkosiArgs,
-    root: Path,
-    do_run_build_script: bool,
-    for_cache: bool,
-    mount: Callable[[], ContextManager[None]],
-) -> Union[Tuple[BinaryIO, BinaryIO], Tuple[None, None]]:
-    if do_run_build_script or for_cache or "linux" not in args.boot_protocols:
-        return None, None
-
-    prefix = "efi" if args.get_partition(PartitionIdentifier.esp) else "boot"
-
-    with mount():
-        kimgabs = None
-        initrd = None
-
-        for kver, kimg in gen_kernel_images(args, root):
-            kimgabs = root / kimg
-            initrd = root / prefix / args.machine_id / kver / "initrd"
-
-        if kimgabs is None:
-            die("No kernel image found, can't extract.")
-        assert initrd is not None
-
-        fkimg = copy_file_temporary(kimgabs, args.output_dir or Path())
-        finitrd = copy_file_temporary(initrd, args.output_dir or Path())
-
-    return (fkimg, finitrd)
-
-
-def extract_kernel_cmdline(
-    args: MkosiArgs,
-    root: Path,
-    do_run_build_script: bool,
-    for_cache: bool,
-    mount: Callable[[], ContextManager[None]],
-) -> Optional[TextIO]:
-    if do_run_build_script or for_cache or "linux" not in args.boot_protocols:
-        return None
-
-    with mount():
-        if root.joinpath("etc/kernel/cmdline").exists():
-            p = root / "etc/kernel/cmdline"
-        elif root.joinpath("usr/lib/kernel/cmdline").exists():
-            p = root / "usr/lib/kernel/cmdline"
-        else:
-            die("No cmdline found")
-
-        # Direct Linux boot means we can't rely on systemd-gpt-auto-generator to
-        # figure out the root partition for us so we have to encode it manually
-        # in the kernel cmdline.
-        cmdline = f"{p.read_text().strip()} root=LABEL={PartitionIdentifier.root.name}\n"
-
-        f = cast(
-            TextIO,
-            tempfile.NamedTemporaryFile(mode="w+", prefix=".mkosi-", encoding="utf-8", dir=args.output_dir or Path()),
-        )
-
-        f.write(cmdline)
-        f.flush()
 
     return f
 
@@ -4901,29 +4733,8 @@ def link_output_split_verity_sig(args: MkosiArgs, split_verity_sig: Optional[Som
 def link_output_split_kernel(args: MkosiArgs, split_kernel: Optional[SomeIO]) -> None:
     if split_kernel:
         assert args.output_split_kernel
-        with complete_step("Linking split kernel…", f"Linked {path_relative_to_cwd(args.output_split_kernel)}"):
+        with complete_step("Linking split kernel image…", f"Linked {path_relative_to_cwd(args.output_split_kernel)}"):
             _link_output(args, split_kernel.name, args.output_split_kernel)
-
-
-def link_output_split_kernel_image(args: MkosiArgs, split_kernel_image: Optional[SomeIO]) -> None:
-    if split_kernel_image:
-        output = build_auxiliary_output_path(args, '.vmlinuz')
-        with complete_step("Linking split kernel image…", f"Linked {path_relative_to_cwd(output)}"):
-            _link_output(args, split_kernel_image.name, output)
-
-
-def link_output_split_initrd(args: MkosiArgs, split_initrd: Optional[SomeIO]) -> None:
-    if split_initrd:
-        output = build_auxiliary_output_path(args, '.initrd')
-        with complete_step("Linking split initrd…", f"Linked {path_relative_to_cwd(output)}"):
-            _link_output(args, split_initrd.name, output)
-
-
-def link_output_split_kernel_cmdline(args: MkosiArgs, split_kernel_cmdline: Optional[SomeIO]) -> None:
-    if split_kernel_cmdline:
-        output = build_auxiliary_output_path(args, '.cmdline')
-        with complete_step("Linking split cmdline…", f"Linked {path_relative_to_cwd(output)}"):
-            _link_output(args, split_kernel_cmdline.name, output)
 
 
 def dir_size(path: PathString) -> int:
@@ -5172,20 +4983,6 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         args_string = self._format_args(action, default)
         return ", ".join(action.option_strings) + " " + args_string
 
-    def _split_lines(self, text: str, width: int) -> List[str]:
-        """Wraps text to width, each line separately.
-        If the first line of text ends in a colon, we assume that
-        this is a list of option descriptions, and subindent them.
-        Otherwise, the text is wrapped without indentation.
-        """
-        lines = text.splitlines()
-        subindent = '    ' if lines[0].endswith(':') else ''
-        return list(itertools.chain.from_iterable(
-            textwrap.wrap(line, width,
-                          break_long_words=False,
-                          break_on_hyphens=False,
-                          subsequent_indent=subindent)
-            for line in lines))
 
 class ArgumentParserMkosi(argparse.ArgumentParser):
     """ArgumentParser with support for mkosi.defaults file(s)
@@ -5331,10 +5128,10 @@ def parse_remove_files(value: str) -> List[str]:
     return ["/" + os.path.normpath(p).lstrip("/") for p in value.split(",") if p]
 
 
-def parse_ssh_agent(value: str) -> Optional[Path]:
+def parse_ssh_agent(value: Optional[str]) -> Optional[Path]:
     """Will return None or a path to a socket."""
 
-    if not value:
+    if value is None:
         return None
 
     try:
@@ -5343,7 +5140,7 @@ def parse_ssh_agent(value: str) -> Optional[Path]:
     except ValueError:
         pass
     else:
-        value = os.getenv("SSH_AUTH_SOCK", "")
+        value = os.getenv("SSH_AUTH_SOCK")
         if not value:
             die("--ssh-agent=true but $SSH_AUTH_SOCK is not set (consider running 'sudo' with '-E')")
 
@@ -5357,17 +5154,9 @@ def create_parser() -> ArgumentParserMkosi:
     parser = ArgumentParserMkosi(prog="mkosi", description="Build Bespoke OS Images", add_help=False)
 
     group = parser.add_argument_group("Commands")
+    group.add_argument("verb", type=Verb, choices=list(Verb), default=Verb.build, help="Operation to execute")
     group.add_argument(
-        "verb",
-        type=Verb,
-        choices=list(Verb),
-        default=Verb.build,
-        help="Operation to execute",
-    )
-    group.add_argument(
-        "cmdline",
-        nargs=argparse.REMAINDER,
-        help=f"The command line to use for {list_to_string(verb.name for verb in MKOSI_COMMANDS_CMDLINE)}",
+        "cmdline", nargs=argparse.REMAINDER, help="The command line to use for " + str([verb.name for verb in MKOSI_COMMANDS_CMDLINE])[1:-1]
     )
     group.add_argument("-h", "--help", action="help", help="Show this help")
     group.add_argument("--version", action="version", version="%(prog)s " + __version__)
@@ -5375,41 +5164,30 @@ def create_parser() -> ArgumentParserMkosi:
     group = parser.add_argument_group("Distribution")
     group.add_argument("-d", "--distribution", choices=Distribution.__members__, help="Distribution to install")
     group.add_argument("-r", "--release", help="Distribution release to install")
-    group.add_argument("--architecture", help="Override the architecture of installation")
     group.add_argument("-m", "--mirror", help="Distribution mirror to use")
-
     group.add_argument(
-        "--repositories",
-        metavar="REPOS",
-        action=CommaDelimitedListAction,
-        default=[],
-        help="Repositories to use",
+        "--repositories", action=CommaDelimitedListAction, default=[], help="Repositories to use", metavar="REPOS"
     )
     group.add_argument(
         "--use-host-repositories",
-        metavar="BOOL",
         action=BooleanAction,
         help="Use host's existing software repositories (only for dnf-based distributions)",
     )
-    group.add_argument(
-        "--repository-directory",
-        metavar="PATH",
-        dest="repos_dir",
-        help="Directory container extra distribution specific repository files",
-    )
+    group.add_argument("--repository-directory", metavar="PATH", dest="repos_dir",
+                       help="Directory container extra distribution specific repository files")
+    group.add_argument("--architecture", help="Override the architecture of installation")
 
     group = parser.add_argument_group("Output")
     group.add_argument(
-        "-t", "--format",
+        "-t",
+        "--format",
         dest="output_format",
-        metavar="FORMAT",
         choices=OutputFormat,
         type=OutputFormat.from_string,
         help="Output Format",
     )
     group.add_argument(
         "--manifest-format",
-        metavar="FORMAT",
         action=CommaDelimitedListAction,
         type=cast(Callable[[str], ManifestFormat], ManifestFormat.parse_list),
         help="Manifest Format",
@@ -5457,15 +5235,16 @@ def create_parser() -> ArgumentParserMkosi:
         metavar="DIR",
     )
     group.add_argument(
-        "-f", "--force",
+        "-f",
+        "--force",
         action="count",
         dest="force",
         default=0,
         help="Remove existing image file before operation",
     )
     group.add_argument(
-        "-b", "--bootable",
-        metavar="BOOL",
+        "-b",
+        "--bootable",
         action=BooleanAction,
         help="Make image bootable on EFI (only gpt_ext4, gpt_xfs, gpt_btrfs, gpt_squashfs)",
     )
@@ -5478,22 +5257,15 @@ def create_parser() -> ArgumentParserMkosi:
     )
     group.add_argument(
         "--kernel-command-line",
-        metavar="OPTIONS",
         action=SpaceDelimitedListAction,
         default=["rhgb", "selinux=0", "audit=0"],
         help="Set the kernel command line (only bootable images)",
     )
     group.add_argument(
-        "--kernel-commandline",       # Compatibility option
-        action=SpaceDelimitedListAction,
-        dest="kernel_command_line",
-        help=argparse.SUPPRESS,
-    )
+        "--kernel-commandline", action=SpaceDelimitedListAction, dest="kernel_command_line", help=argparse.SUPPRESS
+    )  # Compatibility option
     group.add_argument(
-        "--secure-boot",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Sign the resulting kernel/initrd image for UEFI SecureBoot",
+        "--secure-boot", action=BooleanAction, help="Sign the resulting kernel/initrd image for UEFI SecureBoot"
     )
     group.add_argument(
         "--secure-boot-key",
@@ -5521,14 +5293,11 @@ def create_parser() -> ArgumentParserMkosi:
     )
     group.add_argument(
         "--read-only",
-        metavar="BOOL",
         action=BooleanAction,
         help="Make root volume read-only (only gpt_ext4, gpt_xfs, gpt_btrfs, subvolume, implied with gpt_squashfs and plain_squashfs)",
     )
     group.add_argument(
-        "--encrypt",
-        choices=("all", "data"),
-        help='Encrypt everything except: ESP ("all") or ESP and root ("data")'
+        "--encrypt", choices=("all", "data"), help='Encrypt everything except: ESP ("all") or ESP and root ("data")'
     )
     group.add_argument(
         "--verity",
@@ -5569,7 +5338,6 @@ def create_parser() -> ArgumentParserMkosi:
     group.add_argument(
         "--qcow2",
         action=BooleanAction,
-        metavar="BOOL",
         help="Convert resulting image to qcow2 (only gpt_ext4, gpt_xfs, gpt_btrfs, gpt_squashfs)",
     )
     group.add_argument("--hostname", help="Set hostname")
@@ -5577,28 +5345,18 @@ def create_parser() -> ArgumentParserMkosi:
     group.add_argument("--image-id", help="Set ID for image")
     group.add_argument(
         "--no-chown",
-        metavar="BOOL",
         action=BooleanAction,
         help="When running with sudo, disable reassignment of ownership of the generated files to the original user",
     )  # NOQA: E501
     group.add_argument(
         "--tar-strip-selinux-context",
-        metavar="BOOL",
         action=BooleanAction,
         help="Do not include SELinux file context information in tar. Not compatible with bsdtar.",
     )
     group.add_argument(
-        "-i", "--incremental",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Make use of and generate intermediary cache images",
+        "-i", "--incremental", action=BooleanAction, help="Make use of and generate intermediary cache images"
     )
-    group.add_argument(
-        "-M", "--minimize",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Minimize root file system size",
-    )
+    group.add_argument("-M", "--minimize", action=BooleanAction, help="Minimize root file system size")
     group.add_argument(
         "--without-unified-kernel-images",
         action=BooleanAction,
@@ -5606,25 +5364,11 @@ def create_parser() -> ArgumentParserMkosi:
         default=True,
         help="Do not install unified kernel images",
     )
-    group.add_argument(
-        "--with-unified-kernel-images",
-        metavar="BOOL",
-        action=BooleanAction,
-        default=True,
-        help=argparse.SUPPRESS,
-    )
+    group.add_argument("--with-unified-kernel-images", action=BooleanAction, default=True, help=argparse.SUPPRESS)
     group.add_argument("--gpt-first-lba", type=int, help="Set the first LBA within GPT Header", metavar="FIRSTLBA")
+    group.add_argument("--hostonly-initrd", action=BooleanAction, help="Enable dracut hostonly option")
     group.add_argument(
-        "--hostonly-initrd",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Enable dracut hostonly option",
-    )
-    group.add_argument(
-        "--split-artifacts",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Generate split out root/verity/kernel images, too",
+        "--split-artifacts", action=BooleanAction, help="Generate split out root/verity/kernel images, too"
     )
 
     group = parser.add_argument_group("Content")
@@ -5652,43 +5396,30 @@ def create_parser() -> ArgumentParserMkosi:
         help="Remove package from the image OS image after installation",
         metavar="PACKAGE",
     )
+    group.add_argument("--with-docs", action=BooleanAction, help="Install documentation")
     group.add_argument(
-        "--with-docs",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Install documentation",
-    )
-    group.add_argument(
-        "-T", "--without-tests",
+        "-T",
+        "--without-tests",
         action=BooleanAction,
         dest="with_tests",
         default=True,
         help="Do not run tests as part of build script, if supported",
     )
     group.add_argument(
-        "--with-tests",       # Compatibility option
-        action=BooleanAction,
-        default=True,
-        help=argparse.SUPPRESS,
-    )
+        "--with-tests", action=BooleanAction, default=True, help=argparse.SUPPRESS
+    )  # Compatibility option
     group.add_argument(
         "--machine-id",
         help="Defines a fixed machine ID for all our build-time runs.",
+        metavar="MACHINE_ID"
     )
 
     group.add_argument("--password", help="Set the root password")
     group.add_argument(
-        "--password-is-hashed",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Indicate that the root password has already been hashed",
+        "--password-is-hashed", action=BooleanAction, help="Indicate that the root password has already been hashed"
     )
-    group.add_argument(
-        "--autologin",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Enable root autologin",
-    )
+    group.add_argument("--autologin", action=BooleanAction, help="Enable root autologin")
+
     group.add_argument(
         "--cache",
         dest="cache_path",
@@ -5737,7 +5468,7 @@ def create_parser() -> ArgumentParserMkosi:
         metavar="NAME[=VALUE]",
     )
     group.add_argument(
-        "--build-environment",   # Compatibility option
+        "--build-environment",  # Compatibility option
         action=SpaceDelimitedListAction,
         default=[],
         dest="environment",
@@ -5750,7 +5481,7 @@ def create_parser() -> ArgumentParserMkosi:
         type=Path,
     )
     group.add_argument(
-        "--build-dir",           # Compatibility option
+        "--build-dir",  # Compatibility option
         help=argparse.SUPPRESS,
         type=Path,
         metavar="PATH",
@@ -5785,11 +5516,7 @@ def create_parser() -> ArgumentParserMkosi:
         metavar="PACKAGE",
     )
     group.add_argument(
-        "--skip-final-phase",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Skip the (second) final image building phase.",
-        default=False,
+        "--skip-final-phase", action=BooleanAction, help="Skip the (second) final image building phase.", default=False
     )
     group.add_argument(
         "--build-script",
@@ -5819,42 +5546,33 @@ def create_parser() -> ArgumentParserMkosi:
         "--source-file-transfer",
         type=parse_source_file_transfer,
         choices=[*list(SourceFileTransfer), None],
-        metavar="METHOD",
         default=None,
-        help='\n'.join(('How to copy build sources to the build image:',
-                        *(f"'{k}': {v}" for k, v in SourceFileTransfer.doc().items()),
-                        '(default: copy-git-others if in a git repository, otherwise copy-all)')),
+        help="Method used to copy build sources to the build image."
+        + "; ".join([f"'{k}': {v}" for k, v in SourceFileTransfer.doc().items()])
+        + " (default: copy-git-others if in a git repository, otherwise copy-all)",
     )
     group.add_argument(
         "--source-file-transfer-final",
         type=parse_source_file_transfer,
         choices=[*list(SourceFileTransfer), None],
-        metavar="METHOD",
         default=None,
-        help='\n'.join(('How to copy build sources to the final image:',
-                        *(f"'{k}': {v}" for k, v in SourceFileTransfer.doc().items()
-                          if k != SourceFileTransfer.mount),
-                        '(default: None)')),
+        help="Method used to copy build sources to the final image."
+        + "; ".join([f"'{k}': {v}" for k, v in SourceFileTransfer.doc().items() if k != SourceFileTransfer.mount])
+        + " (default: None)",
     )
     group.add_argument(
         "--source-resolve-symlinks",
-        metavar="BOOL",
         action=BooleanAction,
-        help=("If true, symbolic links in the build sources are followed and the "
-              "file contents copied to the build image. If false, they are left as "
-              "symbolic links. "
-              "Only applies if --source-file-transfer-final is set to 'copy-all'.\n"
-              "(default: false)"),
+        help="If given, any symbolic links in the build sources are resolved and the file contents copied to the"
+        + " build image. If not given, they are left as symbolic links in the build image."
+        + " Only applies if --source-file-transfer is set to 'copy-all'. (default: keep as symbolic links)",
     )
     group.add_argument(
         "--source-resolve-symlinks-final",
-        metavar="BOOL",
         action=BooleanAction,
-        help=("If true, symbolic links in the build sources are followed and the "
-              "file contents copied to the final image. If false, they are left as "
-              "symbolic links in the final image. "
-              "Only applies if --source-file-transfer-final is set to 'copy-all'.\n"
-              "(default: false)"),
+        help="If given, any symbolic links in the build sources are resolved and the file contents copied to the"
+        + " final image. If not given, they are left as symbolic links in the final image."
+        + " Only applies if --source-file-transfer-final is set to 'copy-all'. (default: keep as symbolic links)",
     )
     group.add_argument(
         "--with-network",
@@ -5905,29 +5623,15 @@ def create_parser() -> ArgumentParserMkosi:
         "--tmp-size", help="Set size of /var/tmp partition (only gpt_ext4, gpt_xfs, gpt_squashfs)", metavar="BYTES"
     )
     group.add_argument(
-        "--usr-only",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Generate a /usr/ partition instead of a root partition",
+        "--usr-only", action=BooleanAction, help="Generate a /usr/ partition instead of a root partition"
     )
 
     group = parser.add_argument_group("Validation (only gpt_ext4, gpt_xfs, gpt_btrfs, gpt_squashfs, tar, cpio)")
-    group.add_argument(
-        "--checksum",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Write SHA256SUMS file",
-    )
-    group.add_argument(
-        "--sign",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Write and sign SHA256SUMS file",
-    )
+    group.add_argument("--checksum", action=BooleanAction, help="Write SHA256SUMS file")
+    group.add_argument("--sign", action=BooleanAction, help="Write and sign SHA256SUMS file")
     group.add_argument("--key", help="GPG key to use for signing")
     group.add_argument(
         "--bmap",
-        metavar="BOOL",
         action=BooleanAction,
         help="Write block map file (.bmap) for bmaptool usage (only gpt_ext4, gpt_btrfs)",
     )
@@ -5941,81 +5645,37 @@ def create_parser() -> ArgumentParserMkosi:
         help="List of colon-separated paths to look for programs before looking in PATH",
     )
     group.add_argument(
-        "--extra-search-paths",    # Compatibility option
-        dest="extra_search_paths",
-        action=ColonDelimitedListAction,
-        help=argparse.SUPPRESS,
-    )
-    group.add_argument(
-        "--qemu-headless",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Configure image for qemu's -nographic mode",
-    )
-    group.add_argument(
-        "--qemu-smp",
-        metavar="SMP",
-        default="1",
-        help="Configure guest's SMP settings",
-    )
-    group.add_argument(
-        "--qemu-mem",
-        metavar="MEM",
-        default="1G",
-        help="Configure guest's RAM size",
-    )
-    group.add_argument(
-        "--qemu-kvm",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Configure whether to use KVM or not",
-        default=qemu_check_kvm_support(),
-    )
-    group.add_argument(
-        "--qemu-args",
-        action=SpaceDelimitedListAction,
-        default=[],
-        # Suppress the command line option because it's already possible to pass qemu args as normal
-        # arguments.
-        help=argparse.SUPPRESS,
-    )
+        "--extra-search-paths", dest="extra_search_paths", action=ColonDelimitedListAction, help=argparse.SUPPRESS
+    )  # Compatibility option
+    group.add_argument("--qemu-headless", action=BooleanAction, help="Configure image for qemu's -nographic mode")
+    group.add_argument("--qemu-smp", help="Configure guest's SMP settings", metavar="SMP", default="2")
+    group.add_argument("--qemu-mem", help="Configure guest's RAM size", metavar="MEM", default="1G")
+    group.add_argument("--qemu-kvm", action=BooleanAction, help="Configure whether to use KVM or not",
+                       default=qemu_check_kvm_support())
     group.add_argument(
         "--nspawn-keep-unit",
-        metavar="BOOL",
         action=BooleanAction,
-        help="If specified, underlying systemd-nspawn containers use the resources of the current unit.",
+        help="If specified, underlying systemd-nspawn containers use the ressources of the current unit."
     )
     group.add_argument(
-        "--qemu-boot",
-        help="Configure which qemu boot protocol to use",
-        choices=["uefi", "bios", "linux", None],
-        metavar="PROTOCOL",
-    )
-    group.add_argument(
-        "--network-veth",     # Compatibility option
+        "--network-veth",
         dest="netdev",
-        metavar="BOOL",
         action=BooleanAction,
         help=argparse.SUPPRESS,
-    )
+    ) # Compatibility option
     group.add_argument(
         "--netdev",
-        metavar="BOOL",
         action=BooleanAction,
         help="Create a virtual Ethernet link between the host and the container/VM",
     )
     group.add_argument(
         "--ephemeral",
-        metavar="BOOL",
         action=BooleanAction,
-        help=('If specified, the container/VM is run with a temporary snapshot of the output '
-              'image that is removed immediately when the container/VM terminates'),
+        help="If specified, the container/VM is run with a temporary snapshot of the output image that is "
+        "removed immediately when the container/VM terminates",
     )
     group.add_argument(
-        "--ssh",
-        metavar="BOOL",
-        action=BooleanAction,
-        help="Set up SSH access from the host to the final image via 'mkosi ssh'",
+        "--ssh", action=BooleanAction, help="Set up SSH access from the host to the final image via 'mkosi ssh'"
     )
     group.add_argument(
         "--ssh-key",
@@ -6033,7 +5693,7 @@ def create_parser() -> ArgumentParserMkosi:
     group.add_argument(
         "--ssh-agent",
         type=parse_ssh_agent,
-        default="",
+        default=None,
         metavar="PATH",
         help="Path to the ssh agent socket, or true to use $SSH_AUTH_SOCK.",
     )
@@ -6060,23 +5720,18 @@ def create_parser() -> ArgumentParserMkosi:
         metavar="PATH",
     )
     group.add_argument(
-        "-a", "--all",
-        action="store_true",
-        dest="all",
-        default=False,
-        help="Build all settings files in mkosi.files/",
+        "-a", "--all", action="store_true", dest="all", default=False, help="Build all settings files in mkosi.files/"
     )
     group.add_argument(
         "--all-directory",
-        metavar="PATH",
-        type=Path,
         dest="all_directory",
         help="Specify path to directory to read settings files from",
+        type=Path,
+        metavar="PATH",
     )
     group.add_argument(
         "-B",
         "--auto-bump",
-        metavar="BOOL",
         action=BooleanAction,
         help="Automatically bump image version after building",
     )
@@ -6085,6 +5740,7 @@ def create_parser() -> ArgumentParserMkosi:
         action=CommaDelimitedListAction,
         default=[],
         help="Turn on debugging output",
+        choices=("run", "build-script", "workspace-command", "disk"),
     )
     try:
         import argcomplete
@@ -6105,6 +5761,9 @@ def load_distribution(args: argparse.Namespace) -> argparse.Namespace:
 
         if args.distribution is None:
             args.distribution = d
+
+        if args.distribution == d and d != Distribution.clear and args.release is None:
+            args.release = r
 
     if args.distribution is None:
         die("Couldn't detect distribution.")
@@ -6358,11 +6017,6 @@ def unlink_output(args: MkosiArgs) -> None:
                 unlink_try_hard(args.output_split_verity_sig)
                 unlink_try_hard(args.output_split_kernel)
 
-            if "linux" in args.boot_protocols:
-                unlink_try_hard(build_auxiliary_output_path(args, ".vmlinuz"))
-                unlink_try_hard(build_auxiliary_output_path(args, ".initrd"))
-                unlink_try_hard(build_auxiliary_output_path(args, ".cmdline"))
-
             if args.nspawn_settings is not None:
                 unlink_try_hard(args.output_nspawn_settings)
 
@@ -6570,7 +6224,7 @@ def xescape(s: str) -> str:
     return ret
 
 
-def build_auxiliary_output_path(args: Union[argparse.Namespace, MkosiArgs], suffix: str, can_compress: bool = False) -> Path:
+def build_auxiliary_output_path(args: argparse.Namespace, suffix: str, can_compress: bool = False) -> Path:
     output = strip_suffixes(args.output)
     compression = should_compress_output(args) if can_compress else False
     return output.with_name(f"{output.name}{suffix}{compression or ''}")
@@ -6629,7 +6283,7 @@ def load_args(args: argparse.Namespace) -> MkosiArgs:
     args.extra_search_paths = expand_paths(args.extra_search_paths)
 
     if args.cmdline and args.verb not in MKOSI_COMMANDS_CMDLINE:
-        die(f"Additional parameters only accepted for {list_to_string(verb.name for verb in MKOSI_COMMANDS_CMDLINE)} invocations.")
+        die("Additional parameters only accepted for " + str([verb.name for verb in MKOSI_COMMANDS_CMDLINE])[1:-1] + " invocations.")
 
     if args.output_format is None:
         args.output_format = OutputFormat.gpt_ext4
@@ -6638,7 +6292,7 @@ def load_args(args: argparse.Namespace) -> MkosiArgs:
 
     if args.release is None:
         if args.distribution == Distribution.fedora:
-            args.release = "36"
+            args.release = "35"
         elif args.distribution in (Distribution.centos, Distribution.centos_epel):
             args.release = "9-stream"
         elif args.distribution in (Distribution.rocky, Distribution.rocky_epel):
@@ -6650,7 +6304,7 @@ def load_args(args: argparse.Namespace) -> MkosiArgs:
         elif args.distribution == Distribution.debian:
             args.release = "testing"
         elif args.distribution == Distribution.ubuntu:
-            args.release = "jammy"
+            args.release = "focal"
         elif args.distribution == Distribution.opensuse:
             args.release = "tumbleweed"
         elif args.distribution == Distribution.clear:
@@ -6680,7 +6334,7 @@ def load_args(args: argparse.Namespace) -> MkosiArgs:
             if args.distribution == Distribution.photon:
                 args.boot_protocols = ["bios"]
 
-        if not {"uefi", "bios", "linux"}.issuperset(args.boot_protocols):
+        if not {"uefi", "bios"}.issuperset(args.boot_protocols):
             die("Not a valid boot protocol")
 
         if "uefi" in args.boot_protocols and args.distribution == Distribution.photon:
@@ -6710,7 +6364,7 @@ def load_args(args: argparse.Namespace) -> MkosiArgs:
     if args.distribution == Distribution.clear and args.output_format == OutputFormat.gpt_btrfs:
         die("Sorry, Clear Linux does not support btrfs", MkosiNotSupportedException)
 
-    if args.distribution == Distribution.clear and {"uefi", "bios"}.issubset(args.boot_protocols):
+    if args.distribution == Distribution.clear and "," in args.boot_protocols:
         die("Sorry, Clear Linux does not support hybrid BIOS/UEFI images", MkosiNotSupportedException)
 
     if shutil.which("bsdtar") and args.distribution == Distribution.openmandriva and args.tar_strip_selinux_context:
@@ -7241,8 +6895,7 @@ def print_summary(args: MkosiArgs) -> None:
     MkosiPrinter.info("\nHOST CONFIGURATION:")
     MkosiPrinter.info("        Extra search paths: " + line_join_list(args.extra_search_paths))
     MkosiPrinter.info("             QEMU Headless: " + yes_no(args.qemu_headless))
-    MkosiPrinter.info("      QEMU Extra Arguments: " + line_join_list(args.qemu_args))
-    MkosiPrinter.info("                    Netdev: " + yes_no(args.netdev))
+    MkosiPrinter.info("              Netdev:       " + yes_no(args.netdev))
 
 
 def reuse_cache_tree(
@@ -7268,7 +6921,7 @@ def reuse_cache_tree(
 
     if fname.exists():
         with complete_step(f"Copying in cached tree {fname}…"):
-            copy_path(fname, root, copystat=False)
+            copy_path(fname, root)
 
     return True
 
@@ -7391,21 +7044,6 @@ def setup_netdev(args: MkosiArgs, root: Path, do_run_build_script: bool, cached:
         run(["systemctl", "--root", root, "enable", "systemd-networkd"])
 
 
-def run_kernel_install(args: MkosiArgs, root: Path, do_run_build_script: bool, for_cache: bool) -> None:
-    if not args.bootable or do_run_build_script or for_cache:
-        return
-
-    with complete_step("Generating initramfs images…"):
-        # Running kernel-install on Debian/Ubuntu doesn't regenerate the initramfs. Instead, we can trigger
-        # regeneration of the initramfs via "dpkg-reconfigure dracut". kernel-install can then be called to put
-        # the generated initrds in the right place.
-        if args.distribution in (Distribution.debian, Distribution.ubuntu):
-            run_workspace_command(args, root, ["dpkg-reconfigure", "dracut"])
-
-        for kver, kimg in gen_kernel_images(args, root):
-            run_workspace_command(args, root, ["kernel-install", "add", kver, Path("/") / kimg])
-
-
 @dataclasses.dataclass
 class BuildOutput:
     raw: Optional[BinaryIO]
@@ -7419,16 +7057,13 @@ class BuildOutput:
     split_verity: Optional[BinaryIO]
     split_verity_sig: Optional[BinaryIO]
     split_kernel: Optional[BinaryIO]
-    split_kernel_image: Optional[BinaryIO]
-    split_initrd: Optional[BinaryIO]
-    split_kernel_cmdline: Optional[TextIO]
 
     def raw_name(self) -> Optional[str]:
         return self.raw.name if self.raw is not None else None
 
     @classmethod
     def empty(cls) -> BuildOutput:
-        return cls(None, None, None, None, None, None, None, None, None, None, None, None)
+        return cls(None, None, None, None, None, None, None, None, None)
 
 
 def build_image(
@@ -7458,8 +7093,8 @@ def build_image(
     else:
         raw = create_image(args, for_cache)
 
-    with attach_base_image(args.base_image, args.partition_table) as base_image, \
-         attach_image_loopback(raw, args.partition_table) as loopdev:
+    with attach_base_image(args.base_image) as base_image, \
+         attach_image_loopback(raw) as loopdev:
 
         prepare_swap(args, loopdev, cached)
         prepare_esp(args, loopdev, cached)
@@ -7498,14 +7133,12 @@ def build_image(
                 cached_tree = reuse_cache_tree(args, root, do_run_build_script, for_cache, cached)
                 install_skeleton_trees(args, root, cached_tree)
                 install_distribution(args, root, do_run_build_script, cached_tree)
-                install_etc_locale(args, root, cached_tree)
                 install_etc_hostname(args, root, cached_tree)
+                install_boot_loader(args, root, loopdev, do_run_build_script, cached_tree)
                 run_prepare_script(args, root, do_run_build_script, cached_tree)
                 install_build_src(args, root, do_run_build_script, for_cache)
                 install_build_dest(args, root, do_run_build_script, for_cache)
                 install_extra_trees(args, root, for_cache)
-                run_kernel_install(args, root, do_run_build_script, for_cache)
-                install_boot_loader(args, root, loopdev, do_run_build_script, cached_tree)
                 set_root_password(args, root, do_run_build_script, cached_tree)
                 set_serial_terminal(args, root, do_run_build_script, cached_tree)
                 set_autologin(args, root, do_run_build_script, cached_tree)
@@ -7570,8 +7203,6 @@ def build_image(
                 if args.split_artifacts
                 else None
             )
-            split_kernel_image, split_initrd = extract_kernel_image_initrd(args, root, do_run_build_script, for_cache, mount)
-            split_kernel_cmdline = extract_kernel_cmdline(args, root, do_run_build_script, for_cache, mount)
 
     archive = make_tar(args, root, do_run_build_script, for_cache) or \
               make_cpio(args, root, do_run_build_script, for_cache)
@@ -7586,9 +7217,6 @@ def build_image(
         split_verity,
         split_verity_sig,
         split_kernel,
-        split_kernel_image,
-        split_initrd,
-        split_kernel_cmdline,
     )
 
 
@@ -7601,7 +7229,7 @@ def install_dir(args: MkosiArgs, root: Path) -> Path:
 
 
 def nspawn_knows_arg(arg: str) -> bool:
-    return bytes("unrecognized option", "UTF-8") not in run([nspawn_executable(), arg], stderr=PIPE, check=False).stderr
+    return bytes("unrecognized option", "UTF-8") not in run(["systemd-nspawn", arg], stderr=PIPE, check=False).stderr
 
 
 def run_build_script(args: MkosiArgs, root: Path, raw: Optional[BinaryIO]) -> None:
@@ -7616,7 +7244,7 @@ def run_build_script(args: MkosiArgs, root: Path, raw: Optional[BinaryIO]) -> No
         with_network = 1 if args.with_network is True else 0
 
         cmdline = [
-            nspawn_executable(),
+            "systemd-nspawn",
             "--quiet",
             target,
             f"--uuid={args.machine_id}",
@@ -7774,7 +7402,6 @@ def build_stuff(args: MkosiArgs) -> Manifest:
             MkosiPrinter.print_step("Skipping (second) final image build phase.")
 
         raw = qcow2_output(args, image.raw)
-        bmap = calculate_bmap(args, raw)
         raw = compress_output(args, raw)
         split_root = compress_output(args, image.split_root, ".usr" if args.usr_only else ".root")
         split_verity = compress_output(args, image.split_verity, ".verity")
@@ -7796,6 +7423,7 @@ def build_stuff(args: MkosiArgs) -> Manifest:
             settings,
         )
         signature = calculate_signature(args, checksum)
+        bmap = calculate_bmap(args, raw)
 
         link_output(args, root, raw or image.archive)
         link_output_root_hash_file(args, root_hash_file)
@@ -7810,9 +7438,6 @@ def build_stuff(args: MkosiArgs) -> Manifest:
         link_output_split_verity(args, split_verity)
         link_output_split_verity_sig(args, split_verity_sig)
         link_output_split_kernel(args, split_kernel)
-        link_output_split_kernel_image(args, image.split_kernel_image)
-        link_output_split_initrd(args, image.split_initrd)
-        link_output_split_kernel_cmdline(args, image.split_kernel_cmdline)
 
         if image.root_hash is not None:
             MkosiPrinter.print_step(f"Root hash is {image.root_hash}.")
@@ -7826,7 +7451,7 @@ def check_root() -> None:
 
 
 def check_native(args: MkosiArgs) -> None:
-    if args.architecture is not None and args.architecture != platform.machine() and args.build_script and nspawn_version() < 250:
+    if args.architecture is not None and args.architecture != platform.machine() and args.build_script:
         die("Cannot (currently) override the architecture and run build commands")
 
 
@@ -7904,7 +7529,7 @@ def run_shell_cmdline(args: MkosiArgs, pipe: bool = False, commands: Optional[Se
     else:
         target = f"--image={args.output}"
 
-    cmdline = [nspawn_executable(), "--quiet", target]
+    cmdline = ["systemd-nspawn", "--quiet", target]
 
     # Redirecting output correctly when not running directly from the terminal.
     console_arg = f"--console={'interactive' if not pipe else 'pipe'}"
@@ -7952,8 +7577,14 @@ def run_shell(args: MkosiArgs) -> None:
     run(run_shell_cmdline(args, pipe=not sys.stdout.isatty()), stdout=sys.stdout, stderr=sys.stderr)
 
 
-def find_qemu_binary(args: MkosiArgs) -> str:
-    binaries = ["qemu", "qemu-kvm", f"qemu-system-{args.architecture or platform.machine()}"]
+def find_qemu_binary() -> str:
+    ARCH_BINARIES = {"x86_64": "qemu-system-x86_64", "i386": "qemu-system-i386"}
+    arch_binary = ARCH_BINARIES.get(platform.machine())
+
+    binaries: List[str] = []
+    if arch_binary is not None:
+        binaries += [arch_binary]
+    binaries += ["qemu", "qemu-kvm"]
     for binary in binaries:
         if shutil.which(binary) is not None:
             return binary
@@ -7973,7 +7604,6 @@ def find_qemu_firmware() -> Tuple[Path, bool]:
         "/usr/share/edk2-ovmf/OVMF_CODE.secboot.fd",  # GENTOO:
         "/usr/share/qemu/OVMF_CODE.secboot.fd",
         "/usr/share/ovmf/OVMF.secboot.fd",
-        "/usr/share/OVMF/OVMF_CODE.secboot.fd",
     ]
 
     for firmware in FIRMWARE_LOCATIONS:
@@ -8000,7 +7630,6 @@ def find_qemu_firmware() -> Tuple[Path, bool]:
         "/usr/share/edk2-ovmf/OVMF_CODE.fd",  # GENTOO:
         "/usr/share/qemu/OVMF_CODE.fd",
         "/usr/share/ovmf/OVMF.fd",
-        "/usr/share/OVMF/OVMF_CODE.fd",
     ]
 
     for firmware in FIRMWARE_LOCATIONS:
@@ -8021,8 +7650,7 @@ def find_ovmf_vars() -> Path:
     OVMF_VARS_LOCATIONS += ["/usr/share/edk2/ovmf/OVMF_VARS.fd",
                             "/usr/share/edk2-ovmf/OVMF_VARS.fd",  # GENTOO:
                             "/usr/share/qemu/OVMF_VARS.fd",
-                            "/usr/share/ovmf/OVMF_VARS.fd",
-                            "/usr/share/OVMF/OVMF_VARS.fd"]
+                            "/usr/share/ovmf/OVMF_VARS.fd"]
 
     for location in OVMF_VARS_LOCATIONS:
         if os.path.exists(location):
@@ -8047,24 +7675,12 @@ def qemu_check_kvm_support() -> bool:
 def run_qemu_cmdline(args: MkosiArgs) -> Iterator[List[str]]:
     accel = "kvm" if args.qemu_kvm else "tcg"
 
-    if args.qemu_boot:
-        mode = args.qemu_boot
-    elif "uefi" in args.boot_protocols:
-        mode = "uefi"
-    elif "bios" in args.boot_protocols:
-        mode = "bios"
-    elif "linux" in args.boot_protocols:
-        mode = "linux"
-    else:
-        mode = "uefi"
-
     firmware, fw_supports_sb = find_qemu_firmware()
-    smm = "on" if fw_supports_sb and mode == "uefi" else "off"
 
     cmdline = [
-        find_qemu_binary(args),
+        find_qemu_binary(),
         "-machine",
-        f"type=q35,accel={accel},smm={smm}",
+        f"type=q35,accel={accel},smm={'on' if fw_supports_sb else 'off'}",
         "-smp",
         args.qemu_smp,
         "-m",
@@ -8075,7 +7691,8 @@ def run_qemu_cmdline(args: MkosiArgs) -> Iterator[List[str]]:
         "virtio-rng-pci,rng=rng0,id=rng-device0",
     ]
 
-    cmdline += ["-cpu", "max"]
+    if args.qemu_kvm:
+        cmdline += ["-cpu", "host"]
 
     if args.qemu_headless:
         # -nodefaults removes the default CDROM device which avoids an error message during boot
@@ -8084,7 +7701,7 @@ def run_qemu_cmdline(args: MkosiArgs) -> Iterator[List[str]]:
         # Fix for https://github.com/systemd/mkosi/issues/559. QEMU gets stuck in a boot loop when using BIOS
         # if there's no vga device.
 
-    if not args.qemu_headless or (args.qemu_headless and mode == "bios"):
+    if not args.qemu_headless or (args.qemu_headless and "bios" in args.boot_protocols):
         cmdline += ["-vga", "virtio"]
 
     if args.netdev:
@@ -8102,18 +7719,11 @@ def run_qemu_cmdline(args: MkosiArgs) -> Iterator[List[str]]:
             # after it is created.
             cmdline += ["-nic", f"tap,script=no,downscript=no,ifname={ifname},model=virtio-net-pci"]
 
-    if mode == "uefi":
+    if "uefi" in args.boot_protocols:
         cmdline += ["-drive", f"if=pflash,format=raw,readonly=on,file={firmware}"]
 
-    if mode == "linux":
-        cmdline += [
-            "-kernel", str(build_auxiliary_output_path(args, ".vmlinuz")),
-            "-initrd", str(build_auxiliary_output_path(args, ".initrd")),
-            "-append", build_auxiliary_output_path(args, ".cmdline").read_text().strip(),
-        ]
-
     with contextlib.ExitStack() as stack:
-        if mode == "uefi" and fw_supports_sb:
+        if fw_supports_sb:
             ovmf_vars = stack.enter_context(copy_file_temporary(src=find_ovmf_vars(), dir=tmp_dir()))
             cmdline += [
                 "-global",
@@ -8146,7 +7756,6 @@ def run_qemu_cmdline(args: MkosiArgs) -> Iterator[List[str]]:
                 "scsi-hd,drive=hd,bootindex=1",
             ]
 
-        cmdline += args.qemu_args
         cmdline += args.cmdline
 
         print_running_cmd(cmdline)
@@ -8210,11 +7819,17 @@ def find_address(args: MkosiArgs) -> Tuple[str, str]:
     die("Container/VM address not found")
 
 
-def run_systemd_cmdline(args: MkosiArgs, commands: Sequence[str]) -> List[str]:
-    return ["systemd-run", "--quiet", "--wait", "--pipe", "-M", machine_name(args), "/usr/bin/env", *commands]
+def run_command_image(args: MkosiArgs, commands: Sequence[str], timeout: int, check: bool, stdout: _FILE = sys.stdout, stderr: _FILE = sys.stderr) -> CompletedProcess:
+    if args.verb == Verb.qemu:
+        return run_ssh(args, commands, check, stdout, stderr, timeout)
+    elif args.verb == Verb.boot:
+        cmdline = ["systemd-run", "--quiet", "--wait", "--pipe", "-M", machine_name(args), "/usr/bin/env", *commands]
+        return run(cmdline, check=check, stdout=stdout, stderr=stderr, text=True, timeout=timeout)
+    else:
+        return run(run_shell_cmdline(args, pipe=True, commands=commands), check=check, stdout=stdout, stderr=stderr, text=True, timeout=timeout)
 
 
-def run_ssh_cmdline(args: MkosiArgs, commands: Optional[Sequence[str]] = None) -> List[str]:
+def run_ssh_cmdline(args: MkosiArgs, commands: Optional[Sequence[str]] = None) -> Sequence[str]:
     cmd = [
             "ssh",
             # Silence known hosts file errors/warnings.
@@ -8247,8 +7862,15 @@ def run_ssh_cmdline(args: MkosiArgs, commands: Optional[Sequence[str]] = None) -
     return cmd
 
 
-def run_ssh(args: MkosiArgs) -> CompletedProcess:
-    return run(run_ssh_cmdline(args), stdout=sys.stdout, stderr=sys.stderr)
+def run_ssh(
+    args: MkosiArgs,
+    commands: Optional[Sequence[str]] = None,
+    check: bool = True,
+    stdout: _FILE = sys.stdout,
+    stderr: _FILE = sys.stderr,
+    timeout: Optional[int] = None,
+) -> CompletedProcess:
+    return run(run_ssh_cmdline(args, commands), check=check, stdout=stdout, stderr=stderr, text=True, timeout=timeout)
 
 
 def run_serve(args: MkosiArgs) -> None:

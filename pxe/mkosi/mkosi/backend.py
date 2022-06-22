@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import dataclasses
 import enum
+import functools
 import math
 import os
 import resource
@@ -89,9 +90,12 @@ ARG_DEBUG: Set[str] = set()
 class Parseable:
     "A mix-in to provide conversions for argparse"
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         """Return the member name without the class name"""
         return cast(str, getattr(self, "name"))
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
     @classmethod
     def from_string(cls: Any, name: str) -> Any:
@@ -193,9 +197,9 @@ class SourceFileTransfer(enum.Enum):
     def doc(cls) -> Dict[SourceFileTransfer, str]:
         return {
             cls.copy_all: "normal file copy",
-            cls.copy_git_cached: "use git ls-files --cached, ignoring any file that git itself ignores",
-            cls.copy_git_others: "use git ls-files --others, ignoring any file that git itself ignores",
-            cls.copy_git_more: "use git ls-files --cached, ignoring any file that git itself ignores, but include the .git/ directory",
+            cls.copy_git_cached: "use git-ls-files --cached, ignoring any file that git itself ignores",
+            cls.copy_git_others: "use git-ls-files --others, ignoring any file that git itself ignores",
+            cls.copy_git_more: "use git-ls-files --cached, ignoring any file that git itself ignores, but include the .git/ directory",
             cls.mount: "bind mount source files into the build image",
         }
 
@@ -252,15 +256,11 @@ class OutputFormat(Parseable, enum.Enum):
     def has_fs_compression(self) -> bool:
         return self.is_squashfs() or self.is_btrfs()
 
-    def __str__(self) -> str:
-        return Parseable.__str__(self)
 
 class ManifestFormat(Parseable, enum.Enum):
     json      = "json"       # the standard manifest in json format
     changelog = "changelog"  # human-readable text file with package changelogs
 
-    def __str__(self) -> str:
-        return Parseable.__str__(self)
 
 class PartitionIdentifier(enum.Enum):
     esp        = "esp"
@@ -299,6 +299,18 @@ class Partition:
         return ', '.join(filter(None, desc))
 
 
+@functools.lru_cache(maxsize=None)
+def sfdisk_grain_is_supported() -> bool:
+    cmd: List[PathString] = ["sfdisk", "--no-reread", "--no-act", "--quiet", "/dev/full"]
+
+    try:
+        run(cmd, text=True, input='\n'.join(["label: gpt", "grain: 4096", "quit"]), stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        return False
+
+    return True
+
+
 @dataclasses.dataclass
 class PartitionTable:
     partitions: Dict[PartitionIdentifier, Partition] = dataclasses.field(default_factory=dict)
@@ -307,6 +319,10 @@ class PartitionTable:
     first_lba: Optional[int] = None
 
     grain: int = 4096
+
+    def __post_init__(self) -> None:
+        if not sfdisk_grain_is_supported():
+            self.grain = 1024 ** 2 # Use sfdisk default grain size of 1 MiB.
 
     def first_partition_offset(self, max_partitions: int = 128) -> int:
         if self.first_lba is not None:
@@ -321,20 +337,6 @@ class PartitionTable:
             return roundup(self.last_partition_sector * self.sector_size, self.grain)
         else:
             return self.first_partition_offset(max_partitions)
-
-    def partition_offset(self, partition: Partition) -> int:
-        offset = self.first_partition_offset()
-
-        for p in self.partitions.values():
-            if p == partition:
-                break
-
-            offset += p.n_sectors * self.sector_size
-
-        return offset
-
-    def partition_size(self, partition: Partition) -> int:
-        return partition.n_sectors * self.sector_size
 
     def footer_size(self, max_partitions: int = 128) -> int:
         # The footer must have enough space for the GPT header (one sector),
@@ -376,7 +378,7 @@ class PartitionTable:
 
     def sfdisk_spec(self) -> str:
         table = ["label: gpt",
-                 f"grain: {self.grain}",
+                 f"grain: {self.grain}" if sfdisk_grain_is_supported() else '\n',
                  f"first-lba: {self.first_partition_offset() // self.sector_size}",
                  *(p.sfdisk_spec() for p in self.partitions.values())]
         return '\n'.join(table)
@@ -515,8 +517,6 @@ class MkosiArgs:
     qemu_smp: str
     qemu_mem: str
     qemu_kvm: bool
-    qemu_args: Sequence[str]
-    qemu_boot: str
 
     # systemd-nspawn specific options
     nspawn_keep_unit: bool
@@ -626,14 +626,6 @@ def nspawn_rlimit_params() -> Sequence[str]:
     ]
 
 
-def nspawn_executable() -> str:
-    return os.getenv("MKOSI_NSPAWN_EXECUTABLE", "systemd-nspawn")
-
-
-def nspawn_version() -> int:
-    return int(run([nspawn_executable(), "--version"], stdout=subprocess.PIPE).stdout.strip().split()[1])
-
-
 def run_workspace_command(
     args: MkosiArgs,
     root: Path,
@@ -642,10 +634,9 @@ def run_workspace_command(
     env: Optional[Mapping[str, str]] = None,
     nspawn_params: Optional[List[str]] = None,
     capture_stdout: bool = False,
-    check: bool = True,
-) -> CompletedProcess:
+) -> Optional[str]:
     nspawn = [
-        nspawn_executable(),
+        "systemd-nspawn",
         "--quiet",
         f"--directory={root}",
         "--uuid=" + args.machine_id,
@@ -666,8 +657,6 @@ def run_workspace_command(
 
     if env:
         nspawn += [f"--setenv={k}={v}" for k, v in env.items()]
-    if "workspace-command" in ARG_DEBUG:
-        nspawn += ["--setenv=SYSTEMD_LOG_LEVEL=debug"]
 
     if nspawn_params:
         nspawn += nspawn_params
@@ -679,12 +668,13 @@ def run_workspace_command(
     if args.nspawn_keep_unit:
         nspawn += ["--keep-unit"]
 
-    try:
-        return run([*nspawn, "--", *cmd], check=check, stdout=stdout, text=capture_stdout)
-    except subprocess.CalledProcessError as e:
+    result = run([*nspawn, "--", *cmd], check=False, stdout=stdout, text=capture_stdout)
+    if result.returncode != 0:
         if "workspace-command" in ARG_DEBUG:
             run(nspawn, check=False)
-        die(f"Workspace command {shell_join(cmd)} returned non-zero exit code {e.returncode}.")
+        die(f"Workspace command {shell_join(cmd)} returned non-zero exit code {result.returncode}.")
+
+    return result.stdout.strip() if capture_stdout else None
 
 
 @contextlib.contextmanager
@@ -764,14 +754,6 @@ def run(
         # output on stderr, since we do so as well for mkosi's own
         # output.
         stdout = sys.stderr
-
-    # This is a workaround for copy_git_files, which uses the user= option to
-    # subprocess.run, which is only available starting with Python 3.9
-    # TODO: remove this branch once mkosi defaults to at least Python 3.9
-    if "user" in kwargs and sys.version_info < (3, 9):
-        user = kwargs.pop("user")
-        user = f"#{user}" if isinstance(user, int) else user
-        cmdline = ["sudo", "-u", user] + cmdline
 
     cm = do_delay_interrupt if delay_interrupt else do_noop
     try:
