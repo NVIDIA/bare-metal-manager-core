@@ -26,6 +26,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   postgresql-client-14 \
   postgresql-client-14-dbgsym \
   vault \
+  pkg-config \
+  libfreeipmi-dev \
+  libfreeipmi17 \
   && rm -rf /var/lib/apt/lists/*
 
 RUN rustup component add rustfmt rust-src

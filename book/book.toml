@@ -1,6 +1,6 @@
 [book]
-title = "NVMetal Documentation"
-author = "NVMetal Development Team <nvmetal-dev@exchange.nvidia.com>"
+title = "Forge Documentation"
+author = "Forge Development Team <forge-dev@exchange.nvidia.com>"
 
 [rust]
 edition = "2021"
