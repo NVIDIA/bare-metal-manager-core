@@ -16,7 +16,7 @@ spec:
               add: ['NET_ADMIN']
           imagePullPolicy: Always
       imagePullSecrets:
-        - name: gitlab-container-registry
+        - name: pull-secrets
       volumes:
         - name: cert
           secret:
