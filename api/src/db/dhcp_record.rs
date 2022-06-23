@@ -1,7 +1,7 @@
 use crate::CarbideResult;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 use sqlx::{FromRow, Postgres, Transaction};
 
 ///

@@ -2,10 +2,15 @@ syntax = "proto3";
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
 
-package metal.v0;
+import "machine_discovery.proto";
 
-service Metal {
+package forge.v0;
+
+//import "machine_discovery.proto";
+
+service Forge {
   // Domain
   rpc CreateDomain(Domain) returns (Domain);
   rpc UpdateDomain(Domain) returns (Domain);
@@ -39,7 +44,7 @@ service Metal {
   rpc InvokeInstancePower(InstancePowerRequest) returns (InstancePowerResult);
 
   // PRIVILEGED: Creates a new machine from nothing
-  rpc DiscoverMachine(MachineDiscovery) returns (MachineDiscoveryResult);
+  rpc DiscoverMachine(MachineDiscoveryInfo) returns (MachineDiscoveryResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
 
   // PRIVILEGED: Get a single machine
@@ -322,35 +327,7 @@ enum MachineAction {
   RELEASE = 10;
 }
 
-message MachineDiscoveryNic {
-  string mac_address = 1;
-  string device = 2;
-}
 
-message MachineDiscoveryCpu {
-  string vendor = 1;
-  string model = 2;
-  string frequency = 3;
-  int32 num = 4;
-}
-
-message MachineDiscoveryBlockDevice {
-  string path = 1;
-  string model = 2;
-  string revision = 3;
-  string serial = 4;
-}
-
-message MachineDiscovery {
-  UUID uuid = 1;
-  repeated MachineDiscoveryNic nics = 2;
-  repeated MachineDiscoveryCpu cpus = 3;
-  repeated MachineDiscoveryBlockDevice devices = 4;
-}
-
-message MachineDiscoveryResult {
-  // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
-}
 
 message DhcpDiscovery {
   string mac_address = 1;
@@ -422,4 +399,15 @@ message TagRemove {
   string slug = 1;
   UUID target = 2;
   TagTargetKind target_kind = 3;
+}
+
+message MachineDiscoveryInfo {
+  UUID machine_id = 1;
+  oneof discovery_data {
+    machine_discovery.v0.DiscoveryInfo info_v0 = 2;
+  }
+}
+
+message MachineDiscoveryResult {
+  // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
 }

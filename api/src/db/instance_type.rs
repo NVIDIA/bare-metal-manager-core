@@ -6,7 +6,8 @@ use uuid::Uuid;
 
 use chrono::prelude::*;
 
-use rpc::v0 as rpc;
+use ::rpc::Timestamp;
+use rpc::forge::v0 as rpc;
 
 #[derive(Clone, Debug)]
 pub struct InstanceType {
@@ -107,11 +108,11 @@ impl From<InstanceType> for rpc::InstanceType {
             description: src.description,
             capabilities: vec![0],
             active: src.active,
-            created: Some(rpc::Timestamp {
+            created: Some(Timestamp {
                 seconds: src.created.timestamp(),
                 nanos: 0,
             }),
-            updated: Some(rpc::Timestamp {
+            updated: Some(Timestamp {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),

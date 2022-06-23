@@ -5,7 +5,8 @@ use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
-use rpc::v0 as rpc;
+use ::rpc::Timestamp;
+use rpc::forge::v0 as rpc;
 
 use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
@@ -104,15 +105,15 @@ impl From<Vpc> for rpc::Vpc {
             id: Some(src.id.into()),
             name: src.name,
             organization: src.organization_id.map(rpc::Uuid::from),
-            created: Some(rpc::Timestamp {
+            created: Some(Timestamp {
                 seconds: src.created.timestamp(),
                 nanos: 0,
             }),
-            updated: Some(rpc::Timestamp {
+            updated: Some(Timestamp {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),
-            deleted: src.deleted.map(|t| rpc::Timestamp {
+            deleted: src.deleted.map(|t| Timestamp {
                 seconds: t.timestamp(),
                 nanos: 0,
             }),

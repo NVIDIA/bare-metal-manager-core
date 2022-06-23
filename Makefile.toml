@@ -12,6 +12,14 @@ dependencies = [
 	"book-compile",
 ]
 
+[tasks.build-carbide-cli]
+category = "Build"
+description = "Build carbide-cli using debian container"
+workspace = false
+script = '''
+docker run --rm --volume $(pwd):/code --workdir /code -it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container cargo build -p cli
+'''
+
 [tasks.build-kind]
 category = "Kind"
 description = "Build carbide container and upload to KinD cluster"

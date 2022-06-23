@@ -8,7 +8,7 @@ use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use log::{debug, warn};
 use mac_address::MacAddress;
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 use std::collections::HashMap;
 use std::net::IpAddr;

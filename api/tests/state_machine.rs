@@ -86,19 +86,19 @@ async fn state_machine_advance_from_db_events() {
 
     // Insert some valid state changes into the db
     machine
-        .advance(&mut txn, &rpc::v0::MachineStateMachineInput::Adopt)
+        .advance(&mut txn, &rpc::MachineStateMachineInput::Adopt)
         .await
         .unwrap();
     machine
-        .advance(&mut txn, &rpc::v0::MachineStateMachineInput::Test)
+        .advance(&mut txn, &rpc::MachineStateMachineInput::Test)
         .await
         .unwrap();
     machine
-        .advance(&mut txn, &rpc::v0::MachineStateMachineInput::Commission)
+        .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
         .await
         .unwrap();
     machine
-        .advance(&mut txn, &rpc::v0::MachineStateMachineInput::Assign)
+        .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
         .await
         .unwrap();
 
@@ -170,7 +170,7 @@ async fn test_fsm_invalid_advance() {
 
     assert!(matches!(
         machine
-            .advance(&mut txn, &rpc::v0::MachineStateMachineInput::Commission)
+            .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
             .await
             .unwrap_err(),
         CarbideError::InvalidState { .. }

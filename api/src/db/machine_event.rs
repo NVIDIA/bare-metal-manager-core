@@ -5,7 +5,8 @@ use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
 
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
+use ::rpc::Timestamp;
 
 /// Representation of an event (state transition) on a machine.
 ///
@@ -38,7 +39,7 @@ impl From<MachineEvent> for rpc::MachineEvent {
         let mut proto_event = rpc::MachineEvent {
             id: event.id,
             machine_id: Some(event.machine_id.into()),
-            time: Some(rpc::Timestamp {
+            time: Some(Timestamp {
                 seconds: event.timestamp.timestamp(),
                 nanos: 0,
             }),

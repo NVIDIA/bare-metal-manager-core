@@ -7,7 +7,7 @@ use crate::CONFIG;
 use ipnetwork::IpNetwork;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 use std::ffi::CString;
 use std::net::Ipv4Addr;
 use std::primitive::u32;
@@ -61,7 +61,7 @@ impl TryFrom<Discovery> for Machine {
         let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
 
         runtime.block_on(async move {
-            match rpc::metal_client::MetalClient::connect(url).await {
+            match rpc::forge_client::ForgeClient::connect(url).await {
                 Ok(mut client) => {
                     let request = tonic::Request::new(rpc::DhcpDiscovery {
                         mac_address: discovery.mac_address.to_string(),
@@ -209,20 +209,15 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
         .read()
         .unwrap() // TODO(ajf): don't unwrap
         .provisioning_server_ipv4
-        .clone() {
+        .clone()
+    {
         next_server.to_string()
     } else {
         "127.0.0.1".to_string()
     };
 
-    let arm_http_client = format!(
-        "http://{}:8080/public/blobs/internal/aarch64/ipxe.efi",
-        url
-    );
-    let x86_http_client = format!(
-        "http://{}:8080/public/blobs/internal/x86_64/ipxe.efi",
-        url
-    );
+    let arm_http_client = format!("http://{}:8080/public/blobs/internal/aarch64/ipxe.efi", url);
+    let x86_http_client = format!("http://{}:8080/public/blobs/internal/x86_64/ipxe.efi", url);
 
     let fqdn = if let Some(vendor_class) = &machine.vendor_class {
         let filename = match vendor_class {
@@ -272,10 +267,15 @@ pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
     let ip_addr = if let Some(next_server) = CONFIG
         .read()
         .unwrap() // TODO(ajf): don't unwrap
-        .provisioning_server_ipv4 {
+        .provisioning_server_ipv4
+    {
         next_server.octets()
     } else {
-        "127.0.0.1".to_string().parse::<Ipv4Addr>().unwrap().octets()
+        "127.0.0.1"
+            .to_string()
+            .parse::<Ipv4Addr>()
+            .unwrap()
+            .octets()
     };
 
     let ret = u32::from_be_bytes(ip_addr);

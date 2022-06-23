@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use rocket::Route;
 use rocket_dyn_templates::Template;
+use rpc::forge::v0 as rpc;
 
 use crate::{Machine, RuntimeConfig};
 
@@ -51,8 +52,8 @@ pub async fn boot(contents: Machine, config: RuntimeConfig) -> Template {
 }
 
 fn determine_boot_from_state(
-    machine: rpc::v0::Machine,
-    interface: rpc::v0::MachineInterface,
+    machine: rpc::Machine,
+    interface: rpc::MachineInterface,
     config: RuntimeConfig,
 ) -> String {
     match machine.state.as_str() {
@@ -78,7 +79,7 @@ chain --autofree https://boot.netboot.xyz
     .to_string()
 }
 
-fn boot_into_discovery(interface: rpc::v0::MachineInterface, config: RuntimeConfig) -> String {
+fn boot_into_discovery(interface: rpc::MachineInterface, config: RuntimeConfig) -> String {
     let uuid = interface.id.unwrap();
     let instructions = BootInstructionGenerator {
         kernel: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.efi", pxe_url=config.pxe_url),

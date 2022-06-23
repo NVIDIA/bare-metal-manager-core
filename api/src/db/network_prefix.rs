@@ -1,7 +1,7 @@
 use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 use ipnetwork::IpNetwork;
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 use sqlx::{Acquire, FromRow, Postgres, Transaction};
 use std::convert::TryFrom;
 use uuid::Uuid;

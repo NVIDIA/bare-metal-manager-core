@@ -1,6 +1,7 @@
 use carbide::ipmi::ipmi_handler;
 use std::convert::TryFrom;
 
+use carbide::CarbideError;
 use color_eyre::Report;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
@@ -8,20 +9,19 @@ use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 
-use carbide::{
-    db::{
-        DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
-        MachineState, MachineTopology, NetworkSegment, NewDomain, NewInstance, NewInstanceType,
-        NewNetworkSegment, NewVpc, Tag, TagAssociation, TagCreate, TagDelete, TagsList,
-        UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
-    },
-    CarbideError,
+use carbide::db::{
+    DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
+    MachineState, MachineTopology, NetworkSegment, NewDomain, NewInstance, NewInstanceType,
+    NewNetworkSegment, NewVpc, Tag, TagAssociation, TagCreate, TagDelete, TagsList,
+    UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
 };
-use rpc::v0 as rpc;
+
+use self::rpc::forge_server::Forge;
+use ::rpc::MachineStateMachineInput;
+
+pub use rpc::forge::v0 as rpc;
 
 use crate::cfg;
-
-use self::rpc::metal_server::Metal;
 
 #[derive(Debug)]
 pub struct Api {
@@ -29,7 +29,7 @@ pub struct Api {
 }
 
 #[tonic::async_trait]
-impl Metal for Api {
+impl Forge for Api {
     async fn lookup_record(
         &self,
         request: Request<rpc::dns_message::DnsQuestion>,
@@ -55,7 +55,7 @@ impl Metal for Api {
             None => {
                 return Err(Status::invalid_argument(
                     "A valid q_name, q_type and q_class are required",
-                ))
+                ));
             }
         };
 
@@ -299,7 +299,7 @@ impl Metal for Api {
 
     async fn discover_machine(
         &self,
-        request: Request<rpc::MachineDiscovery>,
+        request: Request<rpc::MachineDiscoveryInfo>,
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
         let di = request.into_inner();
 
@@ -309,7 +309,7 @@ impl Metal for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let interface_id = match &di.uuid {
+        let interface_id = match &di.machine_id {
             Some(id) => match uuid::Uuid::try_from(id) {
                 Ok(uuid) => uuid,
                 Err(err) => {
@@ -537,7 +537,7 @@ impl Metal for Api {
                 return Err(Status::invalid_argument(format!(
                     "Supplied invalid UUID: {}",
                     machine_id
-                )))
+                )));
             }
             Some(m) => m,
         };
@@ -548,61 +548,61 @@ impl Metal for Api {
                 return Err(Status::invalid_argument(format!(
                     "Machine was was not discovered yet but is in the database {}",
                     machine_id
-                )))
+                )));
             }
             MachineState::New => {
                 // Blindly march forward to ready
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Adopt)
+                    .advance(&mut txn, &MachineStateMachineInput::Adopt)
                     .await?;
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Test)
+                    .advance(&mut txn, &MachineStateMachineInput::Test)
                     .await?;
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
+                    .advance(&mut txn, &MachineStateMachineInput::Commission)
                     .await?;
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .advance(&mut txn, &MachineStateMachineInput::Assign)
                     .await?;
             }
             MachineState::Adopted => {
                 // Blindly march forward to ready
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Test)
+                    .advance(&mut txn, &MachineStateMachineInput::Test)
                     .await?;
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
+                    .advance(&mut txn, &MachineStateMachineInput::Commission)
                     .await?;
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .advance(&mut txn, &MachineStateMachineInput::Assign)
                     .await?;
             }
             MachineState::Tested => {
                 // Blindly march forward to ready
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
+                    .advance(&mut txn, &MachineStateMachineInput::Commission)
                     .await?;
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .advance(&mut txn, &MachineStateMachineInput::Assign)
                     .await?;
             }
             MachineState::Ready => {
                 // This is where we want to be for PXE to show the correct menu
                 machine
-                    .advance(&mut txn, &rpc::MachineStateMachineInput::Assign)
+                    .advance(&mut txn, &MachineStateMachineInput::Assign)
                     .await?;
             }
             MachineState::Assigned => {
                 return Err(Status::invalid_argument(format!(
                     "Machine was already assigned {}",
                     machine_id
-                )))
+                )));
             }
             rest => {
                 return Err(Status::invalid_argument(format!(
                     "Could not create instance given machine state {:?}",
                     rest
-                )))
+                )));
             }
         }
 
@@ -855,7 +855,7 @@ impl Api {
         };
 
         let reflection_service = Builder::configure()
-            .register_encoded_file_descriptor_set(rpc::REFLECTION_SERVICE_DESCRIPTOR)
+            .register_encoded_file_descriptor_set(::rpc::REFLECTION_SERVICE_DESCRIPTOR)
             .build()?;
 
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
@@ -863,7 +863,7 @@ impl Api {
 
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
-            .add_service(rpc::metal_server::MetalServer::new(api_service))
+            .add_service(rpc::forge_server::ForgeServer::new(api_service))
             .add_service(reflection_service)
             .serve(daemon_config.listen[0])
             .await?;

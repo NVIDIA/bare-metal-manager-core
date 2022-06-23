@@ -4,12 +4,13 @@ use std::net::IpAddr;
 use crate::{
     db::NetworkPrefix, db::NewNetworkPrefix, db::UuidKeyedObjectFilter, CarbideError, CarbideResult,
 };
+use ::rpc::Timestamp;
 use chrono::prelude::*;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use log::warn;
 use patricia_tree::PatriciaMap;
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
@@ -111,12 +112,12 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
             subdomain_id: src.subdomain_id.map(rpc::Uuid::from),
             mtu: Some(src.mtu),
 
-            created: Some(rpc::Timestamp {
+            created: Some(Timestamp {
                 seconds: src.created.timestamp(),
                 nanos: 0,
             }),
 
-            updated: Some(rpc::Timestamp {
+            updated: Some(Timestamp {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),

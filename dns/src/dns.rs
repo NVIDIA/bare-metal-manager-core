@@ -17,7 +17,7 @@ use trust_dns_server::proto::rr::RecordType::A;
 use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 use trust_dns_server::ServerFuture;
 
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 
 use crate::cfg;
 
@@ -50,7 +50,7 @@ impl RequestHandler for DnsServer {
 
         let message = MessageResponseBuilder::from_message_request(request);
 
-        let client = match rpc::metal_client::MetalClient::connect(String::from(&self.url)).await {
+        let client = match rpc::forge_client::ForgeClient::connect(String::from(&self.url)).await {
             Ok(client) => client,
             Err(err) => {
                 let message = format!(
@@ -128,7 +128,7 @@ impl DnsServer {
     }
 
     pub async fn retrieve_record(
-        mut client: rpc::metal_client::MetalClient<Channel>,
+        mut client: rpc::forge_client::ForgeClient<Channel>,
         request: tonic::Request<rpc::dns_message::DnsQuestion>,
     ) -> Result<Ipv4Addr, Report> {
         let response = client.lookup_record(request).await?;

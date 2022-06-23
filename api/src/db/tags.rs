@@ -4,7 +4,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 
 use crate::{CarbideError, CarbideResult};
 
