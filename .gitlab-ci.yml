@@ -1,7 +1,9 @@
-image: "gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest"
 variables:
+  NSPECT_ID: NSPECT-2SV4-7361
+  APPLICATION_NAME: nvmetal-carbide
+  APPLICATION_DOCKERFILE: dev/deployment/Dockerfile
+
   KANIKO_CACHE_ARGS: "--cache=false --cache-copy-layers=true --cache-ttl=24h"
-  GIT_SUBMODULE_STRATEGY: recursive
   CARGO_HOME: $CI_PROJECT_DIR/cargo
   APT_CACHE_DIR: $CI_PROJECT_DIR/apt
   LOGNAME: root
@@ -9,179 +11,75 @@ variables:
   KEA_INCLUDE_PATH: /usr/include/kea
   CARGO_MAKE_SKIP_CODECOV: "true"
 
+include:
+  - project: 'nvmetal/gitlab-templates'
+    ref: main
+    file:
+      - defaults.gitlab-ci.yml
 
-stages:
-  - build
-  - release
-  - doc
+build-container:
+  variables:
+    DOCKER_FILE_LOCATION: $CI_PROJECT_DIR/dev/docker
+    DOCKER_FILE: Dockerfile.build-container
 
-build:cargo:
+build-container-arm:
+  stage: .pre
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  before_script: |
+    mkdir -p /kaniko/.docker
+    echo "$DOCKER_AUTH_CONFIG" > /kaniko/.docker/config.json
+  script: |
+    set -xeuo pipefail
+
+    /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm --destination urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:$VERSION
+  needs: 
+    - versioning
+  tags:
+    - aarch64
+
+build-cargo:
   stage: build
-  only: 
-    - branches
-  except:
-    - tags
   script:
-    - env
     - /etc/init.d/postgresql start
     - cargo make kind
     - cargo make workspace-ci-flow
-  tags:
-    - x86_64
   after_script:
     - kind delete cluster --name ${CI_PIPELINE_ID}
+  cache:
+    paths:
+      - apt/
+      - cargo/
+      - target/
 
-build:ipxe-x86_64:
+build-ipxe-x86_64:
   before_script:
-  - whoami
   - mkdir ~/.jfrog
   - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
-  only:
-    - branches
   script:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
-    - x86_64
   when: manual 
 
-build:ipxe-aarch64:
+build-ipxe-aarch64:
   before_script:
   - mkdir ~/.jfrog
   - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
-  only:
-    - branches
+  image: 
+    name: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:$VERSION
   script:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
   tags:
     - aarch64
   when: manual
 
-build:build-container-x86:
-  stage: build
-  rules:
-    - if: $CI_COMMIT_BRANCH == 'trunk'
-      changes:
-      - "dev/docker/Dockerfile.build-container"
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-  - |
-    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest "; 
-    FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
-
-    mkdir -p /kaniko/.docker
-    echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
-    echo "Kaniko arguments to run: --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container $KANIKO_CACHE_ARGS"
-    /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container $FORMATTEDTAGLIST
-  tags:
-    - x86_64
-
-build:build-container-arm:
-  stage: build
-  rules:
-    - if: $CI_COMMIT_BRANCH == 'trunk'
-      changes:
-      - "dev/docker/Dockerfile.build-container-arm"
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-  - |
-    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/arm64v8/build-container:latest "; 
-    FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
-
-    mkdir -p /kaniko/.docker
-    echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
-    echo "Kaniko arguments to run: --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $KANIKO_CACHE_ARGS"
-    /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm $FORMATTEDTAGLIST
-  tags:
-    - aarch64
-
-build:dev-docker:
-  stage: build
-  rules:
-    - if: $CI_COMMIT_BRANCH == 'trunk'
-      changes:
-      - api/**/*
-      - dns/**/*
-      - rpc/**/*
-      - dhcp/**/*
-      - pxe/**/*
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-  - |
-    echo "This is where i build dev container release"
-    FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag gitlab-master.nvidia.com:5005/nvmetal/carbide/carbide-dev:latest "; 
-    FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g)
-
-    mkdir -p /kaniko/.docker
-    echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
-    echo "Kaniko arguments to run: --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile $KANIKO_CACHE_ARGS"
-    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/deployment/Dockerfile $FORMATTEDTAGLIST
-  tags:
-    - x86_64
-
-build:docker:
-  stage: release
-  variables: 
-    IMAGE_LABELS: >
-      --label org.opencontainers.image.vendor=nvidia
-      --label org.opencontainers.image.author=$GITLAB_USER_LOGIN
-      --label org.opencontainers.image.revision=$CI_COMMIT_TAG
-      --label org.opencontainers.image.source=$CI_PROJECT_URL
-      --label org.opencontainers.image.documentation=$CI_PROJECT_URL
-      --label org.opencontainers.image.licenses=$CI_PROJECT_URL
-      --label org.opencontainers.image.url=$CI_PROJECT_URL
-      --label vcs-url=$CI_PROJECT_URL
-      --label com.gitlab.ci.user=$CI_SERVER_URL/$GITLAB_USER_LOGIN
-      --label com.gitlab.ci.email=$GITLAB_USER_EMAIL
-      --label com.gitlab.ci.tagorbranch=$CI_COMMIT_REF_NAME
-      --label com.gitlab.ci.pipelineurl=$CI_PIPELINE_URL
-      --label com.gitlab.ci.commiturl=$CI_PROJECT_URL/commit/$CI_COMMIT_SHA
-      --label com.gitlab.ci.cijoburl=$CI_JOB_URL
-      --label com.gitlab.ci.mrurl=$CI_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_ID
-
-  image: 
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  rules:
-    - if: $CI_COMMIT_TAG =~ /^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+)?$/
-  script:
-    - |
-      echo "$QUAY_LOGIN_RW"
-      echo "$QUAY_LOGIN_RW_PASS"
-      echo "Building carbide container and pushing to quay.io"
-      BUILDDATE="'$(date '+%FT%T%z' | sed -E -n 's/(\+[0-9]{2})([0-9]{2})$/\1:\2/p')'" #rfc 3339 date
-      IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.created=$BUILDDATE --label build-date=$BUILDDATE"
-      #Description for opencontainers
-      BUILDTITLE=$(echo $CI_PROJECT_TITLE | tr " " "_")
-      IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.title=$BUILDTITLE --label org.opencontainers.image.description=$BUILDTITLE"
-      #Add ref.name for opencontainers
-      IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.ref.name=quay.io/nvidia/nvmetal-carbide:$CI_COMMIT_REF_NAME"
-      VERSIONLABEL=$CI_COMMIT_TAG;
-      if [[ ! -z "$VERSIONLABEL" ]]; then 
-        IMAGE_LABELS="$IMAGE_LABELS --label org.opencontainers.image.version=$VERSIONLABEL"
-        ADDITIONALTAGLIST="$ADDITIONALTAGLIST $VERSIONLABEL"
-      fi
-      ADDITIONALTAGLIST="$ADDITIONALTAGLIST latest"
-      ADDITIONALTAGLIST="$ADDITIONALTAGLIST $CI_COMMIT_REF_NAME $CI_COMMIT_SHORT_SHA"
-      if [[ -n "$ADDITIONALTAGLIST" ]]; then 
-        for TAG in $ADDITIONALTAGLIST; do 
-          FORMATTEDTAGLIST="${FORMATTEDTAGLIST} --tag quay.io/nvidia/nvmetal-carbide:$TAG "; 
-        done; 
-      fi
-      FORMATTEDTAGLIST=$(echo "${FORMATTEDTAGLIST}" | sed s/\-\-tag/\-\-destination/g) 
-      mkdir -p /kaniko/.docker
-      #echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD | base64)\"}}}" > /kaniko/.docker/config.json
-      echo "{\"auths\":{\"quay.io\":{\"auth\":\"$(echo -n $QUAY_LOGIN_RW:$QUAY_LOGIN_RW_PASS | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
-      echo "Kaniko arguments to run: --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST $IMAGE_LABELS"
-      /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/dev/deployment/Dockerfile $KANIKO_CACHE_ARGS $FORMATTEDTAGLIST $IMAGE_LABELS
-  tags:
-    - x86_64
+checkmarx-scan-csv:
+  before_script: |
+    set -e
+    /app/check_variables.sh gitlab
+    rm -f pxe/mkosi.extra/etc/systemd/system/multi-user.target.wants/carbide-discovery.service
 
 pages:
   stage: doc
@@ -192,11 +90,3 @@ pages:
       - public
   only:
     - trunk
-  tags:
-    - x86_64
-
-cache:
-  paths:
-    - apt/
-    - cargo/
-    - target/
