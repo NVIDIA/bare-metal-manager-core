@@ -389,6 +389,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tonic-reflection",
+ "tower-http",
  "tower-layer",
  "uuid",
 ]

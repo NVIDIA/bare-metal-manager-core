@@ -22,6 +22,7 @@ tonic-reflection = "0.4.0"
 
 # http/service
 tower-layer = "0.3"
+tower-http = { version = "0.3", features = ["auth"] }
 
 # authentication
 jsonwebtoken = { version = "8.1", default-features = false }
