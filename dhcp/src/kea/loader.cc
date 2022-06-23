@@ -64,6 +64,17 @@ extern "C" {
 			}
 		}
 
+        ConstElementPtr nameservers = handle->getParameter("carbide-nameservers");
+        if (nameservers) {
+            if(nameservers->getType() != Element::string) {
+                // TODO(ajf): handle invalid data type for carbide-api-url
+                return (1);
+            } else {
+                // TOOD: proper logging
+                carbide_set_config_name_servers(nameservers->stringValue().c_str());
+            }
+        }
+
 		handle->registerCallout("pkt4_receive", pkt4_receive);
 		handle->registerCallout("pkt4_send", pkt4_send);
 

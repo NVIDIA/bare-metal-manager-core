@@ -147,9 +147,19 @@ pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut
         }
     };
 
+    let r = discovery.relay_address;
+    let m = discovery.mac_address;
+    let v = match discovery.vendor_class.clone() {
+        Some(s) => s,
+        None => "No vendor specified in the request".to_string()
+    };
+
     match Machine::try_from(discovery) {
         Ok(machine) => Box::into_raw(Box::new(machine)),
-        Err(_) => std::ptr::null_mut(),
+        Err(_) => {
+            info!("Error getting info back from the machine discovery: {}:{}:{}", m, r, v);
+            std::ptr::null_mut()
+        },
     }
 }
 

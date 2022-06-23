@@ -7,3 +7,4 @@ public/
 .vscode/
 tmp/
 dev/kube/overlays/local/forge/override_api_image.json
+dev/kube/kind/ci/*

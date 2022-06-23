@@ -1,0 +1,105 @@
+[tasks.create-kind-cluster]
+category = "Kind"
+description = "Build KinD cluster"
+workspace = false
+command = "kind"
+args = ["create", "cluster", "--config", "${REPO_ROOT}/dev/kube/kind/${CARBIDE_ENVIRONMENT}/cluster.yaml", "--wait=30s"]
+cwd="${REPO_ROOT}"
+
+
+[tasks.configure_kind]
+category = "Kind"
+workspace=false
+description = "kubectl apply KinD configuration"
+dependencies = [
+  "fix-kubectl-ci"
+]
+script='''
+kubectl kustomize ${REPO_ROOT}/dev/kube/overlays/${CARBIDE_ENVIRONMENT} | kubectl apply -f -
+kubectl rollout status deploy/cert-manager -n cert-manager
+kubectl rollout status deploy/cert-manager-webhook -n cert-manager
+kubectl rollout status deploy/cert-manager-cainjector -n cert-manager
+kubectl kustomize ${REPO_ROOT}/dev/kube/overlays/${CARBIDE_ENVIRONMENT}/forge/resources/certs | kubectl apply -f -
+kubectl wait certs/forge-vpc-cert --for condition=Ready -n forge-system
+kubectl apply -f vpc/config/forge.yaml
+'''
+cwd="${REPO_ROOT}"
+
+
+[tasks.load-carbide-container]
+condition = {env = {"CARBIDE_ENVIRONMENT" = "local"}}
+category = "Kind"
+description = "Push image to Kind"
+workspace = false
+command = "kind"
+args = ["load", "docker-image", "carbide:latest", "--name", "forge-${CARBIDE_ENVIRONMENT}"]
+
+
+[tasks.load-vpc-container]
+condition = {env = {"CARBIDE_ENVIRONMENT" = "local"}}
+category = "Kind"
+description = "Push image to Kind"
+workspace = false
+command = "kind"
+args = ["load", "docker-image", "quay.io/nvidia/forge-connectivity", "--name", "forge-${CARBIDE_ENVIRONMENT}"]
+
+[tasks.carbide-container]
+condition = {env = {"CARBIDE_ENVIRONMENT" = "local"}}
+category = "Kind"
+description = "Build the carbide container"
+workspace = false
+command = "docker"
+args = ["build", "-t", "carbide:latest", "-f", "dev/deployment/Dockerfile", "."]
+cwd="${REPO_ROOT}"
+
+[tasks.fix-kubectl-ci]
+category = "Kind-Ci"
+description = "Change kubeconfig in CI"
+condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
+workspace = false
+script = '''
+kind export kubeconfig --name ${CI_PIPELINE_ID}
+REAL_IP=$(ip route|awk '/default/ { print $3 }')
+sed -i -e "s/0.0.0.0/$REAL_IP/g" /root/.kube/config
+'''
+
+[tasks.config-kind-ci]
+category = "Kind-Ci"
+description = "Build CI Kind cluster"
+condition = {env = {"CARBIDE_ENVIRONMENT" = "ci"}}
+workspace = false
+script = '''
+REAL_IP=$(ip route|awk '/default/ { print $3 }'| tr -d '\n')
+cat<<EOF > ${REPO_ROOT}/dev/kube/kind/ci/cluster.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerAddress: "0.0.0.0"
+name: ${CI_PIPELINE_ID}
+nodes:
+- role: control-plane
+  extraMounts:
+  - hostPath: ${REPO_ROOT}/target
+    containerPath: /target
+  kubeadmConfigPatchesJSON6902:
+  - group: kubeadm.k8s.io
+    version: v1beta3
+    kind: ClusterConfiguration
+    patch: |
+      - op: add
+        path: /apiServer/certSANs/-
+        value: docker
+      - op: add
+        path: /apiServer/certSANs/-
+        value: ${REAL_IP}
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "vpc.forge.nvidia.com/node=control"
+EOF
+
+cat ${REPO_ROOT}/dev/kube/kind/ci/cluster.yaml
+'''
+cwd="${REPO_ROOT}"
