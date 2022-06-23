@@ -24,9 +24,12 @@ spec:
               value: "/tmp/carbide/Rocket.toml"
             - name: ROCKET_TEMPLATE_DIR
               value: "/opt/carbide/pxe/templates/"
+            - name: ROCKET_ENV
+              value: development
           command: ["/opt/carbide/carbide"]
           args:
-            - "-s /opt/carbide/static"
+            - "-s"
+            - "/opt/carbide/static"
           volumeMounts:
             - name: config-volume
               mountPath: "/tmp/carbide"

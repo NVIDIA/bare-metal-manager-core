@@ -7,6 +7,9 @@ spec:
     spec:
       containers:
         - name: envoy
+          ports:
+            - containerPort: 8083
+              name: pxe-envoy-http
           volumeMounts:
             - mountPath: /etc/certs
               name: cert

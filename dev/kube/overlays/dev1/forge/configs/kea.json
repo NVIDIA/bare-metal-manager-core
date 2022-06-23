@@ -19,7 +19,7 @@
         "parameters": {
           "carbide-api-url": "http://carbide-api-http:12079",
           "carbide-nameservers": "10.149.10.130",
-          "carbide-provisioning-server-ipv4": "127.0.0.1"
+          "carbide-provisioning-server-ipv4": "10.150.51.235"
         }
       }
     ],
