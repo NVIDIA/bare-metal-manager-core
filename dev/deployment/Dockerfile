@@ -30,7 +30,7 @@ COPY dev/deployment/wait-for-carbide-migrations /usr/local/bin
 RUN apt-get update && apt-get install -y --no-install-recommends \
   postgresql-client-14 postgresql-client-14-dbgsym \
   ca-certificates curl iproute2 \
-  isc-kea-dhcp4-server isc-kea-dhcp6-server libfreeipmi17 libudev \
+  isc-kea-dhcp4-server isc-kea-dhcp6-server libfreeipmi17 libudev1 \
   && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/pxe/templates && \
