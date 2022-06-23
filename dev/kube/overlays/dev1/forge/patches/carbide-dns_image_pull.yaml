@@ -9,4 +9,4 @@ spec:
         - name: carbide-dns
           imagePullPolicy: Always
       imagePullSecrets:
-        - name: gitlab-container-registry
+        - name: pull-secrets
