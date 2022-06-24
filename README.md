@@ -7,7 +7,7 @@ bare metal machines.
 
 Please see [The Book](https://nvmetal.gitlab-master-pages.nvidia.com/carbide/index.html) for more detail about roadmap & architecture.
 
-Discussion happens on #ngc-metal slack channel.
+Discussion happens on #swngc-forge-dev slack channel.
 
 
 ---
