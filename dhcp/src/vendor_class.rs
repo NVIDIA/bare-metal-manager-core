@@ -139,12 +139,17 @@ impl FromStr for VendorClass {
             // This is the OS (bluefield so far, maybe host OS's too)
             let parts: Vec<&str> = vendor_class.split(' ').collect();
             match parts.len() {
-                2 =>  Ok(VendorClass {
+                2 => Ok(VendorClass {
                     client_type: parts[0].parse()?,
                     client_architecture: parts[1].parse()?,
                 }),
                 _ => Err(VendorClassParseError::InvalidFormat),
             }
+        } else if vendor_class.eq("BF2Client") { // Some older BF2 cards
+            Ok(VendorClass {
+                client_type: MachineClientClass::PXEClient,
+                client_architecture: MachineArchitecture::Arm64
+            })
         } else {
             Err(VendorClassParseError::InvalidFormat)
         }
@@ -166,6 +171,9 @@ mod tests {
     #[test]
     fn is_it_arm_non_uefi() {
         let vc: VendorClass = "nvidia-bluefield-dpu aarch64".parse().unwrap();
+        assert!(vc.arm());
+
+        let vc: VendorClass = "BF2Client".parse().unwrap();
         assert!(vc.arm());
     }
 
