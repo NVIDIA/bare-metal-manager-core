@@ -150,6 +150,11 @@ impl FromStr for VendorClass {
                 client_type: MachineClientClass::PXEClient,
                 client_architecture: MachineArchitecture::Arm64
             })
+        } else if vendor_class.eq("iDRAC") { // x86 BMC
+            Ok(VendorClass {
+                client_type: MachineClientClass::PXEClient,
+                client_architecture: MachineArchitecture::EfiX64,
+            })
         } else {
             Err(VendorClassParseError::InvalidFormat)
         }
@@ -163,6 +168,11 @@ mod tests {
     #[test]
     fn it_is_pxe_capable() {
         let vc: VendorClass = "PXEClient:Arch:00007:UNDI:003000".parse().unwrap();
+
+        assert!(vc.pxe());
+        assert!(!vc.http());
+
+        let vc: VendorClass = "iDRAC".parse().unwrap();
 
         assert!(vc.pxe());
         assert!(!vc.http());
