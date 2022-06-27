@@ -47,11 +47,6 @@ build-cargo:
     - cargo make workspace-ci-flow
   after_script:
     - kind delete cluster --name ${CI_PIPELINE_ID}
-  cache:
-    paths:
-      - apt/
-      - cargo/
-      - target/
 
 build-ipxe-x86_64:
   before_script:
