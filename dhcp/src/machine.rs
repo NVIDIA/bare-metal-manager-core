@@ -229,15 +229,15 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
             VendorClass {
                 client_architecture: MachineArchitecture::EfiX64,
                 client_type: MachineClientClass::PXEClient,
-            } => "ipxe.efi",
+            } => "/blobs/internal/x86_64/grub.efi",
             VendorClass {
                 client_architecture: MachineArchitecture::Arm64,
                 client_type: MachineClientClass::PXEClient,
-            } => "ipxe.efi",
+            } => "/blobs/internal/x86_64/grub.efi",
             VendorClass {
                 client_architecture: MachineArchitecture::BiosX86,
                 client_type: MachineClientClass::PXEClient,
-            } => "ipxe.kpxe",
+            } => "/blobs/internal/x86_64/grub.kpxe",
             VendorClass {
                 client_architecture: MachineArchitecture::EfiX64,
                 client_type: MachineClientClass::HTTPClient,
@@ -305,7 +305,7 @@ pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_cha
 
     let vendor_class = if let Some(vendor_class) = &machine.vendor_class {
         let display = match vendor_class.client_type {
-            MachineClientClass::PXEClient => "", // This has to be blank or it will not dhcp
+            MachineClientClass::PXEClient => "PXEClient", // This has to be blank or it will not dhcp
             MachineClientClass::HTTPClient => "HTTPClient",
         };
         CString::new(display).unwrap()
