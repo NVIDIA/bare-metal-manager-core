@@ -3,6 +3,11 @@ variables:
   APPLICATION_NAME: nvmetal-carbide
   APPLICATION_DOCKERFILE: dev/deployment/Dockerfile
 
+  FF_USE_FASTZIP: "true" # enable fastzip - a faster zip implementation that also supports level configuration.
+  ARTIFACT_COMPRESSION_LEVEL: default # can also be set to fastest, fast, slow and slowest. If just enabling fastzip is not enough try setting this to fastest or fast.
+  CACHE_COMPRESSION_LEVEL: fastest
+  TRANSFER_METER_FREQUENCY: 5s
+
   KANIKO_CACHE_ARGS: "--cache=false --cache-copy-layers=true --cache-ttl=24h"
   APT_CACHE_DIR: $CI_PROJECT_DIR/apt
   LOGNAME: root
