@@ -81,7 +81,7 @@ fn boot_into_discovery(interface: rpc::v0::MachineInterface) -> String {
     let instructions = BootInstructionGenerator {
         kernel: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.efi".to_string(),
         initrd: "http://${next-server}:8080/public/blobs/internal/x86_64/carbide.root".to_string(),
-        command_line: format!("root=live:http://${{next-server}}:8080/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp machine_id={} server_uri=https://${{next-server}}:80", interface.id.unwrap()),
+        command_line: format!("root=live:http://${{next-server}}:8080/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp machine_id={} server_uri=https://${{next-server}}:80", interface.id.unwrap()),
     };
     String::from(instructions)
 }
