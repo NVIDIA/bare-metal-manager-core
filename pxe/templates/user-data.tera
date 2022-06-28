@@ -1,1 +1,1 @@
-{{ userdata }}
+echo {{ machine.mac_address }}" > /macaddr

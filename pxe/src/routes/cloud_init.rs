@@ -6,11 +6,10 @@ use std::collections::HashMap;
 
 #[allow(unused_variables)] // The uuid is in the route so we cant prefix it w an underbar
 #[get("/<uuid>/user-data")]
-pub async fn user_data(uuid: uuid::Uuid, machine: Machine) -> String {
-    let mut context = tera::Context::new();
-    context.insert("machine", &machine.interface);
-
-    tera::Tera::one_off("", &context, false).unwrap()
+pub async fn user_data(uuid: uuid::Uuid, machine: Machine) -> Template {
+    let mut context: HashMap<String, _> = HashMap::new();
+    context.insert("machine".to_string(), &machine.interface);
+    Template::render("user-data", &context)
 }
 
 #[allow(unused_variables)] // The uuid is in the route so we cant prefix it w an underbar
