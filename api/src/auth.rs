@@ -13,16 +13,19 @@ pub use jwt::{Algorithm, DecodingKey, KeySpec};
 pub struct CarbideAuth {
     unsecured_endpoints: HashSet<Uri>,
     jwt_validator: jwt::TokenValidator,
+    permissive_mode: bool,
 }
 
 impl CarbideAuth {
     pub fn new() -> Self {
         let unsecured_endpoints = HashSet::new();
         let jwt_validator = jwt::TokenValidator::new();
+        let permissive_mode = false;
 
         Self {
             unsecured_endpoints,
             jwt_validator,
+            permissive_mode,
         }
     }
 
@@ -33,6 +36,10 @@ impl CarbideAuth {
 
     pub fn add_unsecured_endpoint(&mut self, endpoint: Uri) {
         self.unsecured_endpoints.insert(endpoint);
+    }
+
+    pub fn set_permissive_mode(&mut self, mode: bool) {
+        self.permissive_mode = mode;
     }
 
     fn try_jwt_validation(&self, headers: &HeaderMap) -> Result<CarbideAuthClaims, AuthError> {
@@ -92,6 +99,11 @@ impl<B> AuthorizeRequest<B> for CarbideAuth {
 
             (Err(e), false) => {
                 info!("Request authentication failed: {:?}", e);
+
+                if self.permissive_mode {
+                    info!("Request allowed due to permissive mode");
+                    return Ok(())
+                }
 
                 let unauthorized = Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
