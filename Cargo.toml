@@ -8,4 +8,5 @@ members = [
   "rpc",
   "dns",
   "ipmi/freeipmi-sys",
+  "ipmi/console"
 ]

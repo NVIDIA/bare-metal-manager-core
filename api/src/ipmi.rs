@@ -6,6 +6,7 @@ use freeipmi_sys::{
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use sqlx;
+use std::time::Duration;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -163,6 +164,7 @@ impl IpmiCommand {
         Ok(command_handler
             .builder()
             .set_channel_name("ipmi_handler")
+            .set_retry_backoff(Duration::from_millis(10))
             .set_json(&json)?
             .spawn(&pool)
             .await
