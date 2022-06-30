@@ -895,6 +895,9 @@ impl Api {
 
         let mut authenticator = CarbideAuth::new();
 
+        // FIXME: Don't ship with this enabled. Should it be a config option?
+        authenticator.set_permissive_mode(true);
+
         // Example code just to show usage. Do not actually use this!
         /*
         authenticator.add_jwt_key(
