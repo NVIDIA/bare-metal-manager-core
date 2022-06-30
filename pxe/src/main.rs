@@ -17,6 +17,7 @@ use rocket::{
     request::{self, FromRequest},
     Request,
 };
+use rocket::request::Outcome;
 use rocket_dyn_templates::Template;
 
 use rpc::v0::{metal_client::MetalClient, InterfaceSearchQuery};
@@ -28,7 +29,11 @@ pub struct Machine {
     machine: Option<rpc::v0::Machine>,
 }
 
-struct MetalUrl(String);
+#[derive(Clone)]
+pub struct RuntimeConfig {
+    api_url: String,
+    pxe_url: String,
+}
 
 pub enum RPCError<'a> {
     RequestError(tonic::Status),
@@ -77,6 +82,23 @@ impl Display for RPCError<'_> {
 }
 
 #[rocket::async_trait]
+impl<'r> FromRequest<'r> for RuntimeConfig {
+    type Error = RPCError<'r>;
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        if let Some(config) = request.rocket().state::<RuntimeConfig>() {
+            Outcome::Success(config.clone())
+        } else {
+            eprintln!("error in client returned none");
+            Outcome::Failure((
+                Status::BadRequest,
+                RPCError::MissingClientConfig,
+            ))
+        }
+    }
+}
+
+#[rocket::async_trait]
 impl<'r> FromRequest<'r> for Machine {
     type Error = RPCError<'r>;
 
@@ -103,11 +125,11 @@ impl<'r> FromRequest<'r> for Machine {
             }
         };
 
-        let mut client = match request.rocket().state::<MetalUrl>() {
-            Some(url) => match MetalClient::connect(url.0.clone()).await {
+        let mut client = match request.rocket().state::<RuntimeConfig>() {
+            Some(url) => match MetalClient::connect(url.api_url.clone()).await {
                 Ok(client) => client,
                 Err(_err) => {
-                    eprintln!("error in connect - {:?} - url: {:?}", _err, url.0);
+                    eprintln!("error in connect - {:?} - url: {:?}", _err, url.api_url);
                     return request::Outcome::Failure((
                         Status::BadRequest,
                         RPCError::MissingClientConfig,
@@ -183,9 +205,14 @@ async fn main() -> Result<(), rocket::Error> {
         .attach(AdHoc::try_on_ignite(
             "Carbide API Config",
             |rocket| async move {
-                match rocket.figment().extract_inner::<String>("carbide_api_url") {
-                    Ok(url) => Ok(rocket.manage(MetalUrl(url))),
-                    Err(_) => Err(rocket),
+                if let Ok(api_url) = rocket.figment().extract_inner::<String>("carbide_api_url") {
+                    if let Ok(pxe_url) = rocket.figment().extract_inner::<String>("carbide_pxe_url") {
+                        Ok(rocket.manage(RuntimeConfig{ api_url, pxe_url }))
+                    } else {
+                        Err(rocket)
+                    }
+                } else {
+                    Err(rocket)
                 }
             },
         ))

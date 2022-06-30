@@ -305,7 +305,7 @@ pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_cha
 
     let vendor_class = if let Some(vendor_class) = &machine.vendor_class {
         let display = match vendor_class.client_type {
-            MachineClientClass::PXEClient => "PXEClient", // This has to be blank or it will not dhcp
+            MachineClientClass::PXEClient => "PXEClient",
             MachineClientClass::HTTPClient => "HTTPClient",
         };
         CString::new(display).unwrap()

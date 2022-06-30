@@ -1,4 +1,4 @@
-use crate::Machine;
+use crate::{Machine, RuntimeConfig};
 use rocket::routes;
 use rocket::Route;
 use rocket_dyn_templates::Template;
@@ -6,9 +6,10 @@ use std::collections::HashMap;
 
 #[allow(unused_variables)] // The uuid is in the route so we cant prefix it w an underbar
 #[get("/<uuid>/user-data")]
-pub async fn user_data(uuid: uuid::Uuid, machine: Machine) -> Template {
-    let mut context: HashMap<String, _> = HashMap::new();
-    context.insert("machine".to_string(), &machine.interface);
+pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig) -> Template {
+    let mut context: HashMap<String, String> = HashMap::new();
+    context.insert("mac_address".to_string(), machine.interface.mac_address);
+    context.insert("pxe_url".to_string(), config.pxe_url);
     Template::render("user-data", &context)
 }
 

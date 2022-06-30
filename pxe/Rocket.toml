@@ -1,6 +1,7 @@
 [default]
 address = "0.0.0.0"
-carbide_api_url = "https://carbide-api:1079"
+carbide_api_url = "https://172.20.0.14:1079"
+carbide_pxe_url = "http://172.20.0.18:8080"
 port = 8000
 
 [development]
