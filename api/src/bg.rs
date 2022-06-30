@@ -14,7 +14,7 @@ pub struct BgStatus {
     _last_updated: chrono::DateTime<chrono::Utc>,
 }
 
-/// TaskState and CurrentState are sued to update status into bg_status table.
+/// TaskState and CurrentState are used to update status into bg_status table.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum TaskState {
     Started,

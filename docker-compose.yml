@@ -167,6 +167,20 @@ services:
       - "1053:1053/udp"   
     command: cargo watch -C dns -x "run -- run --carbide-url=http://172.20.0.14:1079"
 
+  ipmi-console:
+    depends_on:
+      - carbide-db-migrations
+      - postgresql
+    build: api
+    networks:
+      carbide:
+        ipv4_address: 172.20.0.21
+    volumes:
+      - .:/app/code
+      - ca-certificate:/identity
+    command: cargo watch -C ipmi/console -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem' --listen='0.0.0.0:2222'"
+    ports:
+      - 2222:2222
 volumes:
   db-data: {}
   ca-certificate: {}

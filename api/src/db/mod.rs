@@ -40,6 +40,8 @@ mod resource_record;
 mod tags;
 mod vpc;
 
+pub mod ipmi;
+
 ///
 /// A parameter to find() to filter machines by Uuid;
 ///
