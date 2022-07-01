@@ -224,6 +224,7 @@ impl AsyncWrapper {
         let ipmi_info = server.host_info.clone().unwrap().ipmi_info.unwrap().clone();
         let pool = server.pool.clone();
         let prompt = server.get_prompt();
+        let exec_mode = server.exec_mode;
         *task_state.lock().unwrap() = TaskState::RUNNING;
         tokio::task::spawn_blocking(move || {
             tokio::spawn(async move {
@@ -235,7 +236,7 @@ impl AsyncWrapper {
 
                 let job_id = call_ipmi_api(ipmi_info, data, pool.clone()).await;
                 if job_id.is_err() {
-                    util::end_task(task_state, prompt, channel, handle).await;
+                    util::end_task(task_state, prompt, channel, handle, exec_mode).await;
                     return;
                 }
 
@@ -268,7 +269,7 @@ impl AsyncWrapper {
                         }
                     }
                 };
-                util::end_task(task_state, prompt, channel, handle).await;
+                util::end_task(task_state, prompt, channel, handle, exec_mode).await;
             });
         });
 
@@ -280,6 +281,7 @@ impl AsyncWrapper {
         let task_state = server.task_state.clone();
         let _ipmi_info = server.host_info.clone().unwrap().ipmi_info.unwrap().clone();
         let prompt = server.get_prompt();
+        let exec_mode = server.exec_mode;
         *task_state.lock().unwrap() = TaskState::RUNNING;
         tokio::task::spawn_blocking(move || {
             tokio::spawn(async move {
@@ -298,7 +300,7 @@ impl AsyncWrapper {
                     //   handle.data("connect closed by host: error:");
                     //   break
                     // }
-                    time::sleep(time::Duration::from_millis(200)).await;
+                    time::sleep(time::Duration::from_millis(500)).await;
                     let _ = handle
                         .data(
                             channel,
@@ -313,7 +315,7 @@ impl AsyncWrapper {
                     }
                 }
 
-                util::end_task(task_state, prompt, channel, handle).await;
+                util::end_task(task_state, prompt, channel, handle, exec_mode).await;
             });
         });
 
@@ -373,9 +375,14 @@ mod util {
         task_state: Arc<Mutex<TaskState>>,
         prompt: String,
         channel: ChannelId,
-        handle: Handle,
+        mut handle: Handle,
+        exec_mode: bool,
     ) -> Handle {
         *task_state.lock().unwrap() = TaskState::INIT;
+        if exec_mode {
+            let _ = handle.close(channel);
+            return handle;
+        }
         new_line(prompt, channel, handle).await
     }
 }
