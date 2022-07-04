@@ -5,6 +5,7 @@ use futures;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::str;
 use std::sync::{Arc, Mutex};
 use thrussh::server::{self, Auth, Session};
 use thrussh::{ChannelId, CryptoVec};
@@ -20,7 +21,7 @@ mod ascii {
     pub const BS: u8 = 127;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum TaskState {
     INIT,
     RUNNING,
@@ -40,10 +41,14 @@ pub struct Server {
     pub current_command: Option<String>,
     pub host_info: Option<HostInfo>,
     pub task_state: Arc<Mutex<TaskState>>,
+    pub exec_mode: bool,
 }
 
 impl Server {
     fn new_line(mut self, channel: ChannelId, mut session: Session) -> (Self, Session) {
+        if self.exec_mode {
+            return (self, session);
+        }
         self.command.clear();
         session.data(channel, CryptoVec::from_slice(b"\r\n"));
         match *self.task_state.lock().unwrap() {
@@ -108,6 +113,44 @@ impl server::Handler for Server {
         self.user = Some(user.to_string());
         self.finished_auth(server::Auth::Accept)
     }
+    // following handler is called if some one passes command with ssh command.
+    // e.g. ssh user@forge "<machine-id>;sol
+    // This is good for automation.
+    fn exec_request(
+        mut self,
+        channel: ChannelId,
+        data: &[u8],
+        mut session: Session,
+    ) -> Self::FutureUnit {
+        let help = r#"Uses: ssh <user>@<server> "<machine-id>;<command>"
+          e.g. ssh <user>@forge "uuid;power status""#;
+        let commands = String::from(str::from_utf8(data).unwrap())
+            .trim()
+            .to_string();
+        self.exec_mode = true;
+        let commands = commands.split(";").collect::<Vec<&str>>();
+        if commands.len() != 2 && Uuid::parse_str(&commands[0]).is_err() {
+            session.data(channel, CryptoVec::from(String::from(help)));
+            session.close(channel);
+            return self.finished(session);
+        }
+
+        // Connect to host.
+        self.current_command = Some(format!("connect {}", commands[0]));
+        (self, session) = command_handler(self, channel, session);
+
+        if self.host_info.is_none() {
+            session.close(channel);
+        }
+
+        // Execute command
+        session.data(channel, CryptoVec::from(String::from("\r\n")));
+        self.current_command = Some(String::from(commands[1]));
+        (self, session) = command_handler(self, channel, session);
+        self.current_command = None;
+
+        self.finished(session)
+    }
     fn data(mut self, channel: ChannelId, data: &[u8], mut session: Session) -> Self::FutureUnit {
         for d in data {
             match *d {
@@ -117,7 +160,7 @@ impl server::Handler for Server {
                         .trim()
                         .to_string();
 
-                    if command.len() > 0 {
+                    if command.len() > 0 && !self.exec_mode {
                         if command == "exit" {
                             session.close(channel);
                             break;
@@ -190,6 +233,7 @@ pub async fn run(pool: PgPool, address: SocketAddr) {
         current_command: None,
         host_info: None,
         task_state: Arc::new(Mutex::new(TaskState::INIT)),
+        exec_mode: false,
     };
 
     thrussh::server::run(config, &address.to_string(), sh)
