@@ -2,6 +2,7 @@ variables:
   NSPECT_ID: NSPECT-2SV4-7361
   APPLICATION_NAME: nvmetal-carbide
   APPLICATION_DOCKERFILE: dev/deployment/Dockerfile
+  KUSTOMIZE_LOCATION: dev/kube
 
   FF_USE_FASTZIP: "true" # enable fastzip - a faster zip implementation that also supports level configuration.
   ARTIFACT_COMPRESSION_LEVEL: default # can also be set to fastest, fast, slow and slowest. If just enabling fastzip is not enough try setting this to fastest or fast.
@@ -42,7 +43,7 @@ build-container-arm:
 
     /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm --destination urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:$VERSION
   needs: 
-    - versioning
+    - prepare-ci
   tags:
     - aarch64
 
@@ -99,3 +100,18 @@ pages:
       - public
   only:
     - trunk
+
+deploy_dev1:
+  extends: .deploy_kustomize
+  environment: 
+    name: dev1
+    deployment_tier: development
+
+deploy_dev2:
+  extends: .deploy_kustomize
+  needs: 
+    - prepare-ci
+    - deploy_dev1
+  environment: 
+    name: dev2
+    deployment_tier: staging
