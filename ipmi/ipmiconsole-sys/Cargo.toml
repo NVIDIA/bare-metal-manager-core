@@ -1,0 +1,30 @@
+[package]
+name = "ipmiconsole-sys"
+version = "1.2.6"
+edition = "2021"
+authors = ["Vishnu Rangayyan <vrangayyan@nvidia.com"]
+links = "ipmiconsole"
+build = "build.rs"
+description = """
+Bindings to libipmiconsole for ipmi console access"""
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "ipmiconsole_sys"
+path = "src/lib.rs"
+
+[dependencies]
+libc = { version = "0.2", optional = true }
+thiserror = "1.0"
+num_enum = "0.5.7"
+serde = { version = "1.0", features = ["derive"] }
+errno = "0.2.8"
+
+[build-dependencies]
+pkg-config = "0.3.25"
+cc = "1.0"
+
+[features]
+default = ["libc"]
+static = []

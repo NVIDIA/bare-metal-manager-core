@@ -22,13 +22,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   isc-kea-dhcp4-server \
   isc-kea-dhcp6-server \
   libboost-dev \
-  libfreeipmi-dev \
   postgresql-client-14 \
   postgresql-client-14-dbgsym \
   vault \
   pkg-config \
   libfreeipmi-dev \
   libfreeipmi17 \
+  libipmiconsole-dev \
+  libipmiconsole2 \
   && rm -rf /var/lib/apt/lists/*
 
 RUN rustup component add rustfmt rust-src
