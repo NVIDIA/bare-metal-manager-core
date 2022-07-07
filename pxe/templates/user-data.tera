@@ -49,7 +49,7 @@ done
 mkdir -p /opt/carbide
 wget {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli -P /opt/carbide
 chmod +x /opt/carbide/carbide-cli
-/carbide/carbide-cli --listen=$server_uri discovery --uuid=$machine_id
+/opt/carbide/carbide-cli --listen=$server_uri discovery --uuid=$machine_id
 
 }
 
