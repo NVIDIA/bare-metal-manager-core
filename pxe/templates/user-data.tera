@@ -1,1 +1,58 @@
-echo {{ machine.mac_address }}" > /macaddr
+cat << \ZOF > /etc/bf.cfg
+bfb_modify_os()
+{
+cat << EOF > /mnt/etc/bf.cfg
+BOOT0=NET-OOB-IPV4
+BOOT1=DISK
+EOF
+
+cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
+#cloud-config
+debug:
+  verbose: true
+timezone: "Etc/UTC"
+manage_etc_hosts: true
+users:
+  - name: ubuntu
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    passwd: $6$QnKhCwOoDCL7WBiY$KgzONMVSjgq/137.pYEwHYQwLLR1CMuqhn2jMOxqhXEni8nQsynh.s6qhdqOWoB5CLhOnM2fjtKuAwf6rm5.6.
+    groups: [adm, audio, cdrom, dialout, dip, floppy, lxd, netdev, plugdev, sudo, video]
+runcmd:
+  - [ /usr/bin/bfcfg ]
+  - [ /usr/bin/systemctl, enable, containerd ]
+  - [ /usr/bin/systemctl, start, containerd ]
+  - [ /usr/bin/systemctl, enable, kubelet ]
+  - [ /usr/bin/systemctl, start, kubelet ]
+  - [ mkdir, -p, /opt/hbn_installer ]
+  - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/doca_container_configs_1.3.0.zip, -P, /opt/hbn_installer ]
+  - [ /usr/bin/unzip, /opt/hbn_installer/doca_container_configs_1.3.0.zip, -d, /opt/hbn_installer/ ]
+  - [ /bin/bash, /opt/hbn_installer/scripts/doca_hbn/hbn-dpu-setup.sh ]
+EOF
+
+for i in `cat /proc/cmdline`
+do
+        line=`echo $i|grep machine_id`
+        if [ ! -z "$line" ] ;
+        then
+                machine_id=`echo $line|cut -d'=' -f2`
+        fi
+        line=`echo $i|grep server_uri`
+        if [ ! -z "$line" ] ;
+        then
+                server_uri=`echo $line|cut -d'=' -f2`
+        fi
+done
+
+# This needs to be run during the installer since the /proc/cmdline still belongs to us
+mkdir -p /opt/carbide
+wget {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli -P /opt/carbide
+chmod +x /opt/carbide/carbide-cli
+/carbide/carbide-cli --listen=$server_uri discovery --uuid=$machine_id
+
+}
+
+ZOF
+
+# Do not remove these trailing spaces or this file will not work
