@@ -69,11 +69,11 @@ Credentials
 - OS: `ubuntu:ubuntu`
 - BMC: `ADMIN:ADMIN`
 
-| ip | bmc ip | dpu sn |
-| ---------- | ------------- | ---------- |
-| 10.180.32.12 | 10.180.222.12 | NA - This is the Dell w/ a DPU card (bmc will be root/calvin) |
-| 10.180.32.76 | 10.180.222.60 | MT2203X26573 |
-| 10.180.32.140 | 10.180.222.59 | MT2203X26564 |
+| x86 ip | x86 bmc ip | dpu oob ip | dpu port 0 ip | dpu port 1 ip | dpu sn | dpu bmc ip |
+| ---------- | ------------- | ------------- | ------------- | ------------- | ---------- | ---------- |
+| 10.180.32.12 | 10.180.222.12 | NA - This is the Dell w/ a DPU card (bmc will be root/calvin) | | | | |
+| 10.180.32.76 | 10.180.222.60 | 10.180.222.10 | 10.180.32.110 | 10.180.96.110 | MT2203X26573 | 10.180.222.28 |
+| 10.180.32.140 | 10.180.222.59 | 10.180.222.14 | 10.180.32.142 | 10.180.96.142 | MT2203X26564 | 10.180.222.21 |
 
 The following 2 nodes are a test env set up for Security/Gopi.
 
