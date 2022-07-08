@@ -5,7 +5,8 @@ use sqlx::types::uuid;
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
-use rpc::v0 as rpc;
+use ::rpc::Timestamp;
+use rpc::forge::v0 as rpc;
 
 use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
@@ -47,12 +48,12 @@ impl From<Domain> for rpc::Domain {
             id: Some(src.id.into()),
             name: src.name,
 
-            created: Some(rpc::Timestamp {
+            created: Some(Timestamp {
                 seconds: src.created.timestamp(),
                 nanos: 0,
             }),
 
-            updated: Some(rpc::Timestamp {
+            updated: Some(Timestamp {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),

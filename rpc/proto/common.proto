@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package forge.common;
+
+message UUID {
+    string value = 1;
+}
+
+

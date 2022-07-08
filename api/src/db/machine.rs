@@ -4,11 +4,14 @@
 use super::{MachineAction, MachineEvent, MachineInterface, MachineState, UuidKeyedObjectFilter};
 use crate::human_hash;
 use crate::{CarbideError, CarbideResult};
+use ::rpc::MachineStateMachine;
+use ::rpc::MachineStateMachineInput;
+use ::rpc::Timestamp;
 use chrono::prelude::*;
 use ipnetwork::IpNetwork;
 use log::warn;
 use mac_address::MacAddress;
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 use rust_fsm::StateMachine;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
@@ -74,15 +77,15 @@ impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
         rpc::Machine {
             id: Some(machine.id.into()),
-            created: Some(rpc::Timestamp {
+            created: Some(Timestamp {
                 seconds: machine.created.timestamp(),
                 nanos: 0,
             }),
-            updated: Some(rpc::Timestamp {
+            updated: Some(Timestamp {
                 seconds: machine.updated.timestamp(),
                 nanos: 0,
             }),
-            deployed: machine.deployed.map(|ts| rpc::Timestamp {
+            deployed: machine.deployed.map(|ts| Timestamp {
                 seconds: ts.timestamp(),
                 nanos: 0,
             }),
@@ -129,7 +132,7 @@ impl Machine {
 
         // Add the initial state
         machine
-            .advance(txn, &rpc::MachineStateMachineInput::Discover)
+            .advance(txn, &MachineStateMachineInput::Discover)
             .await?;
 
         Ok(machine)
@@ -222,11 +225,11 @@ impl Machine {
     fn state_machine(
         &self,
         events: &Vec<MachineEvent>,
-    ) -> CarbideResult<StateMachine<rpc::MachineStateMachine>> {
-        let mut machine: StateMachine<rpc::MachineStateMachine> = StateMachine::new();
+    ) -> CarbideResult<StateMachine<MachineStateMachine>> {
+        let mut machine: StateMachine<MachineStateMachine> = StateMachine::new();
         events
             .into_iter()
-            .map(|event| machine.consume(&rpc::MachineStateMachineInput::from(&event.action)))
+            .map(|event| machine.consume(&MachineStateMachineInput::from(&event.action)))
             .collect::<Result<Vec<_>, _>>()
             .map_err(CarbideError::InvalidState)?;
 
@@ -244,7 +247,7 @@ impl Machine {
     pub async fn advance(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        action: &rpc::MachineStateMachineInput,
+        action: &MachineStateMachineInput,
     ) -> CarbideResult<bool> {
         // first validate the state change by getting the current state in the db
         let events = MachineEvent::for_machine(txn, &self.id).await?;

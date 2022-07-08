@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 mod routes;
 
+use rocket::request::Outcome;
 use rocket::{
     fairing::AdHoc,
     form::Errors,
@@ -17,16 +18,17 @@ use rocket::{
     request::{self, FromRequest},
     Request,
 };
-use rocket::request::Outcome;
 use rocket_dyn_templates::Template;
+use rpc::forge::v0 as rpc;
 
-use rpc::v0::{metal_client::MetalClient, InterfaceSearchQuery};
+use ::rpc::forge::v0::forge_client::ForgeClient;
+use ::rpc::forge::v0::InterfaceSearchQuery;
 
 #[derive(Debug)]
 pub struct Machine {
-    interface: rpc::v0::MachineInterface,
+    interface: rpc::MachineInterface,
     #[allow(dead_code)]
-    machine: Option<rpc::v0::Machine>,
+    machine: Option<rpc::Machine>,
 }
 
 #[derive(Clone)]
@@ -90,10 +92,7 @@ impl<'r> FromRequest<'r> for RuntimeConfig {
             Outcome::Success(config.clone())
         } else {
             eprintln!("error in client returned none");
-            Outcome::Failure((
-                Status::BadRequest,
-                RPCError::MissingClientConfig,
-            ))
+            Outcome::Failure((Status::BadRequest, RPCError::MissingClientConfig))
         }
     }
 }
@@ -126,7 +125,7 @@ impl<'r> FromRequest<'r> for Machine {
         };
 
         let mut client = match request.rocket().state::<RuntimeConfig>() {
-            Some(url) => match MetalClient::connect(url.api_url.clone()).await {
+            Some(url) => match ForgeClient::connect(url.api_url.clone()).await {
                 Ok(client) => client,
                 Err(_err) => {
                     eprintln!("error in connect - {:?} - url: {:?}", _err, url.api_url);
@@ -206,8 +205,9 @@ async fn main() -> Result<(), rocket::Error> {
             "Carbide API Config",
             |rocket| async move {
                 if let Ok(api_url) = rocket.figment().extract_inner::<String>("carbide_api_url") {
-                    if let Ok(pxe_url) = rocket.figment().extract_inner::<String>("carbide_pxe_url") {
-                        Ok(rocket.manage(RuntimeConfig{ api_url, pxe_url }))
+                    if let Ok(pxe_url) = rocket.figment().extract_inner::<String>("carbide_pxe_url")
+                    {
+                        Ok(rocket.manage(RuntimeConfig { api_url, pxe_url }))
                     } else {
                         Err(rocket)
                     }

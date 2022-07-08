@@ -3,8 +3,9 @@ use std::str::FromStr;
 
 use sqlx::{postgres::PgRow, Row};
 
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 
+use ::rpc::MachineStateMachineState;
 use std::fmt::{Display, Formatter};
 
 #[derive(sqlx::Type)]
@@ -70,17 +71,17 @@ impl FromStr for MachineState {
     }
 }
 
-impl From<&rpc::MachineStateMachineState> for MachineState {
-    fn from(state: &rpc::MachineStateMachineState) -> Self {
+impl From<&MachineStateMachineState> for MachineState {
+    fn from(state: &MachineStateMachineState) -> Self {
         match state {
-            rpc::MachineStateMachineState::Init => MachineState::Init,
-            rpc::MachineStateMachineState::New => MachineState::New,
-            rpc::MachineStateMachineState::Adopted => MachineState::Adopted,
-            rpc::MachineStateMachineState::Tested => MachineState::Tested,
-            rpc::MachineStateMachineState::Ready => MachineState::Ready,
-            rpc::MachineStateMachineState::Assigned => MachineState::Assigned,
-            rpc::MachineStateMachineState::Broken => MachineState::Broken,
-            rpc::MachineStateMachineState::Decommissioned => MachineState::Decommissioned,
+            MachineStateMachineState::Init => MachineState::Init,
+            MachineStateMachineState::New => MachineState::New,
+            MachineStateMachineState::Adopted => MachineState::Adopted,
+            MachineStateMachineState::Tested => MachineState::Tested,
+            MachineStateMachineState::Ready => MachineState::Ready,
+            MachineStateMachineState::Assigned => MachineState::Assigned,
+            MachineStateMachineState::Broken => MachineState::Broken,
+            MachineStateMachineState::Decommissioned => MachineState::Decommissioned,
         }
     }
 }

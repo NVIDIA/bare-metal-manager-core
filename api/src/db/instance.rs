@@ -1,10 +1,11 @@
 use std::convert::{TryFrom, TryInto};
 
 use chrono::prelude::*;
-use sqlx::{Postgres, FromRow};
+use sqlx::{FromRow, Postgres};
 
 use crate::{CarbideError, CarbideResult};
-use rpc::v0 as rpc;
+use ::rpc::Timestamp;
+use rpc::forge::v0 as rpc;
 
 #[derive(Debug, FromRow)]
 pub struct Instance {
@@ -29,15 +30,15 @@ impl From<Instance> for rpc::Instance {
             user_data: None,
             custom_ipxe: None,
             ssh_keys: vec![],
-            requested: Some(rpc::Timestamp {
+            requested: Some(Timestamp {
                 seconds: src.requested.timestamp(),
                 nanos: 0,
             }),
-            started: Some(rpc::Timestamp {
+            started: Some(Timestamp {
                 seconds: src.started.timestamp(),
                 nanos: 0,
             }),
-            finished: src.finished.map(|t| rpc::Timestamp {
+            finished: src.finished.map(|t| Timestamp {
                 seconds: t.timestamp(),
                 nanos: 0,
             }),

@@ -1,5 +1,5 @@
 use log::LevelFilter;
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 use sqlx::Postgres;
 
 use carbide::{

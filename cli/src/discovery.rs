@@ -1,12 +1,16 @@
 extern crate libudev;
 
 use cli::{CarbideClientError, CarbideClientResult};
-use rpc::v0 as rpc;
+use rpc::forge::v0 as rpc;
 
+use ::rpc::machine_discovery::v0 as rpc_discovery;
 use libudev::{Context, Device};
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
-use std::str::Utf8Error;
+use std::fs;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::str::{FromStr, Utf8Error};
 use tonic::Response;
 
 pub struct Discovery {}
@@ -53,10 +57,45 @@ fn convert_property_to_string<'a>(
     };
 }
 
+// NUMA_NODE is not exposed in libudev but the full path to a device is.
+// We have to convert from String -> i32 which is full of cases where conversion
+// can fail. Rather than cause the client to error out during discovery, we use the
+// largest i32 as an indicator that the host is likely in a bad state as there is no
+// valid reason why the `numa_node` file on the /proc filesystem would contain garbage
+fn get_numa_node_from_syspath(syspath: Option<&Path>) -> CarbideClientResult<i32> {
+    const NUMA_NODE_ESCAPE_HATCH: i32 = 2147483647;
+
+    if let Some(v) = syspath {
+        let numa_node_full_path = v.to_path_buf().join("device/numa_node");
+
+        let file_path = match fs::File::open(numa_node_full_path) {
+            Ok(file) => file,
+            Err(e) => return Err(CarbideClientError::GenericError(e.to_string())),
+        };
+
+        let file_reader = BufReader::new(file_path);
+
+        let numa_node_value = file_reader.lines().next();
+        let result: i32 = match numa_node_value {
+            None => NUMA_NODE_ESCAPE_HATCH,
+            Some(v) => {
+                let res = match v {
+                    Ok(l) => Ok(l.parse::<i32>().unwrap_or(NUMA_NODE_ESCAPE_HATCH)),
+                    Err(e) => return Err(CarbideClientError::GenericError(e.to_string())),
+                };
+                return res;
+            }
+        };
+        Ok(result)
+    } else {
+        Ok(NUMA_NODE_ESCAPE_HATCH)
+    }
+}
+
 pub fn get_machine_details(
     context: &Context,
     uuid: &str,
-) -> CarbideClientResult<rpc::MachineDiscovery> {
+) -> CarbideClientResult<rpc::MachineDiscoveryInfo> {
     // Nics
     let mut enumerator = libudev::Enumerator::new(&context)
         .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
@@ -67,23 +106,40 @@ pub fn get_machine_details(
         .scan_devices()
         .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
 
+    // mellanox ID_MODEL_ID = "0xa2d6"
+    // mellanox ID_VENDOR_ID = "0x15b3"
+    // mellanox ID_MODEL_FROM_DATABASE = "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
+    // pci_device_path = DEVPATH = "/devices/pci0000:00/0000:00:1c.4/0000:08:00.0/net/enp8s0f0np0"
     // let fff = devices.map(|device|DiscoveryNic { mac: "".to_string(), dev: "".to_string() });
-    let mut nics: Vec<rpc::MachineDiscoveryNic> = Vec::new();
+    let mut nics: Vec<rpc_discovery::NetworkInterface> = Vec::new();
+
     for device in devices {
-        debug!("{:?}", device.syspath());
+        debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
-            debug!("{:?} - {:?}", p.name(), p.value());
+            debug!("Property - {:?} - {:?}", p.name(), p.value());
+        }
+        for a in device.attributes() {
+            debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
 
         if let Some(_) = device
             .property_value("ID_PCI_SUBCLASS_FROM_DATABASE")
             .filter(|v| v.eq_ignore_ascii_case("Ethernet controller"))
         {
-            nics.push(rpc::MachineDiscoveryNic {
+            nics.push(rpc_discovery::NetworkInterface {
                 mac_address: convert_udev_to_mac(
                     convert_property_to_string("ID_NET_NAME_MAC", "", &device)?.to_string(),
                 )?,
-                device: convert_property_to_string("ID_NET_NAME_PATH", "", &device)?.to_string(),
+                pci_properties: Some(rpc_discovery::PciDeviceProperties {
+                    vendor: convert_property_to_string("ID_VENDOR_ID", "", &device)?.to_string(),
+                    device: convert_property_to_string("ID_MODEL_ID", "", &device)?.to_string(),
+                    path: convert_property_to_string("DEVPATH", "", &device)?.to_string(),
+                    numa_node: get_numa_node_from_syspath(device.syspath())?,
+                    description: Some(
+                        convert_property_to_string("ID_MODEL_FROM_DATABASE", "", &device)?
+                            .to_string(),
+                    ),
+                }),
             });
         }
     }
@@ -93,10 +149,10 @@ pub fn get_machine_details(
     let cpu_info =
         procfs::CpuInfo::new().or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
 
-    let mut cpus: Vec<rpc::MachineDiscoveryCpu> = Vec::new();
+    let mut cpus: Vec<rpc_discovery::Cpu> = Vec::new();
     for cpu_num in 0..cpu_info.num_cores() {
         debug!("{:?}", cpu_info.get_info(cpu_num));
-        cpus.push(rpc::MachineDiscoveryCpu {
+        cpus.push(rpc_discovery::Cpu {
             vendor: cpu_info
                 .vendor_id(cpu_num)
                 .ok_or(CarbideClientError::GenericError(
@@ -119,7 +175,23 @@ pub fn get_machine_details(
                     "Could not get cpu MHz field".to_string(),
                 ))?
                 .to_string(),
-            num: cpu_num as i32,
+            number: cpu_num as u32,
+            socket: cpu_info
+                .physical_id(cpu_num)
+                .ok_or(CarbideClientError::GenericError(
+                    "Could not get cpu info".to_string(),
+                ))?,
+            core: cpu_info
+                .get_info(cpu_num)
+                .ok_or(CarbideClientError::GenericError(
+                    "Could not get cpu info".to_string(),
+                ))?
+                .get("core id")
+                .map(|c| c.parse::<u32>().unwrap_or(0))
+                .ok_or(CarbideClientError::GenericError(
+                    "Could not get cpu core id field".to_string(),
+                ))?,
+            node: 2,
         });
     }
 
@@ -133,7 +205,7 @@ pub fn get_machine_details(
         .scan_devices()
         .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
 
-    let mut disks: Vec<rpc::MachineDiscoveryBlockDevice> = Vec::new();
+    let mut disks: Vec<rpc_discovery::BlockDevice> = Vec::new();
 
     for device in devices {
         debug!("{:?}", device.syspath());
@@ -149,8 +221,7 @@ pub fn get_machine_details(
             ))?
             .filter(|v| !v.contains("virtual"))
         {
-            disks.push(rpc::MachineDiscoveryBlockDevice {
-                path: convert_property_to_string("DEVPATH", "", &device)?.to_string(),
+            disks.push(rpc_discovery::BlockDevice {
                 model: convert_property_to_string("ID_MODEL", "NO_MODEL", &device)?.to_string(),
                 revision: convert_property_to_string("ID_REVISION", "NO_REVISION", &device)?
                     .to_string(),
@@ -160,15 +231,17 @@ pub fn get_machine_details(
         }
     }
 
+    println!("{:?}", disks);
+    println!("{:?}", cpus);
+    println!("{:?}", nics);
+
     let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
         .map(|m| m.into())
         .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
 
-    Ok(rpc::MachineDiscovery {
-        uuid: Some(rpc_uuid),
-        nics,
-        cpus,
-        devices: disks,
+    Ok(rpc::MachineDiscoveryInfo {
+        machine_id: Some(rpc_uuid),
+        discovery_data: None,
     })
 }
 
@@ -179,7 +252,7 @@ impl Discovery {
     ) -> CarbideClientResult<Response<rpc::MachineDiscoveryResult>> {
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
         let info = get_machine_details(&context, uuid)?;
-        let mut client = rpc::metal_client::MetalClient::connect(listen).await?;
+        let mut client = rpc::forge_client::ForgeClient::connect(listen).await?;
         let request = tonic::Request::new(info);
         Ok(client.discover_machine(request).await?)
     }

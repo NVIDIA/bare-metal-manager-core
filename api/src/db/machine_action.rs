@@ -1,7 +1,9 @@
 use crate::CarbideError;
 use std::str::FromStr;
 
-use rpc::v0 as rpc;
+//use ::rpc::v0::MachineStateMachineInput;
+use ::rpc::MachineStateMachineInput;
+use rpc::forge::v0 as rpc;
 
 /// Representing actions that can be performed on Machines.
 ///
@@ -58,36 +60,36 @@ impl FromStr for MachineAction {
     }
 }
 
-impl From<&rpc::MachineStateMachineInput> for MachineAction {
-    fn from(action: &rpc::MachineStateMachineInput) -> Self {
+impl From<&MachineStateMachineInput> for MachineAction {
+    fn from(action: &MachineStateMachineInput) -> Self {
         match action {
-            rpc::MachineStateMachineInput::Discover => MachineAction::Discover,
-            rpc::MachineStateMachineInput::Adopt => MachineAction::Adopt,
-            rpc::MachineStateMachineInput::Test => MachineAction::Test,
-            rpc::MachineStateMachineInput::Commission => MachineAction::Commission,
-            rpc::MachineStateMachineInput::Assign => MachineAction::Assign,
-            rpc::MachineStateMachineInput::Fail => MachineAction::Fail,
-            rpc::MachineStateMachineInput::Decommission => MachineAction::Decommission,
-            rpc::MachineStateMachineInput::Recommission => MachineAction::Recommission,
-            rpc::MachineStateMachineInput::Unassign => MachineAction::Unassign,
-            rpc::MachineStateMachineInput::Release => MachineAction::Release,
+            MachineStateMachineInput::Discover => MachineAction::Discover,
+            MachineStateMachineInput::Adopt => MachineAction::Adopt,
+            MachineStateMachineInput::Test => MachineAction::Test,
+            MachineStateMachineInput::Commission => MachineAction::Commission,
+            MachineStateMachineInput::Assign => MachineAction::Assign,
+            MachineStateMachineInput::Fail => MachineAction::Fail,
+            MachineStateMachineInput::Decommission => MachineAction::Decommission,
+            MachineStateMachineInput::Recommission => MachineAction::Recommission,
+            MachineStateMachineInput::Unassign => MachineAction::Unassign,
+            MachineStateMachineInput::Release => MachineAction::Release,
         }
     }
 }
 
-impl From<&MachineAction> for rpc::MachineStateMachineInput {
+impl From<&MachineAction> for MachineStateMachineInput {
     fn from(event: &MachineAction) -> Self {
         match event {
-            MachineAction::Discover => rpc::MachineStateMachineInput::Discover,
-            MachineAction::Adopt => rpc::MachineStateMachineInput::Adopt,
-            MachineAction::Test => rpc::MachineStateMachineInput::Test,
-            MachineAction::Commission => rpc::MachineStateMachineInput::Commission,
-            MachineAction::Assign => rpc::MachineStateMachineInput::Assign,
-            MachineAction::Fail => rpc::MachineStateMachineInput::Fail,
-            MachineAction::Decommission => rpc::MachineStateMachineInput::Decommission,
-            MachineAction::Recommission => rpc::MachineStateMachineInput::Recommission,
-            MachineAction::Unassign => rpc::MachineStateMachineInput::Unassign,
-            MachineAction::Release => rpc::MachineStateMachineInput::Release,
+            MachineAction::Discover => MachineStateMachineInput::Discover,
+            MachineAction::Adopt => MachineStateMachineInput::Adopt,
+            MachineAction::Test => MachineStateMachineInput::Test,
+            MachineAction::Commission => MachineStateMachineInput::Commission,
+            MachineAction::Assign => MachineStateMachineInput::Assign,
+            MachineAction::Fail => MachineStateMachineInput::Fail,
+            MachineAction::Decommission => MachineStateMachineInput::Decommission,
+            MachineAction::Recommission => MachineStateMachineInput::Recommission,
+            MachineAction::Unassign => MachineStateMachineInput::Unassign,
+            MachineAction::Release => MachineStateMachineInput::Release,
         }
     }
 }

@@ -5,12 +5,8 @@ use carbide::db::{
     AddressSelectionStrategy, Domain, Machine, MachineInterface, MachineState, NetworkSegment,
     NewDomain, NewNetworkPrefix, NewNetworkSegment, NewVpc,
 };
-use ipnetwork::IpNetwork;
-use itertools::Itertools;
 use log::LevelFilter;
 use mac_address::MacAddress;
-
-use carbide::CarbideResult;
 
 mod common;
 
