@@ -42,7 +42,7 @@ Details
 The following 3 nodes are the control plane and have manually set IPs with no dhcp helper on the switch.
 
 Credentials
-- OS: `ubuntu:ubuntu`
+- OS: uses nvinit and membership in forge-dev-ssh-accesss group.
 - BMC: `ADMIN:ADMIN`
 
 | ip | bmc ip |
