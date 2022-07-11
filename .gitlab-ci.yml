@@ -111,7 +111,6 @@ deploy_dev2:
   extends: .deploy_kustomize
   needs: 
     - prepare-ci
-    - deploy_dev1
   environment: 
     name: dev2
-    deployment_tier: staging
+    deployment_tier: development
