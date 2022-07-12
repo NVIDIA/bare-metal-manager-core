@@ -4,11 +4,12 @@ use cli::{CarbideClientError, CarbideClientResult};
 use rpc::forge::v0 as rpc;
 
 use ::rpc::machine_discovery::v0 as rpc_discovery;
+
 use libudev::{Context, Device};
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::str::{FromStr, Utf8Error};
 use tonic::Response;
@@ -143,7 +144,46 @@ pub fn get_machine_details(
             });
         }
     }
+    // on x86 physical_package_id == physical socket number
+    // package_cpu_list = list of CPU's sharing the same physical_package_id
+    // core_cpus_list = list of CPU's within the same core
+    // key name in attribute of 'nodeX' indicates the numa node the CPU is part of
+    let mut enumerator = libudev::Enumerator::new(&context)
+        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    enumerator
+        .match_subsystem("cpu")
+        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    let devices = enumerator
+        .scan_devices()
+        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
 
+    for device in devices {
+        debug!("Syspath - {:?}", device.syspath());
+        for p in device.properties() {
+            debug!("Property - {:?} - {:?}", p.name(), p.value());
+        }
+        for a in device.attributes() {
+            debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+        }
+    }
+    let mut enumerator = libudev::Enumerator::new(&context)
+        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    enumerator
+        .match_subsystem("node")
+        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    let devices = enumerator
+        .scan_devices()
+        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+
+    for device in devices {
+        debug!("Syspath - {:?}", device.syspath());
+        for p in device.properties() {
+            debug!("Property - {:?} - {:?}", p.name(), p.value());
+        }
+        for a in device.attributes() {
+            debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+        }
+    }
     // cpus
     // TODO(baz): make this work with udev one day... I tried and it gave me useless information on the cpu subsystem
     let cpu_info =
@@ -191,7 +231,7 @@ pub fn get_machine_details(
                 .ok_or(CarbideClientError::GenericError(
                     "Could not get cpu core id field".to_string(),
                 ))?,
-            node: 2,
+            node: 0,
         });
     }
 
@@ -231,9 +271,9 @@ pub fn get_machine_details(
         }
     }
 
-    println!("{:?}", disks);
-    println!("{:?}", cpus);
-    println!("{:?}", nics);
+    debug!("Disks sent to carbide - {:?}", disks);
+    debug!("CPUs sent to carbide - {:?}", cpus);
+    debug!("NICS send to carbide - {:?}", nics);
 
     let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
         .map(|m| m.into())
@@ -241,7 +281,15 @@ pub fn get_machine_details(
 
     Ok(rpc::MachineDiscoveryInfo {
         machine_id: Some(rpc_uuid),
-        discovery_data: None,
+        discovery_data: Some(
+            ::rpc::forge::v0::machine_discovery_info::DiscoveryData::InfoV0(
+                rpc_discovery::DiscoveryInfo {
+                    network_interfaces: nics,
+                    cpus: cpus,
+                    block_devices: disks,
+                },
+            ),
+        ),
     })
 }
 
