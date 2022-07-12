@@ -32,8 +32,9 @@ use rust_fsm::*;
 // In order for CLion to grok the generated files, we need to use include! instead of
 // tonic's built in include. To include the proto build in CLion, ensure that the experimental
 // `org.rust.cargo.evaluate.build.scripts` flag is enabled.
-include!("generated/mod.rs");
-pub const REFLECTION_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("generated/forge.v0.bin");
+include!(concat!(env!("OUT_DIR"), "/common.rs"));
+
+pub const REFLECTION_SERVICE_DESCRIPTOR: &[u8] = tonic::include_file_descriptor_set!("forge.v0");
 
 pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
     let mut expected = Vec::new();
