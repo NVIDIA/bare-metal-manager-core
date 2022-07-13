@@ -9,7 +9,7 @@ name = "ipmi-proxy"
 path = "src/main.rs"
 
 [dependencies]
-uuid = { version = "0.8", features = ["v4", "serde"] }
+uuid = { version = "0.8.2", features = ["v4", "serde"] }
 carbide-api = { path = "../../api" }
 sqlx = { version = "0.5", features = [ "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json" ] }
 tokio = { version = "1.9", features = ["full"] }
@@ -22,6 +22,6 @@ anyhow = { version = "1.0.53" }
 log = { version = "*", features = ["serde"] }
 pretty_env_logger = "*"
 color-eyre = "0.5.11"
-clap = { version = "~3.0.0", features = ["derive"] }
+clap = { version = "~3", features = ["derive"] }
 
 lazy_static = "1.4.0"

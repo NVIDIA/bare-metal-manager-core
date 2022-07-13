@@ -174,29 +174,29 @@ impl Serialize for Domain {
     }
 }
 
-impl From<uuid::Uuid> for Uuid {
-    fn from(uuid: uuid::Uuid) -> Uuid {
-        Uuid {
+impl From<uuid::Uuid> for forge::v0::Uuid {
+    fn from(uuid: uuid::Uuid) -> forge::v0::Uuid {
+        forge::v0::Uuid {
             value: uuid.to_hyphenated().to_string(),
         }
     }
 }
 
-impl TryFrom<Uuid> for uuid::Uuid {
+impl TryFrom<forge::v0::Uuid> for uuid::Uuid {
     type Error = uuid::Error;
     fn try_from(uuid: Uuid) -> Result<Self, Self::Error> {
         uuid::Uuid::parse_str(&uuid.value)
     }
 }
 
-impl TryFrom<&Uuid> for uuid::Uuid {
+impl TryFrom<&forge::v0::Uuid> for uuid::Uuid {
     type Error = uuid::Error;
     fn try_from(uuid: &Uuid) -> Result<Self, Self::Error> {
         uuid::Uuid::parse_str(&uuid.value)
     }
 }
 
-impl Display for Uuid {
+impl Display for forge::v0::Uuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match uuid::Uuid::try_from(self) {
             Ok(uuid) => write!(f, "{}", uuid),

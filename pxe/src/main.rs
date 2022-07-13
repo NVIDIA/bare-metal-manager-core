@@ -5,7 +5,6 @@ use clap::Parser;
 
 use serde::Serialize;
 use std::{default::Default, fmt::Debug, fmt::Display};
-use uuid::Uuid;
 
 mod routes;
 
@@ -19,16 +18,17 @@ use rocket::{
     Request,
 };
 use rocket_dyn_templates::Template;
-use rpc::forge::v0 as rpc;
+
+use rpc::forge::v0;
 
 use ::rpc::forge::v0::forge_client::ForgeClient;
 use ::rpc::forge::v0::InterfaceSearchQuery;
 
 #[derive(Debug)]
 pub struct Machine {
-    interface: rpc::MachineInterface,
+    interface: v0::MachineInterface,
     #[allow(dead_code)]
-    machine: Option<rpc::Machine>,
+    machine: Option<v0::Machine>,
 }
 
 #[derive(Clone)]
@@ -102,7 +102,7 @@ impl<'r> FromRequest<'r> for Machine {
     type Error = RPCError<'r>;
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
-        let uuid = match request.query_value::<Uuid>("uuid") {
+        let uuid = match request.query_value::<rocket::serde::uuid::Uuid>("uuid") {
             Some(Ok(uuid)) => uuid,
             Some(Err(errs)) => {
                 return request::Outcome::Failure((
@@ -111,8 +111,8 @@ impl<'r> FromRequest<'r> for Machine {
                 ))
             }
             None => {
-                eprintln!("{:#?}", request.param::<Uuid>(0));
-                match request.param::<Uuid>(0) {
+                eprintln!("{:#?}", request.param::<rocket::serde::uuid::Uuid>(0));
+                match request.param::<rocket::serde::uuid::Uuid>(0) {
                     Some(uuid) => uuid.unwrap(),
                     None => {
                         return request::Outcome::Failure((
@@ -145,8 +145,9 @@ impl<'r> FromRequest<'r> for Machine {
         };
 
         let request = tonic::Request::new(InterfaceSearchQuery {
-            id: Some(uuid.into()),
-            ..Default::default()
+            id: Some(rpc::forge::v0::Uuid {
+                value: uuid.to_string(),
+            }),
         });
 
         let interface = match client.find_interfaces(request).await {
