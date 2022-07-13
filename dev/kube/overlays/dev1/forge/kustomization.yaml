@@ -16,6 +16,7 @@ resources:
   - secrets/dockersecret.yaml
   - configs/postgres_carbide.yaml
   - configs/carbide-http-service.yaml
+  - configs/carbide-http-service-external.yaml
   - configs/carbide-pxe-http.yaml
 namespace: forge-system
 patchesStrategicMerge:
