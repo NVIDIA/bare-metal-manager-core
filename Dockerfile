@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libfreeipmi17 \
   libipmiconsole-dev \
   libipmiconsole2 \
+  cmake \
   && rm -rf /var/lib/apt/lists/*
 
 RUN rustup component add rustfmt rust-src
