@@ -5,52 +5,13 @@ Copyright 2022 NVIDIA CORPORATION & AFFILIATES.
 package internal
 
 import (
-	"fmt"
 	"net"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	resource "gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1"
 )
 
-type NetworkRequest struct {
-	Key           client.ObjectKey
-	DHCPServer    net.IP
-	OverlayIPPool string
-	FabricIPPool  string
-	Gateway       net.IP
-	IPNet         *net.IPNet
-	Exist         bool
-	VNI           uint32
-	VLAN          uint32
-}
-
-func (n *NetworkRequest) Populate(rg *resource.ResourceGroup) *NetworkRequest {
-	n.Key = client.ObjectKey{
-		Namespace: rg.Namespace,
-		Name:      rg.Name,
-	}
-	n.DHCPServer = net.ParseIP(string(rg.Spec.DHCPServer))
-	n.OverlayIPPool = rg.Spec.OverlayIPPool
-	n.FabricIPPool = rg.Spec.FabricIPPool
-	network := rg.Status.Network
-	if network == nil {
-		network = rg.Spec.Network
-	}
-	if network != nil {
-		_, n.IPNet, _ = net.ParseCIDR(fmt.Sprintf("%s/%d", network.IP, network.PrefixLength))
-		n.Gateway = net.ParseIP(string(network.Gateway))
-	}
-	if rg.Status.FabricNetworkConfiguration != nil {
-		n.VNI = rg.Status.FabricNetworkConfiguration.VNI
-		n.VLAN = rg.Status.FabricNetworkConfiguration.VlanID
-	}
-	n.Exist = rg.Status.Network != nil
-	return n
-}
-
 type PortRequest struct {
-	Key          client.ObjectKey
+	name         string
 	Identifier   string
 	DCHPServer   net.IP
 	FabricIPPool string
@@ -62,11 +23,12 @@ type PortRequest struct {
 	DPUIPs       []net.IP
 }
 
+func (p *PortRequest) Key() string {
+	return "mr/" + p.name
+}
+
 func (p *PortRequest) Populate(mr *resource.ManagedResource, rg *resource.ResourceGroup) *PortRequest {
-	p.Key = client.ObjectKey{
-		Namespace: mr.Namespace,
-		Name:      mr.Name,
-	}
+	p.name = mr.Name
 	p.Identifier = mr.Spec.HostInterface
 	p.HostIP = net.ParseIP(string(mr.Spec.HostInterfaceIP))
 	p.HostMAC, _ = net.ParseMAC(string(mr.Spec.HostInterfaceMAC))
@@ -92,8 +54,12 @@ func (p *PortRequest) Update(rt *managedResourceRuntime) {
 	}
 }
 
-func (p *PortRequest) Equal(o *PortRequest) bool {
-	eq := p.Key == o.Key && p.DCHPServer.Equal(o.DCHPServer) && p.Isolated == o.Isolated && p.HostIP.Equal(o.HostIP) &&
+func (p *PortRequest) Equal(i ConfigurationRequest) bool {
+	o, ok := i.(*PortRequest)
+	if !ok {
+		return false
+	}
+	eq := p.DCHPServer.Equal(o.DCHPServer) && p.Isolated == o.Isolated && p.HostIP.Equal(o.HostIP) &&
 		p.NeedFabricIP == o.NeedFabricIP
 	if !eq {
 		return false
@@ -102,4 +68,24 @@ func (p *PortRequest) Equal(o *PortRequest) bool {
 		return true
 	}
 	return p.FabricIP.Equal(o.FabricIP)
+}
+
+func (p *PortRequest) GetBackendState(m *vpcManager) (ConfigurationBackendState, error) {
+	rt := m.managedResources.Get(p.name)
+	if rt == nil {
+		return BackendStateUnknown, nil
+	}
+	return rt.State, rt.Error
+}
+
+func (p *PortRequest) SetBackendState(m *vpcManager, state ConfigurationBackendState, err error, notifyChange bool) error {
+	m.managedResources.Update(p.name, func(stored *managedResourceRuntime) *managedResourceRuntime {
+		stored.State = state
+		stored.Error = err
+		return stored
+	})
+	if notifyChange {
+		m.managedResources.NotifyChange(p.name)
+	}
+	return nil
 }

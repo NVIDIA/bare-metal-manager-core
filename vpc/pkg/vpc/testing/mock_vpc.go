@@ -93,6 +93,20 @@ func (mr *MockVPCManagerMockRecorder) CreateOrUpdateNetworkDevice(arg0, arg1, ar
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrUpdateNetworkDevice", reflect.TypeOf((*MockVPCManager)(nil).CreateOrUpdateNetworkDevice), arg0, arg1, arg2)
 }
 
+// CreateOrUpdateNetworkPolicy mocks base method.
+func (m *MockVPCManager) CreateOrUpdateNetworkPolicy(arg0 context.Context, arg1 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateOrUpdateNetworkPolicy", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateOrUpdateNetworkPolicy indicates an expected call of CreateOrUpdateNetworkPolicy.
+func (mr *MockVPCManagerMockRecorder) CreateOrUpdateNetworkPolicy(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrUpdateNetworkPolicy", reflect.TypeOf((*MockVPCManager)(nil).CreateOrUpdateNetworkPolicy), arg0, arg1)
+}
+
 // CreateOrUpdateOverlayNetwork mocks base method.
 func (m *MockVPCManager) CreateOrUpdateOverlayNetwork(arg0 context.Context, arg1 string) error {
 	m.ctrl.T.Helper()
@@ -105,6 +119,20 @@ func (m *MockVPCManager) CreateOrUpdateOverlayNetwork(arg0 context.Context, arg1
 func (mr *MockVPCManagerMockRecorder) CreateOrUpdateOverlayNetwork(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrUpdateOverlayNetwork", reflect.TypeOf((*MockVPCManager)(nil).CreateOrUpdateOverlayNetwork), arg0, arg1)
+}
+
+// DeleteNetworkPolicy mocks base method.
+func (m *MockVPCManager) DeleteNetworkPolicy(arg0 context.Context, arg1 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteNetworkPolicy", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteNetworkPolicy indicates an expected call of DeleteNetworkPolicy.
+func (mr *MockVPCManagerMockRecorder) DeleteNetworkPolicy(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNetworkPolicy", reflect.TypeOf((*MockVPCManager)(nil).DeleteNetworkPolicy), arg0, arg1)
 }
 
 // DeleteOverlayNetwork mocks base method.
@@ -148,6 +176,21 @@ func (m *MockVPCManager) GetNetworkDeviceProperties(arg0 context.Context, arg1, 
 func (mr *MockVPCManagerMockRecorder) GetNetworkDeviceProperties(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetworkDeviceProperties", reflect.TypeOf((*MockVPCManager)(nil).GetNetworkDeviceProperties), arg0, arg1, arg2)
+}
+
+// GetNetworkPolicyProperties mocks base method.
+func (m *MockVPCManager) GetNetworkPolicyProperties(arg0 context.Context, arg1 string) (*properties.NetworkPolicyProperties, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNetworkPolicyProperties", arg0, arg1)
+	ret0, _ := ret[0].(*properties.NetworkPolicyProperties)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNetworkPolicyProperties indicates an expected call of GetNetworkPolicyProperties.
+func (mr *MockVPCManagerMockRecorder) GetNetworkPolicyProperties(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetworkPolicyProperties", reflect.TypeOf((*MockVPCManager)(nil).GetNetworkPolicyProperties), arg0, arg1)
 }
 
 // GetOverlayNetworkProperties mocks base method.

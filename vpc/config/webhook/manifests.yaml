@@ -76,6 +76,27 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-networkpolicy
+  failurePolicy: Fail
+  name: mnetworkpolicy.kb.io
+  rules:
+  - apiGroups:
+    - resource.vpc.forge.gitlab-master.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - networkpolicies
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-resourcegroup
   failurePolicy: Fail
   name: mresourcegroup.kb.io
@@ -160,6 +181,27 @@ webhooks:
     - UPDATE
     resources:
     - managedresources
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-networkpolicy
+  failurePolicy: Fail
+  name: vnetworkpolicy.kb.io
+  rules:
+  - apiGroups:
+    - resource.vpc.forge.gitlab-master.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - networkpolicies
   sideEffects: None
 - admissionReviewVersions:
   - v1

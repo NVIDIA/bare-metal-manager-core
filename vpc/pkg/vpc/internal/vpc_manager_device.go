@@ -20,6 +20,14 @@ type vpcManagerDevice struct {
 	k8sNamespace     string
 }
 
+type networkDeviceOp struct {
+	NetworkDevice
+	devicePort   string
+	hostAdmin    bool
+	resourceName string
+	resourceKind string
+}
+
 // NotifyChange notifies the front end that NetworkDevice has changed.
 func (q *vpcManagerDevice) NotifyChange(key string, hostNics []string) {
 	kind, name := getNetworkDeviceK8sKindName(key)

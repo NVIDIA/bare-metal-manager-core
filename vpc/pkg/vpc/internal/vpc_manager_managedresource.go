@@ -7,46 +7,51 @@ package internal
 import (
 	"context"
 	"net"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	networkfabric "gitlab-master.nvidia.com/forge/vpc/apis/networkfabric/v1alpha1"
 	resource "gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1"
 	"gitlab-master.nvidia.com/forge/vpc/controllers"
 	"gitlab-master.nvidia.com/forge/vpc/pkg/resourcepool"
 )
 
+type ConfigurationBackendResult struct {
+	State ConfigurationBackendState
+	Error error
+}
+
 type managedResourceRuntime struct {
-	Key          client.ObjectKey
+	Key          string
 	Identifier   string
 	FabricIP     net.IP
 	FabricIPPool *resourcepool.IPv4BlockPool
 	NetworkImpl  OverlayNetworkImplementation
-	State        ManagedResourceBackendState
-	InReconcile  bool
-	Error        error
+	DoReconcile  bool
+	ConfigurationBackendResult
 }
 
 func (m *managedResourceRuntime) Copy() *managedResourceRuntime {
 	return &managedResourceRuntime{
-		Key:          m.Key,
-		Identifier:   m.Identifier,
-		FabricIP:     m.FabricIP,
-		FabricIPPool: m.FabricIPPool,
-		NetworkImpl:  m.NetworkImpl,
-		State:        m.State,
-		Error:        m.Error,
-		InReconcile:  m.InReconcile,
+		Key:                        m.Key,
+		Identifier:                 m.Identifier,
+		FabricIP:                   m.FabricIP,
+		FabricIPPool:               m.FabricIPPool,
+		NetworkImpl:                m.NetworkImpl,
+		ConfigurationBackendResult: m.ConfigurationBackendResult,
+		DoReconcile:                m.DoReconcile,
 	}
 }
 
 type vpcManagerManagedResource struct {
-	indexer     cache.Indexer
-	log         logr.Logger
-	eventQueue  *vpcManagerEventQueue
-	resourceMgr *resourcepool.Manager
+	mutex        sync.Mutex
+	indexer      cache.Indexer
+	log          logr.Logger
+	k8sNamespace string
+	eventQueue   *vpcManagerEventQueue
+	resourceMgr  *resourcepool.Manager
 }
 
 // NotifyNetworkDeviceChange notifies the front end ManagedResource changes due to
@@ -85,13 +90,17 @@ func (r *vpcManagerManagedResource) NotifyResourceGroupChange(rg client.ObjectKe
 }
 
 // NotifyChange notifies the front end ManagedResource changes.
-func (r *vpcManagerManagedResource) NotifyChange(key client.ObjectKey) {
+func (r *vpcManagerManagedResource) NotifyChange(key string) {
 	rt := r.Get(key)
 	if rt == nil {
-		r.log.Info("Unknown managedResource", "ManagedResource", key)
+		r.log.Info("Notify unknown managedResource", "ManagedResource", key)
 		return
 	}
-	r.eventQueue.AddEvent(resource.ManagedResourceName, rt.Key)
+
+	r.eventQueue.AddEvent(resource.ManagedResourceName, client.ObjectKey{
+		Namespace: r.k8sNamespace,
+		Name:      rt.Key,
+	})
 }
 
 // CreateOrUpdate creates or updates a ManagedResource runtime.
@@ -100,12 +109,11 @@ func (r *vpcManagerManagedResource) CreateOrUpdate(req *PortRequest, impl Overla
 	*managedResourceRuntime, error) {
 	rt := &managedResourceRuntime{
 		Identifier:  req.Identifier,
-		Key:         req.Key,
+		Key:         req.name,
 		NetworkImpl: impl,
 	}
 	if len(req.FabricIPPool) > 0 {
-		rt.FabricIPPool = r.resourceMgr.GetIPv4Pool(
-			networkfabric.WellKnownConfigurationResourcePool(req.FabricIPPool))
+		rt.FabricIPPool = r.resourceMgr.GetIPv4Pool(req.FabricIPPool)
 		if rt.FabricIPPool == nil {
 			return nil, NewMissingResourcePoolError(req.FabricIPPool)
 		}
@@ -122,7 +130,7 @@ func (r *vpcManagerManagedResource) CreateOrUpdate(req *PortRequest, impl Overla
 		}
 		rt.FabricIP = net.ParseIP(ip)
 	}
-	if i, ok, _ := r.indexer.GetByKey(rt.Key.String()); ok {
+	if i, ok, _ := r.indexer.GetByKey(rt.Key); ok {
 		// Preserve state from backend.
 		rt.State = i.(*managedResourceRuntime).State
 		rt.Error = i.(*managedResourceRuntime).Error
@@ -131,20 +139,28 @@ func (r *vpcManagerManagedResource) CreateOrUpdate(req *PortRequest, impl Overla
 		if IsManagedResourceReady(mr) {
 			// controller restarted, reconcile with existing ManagedResources.
 			rt.State = StringToManagedResourceBackendState(mr.Status.NetworkFabricReference.ConfigurationState)
-			rt.InReconcile = true
+			rt.DoReconcile = true
 		}
 	}
 	return rt, r.indexer.Update(rt)
 }
 
 // Update updates an existing ManagedResource runtime.
-func (r *vpcManagerManagedResource) Update(rt *managedResourceRuntime) error {
-	return r.indexer.Update(rt.Copy())
+func (r *vpcManagerManagedResource) Update(key string, updater func(_ *managedResourceRuntime) *managedResourceRuntime) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	rt := r.getLocked(key)
+	if rt == nil {
+		r.log.Info("Update unknown managedResource", "ManagedResource", key)
+		return nil
+	}
+	rt = updater(rt)
+	return r.indexer.Update(rt)
 }
 
 // Delete deletes ManagedResource runtime.
-func (r *vpcManagerManagedResource) Delete(objKey client.ObjectKey) error {
-	i, ok, _ := r.indexer.GetByKey(objKey.String())
+func (r *vpcManagerManagedResource) Delete(key string) error {
+	i, ok, _ := r.indexer.GetByKey(key)
 	if !ok {
 		return nil
 	}
@@ -158,14 +174,16 @@ func (r *vpcManagerManagedResource) Delete(objKey client.ObjectKey) error {
 }
 
 // Get returns a copy of ManagedResource runtime.
-func (r *vpcManagerManagedResource) Get(objKey client.ObjectKey) *managedResourceRuntime {
-	var i interface{}
-	var ok bool
-	if len(objKey.Name) > 0 {
-		i, ok, _ = r.indexer.GetByKey(objKey.String())
-	}
+func (r *vpcManagerManagedResource) getLocked(key string) *managedResourceRuntime {
+	i, ok, _ := r.indexer.GetByKey(key)
 	if !ok {
 		return nil
 	}
 	return i.(*managedResourceRuntime).Copy()
+}
+
+func (r *vpcManagerManagedResource) Get(key string) *managedResourceRuntime {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	return r.getLocked(key)
 }

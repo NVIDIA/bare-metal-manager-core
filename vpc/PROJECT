@@ -66,4 +66,17 @@ resources:
     defaulting: true
     validation: true
     webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: vpc.forge.gitlab-master.nvidia.com
+  group: resource
+  kind: NetworkPolicy
+  path: gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1
+  version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 version: "3"

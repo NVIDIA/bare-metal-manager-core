@@ -1,0 +1,7 @@
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: NetworkPolicy
+metadata:
+  name: networkpolicy-sample
+spec:
+  # Add fields here
+  foo: bar

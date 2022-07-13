@@ -5,6 +5,8 @@
 *.dll
 *.so
 *.dylib
+.vscode
+.go
 bin
 testbin/*
 

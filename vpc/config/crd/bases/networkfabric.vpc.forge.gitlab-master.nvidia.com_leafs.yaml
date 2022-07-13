@@ -23,6 +23,9 @@ spec:
     - jsonPath: .spec.control.maintenanceMode
       name: maintenance
       type: string
+    - jsonPath: .status.hostAdminIPs
+      name: host-ip
+      type: string
     - jsonPath: .status.conditions[0].status
       name: Status
       type: string
@@ -121,6 +124,11 @@ spec:
               loopbackIP:
                 description: LoobackIP assigned to this leaf.
                 type: string
+              networkPolicies:
+                description: NetworkPolicies applied to this Leaf.
+                items:
+                  type: string
+                type: array
             type: object
         type: object
     served: true

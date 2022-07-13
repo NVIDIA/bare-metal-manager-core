@@ -19,6 +19,10 @@ webhooks:
     namespaceSelector:
       matchLabels:
         namespace: $(SERVICE_NAMESPACE)
+  - name: mnetworkpolicy.kb.io
+    namespaceSelector:
+      matchLabels:
+        namespace: $(SERVICE_NAMESPACE)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -38,6 +42,10 @@ webhooks:
       matchLabels:
         namespace: $(SERVICE_NAMESPACE)
   - name: vresourcegroup.kb.io
+    namespaceSelector:
+      matchLabels:
+        namespace: $(SERVICE_NAMESPACE)
+  - name: vnetworkpolicy.kb.io
     namespaceSelector:
       matchLabels:
         namespace: $(SERVICE_NAMESPACE)

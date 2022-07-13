@@ -89,12 +89,15 @@ type LeafStatus struct {
 	HostAdminIPs map[string]string `json:"hostAdminIPs,omitempty"`
 	// HostAdminDHCPServer is the DHCPServer for hosts in un-assigned state.
 	HostAdminDHCPServer string `json:"hostAdminDHCPServer,omitempty"`
+	// NetworkPolicies applied to this Leaf.
+	NetworkPolicies []string `json:"networkPolicies,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="mgmt-ip",type=string,JSONPath=`.spec.control.managementIP`
 //+kubebuilder:printcolumn:name="maintenance",type=string,JSONPath=`.spec.control.maintenanceMode`
+//+kubebuilder:printcolumn:name="host-ip",type=string,JSONPath=`.status.hostAdminIPs`
 //+kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.conditions[0].status`
 
 // Leaf is the Schema for the leaf device API

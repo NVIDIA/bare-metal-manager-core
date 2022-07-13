@@ -12,7 +12,10 @@ import (
 )
 
 var (
-	HBNConfig = &internal.HBNConfig
+	HBNConfig                             = &internal.HBNConfig
+	NetworkPolicyPriorityMap              = &internal.NetworkPolicyPriorityRuleIDMap
+	NetworkPolicyPriorityRuleIDMapDefault = internal.NetworkPolicyPriorityRuleIDMapDefault
+	EnableNetworkPolicy                   = &internal.EnableNetworkPolicy
 )
 
 type VPCManager interface {
@@ -34,6 +37,13 @@ type VPCManager interface {
 	GetNetworkDeviceProperties(ctx context.Context, kind, name string) (*properties.NetworkDeviceProperties, error)
 	// RemoveNetworkDevice removes a network device.
 	RemoveNetworkDevice(_ context.Context, kind, name string) error
+	// CreateOrUpdateNetworkPolicy creates or updates an NetworkPolicy.
+	CreateOrUpdateNetworkPolicy(ctx context.Context, name string) error
+	// DeleteNetworkPolicy deletes an NetworkPolicy.
+	DeleteNetworkPolicy(ctx context.Context, name string) error
+	// GetNetworkPolicyProperties returns a NetworkPolicy properties.
+	GetNetworkPolicyProperties(ctx context.Context, name string) (*properties.NetworkPolicyProperties, error)
+
 	// Start the VPC manager.
 	Start(ctx context.Context) error
 	// GetEvent indicates some backend event(s) has happened to a K8s Resource.

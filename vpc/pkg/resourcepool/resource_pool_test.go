@@ -57,10 +57,17 @@ var _ = Describe("ResourcePool", func() {
 			err = k8sClient.Delete(context.Background(), &item)
 			Expect(err).ToNot(HaveOccurred())
 		}
+		npList := &v1alpha12.NetworkPolicyList{}
+		err = k8sClient.List(context.Background(), npList, client.InNamespace(namespace))
+		Expect(err).ToNot(HaveOccurred())
+		for _, item := range npList.Items {
+			err = k8sClient.Delete(context.Background(), &item)
+			Expect(err).ToNot(HaveOccurred())
+		}
 	})
 
 	table.DescribeTable("IP resource pool",
-		func(poolName v1alpha1.WellKnownConfigurationResourcePool, prefixLen int32) {
+		func(poolName string, prefixLen int32) {
 			mgr := resourcepool.NewManager(k8sClient, namespace)
 			if prefixLen == 0 {
 				prefixLen = 8 + randGen.Int31n(23) // prefixlen 8-30
@@ -102,7 +109,7 @@ var _ = Describe("ResourcePool", func() {
 			By("Reconcile resources from the pool")
 
 			rg1 := &v1alpha12.ResourceGroup{}
-			if poolName != v1alpha1.OverlayIPv4ResourcePool {
+			if poolName != string(v1alpha1.OverlayIPv4ResourcePool) {
 				rg1.Name = "rg-fabric"
 				rg1.Namespace = namespace
 				rg1.Spec.FabricIPPool = string(poolName)
@@ -110,7 +117,7 @@ var _ = Describe("ResourcePool", func() {
 				Expect(err).ToNot(HaveOccurred())
 			}
 			for ip := range allocated {
-				if poolName == v1alpha1.OverlayIPv4ResourcePool {
+				if poolName == string(v1alpha1.OverlayIPv4ResourcePool) {
 					rg := &v1alpha12.ResourceGroup{}
 					rg.Name = "rg-" + ip
 					rg.Namespace = namespace
@@ -150,12 +157,12 @@ var _ = Describe("ResourcePool", func() {
 			err = mgr.Delete(poolName)
 			Expect(err).ToNot(HaveOccurred())
 		},
-		table.Entry("Overlay IP pool", v1alpha1.OverlayIPv4ResourcePool, int32(0)),
-		table.Entry("Public IP pool", v1alpha1.PublicIPv4ResourcePool, int32(32)),
-		table.Entry("Datacenter IP pool", v1alpha1.DatacenterIPv4ResourcePool, int32(32)))
+		table.Entry("Overlay IP pool", string(v1alpha1.OverlayIPv4ResourcePool), int32(0)),
+		table.Entry("Public IP pool", string(v1alpha1.PublicIPv4ResourcePool), int32(32)),
+		table.Entry("Datacenter IP pool", string(v1alpha1.DatacenterIPv4ResourcePool), int32(32)))
 
 	table.DescribeTable("Integer resource pool",
-		func(poolName v1alpha1.WellKnownConfigurationResourcePool) {
+		func(poolName string) {
 			mgr := resourcepool.NewManager(k8sClient, namespace)
 			rangeSize := 1 + randGen.Intn(3)
 			cnt := 1 + randGen.Intn(24)
@@ -191,24 +198,37 @@ var _ = Describe("ResourcePool", func() {
 			Expect(intPool.Available()).To(Equal(count), "Restored to initial state")
 
 			By("Reconcile resources from the pool")
-			for val := range allocated {
-				rg := &v1alpha12.ResourceGroup{}
-				rg.Name = fmt.Sprintf("rg-%d", val)
-				rg.Namespace = namespace
-				rg.Spec.NetworkImplementationType = v1alpha12.OverlayNetworkImplementationTypeFabric
-				if poolName == v1alpha1.VNIResourcePool {
-					rg.Status.FabricNetworkConfiguration = &v1alpha12.FabricNetworkConfiguration{
-						VNI: uint32(val),
-					}
-				} else if poolName == v1alpha1.VlanIDResourcePool {
-					rg.Status.FabricNetworkConfiguration = &v1alpha12.FabricNetworkConfiguration{
-						VlanID: uint32(val),
-					}
+			if poolName == resourcepool.RuntimePoolNetworkPolicyIDPool {
+				for val := range allocated {
+					np := &v1alpha12.NetworkPolicy{}
+					np.Name = fmt.Sprintf("np-%d", val)
+					np.Namespace = namespace
+					np.Status.ID = uint16(val)
+					err := k8sClient.Create(context.Background(), np)
+					Expect(err).ToNot(HaveOccurred())
+					err = k8sClient.Status().Update(context.Background(), np)
+					Expect(err).ToNot(HaveOccurred())
 				}
-				err := k8sClient.Create(context.Background(), rg)
-				Expect(err).ToNot(HaveOccurred())
-				err = k8sClient.Status().Update(context.Background(), rg)
-				Expect(err).ToNot(HaveOccurred())
+			} else {
+				for val := range allocated {
+					rg := &v1alpha12.ResourceGroup{}
+					rg.Name = fmt.Sprintf("rg-%d", val)
+					rg.Namespace = namespace
+					rg.Spec.NetworkImplementationType = v1alpha12.OverlayNetworkImplementationTypeFabric
+					if poolName == string(v1alpha1.VNIResourcePool) {
+						rg.Status.FabricNetworkConfiguration = &v1alpha12.FabricNetworkConfiguration{
+							VNI: uint32(val),
+						}
+					} else if poolName == string(v1alpha1.VlanIDResourcePool) {
+						rg.Status.FabricNetworkConfiguration = &v1alpha12.FabricNetworkConfiguration{
+							VlanID: uint32(val),
+						}
+					}
+					err := k8sClient.Create(context.Background(), rg)
+					Expect(err).ToNot(HaveOccurred())
+					err = k8sClient.Status().Update(context.Background(), rg)
+					Expect(err).ToNot(HaveOccurred())
+				}
 			}
 			err = intPool.Reconcile()
 			Expect(err).ToNot(HaveOccurred())
@@ -222,6 +242,7 @@ var _ = Describe("ResourcePool", func() {
 			err = mgr.Delete(poolName)
 			Expect(err).ToNot(HaveOccurred())
 		},
-		table.Entry("VNI pool", v1alpha1.VNIResourcePool),
-		table.Entry("Vlan pool ", v1alpha1.VlanIDResourcePool))
+		table.Entry("VNI pool", string(v1alpha1.VNIResourcePool)),
+		table.Entry("Vlan pool", string(v1alpha1.VlanIDResourcePool)),
+		table.Entry("NetworkPolicyID pool", resourcepool.RuntimePoolNetworkPolicyIDPool))
 })

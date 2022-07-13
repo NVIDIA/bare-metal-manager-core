@@ -59,6 +59,10 @@ pub struct LeafStatus {
     #[serde(rename = "loopbackIP")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loopback_ip: Option<String>,
+    /// NetworkPolicies applied to this Leaf.
+    #[serde(rename = "networkPolicies")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_policies: Option<Vec<String>>,
 }
 
 /// NetworkDeviceCondition indicates the transactions with the network device.

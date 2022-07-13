@@ -1,0 +1,60 @@
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: NetworkPolicy
+metadata:
+  name: admin-host-site-policy
+  namespace: forge-system
+spec:
+  leafSelector:
+    matchLabels:
+      admin-host-site-policy: "true"
+  egressRules:
+  # allow host egress to DNS
+  - toAddresses:
+      - ipCIDR: 1.2.3.4
+    ports:
+    - protocol: UDP
+      begin: 53
+  # allow host egress to pxe http server.
+  - toAddresses:
+      - ipCIDR: 1.2.3.5
+    ports:
+    - protocol: TCP
+      begin: 80
+    - protocol: TCP
+      begin: 8080
+---
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: NetworkPolicy
+metadata:
+  name: vpc-test-policy
+  namespace: forge-system
+spec:
+  managedResourceSelector:
+    matchLabels:
+      vpc-test: "true"
+  egressRules:
+  # allow egress traffic to anywhere.
+  - {}
+  ingressRules:
+    # allow ingress traffic from anywhere within vpc "test".
+  - fromAddresses:
+    - managedResourceSelector:
+        matchLabels:
+          vpc-test: "true"
+---
+apiVersion: resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1
+kind: NetworkPolicy
+metadata:
+  name: jump-host-policy
+  namespace: forge-system
+spec:
+  managedResourceSelector:
+    matchLabels:
+      jump-host: "true"
+  ingressRules:
+  # allow ingress traffic to ssh port.
+  - ports:
+    - protocol: TCP
+      begin: 22
+
+

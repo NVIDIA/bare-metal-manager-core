@@ -24,13 +24,14 @@ import (
 	"gitlab-master.nvidia.com/forge/vpc/controllers"
 	"gitlab-master.nvidia.com/forge/vpc/pkg/properties"
 	"gitlab-master.nvidia.com/forge/vpc/pkg/resourcepool"
+	"gitlab-master.nvidia.com/forge/vpc/pkg/utils"
 )
 
 type vpcManager struct {
 	mutex sync.Mutex
 	client.Client
 	overlayNetworks        map[string]*TenantNetwork
-	namespace              string
+	k8sNamespace           string
 	log                    logr.Logger
 	resourceMgr            *resourcepool.Manager
 	podController          *controllers.PodReconciler
@@ -39,6 +40,7 @@ type vpcManager struct {
 	eventQueue             *vpcManagerEventQueue
 	networkDevices         *vpcManagerDevice
 	networkDeviceTransport map[string]func(string, string, string, string, string) (NetworkDeviceTransport, error)
+	networkPolicyMgr       *NetworkPolicyManager
 }
 
 func NewManager(cl client.Client, podController *controllers.PodReconciler, crdNS string,
@@ -59,16 +61,16 @@ func NewManager(cl client.Client, podController *controllers.PodReconciler, crdN
 			return device.Key(), nil
 		},
 		cache.Indexers{
-			networkDeviceByConnectedHosts: func(obj interface{}) ([]string, error) {
+			networkDeviceByConnectedNICs: func(obj interface{}) ([]string, error) {
 				device := obj.(NetworkDevice)
-				return device.GetHostIdentifiers(), nil
+				return device.GetNICIdentifiers(), nil
 			},
 		})
 	managedResources := &vpcManagerManagedResource{
 		indexer: cache.NewIndexer(
 			func(obj interface{}) (string, error) {
 				r := obj.(*managedResourceRuntime)
-				return r.Key.String(), nil
+				return r.Key, nil
 			},
 			cache.Indexers{
 				managedResourceRuntimeByIdentifier: func(obj interface{}) ([]string, error) {
@@ -76,14 +78,15 @@ func NewManager(cl client.Client, podController *controllers.PodReconciler, crdN
 					return []string{r.Identifier}, nil
 				},
 			}),
-		log:         logf.Log.WithName("VPCManage:ManagedResourceRuntime"),
-		eventQueue:  eventQueue,
-		resourceMgr: resourceMgr,
+		log:          logf.Log.WithName("VPCManage:ManagedResourceRuntime"),
+		eventQueue:   eventQueue,
+		resourceMgr:  resourceMgr,
+		k8sNamespace: crdNS,
 	}
-	return &vpcManager{
+	mgr := &vpcManager{
 		Client:          cl,
 		overlayNetworks: make(map[string]*TenantNetwork),
-		namespace:       crdNS,
+		k8sNamespace:    crdNS,
 		podController:   podController,
 		eventQueue:      eventQueue,
 		networkDevices: &vpcManagerDevice{
@@ -101,6 +104,15 @@ func NewManager(cl client.Client, podController *controllers.PodReconciler, crdN
 		},
 		managedResources: managedResources,
 	}
+
+	if EnableNetworkPolicy {
+		var err error
+		if mgr.networkPolicyMgr, err = newNetworkPolicyManager(mgr.networkDevices, mgr.resourceMgr, mgr.eventQueue, crdNS); err != nil {
+			logf.Log.WithName("VPCManage").Error(err, "Failed to create NetworkPolicyMgr")
+			return nil
+		}
+	}
+	return mgr
 }
 
 func getInternalNetworkDeviceName(kind, name string) string {
@@ -129,6 +141,11 @@ func (m *vpcManager) Start(ctx context.Context) error {
 			m.networkDevices.RunWorker()
 		}()
 	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		m.networkPolicyMgr.Start(ctx)
+	}()
 	<-ctx.Done()
 	for _, n := range m.overlayNetworks {
 		n.Stop <- struct{}{}
@@ -152,7 +169,7 @@ func (m *vpcManager) CreateOrUpdateOverlayNetwork(ctx context.Context, resourceG
 	m.log.V(1).Info("CreateOrUpdateOverlayNetwork", "ResourceGroup", resourceGroup)
 	rg := &resource.ResourceGroup{}
 	rgKey := client.ObjectKey{
-		Namespace: m.namespace,
+		Namespace: m.k8sNamespace,
 		Name:      resourceGroup,
 	}
 	var err error
@@ -272,7 +289,7 @@ func (m *vpcManager) AddOrUpdateResourceToNetwork(ctx context.Context, managedRe
 	m.log.V(1).Info("AddOrUpdateResourceToNetwork", "managedResource", managedResource)
 	var err error
 	mrKey := client.ObjectKey{
-		Namespace: m.namespace,
+		Namespace: m.k8sNamespace,
 		Name:      managedResource,
 	}
 	mr := &resource.ManagedResource{}
@@ -280,7 +297,7 @@ func (m *vpcManager) AddOrUpdateResourceToNetwork(ctx context.Context, managedRe
 		return nil
 	}
 	rgKey := client.ObjectKey{
-		Namespace: m.namespace,
+		Namespace: m.k8sNamespace,
 		Name:      mr.Spec.ResourceGroup,
 	}
 	rg := &resource.ResourceGroup{}
@@ -289,16 +306,20 @@ func (m *vpcManager) AddOrUpdateResourceToNetwork(ctx context.Context, managedRe
 	}
 	var t *TenantNetwork
 	var req *PortRequest
-	var rt *managedResourceRuntime
+	doreconcile := false
 	func() {
 		m.mutex.Lock()
 		defer m.mutex.Unlock()
+		var rt *managedResourceRuntime
 		t = m.getNetwork(mr.Spec.ResourceGroup)
 		if t == nil {
 			return
 		}
 		req = (&PortRequest{}).Populate(mr, rg)
 		rt, err = m.managedResources.CreateOrUpdate(req, t.OverlayNetworkImplementation, mr)
+		if rt != nil {
+			doreconcile = rt.DoReconcile
+		}
 	}()
 	if err != nil {
 		return err
@@ -310,19 +331,25 @@ func (m *vpcManager) AddOrUpdateResourceToNetwork(ctx context.Context, managedRe
 		}
 		return NewUnknownResourceGroupError(rg.Name)
 	}
+	// Notify changes to networkPolicy
+	npResource := (&NetworkPolicyResource{}).Populate(mr)
+	npErr := m.networkPolicyMgr.AddOrUpdateNetworkPolicyResource(npResource)
 	item := &WorkItem{
 		Call: func() (interface{}, error) {
-			return nil, t.AddOrUpdateResourceToNetwork(req, rt.InReconcile)
+			return nil, t.AddOrUpdateResourceToNetwork(req, doreconcile)
 		},
 	}
 	_, err = m.waitTenantWorkComplete(ctx, t, item)
-	_, ok := err.(*NetworkDeviceNotAvailableError)
-	if rt.InReconcile && ok {
-		return NewAlreadyExistError(resource.ManagedResourceName, managedResource)
+	if doreconcile {
+		if _, ok := err.(*NetworkDeviceNotAvailableError); ok {
+			return NewAlreadyExistError(resource.ManagedResourceName, managedResource)
+		}
+		_ = m.managedResources.Update(req.name, func(stored *managedResourceRuntime) *managedResourceRuntime {
+			stored.DoReconcile = false
+			return stored
+		})
 	}
-	rt.InReconcile = false
-	_ = m.managedResources.Update(rt)
-	return err
+	return utils.CombineErrors(npErr, err)
 }
 
 // GetResourceProperties retrieves properties of a ManagedResource from the backend.
@@ -330,7 +357,7 @@ func (m *vpcManager) GetResourceProperties(ctx context.Context, managedResource 
 	m.log.V(1).Info("GetResourceProperties", "ManagedResource", managedResource)
 	var err error
 	mrKey := client.ObjectKey{
-		Namespace: m.namespace,
+		Namespace: m.k8sNamespace,
 		Name:      managedResource,
 	}
 	mr := &resource.ManagedResource{}
@@ -360,7 +387,12 @@ func (m *vpcManager) GetResourceProperties(ctx context.Context, managedResource 
 	}
 	raw, err := m.waitTenantWorkComplete(ctx, t, item)
 	out, _ := raw.(*properties.ResourceProperties)
-	return out, err
+	// Get NetworkPolicy properties
+	npProperty, npErr := m.networkPolicyMgr.GetNetworkPolicyResourceProperty(mr.Name, resource.ManagedResourceName)
+	if npProperty != nil {
+		out.NetworkPolicyProperties = npProperty
+	}
+	return out, utils.CombineErrors(err, npErr)
 }
 
 // RemoveResourceToNetwork removes a ManagedResource from an overlay network.
@@ -368,7 +400,7 @@ func (m *vpcManager) RemoveResourceToNetwork(ctx context.Context, managedResourc
 	m.log.V(1).Info("RemoveResourceToNetwork", "ManagedResource", managedResource)
 	var err error
 	mrKey := client.ObjectKey{
-		Namespace: m.namespace,
+		Namespace: m.k8sNamespace,
 		Name:      managedResource,
 	}
 	mr := &resource.ManagedResource{}
@@ -390,16 +422,19 @@ func (m *vpcManager) RemoveResourceToNetwork(ctx context.Context, managedResourc
 	if t == nil {
 		return nil
 	}
+	// Notify changes to networkPolicy
+	npResource := (&NetworkPolicyResource{}).Populate(mr)
+	npErr := m.networkPolicyMgr.DeleteNetworkPolicyResource(npResource)
 	item := &WorkItem{
 		Call: func() (interface{}, error) {
 			return nil, t.DeleteResourceFromNetwork(req)
 		},
 	}
-	if _, err := m.waitTenantWorkComplete(ctx, t, item); err != nil {
-		return err
+	if _, err = m.waitTenantWorkComplete(ctx, t, item); err != nil {
+		return utils.CombineErrors(err, npErr)
 	}
-	_ = m.managedResources.Delete(mrKey)
-	return nil
+	_ = m.managedResources.Delete(mrKey.String())
+	return utils.CombineErrors(err, npErr)
 }
 
 // CreateOrUpdateNetworkDevice updates a network device and optionally probe the device,
@@ -411,7 +446,7 @@ func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name
 	}
 	leaf := &networkfabric.Leaf{}
 	oKey := client.ObjectKey{
-		Namespace: m.namespace,
+		Namespace: m.k8sNamespace,
 		Name:      name,
 	}
 	if err := m.Get(ctx, oKey, leaf); err != nil {
@@ -426,7 +461,7 @@ func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name
 		device = d.(NetworkDevice)
 		device.SetMaintenanceMode(leaf.Spec.Control.MaintenanceMode)
 		device.SetMgmtIP(leaf.Spec.Control.ManagementIP)
-		device.SetHostIdentifiers(leaf.Spec.HostInterfaces)
+		device.SetNICIdentifiers(leaf.Spec.HostInterfaces)
 		device.SetHostAdminIPs(leaf.Spec.HostAdminIPs, false)
 	} else {
 		if err := m.checkLeafPrerequisites(leaf); err != nil {
@@ -454,10 +489,13 @@ func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name
 	if err := m.networkDevices.Update(device); err != nil {
 		return err
 	}
+	// Notify changes to networkPolicy
+	npResource := (&NetworkPolicyResource{}).Populate(leaf)
+	npErr := m.networkPolicyMgr.AddOrUpdateNetworkPolicyResource(npResource)
 	if doReconcile {
 		return NewAlreadyExistError(kind, name)
 	}
-	return nil
+	return npErr
 }
 
 func (m *vpcManager) GetNetworkDeviceProperties(_ context.Context, kind, name string) (*properties.NetworkDeviceProperties, error) {
@@ -469,7 +507,13 @@ func (m *vpcManager) GetNetworkDeviceProperties(_ context.Context, kind, name st
 	if !ok {
 		return nil, NewNetworkDeviceNotAvailableError(kind, name)
 	}
-	return d.(NetworkDevice).GetProperties()
+	out, err := d.(NetworkDevice).GetProperties()
+	// Get NetworkPolicy properties
+	npProperty, npErr := m.networkPolicyMgr.GetNetworkPolicyResourceProperty(name, kind)
+	if npProperty != nil {
+		out.NetworkPolicyProperties = npProperty
+	}
+	return out, utils.CombineErrors(err, npErr)
 }
 
 // RemoveNetworkDevice removes a network device.
@@ -480,7 +524,7 @@ func (m *vpcManager) RemoveNetworkDevice(ctx context.Context, kind, name string)
 	case networkfabric.LeafName:
 		leaf := &networkfabric.Leaf{}
 		key := client.ObjectKey{
-			Namespace: m.namespace,
+			Namespace: m.k8sNamespace,
 			Name:      name,
 		}
 		if err := m.Get(ctx, key, leaf); err != nil {
@@ -509,8 +553,41 @@ func (m *vpcManager) RemoveNetworkDevice(ctx context.Context, kind, name string)
 		return err
 	}
 	m.networkDevices.Remove(dev.(NetworkDevice))
-	m.managedResources.NotifyNetworkDeviceChange(dev.(NetworkDevice).GetHostIdentifiers())
-	return err
+	m.managedResources.NotifyNetworkDeviceChange(dev.(NetworkDevice).GetNICIdentifiers())
+	// Notify changes to networkPolicy
+	npResource := &NetworkPolicyResource{
+		Kind: kind,
+		Name: name,
+	}
+	return m.networkPolicyMgr.DeleteNetworkPolicyResource(npResource)
+}
+
+func (m *vpcManager) CreateOrUpdateNetworkPolicy(ctx context.Context, name string) error {
+	np := &resource.NetworkPolicy{}
+	key := client.ObjectKey{
+		Namespace: m.k8sNamespace,
+		Name:      name,
+	}
+	if err := m.Get(ctx, key, np); err != nil {
+		return err
+	}
+	return m.networkPolicyMgr.AddOrUpdateNetworkPolicy((&NetworkPolicy{}).Populate(np))
+}
+
+func (m *vpcManager) DeleteNetworkPolicy(ctx context.Context, name string) error {
+	np := &resource.NetworkPolicy{}
+	key := client.ObjectKey{
+		Namespace: m.k8sNamespace,
+		Name:      name,
+	}
+	if err := m.Get(ctx, key, np); err != nil {
+		return err
+	}
+	return m.networkPolicyMgr.DeleteNetworkPolicy((&NetworkPolicy{}).Populate(np))
+}
+
+func (m *vpcManager) GetNetworkPolicyProperties(ctx context.Context, name string) (*properties.NetworkPolicyProperties, error) {
+	return m.networkPolicyMgr.GetNetworkPolicyProperty(name)
 }
 
 func (m *vpcManager) AddEvent(kind string, obj client.ObjectKey) {
@@ -575,13 +652,13 @@ func (m *vpcManager) checkResourceGroupPrerequisites(rg *resource.ResourceGroup)
 		return nil
 	}
 
-	resourcepools := []networkfabric.WellKnownConfigurationResourcePool{
+	resourcepools := []string{
 		// networkfabric.OverlayIPv4ResourcePool,
-		networkfabric.VNIResourcePool,
-		networkfabric.VlanIDResourcePool,
+		string(networkfabric.VNIResourcePool),
+		string(networkfabric.VlanIDResourcePool),
 	}
 	if HBNConfig.HBNDevice {
-		resourcepools = append(resourcepools, networkfabric.LoopbackIPResourcePool)
+		resourcepools = append(resourcepools, string(networkfabric.LoopbackIPResourcePool))
 	}
 	for _, name := range resourcepools {
 		if ipPool := m.resourceMgr.GetIPv4Pool(name); ipPool != nil {

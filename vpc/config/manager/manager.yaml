@@ -72,8 +72,8 @@ spec:
             memory: 20Mi
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
-      nodeSelector:
-        vpc.forge.nvidia.com/node: control
+      #nodeSelector:
+      #  vpc.forge.nvidia.com/node: control
 ---
 apiVersion: v1
 kind: Service

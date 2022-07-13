@@ -9,7 +9,21 @@ Please see .gitlab-ci.yaml for installation commands.
 
 [docker ce](https://docs.docker.com/engine/install/ubuntu/)
 
-# Build 
+# Build
+Binaries may be built either in a container or in local environment.
+
+To prepare build in local environment
+```bash
+export DOCKERIZED=false
+```
+
+To prepare build in docker
+```bash
+export DOCKERIZED=true
+mkdir -p .go/pkg
+mkdir -p .go/cache
+```
+
 ## Binaries
 ```bash
 make

@@ -9,6 +9,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"gitlab-master.nvidia.com/forge/vpc/pkg/vpc"
 )
 
 // HealthConfig contains health probing configuration.
@@ -38,6 +40,11 @@ type ForgeConfig struct {
 	HBNDevice bool `yaml:"hbnDevice,omitempty"`
 	// DefaultASN is default ASN assigned to leaf devices.
 	DefaultASN uint32 `yaml:"defaultASN,omitempty"`
+	// NetworkPolicyPriorityRuleIDMap maps networkPolicy priority to ruleID; where array index is
+	// the priority, and value in each element is the last RuleID for that priority.
+	NetworkPolicyPriorityRuleIDMap []uint16 `yaml:"networkPolicyPriorityRuleIDMap,omitempty"`
+	// EnableNetworkPolicy is true if NetworkPolicies CRDs are applied.
+	EnableNetworkPolicy bool `yaml:"enableNetworkPolicy,omitempty"`
 }
 
 // Config contains caller specified Controller configurations.
@@ -53,10 +60,6 @@ func (c *Config) Parse(in []byte) error {
 	if err := yaml.Unmarshal(in, c); err != nil {
 		return err
 	}
-	// Validate
-	if c.LeaderElection.LeaderElect && len(c.LeaderElection.ResourceName) == 0 {
-		return fmt.Errorf("election is enabled without providing election resource")
-	}
 	logf.Log.V(1).Info("Configure before defaulting", "Config", c)
 	// Defaulting
 	if len(c.Health.HealthProbeBindAddress) == 0 {
@@ -70,6 +73,28 @@ func (c *Config) Parse(in []byte) error {
 	}
 	if c.Forge.DefaultASN == 0 {
 		c.Forge.DefaultASN = 65535
+	}
+	if len(c.Forge.NetworkPolicyPriorityRuleIDMap) == 0 {
+		c.Forge.NetworkPolicyPriorityRuleIDMap = vpc.NetworkPolicyPriorityRuleIDMapDefault
+	}
+	return c.validate()
+}
+
+func (c *Config) validate() error {
+	// Validate
+	if c.LeaderElection.LeaderElect && len(c.LeaderElection.ResourceName) == 0 {
+		return fmt.Errorf("election is enabled without providing election resource")
+	}
+	if len(c.Forge.NetworkPolicyPriorityRuleIDMap) != len(vpc.NetworkPolicyPriorityRuleIDMapDefault) {
+		return fmt.Errorf("incorrect network policy ruleid priority mapping, expected %d priorities, got %d priorities",
+			len(vpc.NetworkPolicyPriorityRuleIDMapDefault), len(c.Forge.NetworkPolicyPriorityRuleIDMap))
+	}
+	lastRuleID := uint16(0)
+	for _, ruleID := range c.Forge.NetworkPolicyPriorityRuleIDMap {
+		if ruleID <= lastRuleID {
+			return fmt.Errorf("incorrect network policy ruleid priority mapping out of order")
+		}
+		lastRuleID = ruleID
 	}
 	return nil
 }

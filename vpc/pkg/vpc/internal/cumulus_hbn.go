@@ -162,7 +162,7 @@ func (h *HBN) Connect(forced bool) (err error) {
 		return nil
 	}
 	if h.asn == 0 {
-		pool := h.manager.resourceMgr.GetIntegerPool(v1alpha1.ASNResourcePool)
+		pool := h.manager.resourceMgr.GetIntegerPool(string(v1alpha1.ASNResourcePool))
 		if pool == nil {
 			h.asn = HBNConfig.DefaultASN
 		} else {
@@ -174,7 +174,7 @@ func (h *HBN) Connect(forced bool) (err error) {
 		}
 	}
 	if len(h.loopbackIP) == 0 {
-		pool := h.manager.resourceMgr.GetIPv4Pool(v1alpha1.LoopbackIPResourcePool)
+		pool := h.manager.resourceMgr.GetIPv4Pool(string(v1alpha1.LoopbackIPResourcePool))
 		if pool == nil {
 			return NewMissingResourcePoolError(string(v1alpha1.LoopbackIPResourcePool))
 		}

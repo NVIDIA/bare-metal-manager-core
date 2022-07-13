@@ -10,26 +10,28 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
-	"gitlab-master.nvidia.com/forge/vpc/apis/networkfabric/v1alpha1"
 )
 
 var (
 	log = logf.Log.WithName("Resource Pool")
 )
 
+var (
+	RuntimePoolNetworkPolicyIDPool = "rt-network-policy"
+)
+
 type Manager struct {
 	mutex        sync.Mutex
-	ipv4Pools    map[v1alpha1.WellKnownConfigurationResourcePool]*IPv4BlockPool
-	integerPools map[v1alpha1.WellKnownConfigurationResourcePool]*IntegerPool
+	ipv4Pools    map[string]*IPv4BlockPool
+	integerPools map[string]*IntegerPool
 	k8sClient    client.Client
 	namespace    string
 }
 
 func NewManager(k8sClient client.Client, k8sNS string) *Manager {
 	return &Manager{
-		ipv4Pools:    make(map[v1alpha1.WellKnownConfigurationResourcePool]*IPv4BlockPool),
-		integerPools: make(map[v1alpha1.WellKnownConfigurationResourcePool]*IntegerPool),
+		ipv4Pools:    make(map[string]*IPv4BlockPool),
+		integerPools: make(map[string]*IntegerPool),
 		k8sClient:    k8sClient,
 		namespace:    k8sNS,
 	}
@@ -37,7 +39,7 @@ func NewManager(k8sClient client.Client, k8sNS string) *Manager {
 
 // CreateIPv4Pool creates an IPv4 resource pool.
 func (m *Manager) CreateIPv4Pool(
-	poolName v1alpha1.WellKnownConfigurationResourcePool,
+	poolName string,
 	ranges [][]string, blkSizeBit uint) *IPv4BlockPool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -49,7 +51,7 @@ func (m *Manager) CreateIPv4Pool(
 
 // CreateIntegerPool creates an integer resource pool.
 func (m *Manager) CreateIntegerPool(
-	poolName v1alpha1.WellKnownConfigurationResourcePool,
+	poolName string,
 	ranges [][]uint64) *IntegerPool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -60,7 +62,7 @@ func (m *Manager) CreateIntegerPool(
 }
 
 // Delete deletes a resource pool.
-func (m *Manager) Delete(poolName v1alpha1.WellKnownConfigurationResourcePool) error {
+func (m *Manager) Delete(poolName string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	if _, ok := m.ipv4Pools[poolName]; ok {
@@ -77,7 +79,7 @@ func (m *Manager) Delete(poolName v1alpha1.WellKnownConfigurationResourcePool) e
 }
 
 // GetIPv4Pool returns an existing IPv4 resource pool.
-func (m *Manager) GetIPv4Pool(poolName v1alpha1.WellKnownConfigurationResourcePool) *IPv4BlockPool {
+func (m *Manager) GetIPv4Pool(poolName string) *IPv4BlockPool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	pool, ok := m.ipv4Pools[poolName]
@@ -88,7 +90,7 @@ func (m *Manager) GetIPv4Pool(poolName v1alpha1.WellKnownConfigurationResourcePo
 }
 
 // GetIntegerPool returns an existing integer resource pool.
-func (m *Manager) GetIntegerPool(poolName v1alpha1.WellKnownConfigurationResourcePool) *IntegerPool {
+func (m *Manager) GetIntegerPool(poolName string) *IntegerPool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	pool, ok := m.integerPools[poolName]

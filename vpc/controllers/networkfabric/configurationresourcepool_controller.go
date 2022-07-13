@@ -54,7 +54,7 @@ type ConfigurationResourcePoolReconciler struct {
 func (r *ConfigurationResourcePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 	log.V(1).Info("Received update")
-	poolName := networkfabricv1alpha1.WellKnownConfigurationResourcePool(req.Name)
+	poolName := req.Name
 	pool := &networkfabricv1alpha1.ConfigurationResourcePool{}
 	if err := r.Get(ctx, req.NamespacedName, pool); err != nil {
 		if errors.IsNotFound(err) {

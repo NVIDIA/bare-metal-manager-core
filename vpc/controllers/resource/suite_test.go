@@ -47,6 +47,7 @@ var (
 	testEnv      *envtest.Environment
 	rgReconciler *resource.ResourceGroupReconciler
 	mrReconciler *resource.ManagedResourceReconciler
+	npReconciler *resource.NetworkPolicyReconciler
 	ctx          context.Context
 	cancel       context.CancelFunc
 )
@@ -70,6 +71,9 @@ var _ = BeforeSuite(func() {
 	cfg, err := testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
+
+	err = resourcev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	err = resourcev1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
@@ -98,6 +102,13 @@ var _ = BeforeSuite(func() {
 		Scheme: k8sManager.GetScheme(),
 	}
 	err = mrReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	npReconciler = &resource.NetworkPolicyReconciler{
+		Client: k8sManager.GetClient(),
+		Scheme: k8sManager.GetScheme(),
+	}
+	err = npReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {
