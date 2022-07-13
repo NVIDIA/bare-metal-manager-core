@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 # protobufs/rpc interface
 rpc = { path = "../rpc" }
-tonic = "*"
+tonic = "0.7.0"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 
@@ -22,7 +22,7 @@ procfs = "*"
 libudev = "*"
 color-eyre = "0.5.11"
 pretty_env_logger = "*"
-uuid = "*"
+uuid = "0.8.2"
 
 # cli
-clap = { version = "~3.0.0", features = ["derive"] }
+clap = { version = "~3", features = ["derive"] }

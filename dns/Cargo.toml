@@ -13,7 +13,7 @@ path = "src/main.rs"
 rpc = { path = "../rpc" }
 #carbide-api = { path = "../api"}
 
-tonic = { version = "0.6", features = ["tls"] }
+tonic = { version = "0.7.0", features = ["tls"] }
 async-trait = "0.1.43"
 sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros" ]}
 tokio = { version = "1.9", features = ["full"] }
@@ -23,7 +23,7 @@ color-eyre = "0.5.11"
 pretty_env_logger = "*"
 log = { version = "*" }
 
-clap = { version = "~3.0.0", features = ["derive"]}
+clap = { version = "~3", features = ["derive"]}
 
 thiserror = "1.0"
 itertools = "*"

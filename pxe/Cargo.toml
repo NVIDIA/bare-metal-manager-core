@@ -12,16 +12,16 @@ path = "src/main.rs"
 [dependencies]
 # protobufs/rpc interface
 rpc = { path = "../rpc" }
-tonic = "*"
+tonic = "0.7.0"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 
 # webserver
-rocket = { version = "0.5.0-rc.1", features = ["uuid"] }
+rocket = { version = "= 0.5.0-rc.1", features = ["uuid"] }
 tera = "*"
 
 # data types
-uuid = { version = "0.8", features = ["v4", "serde"] }
+uuid = { version = "0.8.2", features = ["v4", "serde"] }
 ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
 eui48 = "0.4.0"
 
@@ -30,10 +30,10 @@ itertools = "*"
 thiserror = "1.0"
 
 # cli
-clap = { version = "~3.0.0", features = ["derive"]}
+clap = { version = "~3", features = ["derive"]}
 
 [build-dependencies]
-tonic-build = "*"
+tonic-build = "0.7.0"
 
 [dev-dependencies]
 rand = "*"
@@ -42,3 +42,9 @@ rstest = "*"
 [dependencies.rocket_dyn_templates]
 version = "0.1.0-rc.1"
 features = ["tera"]
+
+[dependencies.rocket_codegen]
+version = "= 0.5.0-rc.1"
+
+[dependencies.rocket_http]
+version = "= 0.5.0-rc.1"

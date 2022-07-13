@@ -1,4 +1,5 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
+use std::convert::TryInto;
 
 use chrono::prelude::*;
 use sqlx::postgres::PgRow;
@@ -6,7 +7,6 @@ use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
 use ::rpc::Timestamp;
-use rpc::forge::v0 as rpc;
 
 use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
@@ -99,12 +99,12 @@ impl Vpc {
     }
 }
 
-impl From<Vpc> for rpc::Vpc {
+impl From<Vpc> for rpc::forge::v0::Vpc {
     fn from(src: Vpc) -> Self {
-        rpc::Vpc {
+        rpc::forge::v0::Vpc {
             id: Some(src.id.into()),
             name: src.name,
-            organization: src.organization_id.map(rpc::Uuid::from),
+            organization: src.organization_id.map(rpc::forge::v0::Uuid::from),
             created: Some(Timestamp {
                 seconds: src.created.timestamp(),
                 nanos: 0,
@@ -121,10 +121,10 @@ impl From<Vpc> for rpc::Vpc {
     }
 }
 
-impl TryFrom<rpc::Vpc> for NewVpc {
+impl TryFrom<rpc::forge::v0::Vpc> for NewVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::Vpc) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::forge::v0::Vpc) -> Result<Self, Self::Error> {
         if value.id.is_some() {
             return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
                 "VPC",
@@ -140,10 +140,10 @@ impl TryFrom<rpc::Vpc> for NewVpc {
     }
 }
 
-impl TryFrom<rpc::Vpc> for UpdateVpc {
+impl TryFrom<rpc::forge::v0::Vpc> for UpdateVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::Vpc) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::forge::v0::Vpc) -> Result<Self, Self::Error> {
         Ok(UpdateVpc {
             id: value
                 .id
@@ -158,10 +158,10 @@ impl TryFrom<rpc::Vpc> for UpdateVpc {
     }
 }
 
-impl TryFrom<rpc::VpcDeletion> for DeleteVpc {
+impl TryFrom<rpc::forge::v0::VpcDeletion> for DeleteVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::VpcDeletion) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::forge::v0::VpcDeletion) -> Result<Self, Self::Error> {
         Ok(DeleteVpc {
             id: value
                 .id
@@ -171,9 +171,9 @@ impl TryFrom<rpc::VpcDeletion> for DeleteVpc {
     }
 }
 
-impl From<Vpc> for rpc::VpcDeletionResult {
+impl From<Vpc> for rpc::forge::v0::VpcDeletionResult {
     fn from(_src: Vpc) -> Self {
-        rpc::VpcDeletionResult {}
+        rpc::forge::v0::VpcDeletionResult {}
     }
 }
 
