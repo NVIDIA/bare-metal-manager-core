@@ -131,9 +131,9 @@ impl Machine {
             .await?;
 
         // Add the initial state
-        machine
-            .advance(txn, &MachineStateMachineInput::Discover)
-            .await?;
+        // machine
+        //     .advance(txn, &MachineStateMachineInput::Discover)
+        //     .await?;
 
         Ok(machine)
     }
