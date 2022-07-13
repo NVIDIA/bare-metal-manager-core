@@ -123,6 +123,8 @@ type ManagedResourceStatus struct {
 	NetworkFabricReference *NetworkFabricReference `json:"networkFabricReference,omitempty"`
 	// Conditions specify responses of ManagedResource create/delete/update.
 	Conditions []ManagedResourceCondition `json:"conditions,omitempty"`
+	// NetworkPolicies applied to this ManagedResource.
+	NetworkPolicies []string `json:"networkPolicies,omitempty"`
 }
 
 //+kubebuilder:object:root=true

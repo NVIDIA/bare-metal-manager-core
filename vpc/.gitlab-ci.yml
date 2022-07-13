@@ -1,41 +1,32 @@
-#variables:
-  # see https://docs.gitlab.com/ee/ci/docker/using_docker_build.html#tls-enabled for Dind configuration
-  # DOCKER_HOST: tcp://docker:2375 --> this should only be configured when using Kubernetes runners
-  # When using dind, it's wise to use the overlayfs driver for
-  # improved performance.
-#  DOCKER_DRIVER: overlay2
-  # Specify to Docker where to create the certificates, Docker will
-  # create them automatically on boot, and will create
-  # `/certs/client` that will be shared between the service and job
-  # container, thanks to volume mount from config.toml
-#  DOCKER_TLS_CERTDIR: "/certs"
-  # see usage of Namespaces at https://docs.gitlab.com/ee/user/group/#namespaces
-#  REGISTRY_GROUP_PROJECT: $CI_REGISTRY/root/gitlab-ci-dind-example
-
-# One of the new trends in Continuous Integration/Deployment is to:
-# (see https://docs.gitlab.com/ee/ci/docker/using_docker_build.html)
+# Copyright 2021 NVIDIA CORPORATION.
 #
-# 1. Create an application image
-# 2. Run tests against the created image
-# 3. Push image to a remote registry
-# 4. Deploy to a server from the pushed image
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-stages:
-  - build
-  - test
-  - push
-  - e2e
-#  - deploy
+variables:
+  NSPECT_ID: NSPECT-57MC-92NZ
+  APPLICATION_NAME: forge-connectivity
+  APPLICATION_DOCKERFILE:  build/images/forge/Dockerfile.nobuild
+  KUSTOMIZE_LOCATION: config
 
-build-binary:
+include:
+  - project: 'nvmetal/gitlab-templates'
+    ref: main
+    file:
+      - defaults.gitlab-ci.yml
+
+build:
   stage: build
-  image: golang:1.16
   before_script:
-    - apt-get update
-    - apt install -y protobuf-compiler gettext-base
-    - go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.26
-    - go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1
-    - export PATH="$PATH:$(go env GOPATH)/bin"
     - go mod download
   script:
     - make
@@ -51,73 +42,54 @@ build-binary:
       - config/forge-dev.yaml
       - config/forge-canary.yaml
     expire_in: 1 day
-  only:
-    - main
-    - merge_requests
-  tags:
-    - forge
 
 test:
   stage: test
-  image: golang:1.16
   before_script:
-    - echo "deb http://deb.debian.org/debian bullseye-backports main" >> /etc/apt/sources.list
     - export DEBIAN_FRONTEND=noninteractive
-    - apt-get update
-    - apt-get install -y --no-install-recommends protobuf-compiler curl openvswitch-switch ovn-common ovn-host ovn-central isc-dhcp-relay
-    - go install github.com/golang/mock/mockgen@v1.6.0
-    - go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.26
-    - go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1
-    - export PATH="$PATH:$(go env GOPATH)/bin"
-    - go mod download
-    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    - chmod +x kubectl
+    - apt-get install -y isc-dhcp-relay
+    - go get -u github.com/jstemmer/go-junit-report
   script:
     - make test
-  only:
-    - main
-    - merge_requests
   tags:
     - forge
-
-push:
-  stage: push
-  image:
-    name: docker:20.10.9-dind
-    entrypoint: [""]
-  before_script:
-    - dockerd > /dev/null 2>&1 &
-    - sleep 5
-    - docker info
-    - echo "$QUAY_IO_PWD" | docker login -u "$QUAY_IO_USER" --password-stdin quay.io
-  script:
-    - export FORGE_TAG=$(date --utc '+%Y%m%d%H%M%S')
-    - docker build -t quay.io/nvidia/forge-connectivity:$FORGE_TAG -f build/images/forge/Dockerfile.nobuild .
-    - docker tag quay.io/nvidia/forge-connectivity:$FORGE_TAG quay.io/nvidia/forge-connectivity:latest
-    - docker push quay.io/nvidia/forge-connectivity:$FORGE_TAG
-    - docker push quay.io/nvidia/forge-connectivity:latest
-    - echo "FORGE_TAG=$FORGE_TAG" >> build.env
   artifacts:
+    when: always
     reports:
-      dotenv: build.env
-  rules:
-    - if: $nightly == "true"
-      when: on_success
-    - if: $CI_COMMIT_MESSAGE =~ /.*test-all.*/
-      when: on_success
-  tags:
-    - forge
+      junit: report.xml
 
-e2e:
-  stage: e2e
-  variables:
-    FORGE_TAG: $FORGE_TAG
+build-push-kustomize:
+  before_script:
+    - apt-get update
+    - apt-get install -y gettext-base
+    - make manifests-ci
+
+deploy_dev1:
+  extends: .deploy_kustomize
+  environment: 
+    name: dev1
+    deployment_tier: development
+
+deploy_dev2:
+  extends: .deploy_kustomize
+  needs: 
+    - prepare-ci
+    - deploy_dev1
+  environment: 
+    name: dev2
+    deployment_tier: staging
+
+#TODO Change this to label based run
+e2e-test:
+  stage: e2e-test
   needs:
-    job: push
-    artifacts: true
+    - job: build-push-container
+      artifacts: true
+    - job: prepare-ci
+  variables:
+    FORGE_TAG: $VERSION
   trigger:
     project: nvmetal/e2e-test
     strategy: depend
   rules:
     - if: $CI_COMMIT_MESSAGE =~ /.*test-all.*/
-      when: on_success

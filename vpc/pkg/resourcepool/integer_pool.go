@@ -18,7 +18,7 @@ type IntegerPool struct {
 	*pool
 }
 
-func newIntegerPool(poolName v1alpha12.WellKnownConfigurationResourcePool, ranges [][]uint64, cl client.Client, k8sNS string) *IntegerPool {
+func newIntegerPool(poolName string, ranges [][]uint64, cl client.Client, k8sNS string) *IntegerPool {
 	return &IntegerPool{
 		pool: newPool(string(poolName), ranges,
 			func(val interface{}) uint64 {
@@ -45,12 +45,14 @@ func newIntegerPool(poolName v1alpha12.WellKnownConfigurationResourcePool, range
 			func() ([]uint64, error) {
 				var resourceGetter func(_ client.Client, _, _ string) ([]uint64, error)
 				switch poolName {
-				case v1alpha12.VNIResourcePool:
+				case string(v1alpha12.VNIResourcePool):
 					fallthrough
-				case v1alpha12.VlanIDResourcePool:
+				case string(v1alpha12.VlanIDResourcePool):
 					resourceGetter = getVlanVNIFromResourceGroup
-				case v1alpha12.ASNResourcePool:
+				case string(v1alpha12.ASNResourcePool):
 					resourceGetter = getASNFromLeaf
+				case RuntimePoolNetworkPolicyIDPool:
+					resourceGetter = getIDFromNetworkPolicy
 				}
 				return resourceGetter(cl, string(poolName), k8sNS)
 			}),
@@ -104,6 +106,22 @@ func getASNFromLeaf(cl client.Client, poolName, ns string) ([]uint64, error) {
 	for _, i := range leafList.Items {
 		if i.Status.ASN > 0 {
 			ret = append(ret, uint64(i.Status.ASN))
+		}
+	}
+	return ret, nil
+}
+
+func getIDFromNetworkPolicy(cl client.Client, _, ns string) ([]uint64, error) {
+	npList := &v1alpha1.NetworkPolicyList{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	if err := cl.List(ctx, npList, client.InNamespace(ns)); err != nil {
+		return nil, err
+	}
+	ret := make([]uint64, 0, len(npList.Items))
+	for _, i := range npList.Items {
+		if i.Status.ID > 0 {
+			ret = append(ret, uint64(i.Status.ID))
 		}
 	}
 	return ret, nil

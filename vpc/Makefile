@@ -3,6 +3,29 @@
 IMG ?= quay.io/nvidia/forge-connectivity:latest
 OVN_IMG ?= quay.io/nvidia/forge-connectivity-ovn:v21.06
 TEST_IMG ?= forge-connectivity/test:latest
+BUILD_IMAGE ?= golang:1.16
+KUSTOMIZE_IMAGE ?= k8s.gcr.io/kustomize/kustomize:v3.8.7
+# Tool Chain images not pushed to quay
+PROTOC_IMAGE ?= forge/protoc:3.12.4
+CONTROLLER_GEN_IMAGE ?= forge/controller-gen:v0.4.1
+BUILD_DIRS := bin       \
+			.go/cache 	\
+			.go/pkg 
+
+GOOS ?= linux
+GOARCH ?= amd64
+VERSION ?= $(shell git describe --tags --always --dirty)
+TAG := $(VERSION)__$(OS)_$(ARCH)
+
+
+DBUILD=CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH)
+BUILD_OPTS=
+DOCKERIZED ?= true
+
+# SRC_DIR is used to to help with DOCKERIZED mode, in standard mode
+# this is just CURDIR, but we use a different dir name in build container
+# so we distinguish here, and modify if DOCKERIZED=true
+SRC_DIR=$(CURDIR)
 
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
@@ -29,6 +52,7 @@ all: build
 
 ifeq (${IN_CI},true)
 DOCKERIZE=
+DOCKERIZED=false
 else
 DOCKERIZE=docker run --rm --privileged -t -i \
           		-e "GOCACHE=/tmp/gocache" \
@@ -38,6 +62,56 @@ DOCKERIZE=docker run --rm --privileged -t -i \
           		-v $(shell go env GOCACHE):/tmp/gocache:ro \
           		-v $(CURDIR):/usr/src/forge \
           		${TEST_IMG}
+
+endif
+
+CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
+KUSTOMIZE = $(shell pwd)/bin/kustomize
+
+ifeq ($(DOCKERIZED),true)
+$(info running with DOCKERIZED set to true...)
+KUSTOMIZE=docker run 										\
+						-i 													\
+						--rm 												\
+						-u $$(id -u):$$(id -g) 			\
+						-v $(CURDIR)/config:/config \
+						-w /                        \
+						--entrypoint /app/kustomize \
+						$(KUSTOMIZE_IMAGE) 					
+
+
+DBUILD=docker run 											\
+		    -i 															\
+		    --rm 														\
+		    -u $$(id -u):$$(id -g) 					\
+		    -v $(CURDIR):/src 							\
+		    -w /src 												\
+		    -v $(CURDIR)/.go/cache:/.cache 	\
+		    -v $(CURDIR)/.go/pkg:/go/pkg 		\
+        -e GOOS=$(GOOS)                 \
+        -e GOARCH=$(GOARCH)             \
+        -e CGO_ENABLED=$(CGO_ENABLED)   \
+		    $(BUILD_IMAGE) 									
+
+CONTROLLER_GEN=docker run 							\
+		    -i 															\
+		    --rm 														\
+		    -u $$(id -u):$$(id -g) 					\
+		    -v $(CURDIR):/src 							\
+		    -w /src 												\
+		    -v $(CURDIR)/.go/cache:/.cache 	\
+		    -v $(CURDIR)/.go/pkg:/go/pkg 		\
+				$(CONTROLLER_GEN_IMAGE) 				
+
+PROTO_C=docker run 											\
+		    -i 															\
+		    --rm 														\
+		    -u $$(id -u):$$(id -g) 					\
+		    -v $(CURDIR):/src 							\
+		    -w /src 												\
+		    -v $(CURDIR)/.go/cache:/.cache 	\
+		    -v $(CURDIR)/.go/pkg:/go/pkg 		\
+				$(PROTOC_IMAGE) 								
 endif
 
 ##@ General
@@ -68,15 +142,20 @@ manifests: controller-gen kustomize ## Generate WebhookConfiguration, ClusterRol
 	$(KUSTOMIZE) build config/default > config/forge-dev.yaml
 	rm config/default/kustomization.yaml
 
+manifests-ci:
+	FORGE_CONTROL_PLANE=forge envsubst < config/default/kustomization.template.yaml > config/default/kustomization.yaml
+	rm config/default/kustomization.template.yaml
+
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 	$(PROTO_C) --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative rpc/rpc.proto
 
 fmt: ## Run go fmt against code.
-	go fmt ./...
+	$(info running with DBUILD set to: $(DBUILD))
+	$(DBUILD) go fmt ./...
 
 vet: ## Run go vet against code.
-	go vet ./...
+	$(DBUILD) go vet ./...
 
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 #test: manifests generate fmt vet ## Run tests.
@@ -99,16 +178,17 @@ test-env:
 mock-gen: generate
 	./hack/mock_gen.sh
 
-##@ Build
-
 build: generate fmt vet ## Build manager binary.
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/manager cmd/controller/main.go
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/grpc-server cmd/rpc/main.go
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/agent cmd/agent/main.go
+	$(info running with DBUILD set to: $(DBUILD) $(BUILD_OPTS))
+	$(DBUILD) $(BUILD_OPTS) go build -o bin/manager cmd/controller/main.go
+	$(DBUILD) $(BUILD_OPTS) go build -o bin/grpc-server cmd/rpc/main.go
+	$(DBUILD) $(BUILD_OPTS) go build -o bin/agent cmd/agent/main.go
 
 docker-build: ## Build docker image with the manager.
 	docker build -t ${OVN_IMG} -f build/images/ovn/Dockerfile .
 	docker build -t ${IMG} -f build/images/forge/Dockerfile .
+	docker build -t ${CONTROLLER_GEN_IMAGE} -f build/images/util/controller-gen.Dockerfile .
+	docker build -t ${PROTOC_IMAGE} -f build/images/util/protoc.Dockerfile .
 
 docker-push: ## Push docker image with the manager.
 	docker push ${IMG}
@@ -129,13 +209,16 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	kubectl delete -f config/forge.yaml
 
-CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
+ifneq ($(DOCKERIZED),true)
+	$(info running without DOCKERIZED calling go-get-tool...)
 	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.4.1)
+endif
 
-KUSTOMIZE = $(shell pwd)/bin/kustomize
 kustomize: ## Download kustomize locally if necessary.
+ifneq ($(DOCKERIZED),true)
 	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v3@v3.8.7)
+endif
 
 # go-get-tool will 'go get' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))

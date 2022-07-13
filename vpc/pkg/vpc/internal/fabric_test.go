@@ -2,6 +2,7 @@ package internal_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,123 +14,24 @@ import (
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/json"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	networkfabric "gitlab-master.nvidia.com/forge/vpc/apis/networkfabric/v1alpha1"
 	resource "gitlab-master.nvidia.com/forge/vpc/apis/resource/v1alpha1"
 	"gitlab-master.nvidia.com/forge/vpc/pkg/properties"
-	"gitlab-master.nvidia.com/forge/vpc/pkg/resourcepool"
 	"gitlab-master.nvidia.com/forge/vpc/pkg/vpc"
 	"gitlab-master.nvidia.com/forge/vpc/pkg/vpc/internal"
-	"gitlab-master.nvidia.com/forge/vpc/pkg/vpc/internal/testing"
 )
 
 var _ = Describe("fabric", func() {
-	const (
-		rgName   = "test-rg"
-		mrName   = "test-mr"
-		tenantID = "test-tenant"
-	)
-
-	var (
-		mockController       *gomock.Controller
-		manager              vpc.VPCManager
-		resourceManager      *resourcepool.Manager
-		rg                   *resource.ResourceGroup
-		adminRg              *resource.ResourceGroup
-		mockCumulusTransport *testing.MockNetworkDeviceTransport
-		mr                   *resource.ManagedResource
-		leaf                 *networkfabric.Leaf
-		ctx                  context.Context
-		ctxCancel            context.CancelFunc
-
-		vniRange       = []uint64{10000, 12000}
-		vniPool        *resourcepool.IntegerPool
-		vlanRange      = []uint64{1000, 2000}
-		vlanPool       *resourcepool.IntegerPool
-		fabricIPRange  = []string{"22.3.4.0", "22.3.5.0"}
-		fabricIPPool   *resourcepool.IPv4BlockPool
-		overlayIPRange = []string{"10.0.0.0", "11.0.0.0"}
-		overlayIPPool  *resourcepool.IPv4BlockPool
-	)
-
 	BeforeEach(func() {
-		mockController = gomock.NewController(GinkgoT())
-		mockCumulusTransport = testing.NewMockNetworkDeviceTransport(mockController)
-		resourceManager = resourcepool.NewManager(k8sClient, namespace)
-		manager = vpc.NewVPCManager(k8sClient, nil, namespace, resourceManager)
-		ctx, ctxCancel = context.WithCancel(context.Background())
-		go func() { _ = manager.Start(ctx) }()
-		rg = &resource.ResourceGroup{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      rgName,
-				Namespace: namespace,
-			},
-			Spec: resource.ResourceGroupSpec{
-				TenantIdentifier: tenantID,
-				Network: &resource.IPNet{
-					IP:           "10.10.10.0",
-					PrefixLength: 24,
-					Gateway:      "10.10.10.1",
-				},
-				DHCPServer:                "20.20.20.1",
-				NetworkImplementationType: resource.OverlayNetworkImplementationTypeFabric,
-			},
-		}
-		adminRg = &resource.ResourceGroup{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      resource.WellKnownAdminResourceGroup,
-				Namespace: namespace,
-			},
-			Spec: resource.ResourceGroupSpec{
-				TenantIdentifier: "test-",
-				Network: &resource.IPNet{
-					IP:           "30.30.30.0",
-					PrefixLength: 24,
-					Gateway:      "30.30.30.1",
-				},
-				DHCPServer:                "20.20.20.1",
-				NetworkImplementationType: resource.OverlayNetworkImplementationTypeFabric,
-			},
-		}
-		mr = &resource.ManagedResource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      mrName,
-				Namespace: namespace,
-			},
-			Spec: resource.ManagedResourceSpec{
-				ResourceGroup:       rgName,
-				Type:                resource.ResourceTypeBareMetal,
-				State:               resource.ManagedResourceStateUp,
-				HostInterfaceIP:     "10.10.10.5",
-				HostInterfaceMAC:    "00:01:02:03:04:05",
-				DPUIPs:              []resource.IPAddress{"192.2.1.3", "192.2.1.4", "192.2.1.5"},
-				HostInterfaceAccess: resource.HostAccessFabricDirect,
-				HostInterface:       "01:02:03:04:05",
-			},
-		}
-		leaf = &networkfabric.Leaf{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "hbn-1",
-				Namespace: namespace,
-			},
-			Spec: networkfabric.LeafSpec{
-				Control: networkfabric.NetworkDeviceControl{
-					Vendor:          "Cumulus",
-					ManagementIP:    "40.40.40.1",
-					MaintenanceMode: false,
-				},
-				HostInterfaces: map[string]string{"01:02:03:04:05": "swp1"},
-				HostAdminIPs:   map[string]string{"swp1": ""},
-			},
-		}
+		initResources()
+		startManager()
 	})
 
 	AfterEach(func() {
-		mockController.Finish()
-		ctxCancel()
+		stopManager()
 		err := k8sClient.Delete(context.Background(), rg)
 		Expect(err).ToNot(HaveOccurred())
 		err = k8sClient.Delete(context.Background(), adminRg)
@@ -190,22 +92,21 @@ var _ = Describe("fabric", func() {
 	testResourceGroup := func(vni, vlan, fabricIP, remove bool, expErr error) {
 		// prepare resource pools.
 		if vni {
-			vniPool = resourceManager.CreateIntegerPool(networkfabric.VNIResourcePool, [][]uint64{vniRange})
+			vniPool = resourceManager.CreateIntegerPool(string(networkfabric.VNIResourcePool), [][]uint64{vniRange})
 			_ = vniPool.Reconcile()
 		}
 		if vlan {
-			vlanPool = resourceManager.CreateIntegerPool(networkfabric.VlanIDResourcePool, [][]uint64{vlanRange})
+			vlanPool = resourceManager.CreateIntegerPool(string(networkfabric.VlanIDResourcePool), [][]uint64{vlanRange})
 			_ = vlanPool.Reconcile()
 		}
 		if len(rg.Spec.OverlayIPPool) > 0 {
-			overlayIPPool = resourceManager.CreateIPv4Pool(
-				networkfabric.WellKnownConfigurationResourcePool(rg.Spec.OverlayIPPool), [][]string{overlayIPRange}, 8)
+			overlayIPPool = resourceManager.CreateIPv4Pool(rg.Spec.OverlayIPPool, [][]string{overlayIPRange}, 8)
 			err := overlayIPPool.Reconcile()
 			Expect(err).ToNot(HaveOccurred())
 		}
 
 		if fabricIP {
-			fabricIPPool = resourceManager.CreateIPv4Pool(networkfabric.DatacenterIPv4ResourcePool,
+			fabricIPPool = resourceManager.CreateIPv4Pool(string(networkfabric.DatacenterIPv4ResourcePool),
 				[][]string{fabricIPRange}, 0)
 			_ = fabricIPPool.Reconcile()
 			rg.Spec.FabricIPPool = string(networkfabric.DatacenterIPv4ResourcePool)
@@ -215,13 +116,13 @@ var _ = Describe("fabric", func() {
 		if vni && vlan {
 			err = k8sClient.Create(context.Background(), adminRg)
 			Expect(err).ToNot(HaveOccurred())
-			err = manager.CreateOrUpdateOverlayNetwork(context.Background(), adminRg.Name)
+			err = vpcManager.CreateOrUpdateOverlayNetwork(context.Background(), adminRg.Name)
 			Expect(err).ToNot(HaveOccurred())
 		}
 		// Create resource group
 		err = k8sClient.Create(context.Background(), rg)
 		Expect(err).ToNot(HaveOccurred())
-		retErr := manager.CreateOrUpdateOverlayNetwork(context.Background(), rg.Name)
+		retErr := vpcManager.CreateOrUpdateOverlayNetwork(context.Background(), rg.Name)
 		if expErr == nil {
 			Expect(retErr).To(BeNil())
 		} else {
@@ -229,7 +130,7 @@ var _ = Describe("fabric", func() {
 		}
 		var networkProp *properties.OverlayNetworkProperties
 		if retErr == nil {
-			networkProp, err = manager.GetOverlayNetworkProperties(context.Background(), rg.Name)
+			networkProp, err = vpcManager.GetOverlayNetworkProperties(context.Background(), rg.Name)
 			Expect(err).ShouldNot(HaveOccurred())
 			validateNetworkProperties(networkProp, &rg.Spec)
 		}
@@ -238,7 +139,7 @@ var _ = Describe("fabric", func() {
 		}
 
 		// Delete resource group.
-		err = manager.DeleteOverlayNetwork(context.Background(), rg.Name)
+		err = vpcManager.DeleteOverlayNetwork(context.Background(), rg.Name)
 		Expect(err).ToNot(HaveOccurred())
 		if networkProp != nil {
 			validateFreedNetworkProperties(networkProp)
@@ -247,20 +148,20 @@ var _ = Describe("fabric", func() {
 
 	testHostIPChange := func(_, mrEventChan <-chan client.ObjectKey) {
 		logf.Log.V(1).Info("Test host IP changes")
-		mr.Spec.HostInterfaceIP = resource.IPAddress("30.40.1.2")
+		mr.Spec.HostInterfaceIP = "30.40.1.2"
 		err := k8sClient.Update(context.Background(), mr)
 		Expect(err).ToNot(HaveOccurred())
-		err = manager.AddOrUpdateResourceToNetwork(context.Background(), mr.Name)
+		err = vpcManager.AddOrUpdateResourceToNetwork(context.Background(), mr.Name)
 		Expect(err).To(BeAssignableToTypeOf(&internal.BackendConfigurationInProgress{}))
 		Eventually(func() error {
 			stop := time.Tick(time.Second)
 			select {
 			case mrEvt := <-mrEventChan:
-				err = manager.AddOrUpdateResourceToNetwork(context.Background(), mrEvt.Name)
+				err = vpcManager.AddOrUpdateResourceToNetwork(context.Background(), mrEvt.Name)
 				if err != nil {
 					return err
 				}
-				prop, err := manager.GetResourceProperties(context.Background(), mrEvt.Name)
+				prop, err := vpcManager.GetResourceProperties(context.Background(), mrEvt.Name)
 				if err != nil {
 					return err
 				}
@@ -272,20 +173,12 @@ var _ = Describe("fabric", func() {
 
 		}, 10, 1).ShouldNot(HaveOccurred())
 		// Retry with exact same config,
-		err = manager.AddOrUpdateResourceToNetwork(context.Background(), mr.Name)
+		err = vpcManager.AddOrUpdateResourceToNetwork(context.Background(), mr.Name)
 		Expect(err).ToNot(HaveOccurred())
 	}
 	testManagedResource := func(commits int,
 		modifyTest func(_, _ <-chan client.ObjectKey)) {
-		// Setup mock transport
-		impl := internal.GetVPCManagerImpl(manager)
-		impl.SetNetworkDeviceTransport(
-			map[string]func(string, string, string, string, string) (internal.NetworkDeviceTransport, error){
-				networkfabric.LeafName: func(_, _, _, _, _ string) (internal.NetworkDeviceTransport, error) {
-					return mockCumulusTransport, nil
-				},
-			})
-		mockCumulusTransport.EXPECT().GetMgmtIP().AnyTimes().Return(string(leaf.Spec.Control.ManagementIP))
+		mockCumulusTransport.EXPECT().GetMgmtIP().AnyTimes().Return(leaf.Spec.Control.ManagementIP)
 		mockCumulusTransport.EXPECT().SetMgmtIP(leaf.Spec.Control.ManagementIP).AnyTimes()
 		mockCumulusTransport.EXPECT().Send(gomock.Any()).MinTimes(1).DoAndReturn(
 			func(req *http.Request) ([]byte, error) {
@@ -316,8 +209,8 @@ var _ = Describe("fabric", func() {
 					"status": 200})
 			})
 
-		leafEventChan := manager.GetEvent(networkfabric.LeafName)
-		mrEventChan := manager.GetEvent(resource.ManagedResourceName)
+		leafEventChan := vpcManager.GetEvent(networkfabric.LeafName)
+		mrEventChan := vpcManager.GetEvent(resource.ManagedResourceName)
 
 		// Create network device.
 		err := k8sClient.Create(context.Background(), leaf)
@@ -326,18 +219,18 @@ var _ = Describe("fabric", func() {
 			err = k8sClient.Status().Update(context.Background(), leaf)
 			Expect(err).ToNot(HaveOccurred())
 		}
-		err = manager.CreateOrUpdateNetworkDevice(context.Background(), networkfabric.LeafName, leaf.Name)
+		err = vpcManager.CreateOrUpdateNetworkDevice(context.Background(), networkfabric.LeafName, leaf.Name)
 		Expect(vpc.IsAlreadyExistError(err) || err == nil).To(BeTrue())
 		if !vpc.IsAlreadyExistError(err) {
 			Eventually(func() error {
 				stop := time.Tick(time.Second)
 				select {
 				case leafEvt := <-leafEventChan:
-					err = manager.CreateOrUpdateNetworkDevice(context.Background(), networkfabric.LeafName, leafEvt.Name)
+					err = vpcManager.CreateOrUpdateNetworkDevice(context.Background(), networkfabric.LeafName, leafEvt.Name)
 					if err != nil {
 						return err
 					}
-					devProp, err := manager.GetNetworkDeviceProperties(context.Background(), networkfabric.LeafName, leaf.Name)
+					devProp, err := vpcManager.GetNetworkDeviceProperties(context.Background(), networkfabric.LeafName, leaf.Name)
 					if err != nil {
 						return err
 					}
@@ -358,11 +251,11 @@ var _ = Describe("fabric", func() {
 			err = k8sClient.Status().Update(context.Background(), mr)
 			Expect(err).ToNot(HaveOccurred())
 		}
-		err = manager.AddOrUpdateResourceToNetwork(context.Background(), mr.Name)
+		err = vpcManager.AddOrUpdateResourceToNetwork(context.Background(), mr.Name)
 		Expect(vpc.IsBackendConfigurationInProgress(err) || err == nil).To(BeTrue())
 		var prop *properties.ResourceProperties
 		if err == nil {
-			prop, err = manager.GetResourceProperties(context.Background(), mr.Name)
+			prop, err = vpcManager.GetResourceProperties(context.Background(), mr.Name)
 			Expect(err).ToNot(HaveOccurred())
 			validateResourceProperties(prop, &mr.Spec, internal.BackendStateComplete.String())
 		} else {
@@ -370,11 +263,11 @@ var _ = Describe("fabric", func() {
 				stop := time.Tick(time.Second)
 				select {
 				case mrEvt := <-mrEventChan:
-					err = manager.AddOrUpdateResourceToNetwork(context.Background(), mrEvt.Name)
+					err = vpcManager.AddOrUpdateResourceToNetwork(context.Background(), mrEvt.Name)
 					if err != nil {
 						return err
 					}
-					prop, err = manager.GetResourceProperties(context.Background(), mrEvt.Name)
+					prop, err = vpcManager.GetResourceProperties(context.Background(), mrEvt.Name)
 					if err != nil {
 						return err
 					}
@@ -391,13 +284,13 @@ var _ = Describe("fabric", func() {
 		}
 
 		// Remove managed resource.
-		err = manager.RemoveResourceToNetwork(context.Background(), mr.Name)
+		err = vpcManager.RemoveResourceToNetwork(context.Background(), mr.Name)
 		Expect(err).To(BeAssignableToTypeOf(&internal.BackendConfigurationInProgress{}))
 		Eventually(func() error {
 			stop := time.Tick(time.Second)
 			select {
 			case mrEvt := <-mrEventChan:
-				err = manager.RemoveResourceToNetwork(context.Background(), mrEvt.Name)
+				err = vpcManager.RemoveResourceToNetwork(context.Background(), mrEvt.Name)
 				if err != nil {
 					return err
 				}
@@ -411,7 +304,7 @@ var _ = Describe("fabric", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Remove network device.
-		err = manager.RemoveNetworkDevice(context.Background(), networkfabric.LeafName, leaf.Name)
+		err = vpcManager.RemoveNetworkDevice(context.Background(), networkfabric.LeafName, leaf.Name)
 		Expect(err).ToNot(HaveOccurred())
 		err = k8sClient.Delete(context.Background(), leaf)
 		Expect(err).ToNot(HaveOccurred())
@@ -441,7 +334,7 @@ var _ = Describe("fabric", func() {
 		})
 		JustAfterEach(func() {
 			// Delete resource group.
-			err := manager.DeleteOverlayNetwork(context.Background(), rg.Name)
+			err := vpcManager.DeleteOverlayNetwork(context.Background(), rg.Name)
 			Expect(err).ToNot(HaveOccurred())
 		})
 

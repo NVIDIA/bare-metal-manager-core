@@ -21,7 +21,7 @@ type IPv4BlockPool struct {
 	PrefixLen uint32
 }
 
-func newIPv4BlockPool(poolName v1alpha12.WellKnownConfigurationResourcePool, ranges [][]string, cl client.Client, blockSizeBit uint, k8sNS string) *IPv4BlockPool {
+func newIPv4BlockPool(poolName string, ranges [][]string, cl client.Client, blockSizeBit uint, k8sNS string) *IPv4BlockPool {
 	intRange := make([][]uint64, 0, len(ranges))
 	// convert ip range to start and end.
 	for _, r := range ranges {
@@ -53,13 +53,13 @@ func newIPv4BlockPool(poolName v1alpha12.WellKnownConfigurationResourcePool, ran
 				// List IPBlocks used by K8s resources.
 				var resourceGetter func(_ client.Client, _, _ string) ([]string, error)
 				switch poolName {
-				case v1alpha12.PublicIPv4ResourcePool:
+				case string(v1alpha12.PublicIPv4ResourcePool):
 					fallthrough
-				case v1alpha12.DatacenterIPv4ResourcePool:
+				case string(v1alpha12.DatacenterIPv4ResourcePool):
 					resourceGetter = getFabricIPFromManagedResource
-				case v1alpha12.OverlayIPv4ResourcePool:
+				case string(v1alpha12.OverlayIPv4ResourcePool):
 					resourceGetter = getOverlayIPBlocksFromResourceGroup
-				case v1alpha12.LoopbackIPResourcePool:
+				case string(v1alpha12.LoopbackIPResourcePool):
 					resourceGetter = getLoopbackIPFromLeaf
 				}
 				ips, err := resourceGetter(cl, string(poolName), k8sNS)

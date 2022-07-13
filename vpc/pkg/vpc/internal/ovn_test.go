@@ -31,11 +31,6 @@ import (
 )
 
 var _ = Describe("Ovn", func() {
-
-	const (
-		rgName = "test-rg"
-		mrName = "test-mr"
-	)
 	var (
 		ovnServiceIP    = ""
 		mockController  *gomock.Controller
@@ -157,10 +152,10 @@ var _ = Describe("Ovn", func() {
 		err = utils.Execute("/usr/bin/ovn-nbctl", nil, nil, "set-connection", "ptcp:6641")
 		Expect(err).ToNot(HaveOccurred())
 		resourceManager = resourcepool.NewManager(k8sClient, namespace)
-		pool := resourceManager.CreateIPv4Pool(v1alpha1.PublicIPv4ResourcePool,
+		pool := resourceManager.CreateIPv4Pool(string(v1alpha1.PublicIPv4ResourcePool),
 			[][]string{publicIPRange}, 0)
 		_ = pool.Reconcile()
-		pool = resourceManager.CreateIPv4Pool(v1alpha1.DatacenterIPv4ResourcePool,
+		pool = resourceManager.CreateIPv4Pool(string(v1alpha1.DatacenterIPv4ResourcePool),
 			[][]string{fabricIPRange}, 0)
 		_ = pool.Reconcile()
 		manager = vpc.NewVPCManager(k8sClient, podController, namespace, resourceManager)

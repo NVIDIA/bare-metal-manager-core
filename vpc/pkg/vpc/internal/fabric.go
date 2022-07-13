@@ -27,7 +27,7 @@ const (
 )
 
 const (
-	networkDeviceByConnectedHosts      = "networkDeviceByConnectedHosts"
+	networkDeviceByConnectedNICs       = "networkDeviceByConnectedNICs"
 	managedResourceRuntimeByIdentifier = "managedResourceRuntimeByIdentifier"
 )
 
@@ -78,14 +78,14 @@ type NetworkDevice interface {
 	Liveness(doReconcile bool)
 	// IsReachable is true if the device is alive and operating.
 	IsReachable() bool
-	// GetHostIdentifiers returns all hosts connected to this device.
-	GetHostIdentifiers() []string
-	// SetHostIdentifiers sets the connected hosts and their attached ports.
-	SetHostIdentifiers(map[string]string)
-	// GetPortByHostIdentifier returns the port connected to the host (identifier).
-	GetPortByHostIdentifier(identifier string) string
-	// UpdateConfiguration updates configures on the device.
-	UpdateConfiguration(req *PortRequest, doReconcile, isDelete bool) (bool, error)
+	// GetNICIdentifiers returns all hosts connected to this device.
+	GetNICIdentifiers() []string
+	// SetNICIdentifiers sets the connected hosts and their attached ports.
+	SetNICIdentifiers(map[string]string)
+	// GetPortByNICIdentifier returns the port connected to the host (identifier).
+	GetPortByNICIdentifier(identifier string) string
+	// UpdateConfigurations updates configures on the device.
+	UpdateConfigurations(reqs []ConfigurationRequest, hostAdmin, doReconcile, isDelete bool) (bool, error)
 	// ExecuteConfiguration sends configuration updates to the device.
 	ExecuteConfiguration() (bool, error)
 	// Unmanage attempts to remove all configurations on the device.
@@ -96,16 +96,18 @@ type NetworkDevice interface {
 	GetProperties() (*properties.NetworkDeviceProperties, error)
 }
 
-type ManagedResourceBackendState int
+type ConfigurationBackendState int
 
 const (
-	BackendStateInit ManagedResourceBackendState = iota
+	BackendStateInit ConfigurationBackendState = iota
 	BackendStateModifying
 	BackendStateComplete
+	BackendStateDeleted
 	BackendStateError
+	BackendStateUnknown
 )
 
-func (s ManagedResourceBackendState) String() string {
+func (s ConfigurationBackendState) String() string {
 	switch s {
 	case BackendStateInit:
 		return "Initializing"
@@ -113,13 +115,15 @@ func (s ManagedResourceBackendState) String() string {
 		return "Modifying"
 	case BackendStateComplete:
 		return "Completed"
+	case BackendStateDeleted:
+		return "Deleted"
 	case BackendStateError:
 		return "Errored"
 	}
 	return "N/A"
 }
 
-func StringToManagedResourceBackendState(in string) ManagedResourceBackendState {
+func StringToManagedResourceBackendState(in string) ConfigurationBackendState {
 	switch in {
 	case "Initializing":
 		return BackendStateInit
@@ -174,10 +178,7 @@ func (i *FabricOverlayNetworkImplementation) CreateOrUpdateNetwork(req *NetworkR
 				return err
 			}
 			for _, mr := range mrList.Items {
-				i.manager.managedResources.NotifyChange(client.ObjectKey{
-					Namespace: mr.Namespace,
-					Name:      mr.Name,
-				})
+				i.manager.managedResources.NotifyChange(mr.Name)
 			}
 		}
 		// Nothing to do, network is already configured.
@@ -190,7 +191,7 @@ func (i *FabricOverlayNetworkImplementation) CreateOrUpdateNetwork(req *NetworkR
 		if req.VNI != 0 {
 			i.vni = req.VNI
 		} else {
-			vniPool := i.manager.resourceMgr.GetIntegerPool(v1alpha1.VNIResourcePool)
+			vniPool := i.manager.resourceMgr.GetIntegerPool(string(v1alpha1.VNIResourcePool))
 			if vniPool == nil {
 				i.log.Info("VNI resource pool not found")
 				return NewMissingResourcePoolError(string(v1alpha1.VNIResourcePool))
@@ -207,7 +208,7 @@ func (i *FabricOverlayNetworkImplementation) CreateOrUpdateNetwork(req *NetworkR
 		if req.VLAN != 0 {
 			i.vlan = req.VLAN
 		} else {
-			vlanPool := i.manager.resourceMgr.GetIntegerPool(v1alpha1.VlanIDResourcePool)
+			vlanPool := i.manager.resourceMgr.GetIntegerPool(string(v1alpha1.VlanIDResourcePool))
 			if vlanPool == nil {
 				i.log.Info("VNI resource pool not found")
 				return NewMissingResourcePoolError(string(v1alpha1.VlanIDResourcePool))
@@ -226,7 +227,7 @@ func (i *FabricOverlayNetworkImplementation) CreateOrUpdateNetwork(req *NetworkR
 		if i.overlayIPPool != nil {
 			return nil
 		}
-		ipPool := i.manager.resourceMgr.GetIPv4Pool(v1alpha1.WellKnownConfigurationResourcePool(req.OverlayIPPool))
+		ipPool := i.manager.resourceMgr.GetIPv4Pool(req.OverlayIPPool)
 		if ipPool == nil {
 			i.log.Info("Overlay resource pool not found", "Pool", req.OverlayIPPool)
 			return NewMissingResourcePoolError(req.OverlayIPPool)
@@ -253,10 +254,10 @@ func (i *FabricOverlayNetworkImplementation) DeleteNetwork() error {
 	if i.overlayIPPool != nil && i.network != nil {
 		_ = i.overlayIPPool.Release(i.network.IP.String())
 	}
-	if vniPool := i.manager.resourceMgr.GetIntegerPool(v1alpha1.VNIResourcePool); vniPool != nil && i.vni > 0 {
+	if vniPool := i.manager.resourceMgr.GetIntegerPool(string(v1alpha1.VNIResourcePool)); vniPool != nil && i.vni > 0 {
 		_ = vniPool.Release(i.vni)
 	}
-	if vlanPool := i.manager.resourceMgr.GetIntegerPool(v1alpha1.VlanIDResourcePool); vlanPool != nil && i.vlan > 0 {
+	if vlanPool := i.manager.resourceMgr.GetIntegerPool(string(v1alpha1.VlanIDResourcePool)); vlanPool != nil && i.vlan > 0 {
 		_ = vlanPool.Release(i.vlan)
 	}
 	return nil
@@ -282,8 +283,8 @@ func (i *FabricOverlayNetworkImplementation) GetNetworkProperties() (*properties
 }
 
 func (i *FabricOverlayNetworkImplementation) AddOrUpdateResourceToNetwork(req *PortRequest, doReconcile bool) error {
-	i.log.V(1).Info("AddOrUpdateResourceToNetwork", "ManagedResource", req.Key)
-	l, err := i.manager.networkDevices.ByIndex(networkDeviceByConnectedHosts, req.Identifier)
+	i.log.V(1).Info("AddOrUpdateResourceToNetwork", "ManagedResource", req.name)
+	l, err := i.manager.networkDevices.ByIndex(networkDeviceByConnectedNICs, req.Identifier)
 	if err != nil {
 		i.log.Error(err, "Failed to list network devices", "HostInterface", req.Identifier)
 		return err
@@ -309,7 +310,7 @@ func (i *FabricOverlayNetworkImplementation) AddOrUpdateResourceToNetwork(req *P
 			return NewNetworkDeviceNotAvailableError(v1alpha1.LeafName, device.Key())
 		}
 
-		ok, err := device.UpdateConfiguration(req, doReconcile, false)
+		ok, err := device.UpdateConfigurations([]ConfigurationRequest{req}, false, doReconcile, false)
 		if err != nil {
 			return err
 		}
@@ -318,17 +319,17 @@ func (i *FabricOverlayNetworkImplementation) AddOrUpdateResourceToNetwork(req *P
 	if done {
 		return nil
 	}
-	return NewBackendConfigurationInProgress("Fabric", v1alpha12.ManagedResourceName, req.Key.String())
+	return NewBackendConfigurationInProgress("Fabric", v1alpha12.ManagedResourceName, req.Key())
 }
 
 func (i *FabricOverlayNetworkImplementation) DeleteResourceFromNetwork(req *PortRequest) error {
-	l, err := i.manager.networkDevices.ByIndex(networkDeviceByConnectedHosts, req.Identifier)
+	l, err := i.manager.networkDevices.ByIndex(networkDeviceByConnectedNICs, req.Identifier)
 	if err != nil {
 		i.log.Error(err, "Failed to list network devices", "HostInterface", req.Identifier)
 		return err
 	}
 	if len(l) == 0 {
-		i.log.Info("Connected network device not found, remove resource is no-op", "ManagedResource", req.Key.String())
+		i.log.Info("Connected network device not found, remove resource is no-op", "ManagedResource", req.Key())
 		return nil
 	}
 	done := true
@@ -340,7 +341,7 @@ func (i *FabricOverlayNetworkImplementation) DeleteResourceFromNetwork(req *Port
 		if !device.IsReachable() {
 			return NewNetworkDeviceNotReachableError(v1alpha1.LeafName, device.Key())
 		}
-		ok, err := device.UpdateConfiguration(req, false, true)
+		ok, err := device.UpdateConfigurations([]ConfigurationRequest{req}, false, false, true)
 		if err != nil {
 			return err
 		}
@@ -349,23 +350,23 @@ func (i *FabricOverlayNetworkImplementation) DeleteResourceFromNetwork(req *Port
 	if done {
 		return nil
 	}
-	return NewBackendConfigurationInProgress("Fabric", v1alpha12.ManagedResourceName, req.Key.String())
+	return NewBackendConfigurationInProgress("Fabric", v1alpha12.ManagedResourceName, req.Key())
 }
 
 func (i *FabricOverlayNetworkImplementation) GetResourceProperties(req *PortRequest) (*properties.ResourceProperties, error) {
-	l, err := i.manager.networkDevices.ByIndex(networkDeviceByConnectedHosts, req.Identifier)
+	l, err := i.manager.networkDevices.ByIndex(networkDeviceByConnectedNICs, req.Identifier)
 	if err != nil {
 		i.log.Error(err, "Failed to list network devices", "HostInterface", req.Identifier)
 		return nil, err
 	}
 	if len(l) == 0 {
-		i.log.Info("Connected network device not found.", "ManagedResource", req.Key)
+		i.log.Info("Connected network device not found.", "ManagedResource", req.name)
 		return nil, NewNetworkDeviceNotAvailableError(v1alpha1.LeafName, "")
 	}
 
-	mrRt := i.manager.managedResources.Get(req.Key)
+	mrRt := i.manager.managedResources.Get(req.name)
 	if mrRt == nil {
-		return nil, fmt.Errorf("internal error ManagedResource runtime not found: %s", req.Key.String())
+		return nil, fmt.Errorf("internal error ManagedResource runtime not found: %s", req.Key())
 	}
 	device := l[0].(NetworkDevice)
 	_, k8sName := getNetworkDeviceK8sKindName(device.Key())
@@ -380,13 +381,12 @@ func (i *FabricOverlayNetworkImplementation) GetResourceProperties(req *PortRequ
 		} else {
 			fabricIP = req.HostIP
 		}
-
 	}
 	return &properties.ResourceProperties{
 		FabricReference: &v1alpha12.NetworkFabricReference{
 			Kind:               v1alpha1.LeafName,
 			Name:               k8sName,
-			Port:               device.GetPortByHostIdentifier(req.Identifier),
+			Port:               device.GetPortByNICIdentifier(req.Identifier),
 			ConfigurationState: mrRt.State.String(),
 		},
 		HostAccessIPs: &v1alpha12.IPAssociation{

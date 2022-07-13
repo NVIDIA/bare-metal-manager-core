@@ -200,7 +200,10 @@ func (i *OvnOverlayNetworkImplementation) AddOrUpdateResourceToNetwork(req *Port
 	dpu, ok := i.dpus[req.Identifier]
 	if !ok {
 		dpu = &dpuState{}
-		dpu.key = req.Key
+		dpu.key = client.ObjectKey{
+			Namespace: i.mgr.k8sNamespace,
+			Name:      req.name,
+		}
 		i.dpus[req.Identifier] = dpu
 	}
 	// DPU IPs changed.
@@ -309,6 +312,20 @@ func (i *OvnOverlayNetworkImplementation) DeleteNetwork() error {
 	return i.stop()
 }
 
+func (i *OvnOverlayNetworkImplementation) AddOrUpdateNetworkPolices(_ []*NetworkPolicyRule, _ []string) error {
+	// TODO
+	return nil
+}
+
+func (i *OvnOverlayNetworkImplementation) DeleteNetworkPolices(_ []uint16, _ []string) error {
+	return nil
+
+}
+
+func (i *OvnOverlayNetworkImplementation) GetNetworkPolicyProperties(_ string) (*properties.NetworkPolicyProperties, error) {
+	return nil, nil
+}
+
 // start deploys an ovn-central service for this resource group, and initiates the background watch
 func (i *OvnOverlayNetworkImplementation) start() error {
 	if i.stopChan != nil {
@@ -317,7 +334,7 @@ func (i *OvnOverlayNetworkImplementation) start() error {
 	}
 	ovnServiceName := GetOvnServiceName(i.resourceGroup)
 	i.mgr.podController.RegisterListener(ovnServiceName, i.podChan)
-	if err := templates.CreateOvnService(ovnServiceName, i.mgr.namespace, i.mgr.Client); err != nil {
+	if err := templates.CreateOvnService(ovnServiceName, i.mgr.k8sNamespace, i.mgr.Client); err != nil {
 		i.log.Error(err, "start: Failed to deploy ovn-central Service.", "Service", ovnServiceName)
 		return err
 	}
@@ -334,7 +351,7 @@ func (i *OvnOverlayNetworkImplementation) stop() error {
 	}
 	ovnServiceName := GetOvnServiceName(i.resourceGroup)
 	i.mgr.podController.UnregisterListener(ovnServiceName)
-	if err := templates.DeleteOvnService(ovnServiceName, i.mgr.namespace, i.mgr.Client); err != nil {
+	if err := templates.DeleteOvnService(ovnServiceName, i.mgr.k8sNamespace, i.mgr.Client); err != nil {
 		i.log.Error(err, "stop: Failed to delete ovn-central Service.", "Service", ovnServiceName)
 		return err
 	}
@@ -441,7 +458,7 @@ func (i *OvnOverlayNetworkImplementation) checkAgents() {
 		}
 		if change, _ := i.updateAgentState(dpu.dpuIPs[0], &dpu.agentState); change {
 			i.log.V(1).Info("Update agent state change", "HostInterface", dpu.identifier)
-			i.mgr.managedResources.NotifyChange(dpu.key)
+			i.mgr.managedResources.NotifyChange(dpu.key.Name)
 		}
 		if dpu.isConnected() && dpu.identifier != identifier {
 			i.log.Error(nil, "DPU identifier mismatch",
@@ -477,7 +494,7 @@ func (i *OvnOverlayNetworkImplementation) updateNetwork(retry bool) error {
 	if len(i.ovnServiceIP) == 0 {
 		ovnService := &corev1.Service{}
 		key := client.ObjectKey{
-			Namespace: i.mgr.namespace,
+			Namespace: i.mgr.k8sNamespace,
 			Name:      GetOvnServiceName(i.resourceGroup),
 		}
 		err = i.mgr.Client.Get(context.Background(), key, ovnService)

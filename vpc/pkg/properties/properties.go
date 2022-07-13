@@ -15,18 +15,31 @@ type OverlayNetworkProperties struct {
 }
 
 type ResourceProperties struct {
-	// FabricReference references to the networkfabric device of this managed resource.
+	// FabricReference references to the networkfabric device of this ManagedResource.
 	FabricReference *v1alpha1.NetworkFabricReference
-	// LogicalPortReference references to a logical port on overlay network connecting to this managed resource.
+	// LogicalPortReference references to a logical port on overlay network connecting to this ManagedResource.
 	LogicalPortReference *v1alpha1.LogicalPortReference
 	// HostAccessIPs are IPs assigned to the ManagedResource by the backend.
 	HostAccessIPs *v1alpha1.IPAssociation
+	// NetworkPolicyProperties are NetworkPolicies applied to this ManagedResource.
+	NetworkPolicyProperties *NetworkPolicyResourceProperties
 }
 
 type NetworkDeviceProperties struct {
-	LoopbackIP      string
-	ASN             uint32
-	Alive           bool
-	AdminHostIPs    map[string]string
-	AdminDHCPServer string
+	LoopbackIP              string
+	ASN                     uint32
+	Alive                   bool
+	AdminHostIPs            map[string]string
+	AdminDHCPServer         string
+	NetworkPolicyProperties *NetworkPolicyResourceProperties
+}
+
+type NetworkPolicyResourceProperties struct {
+	// Applied is NetworkPolices applied to a ManagedResource.
+	Applied []string
+}
+
+type NetworkPolicyProperties struct {
+	// ID associated with a NetworkPolicy.
+	ID uint16
 }

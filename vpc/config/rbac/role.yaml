@@ -87,6 +87,32 @@ rules:
 - apiGroups:
   - resource.vpc.forge.gitlab-master.nvidia.com
   resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - resource.vpc.forge.gitlab-master.nvidia.com
+  resources:
+  - networkpolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - resource.vpc.forge.gitlab-master.nvidia.com
+  resources:
+  - networkpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - resource.vpc.forge.gitlab-master.nvidia.com
+  resources:
   - resourcegroups
   verbs:
   - create

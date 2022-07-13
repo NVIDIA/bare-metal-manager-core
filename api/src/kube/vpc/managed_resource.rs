@@ -55,6 +55,10 @@ pub struct ManagedResourceStatus {
     #[serde(rename = "networkFabricReference")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_fabric_reference: Option<ManagedResourceStatusNetworkFabricReference>,
+    /// NetworkPolicies applied to this ManagedResource.
+    #[serde(rename = "networkPolicies")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_policies: Option<Vec<String>>,
 }
 
 /// ManagedResourceCondition defines responses of ManagedResource create/delete/update.

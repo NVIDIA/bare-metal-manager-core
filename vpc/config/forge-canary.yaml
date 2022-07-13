@@ -88,10 +88,20 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    cert-manager.io/inject-ca-from: forge-canary-system/forge-canary-serving-cert
     controller-gen.kubebuilder.io/version: v0.4.1
-  creationTimestamp: null
   name: leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com
 spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: forge-canary-webhook-service
+          namespace: forge-canary-system
+          path: /convert
+      conversionReviewVersions:
+      - v1
   group: networkfabric.vpc.forge.gitlab-master.nvidia.com
   names:
     kind: Leaf
@@ -106,6 +116,9 @@ spec:
       type: string
     - jsonPath: .spec.control.maintenanceMode
       name: maintenance
+      type: string
+    - jsonPath: .status.hostAdminIPs
+      name: host-ip
       type: string
     - jsonPath: .status.conditions[0].status
       name: Status
@@ -188,6 +201,11 @@ spec:
               loopbackIP:
                 description: LoobackIP assigned to this leaf.
                 type: string
+              networkPolicies:
+                description: NetworkPolicies applied to this Leaf.
+                items:
+                  type: string
+                type: array
             type: object
         type: object
     served: true
@@ -335,6 +353,198 @@ spec:
                   port:
                     type: string
                 type: object
+              networkPolicies:
+                description: NetworkPolicies applied to this ManagedResource.
+                items:
+                  type: string
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: forge-canary-system/forge-canary-serving-cert
+    controller-gen.kubebuilder.io/version: v0.4.1
+  name: networkpolicies.resource.vpc.forge.gitlab-master.nvidia.com
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: forge-canary-webhook-service
+          namespace: forge-canary-system
+          path: /convert
+      conversionReviewVersions:
+      - v1
+  group: resource.vpc.forge.gitlab-master.nvidia.com
+  names:
+    kind: NetworkPolicy
+    listKind: NetworkPolicyList
+    plural: networkpolicies
+    singular: networkpolicy
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: NetworkPolicy is the Schema for the networkpolicies API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NetworkPolicySpec defines the desired state of NetworkPolicy. If a traffic flow matches any rules, it is allowed in the corresponding direction, otherwise it is denied.
+            properties:
+              egressRules:
+                description: EgressRules contains egress rules
+                items:
+                  description: NetworkPolicyEgressRule specifies a rule applied to egress traffic from the ManagedResource.
+                  properties:
+                    ports:
+                      description: Ports describes all destination ports and protocol to which traffic is allowed. Default is allowing all traffic.
+                      items:
+                        properties:
+                          begin:
+                            description: '[Begin, end) specify half-close IP packet port.'
+                            type: integer
+                          end:
+                            type: integer
+                          protocol:
+                            description: Protocol is the IP packet protocol, default to TCP.
+                            type: string
+                        required:
+                        - begin
+                        type: object
+                      type: array
+                    toAddresses:
+                      description: ToAddresses describes all IP addresses to which traffic is allowed. Default is allowing all traffic.
+                      items:
+                        description: NetworkPolicyAddress describes some IP addresses that allow traffic to/from.
+                        properties:
+                          ipCIDR:
+                            description: IPAddress is IPv4 or IPv6 Addresse types.
+                            type: string
+                          managedResourceSelector:
+                            description: ManagedResourceSelector selects ManagedResources, and therefore their IP addresses.
+                            properties:
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                description: MatchLabels selects a ManagedResource if *all* key/value pairs it contains are found in the ManagedResource's Labels.
+                                type: object
+                            type: object
+                        type: object
+                      type: array
+                  type: object
+                type: array
+              ingressRules:
+                description: IngressRules contains ingress rules
+                items:
+                  description: NetworkPolicyIngressRule specifies a rule applied to ingress traffic to the ManagedResource.
+                  properties:
+                    fromAddresses:
+                      description: FromAddresses describes all IP addresses from which traffic is allowed. Default is allowing all traffic.
+                      items:
+                        description: NetworkPolicyAddress describes some IP addresses that allow traffic to/from.
+                        properties:
+                          ipCIDR:
+                            description: IPAddress is IPv4 or IPv6 Addresse types.
+                            type: string
+                          managedResourceSelector:
+                            description: ManagedResourceSelector selects ManagedResources, and therefore their IP addresses.
+                            properties:
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                description: MatchLabels selects a ManagedResource if *all* key/value pairs it contains are found in the ManagedResource's Labels.
+                                type: object
+                            type: object
+                        type: object
+                      type: array
+                    ports:
+                      description: Ports describes all destination ports and protocol to which traffic is allowed. Default is allowing all traffic.
+                      items:
+                        properties:
+                          begin:
+                            description: '[Begin, end) specify half-close IP packet port.'
+                            type: integer
+                          end:
+                            type: integer
+                          protocol:
+                            description: Protocol is the IP packet protocol, default to TCP.
+                            type: string
+                        required:
+                        - begin
+                        type: object
+                      type: array
+                  type: object
+                type: array
+              leafSelector:
+                description: LeafSelector selects hosts in admin state on which this NetworkPolicy is applied
+                properties:
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: MatchLabels selects a ManagedResource if *all* key/value pairs it contains are found in the ManagedResource's Labels.
+                    type: object
+                type: object
+              managedResourceSelector:
+                description: ManagedResourceSelector selects the ManagedResources on which this NetworkPolicy is applied
+                properties:
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: MatchLabels selects a ManagedResource if *all* key/value pairs it contains are found in the ManagedResource's Labels.
+                    type: object
+                type: object
+            type: object
+          status:
+            description: NetworkPolicyStatus defines the observed state of NetworkPolicy
+            properties:
+              conditions:
+                description: Conditions defines responses of NetworkPolicy create/delete/update
+                items:
+                  description: NetworkPolicyCondition defines responses of NetworkPolicy create/delete/update.
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is the last transaction time for this NetworkPolicy.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message is message from the transaction.
+                      type: string
+                    reason:
+                      description: Reason is reason for the transaction.
+                      type: string
+                    status:
+                      description: Status is NetworkPolicyCondition status.
+                      type: string
+                    type:
+                      description: Type is NetworkPolicyCondition type.
+                      type: string
+                  type: object
+                type: array
+              id:
+                description: ID is runtime allocated ID associated with this NetworkPolicy.
+                type: integer
             type: object
         type: object
     served: true
@@ -773,6 +983,32 @@ rules:
 - apiGroups:
   - resource.vpc.forge.gitlab-master.nvidia.com
   resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - resource.vpc.forge.gitlab-master.nvidia.com
+  resources:
+  - networkpolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - resource.vpc.forge.gitlab-master.nvidia.com
+  resources:
+  - networkpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - resource.vpc.forge.gitlab-master.nvidia.com
+  resources:
   - resourcegroups
   verbs:
   - create
@@ -1160,8 +1396,6 @@ spec:
         ports:
         - containerPort: 8443
           name: https
-      nodeSelector:
-        vpc.forge.nvidia.com/node: control
       securityContext:
         runAsNonRoot: false
       serviceAccountName: forge-canary-controller-manager
@@ -1383,6 +1617,30 @@ webhooks:
     resources:
     - resourcegroups
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
+      path: /mutate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-networkpolicy
+  failurePolicy: Fail
+  name: mnetworkpolicy.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
+  rules:
+  - apiGroups:
+    - resource.vpc.forge.gitlab-master.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - networkpolicies
+  sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -1486,4 +1744,28 @@ webhooks:
     - UPDATE
     resources:
     - resourcegroups
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: forge-canary-webhook-service
+      namespace: forge-canary-system
+      path: /validate-resource-vpc-forge-gitlab-master-nvidia-com-v1alpha1-networkpolicy
+  failurePolicy: Fail
+  name: vnetworkpolicy.kb.io
+  namespaceSelector:
+    matchLabels:
+      namespace: forge-canary-system
+  rules:
+  - apiGroups:
+    - resource.vpc.forge.gitlab-master.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - networkpolicies
   sideEffects: None

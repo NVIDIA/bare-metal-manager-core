@@ -63,8 +63,8 @@ spec:
         - name: ovn-cert
           secret:
             secretName: ovn-central-cert
-      nodeSelector:
-        vpc.forge.nvidia.com/node: control
+      #nodeSelector:
+      #  vpc.forge.nvidia.com/node: control
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate

@@ -123,12 +123,12 @@ func (t *cumulusTransport) Ssh(cmd string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer sshConn.Close()
+	defer func() { _ = sshConn.Close() }()
 	sess, err := sshConn.NewSession()
 	if err != nil {
 		return "", err
 	}
-	defer sess.Close()
+	defer func() { _ = sess.Close() }()
 	var outBuf, errBuf bytes.Buffer
 	sess.Stderr = &errBuf
 	sess.Stdout = &outBuf
@@ -200,8 +200,11 @@ type Cumulus struct {
 	hosts           map[string]string
 	log             logr.Logger
 	NetworkDeviceTransport
-	desiredState          map[string]*PortRequest
-	operationState        map[string]*PortRequest
+	desiredState            map[string]ConfigurationRequest
+	operationState          map[string]ConfigurationRequest
+	desiredHostAdminState   map[string]ConfigurationRequest
+	operationHostAdminState map[string]ConfigurationRequest
+	// TODO consolidate to xxHostAdminState
 	operationHostAdminIPs map[string]string
 	desiredHostAdminIPs   map[string]string
 	livenessCancel        context.CancelFunc
@@ -236,15 +239,17 @@ func NewCumulus(mgr *vpcManager, key string, maint bool, connectedHosts map[stri
 		}
 	}
 	return &Cumulus{
-		key:                    key,
-		hosts:                  connectedHosts,
-		maintenanceMode:        maint,
-		NetworkDeviceTransport: transport,
-		log:                    logf.Log.WithName("Cumulus:" + key),
-		desiredState:           make(map[string]*PortRequest),
-		operationState:         make(map[string]*PortRequest),
-		manager:                mgr,
-		hbn:                    hbn,
+		key:                     key,
+		hosts:                   connectedHosts,
+		maintenanceMode:         maint,
+		NetworkDeviceTransport:  transport,
+		log:                     logf.Log.WithName("Cumulus:" + key),
+		desiredState:            make(map[string]ConfigurationRequest),
+		operationState:          make(map[string]ConfigurationRequest),
+		desiredHostAdminState:   make(map[string]ConfigurationRequest),
+		operationHostAdminState: make(map[string]ConfigurationRequest),
+		manager:                 mgr,
+		hbn:                     hbn,
 	}, nil
 }
 
@@ -270,8 +275,15 @@ func (c *Cumulus) SetMaintenanceMode(maint bool) {
 				delete(c.operationState, k)
 			}
 		}
+		for k := range c.operationHostAdminState {
+			if _, ok := c.desiredHostAdminState[k]; ok {
+				delete(c.operationHostAdminState, k)
+			}
+		}
+
 		if c.livenessCancel != nil {
 			c.livenessCancel()
+			c.livenessCancel = nil
 		}
 	}
 	c.maintenanceMode = maint
@@ -289,7 +301,7 @@ func (c *Cumulus) IsInMaintenanceMode() bool {
 	return c.maintenanceMode
 }
 
-func (c *Cumulus) SetHostIdentifiers(hosts map[string]string) {
+func (c *Cumulus) SetNICIdentifiers(hosts map[string]string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.hosts = hosts
@@ -303,13 +315,13 @@ func (c *Cumulus) getHostIdentifiers() []string {
 	return ret
 }
 
-func (c *Cumulus) GetHostIdentifiers() []string {
+func (c *Cumulus) GetNICIdentifiers() []string {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	return c.getHostIdentifiers()
 }
 
-func (c *Cumulus) GetPortByHostIdentifier(identifier string) string {
+func (c *Cumulus) GetPortByNICIdentifier(identifier string) string {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	port, ok := c.hosts[identifier]
@@ -326,7 +338,7 @@ func (c *Cumulus) SetHostAdminIPs(adminIPs map[string]string, doReconcile bool) 
 	if reflect.DeepEqual(c.desiredHostAdminIPs, c.operationHostAdminIPs) {
 		return
 	}
-	if doReconcile && len(c.operationState) == 0 && len(c.desiredState) == 0 {
+	if doReconcile && !c.hasConfigurations() {
 		c.operationHostAdminIPs = make(map[string]string)
 		for k, v := range adminIPs {
 			c.operationHostAdminIPs[k] = v
@@ -384,6 +396,9 @@ func (c *Cumulus) updateOperationHostAdminIPsLocked(adminIPs map[string]string, 
 }
 
 func (c *Cumulus) queueDevice() {
+	if c.livenessCancel == nil && !c.unManaged {
+		c.log.V(1).Info("Device has not started, ignore device queuing")
+	}
 	c.pendingChanges++
 	// queue config to be sent. A delay allows multiple configurations be sent at the same time.
 	if c.pendingChanges == 1 {
@@ -396,35 +411,56 @@ func (c *Cumulus) queueDevice() {
 
 // UpdateConfiguration updates desired state and returns true if device's desired and operation states
 // are in sync with respect to the incoming request.
-func (c *Cumulus) updateConfiguration(req *PortRequest, doReconcile, isDelete bool) (bool, error) {
+func (c *Cumulus) updateConfiguration(req ConfigurationRequest, hostAdmin, doReconcile, isDelete bool) (bool, error) {
+	c.log.V(1).Info("UpdateConfiguration called", "Configuration", req.Key(),
+		"hostAdmin", hostAdmin, "doReconcile", doReconcile,
+		"IsDelete", isDelete)
 	if doReconcile && c.inReconcile {
-		c.log.Info("Update configuration, reconcile", "ManagedResource", req.Key)
-		c.operationState[req.Key.String()] = req
-		c.desiredState[req.Key.String()] = req
-		c.operationHostAdminIPs = nil
+		c.log.Info("Update configuration, reconcile", "Configuration", req.Key())
+		if hostAdmin {
+			c.desiredHostAdminState[req.Key()] = req
+			if len(c.desiredState) == 0 {
+				c.operationHostAdminState[req.Key()] = req
+			}
+		} else {
+			c.operationState[req.Key()] = req
+			c.desiredState[req.Key()] = req
+			c.operationHostAdminIPs = nil
+			c.operationHostAdminState = nil
+		}
 		return true, nil
 	}
-	operation := c.operationState[req.Key.String()]
-	desired := c.desiredState[req.Key.String()]
+	operationState := c.operationState
+	desiredState := c.desiredState
+	if hostAdmin {
+		operationState = c.operationHostAdminState
+		desiredState = c.desiredHostAdminState
+	}
+	operation := operationState[req.Key()]
+	desired := desiredState[req.Key()]
+
 	// Config does not exist.
-	rt := c.manager.managedResources.Get(req.Key)
-	if rt == nil {
-		c.log.V(1).Info("Don't know how to update unknown resource", "ManagedResource", req.Key)
+	state, _ := req.GetBackendState(c.manager)
+	if state == BackendStateUnknown {
+		c.log.V(1).Info("Don't know how to update unknown configuration", "Configuration", req.Key())
 		return true, nil
 	}
 	if isDelete {
 		if operation == nil && desired == nil {
-			if rt.State == BackendStateComplete {
-				return true, nil
-			} else if rt.State == BackendStateInit {
+			if state == BackendStateInit && c.inReconcile {
+				// Asked to remove some unknown config, it is possible processes restarted while
+				// this config is removed.
 				operation = req
+			} else {
+				return true, nil
 			}
 		}
 		if c.unManaged {
+			// Network device is not under VPC control anymore.
 			return false, NewNetworkDeviceNotAvailableError(v1alpha1.LeafName, c.key)
 		}
-		c.operationState[req.Key.String()] = req
-		delete(c.desiredState, req.Key.String())
+		operationState[req.Key()] = req
+		delete(desiredState, req.Key())
 		if operation == nil {
 			return true, nil
 		}
@@ -441,18 +477,20 @@ func (c *Cumulus) updateConfiguration(req *PortRequest, doReconcile, isDelete bo
 	}
 
 	c.log.V(1).Info("Update configuration", "Current", operation, "Desired", req)
-	c.desiredState[req.Key.String()] = req
+	desiredState[req.Key()] = req
 	return false, nil
 }
 
-func (c *Cumulus) UpdateConfiguration(req *PortRequest, doReconcile, isDelete bool) (bool, error) {
-	c.log.V(1).Info("UpdateConfiguration called", "ManagedResource", req.Key, "doReconcile", doReconcile,
-		"IsDelete", isDelete)
+func (c *Cumulus) UpdateConfigurations(reqs []ConfigurationRequest, hostAdmin, doReconcile, isDelete bool) (bool, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	insync, err := c.updateConfiguration(req, doReconcile, isDelete)
-	if err != nil {
-		return insync, err
+	insync := true
+	for _, req := range reqs {
+		sync, err := c.updateConfiguration(req, hostAdmin, doReconcile, isDelete)
+		if err != nil {
+			return sync, err
+		}
+		insync = insync && sync
 	}
 	if !insync {
 		c.queueDevice()
@@ -468,8 +506,25 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 	defer c.executionLock.Unlock()
 	now := time.Now().Unix()
 	defer func() {
+		c.mutex.Lock()
+		var opkeys, desirekeys, opadmkeys, desireadmkeys []string
+		for k := range c.operationState {
+			opkeys = append(opkeys, k)
+		}
+		for k := range c.desiredState {
+			desirekeys = append(desirekeys, k)
+		}
+		for k := range c.operationHostAdminState {
+			opadmkeys = append(opadmkeys, k)
+		}
+		for k := range c.desiredHostAdminState {
+			desireadmkeys = append(desireadmkeys, k)
+		}
+		c.mutex.Unlock()
+
 		c.log.V(1).Info("ExecuteConfiguration completed in", "Second", time.Now().Unix()-now,
-			"Error", fErr, "Retry", retry, "HBNState", c.hbn.GetHBNState())
+			"Error", fErr, "Retry", retry, "HBNState", c.hbn.GetHBNState(), "Operations", opkeys,
+			"Desired", desirekeys, "HostAdminOperation", opadmkeys, "HostAdminDesired", desireadmkeys)
 	}()
 	if c.IsInMaintenanceMode() {
 		return false, nil
@@ -479,8 +534,9 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 	}
 
 	var adminIPCallback func()
-	delta := make(map[bool]map[string]*PortRequest)
-	oldDesiredState := make(map[string]*PortRequest)
+	delta := make(map[bool]map[string]ConfigurationRequest)
+	oldDesiredState := make(map[string]ConfigurationRequest)
+	oldDesiredHostAdminState := make(map[string]ConfigurationRequest)
 
 	defer func() {
 		if fErr != nil {
@@ -494,8 +550,8 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 			c.mutex.Lock()
 			defer c.mutex.Unlock()
 			unmanaged = c.unManaged
-			inAdmin = len(c.desiredState) == 0 && len(c.operationState) == 0
-			unmanagedDone = unmanaged && len(c.desiredState) == 0 && len(c.operationState) == 0
+			inAdmin = !c.hasConfigurations()
+			unmanagedDone = unmanaged && !c.hasConfigurations() && !c.hasHostAdminConfigurations()
 			if inAdmin {
 				if unmanaged {
 					call = func() error { return c.hbn.Stop(true) }
@@ -511,8 +567,7 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 		if call != nil {
 			fErr = call()
 		}
-		changes, _ := c.getHostAdminIPsChangeLocked(inAdmin)
-		if inAdmin && !unmanaged && fErr == nil && len(changes) > 0 {
+		if inAdmin && !unmanaged && fErr == nil {
 			change := false
 			if c.configRev, fErr = c.getRevision(""); fErr == nil {
 				change, adminIPCallback, fErr = c.updateHostInAdmin(inAdmin)
@@ -536,33 +591,44 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 		c.log.Info("Failed to connect to device", "Error", err)
 		return false, err
 	}
-	func() {
-		c.mutex.Lock()
-		defer c.mutex.Unlock()
-		for k, v := range c.desiredState {
-			oldDesiredState[k] = v
-			if vv, ok := c.operationState[k]; !ok || !vv.Equal(v) {
+
+	// Compute and store configuration changes to delta, and store current desiredState to oldDesired.
+	computeDelta := func(oldDesired, operation, desired map[string]ConfigurationRequest) {
+		for k, v := range desired {
+			oldDesired[k] = v
+			if vv, ok := operation[k]; !ok || !vv.Equal(v) {
 				updates := delta[false]
 				if updates == nil {
-					updates = make(map[string]*PortRequest)
+					updates = make(map[string]ConfigurationRequest)
 					delta[false] = updates
 				}
 				updates[k] = v
 			}
 		}
-		for k, v := range c.operationState {
-			if _, ok := c.desiredState[k]; !ok {
+		for k, v := range operation {
+			if _, ok := desired[k]; !ok {
 				removes := delta[true]
 				if removes == nil {
-					removes = make(map[string]*PortRequest)
+					removes = make(map[string]ConfigurationRequest)
 					delta[true] = removes
 				}
 				removes[k] = v
 			}
 		}
+	}
+	func() {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+		computeDelta(oldDesiredState, c.operationState, c.desiredState)
+		if len(c.desiredState) == 0 {
+			// add hostAdmin configurations
+			computeDelta(oldDesiredHostAdminState, c.operationHostAdminState, c.desiredHostAdminState)
+		} else {
+			// remove hostAdmin configurations
+			computeDelta(oldDesiredHostAdminState, c.operationHostAdminState, nil)
+		}
 		c.pendingChanges = 0
 	}()
-
 	rev := ""
 	if len(delta) == 0 {
 		rev = emptyRevision
@@ -574,7 +640,7 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 		c.log.V(1).Info("Failed to ping device", "Error", err)
 		// Notify frontend, device becomes unreachable.
 		if len(oldRev) > 0 {
-			c.manager.networkDevices.NotifyChange(c.key, c.GetHostIdentifiers())
+			c.manager.networkDevices.NotifyChange(c.key, c.GetNICIdentifiers())
 		}
 		// Don't retry because ping is periodical.
 		return false, err
@@ -582,42 +648,32 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 
 	// Notify frontend, device becomes reachable.
 	if len(oldRev) == 0 {
-		c.manager.networkDevices.NotifyChange(c.key, c.GetHostIdentifiers())
+		c.manager.networkDevices.NotifyChange(c.key, c.GetNICIdentifiers())
 	}
 	if len(delta) == 0 {
 		return false, nil
 	}
 
 	// Delete leaf host admin state configurations if host is assigned to a tenant.
-	if _, ok := delta[false]; ok {
-		_, adminIPCallback, err = c.updateHostInAdmin(false)
-		if err != nil {
-			return true, err
-		}
+	_, adminIPCallback, err = c.updateHostInAdmin(!c.hasConfigurations())
+	if err != nil {
+		return true, err
 	}
 	for isDelete, updates := range delta {
 		for _, v := range updates {
-			rt := c.manager.managedResources.Get(v.Key)
-			if rt == nil {
-				// Cannot be true ??
-				c.log.Error(nil, "ManagedResource runtime not found", "ManagedResource", v.Key)
-				continue
+			switch vv := v.(type) {
+			case *PortRequest:
+				retry, err = c.updatePortConfig(vv, &c.configRev, isDelete)
+			case *NetworkPolicyRules:
+				retry, err = c.updateNetworkPolicyConfig(vv, &c.configRev, isDelete)
+			default:
+				c.log.Error(nil, "Unknown config request type")
 			}
-			v.Update(rt)
-			retry, err = c.updateOne(rt, v, &c.configRev, isDelete)
 			if err != nil {
-				if rt.State != BackendStateError {
-					rt.State = BackendStateError
-					rt.Error = err
-					_ = c.manager.managedResources.Update(rt)
-					c.manager.managedResources.NotifyChange(rt.Key)
-				}
+				v.SetBackendState(c.manager, BackendStateError, err, true)
 				return retry, err
 			}
-			if BackendStateModifying != rt.State {
-				rt.State = BackendStateModifying
-				_ = c.manager.managedResources.Update(rt)
-			}
+			v.SetBackendState(c.manager, BackendStateModifying, err, false)
 		}
 	}
 	// Commit config.
@@ -628,38 +684,46 @@ func (c *Cumulus) ExecuteConfiguration() (retry bool, fErr error) {
 		func() {
 			c.mutex.Lock()
 			defer c.mutex.Unlock()
-			c.operationState = make(map[string]*PortRequest)
+			c.operationState = make(map[string]ConfigurationRequest)
 			// Desired state may have changed during update, use old state.
 			for k, v := range oldDesiredState {
 				c.operationState[k] = v
 			}
+			c.operationHostAdminState = make(map[string]ConfigurationRequest)
+			for k, v := range oldDesiredHostAdminState {
+				c.operationHostAdminState[k] = v
+			}
+
 		}()
 	}
 
 	// Commit successful or failed , update runtime state.
-	for _, updates := range delta {
-		for _, v := range updates {
-			rt := c.manager.managedResources.Get(v.Key)
-			if rt == nil {
-				// Cannot be true ??
-				continue
-			}
-			if err != nil {
-				rt.State = BackendStateError
-				rt.Error = err
+	state := BackendStateError
+	for isDelete, updates := range delta {
+		if err == nil {
+			if isDelete {
+				state = BackendStateDeleted
 			} else {
-				rt.State = BackendStateComplete
-				rt.Error = nil
+				state = BackendStateComplete
 			}
-			_ = c.manager.managedResources.Update(rt)
-			c.manager.managedResources.NotifyChange(rt.Key)
+		}
+		for _, v := range updates {
+			v.SetBackendState(c.manager, state, err, true)
 		}
 	}
 	return err != nil, err
 }
 
-// updateOne updates a single ManagedResource to the cumulus device.
-func (c *Cumulus) updateOne(rt *managedResourceRuntime, config *PortRequest, rev *string, isDelete bool) (bool, error) {
+// updatePortConfig updates a single ManagedResource to the cumulus device.
+func (c *Cumulus) updatePortConfig(config *PortRequest, rev *string, isDelete bool) (bool, error) {
+	rt := c.manager.managedResources.Get(config.name)
+	if rt == nil {
+		// Cannot be true ??
+		c.log.Error(nil, "ManagedResource runtime not found", "ManagedResource", config.name)
+		return true, nil
+	}
+	config.Update(rt)
+
 	if config.NeedFabricIP {
 		return false, fmt.Errorf("NATting not supported")
 	}
@@ -684,11 +748,26 @@ func (c *Cumulus) updateOne(rt *managedResourceRuntime, config *PortRequest, rev
 		gwIP.IP = ip
 		gwIP.Mask = net.CIDRMask(32, 32)
 	}
-	return c.updateOne2(vlanid, vni, c.GetPortByHostIdentifier(config.Identifier), gwIP.String(), networkImpl.dhcpServer.String(), hostRoute,
+	return c.updatePortConfig2(vlanid, vni, c.GetPortByNICIdentifier(config.Identifier), gwIP.String(), networkImpl.dhcpServer.String(), hostRoute,
 		rev, config.Isolated, isDelete)
 }
 
-func (c *Cumulus) updateOne2(vlanid, vni uint32, port string, gwIP string, dhcpServer string,
+// updateNetworkPolicyConfig updates NetworkPolicy on a single ManagedResource or leaf to the cumulus device.
+func (c *Cumulus) updateNetworkPolicyConfig(config *NetworkPolicyRules, rev *string, isDelete bool) (bool, error) {
+	c.log.V(1).Info("updateNetworkPolicyConfig", "NetworkPolicy", config, "IsDelete", isDelete)
+	// TODO test only
+	method := http.MethodPost
+	if isDelete {
+		method = http.MethodDelete
+	}
+	url := c.getBaseURI() + "network-policy/" + config.ResourceKind + "/" + config.ResourceName
+	if _, _, err := c.sendContentAndGetResponse(method, url, config, rev); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (c *Cumulus) updatePortConfig2(vlanid, vni uint32, port string, gwIP string, dhcpServer string,
 	hostRoute string, rev *string, isIsolated, isDelete bool) (bool, error) {
 	if retry, err := c.updateInterface(vlanid, vni, port, gwIP, rev, isDelete); err != nil {
 		return retry, err
@@ -725,7 +804,7 @@ func (c *Cumulus) updateHostInAdmin(adminState bool) (bool, func(), error) {
 		if vlanid, err = c.manager.GetAdminNetworkVLan(); err != nil {
 			return false, nil, err
 		}
-		if _, err = c.updateOne2(vlanid, 0, port, gwIP, dhcpServer, hostRoute, &c.configRev, false, isDelete); err != nil {
+		if _, err = c.updatePortConfig2(vlanid, 0, port, gwIP, dhcpServer, hostRoute, &c.configRev, false, isDelete); err != nil {
 			return false, nil, err
 		}
 		if len(ip) == 0 && !isDelete {
@@ -778,7 +857,7 @@ func (c *Cumulus) Liveness(doReconcile bool) {
 	defer c.mutex.Unlock()
 	c.inReconcile = doReconcile
 	if c.inReconcile {
-		c.log.Info("Reconcile existing device")
+		c.log.Info("Reconcile with existing device")
 		c.manager.networkDevices.NotifyChange(c.key, c.getHostIdentifiers())
 	}
 	c.liveness()
@@ -796,7 +875,7 @@ func (c *Cumulus) Unmanage() error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	hbnState := c.hbn.GetHBNState()
-	if len(c.operationState) == 0 && (hbnState == HBNInvalid || hbnState == HBNInit) {
+	if !c.hasConfigurations() && !c.hasHostAdminConfigurations() && (hbnState == HBNInvalid || hbnState == HBNInit) {
 		return nil
 	}
 
@@ -808,12 +887,13 @@ func (c *Cumulus) Unmanage() error {
 		c.livenessCancel()
 		c.livenessCancel = nil
 	}
-	alreadyUnmanaged := c.unManaged
 	c.desiredState = nil
-	c.unManaged = true
-	if !alreadyUnmanaged {
+	c.desiredHostAdminState = nil
+	if !c.unManaged {
 		c.queueDevice()
 	}
+	c.unManaged = true
+
 	return NewBackendConfigurationInProgress("Fabric", v1alpha1.LeafName, c.key)
 }
 
@@ -874,6 +954,14 @@ func (c *Cumulus) unmanagedDoneLocked() bool {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	return c.unManagedDone
+}
+
+func (c *Cumulus) hasConfigurations() bool {
+	return len(c.operationState) > 0 || len(c.desiredState) > 0
+}
+
+func (c *Cumulus) hasHostAdminConfigurations() bool {
+	return len(c.operationHostAdminState) > 0 || len(c.desiredHostAdminState) > 0
 }
 
 func (c *Cumulus) handleResponse(resp []byte) (map[string]interface{}, error) {
