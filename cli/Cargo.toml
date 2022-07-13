@@ -23,6 +23,7 @@ libudev = "*"
 color-eyre = "0.5.11"
 pretty_env_logger = "*"
 uuid = "0.8.2"
+uname = "0.1.1"
 
 # cli
 clap = { version = "~3", features = ["derive"] }
