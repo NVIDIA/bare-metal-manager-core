@@ -157,11 +157,12 @@ void set_vendor_options(Pkt4Ptr response4_ptr, Machine *machine) {
 	LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(option_vendor->toText());
 
 	// Option 6 set to 0x8 tells iPXE not to wait for Proxy PXE since we don't care about that.
-//	OptionPtr vendor_option_6 = option_vendor->getOption(6);
-//	if (vendor_option_6) {
-//		option_vendor->delOption(6);
-//	}
-//	vendor_option_6.reset(new OptionInt<uint32_t>(Option::V4, 6, 0x8));
+	OptionPtr vendor_option_6 = option_vendor->getOption(6);
+	if (vendor_option_6) {
+		option_vendor->delOption(6);
+	}
+	vendor_option_6.reset(new OptionInt<uint32_t>(Option::V4, 6, 0x8));
+    option_vendor->addOption(vendor_option_6);
 
 	// Option 70 we're using to set the UUID of the machine
 	OptionPtr vendor_option_70 = option_vendor->getOption(70);
@@ -171,10 +172,10 @@ void set_vendor_options(Pkt4Ptr response4_ptr, Machine *machine) {
 	char *machine_uuid = machine_get_uuid(machine);
     if (strlen(machine_uuid) > 0) {
         vendor_option_70.reset(new OptionString(Option::V4, 70, machine_uuid));
-//        option_vendor->addOption(vendor_option_6);
         option_vendor->addOption(vendor_option_70);
-        response4_ptr->addOption(option_vendor);
     }
+
+    response4_ptr->addOption(option_vendor);
 	machine_free_uuid(machine_uuid);
 }
 
