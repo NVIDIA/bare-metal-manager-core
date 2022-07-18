@@ -57,7 +57,8 @@ fn determine_boot_from_state(
     config: RuntimeConfig,
 ) -> String {
     match machine.state.as_str() {
-        "new" => boot_into_discovery(interface, config),
+        // The DPU needs an exit 1
+        "new" => "exit 1".to_string(),
         "assigned" => boot_into_netbootxyz(),
         // any unrecognized state will cause ipxe to stop working with this message
         s => format!(
