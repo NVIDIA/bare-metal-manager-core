@@ -15,6 +15,7 @@ users:
     passwd: $6$QnKhCwOoDCL7WBiY$KgzONMVSjgq/137.pYEwHYQwLLR1CMuqhn2jMOxqhXEni8nQsynh.s6qhdqOWoB5CLhOnM2fjtKuAwf6rm5.6.
     groups: [adm, audio, cdrom, dialout, dip, floppy, lxd, netdev, plugdev, sudo, video]
 runcmd:
+  - [ sudo, efibootmgr, -o, "F,40"]
   - [ /usr/bin/systemctl, enable, containerd ]
   - [ /usr/bin/systemctl, start, containerd ]
   - [ /usr/bin/systemctl, enable, kubelet ]
