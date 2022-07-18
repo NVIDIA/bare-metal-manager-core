@@ -1,11 +1,6 @@
 cat << \ZOF > /etc/bf.cfg
 bfb_modify_os()
 {
-cat << EOF > /mnt/etc/bf.cfg
-BOOT0=NET-OOB-IPV4
-BOOT1=DISK
-EOF
-
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
 debug:
@@ -20,7 +15,6 @@ users:
     passwd: $6$QnKhCwOoDCL7WBiY$KgzONMVSjgq/137.pYEwHYQwLLR1CMuqhn2jMOxqhXEni8nQsynh.s6qhdqOWoB5CLhOnM2fjtKuAwf6rm5.6.
     groups: [adm, audio, cdrom, dialout, dip, floppy, lxd, netdev, plugdev, sudo, video]
 runcmd:
-  - [ /usr/bin/bfcfg ]
   - [ /usr/bin/systemctl, enable, containerd ]
   - [ /usr/bin/systemctl, start, containerd ]
   - [ /usr/bin/systemctl, enable, kubelet ]
@@ -30,9 +24,14 @@ runcmd:
   - [ /usr/bin/unzip, /opt/hbn_installer/doca_container_configs_1.3.0.zip, -d, /opt/hbn_installer/ ]
   - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli, -P, /opt/carbide ]
   - [ chmod, +x, /opt/carbide/carbide-cli ]
-  - [ /opt/carbide/carbide-cli, --listen={{ api_url }}, discovery, --uuid={{ interface_id }} ]
+  - [ /opt/carbide/carbide-cli, --listen={{ api_url }}, done, --uuid={{ interface_id }} ]
 #  - [ /bin/bash, /opt/hbn_installer/scripts/doca_hbn/hbn-dpu-setup.sh ] # This can be turned back on after we are done experimenting, it messes up the network
 EOF
+
+mkdir -p /opt/carbide
+wget {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli -P /opt/carbide
+chmod +x /opt/carbide/carbide-cli
+/opt/carbide/carbide-cli --listen={{ api_url }} discovery --uuid={{ interface_id }}
 
 }
 
