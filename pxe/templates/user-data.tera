@@ -19,14 +19,15 @@ runcmd:
   - [ /usr/bin/systemctl, enable, containerd ]
   - [ /usr/bin/systemctl, start, containerd ]
   - [ /usr/bin/systemctl, enable, kubelet ]
-  - [ /usr/bin/systemctl, start, kubelet ]
   - [ mkdir, -p, /opt/hbn_installer, /opt/carbide ]
   - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/doca_container_configs_1.3.0.zip, -P, /opt/hbn_installer ]
   - [ /usr/bin/unzip, /opt/hbn_installer/doca_container_configs_1.3.0.zip, -d, /opt/hbn_installer/ ]
+  - [ /bin/bash, /opt/hbn_installer/scripts/doca_hbn/hbn-dpu-setup.sh ] # This can be turned back on after we are done experimenting, it messes up the network
+  - [ cp, /opt/hbn_installer/configs/1.3.0/doca_hbn.yaml, /etc/kubelet.d/ ]
   - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli, -P, /opt/carbide ]
   - [ chmod, +x, /opt/carbide/carbide-cli ]
   - [ /opt/carbide/carbide-cli, --listen={{ api_url }}, done, --uuid={{ interface_id }} ]
-#  - [ /bin/bash, /opt/hbn_installer/scripts/doca_hbn/hbn-dpu-setup.sh ] # This can be turned back on after we are done experimenting, it messes up the network
+  - [ /usr/sbin/reboot ]
 EOF
 
 mkdir -p /opt/carbide
