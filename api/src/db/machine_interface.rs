@@ -21,7 +21,7 @@ const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_mac
 pub struct MachineInterface {
     id: uuid::Uuid,
     domain_id: Option<uuid::Uuid>,
-    machine_id: Option<uuid::Uuid>,
+    pub machine_id: Option<uuid::Uuid>,
     segment_id: uuid::Uuid,
     mac_address: MacAddress,
     hostname: String,
