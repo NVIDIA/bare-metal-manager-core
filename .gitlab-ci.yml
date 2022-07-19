@@ -85,6 +85,21 @@ build-ipxe-aarch64:
     - aarch64
   when: manual
 
+license-checks:
+  before_script:
+    - /bin/bash -l -c "CARGO_HOME=/root/.cargo rustup toolchain uninstall stable-x86_64-unknown-linux-gnu"
+    - /bin/bash -l -c "CARGO_HOME=/root/.cargo rustup toolchain install stable-x86_64-unknown-linux-gnu"
+  cache:
+    key: cargo-crate-cache
+    paths:
+      - cargo/
+      - target/
+  rules:
+    - changes:
+        - Cargo.lock
+        - .license-config.yml
+    - if: $CI_COMMIT_TAG
+
 checkmarx-scan-csv:
   before_script: |
     set -e
