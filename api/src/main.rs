@@ -1,4 +1,5 @@
 mod api;
+mod auth;
 mod cfg;
 
 #[allow(unused_imports)]

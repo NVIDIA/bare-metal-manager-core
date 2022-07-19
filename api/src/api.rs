@@ -8,6 +8,7 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
+use tower::ServiceBuilder;
 
 use carbide::db::{
     DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
@@ -22,6 +23,9 @@ use ::rpc::MachineStateMachineInput;
 pub use rpc::forge::v0 as rpc;
 
 use crate::cfg;
+
+use crate::auth;
+use auth::CarbideAuth;
 
 #[derive(Debug)]
 pub struct Api {
@@ -889,6 +893,24 @@ impl Api {
             database_connection,
         };
 
+        let mut authenticator = CarbideAuth::new();
+
+        // FIXME: Don't ship with this enabled. Should it be a config option?
+        authenticator.set_permissive_mode(true);
+
+        // Example code just to show usage. Do not actually use this!
+        /*
+        authenticator.add_jwt_key(
+            auth::Algorithm::RS256,
+            auth::KeySpec::KeyID(String::from("wow this is a great key ID!")),
+            auth::DecodingKey::from_base64_secret("dWggb2g=").unwrap(),
+        );
+        */
+
+        let auth_layer = ServiceBuilder::new()
+            .layer(tower_http::auth::RequireAuthorizationLayer::custom(authenticator))
+            .into_inner();
+
         let reflection_service = Builder::configure()
             .register_encoded_file_descriptor_set(::rpc::REFLECTION_SERVICE_DESCRIPTOR)
             .build()?;
@@ -898,6 +920,7 @@ impl Api {
 
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
+            .layer(auth_layer)
             .add_service(rpc::forge_server::ForgeServer::new(api_service))
             .add_service(reflection_service)
             .serve(daemon_config.listen[0])

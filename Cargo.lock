@@ -365,8 +365,10 @@ dependencies = [
  "color-eyre",
  "freeipmi-sys",
  "futures",
+ "http",
  "ipnetwork 0.17.0",
  "itertools",
+ "jsonwebtoken",
  "k8s-openapi",
  "kube",
  "log",
@@ -388,6 +390,9 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tonic-reflection",
+ "tower",
+ "tower-http",
+ "tower-layer",
  "uuid",
 ]
 
@@ -1811,6 +1816,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaa63191d68230cccb81c5aa23abd53ed64d83337cacbb25a7b8c7979523774f"
 dependencies = [
  "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "jsonwebtoken"
+version = "8.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc9051c17f81bae79440afa041b3a278e1de71bfb96d32454b477fd4703ccb6f"
+dependencies = [
+ "base64",
+ "ring",
  "serde",
  "serde_json",
 ]
