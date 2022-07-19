@@ -156,8 +156,8 @@ pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut
 
     match Machine::try_from(discovery) {
         Ok(machine) => Box::into_raw(Box::new(machine)),
-        Err(_) => {
-            info!("Error getting info back from the machine discovery: {}:{}:{}", m, r, v);
+        Err(estr) => {
+            info!("Error getting info back from the machine discovery: {}:{}:{}:{}", m, r, v, estr);
             std::ptr::null_mut()
         },
     }

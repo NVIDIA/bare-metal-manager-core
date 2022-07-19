@@ -30,15 +30,15 @@ pub enum MachineTranslateError {
 }
 
 impl TryFrom<Discovery> for Machine {
-    type Error = MachineTranslateError;
+    type Error = String;
 
-    fn try_from(discovery: Discovery) -> Result<Self, Self::Error> {
+    fn try_from(discovery: Discovery) -> Result<Self, String> {
         // First, see if we can parse the vendor class
         let vendor_class = match discovery.vendor_class {
             Some(ref vendor_class) => Some(
                 vendor_class
                     .parse::<VendorClass>()
-                    .map_err(|_| MachineTranslateError::Failure)?,
+                    .map_err(|e| format!("error parsing vendor class: {} {:?}", vendor_class, e))?,
             ),
             None => None,
         };
@@ -79,12 +79,12 @@ impl TryFrom<Discovery> for Machine {
                         })
                         .map_err(|error| {
                             error!("unable to discover machine via Carbide: {:?}", error);
-                            MachineTranslateError::Failure
+                            format!("unable to discover machine via Carbide: {:?}", error)
                         })
                 }
                 Err(err) => {
                     error!("unable to connect to Carbide API: {:?}", err);
-                    Err(MachineTranslateError::Failure)
+                    Err(format!("unable to connect to Carbide API: {:?}", err))
                 }
             }
         })
