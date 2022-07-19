@@ -21,6 +21,8 @@ tonic = { version = "0.7.0", features = ["tls"] }
 tonic-reflection = "0.4.0"
 
 # http/service
+http = "0.2"
+tower = "0.4"
 tower-layer = "0.3"
 tower-http = { version = "0.3", features = ["auth"] }
 
