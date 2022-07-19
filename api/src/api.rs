@@ -297,9 +297,44 @@ impl Forge for Api {
         response
     }
 
-    async fn discover_machine(
+    async fn done(
         &self,
-        request: Request<rpc::MachineDiscoveryInfo>,
+        request: Request<rpc::Uuid>,
+    ) -> Result<Response<rpc::Machine>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+
+        let interface = MachineInterface::find_one(&mut txn, uuid).await?;
+
+        let maybe_machine = match interface.machine_id {
+            Some(machine_id) => {
+                Machine::find_one(&mut txn, machine_id).await?
+            },
+            None => {
+                return Err(Status::invalid_argument(format!(
+                    "Machine interface has no machine id UUID: {}",
+                    uuid
+                )));
+            }
+        };
+
+        let response = match maybe_machine {
+            None => Err(CarbideError::NotFoundError(uuid).into()),
+            Some(machine)  => Ok(rpc::Machine::from(machine)),
+        }.map(Response::new);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn discover_machine(
+        &self,        request: Request<rpc::MachineDiscoveryInfo>,
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
         let di = request.into_inner();
 
@@ -656,7 +691,7 @@ impl Forge for Api {
             None => Err(CarbideError::NotFoundError(uuid).into()),
             Some(machine) => Ok(rpc::Machine::from(machine)),
         }
-        .map(Response::new);
+            .map(Response::new);
 
         txn.commit().await.map_err(CarbideError::from)?;
 

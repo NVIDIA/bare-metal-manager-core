@@ -2,6 +2,7 @@
 
 mod cfg;
 mod discovery;
+mod done;
 
 use cfg::{Command, Options};
 use log::LevelFilter;
@@ -30,6 +31,9 @@ async fn main() -> Result<(), color_eyre::Report> {
     match config.subcmd {
         Command::Discovery(d) => {
             discovery::Discovery::run(config.listen, &d.uuid).await?;
+        },
+        Command::Done(d) => {
+            done::Done::run(config.listen, &d.uuid).await?;
         }
     }
     Ok(())

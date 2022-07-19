@@ -23,10 +23,18 @@ pub(crate) struct Options {
 pub(crate) enum Command {
     #[clap(about = "Run discovery")]
     Discovery(Discovery),
+    #[clap(about = "Done provisioning")]
+    Done(Done),
 }
 
 #[derive(Parser)]
 pub struct Discovery {
+    #[clap(short, long, multiple_values(false), require_equals(true))]
+    pub uuid: String,
+}
+
+#[derive(Parser)]
+pub struct Done {
     #[clap(short, long, multiple_values(false), require_equals(true))]
     pub uuid: String,
 }
