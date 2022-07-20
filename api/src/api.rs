@@ -1,7 +1,6 @@
 use carbide::ipmi::ipmi_handler;
 use std::convert::TryFrom;
 
-use carbide::CarbideError;
 use color_eyre::Report;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn, LevelFilter};
@@ -10,11 +9,14 @@ use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 use tower::ServiceBuilder;
 
-use carbide::db::{
-    DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine, MachineInterface,
-    MachineState, MachineTopology, NetworkSegment, NewDomain, NewInstance, NewInstanceType,
-    NewNetworkSegment, NewVpc, Tag, TagAssociation, TagCreate, TagDelete, TagsList,
-    UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
+use carbide::{
+    db::{
+        BmcMetaDataRequest, DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine,
+        MachineInterface, MachineState, MachineTopology, NetworkSegment, NewDomain, NewInstance,
+        NewInstanceType, NewNetworkSegment, NewVpc, SshKeyValidationRequest, Tag, TagAssociation,
+        TagCreate, TagDelete, TagsList, UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
+    },
+    CarbideError,
 };
 
 use self::rpc::forge_server::Forge;
@@ -874,6 +876,46 @@ impl Forge for Api {
 
         let response = Ok(TagAssociation::try_from(request.into_inner())?
             .remove(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn validate_user_ssh_key(
+        &self,
+        request: Request<rpc::SshKeyValidationRequest>,
+    ) -> Result<Response<rpc::SshKeyValidationResponse>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(SshKeyValidationRequest::try_from(request.into_inner())?
+            .verify_user(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    async fn get_bmc_meta_data(
+        &self,
+        request: Request<rpc::BmcMetaDataRequest>,
+    ) -> Result<Response<rpc::BmcMetaDataResponse>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(BmcMetaDataRequest::try_from(request.into_inner())?
+            .get_bmc_meta_data(&mut txn)
             .await
             .map(Response::new)?);
 

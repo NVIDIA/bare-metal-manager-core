@@ -11,9 +11,11 @@ path = "src/main.rs"
 [dependencies]
 uuid = { version = "0.8.2", features = ["v4", "serde"] }
 carbide-api = { path = "../../api" }
+rpc = { path = "../../rpc" }
 sqlx = { version = "0.5", features = [ "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json" ] }
 tokio = { version = "1.9", features = ["full"] }
 tokio-stream = "*"
+tonic = "*"
 
 thrussh = { version = "0.33.5", features = ["openssl"]}
 thrussh-keys = { version = "0.21.0", features = ["openssl"]}
@@ -23,5 +25,9 @@ log = { version = "*", features = ["serde"] }
 pretty_env_logger = "*"
 color-eyre = "0.5.11"
 clap = { version = "~3", features = ["derive"] }
+serde = {version = "1.0", features = ["derive"] }
+serde_json = "*"
+once_cell = "*"
 
 lazy_static = "1.4.0"
+thiserror = "1.0"

@@ -1,12 +1,14 @@
 //use std::str::FromStr;
 
 pub use address_selection_strategy::AddressSelectionStrategy;
+pub use auth::SshKeyValidationRequest;
 pub use dhcp_record::DhcpRecord;
 pub use domain::{Domain, NewDomain};
 pub use instance::{Instance, NewInstance};
 pub use instance_type::{
     DeactivateInstanceType, InstanceType, NewInstanceType, UpdateInstanceType,
 };
+pub use ipmi::{BmcMetaDataRequest, UserRoles};
 pub use machine::Machine;
 pub use machine_action::MachineAction;
 pub use machine_event::MachineEvent;
@@ -23,10 +25,12 @@ pub use vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
 pub mod migrations;
 
 mod address_selection_strategy;
+mod auth;
 mod dhcp_record;
 mod domain;
 mod instance;
 mod instance_type;
+mod ipmi;
 mod machine;
 mod machine_action;
 mod machine_event;
@@ -39,8 +43,6 @@ mod network_segment;
 mod resource_record;
 mod tags;
 mod vpc;
-
-pub mod ipmi;
 
 ///
 /// A parameter to find() to filter machines by Uuid;

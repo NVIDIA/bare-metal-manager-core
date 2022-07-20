@@ -629,12 +629,18 @@ dependencies = [
  "futures",
  "lazy_static",
  "log",
+ "once_cell",
  "pretty_env_logger",
+ "rpc",
+ "serde",
+ "serde_json",
  "sqlx",
+ "thiserror",
  "thrussh",
  "thrussh-keys",
  "tokio",
  "tokio-stream",
+ "tonic",
  "uuid",
 ]
 

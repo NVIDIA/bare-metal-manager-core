@@ -32,7 +32,7 @@ CREATE TYPE instance_type_capabilities as ENUM (
 -- initialize = add resource was added to forge-provisioner database
 -- submit = we sent the resource CRD to forge-vpc
 -- submit_fail = we could not communicate with kube-api to create CRD
--- acknowledge = forge-vpc has ack'd our submission of a CRD
+-- acknowledge = forge-vpc has ackd our submission of a CRD
 -- wait = we are waiting for forge-vpc to complete the configuration of a resource
 -- complete = forge-vpc work completed
 -- fail = we never received a forge-vpc status indicating that work was completed
@@ -381,4 +381,32 @@ CREATE table instance_subnets_events(
   action kube_vpc_action NOT NULL,
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   FOREIGN KEY (instance_subnet_id) REFERENCES instance_subnets(id)
+);
+
+CREATE TYPE user_roles AS ENUM (
+	'user',
+	'administrator',
+	'operator',
+	'noaccess'
+);
+
+CREATE table ssh_public_keys (
+    username VARCHAR NOT NULL UNIQUE,
+    role user_roles NOT NULL,
+    pubkeys VARCHAR ARRAY
+);
+
+CREATE TYPE console_type AS ENUM (
+	'ipmi',
+	'redfish'
+);
+
+CREATE table machine_console_metadata (
+    machine_id uuid NOT NULL,
+    username VARCHAR NOT NULL,
+    role user_roles NOT NULL,
+    password VARCHAR(16) NOT NULL,
+    bmctype console_type NOT NULL DEFAULT 'ipmi',
+
+    UNIQUE (machine_id, username, role)
 );
