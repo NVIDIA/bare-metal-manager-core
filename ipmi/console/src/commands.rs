@@ -1,8 +1,10 @@
 use crate::ipmi::{HostInfo, IpmiInfo};
 use crate::server::{Server, TaskState};
 use carbide::{bg::Status, ipmi, CarbideError, CarbideResult};
+use console::ConsoleError;
 use futures::executor::block_on;
 use log::error;
+use rpc::forge::v0::UserRoles;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
@@ -74,9 +76,13 @@ fn connect_handler(
         session.data(channel, CryptoVec::from(help));
         return (server, session);
     }
+    let role = server.user.clone().unwrap().role;
 
-    let new_pool = server.pool.clone();
-    match AsyncWrapper::get_host_details(new_pool, command[1].to_string()) {
+    if server.host_info.is_some() {
+        server.host_info = None;
+    }
+
+    match AsyncWrapper::get_host_details(role, command[1].to_string()) {
         Ok(x) => {
             session.data(
                 channel,
@@ -87,10 +93,7 @@ fn connect_handler(
         Err(x) => {
             session.data(
                 channel,
-                CryptoVec::from(format!(
-                    "Could not find {} in record, Error: {}",
-                    command[1], x
-                )),
+                CryptoVec::from(format!("Connect failed. Error: {}", x)),
             );
         }
     };
@@ -176,11 +179,8 @@ fn validate_host_info(server: &Server) -> Result<(), Error> {
 }
 
 async fn call_ipmi_api(ipmi_info: IpmiInfo, data: String, pool: PgPool) -> CarbideResult<Uuid> {
-    let ipmi_command = ipmi::IpmiCommand::new(
-        ipmi_info.ip,
-        ipmi_info.user.unwrap(),
-        ipmi_info.password.unwrap(),
-    );
+    let ipmi_command =
+        ipmi::IpmiCommand::new(ipmi_info.ip.to_string(), ipmi_info.user, ipmi_info.password);
 
     match data.trim() {
         "up" => ipmi_command.power_up(&pool).await,
@@ -198,11 +198,11 @@ async fn call_ipmi_api(ipmi_info: IpmiInfo, data: String, pool: PgPool) -> Carbi
 // In case 500 limit is not enough, we can replace spawn_blocking with standard thread.
 // Before doing so, just think about load on server.
 impl AsyncWrapper {
-    fn get_host_details(pool: PgPool, data: String) -> Result<HostInfo, sqlx::Error> {
+    fn get_host_details(role: UserRoles, data: String) -> Result<HostInfo, ConsoleError> {
         let (tx, mut rx) = channel(10);
         tokio::task::spawn_blocking(move || {
             tokio::spawn(async move {
-                let host_info = HostInfo::new(data, pool).await;
+                let host_info = HostInfo::new(data, role).await;
                 let _ = tx.send(host_info).await;
             });
         });
@@ -210,10 +210,9 @@ impl AsyncWrapper {
         block_on(async {
             match rx.recv().await {
                 Some(x) => x,
-                None => Err(sqlx::Error::Io(Error::new(
-                    ErrorKind::Other,
-                    "Error in getting data.",
-                ))),
+                None => Err(ConsoleError::GenericError(
+                    "Error in getting data.".to_string(),
+                )),
             }
         })
     }

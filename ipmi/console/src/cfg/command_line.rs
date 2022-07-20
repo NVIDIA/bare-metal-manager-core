@@ -36,6 +36,14 @@ pub struct Daemon {
     )]
     pub listen: Vec<std::net::SocketAddr>,
 
+    #[clap(
+        short,
+        long,
+        require_equals(true),
+        default_value = "http://172.20.0.14:1079"
+    )]
+    pub api_endpoint: String,
+
     #[clap(long, require_equals(true), default_value = DEFAULT_DATASTORE)]
     pub datastore: String,
 }

@@ -1,7 +1,14 @@
+#[cfg(test)]
+use std::{println as error};
+#[cfg(not(test))]
+use log::error;
+
+use crate::auth;
 use crate::commands::command_handler;
 use crate::ipmi::HostInfo;
 use anyhow;
 use futures;
+use rpc::forge::v0::UserRoles;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -28,6 +35,12 @@ pub enum TaskState {
     CANCELLED,
 }
 
+#[derive(Clone, Debug)]
+pub struct UserInfo {
+    pub name: String,
+    pub role: UserRoles,
+}
+
 // Create a server
 #[derive(Clone)]
 pub struct Server {
@@ -36,7 +49,7 @@ pub struct Server {
     pub id: Uuid,
     prompt: String,
     command: Vec<u8>,
-    pub user: Option<String>,
+    pub user: Option<UserInfo>,
     pub pool: PgPool,
     pub current_command: Option<String>,
     pub host_info: Option<HostInfo>,
@@ -107,10 +120,19 @@ impl server::Handler for Server {
         self.task_state = Arc::new(Mutex::new(TaskState::INIT));
         self.finished(session)
     }
-    fn auth_publickey(mut self, user: &str, _: &key::PublicKey) -> Self::FutureAuth {
-        //TODO: Create a list of whitelisted public keyss and validate.
-        //TODO: ACL for user, what hosts he can manage.
-        self.user = Some(user.to_string());
+    fn auth_publickey(mut self, user: &str, pubkey: &key::PublicKey) -> Self::FutureAuth {
+        match auth::validate_user(user, pubkey) {
+            Ok(role) => {
+                self.user = Some(UserInfo {
+                    name: user.to_string(),
+                    role,
+                })
+            }
+            Err(x) => {
+                error!("Authentication failed for user {}: Error: {}", user, x);
+                return self.finished_auth(server::Auth::Reject);
+            }
+        };
         self.finished_auth(server::Auth::Accept)
     }
     // following handler is called if some one passes command with ssh command.

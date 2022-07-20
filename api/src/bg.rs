@@ -1,3 +1,4 @@
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
 use sqlx::types::Json;
@@ -210,10 +211,10 @@ mod tests {
         .await
         {
             Ok(_) => {
-                println!("State updated successfully.");
+                debug!("State updated successfully.");
             }
             Err(x) => {
-                println!("Status update failed. Error: {:?}", x)
+                error!("Status update failed. Error: {:?}", x)
             }
         }
     }
@@ -237,7 +238,6 @@ mod tests {
         unsafe {
             TEST_VAR = 1;
         }
-        println!("{}, {}!", "hello", js);
         // Mark the job as complete
         update_status(&current_job, 3, "Over now".to_string(), TaskState::Finished).await;
         current_job.complete().await.unwrap();

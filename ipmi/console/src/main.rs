@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod auth;
 mod cfg;
 mod commands;
 mod ipmi;
@@ -12,6 +13,20 @@ use pretty_env_logger;
 
 use cfg::{Command, Options};
 use sqlx::PgPool;
+
+use once_cell::sync::Lazy;
+use std::sync::RwLock;
+
+static CONFIG: Lazy<RwLock<ConsoleContext>> = Lazy::new(|| {
+    RwLock::new(ConsoleContext {
+        api_endpoint: "http://[::1]:1079".to_string(),
+    })
+});
+
+#[derive(Debug)]
+struct ConsoleContext {
+    api_endpoint: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::Report> {
@@ -36,6 +51,7 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     match config.subcmd {
         Command::Run(ref config) => {
+            CONFIG.write().unwrap().api_endpoint = config.api_endpoint.clone();
             let pool = PgPool::connect(&config.datastore[..]).await?;
             server::run(pool, config.listen[0]).await;
         }
@@ -134,12 +150,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_thrussh() {
         let pool = get_database_connection().await.unwrap();
-
-        tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            server::run(pool, "127.0.0.1:2222".parse().unwrap()),
-        )
-        .await
-        .unwrap_or(());
+        use std::env;
+        match env::var("SSH_PROXY_MT_ENV") {
+            Ok(_) => {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(20000),
+                    server::run(pool, "127.0.0.1:2224".parse().unwrap()),
+                )
+                .await
+                .unwrap_or(());
+            }
+            Err(_) => (),
+        }
     }
 }

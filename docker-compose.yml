@@ -178,7 +178,7 @@ services:
     volumes:
       - .:/app/code
       - ca-certificate:/identity
-    command: cargo watch -C ipmi/console -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem' --listen='0.0.0.0:2222'"
+    command: cargo watch -C ipmi/console -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem' --listen='0.0.0.0:2222' --api-endpoint='http://172.20.0.14:1079'"
     ports:
       - 2222:2222
 volumes:
