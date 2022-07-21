@@ -19,6 +19,16 @@ variables:
   CARGO_INCREMENTAL: 0
   CARGO_HOME: $CI_PROJECT_DIR/cargo
 
+stages:
+  - lint
+  - build
+  - test
+  - publish
+  - e2e-test
+  - deploy
+  - doc
+  - security
+
 include:
   - project: 'nvmetal/gitlab-templates'
     ref: main
