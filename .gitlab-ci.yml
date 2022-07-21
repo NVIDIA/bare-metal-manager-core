@@ -124,8 +124,14 @@ deploy_dev1:
 
 deploy_dev2:
   extends: .deploy_kustomize
-  needs: 
-    - prepare-ci
   environment: 
     name: dev2
     deployment_tier: development
+
+deploy_qa:
+  extends: .deploy_kustomize
+  environment: 
+    name: qa
+    deployment_tier: testing
+  tags:
+    - corp
