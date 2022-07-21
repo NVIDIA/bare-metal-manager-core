@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-api-http
+spec:
+  selector:
+    app: carbide-api
+  ports:
+  - port: 12079
+    protocol: TCP
+    targetPort: 12079
+    name: api-dev1-http
