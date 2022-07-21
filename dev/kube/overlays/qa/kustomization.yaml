@@ -3,7 +3,7 @@ kind: Kustomization
 images:
   - name: carbide:latest
     newName: quay.io/nvidia/nvmetal-carbide
-    newTag: $TAG
+    newTag: v0.0.1-54-g24109162
 resources:
   - resources/forge-system.yaml
-  - ./forge
+  - forge
