@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbide-db-migrations
+spec:
+  template:
+    spec:
+      containers:
+      - name: carbide-db-migrations
+        env:
+          - name: CARBIDE_API_DATASTORE
+            valueFrom: { secretKeyRef: { name: carbide-postgres-pguser-carbide-postgres, key: uri } }
+      imagePullSecrets:
+      - name: pull-secrets
