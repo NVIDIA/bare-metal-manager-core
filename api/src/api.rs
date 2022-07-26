@@ -11,10 +11,11 @@ use tower::ServiceBuilder;
 
 use carbide::{
     db::{
-        BmcMetaDataRequest, DeactivateInstanceType, DeleteVpc, DhcpRecord, DnsQuestion, Machine,
-        MachineInterface, MachineState, MachineTopology, NetworkSegment, NewDomain, NewInstance,
-        NewInstanceType, NewNetworkSegment, NewVpc, SshKeyValidationRequest, Tag, TagAssociation,
-        TagCreate, TagDelete, TagsList, UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
+        BmcMetaData, BmcMetaDataRequest, DeactivateInstanceType, DeleteVpc, DhcpRecord,
+        DnsQuestion, Machine, MachineInterface, MachineState, MachineTopology, NetworkSegment,
+        NewDomain, NewInstance, NewInstanceType, NewNetworkSegment, NewVpc,
+        SshKeyValidationRequest, Tag, TagAssociation, TagCreate, TagDelete, TagsList,
+        UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
     },
     CarbideError,
 };
@@ -303,10 +304,7 @@ impl Forge for Api {
         response
     }
 
-    async fn done(
-        &self,
-        request: Request<rpc::Uuid>,
-    ) -> Result<Response<rpc::Machine>, Status> {
+    async fn done(&self, request: Request<rpc::Uuid>) -> Result<Response<rpc::Machine>, Status> {
         let mut txn = self
             .database_connection
             .begin()
@@ -318,9 +316,7 @@ impl Forge for Api {
         let interface = MachineInterface::find_one(&mut txn, uuid).await?;
 
         let maybe_machine = match interface.machine_id {
-            Some(machine_id) => {
-                Machine::find_one(&mut txn, machine_id).await?
-            },
+            Some(machine_id) => Machine::find_one(&mut txn, machine_id).await?,
             None => {
                 return Err(Status::invalid_argument(format!(
                     "Machine interface has no machine id UUID: {}",
@@ -331,8 +327,9 @@ impl Forge for Api {
 
         let response = match maybe_machine {
             None => Err(CarbideError::NotFoundError(uuid).into()),
-            Some(machine)  => Ok(rpc::Machine::from(machine)),
-        }.map(Response::new);
+            Some(machine) => Ok(rpc::Machine::from(machine)),
+        }
+        .map(Response::new);
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -340,7 +337,8 @@ impl Forge for Api {
     }
 
     async fn discover_machine(
-        &self,        request: Request<rpc::MachineDiscoveryInfo>,
+        &self,
+        request: Request<rpc::MachineDiscoveryInfo>,
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
         let di = request.into_inner();
 
@@ -697,7 +695,7 @@ impl Forge for Api {
             None => Err(CarbideError::NotFoundError(uuid).into()),
             Some(machine) => Ok(rpc::Machine::from(machine)),
         }
-            .map(Response::new);
+        .map(Response::new);
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -923,6 +921,26 @@ impl Forge for Api {
 
         response
     }
+
+    async fn update_bmc_meta_data(
+        &self,
+        request: Request<rpc::BmcMetaData>,
+    ) -> Result<Response<rpc::BmcStatus>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(BmcMetaData::try_from(request.into_inner())?
+            .update_bmc_meta_data(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
 }
 
 impl Api {
@@ -950,7 +968,9 @@ impl Api {
         */
 
         let auth_layer = ServiceBuilder::new()
-            .layer(tower_http::auth::RequireAuthorizationLayer::custom(authenticator))
+            .layer(tower_http::auth::RequireAuthorizationLayer::custom(
+                authenticator,
+            ))
             .into_inner();
 
         let reflection_service = Builder::configure()

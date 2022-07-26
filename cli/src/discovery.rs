@@ -1,13 +1,13 @@
 extern crate libudev;
 extern crate uname;
 
+use crate::ipmi;
 use cli::{CarbideClientError, CarbideClientResult};
 use rpc::forge::v0 as rpc;
 
 use ::rpc::machine_discovery::v0 as rpc_discovery;
 
 use libudev::{Context, Device};
-use uname::uname;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
 use std::fs;
@@ -15,6 +15,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::str::{FromStr, Utf8Error};
 use tonic::Response;
+use uname::uname;
 
 pub struct Discovery {}
 
@@ -100,8 +101,7 @@ pub fn get_machine_details(
     uuid: &str,
 ) -> CarbideClientResult<rpc::MachineDiscoveryInfo> {
     // uname to detect type
-    let info = uname()
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    let info = uname().or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
     debug!("{:?}", info);
     // Nics
     let mut enumerator = libudev::Enumerator::new(&context)
@@ -135,7 +135,8 @@ pub fn get_machine_details(
         {
             nics.push(rpc_discovery::NetworkInterface {
                 mac_address: convert_udev_to_mac(
-                    convert_property_to_string("ID_NET_NAME_MAC", &info.machine, &device)?.to_string(),
+                    convert_property_to_string("ID_NET_NAME_MAC", &info.machine, &device)?
+                        .to_string(),
                 )?,
                 pci_properties: Some(rpc_discovery::PciDeviceProperties {
                     vendor: convert_property_to_string("ID_VENDOR_ID", "", &device)?.to_string(),
@@ -201,17 +202,23 @@ pub fn get_machine_details(
         match info.machine.as_str() {
             "aarch64" => {
                 cpus.push(rpc_discovery::Cpu {
-                    vendor: cpu_info.get_info(cpu_num).and_then(|mut m| m.remove("CPU implementer"))
+                    vendor: cpu_info
+                        .get_info(cpu_num)
+                        .and_then(|mut m| m.remove("CPU implementer"))
                         .ok_or(CarbideClientError::GenericError(
                             "Could not get arm vendor name".to_string(),
                         ))?
                         .to_string(),
-                    model: cpu_info.get_info(cpu_num).and_then(|mut m| m.remove("CPU variant"))
+                    model: cpu_info
+                        .get_info(cpu_num)
+                        .and_then(|mut m| m.remove("CPU variant"))
                         .ok_or(CarbideClientError::GenericError(
                             "Could not get arm model name".to_string(),
                         ))?
                         .to_string(),
-                    frequency: cpu_info.get_info(cpu_num).and_then(|mut m| m.remove("BogoMIPS"))
+                    frequency: cpu_info
+                        .get_info(cpu_num)
+                        .and_then(|mut m| m.remove("BogoMIPS"))
                         .ok_or(CarbideClientError::GenericError(
                             "Could not get arm frequency".to_string(),
                         ))?
@@ -221,7 +228,7 @@ pub fn get_machine_details(
                     core: 0,
                     node: 2,
                 });
-            },
+            }
             "x86_64" => {
                 cpus.push(rpc_discovery::Cpu {
                     vendor: cpu_info
@@ -247,11 +254,9 @@ pub fn get_machine_details(
                         ))?
                         .to_string(),
                     number: cpu_num as u32,
-                    socket: cpu_info
-                        .physical_id(cpu_num)
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get cpu info".to_string(),
-                        ))?,
+                    socket: cpu_info.physical_id(cpu_num).ok_or(
+                        CarbideClientError::GenericError("Could not get cpu info".to_string()),
+                    )?,
                     core: cpu_info
                         .get_info(cpu_num)
                         .ok_or(CarbideClientError::GenericError(
@@ -264,8 +269,13 @@ pub fn get_machine_details(
                         ))?,
                     node: 0,
                 });
-            },
-            a => return Err(CarbideClientError::GenericError(format!("Could not find a valid architecture: {}", a))),
+            }
+            a => {
+                return Err(CarbideClientError::GenericError(format!(
+                    "Could not find a valid architecture: {}",
+                    a
+                )))
+            }
         }
     }
 
@@ -319,7 +329,7 @@ pub fn get_machine_details(
             ::rpc::forge::v0::machine_discovery_info::DiscoveryData::InfoV0(
                 rpc_discovery::DiscoveryInfo {
                     network_interfaces: nics,
-                    cpus: cpus,
+                    cpus,
                     block_devices: disks,
                 },
             ),
@@ -328,14 +338,17 @@ pub fn get_machine_details(
 }
 
 impl Discovery {
-    pub async fn run(
-        listen: String,
-        uuid: &str,
-    ) -> CarbideClientResult<Response<rpc::MachineDiscoveryResult>> {
+    pub async fn run(listen: String, uuid: &str) -> CarbideClientResult<()> {
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
         let info = get_machine_details(&context, uuid)?;
-        let mut client = rpc::forge_client::ForgeClient::connect(listen).await?;
+        let mut client = rpc::forge_client::ForgeClient::connect(listen.clone()).await?;
         let request = tonic::Request::new(info);
-        Ok(client.discover_machine(request).await?)
+        client.discover_machine(request).await?;
+        if let Err(x) = ipmi::update_ipmi_creds(listen, uuid).await {
+            error!("Error while setting up IPMI. {}", x.to_string());
+            return Err(x);
+        }
+
+        Ok(())
     }
 }

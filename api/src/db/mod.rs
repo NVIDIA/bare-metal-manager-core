@@ -8,7 +8,7 @@ pub use instance::{Instance, NewInstance};
 pub use instance_type::{
     DeactivateInstanceType, InstanceType, NewInstanceType, UpdateInstanceType,
 };
-pub use ipmi::{BmcMetaDataRequest, UserRoles};
+pub use ipmi::{BmcMetaData, BmcMetaDataRequest, BmcMetadataItem, UserRoles};
 pub use machine::Machine;
 pub use machine_action::MachineAction;
 pub use machine_event::MachineEvent;

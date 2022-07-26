@@ -1,16 +1,22 @@
-use carbide::db::UserRoles;
 use sqlx::{PgPool, Postgres};
 use uuid::Uuid;
 
 use carbide::{
     db::{
-        AddressSelectionStrategy, BmcMetaDataRequest, Domain, Machine, MachineInterface,
-        NetworkSegment, NewDomain, NewNetworkPrefix, NewNetworkSegment, NewVpc,
+        AddressSelectionStrategy, BmcMetaData, BmcMetaDataRequest, BmcMetadataItem, Domain,
+        Machine, MachineInterface, NetworkSegment, NewDomain, NewNetworkPrefix, NewNetworkSegment,
+        NewVpc, UserRoles,
     },
     CarbideResult,
 };
 
 mod common;
+
+static DATA: [(UserRoles, &str, &str); 3] = [
+    (UserRoles::Administrator, "forge_admin", "randompassword"),
+    (UserRoles::User, "forge_user", "randompassword"),
+    (UserRoles::Operator, "forge_operator", "randompassword"),
+];
 
 async fn create_machine(txn: &mut sqlx::Transaction<'_, Postgres>) -> Machine {
     let my_domain = "dwrt.com";
@@ -77,35 +83,42 @@ async fn create_machine(txn: &mut sqlx::Transaction<'_, Postgres>) -> Machine {
     new_machine
 }
 
-async fn create_user_entry(id: Uuid, pool: PgPool) {
+async fn create_empty_entry(id: Uuid, pool: PgPool) {
     let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let _: (Uuid,) = sqlx::query_as(
-        r#"INSERT INTO machine_topologies (machine_id, topology)
-            VALUES($1, '{"ipmi_ip": "127.0.0.2"}') 
-            returning machine_id"#,
-    )
-    .bind(id)
-    .fetch_one(&mut txn)
-    .await
-    .unwrap();
+    let query = r#"INSERT INTO machine_topologies (machine_id, topology)
+                           VALUES ($1, '{}') 
+                           ON CONFLICT DO NOTHING 
+                           RETURNING machine_id"#;
+    let _: Option<(Uuid,)> = sqlx::query_as(query)
+        .bind(&id)
+        .fetch_optional(&mut txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
+}
 
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    let _: (String,) = sqlx::query_as(
-        r#"INSERT INTO machine_console_metadata (machine_id, username, role, password)
-            VALUES($1, 'testuser', 'administrator', 'password') 
-            returning username"#,
-    )
-    .bind(id)
-    .fetch_one(&mut txn)
-    .await
-    .unwrap();
+#[cfg(test)]
+async fn update_bmc_data(id: Uuid, pool: PgPool) {
+    let meta_data = BmcMetaData {
+        machine_id: id,
+        ip: "127.0.0.2".to_string(),
+        data: DATA
+            .iter()
+            .map(|x| BmcMetadataItem {
+                role: x.0.clone(),
+                username: x.1.to_string(),
+                password: x.2.to_string(),
+            })
+            .collect::<Vec<BmcMetadataItem>>(),
+    };
+
+    create_empty_entry(id, pool.clone()).await;
+
+    let mut txn = pool.begin().await.unwrap();
+    meta_data.update_bmc_meta_data(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
 }
 
@@ -124,17 +137,19 @@ async fn test_ipmi_cred() {
     let machine = create_machine(&mut txn).await;
     txn.commit().await.unwrap();
 
-    create_user_entry(machine.id().clone(), pool.clone()).await;
+    update_bmc_data(machine.id().clone(), pool.clone()).await;
 
     let mut txn = pool.begin().await.unwrap();
 
-    let ipmi_req = BmcMetaDataRequest {
-        machine_id: machine.id().clone(),
-        role: UserRoles::Administrator,
-    };
+    for d in &DATA {
+        let ipmi_req = BmcMetaDataRequest {
+            machine_id: machine.id().clone(),
+            role: d.0.clone(),
+        };
 
-    let response = ipmi_req.get_bmc_meta_data(&mut txn).await.unwrap();
-    assert_eq!(response.ip, "127.0.0.2".to_string());
-    assert_eq!(response.user, "testuser".to_string());
-    assert_eq!(response.password, "password".to_string());
+        let response = ipmi_req.get_bmc_meta_data(&mut txn).await.unwrap();
+        assert_eq!(response.ip, "127.0.0.2".to_string());
+        assert_eq!(response.user, d.1.to_string());
+        assert_eq!(response.password, d.2.to_string());
+    }
 }
