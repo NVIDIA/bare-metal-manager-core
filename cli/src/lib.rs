@@ -1,4 +1,5 @@
 use std::str::Utf8Error;
+use std::string::FromUtf8Error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideClientError {
@@ -16,6 +17,12 @@ pub enum CarbideClientError {
 
     #[error("Generic Tonic status error {0}")]
     TonicStatusError(#[from] tonic::Status),
+
+    #[error("Regex error {0}")]
+    RegexError(#[from] regex::Error),
+
+    #[error("String conversion failed from [u8] {0}")]
+    FromUtf8Error(#[from] FromUtf8Error),
 }
 
 pub type CarbideClientResult<T> = Result<T, CarbideClientError>;

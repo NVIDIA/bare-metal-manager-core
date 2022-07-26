@@ -1,5 +1,6 @@
 use crate::{CarbideError, CarbideResult};
 use rpc::forge::v0 as rpc;
+use serde_json::json;
 use sqlx::{Postgres, Transaction};
 use std::convert::TryFrom;
 use std::str::FromStr;
@@ -26,6 +27,19 @@ struct MachineConsoleMetadata {
     address: String,
     username: String,
     password: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BmcMetadataItem {
+    pub username: String,
+    pub password: String,
+    pub role: UserRoles,
+}
+
+pub struct BmcMetaData {
+    pub machine_id: Uuid,
+    pub ip: String,
+    pub data: Vec<BmcMetadataItem>,
 }
 
 impl From<rpc::UserRoles> for UserRoles {
@@ -113,5 +127,94 @@ impl BmcMetaDataRequest {
             user: host.username,
             password: host.password,
         })
+    }
+}
+
+impl TryFrom<rpc::BmcMetaData> for BmcMetaData {
+    type Error = CarbideError;
+    fn try_from(value: rpc::BmcMetaData) -> CarbideResult<Self> {
+        let mut data: Vec<BmcMetadataItem> = Vec::new();
+        for v in value.data {
+            let role = UserRoles::from(rpc::UserRoles::from_i32(v.role).ok_or_else(|| {
+                CarbideError::GenericError(format!("Can't convert role: {:?}", v.role))
+            })?);
+            data.push(BmcMetadataItem {
+                username: v.user.clone(),
+                password: v.password.clone(),
+                role,
+            });
+        }
+
+        Ok(BmcMetaData {
+            machine_id: match value.machine_id {
+                Some(x) => match uuid::Uuid::try_from(x) {
+                    Ok(uuid) => uuid,
+                    Err(err) => {
+                        return Err(CarbideError::GenericError(err.to_string()));
+                    }
+                },
+                _ => {
+                    return Err(CarbideError::GenericError("Machine id is null".to_string()));
+                }
+            },
+            ip: value.ip.clone(),
+            data,
+        })
+    }
+}
+
+impl BmcMetaData {
+    async fn insert_into_bmc_metadata(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<()> {
+        let query = r#"INSERT INTO machine_console_metadata as mt(machine_id, username, role, password)
+                       VALUES ($1, $2, $3, $4)
+                       ON CONFLICT ON CONSTRAINT machine_console_metadata_machine_id_username_role_key
+                       DO UPDATE
+                            SET username=$2, role=$3, password=$4
+                            WHERE mt.machine_id=$1
+                       RETURNING mt.machine_id"#;
+
+        for data in &self.data {
+            let _: (Uuid,) = sqlx::query_as(query)
+                .bind(&self.machine_id)
+                .bind(&data.username)
+                .bind(&data.role)
+                .bind(&data.password)
+                .fetch_one(&mut *txn)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+        Ok(())
+    }
+
+    async fn update_ipmi_ip_into_topologies(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<()> {
+        // A entry with same machine id is already created by discover_machine call.
+        // Just update json by adding a ipmi_ip entry.
+        let query = r#"UPDATE machine_topologies 
+                       SET topology = jsonb_set(topology, '{ipmi_ip}', $1, true) 
+                       WHERE machine_id=$2
+                       RETURNING machine_id"#;
+
+        let _: Option<(Uuid,)> = sqlx::query_as(query)
+            .bind(&json!(self.ip))
+            .bind(&self.machine_id)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(CarbideError::from)?;
+        Ok(())
+    }
+
+    pub async fn update_bmc_meta_data(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<rpc::BmcStatus> {
+        self.update_ipmi_ip_into_topologies(txn).await?;
+        self.insert_into_bmc_metadata(txn).await?;
+        Ok(rpc::BmcStatus {})
     }
 }

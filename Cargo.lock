@@ -572,6 +572,8 @@ dependencies = [
  "once_cell",
  "pretty_env_logger",
  "procfs",
+ "rand",
+ "regex",
  "rpc",
  "serde",
  "serde_json",

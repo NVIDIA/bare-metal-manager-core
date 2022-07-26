@@ -27,3 +27,5 @@ uname = "0.1.1"
 
 # cli
 clap = { version = "~3", features = ["derive"] }
+regex = "1.6.0"
+rand = "0.8.5"

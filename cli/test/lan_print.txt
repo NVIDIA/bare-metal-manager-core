@@ -1,0 +1,11 @@
+Set in Progress         : Set Complete
+Auth Type Support       :
+Auth Type Enable        : Callback :
+                        : User     :
+                        : Operator :
+                        : Admin    :
+                        : OEM      :
+IP Address Source       : DHCP Address
+IP Address              : 127.0.0.2
+Subnet Mask             : 255.255.255.128
+MAC Address             : 10:70:fd:18:0f:be

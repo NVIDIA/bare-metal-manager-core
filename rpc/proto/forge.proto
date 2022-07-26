@@ -71,7 +71,10 @@ service Forge {
 
   // Auth Requests
   rpc ValidateUserSSHKey(SSHKeyValidationRequest) returns (SSHKeyValidationResponse);
+  
+  // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataRequest) returns (BMCMetaDataResponse);
+  rpc UpdateBMCMetaData(BMCMetaData) returns (BMCStatus);
 }
 
 message DNSMessage {
@@ -439,6 +442,21 @@ message BMCMetaDataResponse {
     string user = 2;
     string password = 3;
 }
+
+message BMCMetaData {
+    message DataItem {
+        string user = 2;
+        UserRoles role = 3;
+        string password = 4;
+    }
+    
+    UUID machine_id = 1;
+    string ip = 2;
+    repeated DataItem data = 3;
+    BMCRequestType request_type = 4;
+}
+
+message BMCStatus {}
 
 message MachineDiscoveryInfo {
   UUID machine_id = 1;
