@@ -76,7 +76,7 @@ build-cargo:
 build-ipxe-x86_64:
   before_script:
   - mkdir ~/.jfrog
-  - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
+  - echo '${JFROG_CONFIG}' > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
   script:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
@@ -85,7 +85,7 @@ build-ipxe-x86_64:
 build-ipxe-aarch64:
   before_script:
   - mkdir ~/.jfrog
-  - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
+  - echo '${JFROG_CONFIG}' > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
   image: 
     name: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:$VERSION
