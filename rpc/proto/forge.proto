@@ -297,6 +297,11 @@ message Machine {
 
 }
 
+enum MachineArchitecture {
+  ARM = 0;
+  X86 = 1;
+}
+
 message MachineEvent {
   int64 id = 1;
   UUID  machine_id = 2;
