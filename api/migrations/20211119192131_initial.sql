@@ -29,21 +29,14 @@ CREATE TYPE instance_type_capabilities as ENUM (
 	'default'
 );
 
--- initialize = add resource was added to forge-provisioner database
--- submit = we sent the resource CRD to forge-vpc
--- submit_fail = we could not communicate with kube-api to create CRD
--- acknowledge = forge-vpc has ackd our submission of a CRD
--- wait = we are waiting for forge-vpc to complete the configuration of a resource
--- complete = forge-vpc work completed
--- fail = we never received a forge-vpc status indicating that work was completed
-CREATE TYPE kube_vpc_action AS ENUM (
-    'initialize',
-    'submit',
-    'submit_fail'
-    'acknowledge',
-    'wait',
-    'complete',
-    'fail'
+CREATE TYPE vpc_resource_action AS ENUM (
+  'initialize',
+  'submit',
+  'accept',
+  'wait',
+  'fail',
+  'recommission',
+  'vpcsuccess'
 );
 
 CREATE TABLE instance_types (
@@ -60,19 +53,19 @@ CREATE TABLE instance_types (
 
 
 -- a leaf is a hbn endpoint configured by forge-vpc
-CREATE TABLE vpc_leafs(
+CREATE TABLE vpc_resource_leafs(
     -- uuid is used for the 'name' of the leaf CRD
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     PRIMARY KEY (id)
 );
 
 
-CREATE table vpc_leaf_events(
+CREATE table vpc_resource_leaf_events(
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vpc_leaf_id uuid NOT NULL,
-  action kube_vpc_action NOT NULL,
+  action vpc_resource_action NOT NULL,
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  FOREIGN KEY (vpc_leaf_id) REFERENCES vpc_leafs(id)
+  FOREIGN KEY (vpc_leaf_id) REFERENCES vpc_resource_leafs(id)
 );
 
 CREATE TABLE machines (
@@ -90,7 +83,7 @@ CREATE TABLE machines (
 
 	PRIMARY KEY (id),
 	FOREIGN KEY (supported_instance_type) REFERENCES instance_types(id),
-	FOREIGN KEY (vpc_leaf_id) REFERENCES vpc_leafs(id)
+	FOREIGN KEY (vpc_leaf_id) REFERENCES vpc_resource_leafs(id)
 );
 
 CREATE TABLE instances (
@@ -222,7 +215,7 @@ CREATE UNIQUE INDEX network_prefix_family ON network_prefixes (family(prefix), s
 CREATE TABLE network_prefix_events(
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   network_prefix_id uuid NOT NULL,
-  action kube_vpc_action NOT NULL,
+  action vpc_resource_action NOT NULL,
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   FOREIGN KEY (network_prefix_id) REFERENCES network_prefixes(id)
 );
@@ -378,7 +371,7 @@ CREATE TABLE instance_subnet_addresses(
 CREATE table instance_subnets_events(
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   instance_subnet_id uuid NOT NULL,
-  action kube_vpc_action NOT NULL,
+  action vpc_resource_action NOT NULL,
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   FOREIGN KEY (instance_subnet_id) REFERENCES instance_subnets(id)
 );
