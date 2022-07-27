@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use http::{header, HeaderMap, Request, Response, StatusCode, Uri};
 use log::info;
 use serde::{Deserialize, Serialize};
@@ -11,19 +9,16 @@ pub use jwt::{Algorithm, DecodingKey, KeySpec};
 // RequireAuthorizationLayer::custom() middleware layer.
 #[derive(Clone)]
 pub struct CarbideAuth {
-    unsecured_endpoints: HashSet<Uri>,
     jwt_validator: jwt::TokenValidator,
     permissive_mode: bool,
 }
 
 impl CarbideAuth {
     pub fn new() -> Self {
-        let unsecured_endpoints = HashSet::new();
         let jwt_validator = jwt::TokenValidator::new();
         let permissive_mode = false;
 
         Self {
-            unsecured_endpoints,
             jwt_validator,
             permissive_mode,
         }
@@ -32,10 +27,6 @@ impl CarbideAuth {
     pub fn add_jwt_key(&mut self, algorithm: Algorithm, key_spec: KeySpec, decoding_key: DecodingKey) {
         self.jwt_validator
             .add_key(algorithm, key_spec, decoding_key);
-    }
-
-    pub fn add_unsecured_endpoint(&mut self, endpoint: Uri) {
-        self.unsecured_endpoints.insert(endpoint);
     }
 
     pub fn set_permissive_mode(&mut self, mode: bool) {
@@ -73,8 +64,6 @@ impl<B> AuthorizeRequest<B> for CarbideAuth {
     type ResponseBody = tonic::body::BoxBody;
 
     fn authorize(&mut self, request: &mut Request<B>) -> Result<(), Response<Self::ResponseBody>> {
-        let unsecured_endpoint = self.unsecured_endpoints.contains(request.uri());
-
         let jwt_validation = self.try_jwt_validation(request.headers());
 
         use std::convert::TryInto;
