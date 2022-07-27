@@ -1,6 +1,7 @@
 use std::env;
 use std::process::Command;
 
+#[cfg(target_arch = "x86_64")]
 fn main() {
     let kea_include_path =
         env::var("KEA_INCLUDE_PATH").unwrap_or_else(|_| "/usr/include/kea".to_string());
