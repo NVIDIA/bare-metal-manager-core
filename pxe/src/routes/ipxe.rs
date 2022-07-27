@@ -41,7 +41,7 @@ pub async fn whoami(machine: Machine) -> Template {
 #[get("/boot")]
 pub async fn boot(contents: Machine, config: RuntimeConfig) -> Template {
     let instructions = match contents.machine {
-        None => boot_into_discovery(contents.architecture, contents.interface, config),
+        None => boot_into_discovery(contents.interface, config),
         Some(m) => determine_boot_from_state(m, contents.interface, config),
     };
 
@@ -53,8 +53,8 @@ pub async fn boot(contents: Machine, config: RuntimeConfig) -> Template {
 
 fn determine_boot_from_state(
     machine: rpc::Machine,
-    _interface: rpc::MachineInterface,
-    _config: RuntimeConfig,
+    interface: rpc::MachineInterface,
+    config: RuntimeConfig,
 ) -> String {
     match machine.state.as_str() {
         // The DPU needs an error code to force boot into the OS
@@ -80,24 +80,14 @@ chain --autofree https://boot.netboot.xyz
     .to_string()
 }
 
-fn boot_into_discovery(arch: rpc::MachineArchitecture, interface: rpc::MachineInterface, config: RuntimeConfig) -> String {
+fn boot_into_discovery(interface: rpc::MachineInterface, config: RuntimeConfig) -> String {
     let uuid = interface.id.unwrap();
-    match arch {
-        Arm => {
-            String::from(BootInstructionGenerator {
-                kernel: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.efi", pxe_url=config.pxe_url),
-                initrd: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.root", pxe_url=config.pxe_url),
-                command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data pxe_uri={pxe_url} server_uri={api_url} ", pxe_url=config.pxe_url, uuid=uuid, api_url=config.api_url),
-            })
-        },
-        X86 => {
-            String::from(BootInstructionGenerator {
-                kernel: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.efi", pxe_url=config.pxe_url),
-                initrd: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.root", pxe_url=config.pxe_url),
-                command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data pxe_uri={pxe_url} server_uri={api_url} ", pxe_url=config.pxe_url, uuid=uuid, api_url=config.api_url),
-            })
-        },
-    }
+    let instructions = BootInstructionGenerator {
+        kernel: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.efi", pxe_url=config.pxe_url),
+        initrd: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.root", pxe_url=config.pxe_url),
+        command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data pxe_uri={pxe_url} server_uri={api_url} " , pxe_url=config.pxe_url, uuid=uuid, api_url=config.api_url),
+    };
+    String::from(instructions)
 }
 
 pub fn routes() -> Vec<Route> {
