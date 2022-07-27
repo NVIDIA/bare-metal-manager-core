@@ -21,6 +21,7 @@ pub use network_segment::{IpAllocationResult, NetworkSegment, NewNetworkSegment}
 pub use resource_record::{DnsQuestion, DnsResponse, Dnsrr, ResourceRecord};
 pub use tags::{Tag, TagAssociation, TagCreate, TagDelete, TagTargetKind, TagsList};
 pub use vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
+pub use vpc_resource_leaf::{NewVpcResourceLeaf, VpcResourceLeaf};
 
 pub mod migrations;
 
@@ -43,6 +44,10 @@ mod network_segment;
 mod resource_record;
 mod tags;
 mod vpc;
+mod vpc_resource_action;
+mod vpc_resource_leaf;
+mod vpc_resource_leaf_event;
+pub mod vpc_resource_state;
 
 ///
 /// A parameter to find() to filter machines by Uuid;
