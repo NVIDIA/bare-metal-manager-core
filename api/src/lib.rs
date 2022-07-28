@@ -10,7 +10,7 @@ pub mod db;
 mod human_hash;
 pub mod ipmi;
 
-pub mod kube;
+pub mod vpc_resources;
 
 /// Special user-defined code for PostgreSQL level state transition violation
 ///
