@@ -125,3 +125,5 @@ dependencies = [
   {name="generate-rust-from-crd", path="include/Makefile-vpc.toml"}
 ]
 
+[tasks.workspace-ci-flow]
+args = ["--no-default-features"]
