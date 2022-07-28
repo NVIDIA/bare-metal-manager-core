@@ -73,24 +73,46 @@ build-cargo:
       - cargo/
       - target/
 
-build-ipxe-x86_64:
+build-boot-artifacts-x86_64:
   before_script:
-  - mkdir ~/.jfrog
-  - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
+    - mkdir ~/.jfrog
+    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
   script:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
-  when: manual 
+  when: manual
 
-build-ipxe-aarch64:
+build-user-date-artifacts-x86_64:
   before_script:
-  - mkdir ~/.jfrog
-  - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
+    - mkdir ~/.jfrog
+    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
-  image: 
+  script:
+    - cargo make --cwd cli build-user-data-artifacts-x86_64-ci
+  when: manual
+
+build-boot-artifacts-aarch64:
+  before_script:
+    - mkdir ~/.jfrog
+    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
+  stage: build
+  image:
     name: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:$VERSION
   script:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
+  tags:
+    - aarch64
+  when: manual
+
+build-user-data-artifacts-aarch64:
+  before_script:
+    - mkdir ~/.jfrog
+    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
+  stage: build
+  image:
+    name: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:$VERSION
+  script:
+    - cargo make --cwd cli build-user-data-artifacts-aarch64-ci
   tags:
     - aarch64
   when: manual
