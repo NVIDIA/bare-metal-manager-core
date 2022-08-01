@@ -11,6 +11,11 @@ do
         then
                 server_uri=`echo $line|cut -d'=' -f2`
         fi
+        line=`echo $i|grep cli_cmd`
+        if [ ! -z "$line" ] ;
+        then
+                cli_cmd=`echo $line|cut -d'=' -f2`
+        fi
 done
 
-exec /carbide/carbide-cli --listen=$server_uri discovery --uuid=$machine_id
+exec /carbide/carbide-cli --listen=$server_uri $cli_cmd --uuid=$machine_id
