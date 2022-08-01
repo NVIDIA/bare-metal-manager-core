@@ -80,7 +80,6 @@ impl From<&VpcResourceStateMachineState> for VpcResourceState {
     }
 }
 
-/*
 impl From<VpcResourceState> for rpc::VpcResourceState {
     fn from(vpc_resource_state: VpcResourceState) -> rpc::VpcResourceState {
         rpc::VpcResourceState {
@@ -88,4 +87,3 @@ impl From<VpcResourceState> for rpc::VpcResourceState {
         }
     }
 }
-*/

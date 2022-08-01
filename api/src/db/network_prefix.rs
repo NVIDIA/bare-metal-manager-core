@@ -1,18 +1,27 @@
+use crate::db::network_prefix_event::NetworkPrefixEvent;
+use crate::db::vpc_resource_action::VpcResourceAction;
+use crate::db::vpc_resource_state::VpcResourceState;
 use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
+use ::rpc::VpcResourceStateMachine;
+use ::rpc::VpcResourceStateMachineInput;
 use ipnetwork::IpNetwork;
 use rpc::forge::v0 as rpc;
-use sqlx::{Acquire, FromRow, Postgres, Transaction};
+use rust_fsm::StateMachine;
+use sqlx::postgres::PgRow;
+use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use std::convert::TryFrom;
 use uuid::Uuid;
 
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 pub struct NetworkPrefix {
-    pub id: Uuid,
+    pub id: uuid::Uuid,
     pub segment_id: Uuid,
     pub prefix: IpNetwork,
     pub gateway: Option<IpNetwork>,
     pub num_reserved: i32,
+    state: VpcResourceState,
+    events: Vec<NetworkPrefixEvent>,
 }
 
 #[derive(Debug)]
@@ -22,6 +31,19 @@ pub struct NewNetworkPrefix {
     pub num_reserved: i32,
 }
 
+impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        Ok(NetworkPrefix {
+            id: row.try_get("id")?,
+            segment_id: row.try_get("segment_id")?,
+            prefix: row.try_get("prefix")?,
+            gateway: row.try_get("gateway")?,
+            num_reserved: row.try_get("num_reserved")?,
+            state: VpcResourceState::Init,
+            events: Vec::new(),
+        })
+    }
+}
 impl TryFrom<rpc::NetworkPrefix> for NewNetworkPrefix {
     type Error = CarbideError;
 
@@ -50,11 +72,25 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
             prefix: src.prefix.to_string(),
             gateway: src.gateway.map(|v| v.to_string()),
             reserve_first: src.num_reserved,
+            state: Some(src.state.into()),
+            events: src.events.iter().map(|event| event.into()).collect(),
         }
     }
 }
 
 impl NetworkPrefix {
+    // Search for specific prefix
+    pub async fn find(
+        txn: &mut Transaction<'_, Postgres>,
+        uuid: uuid::Uuid,
+    ) -> CarbideResult<NetworkPrefix> {
+        Ok(
+            sqlx::query_as::<_, NetworkPrefix>("select * from network_prefixes where id=$1")
+                .bind(uuid)
+                .fetch_one(&mut *txn)
+                .await?,
+        )
+    }
     /*
      * Return a list of `NetworkPrefix`es for a segment.
      */
@@ -89,6 +125,76 @@ impl NetworkPrefix {
         })
     }
 
+    pub fn events(&self) -> &Vec<NetworkPrefixEvent> {
+        &self.events
+    }
+
+    /// Return the current state of the machine based on the sequence of events the machine has
+    /// experienced.
+    ///
+    /// This object does not store the current state, but calculates it from the actions that have
+    /// been performed on the machines.
+    ///
+    /// Arguments:
+    ///
+    /// * `txn` - A reference to a currently open database transaction
+    ///
+    pub async fn current_state(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<VpcResourceState> {
+        let events = NetworkPrefixEvent::for_network_prefix(txn, &self.id).await?;
+        let state_machine = self.state_machine(&events)?;
+        Ok(VpcResourceState::from(state_machine.state()))
+    }
+
+    fn state_machine(
+        &self,
+        events: &Vec<NetworkPrefixEvent>,
+    ) -> CarbideResult<StateMachine<VpcResourceStateMachine>> {
+        let mut machine: StateMachine<VpcResourceStateMachine> = StateMachine::new();
+        events
+            .into_iter()
+            .map(|event| machine.consume(&VpcResourceStateMachineInput::from(&event.action)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(CarbideError::InvalidState)?;
+
+        Ok(machine)
+    }
+
+    /// Perform an arbitrary action to a Machine and advance it to the next state given the last
+    /// state.
+    ///
+    /// Arguments:
+    ///
+    /// * `txn` - A reference to a currently open database transaction
+    /// * `action` - A reference to a VpcResourceAction enum
+    ///
+    pub async fn advance(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        action: &VpcResourceStateMachineInput,
+    ) -> CarbideResult<bool> {
+        // first validate the state change by getting the current state in the db
+        let events = NetworkPrefixEvent::for_network_prefix(txn, &self.id).await?;
+        let mut state_machine = self.state_machine(&events)?;
+        state_machine
+            .consume(action)
+            .map_err(CarbideError::InvalidState)?;
+
+        let id: (i64,) = sqlx::query_as(
+            "INSERT INTO network_prefix_events (network_prefix_id, action) VALUES ($1::uuid, $2) RETURNING id",
+        )
+        .bind(self.id)
+        .bind(VpcResourceAction::from(action))
+        .fetch_one(txn)
+        .await?;
+
+        log::info!("Event ID is {}", id.0);
+
+        Ok(true)
+    }
+
     /*
      * Create a prefix for a given segment id.
      *
@@ -116,12 +222,19 @@ impl NetworkPrefix {
         //
         let mut inserted_prefixes: Vec<NetworkPrefix> = Vec::with_capacity(prefixes.len());
         for prefix in prefixes {
-            let new_prefix = sqlx::query_as("INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved) VALUES ($1::uuid, $2::cidr, $3::inet, $4::integer) RETURNING *")
+            let new_prefix: NetworkPrefix = sqlx::query_as("INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved) VALUES ($1::uuid, $2::cidr, $3::inet, $4::integer) RETURNING *")
                                     .bind(segment)
                                     .bind(prefix.prefix)
                                     .bind(prefix.gateway)
                                     .bind(prefix.num_reserved)
                                     .fetch_one(&mut *inner_transaction).await?;
+
+            new_prefix
+                .advance(
+                    &mut inner_transaction,
+                    &VpcResourceStateMachineInput::Initialize,
+                )
+                .await?;
 
             inserted_prefixes.push(new_prefix);
         }

@@ -4,7 +4,7 @@ use std::str::FromStr;
 use ::rpc::VpcResourceStateMachineInput;
 use rpc::forge::v0 as rpc;
 
-#[derive(Debug, PartialEq, sqlx::Type)]
+#[derive(Debug, PartialEq, sqlx::Type, Copy, Clone)]
 #[sqlx(type_name = "vpc_resource_action")]
 #[sqlx(rename_all = "lowercase")]
 pub enum VpcResourceAction {
@@ -64,7 +64,7 @@ impl From<&VpcResourceAction> for VpcResourceStateMachineInput {
         }
     }
 }
-/*
+
 /// Conversion from a VpcResourceAction instance into a protobuf representation for the same type.
 impl From<VpcResourceAction> for rpc::VpcResourceAction {
     fn from(action: VpcResourceAction) -> rpc::VpcResourceAction {
@@ -79,4 +79,3 @@ impl From<VpcResourceAction> for rpc::VpcResourceAction {
         }
     }
 }
-*/
