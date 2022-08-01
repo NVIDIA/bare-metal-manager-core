@@ -187,6 +187,8 @@ message NetworkPrefix {
   string prefix = 2;
   optional string gateway = 3;
   int32 reserve_first = 4;
+  VpcResourceState state = 5;
+  repeated NetworkPrefixEvent events = 6;
 }
 
 message NetworkSegmentDeletion {
@@ -335,8 +337,6 @@ enum MachineAction {
   RELEASE = 10;
 }
 
-
-
 message DhcpDiscovery {
   string mac_address = 1;
   string relay_address = 2;
@@ -467,4 +467,38 @@ message MachineDiscoveryInfo {
 
 message MachineDiscoveryResult {
   // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
+}
+
+message VpcResourceState {
+    string state = 1;
+}
+
+message NetworkPrefixEvent {
+  int64 id = 1;
+
+  UUID network_prefix_id = 2;
+
+  VpcResourceAction event = 3;
+
+  google.protobuf.Timestamp time = 4;
+}
+
+message VpcResourceLeafEvent {
+  int64 id = 1;
+
+  UUID vpc_leaf_id = 2;
+
+  VpcResourceAction event = 3;
+
+  google.protobuf.Timestamp time = 4;
+}
+
+enum VpcResourceAction {
+  VPC_INITIALIZE = 0;
+  VPC_SUBMIT = 1;
+  VPC_ACCEPT = 2;
+  VPC_WAIT = 3;
+  VPC_FAIL = 4;
+  VPC_SUCCESS = 5;
+  VPC_RECOMMISSION = 6;
 }
