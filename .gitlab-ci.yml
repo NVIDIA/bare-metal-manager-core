@@ -138,6 +138,16 @@ checkmarx-scan-csv:
     /app/check_variables.sh gitlab
     rm -f pxe/mkosi.extra/etc/systemd/system/multi-user.target.wants/carbide-discovery.service
 
+    # The VPC project will be scanned as part of the VPC repo, there is no need to run the scan
+    # for VPC as part of the carbide repository
+    rm -rf vpc
+
+    # iPXE findings are inactionable - https://nvidia.slack.com/archives/C02RKLCN8BT/p1658425245618589?thread_ts=1658424844.339609&cid=C02RKLCN8BT
+    rm -rf pxe/ipxe
+
+    # Request to exclude mkosi from scans - https://nvidia.slack.com/archives/C02RKLCN8BT/p1658424426970489
+    rm -rf pxe/mkosi
+
 pages:
   stage: doc
   script:
