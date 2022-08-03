@@ -86,25 +86,23 @@ impl NewDomain {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Domain> {
-        Ok(
-            sqlx::query_as("INSERT INTO domains (name) VALUES ($1) returning *")
-                .bind(&self.name)
-                .fetch_one(&mut *txn)
-                .await
-                .map_err(|err: sqlx::Error| match err {
-                    sqlx::Error::Database(e)
-                        if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
-                    {
-                        CarbideError::InvalidDomainName(String::from(&self.name))
-                    }
-                    sqlx::Error::Database(e)
-                        if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
-                    {
-                        CarbideError::InvalidDomainName(String::from(&self.name))
-                    }
-                    _ => CarbideError::from(err),
-                })?,
-        )
+        sqlx::query_as("INSERT INTO domains (name) VALUES ($1) returning *")
+            .bind(&self.name)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|err: sqlx::Error| match err {
+                sqlx::Error::Database(e)
+                    if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
+                {
+                    CarbideError::InvalidDomainName(String::from(&self.name))
+                }
+                sqlx::Error::Database(e)
+                    if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
+                {
+                    CarbideError::InvalidDomainName(String::from(&self.name))
+                }
+                _ => CarbideError::from(err),
+            })
     }
 }
 

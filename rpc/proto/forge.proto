@@ -255,6 +255,17 @@ message Instance {
   google.protobuf.Timestamp finished = 10;
 }
 
+message InstanceSubnet {
+  UUID id = 1;
+  UUID machine_interface_id = 2;
+  UUID network_segment_id = 3;
+  optional UUID instance_id = 4;
+  optional int32 vfid = 5;
+  repeated string addresses = 6;
+  VpcResourceState state = 7;
+  repeated InstanceSubnetEvent events = 8;
+}
+
 message OperatingSystem {
   UUID id = 1;
   string name = 2;
@@ -490,6 +501,13 @@ message VpcResourceLeafEvent {
 
   VpcResourceAction event = 3;
 
+  google.protobuf.Timestamp time = 4;
+}
+
+message InstanceSubnetEvent {
+  int64 id = 1;
+  UUID instance_subnet_id = 2;
+  VpcResourceAction event = 3;
   google.protobuf.Timestamp time = 4;
 }
 

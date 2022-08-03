@@ -368,7 +368,7 @@ CREATE TABLE instance_subnet_addresses(
 );
 
 -- instance subnets and instance_subnet_addresses = ManagedResource in forge-fpc
-CREATE table instance_subnets_events(
+CREATE table instance_subnet_events(
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   instance_subnet_id uuid NOT NULL,
   action vpc_resource_action NOT NULL,

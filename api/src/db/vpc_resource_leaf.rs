@@ -5,13 +5,13 @@ use crate::{CarbideError, CarbideResult};
 use ::rpc::VpcResourceStateMachine;
 use ::rpc::VpcResourceStateMachineInput;
 use rust_fsm::StateMachine;
-use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct VpcResourceLeaf {
-    pub id: uuid::Uuid,
+    id: uuid::Uuid,
     state: VpcResourceState,
     events: Vec<VpcResourceLeafEvent>,
 }
@@ -52,7 +52,7 @@ impl VpcResourceLeaf {
 
     fn state_machine(
         &self,
-        events: &Vec<VpcResourceLeafEvent>,
+        events: &[VpcResourceLeafEvent],
     ) -> CarbideResult<StateMachine<VpcResourceStateMachine>> {
         let mut machine: StateMachine<VpcResourceStateMachine> = StateMachine::new();
         events
@@ -94,7 +94,7 @@ impl VpcResourceLeaf {
     }
 
     /// Returns the list of Events the machine has experienced
-    pub fn events(&self) -> &Vec<VpcResourceLeafEvent> {
+    pub fn events(&self) -> &[VpcResourceLeafEvent] {
         &self.events
     }
 }

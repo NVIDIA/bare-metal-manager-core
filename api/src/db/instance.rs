@@ -20,6 +20,12 @@ pub struct NewInstance {
     pub machine_id: uuid::Uuid,
 }
 
+impl NewInstance {
+    pub fn new(machine_id: uuid::Uuid) -> Self {
+        Self { machine_id }
+    }
+}
+
 impl From<Instance> for rpc::Instance {
     fn from(src: Instance) -> Self {
         rpc::Instance {
@@ -63,7 +69,11 @@ impl TryFrom<rpc::Instance> for NewInstance {
         })
     }
 }
-
+impl Instance {
+    pub fn id(&self) -> &uuid::Uuid {
+        &self.id
+    }
+}
 impl NewInstance {
     pub async fn persist(
         &self,

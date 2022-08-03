@@ -228,7 +228,7 @@ impl Machine {
     ) -> CarbideResult<StateMachine<MachineStateMachine>> {
         let mut machine: StateMachine<MachineStateMachine> = StateMachine::new();
         events
-            .into_iter()
+            .iter()
             .map(|event| machine.consume(&MachineStateMachineInput::from(&event.action)))
             .collect::<Result<Vec<_>, _>>()
             .map_err(CarbideError::InvalidState)?;
