@@ -5,6 +5,9 @@ pub use auth::SshKeyValidationRequest;
 pub use dhcp_record::DhcpRecord;
 pub use domain::{Domain, NewDomain};
 pub use instance::{Instance, NewInstance};
+pub use instance_subnet::InstanceSubnet;
+pub use instance_subnet_address::InstanceSubnetAddress;
+pub use instance_subnet_event::InstanceSubnetEvent;
 pub use instance_type::{
     DeactivateInstanceType, InstanceType, NewInstanceType, UpdateInstanceType,
 };
@@ -32,6 +35,9 @@ mod auth;
 mod dhcp_record;
 mod domain;
 mod instance;
+mod instance_subnet;
+mod instance_subnet_address;
+mod instance_subnet_event;
 mod instance_type;
 mod ipmi;
 mod machine;

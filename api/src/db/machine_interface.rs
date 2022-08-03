@@ -17,7 +17,7 @@ use uuid::Uuid;
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MachineInterface {
     id: uuid::Uuid,
     domain_id: Option<uuid::Uuid>,
@@ -50,10 +50,10 @@ impl From<MachineInterface> for rpc::MachineInterface {
             id: Some(machine_interface.id.into()),
             machine_id: machine_interface.machine_id.map(|v| v.into()),
             segment_id: Some(machine_interface.segment_id.into()),
-            hostname: machine_interface.hostname.into(),
+            hostname: machine_interface.hostname,
             domain_id: machine_interface.domain_id.map(|d| d.into()),
             mac_address: machine_interface.mac_address.to_string(),
-            primary_interface: machine_interface.primary_interface.into(),
+            primary_interface: machine_interface.primary_interface,
             address: machine_interface
                 .addresses
                 .iter()
@@ -94,7 +94,7 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &uuid::Uuid,
     ) -> CarbideResult<Self> {
-        Ok(sqlx::query_as(
+        sqlx::query_as(
             "UPDATE machine_interfaces SET machine_id=$1::uuid where id=$2::uuid RETURNING *",
         )
         .bind(machine_id)
@@ -108,7 +108,7 @@ impl MachineInterface {
                 CarbideError::OnePrimaryInterface
             }
             _ => CarbideError::from(err),
-        })?)
+        })
     }
 
     /// Returns the UUID of the machine object

@@ -6,8 +6,6 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
 
 use crate::db::vpc_resource_action::VpcResourceAction;
-use ::rpc::Timestamp;
-use rpc::forge::v0 as rpc;
 
 #[derive(Debug, FromRow)]
 pub struct VpcResourceLeafEvent {
@@ -48,6 +46,22 @@ impl From<VpcResourceLeafEvent> for rpc::VpcResourceLeafEvent {
 */
 
 impl VpcResourceLeafEvent {
+    pub fn id(&self) -> &i64 {
+        &self.id
+    }
+
+    pub fn timestamp(&self) -> &DateTime<Utc> {
+        &self.timestamp
+    }
+
+    pub fn vpc_leaf_id(&self) -> &uuid::Uuid {
+        &self.vpc_leaf_id
+    }
+
+    pub fn action(&self) -> &VpcResourceAction {
+        &self.action
+    }
+
     /// Find a list of VpcResourceEvents given a list of vpc_resource Uuids.
     ///
     /// It returns a [HashMap][std::collections::HashMap] keyed by the vpc_resource Uuid and values of
