@@ -194,10 +194,32 @@ pub mod authorization {
         }
     }
 
+    // The auth context associated with a specific request, after JWT decoding
+    // and whatever else.
+    #[derive(Debug, Clone)]
+    pub struct RequestAuth {
+        privs_result: PrivilegeResult,
+        permissive: bool,
+    }
+
+    impl RequestAuth {
+        pub fn new(privs_result: PrivilegeResult) -> Self {
+            RequestAuth {
+                privs_result,
+                permissive: false,
+            }
+        }
+
+        pub fn set_permissive(&mut self, permissive: bool) {
+            self.permissive = permissive;
+        }
+    }
+
+    pub type PrivilegeResult = Result<Privilege, AuthError>;
 }
 
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum AuthError {
     #[error("JWT error {0}")]
     JWTError(#[from] jsonwebtoken::errors::Error),
