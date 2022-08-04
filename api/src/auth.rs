@@ -77,42 +77,24 @@ impl<B> AuthorizeRequest<B> for CarbideAuth {
 
         let jwt_validation = self.try_jwt_validation(request.headers());
 
-        match (jwt_validation, unsecured_endpoint) {
-            // If we've validated the claims, we can proceed regardless
-            // of the status of the endpoint in the request.
-            (Ok(claims), _) => {
-                // Any subsequent layers can retrieve this claims struct
-                // with something like this:
-                //
-                // let claims: CarbideAuthClaims = request.extensions.get();
-                request.extensions_mut().insert(claims);
-
-                Ok(())
-            }
-
-            (Err(_), true) => {
-                // Authentication failed, but this request's endpoint allows
-                // unauthenticated requests.
-
-                Ok(())
-            }
-
-            (Err(e), false) => {
-                info!("Request authentication failed: {:?}", e);
-
-                if self.permissive_mode {
-                    info!("Request allowed due to permissive mode");
-                    return Ok(())
-                }
-
-                let unauthorized = Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .body(tonic::body::empty_body())
-                    .unwrap();
-
-                Err(unauthorized)
-            }
+        use std::convert::TryInto;
+        let mut request_auth =
+            authorization::RequestAuth::new(jwt_validation.and_then(|claims| claims.try_into()));
+        if self.permissive_mode {
+            request_auth.set_permissive(self.permissive_mode);
         }
+
+        // Any subsequent layers can retrieve this struct with something
+        // like this:
+        //
+        // let request_auth: RequestAuth = request.extensions.get();
+
+        request.extensions_mut().insert(request_auth);
+
+        // We don't try to enforce anything here, so the layers under us
+        // are responsible for doing their own authorization checks using
+        // the RequestAuth extension we added.
+        Ok(())
     }
 }
 
