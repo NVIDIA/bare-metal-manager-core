@@ -125,6 +125,12 @@ pub struct CarbideAuthClaims {
     sub: String,
 }
 
+#[allow(dead_code)]
+pub mod authorization {
+
+}
+
+
 #[derive(thiserror::Error, Debug)]
 pub enum AuthError {
     #[error("JWT error {0}")]
