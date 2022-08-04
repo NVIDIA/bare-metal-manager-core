@@ -101,6 +101,7 @@ pub struct CarbideAuthClaims {
 #[allow(dead_code)]
 pub mod authorization {
     use super::AuthError;
+    use super::Request;
 
     use log::info;
 
@@ -143,6 +144,12 @@ pub mod authorization {
     }
 
     impl PrivilegeRequirement {
+        // Enforce requirement against a request.
+        pub fn authorize_request<B>(&self, request: &Request<B>) -> Result<(), AuthError> {
+            let request_auth = request.extensions().get::<RequestAuth>();
+            self.authorize(request_auth)
+        }
+
         pub fn authorize(&self, request_auth: Option<&RequestAuth>) -> Result<(), AuthError> {
             let request_privilege: Option<&Privilege> =
                 request_auth.and_then(|ra| ra.privs_result.as_ref().ok());
