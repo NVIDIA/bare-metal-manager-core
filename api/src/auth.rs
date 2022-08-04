@@ -163,6 +163,37 @@ pub mod authorization {
 
     }
 
+    #[derive(Debug, Clone)]
+    pub enum PrivilegeRequirement {
+        Require(Privilege),
+        Unprivileged,
+    }
+
+    impl PrivilegeRequirement {
+        pub fn can_accept(&self, privilege: Option<&Privilege>) -> bool {
+            let req = match self {
+                // Early return: an unprivileged operation can always work.
+                PrivilegeRequirement::Unprivileged => return true,
+                PrivilegeRequirement::Require(p) => p,
+            };
+            let privilege = match privilege {
+                // Early return: we already handled the unprivileged case
+                // above, so all remaining operations will be privileged,
+                // which requires _some_ privilege provided to succeed.
+                // Thus, a None will never be accepted here.
+                None => return false,
+                Some(p) => p,
+            };
+
+            use Privilege::*;
+            match (req, privilege) {
+                (_, SiteAdmin) => true,
+                (VpcAdmin(vpc1), VpcAdmin(vpc2)) if vpc1.as_str() == vpc2 => true,
+                (_, _) => false,
+            }
+        }
+    }
+
 }
 
 
