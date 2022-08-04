@@ -1,5 +1,4 @@
-use http::{header, HeaderMap, Request, Response, StatusCode, Uri};
-use log::info;
+use http::{header, HeaderMap, Request, Response};
 use serde::{Deserialize, Serialize};
 use tower_http::auth::AuthorizeRequest;
 
