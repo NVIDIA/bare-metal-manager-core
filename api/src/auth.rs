@@ -123,10 +123,13 @@ pub struct CarbideAuthClaims {
     aud: String,
     iss: String,
     sub: String,
+    privilege: Option<String>,
+    vpc: Option<String>,
 }
 
 #[allow(dead_code)]
 pub mod authorization {
+    use super::AuthError;
 
     #[derive(Debug, Clone)]
     pub enum Privilege {
@@ -135,6 +138,29 @@ pub mod authorization {
         // A VPC admin can do anything to a specific VPC.
         VpcAdmin(String),
         // TODO: almost certainly more things to fill in here
+    }
+
+    impl std::convert::TryFrom<super::CarbideAuthClaims> for Privilege {
+        type Error = AuthError;
+
+        fn try_from(value: super::CarbideAuthClaims) -> Result<Self, Self::Error> {
+            let privilege = value.privilege.ok_or(AuthError::InvalidJWTClaims(
+                "No 'privilege' field found in claims".into(),
+            ))?;
+            match privilege.as_str() {
+                "site-admin" => Ok(Privilege::SiteAdmin),
+                "vpc-admin" => match value.vpc {
+                    Some(vpc) => Ok(Privilege::VpcAdmin(vpc)),
+                    None => Err(AuthError::InvalidJWTClaims(
+                        "No 'vpc' field found in claims with 'vpc-admin' privilege".into(),
+                    )),
+                },
+                p => Err(AuthError::InvalidJWTClaims(format!(
+                    "Unknown privilege '{p}'"
+                ))),
+            }
+        }
+
     }
 
 }
@@ -162,6 +188,9 @@ pub enum AuthError {
 
     #[error("Unsupported Authorization type {0}")]
     UnsupportedAuthType(String),
+
+    #[error("Invalid JWT claims: {0}")]
+    InvalidJWTClaims(String),
 }
 
 mod jwt {
