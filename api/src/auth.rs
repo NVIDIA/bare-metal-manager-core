@@ -128,6 +128,15 @@ pub struct CarbideAuthClaims {
 #[allow(dead_code)]
 pub mod authorization {
 
+    #[derive(Debug, Clone)]
+    pub enum Privilege {
+        // The site admin level can do anything.
+        SiteAdmin,
+        // A VPC admin can do anything to a specific VPC.
+        VpcAdmin(String),
+        // TODO: almost certainly more things to fill in here
+    }
+
 }
 
 
