@@ -88,8 +88,6 @@ impl<B> AuthorizeRequest<B> for CarbideAuth {
 
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CarbideAuthClaims {
-    // FIXME: Fill this out more, aud/iss/sub are probably not sufficient to
-    // represent our permissions.
     aud: String,
     iss: String,
     sub: String,
