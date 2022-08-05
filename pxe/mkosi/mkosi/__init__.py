@@ -2863,7 +2863,7 @@ def install_debian_or_ubuntu(args: MkosiArgs, root: Path, *, do_run_build_script
         extra_packages.update(args.build_packages)
 
     if not do_run_build_script and args.bootable:
-        add_packages(args, extra_packages, "dracut", "dracut-live")
+        add_packages(args, extra_packages, "dracut", "dracut-live", "binutils")
         configure_dracut(args, extra_packages, root)
 
         if args.distribution == Distribution.ubuntu:
