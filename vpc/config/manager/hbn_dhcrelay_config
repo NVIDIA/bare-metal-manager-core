@@ -1,9 +1,0 @@
-[program: dhcrelay]
-command = /usr/sbin/dhcrelay --nl -d -i {{.HostInterface}} -i p0 -i p1 -U lo {{.DHCPServer}}
-autostart = true
-autorestart = unexpected
-startsecs = 10
-startretries = 3
-exitcodes = 0
-stopsignal = TERM
-stopwaitsecs = 10

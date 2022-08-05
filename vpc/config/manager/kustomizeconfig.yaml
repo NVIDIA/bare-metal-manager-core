@@ -1,7 +1,0 @@
-varReference:
-  - kind: Deployment
-    group: apps/v1
-    path: spec/template/spec/containers/env
-  - kind: Namespace
-    group: v1
-    path: metadata/labels

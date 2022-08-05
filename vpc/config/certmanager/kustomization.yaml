@@ -1,6 +1,0 @@
-resources:
-- certificate.yaml
-- forge-vpc-cert.yaml
-
-configurations:
-- kustomizeconfig.yaml

@@ -1,2 +1,0 @@
-/// cbindgen:ignore
-mod ffi;

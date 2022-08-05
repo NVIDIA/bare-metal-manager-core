@@ -1,8 +1,0 @@
-FROM arm64v8/ubuntu:focal
-
-RUN apt update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install -y curl wget cpio build-essential libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libudev-dev libfreeipmi-dev libfreeipmi17 libipmiconsole-dev libipmiconsole2 libssl-dev clang automake cmake pkg-config sudo iproute2 && rm -rf /var/lib/apt/lists/*
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly
-RUN /root/.cargo/bin/rustup component add rustfmt
-RUN /root/.cargo/bin/cargo install cargo-cache cargo-make mdbook mdbook-mermaid && /root/.cargo/bin/cargo cache -r registry-index,registry-sources
-RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
-ENV PATH "$PATH:/root/.cargo/bin"
