@@ -323,6 +323,10 @@ mod jwt {
             )
             .map_err(|e| AuthError::JWTDecodeError(e))?;
 
+            // big time FIXME: We aren't validating the iss/sub/aud fields,
+            // since at the time of this writing there isn't anything specified
+            // or agreed upon for what they should be. -db
+
             Ok(decoded.claims)
         }
     }
