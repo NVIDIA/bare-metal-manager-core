@@ -86,7 +86,7 @@ args = [
 category = "Ephemeral Image"
 command = "sudo"
 args = [
-    "mkosi/builddir/mkosi",
+        "mkosi/builddir/mkosi",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"clean"
@@ -95,8 +95,8 @@ args = [
 [tasks.mkosi-build-image-x86_64-ci]
 category = "Ephemeral Image"
 command = "sudo"
-args = [ 
-    "mkosi/builddir/mkosi",
+args = [
+        "mkosi/builddir/mkosi",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"build"

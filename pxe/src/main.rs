@@ -26,9 +26,10 @@ use ::rpc::forge::v0::InterfaceSearchQuery;
 
 #[derive(Debug)]
 pub struct Machine {
-    interface: v0::MachineInterface,
     #[allow(dead_code)]
-    machine: Option<v0::Machine>,
+    architecture: v0::MachineArchitecture,
+    interface: v0::MachineInterface,
+    machine: Option<v0::Machine>
 }
 
 #[derive(Clone)]
@@ -41,7 +42,10 @@ pub enum RPCError<'a> {
     RequestError(tonic::Status),
     MissingClientConfig,
     MissingMachineId,
+    MissingBuildArch,
+    InvalidBuildArch,
     MalformedMachineId(Errors<'a>),
+    MalformedBuildArch(Errors<'a>),
 }
 
 #[derive(Parser, Debug)]
@@ -78,6 +82,11 @@ impl Display for RPCError<'_> {
                 Self::MissingMachineId =>
                     "Missing Machine Identifier (UUID) specified in URI parameter uuid".to_string(),
                 Self::MalformedMachineId(err) => format!("Malformed Machine UUID: {}", err),
+                RPCError::MissingBuildArch =>
+                    "Missing Build arch specified in URI parameter buildarch".to_string(),
+                RPCError::InvalidBuildArch =>
+                    "Invalid build arch specified in URI parameter buildarch".to_string(),
+                RPCError::MalformedBuildArch(err) => format!("Malformed build arch: {}", err),
             }
         )
     }
@@ -102,6 +111,50 @@ impl<'r> FromRequest<'r> for Machine {
     type Error = RPCError<'r>;
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
+        let buildarch = match request.query_value::<&str>("buildarch") {
+            Some(Ok(buildarch)) => { match buildarch {
+                "arm64" => v0::MachineArchitecture::Arm,
+                "x86_64" => v0::MachineArchitecture::X86,
+                arch => {
+                    eprintln!("invalid architecture: {:#?}", arch);
+                    return request::Outcome::Failure((
+                        Status::BadRequest,
+                        RPCError::InvalidBuildArch,
+                    ))
+                }
+            }},
+            Some(Err(errs)) => {
+                return request::Outcome::Failure((
+                    Status::BadRequest,
+                    RPCError::MalformedBuildArch(errs),
+                ))
+            },
+
+            None => {
+                eprintln!("{:#?}", request.param::<&str>(1));
+                match request.param::<&str>(1) {
+                    Some(buildarch) => { match buildarch.unwrap() {
+                        "arm64" => v0::MachineArchitecture::Arm,
+                        "x86_64" => v0::MachineArchitecture::X86,
+                        arch => {
+                            eprintln!("invalid architecture: {:#?}", arch);
+                            return request::Outcome::Failure((
+                                Status::BadRequest,
+                                RPCError::InvalidBuildArch,
+                            ))
+                        }
+                    }},
+                    None => {
+                        // For now default to arm64 if none is presented
+                        v0::MachineArchitecture::Arm
+                        // return request::Outcome::Failure((
+                        //     Status::BadRequest,
+                        //     RPCError::MissingBuildArch,
+                        // ))
+                    }
+                }
+            }
+        };
         let uuid = match request.query_value::<rocket::serde::uuid::Uuid>("uuid") {
             Some(Ok(uuid)) => uuid,
             Some(Err(errs)) => {
@@ -160,6 +213,7 @@ impl<'r> FromRequest<'r> for Machine {
 
         match interface.machine_id.clone() {
             None => request::Outcome::Success(Machine {
+                architecture: buildarch,
                 interface,
                 machine: None,
             }),
@@ -167,6 +221,7 @@ impl<'r> FromRequest<'r> for Machine {
                 let request = tonic::Request::new(machine_id);
                 match client.get_machine(request).await {
                     Ok(machine) => request::Outcome::Success(Machine {
+                        architecture: buildarch,
                         interface,
                         machine: Some(machine.into_inner()),
                     }),
