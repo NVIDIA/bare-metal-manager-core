@@ -4,7 +4,7 @@ Release=bullseye
 
 [Output]
 Format=gpt_squashfs
-ManifestFormat=changelog
+ManifestFormat=json
 Bootable=true
 #Minimize=true
 WithUnifiedKernelImages=true
