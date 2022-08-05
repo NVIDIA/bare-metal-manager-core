@@ -1,5 +1,20 @@
 # mkosi Changelog
 
+## v14
+
+- Support for Clear Linux was dropped. See https://github.com/systemd/mkosi/pull/1037
+for more information.
+- Support for Photon was dropped. See https://github.com/systemd/mkosi/pull/1048
+for more information.
+- The Arch kernel/bootloader pacman hooks were removed. For anyone that still
+wants to use them, they can be found [here](https://github.com/systemd/mkosi/tree/v13/mkosi/resources/arch).
+When building a bios image, /boot/vmlinuz-kver and /boot/initramfs-kver.img are
+now symlinks to the actual files as installed by kernel-install.
+- When mkosi.output/ or mkosi.builddir/ are used, mkosi now creates distro~release
+subdirectories inside these directories for each distro~release combination that
+is built. This allows building for multiple distros without throwing away the results
+of a previous distro build every time.
+
 ## v13
 
 - The `--network-veth` option has been renamed to `--netdev`. The old name made

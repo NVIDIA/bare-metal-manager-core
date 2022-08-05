@@ -5,28 +5,19 @@ runs:
   using: composite
   steps:
 
-  - name: Copy /etc/os-release
-    shell: bash
-    run: |
-      cp /etc/os-release $GITHUB_WORKSPACE
-      # hashFiles() only works on files inside $GITHUB_WORKSPACE so let's copy /etc/os-release to that
-      # location.
-      cat os-release
-
-  - name: Cache dependencies
-    uses: actions/cache@v3
-    with:
-      path: build
-      key: ${{ hashFiles('os-release', 'action/setup-pacman.sh') }}
-
   - name: Dependencies
     shell: bash
     run: |
+      # For archlinux-keyring and pacman
+      sudo add-apt-repository ppa:michel-slm/kernel-utils
       sudo apt-get update
       sudo apt-get install --assume-yes --no-install-recommends \
         debootstrap \
         zypper \
         dnf \
+        pacman-package-manager \
+        archlinux-keyring \
+        makepkg \
         systemd-container \
         qemu-system-x86 \
         ovmf \
@@ -35,39 +26,14 @@ runs:
         squashfs-tools \
         btrfs-progs
 
-      mkdir -p $BUILDDIR
-
-      sudo -E ${{ github.action_path }}/action/setup-pacman.sh
-      sudo chown -R $USER: $BUILDDIR
-
       sudo pacman-key --init
       sudo pacman-key --populate archlinux
-
-      sudo tee /etc/systemd/network/80-vm-vt.network > /dev/null <<- EOF
-      [Match]
-      Name=vt-*
-      Driver=tun
-
-      [Network]
-      # Default to using a /28 prefix, giving up to 13 addresses per VM.
-      Address=0.0.0.0/28
-      LinkLocalAddressing=yes
-      DHCPServer=yes
-      IPMasquerade=yes
-      LLDP=yes
-      EmitLLDP=customer-bridge
-      IPv6PrefixDelegation=yes
-      EOF
-
-      sudo systemctl restart systemd-networkd
-
-    env:
-      BUILDDIR: build
 
   # Try to eliminate "Failed to dissect image: Connection timed out" errors from nspawn by compiling
   # systemd-nspawn from v251 from source.
   - name: Update systemd-nspawn
     shell: bash
+    working-directory: ${{ github.action_path }}
     run: |
       echo "deb-src http://archive.ubuntu.com/ubuntu/ $(lsb_release -cs) main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
       sudo apt-get update

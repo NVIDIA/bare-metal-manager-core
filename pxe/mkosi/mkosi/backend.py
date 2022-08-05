@@ -8,6 +8,7 @@ import dataclasses
 import enum
 import math
 import os
+import platform
 import resource
 import shlex
 import shutil
@@ -110,7 +111,6 @@ class PackageType(enum.Enum):
     rpm = 1
     deb = 2
     pkg = 3
-    bundle = 4
     ebuild = 5
 
 
@@ -143,8 +143,6 @@ class Distribution(enum.Enum):
     mageia = 5, PackageType.rpm
     centos = 6, PackageType.rpm
     centos_epel = 7, PackageType.rpm
-    clear = 8, PackageType.bundle
-    photon = 9, PackageType.rpm
     openmandriva = 10, PackageType.rpm
     rocky = 11, PackageType.rpm
     rocky_epel = 12, PackageType.rpm
@@ -170,12 +168,30 @@ def is_rpm_distribution(d: Distribution) -> bool:
         Distribution.mageia,
         Distribution.centos,
         Distribution.centos_epel,
-        Distribution.photon,
         Distribution.openmandriva,
         Distribution.rocky,
         Distribution.rocky_epel,
         Distribution.alma,
         Distribution.alma_epel
+    )
+
+
+def is_centos_variant(d: Distribution) -> bool:
+    return d in (
+        Distribution.centos,
+        Distribution.centos_epel,
+        Distribution.alma,
+        Distribution.alma_epel,
+        Distribution.rocky,
+        Distribution.rocky_epel,
+    )
+
+
+def is_epel_variant(d: Distribution) -> bool:
+    return d in (
+        Distribution.centos_epel,
+        Distribution.alma_epel,
+        Distribution.rocky_epel,
     )
 
 
@@ -417,7 +433,7 @@ class MkosiArgs:
     repositories: List[str]
     use_host_repositories: bool
     repos_dir: Optional[str]
-    architecture: Optional[str]
+    architecture: str
     output_format: OutputFormat
     manifest_format: List[ManifestFormat]
     output: Path
@@ -448,6 +464,7 @@ class MkosiArgs:
     with_unified_kernel_images: bool
     gpt_first_lba: Optional[int]
     hostonly_initrd: bool
+    cache_initrd: bool
     base_packages: Union[str, bool]
     packages: List[str]
     remove_packages: List[str]
@@ -547,6 +564,9 @@ class MkosiArgs:
         if self.partition_table is None:
             return None
         return self.partition_table.partitions.get(ident)
+
+    def architecture_is_native(self) -> bool:
+        return self.architecture == platform.machine()
 
 
 def should_compress_fs(args: Union[argparse.Namespace, MkosiArgs]) -> Union[bool, str]:
@@ -676,6 +696,9 @@ def run_workspace_command(
         stdout = subprocess.PIPE
         nspawn += ["--console=pipe"]
 
+    if args.usr_only:
+        nspawn += [f"--bind={root_home(args, root)}:/root"]
+
     if args.nspawn_keep_unit:
         nspawn += ["--keep-unit"]
 
@@ -685,6 +708,20 @@ def run_workspace_command(
         if "workspace-command" in ARG_DEBUG:
             run(nspawn, check=False)
         die(f"Workspace command {shell_join(cmd)} returned non-zero exit code {e.returncode}.")
+
+
+def root_home(args: MkosiArgs, root: Path) -> Path:
+
+    # If UsrOnly= is turned on the /root/ directory (i.e. the root
+    # user's home directory) is not persistent (after all everything
+    # outside of /usr/ is not around). In that case let's mount it in
+    # from an external place, so that we can have persistency. It is
+    # after all where we place our build sources and suchlike.
+
+    if args.usr_only:
+        return workspace(root) / "home-root"
+
+    return root / "root"
 
 
 @contextlib.contextmanager
@@ -752,6 +789,7 @@ def run(
     delay_interrupt: bool = True,
     stdout: _FILE = None,
     stderr: _FILE = None,
+    env: Mapping[str, Any] = {},
     **kwargs: Any,
 ) -> CompletedProcess:
     cmdline = [str(x) for x in cmdline]
@@ -776,7 +814,7 @@ def run(
     cm = do_delay_interrupt if delay_interrupt else do_noop
     try:
         with cm():
-            return subprocess.run(cmdline, check=check, stdout=stdout, stderr=stderr, **kwargs)
+            return subprocess.run(cmdline, check=check, stdout=stdout, stderr=stderr, env={**os.environ, **env}, **kwargs)
     except FileNotFoundError:
         die(f"{cmdline[0]} not found in PATH.")
 
@@ -855,7 +893,7 @@ def write_grub_config(args: MkosiArgs, root: Path) -> None:
                 f.write('GRUB_SERIAL_COMMAND="serial --unit=0 --speed 115200"\n')
 
 
-def install_grub(args: MkosiArgs, root: Path, loopdev: Path, grub: str) -> None:
+def install_grub(args: MkosiArgs, root: Path, loopdev: Path) -> None:
     assert args.partition_table is not None
 
     part = args.get_partition(PartitionIdentifier.bios)
@@ -865,6 +903,8 @@ def install_grub(args: MkosiArgs, root: Path, loopdev: Path, grub: str) -> None:
     write_grub_config(args, root)
 
     nspawn_params = nspawn_params_for_blockdev_access(args, loopdev)
+
+    grub = "/usr/sbin/grub" if root.joinpath("usr/sbin/grub-install").exists() else "/usr/sbin/grub2"
 
     cmdline: Sequence[PathString] = [f"{grub}-install", "--modules=ext2 part_gpt", "--target=i386-pc", loopdev]
     run_workspace_command(args, root, cmdline, nspawn_params=nspawn_params)

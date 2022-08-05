@@ -297,10 +297,9 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
 `Distribution=`, `--distribution=`, `-d`
 
 : The distribution to install in the image. Takes one of the following
-  arguments: `fedora`, `debian`, `ubuntu`, `arch`, `opensuse`,
-  `mageia`, `centos`, `centos_epel`, `clear`, `photon`, `openmandriva`, `rocky`,
-  `rocky_epel`, `alma`, `alma_epel`. If not specified, defaults to the distribution
-   of the host.
+  arguments: `fedora`, `debian`, `ubuntu`, `arch`, `opensuse`, `mageia`,
+  `centos`, `centos_epel`, `openmandriva`, `rocky`, `rocky_epel`, `alma`,
+  `alma_epel`. If not specified, defaults to the distribution of the host.
 
 `Release=`, `--release=`, `-r`
 
@@ -308,10 +307,8 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
   syntax of the argument this takes depends on the distribution used,
   and is either a numeric string (in case of Fedora Linux, CentOS, …,
   e.g. `29`), or a distribution version name (in case of Debian,
-  Ubuntu, …, e.g. `artful`). If neither this option, nor
-  `Distribution=` is specified, defaults to the distribution version
-  of the host. If the distribution is specified, defaults to a recent
-  version of it.
+  Ubuntu, …, e.g. `artful`). Defaults to a recent version of the
+  chosen distribution.
 
 `Mirror=`, `--mirror=`, `-m`
 
@@ -331,7 +328,7 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
 `UseHostRepositories=`, `--use-host-repositories`
 
 : This option is only applicable for RPM-based distributions:
-  *CentOS*, *Fedora Linux*, *Mageia*, *Photon*, *Rocky Linux*, *Alma Linux*
+  *CentOS*, *Fedora Linux*, *Mageia*, *Rocky Linux*, *Alma Linux*
   and *OpenMandriva*.
   Allows use of the host's existing RPM repositories.
   By default, a hardcoded set of default RPM repositories is generated and used.
@@ -642,8 +639,15 @@ a boolean argument: either "1", "yes", or "true" to enable, or "0",
 : If specified, mkosi will run the tool to create the initrd such that
   a non-generic initrd is created that will only be able to run on the
   system mkosi is run on. Currently mkosi uses dracut for all
-  supported distributions except Clear Linux and this option
-  translates to enabling dracut's hostonly option.
+  supported distributions and this option translates to enabling dracut's
+  hostonly option.
+
+`CacheInitrd=`, `--cache-initrd`
+
+: If specified, and incremental mode is used, mkosi will build the initrd
+  in the cache image and reuse it in the final image. Note that this means
+  that any changes that are only applied to the final image and not the
+  cached image won't be included in the initrd.
 
 `UsrOnly=`, `--usr-only`
 
@@ -1295,10 +1299,6 @@ following operating systems:
 * *Mageia*
 
 * *CentOS*
-
-* *Clear Linux*
-
-* *Photon*
 
 * *OpenMandriva*
 

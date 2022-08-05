@@ -45,7 +45,7 @@ class MkosiConfig:
         self.reference_config[job_name] = {
             "all": False,
             "all_directory": None,
-            "architecture": None,
+            "architecture": "x86_64",
             "bmap": False,
             "boot_protocols": [],
             "bootable": False,
@@ -140,6 +140,7 @@ class MkosiConfig:
             "ephemeral": False,
             "with_unified_kernel_images": True,
             "hostonly_initrd": False,
+            "cache_initrd": False,
             "ssh": False,
             "ssh_key": None,
             "ssh_timeout": 0,
@@ -173,7 +174,7 @@ class MkosiConfig:
                 is_eq = False
         return is_eq
 
-    def _append_list(self, ref_entry: str, new_args: Any, job_name: str = DEFAULT_JOB_NAME, separator: str = ",") -> None:
+    def _append_list(self, ref_entry: str, new_args: Any, job_name: str = DEFAULT_JOB_NAME, separator: str = ",", with_duplicates: bool = False) -> None:
         """Helper function handling comma separated list as supported by mkosi"""
         args_list = []
         if isinstance(new_args, str):
@@ -188,7 +189,7 @@ class MkosiConfig:
             if isinstance(arg, str) and arg.startswith("!"):
                 if arg[1:] in self.reference_config[job_name][ref_entry]:
                     self.reference_config[job_name][ref_entry].remove(arg[1:])
-            elif arg not in self.reference_config[job_name][ref_entry]:
+            elif with_duplicates or arg not in self.reference_config[job_name][ref_entry]:
                 self.reference_config[job_name][ref_entry].append(arg)
 
     @staticmethod
@@ -288,6 +289,8 @@ class MkosiConfig:
                 ]
             if "HostonlyInitrd" in mk_config_output:
                 self.reference_config[job_name]["hostonly_initrd"] = mk_config_output["HostonlyInitrd"]
+            if "CacheInitrd" in mk_config_output:
+                self.reference_config[job_name]["cache_initrd"] = mk_config_output["CacheInitrd"]
             if "MachineID" in mk_config_output:
                 self.reference_config[job_name]["MachineID"] = mk_config_output["MachineID"]
         if "Packages" in mk_config:
@@ -375,6 +378,8 @@ class MkosiConfig:
                 self._append_list("extra_search_paths", mk_config_host["ExtraSearchPaths"], job_name, ":")
             if "QemuHeadless" in mk_config_host:
                 self.reference_config[job_name]["qemu_headless"] = mk_config_host["QemuHeadless"]
+            if "QemuArgs" in mk_config_host:
+                self._append_list("qemu_args", mk_config_host["QemuArgs"], job_name, " ", with_duplicates=True)
             if "Netdev" in mk_config_host:
                 self.reference_config[job_name]["netdev"] = mk_config_host["Netdev"]
             if "Ephemeral" in mk_config_host:
@@ -595,6 +600,7 @@ class MkosiConfigManyParams(MkosiConfigOne):
             "Host": {
                 "ExtraSearchPaths": "search/here:search/there",
                 "QemuHeadless": True,
+                "QemuArgs": "-device virtio-vga-gl -vga none",
                 "Netdev": True,
             },
         }
@@ -661,6 +667,7 @@ class MkosiConfigManyParams(MkosiConfigOne):
             "Host": {
                 "ExtraSearchPaths": "search/ubu",
                 "QemuHeadless": True,
+                "QemuArgs": "-vga virtio -device usb-kbd -device usb-mouse",
                 "Netdev": True,
             },
         }
@@ -727,6 +734,7 @@ class MkosiConfigManyParams(MkosiConfigOne):
             "Host": {
                 "ExtraSearchPaths": "search/debi",
                 "QemuHeadless": True,
+                "QemuArgs": "-device virtio-vga-gl,xres=1920,yres=1080 -display sdl,gl=on",
                 "Netdev": True,
             },
         }
