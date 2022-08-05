@@ -102,6 +102,8 @@ pub struct CarbideAuthClaims {
 pub mod authorization {
     use super::AuthError;
 
+    use log::info;
+
     #[derive(Debug, Clone)]
     pub enum Privilege {
         // The site admin level can do anything.
@@ -141,6 +143,44 @@ pub mod authorization {
     }
 
     impl PrivilegeRequirement {
+        pub fn authorize(&self, request_auth: Option<&RequestAuth>) -> Result<(), AuthError> {
+            let request_privilege: Option<&Privilege> =
+                request_auth.and_then(|ra| ra.privs_result.as_ref().ok());
+            let sufficient = self.can_accept(request_privilege);
+            let permissive_mode = request_auth.map(|ra| ra.permissive);
+
+            match (sufficient, permissive_mode) {
+
+                // Normal happy path.
+                (true, _) => Ok(()),
+
+                // Insufficient permission level, but allowed under permissive
+                // mode.
+                (false, Some(true)) => {
+                    info!("Request with insufficient authorization allowed due to permissive mode");
+                    Ok(())
+                }
+
+                // Denied, insufficient privilege level.
+                (false, _) => {
+                    let reason = request_auth
+                        .map(|ra| {
+                            ra.privs_result.as_ref()
+                            .map_or_else(
+                                |e: &AuthError| { format!("the request couldn't be authenticated: {e}") },
+                                |p: &Privilege| { format!("the request's privilege level ({p:?}) was insufficient") }
+                            )}
+                        )
+                        .unwrap_or_else(
+                            || { String::from("no RequestAuth was found in this request's type map (this shouldn't happen!)") }
+                        );
+                    Err(AuthError::InsufficientPrivilegeLevel(format!(
+                        "This operation requires a privilege level of {self:?}, but {reason}"
+                    )))
+                }
+            }
+        }
+
         pub fn can_accept(&self, privilege: Option<&Privilege>) -> bool {
             let req = match self {
                 // Early return: an unprivileged operation can always work.
@@ -215,6 +255,9 @@ pub enum AuthError {
 
     #[error("Invalid JWT claims: {0}")]
     InvalidJWTClaims(String),
+
+    #[error("Insufficient privilege level: {0}")]
+    InsufficientPrivilegeLevel(String),
 }
 
 mod jwt {
