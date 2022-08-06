@@ -20,6 +20,9 @@ pub struct Discovery {
 
     #[builder(setter(into, strip_option), default)]
     pub(crate) vendor_class: Option<String>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub(crate) link_select_address: Option<Ipv4Addr>,
 }
 
 #[repr(C)]
@@ -87,6 +90,23 @@ pub unsafe extern "C" fn discovery_set_vendor_class(
     marshal_discovery_ffi(ctx, |builder| builder.vendor_class(vendor_class))
 }
 
+/// Fill the `link select` portion of the Discovery object with an IP(v4) address
+///
+/// # Safety
+///
+/// This function deferences a pointer to a Discovery object which is an opaque pointer
+/// consumed in C code.
+///
+#[no_mangle]
+pub unsafe extern "C" fn discovery_set_link_select(
+    ctx: *mut DiscoveryBuilderFFI,
+    link_select: u32,
+) {
+    marshal_discovery_ffi(ctx, |builder| {
+        builder.link_select_address(Ipv4Addr::from(link_select.to_be_bytes()))
+    });
+}
+
 /// Fill the `relay` portion of the Discovery object with an IP(v4) address
 ///
 /// # Safety
@@ -151,15 +171,18 @@ pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut
     let m = discovery.mac_address;
     let v = match discovery.vendor_class.clone() {
         Some(s) => s,
-        None => "No vendor specified in the request".to_string()
+        None => "No vendor specified in the request".to_string(),
     };
 
     match Machine::try_from(discovery) {
         Ok(machine) => Box::into_raw(Box::new(machine)),
         Err(estr) => {
-            info!("Error getting info back from the machine discovery: {}:{}:{}:{}", m, r, v, estr);
+            info!(
+                "Error getting info back from the machine discovery: {}:{}:{}:{}",
+                m, r, v, estr
+            );
             std::ptr::null_mut()
-        },
+        }
     }
 }
 
