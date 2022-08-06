@@ -87,7 +87,11 @@ Credentials
 | 10.180.32.13 | 10.180.222.22 | MT2203X26583 |
 | 10.180.32.141 | 10.180.222.61 | MT2203X26585 |
 
-The following nodes belong to dogfood, host IP access are dynamic
+
+### Dogfood setup
+The dogfood setup manages the following units using forge site controller. It is a self-serving system that allow user to allocate x86 hosts on-demand (sort of).
+
+The goal of dogfood is to discover missing features design flaws, bugs in forge site control and HBN via active usage. The dogfood setup currently exercise forge vpc, kea, and HBN componments. We will continue to add more components, features to dogfood as they become avaiable.
 
 Credentials
 - OS: `ubuntu:ubuntu`
@@ -95,13 +99,40 @@ Credentials
 
 | host | host bmc ip | Owner |
 | ---- | ----------- | ----- |
-| rno1-m03-b17-cpu-04 | 10.180.222.64 | Shi & Joji   | 
-| rno1-m03-b17-cpu-05 | 10.180.222.65 ||
-| rno1-m03-b18-cpu-03 | 10.180.222.66 | vishnu       |
-| rno1-m03-b18-cpu-04 | 10.180.222.67 ||
-| rno1-m03-b18-cpu-05 | 10.180.222.68 ||
-| rno1-m03-b19-cpu-03 | 10.180.222.69 ||
-| rno1-m03-b19-cpu-04 | 10.180.222.70 ||
-| rno1-m03-b19-cpu-05 | 10.180.222.71 ||
- 
+| rno1-m03-b17-cpu-04 | 10.180.222.64 | 
+| rno1-m03-b17-cpu-05 | 10.180.222.65 |
+| rno1-m03-b18-cpu-03 | 10.180.222.66 |
+| rno1-m03-b18-cpu-04 | 10.180.222.67 |
+| rno1-m03-b18-cpu-05 | 10.180.222.68 |
+| rno1-m03-b19-cpu-03 | 10.180.222.69 |
+| rno1-m03-b19-cpu-04 | 10.180.222.70 |
+| rno1-m03-b19-cpu-05 | 10.180.222.71 |
 
+Assuming you have access to the dev2 k8s cluster, you can see all available units. The MGMT-IP columne are IPs accessing DPUs via oob_net interface; whereas HOST-IP column are IPs access the x86 hosts. You can log in the either DPU and x86 host to experiement, but not to change anything!! if HOST-IP column is empty on a leaf, it means the corresponding x86 host is reserved by someone, and is not avaible for genral access.
+
+We currently using kubectl as a way to interact with forge site controller. Eventually this will be replaced by grpcurl interacting with carbide-api server.
+
+``` bash
+kubectl --kubeconfig PATH_TO_KUBE_CONFIG get leaf -A
+NAMESPACE      NAME                  MGMT-IP         MAINTENANCE   HOST-IP                     STATUS
+forge-system   rno1-m03-b17-cpu-04   10.180.222.47                                             True
+forge-system   rno1-m03-b17-cpu-05   10.180.222.46                                             True
+forge-system   rno1-m03-b18-cpu-03   10.180.222.35                 {"pf0hpf":"10.180.124.3"}   True
+forge-system   rno1-m03-b18-cpu-04   10.180.222.38                                             True
+forge-system   rno1-m03-b18-cpu-05   10.180.222.25                 {"pf0hpf":"10.180.124.7"}   True
+forge-system   rno1-m03-b19-cpu-03   10.180.222.45                 {"pf0hpf":"10.180.124.4"}   True
+forge-system   rno1-m03-b19-cpu-04   10.180.222.43                 {"pf0hpf":"10.180.124.6"}   True
+forge-system   rno1-m03-b19-cpu-05   10.180.222.48                 {"pf0hpf":"10.180.124.8"}   True
+```
+
+If you want to dedicated units for your work, and do not want others to touch them, consider placing your units onto tenant. So that peope know these units are already in use, and will not mess with it. In the following example, we have allocated 3 x86 hosts to 2 different tenants, where x86 hosts can be accessed via HOSTIP column.
+
+```bash
+kubectl --kubeconfig PATH_TO_KUBE_CONFIG get managedresource -A
+NAMESPACE      NAME              FABRIC-DEVICE         RESOURCEGROUP   HOSTIP           FABRICIP         STATUS
+forge-system   e2e-control-1     rno1-m03-b17-cpu-05   e2e-control     10.180.124.132   10.180.124.132   True
+forge-system   e2e-control-2     rno1-m03-b18-cpu-04   e2e-control     10.180.124.131   10.180.124.131   True
+forge-system   shi-joji-host-1   rno1-m03-b17-cpu-04   shi-joji        10.180.124.82    10.180.124.82    True
+```
+
+Unfortunately at this monment, provisioning of x86 hosts to tenant requires some human interaction. If you plan to reserve some units for your work, please let suw@nvidia know, he will be happy provision some units on your behalf. 
