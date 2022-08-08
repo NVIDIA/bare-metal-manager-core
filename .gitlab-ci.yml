@@ -1,5 +1,5 @@
 variables:
-  NSPECT_ID: NSPECT-2SV4-7361
+  NSPECT_ID: NSPECT-K66V-JJ0K
   APPLICATION_DOCKERFILE: dev/deployment/Dockerfile
   KUSTOMIZE_LOCATION: dev/kube
   APPLICATION_DOCKER_IMAGE: quay.io/nvidia/nvmetal-carbide
