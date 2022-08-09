@@ -1,7 +1,4 @@
-use std::collections::HashSet;
-
-use http::{header, HeaderMap, Request, Response, StatusCode, Uri};
-use log::info;
+use http::{header, HeaderMap, Request, Response};
 use serde::{Deserialize, Serialize};
 use tower_http::auth::AuthorizeRequest;
 
@@ -11,19 +8,16 @@ pub use jwt::{Algorithm, DecodingKey, KeySpec};
 // RequireAuthorizationLayer::custom() middleware layer.
 #[derive(Clone)]
 pub struct CarbideAuth {
-    unsecured_endpoints: HashSet<Uri>,
     jwt_validator: jwt::TokenValidator,
     permissive_mode: bool,
 }
 
 impl CarbideAuth {
     pub fn new() -> Self {
-        let unsecured_endpoints = HashSet::new();
         let jwt_validator = jwt::TokenValidator::new();
         let permissive_mode = false;
 
         Self {
-            unsecured_endpoints,
             jwt_validator,
             permissive_mode,
         }
@@ -32,10 +26,6 @@ impl CarbideAuth {
     pub fn add_jwt_key(&mut self, algorithm: Algorithm, key_spec: KeySpec, decoding_key: DecodingKey) {
         self.jwt_validator
             .add_key(algorithm, key_spec, decoding_key);
-    }
-
-    pub fn add_unsecured_endpoint(&mut self, endpoint: Uri) {
-        self.unsecured_endpoints.insert(endpoint);
     }
 
     pub fn set_permissive_mode(&mut self, mode: bool) {
@@ -73,59 +63,178 @@ impl<B> AuthorizeRequest<B> for CarbideAuth {
     type ResponseBody = tonic::body::BoxBody;
 
     fn authorize(&mut self, request: &mut Request<B>) -> Result<(), Response<Self::ResponseBody>> {
-        let unsecured_endpoint = self.unsecured_endpoints.contains(request.uri());
-
         let jwt_validation = self.try_jwt_validation(request.headers());
 
-        match (jwt_validation, unsecured_endpoint) {
-            // If we've validated the claims, we can proceed regardless
-            // of the status of the endpoint in the request.
-            (Ok(claims), _) => {
-                // Any subsequent layers can retrieve this claims struct
-                // with something like this:
-                //
-                // let claims: CarbideAuthClaims = request.extensions.get();
-                request.extensions_mut().insert(claims);
-
-                Ok(())
-            }
-
-            (Err(_), true) => {
-                // Authentication failed, but this request's endpoint allows
-                // unauthenticated requests.
-
-                Ok(())
-            }
-
-            (Err(e), false) => {
-                info!("Request authentication failed: {:?}", e);
-
-                if self.permissive_mode {
-                    info!("Request allowed due to permissive mode");
-                    return Ok(())
-                }
-
-                let unauthorized = Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .body(tonic::body::empty_body())
-                    .unwrap();
-
-                Err(unauthorized)
-            }
+        use std::convert::TryInto;
+        let mut request_auth =
+            authorization::RequestAuth::new(jwt_validation.and_then(|claims| claims.try_into()));
+        if self.permissive_mode {
+            request_auth.set_permissive(self.permissive_mode);
         }
+
+        // Any subsequent layers can retrieve this struct with something
+        // like this:
+        //
+        // let request_auth: RequestAuth = request.extensions.get();
+
+        request.extensions_mut().insert(request_auth);
+
+        // We don't try to enforce anything here, so the layers under us
+        // are responsible for doing their own authorization checks using
+        // the RequestAuth extension we added.
+        Ok(())
     }
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CarbideAuthClaims {
-    // FIXME: Fill this out more, aud/iss/sub are probably not sufficient to
-    // represent our permissions.
     aud: String,
     iss: String,
     sub: String,
+    privilege: Option<String>,
+    vpc: Option<String>,
 }
 
-#[derive(thiserror::Error, Debug)]
+#[allow(dead_code)]
+pub mod authorization {
+    use super::AuthError;
+    use super::Request;
+
+    use log::info;
+
+    #[derive(Debug, Clone)]
+    pub enum Privilege {
+        // The site admin level can do anything.
+        SiteAdmin,
+        // A VPC admin can do anything to a specific VPC.
+        VpcAdmin(String),
+        // TODO: almost certainly more things to fill in here
+    }
+
+    impl std::convert::TryFrom<super::CarbideAuthClaims> for Privilege {
+        type Error = AuthError;
+
+        fn try_from(value: super::CarbideAuthClaims) -> Result<Self, Self::Error> {
+            let privilege = value.privilege.ok_or(AuthError::InvalidJWTClaims(
+                "No 'privilege' field found in claims".into(),
+            ))?;
+            match privilege.as_str() {
+                "site-admin" => Ok(Privilege::SiteAdmin),
+                "vpc-admin" => match value.vpc {
+                    Some(vpc) => Ok(Privilege::VpcAdmin(vpc)),
+                    None => Err(AuthError::InvalidJWTClaims(
+                        "No 'vpc' field found in claims with 'vpc-admin' privilege".into(),
+                    )),
+                },
+                p => Err(AuthError::InvalidJWTClaims(format!(
+                    "Unknown privilege '{p}'"
+                ))),
+            }
+        }
+
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum PrivilegeRequirement {
+        Require(Privilege),
+        Unprivileged,
+    }
+
+    impl PrivilegeRequirement {
+        // Enforce requirement against a request.
+        pub fn authorize_request<B>(&self, request: &Request<B>) -> Result<(), AuthError> {
+            let request_auth = request.extensions().get::<RequestAuth>();
+            self.authorize(request_auth)
+        }
+
+        pub fn authorize(&self, request_auth: Option<&RequestAuth>) -> Result<(), AuthError> {
+            let request_privilege: Option<&Privilege> =
+                request_auth.and_then(|ra| ra.privs_result.as_ref().ok());
+            let sufficient = self.can_accept(request_privilege);
+            let permissive_mode = request_auth.map(|ra| ra.permissive);
+
+            match (sufficient, permissive_mode) {
+
+                // Normal happy path.
+                (true, _) => Ok(()),
+
+                // Insufficient permission level, but allowed under permissive
+                // mode.
+                (false, Some(true)) => {
+                    info!("Request with insufficient authorization allowed due to permissive mode");
+                    Ok(())
+                }
+
+                // Denied, insufficient privilege level.
+                (false, _) => {
+                    let reason = request_auth
+                        .map(|ra| {
+                            ra.privs_result.as_ref()
+                            .map_or_else(
+                                |e: &AuthError| { format!("the request couldn't be authenticated: {e}") },
+                                |p: &Privilege| { format!("the request's privilege level ({p:?}) was insufficient") }
+                            )}
+                        )
+                        .unwrap_or_else(
+                            || { String::from("no RequestAuth was found in this request's type map (this shouldn't happen!)") }
+                        );
+                    Err(AuthError::InsufficientPrivilegeLevel(format!(
+                        "This operation requires a privilege level of {self:?}, but {reason}"
+                    )))
+                }
+            }
+        }
+
+        pub fn can_accept(&self, privilege: Option<&Privilege>) -> bool {
+            let req = match self {
+                // Early return: an unprivileged operation can always work.
+                PrivilegeRequirement::Unprivileged => return true,
+                PrivilegeRequirement::Require(p) => p,
+            };
+            let privilege = match privilege {
+                // Early return: we already handled the unprivileged case
+                // above, so all remaining operations will be privileged,
+                // which requires _some_ privilege provided to succeed.
+                // Thus, a None will never be accepted here.
+                None => return false,
+                Some(p) => p,
+            };
+
+            use Privilege::*;
+            match (req, privilege) {
+                (_, SiteAdmin) => true,
+                (VpcAdmin(vpc1), VpcAdmin(vpc2)) if vpc1.as_str() == vpc2 => true,
+                (_, _) => false,
+            }
+        }
+    }
+
+    // The auth context associated with a specific request, after JWT decoding
+    // and whatever else.
+    #[derive(Debug, Clone)]
+    pub struct RequestAuth {
+        privs_result: PrivilegeResult,
+        permissive: bool,
+    }
+
+    impl RequestAuth {
+        pub fn new(privs_result: PrivilegeResult) -> Self {
+            RequestAuth {
+                privs_result,
+                permissive: false,
+            }
+        }
+
+        pub fn set_permissive(&mut self, permissive: bool) {
+            self.permissive = permissive;
+        }
+    }
+
+    pub type PrivilegeResult = Result<Privilege, AuthError>;
+}
+
+
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum AuthError {
     #[error("JWT error {0}")]
     JWTError(#[from] jsonwebtoken::errors::Error),
@@ -147,6 +256,12 @@ pub enum AuthError {
 
     #[error("Unsupported Authorization type {0}")]
     UnsupportedAuthType(String),
+
+    #[error("Invalid JWT claims: {0}")]
+    InvalidJWTClaims(String),
+
+    #[error("Insufficient privilege level: {0}")]
+    InsufficientPrivilegeLevel(String),
 }
 
 mod jwt {
@@ -205,6 +320,10 @@ mod jwt {
                 &decoder_spec.validation,
             )
             .map_err(|e| AuthError::JWTDecodeError(e))?;
+
+            // big time FIXME: We aren't validating the iss/sub/aud fields,
+            // since at the time of this writing there isn't anything specified
+            // or agreed upon for what they should be. -db
 
             Ok(decoded.claims)
         }
