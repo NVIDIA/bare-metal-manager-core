@@ -98,9 +98,11 @@ Credentials
 | rno1-m03-b19-cpu-04 | 10.180.222.70 |
 | rno1-m03-b19-cpu-05 | 10.180.222.71 |
 
+
+**Note: We currently using kubectl as a way to interact with forge vpc directly. Eventually this will be replaced by grpcurl interacting with forge-api server.**
+
 Assuming you have access to the dev2 k8s cluster, you can see all available units. The MGMT-IP columne are IPs accessing DPUs via the oob_net interfaces; whereas HOST-IP column are IPs accessing the x86 hosts. You can ssh into the either DPU and x86 host to experiement, but not to change anything!! if HOST-IP column is empty on a leaf, it means the corresponding x86 host is reserved by someone, and is not avaible for genral access.
 
-We currently using kubectl as a way to interact with forge site controller. Eventually this will be replaced by grpcurl interacting with carbide-api server.
 
 ``` bash
 kubectl --kubeconfig PATH_TO_KUBE_CONFIG get leaf -A
