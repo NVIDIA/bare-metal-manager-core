@@ -61,7 +61,6 @@ build-cargo:
   stage: build
   script:
     - /etc/init.d/postgresql start
-    - cargo make kind
     - cargo make workspace-ci-flow
   after_script:
     - kind delete cluster --name ${CI_PIPELINE_ID}
