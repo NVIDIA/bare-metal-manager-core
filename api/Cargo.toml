@@ -70,7 +70,7 @@ tonic-build = "0.7"
 
 [dev-dependencies]
 rand = "*"
-rstest = "*"
+rstest = "0.13.0"
 
 [features]
 kubernetes = []
