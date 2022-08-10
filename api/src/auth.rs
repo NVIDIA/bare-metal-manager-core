@@ -400,6 +400,8 @@ mod jwt {
                     iss: "test issuer".into(),
                     aud: "test audience".into(),
                     sub: "test subject".into(),
+                    privilege: None,
+                    vpc: None,
                 }
             );
         }
