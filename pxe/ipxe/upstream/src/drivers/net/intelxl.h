@@ -305,172 +305,6 @@ struct intelxl_admin_link_params {
 /** Link is up */
 #define INTELXL_ADMIN_LINK_UP 0x01
 
-/** Admin queue Send Message to PF command */
-#define INTELXL_ADMIN_SEND_TO_PF 0x0801
-
-/** Admin queue Send Message to VF command */
-#define INTELXL_ADMIN_SEND_TO_VF 0x0802
-
-/** Admin Queue VF Reset opcode */
-#define INTELXL_ADMIN_VF_RESET 0x00000002
-
-/** Admin Queue VF Get Resources opcode */
-#define INTELXL_ADMIN_VF_GET_RESOURCES 0x00000003
-
-/** Admin Queue VF Get Resources data buffer */
-struct intelxl_admin_vf_get_resources_buffer {
-	/** Reserved */
-	uint8_t reserved_a[20];
-	/** VSI switching element ID */
-	uint16_t vsi;
-	/** Reserved */
-	uint8_t reserved_b[8];
-	/** MAC address */
-	uint8_t mac[ETH_ALEN];
-} __attribute__ (( packed ));
-
-/** Admin Queue VF Status Change Event opcode */
-#define INTELXL_ADMIN_VF_STATUS 0x00000011
-
-/** Link status change event type */
-#define INTELXL_ADMIN_VF_STATUS_LINK 0x00000001
-
-/** Link status change event data */
-struct intelxl_admin_vf_status_link {
-	/** Link speed */
-	uint32_t speed;
-	/** Link status */
-	uint8_t status;
-	/** Reserved */
-	uint8_t reserved[3];
-} __attribute__ (( packed ));
-
-/** Admin Queue VF Status Change Event data buffer */
-struct intelxl_admin_vf_status_buffer {
-	/** Event type */
-	uint32_t event;
-	/** Event data */
-	union {
-		/** Link change event data */
-		struct intelxl_admin_vf_status_link link;
-	} data;
-	/** Reserved */
-	uint8_t reserved[4];
-} __attribute__ (( packed ));
-
-/** Admin Queue VF Configure Queues opcode */
-#define INTELXL_ADMIN_VF_CONFIGURE 0x00000006
-
-/** Admin Queue VF Configure Queues data buffer */
-struct intelxl_admin_vf_configure_buffer {
-	/** VSI switching element ID */
-	uint16_t vsi;
-	/** Number of queue pairs */
-	uint16_t count;
-	/** Reserved */
-	uint8_t reserved_a[4];
-	/** Transmit queue */
-	struct {
-		/** VSI switching element ID */
-		uint16_t vsi;
-		/** Queue ID */
-		uint16_t id;
-		/** Queue count */
-		uint16_t count;
-		/** Reserved */
-		uint8_t reserved_a[2];
-		/** Base address */
-		uint64_t base;
-		/** Reserved */
-		uint8_t reserved_b[8];
-	} __attribute__ (( packed )) tx;
-	/** Receive queue */
-	struct {
-		/** VSI switching element ID */
-		uint16_t vsi;
-		/** Queue ID */
-		uint16_t id;
-		/** Queue count */
-		uint32_t count;
-		/** Reserved */
-		uint8_t reserved_a[4];
-		/** Data buffer length */
-		uint32_t len;
-		/** Maximum frame size */
-		uint32_t mfs;
-		/** Reserved */
-		uint8_t reserved_b[4];
-		/** Base address */
-		uint64_t base;
-		/** Reserved */
-		uint8_t reserved_c[8];
-	} __attribute__ (( packed )) rx;
-	/** Reserved
-	 *
-	 * This field exists only due to a bug in the PF driver's
-	 * message validation logic, which causes it to miscalculate
-	 * the expected message length.
-	 */
-	uint8_t reserved_b[64];
-} __attribute__ (( packed ));
-
-/** Admin Queue VF IRQ Map opcode */
-#define INTELXL_ADMIN_VF_IRQ_MAP 0x00000007
-
-/** Admin Queue VF IRQ Map data buffer */
-struct intelxl_admin_vf_irq_map_buffer {
-	/** Number of interrupt vectors */
-	uint16_t count;
-	/** VSI switching element ID */
-	uint16_t vsi;
-	/** Interrupt vector ID */
-	uint16_t vec;
-	/** Receive queue bitmap */
-	uint16_t rxmap;
-	/** Transmit queue bitmap */
-	uint16_t txmap;
-	/** Receive interrupt throttling index */
-	uint16_t rxitr;
-	/** Transmit interrupt throttling index */
-	uint16_t txitr;
-	/** Reserved
-	 *
-	 * This field exists only due to a bug in the PF driver's
-	 * message validation logic, which causes it to miscalculate
-	 * the expected message length.
-	 */
-	uint8_t reserved[12];
-} __attribute__ (( packed ));
-
-/** Admin Queue VF Enable Queues opcode */
-#define INTELXL_ADMIN_VF_ENABLE 0x00000008
-
-/** Admin Queue VF Disable Queues opcode */
-#define INTELXL_ADMIN_VF_DISABLE 0x00000009
-
-/** Admin Queue VF Enable/Disable Queues data buffer */
-struct intelxl_admin_vf_queues_buffer {
-	/** VSI switching element ID */
-	uint16_t vsi;
-	/** Reserved */
-	uint8_t reserved[2];
-	/** Receive queue bitmask */
-	uint32_t rx;
-	/** Transmit queue bitmask */
-	uint32_t tx;
-} __attribute__ (( packed ));
-
-/** Admin Queue VF Configure Promiscuous Mode opcode */
-#define INTELXL_ADMIN_VF_PROMISC 0x0000000e
-
-/** Admin Queue VF Configure Promiscuous Mode data buffer */
-struct intelxl_admin_vf_promisc_buffer {
-	/** VSI switching element ID */
-	uint16_t vsi;
-	/** Flags */
-	uint16_t flags;
-} __attribute__ (( packed ));
-
 /** Admin queue command parameters */
 union intelxl_admin_params {
 	/** Additional data buffer command parameters */
@@ -495,6 +329,9 @@ union intelxl_admin_params {
 	struct intelxl_admin_link_params link;
 } __attribute__ (( packed ));
 
+/** Maximum size of a data buffer */
+#define INTELXL_ADMIN_BUFFER_SIZE 0x1000
+
 /** Admin queue data buffer */
 union intelxl_admin_buffer {
 	/** Driver Version data buffer */
@@ -503,20 +340,8 @@ union intelxl_admin_buffer {
 	struct intelxl_admin_switch_buffer sw;
 	/** Get VSI Parameters data buffer */
 	struct intelxl_admin_vsi_buffer vsi;
-	/** VF Get Resources data buffer */
-	struct intelxl_admin_vf_get_resources_buffer res;
-	/** VF Status Change Event data buffer */
-	struct intelxl_admin_vf_status_buffer stat;
-	/** VF Configure Queues data buffer */
-	struct intelxl_admin_vf_configure_buffer cfg;
-	/** VF Enable/Disable Queues data buffer */
-	struct intelxl_admin_vf_queues_buffer queues;
-	/** VF Configure Promiscuous Mode data buffer */
-	struct intelxl_admin_vf_promisc_buffer promisc;
-	/*** VF IRQ Map data buffer */
-	struct intelxl_admin_vf_irq_map_buffer irq;
-	/** Alignment padding */
-	uint8_t pad[INTELXL_ALIGN];
+	/** Maximum buffer size */
+	uint8_t pad[INTELXL_ADMIN_BUFFER_SIZE];
 } __attribute__ (( packed ));
 
 /** Admin queue descriptor */
@@ -529,15 +354,10 @@ struct intelxl_admin_descriptor {
 	uint16_t len;
 	/** Return value */
 	uint16_t ret;
-	/** Opaque cookie / VF opcode */
-	union {
-		/** Cookie */
-		uint32_t cookie;
-		/** VF opcode */
-		uint32_t vopcode;
-	};
-	/** VF return value */
-	int32_t vret;
+	/** Opaque cookie */
+	uint32_t cookie;
+	/** Reserved */
+	uint8_t reserved[4];
 	/** Parameters */
 	union intelxl_admin_params params;
 } __attribute__ (( packed ));
@@ -556,6 +376,9 @@ struct intelxl_admin_descriptor {
 
 /** Admin descriptor uses data buffer */
 #define INTELXL_ADMIN_FL_BUF 0x1000
+
+/** Error: attempt to create something that already exists */
+#define INTELXL_ADMIN_EEXIST 13
 
 /** Admin queue */
 struct intelxl_admin {
@@ -685,6 +508,8 @@ struct intelxl_context_rx {
 	uint8_t reserved_b[7];
 	/** Maximum frame size */
 	uint16_t mfs;
+	/** Reserved */
+	uint8_t reserved_c[8];
 } __attribute__ (( packed ));
 
 /** Receive queue base address and queue count */
@@ -754,10 +579,6 @@ struct intelxl_context_rx {
 
 /** Queue Tail Pointer Register (offset) */
 #define INTELXL_QXX_TAIL 0x8000
-
-/** Global RLAN Control 0 register */
-#define INTELXL_GLLAN_RCTL_0 0x12a500
-#define INTELXL_GLLAN_RCTL_0_PXE_MODE	0x00000001UL	/**< PXE mode */
 
 /** Transmit data descriptor */
 struct intelxl_tx_data_descriptor {
@@ -919,9 +740,9 @@ intelxl_init_ring ( struct intelxl_ring *ring, unsigned int count, size_t len,
 
 /** Number of receive descriptors
  *
- * Must be a multiple of 32.
+ * Must be a multiple of 32 and greater than or equal to 64.
  */
-#define INTELXL_RX_NUM_DESC 32
+#define INTELXL_RX_NUM_DESC 64
 
 /** Receive descriptor ring fill level
  *
@@ -983,17 +804,10 @@ intelxl_init_ring ( struct intelxl_ring *ring, unsigned int count, size_t len,
 	INTELXL_QINT_TQCTL_NEXTQ_TYPE ( 0x1 )		/**< Transmit queue */
 #define INTELXL_QINT_TQCTL_CAUSE_ENA	0x40000000UL	/**< Enable */
 
-/** PF Control Register */
-#define INTELXL_PFGEN_CTRL 0x092400
-#define INTELXL_PFGEN_CTRL_PFSWR	0x00000001UL	/**< Software Reset */
-
-/** Time to delay for device reset, in milliseconds */
-#define INTELXL_RESET_DELAY_MS 100
-
 /** Function Requester ID Information Register */
 #define INTELXL_PFFUNC_RID 0x09c000
 #define INTELXL_PFFUNC_RID_FUNC_NUM(x) \
-	( ( (x) >> 0 ) & 0x3 )				/**< Function number */
+	( ( (x) >> 0 ) & 0x7 )				/**< Function number */
 
 /** PF Queue Allocation Register */
 #define INTELXL_PFLAN_QALLOC 0x1c0400
@@ -1040,7 +854,10 @@ struct intelxl_msix {
 	struct dma_mapping map;
 };
 
-/** An Intel 40Gigabit network card */
+/** MSI-X interrupt vector */
+#define INTELXL_MSIX_VECTOR 0
+
+/** An Intel 40 Gigabit network card */
 struct intelxl_nic {
 	/** Registers */
 	void *regs;
@@ -1075,10 +892,6 @@ struct intelxl_nic {
 
 	/** Current VF opcode */
 	unsigned int vopcode;
-	/** Current VF return value */
-	int vret;
-	/** Current VF event data buffer */
-	union intelxl_admin_buffer vbuf;
 
 	/** Transmit descriptor ring */
 	struct intelxl_ring tx;
@@ -1086,12 +899,25 @@ struct intelxl_nic {
 	struct intelxl_ring rx;
 	/** Receive I/O buffers */
 	struct io_buffer *rx_iobuf[INTELXL_RX_NUM_DESC];
+
+	/**
+	 * Handle admin event
+	 *
+	 * @v netdev		Network device
+	 * @v evt		Event descriptor
+	 * @v buf		Data buffer
+	 */
+	void ( * handle ) ( struct net_device *netdev,
+			    struct intelxl_admin_descriptor *evt,
+			    union intelxl_admin_buffer *buf );
 };
 
 extern int intelxl_msix_enable ( struct intelxl_nic *intelxl,
-				 struct pci_device *pci );
+				 struct pci_device *pci,
+				 unsigned int vector );
 extern void intelxl_msix_disable ( struct intelxl_nic *intelxl,
-				   struct pci_device *pci );
+				   struct pci_device *pci,
+				   unsigned int vector  );
 extern struct intelxl_admin_descriptor *
 intelxl_admin_command_descriptor ( struct intelxl_nic *intelxl );
 extern union intelxl_admin_buffer *
@@ -1109,9 +935,5 @@ extern void intelxl_empty_rx ( struct intelxl_nic *intelxl );
 extern int intelxl_transmit ( struct net_device *netdev,
 			      struct io_buffer *iobuf );
 extern void intelxl_poll ( struct net_device *netdev );
-
-extern void intelxlvf_admin_event ( struct net_device *netdev,
-				    struct intelxl_admin_descriptor *evt,
-				    union intelxl_admin_buffer *buf );
 
 #endif /* _INTELXL_H */
