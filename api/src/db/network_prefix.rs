@@ -108,7 +108,7 @@ impl NetworkPrefix {
             }
             UuidKeyedObjectFilter::One(uuid) => {
                 sqlx::query_as::<_, NetworkPrefix>(
-                    &base_query.replace("{where}", "WHERE m.segment_id=$1"),
+                    &base_query.replace("{where}", "WHERE segment_id=$1"),
                 )
                 .bind(uuid)
                 .fetch_all(&mut *txn)
@@ -116,7 +116,7 @@ impl NetworkPrefix {
             }
             UuidKeyedObjectFilter::List(list) => {
                 sqlx::query_as::<_, NetworkPrefix>(
-                    &base_query.replace("{where}", "WHERE m.segment_id=ANY($1)"),
+                    &base_query.replace("{where}", "WHERE segment_id=ANY($1)"),
                 )
                 .bind(list)
                 .fetch_all(&mut *txn)
