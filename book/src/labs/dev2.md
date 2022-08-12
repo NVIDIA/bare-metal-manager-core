@@ -29,14 +29,14 @@ Details
 | 10.180.222.26 |	10:70:fd:18:0f:ce |	10.180.222.47 |	10:70:fd:18:0f:da |	MT2203X26574 | rno1-m03-b17-cpu-04 - dogfood |
 | 10.180.222.27 |	10:70:fd:18:0f:5e |	10.180.222.48 |	10:70:fd:18:0f:6a |	MT2203X26567 | rno1-m03-b19-cpu-05 - dogfood |
 | 10.180.222.28 |	10:70:fd:18:0f:be |	10.180.222.10 |	10:70:fd:18:0f:ca |	MT2203X26573 | rno1-m03-b18-str-01 - Vishnu's |
-| 10.180.222.29 |	10:70:fd:18:10:6e |	10.180.222.24 |	10:70:fd:18:10:7a |	MT2203X26584 | rno1-m03-b18-cpu-06 - Su's |
+| 10.180.222.29 |	10:70:fd:18:10:6e |	10.180.222.24 |	10:70:fd:18:10:7a |	MT2203X26584 | rno1-m03-b18-cpu-06 - e2e data-plane |
 | 10.180.222.30 |	10:70:fd:18:10:0e |	10.180.222.31 |	10:70:fd:18:10:1a | MT2203X26578 | rno1-m03-b18-cpu-02 - control node |
-| 10.180.222.33 |	10:70:fd:18:10:3e |	10.180.222.40 |	10:70:fd:18:10:4a	| MT2203X26581 | rno1-m03-b19-cpu-06 - Su's |
+| 10.180.222.33 |	10:70:fd:18:10:3e |	10.180.222.40 |	10:70:fd:18:10:4a	| MT2203X26581 | rno1-m03-b19-cpu-06 - e2e data-plane |
 | 10.180.222.34 |	10:70:fd:18:0f:ae |	10.180.222.38 |	10:70:fd:18:0f:ba |	MT2203X26572 | no1-m03-b18-cpu-04 - dogfood |
 | 10.180.222.36 |	10:70:fd:18:10:2e |	10.180.222.42 |	10:70:fd:18:10:3a | MT2203X26580 | rno1-m03-b19-cpu-01 - control node |
 | 10.180.222.37 |	10:70:fd:18:0f:9e |	10.180.222.39 |	10:70:fd:18:0f:aa |	MT2203X26571 ||
 | 10.180.222.41 |	10:70:fd:18:10:7e |	10.180.222.49 |	10:70:fd:18:10:8a |	MT2203X26585 |rno1-m03-b19-cpu-02  |
-| 10.180.222.53 |	6a:7c:1a:43:16:64 |	10.180.222.44 |	10:70:fd:18:10:5a |	MT2203X26582 | rno1-m03-b17-cpu-06 - Su's |
+| 10.180.222.53 |	6a:7c:1a:43:16:64 |	10.180.222.44 |	10:70:fd:18:10:5a |	MT2203X26582 | rno1-m03-b17-cpu-06 - e2e data-plane |
 | 10.180.222.55	| 10:70:fd:18:0e:fe	| 10.180.222.54	| 10:70:fd:18:0f:0a |	MT2203X26561 ||
 
 The following 3 nodes are the control plane and have manually set IPs with no dhcp helper on the switch.
@@ -51,17 +51,6 @@ Credentials
 | 10.180.32.74 | 10.180.222.52 |
 | 10.180.32.138 | 10.180.222.51 |
 
-The following 3 nodes are a test env set up for Su.
-
-Credentials
-- OS: `ubuntu:ubuntu`
-- BMC: `ADMIN:ADMIN`
-
-| ip | bmc ip | dpu sn |
-| ---------- | ------------- | ---------- |
-| 10.180.32.11 | 10.180.222.57 | MT2203X26582 |
-| 10.180.32.75 | 10.180.222.58 | MT2203X26584 |
-| 10.180.32.139 | 10.180.222.56 | MT2203X26581 |
 
 The following 3 nodes are a test env set up for Vishnu.
 
@@ -125,3 +114,29 @@ forge-system   shi-joji-host-1   rno1-m03-b17-cpu-04   shi-joji        10.180.12
 ```
 
 Unfortunately at this monment, provisioning of x86 hosts to tenant requires some human interaction. If you plan to reserve some units for your work, please let suw@nvidia know, he will be happy provision some units on your behalf. 
+
+### E2e test cluster
+
+The e2e test cluster consists of a full-fledged 3-node K8s cluster with dogfood provisioning the nodes.
+
+```bash
+kubectl get managedresource -A
+NAMESPACE      NAME              FABRIC-DEVICE         RESOURCEGROUP   HOSTIP           FABRICIP         STATUS
+forge-system   e2e-control-1     rno1-m03-b17-cpu-05   e2e-control     10.180.124.132   10.180.124.132   True
+forge-system   e2e-control-2     rno1-m03-b18-cpu-04   e2e-control     10.180.124.131   10.180.124.131   True
+forge-system   e2e-control-3     rno1-m03-b18-cpu-05   e2e-control     10.180.124.133   10.180.124.133   True
+```
+
+In addition, e2e test cluster also contains three data nodes. These data nodes should be managed by the control plane(s) in the e2e control cluster. If you want to configure x86 host for networking, please see https://gitlab-master.nvidia.com/nvmetal/e2e-test/-/blob/main/ci/e2e/config.yaml for allowed IP parameters.
+
+Credentials
+- OS: `ubuntu:ubuntu`
+- BMC: `ADMIN:ADMIN`
+
+| host | bmc ip |
+| ---------- | ------------- |
+| rno1-m03-b17-cpu-06 | 10.180.222.57 |
+| rno1-m03-b18-cpu-06 | 10.180.222.58 |
+| rno1-m03-b19-cpu-06 | 10.180.222.56 |
+
+
