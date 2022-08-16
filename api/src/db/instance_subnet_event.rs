@@ -1,12 +1,14 @@
-use crate::CarbideResult;
+use std::collections::HashMap;
+
 use chrono::prelude::*;
 use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
-use std::collections::HashMap;
 
-use crate::db::vpc_resource_action::VpcResourceAction;
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
+
+use crate::db::vpc_resource_action::VpcResourceAction;
+use crate::CarbideResult;
 
 #[derive(Debug, FromRow)]
 pub struct InstanceSubnetEvent {

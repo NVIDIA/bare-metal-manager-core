@@ -3,8 +3,9 @@ use std::str::FromStr;
 
 use ::rpc::VpcResourceStateMachineInput;
 use rpc::forge::v0 as rpc;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, PartialEq, sqlx::Type, Copy, Clone)]
+#[derive(Debug, PartialEq, sqlx::Type, Copy, Clone, Deserialize, Serialize)]
 #[sqlx(type_name = "vpc_resource_action")]
 #[sqlx(rename_all = "lowercase")]
 pub enum VpcResourceAction {

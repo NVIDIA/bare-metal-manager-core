@@ -9,7 +9,7 @@ pub mod bg;
 pub mod db;
 mod human_hash;
 pub mod ipmi;
-
+pub mod kubernetes;
 pub mod vpc_resources;
 
 /// Special user-defined code for PostgreSQL level state transition violation
@@ -119,11 +119,25 @@ pub enum CarbideError {
 
     #[error("JSON Parse failure - {0}")]
     JSONParseError(#[from] serde_json::Error),
+
+    #[error("Kubernetes Client Error - {0}")]
+    KubeClientError(kube::Error),
 }
 
 impl From<CarbideError> for tonic::Status {
     fn from(from: CarbideError) -> Self {
         Status::internal(from.to_string())
+    }
+}
+
+/// Converts a kube::Error to a CarbideError
+///
+/// https://docs.rs/kube/latest/kube/error/enum.Error.html
+/// kube::error::Error contains all possible errors when working with kube_client
+///
+impl From<kube::Error> for CarbideError {
+    fn from(err: kube::Error) -> CarbideError {
+        Self::KubeClientError(err)
     }
 }
 

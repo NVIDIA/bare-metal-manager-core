@@ -2,6 +2,7 @@
 //! Machine - represents a database-backed Machine object
 //!
 use super::{MachineAction, MachineEvent, MachineInterface, MachineState, UuidKeyedObjectFilter};
+use crate::db::VpcResourceLeaf;
 use crate::human_hash;
 use crate::{CarbideError, CarbideResult};
 use ::rpc::MachineStateMachine;
@@ -9,7 +10,7 @@ use ::rpc::MachineStateMachineInput;
 use ::rpc::Timestamp;
 use chrono::prelude::*;
 use ipnetwork::IpNetwork;
-use log::warn;
+use log::{info, warn};
 use mac_address::MacAddress;
 use rpc::forge::v0 as rpc;
 use rust_fsm::StateMachine;
@@ -29,6 +30,8 @@ pub struct Machine {
     /// all machines managed by this instance of carbide.
     ///
     id: uuid::Uuid,
+
+    vpc_leaf_id: Option<uuid::Uuid>,
 
     /// When this machine record was created
     created: DateTime<Utc>,
@@ -59,6 +62,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(Machine {
             id: row.try_get("id")?,
+            vpc_leaf_id: row.try_get("vpc_leaf_id")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
@@ -77,6 +81,7 @@ impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
         rpc::Machine {
             id: Some(machine.id.into()),
+            vpc_leaf_id: machine.vpc_leaf_id.map(|v| v.into()),
             created: Some(Timestamp {
                 seconds: machine.created.timestamp(),
                 nanos: 0,
@@ -106,6 +111,17 @@ impl From<Machine> for rpc::Machine {
 }
 
 impl Machine {
+    pub async fn exists(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: uuid::Uuid,
+    ) -> CarbideResult<bool> {
+        let machine = Machine::find_one(&mut *txn, machine_id).await?;
+        match machine {
+            None => Ok(false),
+            Some(_) => Ok(true),
+        }
+    }
+
     /// Create a machine object in the database
     ///
     /// Arguments:
@@ -116,26 +132,51 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         mut interface: MachineInterface,
     ) -> CarbideResult<Self> {
-        let row: (Uuid,) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
+        match interface.machine_id {
+            None => {
+                let row: (Uuid,) =
+                    sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
+                        .fetch_one(&mut *txn)
+                        .await?;
+
+                let machine = match Machine::find_one(&mut *txn, row.0).await {
+                    Ok(Some(x)) => Ok(x),
+                    Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),
+                    Err(x) => Err(x),
+                }?;
+
+                interface
+                    .associate_interface_with_machine(txn, &machine.id)
+                    .await?;
+
+                // Add the initial state
+                machine
+                    .advance(txn, &MachineStateMachineInput::Discover)
+                    .await?;
+
+                Ok(machine)
+            }
+            Some(x) => {
+                info!("Machine already exists, returning machine {}", x);
+                Ok(Machine::find_one(&mut *txn, x).await?.unwrap())
+            }
+        }
+    }
+
+    pub async fn associate_vpc_leaf_id(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: uuid::Uuid,
+        vpc_leaf_id: uuid::Uuid,
+    ) -> CarbideResult<Machine> {
+        Ok(
+            sqlx::query_as(
+                "UPDATE machines SET vpc_leaf_id=$1::uuid where id=$2::uuid RETURNING *",
+            )
+            .bind(vpc_leaf_id)
+            .bind(machine_id)
             .fetch_one(&mut *txn)
-            .await?;
-
-        let machine = match Machine::find_one(&mut *txn, row.0).await {
-            Ok(Some(x)) => Ok(x),
-            Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),
-            Err(x) => Err(x),
-        }?;
-
-        interface
-            .associate_interface_with_machine(txn, &machine.id)
-            .await?;
-
-        // Add the initial state
-        machine
-            .advance(txn, &MachineStateMachineInput::Discover)
-            .await?;
-
-        Ok(machine)
+            .await?,
+        )
     }
 
     pub async fn find_one(
@@ -201,6 +242,10 @@ impl Machine {
     /// Returns the list of Interfaces this machine owns
     pub fn interfaces(&self) -> &Vec<MachineInterface> {
         &self.interfaces
+    }
+
+    pub fn vpc_leaf_id(&self) -> &Option<uuid::Uuid> {
+        &self.vpc_leaf_id
     }
 
     /// Return the current state of the machine based on the sequence of events the machine has

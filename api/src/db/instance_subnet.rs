@@ -1,17 +1,17 @@
+use rust_fsm::StateMachine;
+use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+
+use ::rpc::VpcResourceStateMachine;
+use ::rpc::VpcResourceStateMachineInput;
+use rpc::forge::v0 as rpc;
+
 use crate::db::instance_subnet_event::InstanceSubnetEvent;
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::db::vpc_resource_state::VpcResourceState;
 use crate::db::Instance;
 use crate::db::MachineInterface;
 use crate::db::NetworkSegment;
-use crate::{
-     db::InstanceSubnetAddress, CarbideError, CarbideResult,
-};
-use ::rpc::VpcResourceStateMachine;
-use ::rpc::VpcResourceStateMachineInput;
-use rpc::forge::v0 as rpc;
-use rust_fsm::StateMachine;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use crate::{db::InstanceSubnetAddress, CarbideError, CarbideResult};
 
 #[derive(Debug)]
 pub struct InstanceSubnet {
@@ -175,16 +175,18 @@ impl InstanceSubnet {
         instance: &Instance,
         vfid: Option<i32>,
     ) -> CarbideResult<Self> {
-        let instance_subnet: InstanceSubnet = 
+        let instance_subnet: InstanceSubnet =
             sqlx::query_as("INSERT INTO instance_subnets (machine_interface_id, network_segment_id, instance_id, vfid) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int) RETURNING *")
-            .bind(machine_interface.id())
-            .bind(network_segment.id())
-            .bind(instance.id())
-            .bind(vfid)
-            .fetch_one(&mut *txn)
-            .await?;
+                .bind(machine_interface.id())
+                .bind(network_segment.id())
+                .bind(instance.id())
+                .bind(vfid)
+                .fetch_one(&mut *txn)
+                .await?;
 
-        instance_subnet.advance(&mut *txn, &VpcResourceStateMachineInput::Initialize).await?;
+        instance_subnet
+            .advance(&mut *txn, &VpcResourceStateMachineInput::Initialize)
+            .await?;
         Ok(instance_subnet)
     }
 
@@ -204,6 +206,4 @@ impl InstanceSubnet {
     pub fn vfid(self) -> Option<i32> {
         self.vfid
     }
-
-
 }
