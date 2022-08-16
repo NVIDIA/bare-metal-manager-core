@@ -297,16 +297,17 @@ message InterfaceSearchQuery {
 
 message Machine {
   UUID id = 1;
-  InstanceType supported_instance_type = 2;
+  optional UUID vpc_leaf_id = 2;
+  InstanceType supported_instance_type = 3;
 
-  google.protobuf.Timestamp created = 3;
-  google.protobuf.Timestamp updated = 4;
-  google.protobuf.Timestamp deployed = 5;
+  google.protobuf.Timestamp created = 4;
+  google.protobuf.Timestamp updated = 5;
+  google.protobuf.Timestamp deployed = 6;
 
-  string state = 6;
+  string state = 7;
 
-  repeated MachineEvent events = 7;
-  repeated MachineInterface interfaces = 8;
+  repeated MachineEvent events = 8;
+  repeated MachineInterface interfaces = 9;
 
 }
 
@@ -326,17 +327,18 @@ message MachineEvent {
 
 message MachineInterface {
   UUID id = 1;
-  UUID machine_id = 2;
-  UUID segment_id = 3;
+  optional UUID attached_dpu_machine_id = 2;
+  UUID machine_id = 3;
+  UUID segment_id = 4;
 
-  string hostname = 4;
+  string hostname = 5;
 
-  UUID domain_id = 5;
+  UUID domain_id = 6;
 
-  bool primary_interface = 6;
-  string mac_address = 7;
+  bool primary_interface = 7;
+  string mac_address = 8;
 
-  repeated string address = 8;
+  repeated string address = 9;
 }
 
 enum MachineAction {

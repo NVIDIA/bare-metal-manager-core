@@ -33,6 +33,7 @@ pub mod migrations;
 mod address_selection_strategy;
 mod auth;
 mod dhcp_record;
+mod dpu_machine;
 mod domain;
 mod instance;
 mod instance_subnet;

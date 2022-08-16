@@ -1,4 +1,8 @@
-use carbide::CarbideResult;
+use carbide::bg::{job, CurrentJob, CurrentState, JobRegistry, OwnedHandle, Status, TaskState};
+use carbide::kubernetes::vpc_reconcile_handler;
+use carbide::{CarbideError, CarbideResult};
+use color_eyre::owo_colors::OwoColorize;
+use kube::Client;
 use rand::prelude::*;
 use sqlx::PgPool;
 use std::env;
@@ -79,7 +83,29 @@ impl TestDatabaseManager {
         })
     }
 }
+pub async fn test_bgkubernetes_handler(
+    url: String,
+    kube_enabled: bool,
+) -> CarbideResult<OwnedHandle> {
+    log::info!("Starting Kubernetes handler.");
+    let mut registry = JobRegistry::new(&[vpc_reconcile_handler]);
+    let new_pool = TestDatabaseManager::new()
+        .await
+        .expect("Cannot create test database manager")
+        .pool;
 
+    // To keep callpath happy, use bogus URL and false for now
+    registry.set_context(url.clone());
+    registry.set_context(kube_enabled);
+
+    // This function should return ownedhandle. If ownedhandle is dropped, it will stop main event loop also.
+    registry
+        .runner(&new_pool)
+        .set_concurrency(10, 20)
+        .run()
+        .await
+        .map_err(CarbideError::from)
+}
 // TODO: implement database drop
 //
 //impl Drop for TestDatabaseManager {

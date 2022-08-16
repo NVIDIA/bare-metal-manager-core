@@ -1,15 +1,18 @@
+use rust_fsm::StateMachine;
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Postgres, Row, Transaction};
+
+use ::rpc::VpcResourceStateMachine;
+use ::rpc::VpcResourceStateMachineInput;
+
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::db::vpc_resource_leaf_event::VpcResourceLeafEvent;
 use crate::db::vpc_resource_state::VpcResourceState;
 use crate::{CarbideError, CarbideResult};
-use ::rpc::VpcResourceStateMachine;
-use ::rpc::VpcResourceStateMachineInput;
-use rust_fsm::StateMachine;
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct VpcResourceLeaf {
     id: uuid::Uuid,
     state: VpcResourceState,
@@ -70,19 +73,19 @@ impl VpcResourceLeaf {
         action: &VpcResourceStateMachineInput,
     ) -> CarbideResult<bool> {
         // first validate the state change by getting the current state in the db
-        let events = VpcResourceLeafEvent::for_leaf(txn, &self.id).await?;
+        let events = VpcResourceLeafEvent::for_leaf(&mut *txn, &self.id).await?;
         let mut state_machine = self.state_machine(&events)?;
         state_machine
             .consume(action)
             .map_err(CarbideError::InvalidState)?;
 
-        let id: (i64,) = sqlx::query_as(
+        let id: (i64, ) = sqlx::query_as(
             "INSERT INTO vpc_resource_leaf_events (vpc_leaf_id, action) VALUES ($1::uuid, $2) RETURNING id",
         )
-        .bind(self.id())
-        .bind(VpcResourceAction::from(action))
-        .fetch_one(txn)
-        .await?;
+            .bind(self.id())
+            .bind(VpcResourceAction::from(action))
+            .fetch_one(&mut *txn)
+            .await?;
 
         log::info!("Event ID is {}", id.0);
 

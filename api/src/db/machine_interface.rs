@@ -20,6 +20,7 @@ const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_mac
 #[derive(Debug, Clone)]
 pub struct MachineInterface {
     id: uuid::Uuid,
+    attached_dpu_machine_id: Option<uuid::Uuid>,
     domain_id: Option<uuid::Uuid>,
     pub machine_id: Option<uuid::Uuid>,
     segment_id: uuid::Uuid,
@@ -33,6 +34,7 @@ impl<'r> FromRow<'r, PgRow> for MachineInterface {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(MachineInterface {
             id: row.try_get("id")?,
+            attached_dpu_machine_id: row.try_get("attached_dpu_machine_id")?,
             machine_id: row.try_get("machine_id")?,
             segment_id: row.try_get("segment_id")?,
             domain_id: row.try_get("domain_id")?,
@@ -48,6 +50,7 @@ impl From<MachineInterface> for rpc::MachineInterface {
     fn from(machine_interface: MachineInterface) -> rpc::MachineInterface {
         rpc::MachineInterface {
             id: Some(machine_interface.id.into()),
+            attached_dpu_machine_id: machine_interface.attached_dpu_machine_id.map(|d| d.into()),
             machine_id: machine_interface.machine_id.map(|v| v.into()),
             segment_id: Some(machine_interface.segment_id.into()),
             hostname: machine_interface.hostname,
@@ -89,6 +92,23 @@ impl MachineInterface {
         Ok(self)
     }
 
+    pub async fn associate_interface_with_dpu_machine(
+        &mut self,
+        txn: &mut Transaction<'_, Postgres>,
+        vpc_leaf_id: &uuid::Uuid,
+    ) -> CarbideResult<Self> {
+        sqlx::query_as(
+            "UPDATE machine_interfaces SET attached_dpu_machine_id=$1::uuid where id=$2::uuid RETURNING *",
+        )
+            .bind(vpc_leaf_id)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|err: sqlx::Error| {
+                CarbideError::from(err)
+            })
+    }
+
     pub async fn associate_interface_with_machine(
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
@@ -118,6 +138,10 @@ impl MachineInterface {
 
     pub fn addresses(&self) -> &Vec<MachineInterfaceAddress> {
         &self.addresses
+    }
+
+    pub fn attached_dpu_machine_id(&self) -> &Option<uuid::Uuid> {
+        &self.attached_dpu_machine_id
     }
 
     pub async fn find_by_mac_address(

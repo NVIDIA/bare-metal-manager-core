@@ -41,6 +41,10 @@ pub struct Daemon {
 
     #[clap(long, require_equals(true), default_value = DEFAULT_DATASTORE)]
     pub datastore: String,
+
+    /// Enable kubernetes integrations
+    #[clap(short, long)]
+    pub kubernetes: bool,
 }
 
 #[derive(Parser)]

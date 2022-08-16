@@ -29,6 +29,7 @@ use crate::cfg;
 
 use crate::auth;
 use auth::CarbideAuth;
+use carbide::kubernetes::bgkubernetes_handler;
 
 #[derive(Debug)]
 pub struct Api {
@@ -979,6 +980,10 @@ impl Api {
 
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
         let _handle = ipmi_handler(conn_clone).await?;
+
+        let _kube_handle =
+            bgkubernetes_handler(daemon_config.datastore.to_owned(), daemon_config.kubernetes)
+                .await?;
 
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?

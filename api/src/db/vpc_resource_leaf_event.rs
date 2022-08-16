@@ -1,13 +1,15 @@
-//use super::MachineAction;
-use crate::CarbideResult;
-use chrono::prelude::*;
-use itertools::Itertools;
-use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
 
+use chrono::prelude::*;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, Postgres, Transaction};
+
+use crate::CarbideResult;
+//use super::MachineAction;
 use crate::db::vpc_resource_action::VpcResourceAction;
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, FromRow, Deserialize, Serialize, Clone)]
 pub struct VpcResourceLeafEvent {
     /// The numeric identifier of the event, this should not be exposed to consumers of this API,
     /// it is not secure.

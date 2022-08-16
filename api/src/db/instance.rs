@@ -3,9 +3,10 @@ use std::convert::{TryFrom, TryInto};
 use chrono::prelude::*;
 use sqlx::{FromRow, Postgres};
 
-use crate::{CarbideError, CarbideResult};
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
+
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, FromRow)]
 pub struct Instance {
@@ -69,11 +70,13 @@ impl TryFrom<rpc::Instance> for NewInstance {
         })
     }
 }
+
 impl Instance {
     pub fn id(&self) -> &uuid::Uuid {
         &self.id
     }
 }
+
 impl NewInstance {
     pub async fn persist(
         &self,

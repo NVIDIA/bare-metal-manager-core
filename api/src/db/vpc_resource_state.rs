@@ -1,17 +1,18 @@
-use crate::CarbideError;
-
-use sqlx::{postgres::PgRow, Row};
-
-use rpc::forge::v0 as rpc;
-
-use ::rpc::VpcResourceStateMachineState;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
+use sqlx::{postgres::PgRow, Row};
+
+use ::rpc::VpcResourceStateMachineState;
+use rpc::forge::v0 as rpc;
+
+use crate::CarbideError;
 
 #[derive(sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 #[sqlx(type_name = "vpc_resource_state")]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, Clone)]
 pub enum VpcResourceState {
     Init,
     New,
