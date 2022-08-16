@@ -367,15 +367,6 @@ CREATE TABLE instance_subnet_addresses(
 
 );
 
--- instance subnets and instance_subnet_addresses = ManagedResource in forge-fpc
-CREATE table instance_subnet_events(
-  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  instance_subnet_id uuid NOT NULL,
-  action vpc_resource_action NOT NULL,
-  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  FOREIGN KEY (instance_subnet_id) REFERENCES instance_subnets(id)
-);
-
 CREATE TYPE user_roles AS ENUM (
 	'user',
 	'administrator',
@@ -402,18 +393,4 @@ CREATE table machine_console_metadata (
     bmctype console_type NOT NULL DEFAULT 'ipmi',
 
     UNIQUE (machine_id, username, role)
-);
-
-DROP VIEW IF EXISTS dpu_machines;
-CREATE OR REPLACE VIEW dpu_machines AS (
-    SELECT machines.id as machine_id,
-    machines.vpc_leaf_id as vpc_leaf_id,
-    machine_interfaces.id as machine_interfaces_id,
-    machine_interfaces.mac_address as mac_address,
-    machine_interface_addresses.address as address,
-    machine_interfaces.hostname as hostname
-    FROM machine_interfaces
-    LEFT JOIN machines on machine_interfaces.machine_id=machines.id
-    INNER JOIN machine_interface_addresses on machine_interface_addresses.interface_id=machine_interfaces.id
-    WHERE machine_interfaces.attached_dpu_machine_id IS NOT NULL
 );
