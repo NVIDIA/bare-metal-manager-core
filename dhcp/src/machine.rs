@@ -72,7 +72,7 @@ impl TryFrom<Discovery> for Machine {
                     let request = tonic::Request::new(rpc::DhcpDiscovery {
                         mac_address: discovery.mac_address.to_string(),
                         relay_address: link_address,
-                        //vendor_string: discovery.vendor_string.unwrap().to_string(),
+                        vendor_string: discovery.vendor_class.clone().map(|vc| vc.to_string()),
                     });
 
                     client
