@@ -155,7 +155,12 @@ impl FromStr for VendorClass {
                 client_type: MachineClientClass::PXEClient,
                 client_architecture: MachineArchitecture::Arm64
             })
-        } else if vendor_class.eq("iDRAC") { // x86 BMC
+        } else if vendor_class.eq("iDRAC") { // x86 DELL BMC
+            Ok(VendorClass {
+                client_type: MachineClientClass::PXEClient,
+                client_architecture: MachineArchitecture::EfiX64,
+            })
+        } else if vendor_class.eq("CPQRIB3") { // x86 HP iLo BMC
             Ok(VendorClass {
                 client_type: MachineClientClass::PXEClient,
                 client_architecture: MachineArchitecture::EfiX64,

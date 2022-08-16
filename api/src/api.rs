@@ -6,12 +6,13 @@ use color_eyre::Report;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
+use tonic::codegen::Body;
 use tonic_reflection::server::Builder;
 use tower::ServiceBuilder;
 
 use carbide::{
     db::{
-        BmcMetaData, BmcMetaDataRequest, DeactivateInstanceType, DeleteVpc, DhcpRecord,
+        BmcMetaData, BmcMetaDataRequest, DeactivateInstanceType, DeleteVpc, DhcpEntry, DhcpRecord,
         DnsQuestion, Machine, MachineInterface, MachineState, MachineTopology, NetworkSegment,
         NewDomain, NewInstance, NewInstanceType, NewNetworkSegment, NewVpc,
         SshKeyValidationRequest, Tag, TagAssociation, TagCreate, TagDelete, TagsList,
@@ -236,6 +237,7 @@ impl Forge for Api {
         let rpc::DhcpDiscovery {
             mac_address,
             relay_address,
+            vendor_string,
             ..
         } = request.into_inner();
 
@@ -248,7 +250,7 @@ impl Forge for Api {
         let existing_machines =
             Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
 
-        match &existing_machines.len() {
+        let machine_interface = match &existing_machines.len() {
             0 => {
                 info!("No existing machine with mac address {} using network with relay: {}, creating one.", parsed_mac, parsed_relay);
                 MachineInterface::validate_existing_mac_and_create(
@@ -279,6 +281,18 @@ impl Forge for Api {
                 Err(CarbideError::NetworkSegmentDuplicateMacAddress(parsed_mac))
             }
         }?;
+
+        // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
+        if let Some(vendor) = vendor_string {
+            let res = DhcpEntry {
+                machine_interface_id: machine_interface.id().clone(),
+                vendor_class: vendor,
+            }.persist(&mut txn).await;
+            match res {
+                Ok(_) => {}, // do nothing on ok result
+                Err(e) => { debug!("Could not persist dhcp entry {}", e)} // This should not fail the discover call, dhcp happens many times
+            }
+        }
 
         txn.commit().await.map_err(CarbideError::from)?;
 

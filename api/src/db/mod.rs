@@ -2,6 +2,7 @@
 
 pub use address_selection_strategy::AddressSelectionStrategy;
 pub use auth::SshKeyValidationRequest;
+pub use dhcp_entry::DhcpEntry;
 pub use dhcp_record::DhcpRecord;
 pub use domain::{Domain, NewDomain};
 pub use instance::{Instance, NewInstance};
@@ -32,6 +33,7 @@ pub mod migrations;
 
 mod address_selection_strategy;
 mod auth;
+mod dhcp_entry;
 mod dhcp_record;
 mod dpu_machine;
 mod domain;
