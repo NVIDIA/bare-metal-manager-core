@@ -21,4 +21,6 @@ Packages=
      openssh-server
      net-tools
      vim-nox
+     nvme-cli
+     memtester
 Password=password
