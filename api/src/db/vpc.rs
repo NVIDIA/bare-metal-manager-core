@@ -15,7 +15,7 @@ use crate::{CarbideError, CarbideResult};
 pub struct Vpc {
     pub id: Uuid,
     pub name: String,
-    pub organization_id: Option<Uuid>,
+    pub organization_id: String,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
@@ -24,14 +24,14 @@ pub struct Vpc {
 #[derive(Clone, Debug)]
 pub struct NewVpc {
     pub name: String,
-    pub organization: Option<Uuid>,
+    pub organization: String,
 }
 
 #[derive(Clone, Debug)]
 pub struct UpdateVpc {
     pub id: Uuid,
     pub name: String,
-    pub organization: Option<Uuid>,
+    pub organization: String,
 }
 
 #[derive(Clone, Debug)]
@@ -104,7 +104,7 @@ impl From<Vpc> for rpc::forge::v0::Vpc {
         rpc::forge::v0::Vpc {
             id: Some(src.id.into()),
             name: src.name,
-            organization: src.organization_id.map(rpc::forge::v0::Uuid::from),
+            organization: src.organization_id,
             created: Some(Timestamp {
                 seconds: src.created.timestamp(),
                 nanos: 0,
@@ -132,10 +132,7 @@ impl TryFrom<rpc::forge::v0::Vpc> for NewVpc {
         }
         Ok(NewVpc {
             name: value.name,
-            organization: match value.organization {
-                Some(v) => Some(uuid::Uuid::try_from(v)?),
-                None => None,
-            },
+            organization: value.organization,
         })
     }
 }
@@ -150,10 +147,7 @@ impl TryFrom<rpc::forge::v0::Vpc> for UpdateVpc {
                 .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
             name: value.name,
-            organization: match value.organization {
-                Some(v) => Some(uuid::Uuid::try_from(v)?),
-                None => None,
-            },
+            organization: value.organization,
         })
     }
 }

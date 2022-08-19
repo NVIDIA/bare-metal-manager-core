@@ -49,7 +49,7 @@ async fn only_one_primary_interface_per_machine() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await
@@ -142,7 +142,7 @@ async fn many_non_primary_interfaces_per_machine() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await
@@ -213,7 +213,7 @@ async fn valdate_mac_address_before_creating_interface() {
     let mut txn = pool.begin().await.expect("Unable to create txn");
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await

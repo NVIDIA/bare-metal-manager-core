@@ -39,7 +39,7 @@ async fn state_machine_advance_from_db_events() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await
@@ -120,7 +120,7 @@ async fn test_fsm_invalid_advance() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await

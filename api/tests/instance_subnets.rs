@@ -49,7 +49,7 @@ async fn new_instance_subnet_matches_machine_interface() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await
@@ -136,7 +136,7 @@ async fn new_instance_in_init_state() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await
@@ -225,7 +225,7 @@ async fn instance_subnet_state_machine_advance() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await

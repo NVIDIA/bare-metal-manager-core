@@ -36,7 +36,7 @@ async fn test_new_machine_state() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await

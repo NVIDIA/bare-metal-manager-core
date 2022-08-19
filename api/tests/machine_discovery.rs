@@ -46,7 +46,7 @@ async fn test_machine_discovery_no_domain() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn2)
     .await
@@ -127,7 +127,7 @@ async fn test_machine_discovery_with_domain() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await
