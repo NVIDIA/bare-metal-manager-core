@@ -29,7 +29,7 @@ async fn create_vpc() {
 
     let vpc: CarbideResult<Vpc> = NewVpc {
         name: "Metal".to_string(),
-        organization: Some(Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await;
@@ -38,7 +38,7 @@ async fn create_vpc() {
 
     let vpc: CarbideResult<Vpc> = NewVpc {
         name: "Metal no Org".to_string(),
-        organization: None,
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await;
@@ -59,7 +59,7 @@ async fn create_vpc() {
     let updatedVpc = UpdateVpc {
         id: unwrapped.id,
         name: unwrapped.name.to_string(),
-        organization: Some(Uuid::new_v4()),
+        organization: String::new(),
     }
     .update(&mut txn)
     .await;
@@ -90,7 +90,7 @@ async fn find_vpc_by_id() {
 
     let vpc: CarbideResult<Vpc> = NewVpc {
         name: "Metal no Org".to_string(),
-        organization: None,
+        organization: String::new(),
     }
     .persist(&mut txn)
     .await;

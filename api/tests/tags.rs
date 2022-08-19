@@ -55,7 +55,7 @@ async fn create_machine(txn: &mut sqlx::Transaction<'_, Postgres>) -> Machine {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: Some(uuid::Uuid::new_v4()),
+        organization: String::new(),
     }
     .persist(txn)
     .await
