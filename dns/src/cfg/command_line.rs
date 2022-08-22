@@ -1,5 +1,3 @@
-extern crate clap;
-
 use clap::Parser;
 
 #[derive(Parser)]
@@ -8,7 +6,7 @@ pub(crate) struct Options {
     pub debug: u8,
 
     #[clap(subcommand)]
-    pub subcmd: Command,
+    pub sub_cmd: Command,
 }
 
 #[derive(Parser)]

@@ -26,7 +26,7 @@ async fn main() -> Result<(), color_eyre::Report> {
         })
         .init();
 
-    match config.subcmd {
+    match config.sub_cmd {
         Command::Run(ref config) => dns::DnsServer::run(config).await?,
     }
 
