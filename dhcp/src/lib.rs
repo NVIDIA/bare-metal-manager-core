@@ -1,17 +1,16 @@
+use std::ffi::CStr;
+use std::net::{Ipv4Addr, Ipv6Addr};
+use std::sync::RwLock;
+
+use libc::c_char;
+use once_cell::sync::Lazy;
+use tokio::runtime::{Builder, Runtime};
+
 mod discovery;
 mod kea;
 mod kea_logger;
 mod machine;
 mod vendor_class;
-
-use libc::c_char;
-
-use once_cell::sync::Lazy;
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::sync::RwLock;
-use tokio::runtime::{Builder, Runtime};
-
-use std::ffi::CStr;
 
 static CONFIG: Lazy<RwLock<CarbideDhcpContext>> =
     Lazy::new(|| RwLock::new(CarbideDhcpContext::default()));
@@ -50,12 +49,12 @@ impl CarbideDhcpContext {
 /// Take the config parameter from Kea and configure it as our API endpoint
 ///
 /// # Safety
-///
-/// None, todo!()
+/// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
+/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 ///
 #[no_mangle]
-pub extern "C" fn carbide_set_config_api(api: *const c_char) {
-    let config_api = unsafe { CStr::from_ptr(api) }.to_str().unwrap().to_owned();
+pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
+    let config_api = CStr::from_ptr(api).to_str().unwrap().to_owned();
 
     CONFIG.write().unwrap().api_endpoint = config_api;
 }
@@ -76,12 +75,12 @@ pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
 /// Take the name servers for configuring nameservers in the dhcp responses
 ///
 /// # Safety
-///
-/// None, todo!()
+/// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
+/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 ///
 #[no_mangle]
-pub extern "C" fn carbide_set_config_name_servers(nameservers: *const c_char) {
-    let nameserver_str = unsafe { CStr::from_ptr(nameservers) }.to_str().unwrap().to_owned();
+pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_char) {
+    let nameserver_str = CStr::from_ptr(nameservers).to_str().unwrap().to_owned();
 
     CONFIG.write().unwrap().nameservers = nameserver_str;
 }
