@@ -4,8 +4,6 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use color_eyre::Report;
-#[allow(unused_imports)]
-use log::{debug, error, info, warn};
 use tokio::net::{TcpListener, UdpSocket};
 use tonic::transport::Channel;
 use trust_dns_server::authority::MessageResponseBuilder;
@@ -26,17 +24,6 @@ pub struct DnsServer {
     url: String,
 }
 
-struct DnsReply(ResponseInfo);
-
-#[allow(dead_code)]
-impl DnsReply {
-    pub fn serve_failed() -> ResponseInfo {
-        let mut header = Header::new();
-        header.set_response_code(ResponseCode::ServFail);
-        header.into()
-    }
-}
-
 #[async_trait::async_trait]
 impl RequestHandler for DnsServer {
     async fn handle_request<R: ResponseHandler>(
@@ -50,17 +37,14 @@ impl RequestHandler for DnsServer {
 
         let message = MessageResponseBuilder::from_message_request(request);
 
-        let client = match rpc::forge_client::ForgeClient::connect(String::from(&self.url)).await {
-            Ok(client) => client,
-            Err(err) => {
-                let message = format!(
+        let client = rpc::forge_client::ForgeClient::connect(String::from(&self.url))
+            .await
+            .unwrap_or_else(|err| {
+                panic!(
                     "Unable to connect to carbide-api at: {}, error was: {}",
                     &self.url, err
-                );
-                error!("{}", message);
-                panic!("{}", message);
-            }
-        };
+                )
+            });
 
         match request.query().query_type() {
             A => {
@@ -73,7 +57,7 @@ impl RequestHandler for DnsServer {
                     q_type: Some(1),
                 });
 
-                info!("Sending {} to api server", request_info.query.original());
+                log::info!("Sending {} to api server", request_info.query.original());
 
                 let record: Option<Record> =
                     match DnsServer::retrieve_record(client, carbide_dns_request).await {
@@ -89,7 +73,7 @@ impl RequestHandler for DnsServer {
                             Some(a_record)
                         }
                         Err(e) => {
-                            warn!(
+                            log::warn!(
                                 "Unable to find record: {} error was {}",
                                 request_info.query.name(),
                                 e
@@ -111,7 +95,7 @@ impl RequestHandler for DnsServer {
                 response_info.unwrap()
             }
             _ => {
-                warn!("Unsupported query type: {}", request.query());
+                log::warn!("Unsupported query type: {}", request.query());
                 let response = MessageResponseBuilder::from_message_request(request);
                 response_handle
                     .send_response(response.error_msg(request.header(), ResponseCode::NotImp))
@@ -133,7 +117,7 @@ impl DnsServer {
     ) -> Result<Ipv4Addr, Report> {
         let response = client.lookup_record(request).await?;
 
-        info!("Received response from API server");
+        log::info!("Received response from API server");
 
         response
             .into_inner()
@@ -149,7 +133,7 @@ impl DnsServer {
 
         let api = DnsServer::new(&carbide_url);
 
-        info!("Connecting to carbide-api at {:?}", &carbide_url);
+        log::info!("Connecting to carbide-api at {:?}", &carbide_url);
 
         let mut server = ServerFuture::new(api);
 
@@ -159,15 +143,15 @@ impl DnsServer {
         let tcp_socket = TcpListener::bind(&daemon_config.listen).await?;
         server.register_listener(tcp_socket, Duration::new(5, 0));
 
-        info!("Started DNS server on {:?}", &daemon_config.listen);
+        log::info!("Started DNS server on {:?}", &daemon_config.listen);
 
         match server.block_until_done().await {
             Ok(()) => {
-                info!("Carbide-dns is stopping");
+                log::info!("Carbide-dns is stopping");
             }
             Err(e) => {
                 let error_msg = format!("Carbide-dns has encountered and error: {}", e);
-                error!("{}", error_msg);
+                log::error!("{}", error_msg);
                 panic!("{}", error_msg);
             }
         }
