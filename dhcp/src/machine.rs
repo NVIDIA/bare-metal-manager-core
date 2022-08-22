@@ -1,17 +1,16 @@
-use crate::discovery::Discovery;
-use crate::vendor_class::MachineArchitecture;
-use crate::vendor_class::MachineClientClass;
-use crate::vendor_class::VendorClass;
-use crate::CarbideDhcpContext;
-use crate::CONFIG;
-use ipnetwork::IpNetwork;
-#[allow(unused_imports)]
-use log::{debug, error, info, trace, warn, LevelFilter};
-use rpc::forge::v0 as rpc;
 use std::ffi::CString;
 use std::net::Ipv4Addr;
 use std::primitive::u32;
 use std::ptr;
+
+use ipnetwork::IpNetwork;
+
+use rpc::forge::v0 as rpc;
+
+use crate::discovery::Discovery;
+use crate::vendor_class::{MachineArchitecture, MachineClientClass, VendorClass};
+use crate::CarbideDhcpContext;
+use crate::CONFIG;
 
 /// Machine: a machine that's currently trying to boot something
 ///
@@ -25,6 +24,8 @@ pub struct Machine {
     pub vendor_class: Option<VendorClass>,
 }
 
+//TODO: remove the dead_code once this is referenced
+#[allow(dead_code)]
 pub enum MachineTranslateError {
     Failure,
 }
@@ -60,7 +61,7 @@ impl TryFrom<Discovery> for Machine {
             .clone();
 
         // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
-        // thread.  This is required beause tonic is async but this code generally is not.
+        // thread.  This is required because tonic is async but this code generally is not.
         //
         // TODO(ajf): how to reason about FFI code with async.
         //
@@ -72,7 +73,7 @@ impl TryFrom<Discovery> for Machine {
                     let request = tonic::Request::new(rpc::DhcpDiscovery {
                         mac_address: discovery.mac_address.to_string(),
                         relay_address: link_address,
-                        vendor_string: discovery.vendor_class.clone().map(|vc| vc.to_string()),
+                        vendor_string: discovery.vendor_class.clone(),
                     });
 
                     client
@@ -84,12 +85,12 @@ impl TryFrom<Discovery> for Machine {
                             vendor_class,
                         })
                         .map_err(|error| {
-                            error!("unable to discover machine via Carbide: {:?}", error);
+                            log::error!("unable to discover machine via Carbide: {:?}", error);
                             format!("unable to discover machine via Carbide: {:?}", error)
                         })
                 }
                 Err(err) => {
-                    error!("unable to connect to Carbide API: {:?}", err);
+                    log::error!("unable to connect to Carbide API: {:?}", err);
                     Err(format!("unable to connect to Carbide API: {:?}", err))
                 }
             }
@@ -117,7 +118,7 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
         .gateway
         .as_ref()
         .unwrap_or_else(|| {
-            warn!(
+            log::warn!(
                 "No gateway provided for machine interface: {:?}",
                 &machine.inner.machine_interface_id
             );
@@ -131,14 +132,14 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
         Ok(gateway) => match gateway {
             IpNetwork::V4(gateway) => return u32::from_be_bytes(gateway.ip().octets()),
             IpNetwork::V6(gateway) => {
-                error!(
+                log::error!(
                     "Gateway ({}) is an IPv6 address, which is not supported.",
                     gateway
                 );
             }
         },
         Err(error) => {
-            error!(
+            log::error!(
                 "Gateway value in deserialized protobuf is not an IP Network: {0}",
                 error
             );
@@ -167,14 +168,14 @@ pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
         Ok(address) => match address {
             IpNetwork::V4(address) => return u32::from_be_bytes(address.ip().octets()),
             IpNetwork::V6(address) => {
-                error!(
+                log::error!(
                     "Address ({}) is an IPv6 address, which is not supported.",
                     address
                 );
             }
         },
         Err(error) => {
-            error!(
+            log::error!(
                 "Address value in deserialized protobuf is not an IP Network: {0}",
                 error
             );
@@ -215,7 +216,6 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
         .read()
         .unwrap() // TODO(ajf): don't unwrap
         .provisioning_server_ipv4
-        .clone()
     {
         next_server.to_string()
     } else {
@@ -261,8 +261,7 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
     std::mem::forget(machine);
 
     fqdn.map(|f| f.into_raw())
-        .or_else(|| Some(ptr::null_mut()))
-        .unwrap()
+        .unwrap_or(ptr::null_mut())
 }
 
 #[no_mangle]
@@ -297,7 +296,7 @@ pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_cha
     let machine = unsafe { Box::from_raw(ctx) };
 
     let nameservers = CString::new(CONFIG.read().unwrap().nameservers.clone()).unwrap();
-    debug!("Nameservers are {:?}", nameservers);
+    log::debug!("Nameservers are {:?}", nameservers);
 
     std::mem::forget(machine);
 
@@ -332,7 +331,7 @@ pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
     let uuid = if let Some(machine_interface_id) = &machine.inner.machine_interface_id {
         CString::new(machine_interface_id.to_string()).unwrap()
     } else {
-        error!(
+        log::error!(
             "Found a host missing UUID, dumping everything we know about it: {:?}",
             &machine
         );
@@ -358,21 +357,21 @@ pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
         Ok(prefix) => match prefix {
             IpNetwork::V4(prefix) => return u32::from_be_bytes(prefix.broadcast().octets()),
             IpNetwork::V6(prefix) => {
-                error!(
+                log::error!(
                     "Prefix ({}) is an IPv6 network, which is not supported.",
                     prefix
                 );
             }
         },
         Err(error) => {
-            error!(
+            log::error!(
                 "prefix value in deserialized protobuf is not an IP Network: {0}",
                 error
             );
         }
     };
 
-    return 0;
+    0
 }
 
 #[no_mangle]
@@ -451,21 +450,21 @@ pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
         Ok(prefix) => match prefix {
             IpNetwork::V4(prefix) => return u32::from_be_bytes(prefix.mask().octets()),
             IpNetwork::V6(prefix) => {
-                error!(
+                log::error!(
                     "Prefix ({}) is an IPv6 network, which is not supported.",
                     prefix
                 );
             }
         },
         Err(error) => {
-            error!(
+            log::error!(
                 "prefix value in deserialized protobuf is not an IP Network: {0}",
                 error
             );
         }
     };
 
-    return 0;
+    0
 }
 
 /// Free the Machine object.

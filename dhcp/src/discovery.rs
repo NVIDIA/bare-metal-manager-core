@@ -1,12 +1,11 @@
-use mac_address::MacAddress;
 use std::ffi::CStr;
 use std::net::Ipv4Addr;
 use std::primitive::u32;
 
-use crate::machine::Machine;
-
 use derive_builder::Builder;
-use log::*;
+use mac_address::MacAddress;
+
+use crate::machine::Machine;
 
 #[derive(Debug, Builder)]
 #[builder(pattern = "owned")]
@@ -82,7 +81,7 @@ pub unsafe extern "C" fn discovery_set_vendor_class(
     let vendor_class = match CStr::from_ptr(vendor_class).to_str() {
         Ok(string) => string.to_owned(),
         Err(error) => {
-            error!("Invalid UTF-8 byte string for vendor_class: {}", error);
+            log::error!("Invalid UTF-8 byte string for vendor_class: {}", error);
             return;
         }
     };
@@ -121,7 +120,7 @@ pub unsafe extern "C" fn discovery_set_relay(ctx: *mut DiscoveryBuilderFFI, rela
     });
 }
 
-/// Fill the `macaddress` portion of the Discovery object with an IP(v4) address
+/// Fill the `mac_address` portion of the Discovery object with an IP(v4) address
 ///
 /// # Safety
 ///
@@ -137,12 +136,12 @@ pub unsafe extern "C" fn discovery_set_mac_address(
     raw_parts: *const u8,
     size: usize,
 ) {
-    assert!(size == 6);
+    assert_eq!(size, 6);
 
     let mac = match std::slice::from_raw_parts(raw_parts, size).try_into() {
         Ok(mac) => MacAddress::new(mac),
         Err(error) => {
-            info!(
+            log::info!(
                 "Could not unmarshall u8 slice to 6-bye MAC Address array: {}",
                 error
             );
@@ -162,7 +161,7 @@ pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut
     let discovery = match builder.build() {
         Ok(discovery) => discovery,
         Err(err) => {
-            info!("Error compiling the discovery builder object: {}", err);
+            log::info!("Error compiling the discovery builder object: {}", err);
             return std::ptr::null_mut();
         }
     };
@@ -176,10 +175,13 @@ pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut
 
     match Machine::try_from(discovery) {
         Ok(machine) => Box::into_raw(Box::new(machine)),
-        Err(estr) => {
-            info!(
+        Err(e_str) => {
+            log::info!(
                 "Error getting info back from the machine discovery: {}:{}:{}:{}",
-                m, r, v, estr
+                m,
+                r,
+                v,
+                e_str
             );
             std::ptr::null_mut()
         }

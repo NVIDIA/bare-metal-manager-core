@@ -1,4 +1,3 @@
-use log::info;
 use log::LevelFilter;
 
 extern "C" {
@@ -16,7 +15,7 @@ pub unsafe extern "C" fn version() -> libc::c_int {
 #[no_mangle]
 pub unsafe extern "C" fn load(a: *mut libc::c_void) -> libc::c_int {
     match log::set_logger(&crate::LOGGER).map(|()| log::set_max_level(LevelFilter::Trace)) {
-        Ok(_) => info!("Initialized Logger"),
+        Ok(_) => log::info!("Initialized Logger"),
         Err(err) => {
             eprintln!("Unable to initialize logger: {}", err);
             return 1;

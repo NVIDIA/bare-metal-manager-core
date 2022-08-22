@@ -1,12 +1,12 @@
 use std::{fmt::Display, str::FromStr};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MachineClientClass {
     PXEClient,
     HTTPClient,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MachineArchitecture {
     BiosX86,
     EfiX64,
@@ -125,48 +125,40 @@ impl FromStr for VendorClass {
     type Err = VendorClassParseError;
 
     fn from_str(vendor_class: &str) -> Result<Self, Self::Err> {
-        if vendor_class.contains(':') {
+        match vendor_class {
             // this is the UEFI version
-            let parts: Vec<&str> = vendor_class.split(':').collect();
-            match parts.len() {
-                5 => Ok(VendorClass {
-                    client_type: parts[0].parse()?,
-                    client_architecture: parts[2].parse()?,
-                }),
-                _ => Err(VendorClassParseError::InvalidFormat),
+            colon if colon.contains(':') => {
+                let parts: Vec<&str> = vendor_class.split(':').collect();
+                match parts.len() {
+                    5 => Ok(VendorClass {
+                        client_type: parts[0].parse()?,
+                        client_architecture: parts[2].parse()?,
+                    }),
+                    _ => Err(VendorClassParseError::InvalidFormat),
+                }
             }
-        } else if vendor_class.contains(' ') {
             // This is the OS (bluefield so far, maybe host OS's too)
-            let parts: Vec<&str> = vendor_class.split(' ').collect();
-            match parts.len() {
-                2 => Ok(VendorClass {
-                    client_type: parts[0].parse()?,
-                    client_architecture: parts[1].parse()?,
-                }),
-                _ => Err(VendorClassParseError::InvalidFormat),
+            space if space.contains(' ') => {
+                let parts: Vec<&str> = vendor_class.split(' ').collect();
+                match parts.len() {
+                    2 => Ok(VendorClass {
+                        client_type: parts[0].parse()?,
+                        client_architecture: parts[1].parse()?,
+                    }),
+                    _ => Err(VendorClassParseError::InvalidFormat),
+                }
             }
-        } else if vendor_class.eq("BF2Client") { // Some older BF2 cards
-            Ok(VendorClass {
+            // Some older BF2 cards OR iPxe response
+            "BF2Client" | "PXEClient" => Ok(VendorClass {
                 client_type: MachineClientClass::PXEClient,
-                client_architecture: MachineArchitecture::Arm64
-            })
-        }  else if vendor_class.eq("PXEClient") { // iPxe response
-            Ok(VendorClass {
-                client_type: MachineClientClass::PXEClient,
-                client_architecture: MachineArchitecture::Arm64
-            })
-        } else if vendor_class.eq("iDRAC") { // x86 DELL BMC
-            Ok(VendorClass {
+                client_architecture: MachineArchitecture::Arm64,
+            }),
+            // x86 DELL BMC OR x86 HP iLo BMC
+            "iDRAC" | "CPQRIB3" => Ok(VendorClass {
                 client_type: MachineClientClass::PXEClient,
                 client_architecture: MachineArchitecture::EfiX64,
-            })
-        } else if vendor_class.eq("CPQRIB3") { // x86 HP iLo BMC
-            Ok(VendorClass {
-                client_type: MachineClientClass::PXEClient,
-                client_architecture: MachineArchitecture::EfiX64,
-            })
-        } else {
-            Err(VendorClassParseError::InvalidFormat)
+            }),
+            _ => Err(VendorClassParseError::InvalidFormat),
         }
     }
 }

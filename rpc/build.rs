@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.v0.MachineState", "#[derive(serde::Serialize)]")
         .type_attribute("forge.v0.MachineInterface", "#[derive(serde::Serialize)]")
         .type_attribute("forge.v0.UUID", "#[derive(serde::Serialize)]")
+        .type_attribute(".", "#[allow(unknown_lints, clippy::all)]") // don't lint generated code
         .build_server(true)
         .build_client(true)
         .compile(
