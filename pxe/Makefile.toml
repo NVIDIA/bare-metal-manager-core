@@ -1,3 +1,7 @@
+[env]
+BFB_LOCATION = "https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04"
+BFB_NAME = "DOCA_1.4.0_BSP_3.9.2_Ubuntu_20.04-4.hbn.4.bfb"
+
 [tasks.build-boot-artifacts-x86_64]
 dependencies = [
         "build",
@@ -216,9 +220,9 @@ category = "iPXE Kernel"
 description = "Download the BFB on aarch64 gitlab runner"
 command = "curl"
 args = [
-	"https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/Ubuntu20.04/DOCA_1.3.0_BSP_3.9.0_Ubuntu_20.04-6.bfb",
+	"${BFB_LOCATION}/${BFB_NAME}",
 	"--output",
-	"DOCA_1.3.0_BSP_3.9.0_Ubuntu_20.04-6.bfb",
+	"${BFB_NAME}",
 ]
 cwd = "/tmp/bfb-dump"
 
@@ -237,7 +241,7 @@ cwd = "/tmp/bfb-dump"
 category = "iPXE Kernel"
 description = "Extract the BFB on aarch64 gitlab runner"
 command = "python3"
-args = [ "mlx-mkbfb", "-x", "DOCA_1.3.0_BSP_3.9.0_Ubuntu_20.04-6.bfb" ]
+args = [ "mlx-mkbfb", "-x", "${BFB_NAME}" ]
 cwd = "/tmp/bfb-dump"
 
 [tasks.bfb-extract-efi]
