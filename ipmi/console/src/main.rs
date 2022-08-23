@@ -1,21 +1,16 @@
-#[macro_use]
-extern crate lazy_static;
+use std::sync::RwLock;
+
+use log::LevelFilter;
+use once_cell::sync::Lazy;
+use sqlx::PgPool;
+
+use cfg::{Command, Options};
 
 mod auth;
 mod cfg;
 mod commands;
 mod ipmi;
 mod server;
-
-#[allow(unused_imports)]
-use log::{debug, error, info, trace, warn, LevelFilter};
-use pretty_env_logger;
-
-use cfg::{Command, Options};
-use sqlx::PgPool;
-
-use once_cell::sync::Lazy;
-use std::sync::RwLock;
 
 static CONFIG: Lazy<RwLock<ConsoleContext>> = Lazy::new(|| {
     RwLock::new(ConsoleContext {
@@ -61,8 +56,9 @@ async fn main() -> Result<(), color_eyre::Report> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use uuid::Uuid;
+
+    use super::*;
 
     static TEMP_DB_NAME: &str = "console_test";
 
@@ -84,32 +80,32 @@ mod tests {
 
     async fn insert_dummy_vals(pool: sqlx::PgPool) {
         println!("Inserting dummy data");
-        let row: (Uuid,) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES returning id")
+        let row: (Uuid, ) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES returning id")
             .fetch_one(&pool)
             .await
             .unwrap();
         let id = row.0;
         println!("{}", id);
-        let _: (Uuid,) = sqlx::query_as(
+        let _: (Uuid, ) = sqlx::query_as(
             "INSERT INTO network_segments (id, name) VALUES ($1, 'test_network') returning id",
         )
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let _: (Uuid,) =
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let _: (Uuid, ) =
             sqlx::query_as("INSERT INTO domains (id, name) VALUES ($1, 'test.com') returning id")
                 .bind(id)
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        let _ : (Uuid,)= sqlx::query_as(r#"INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, domain_id, hostname,primary_interface) 
+        let _: (Uuid, ) = sqlx::query_as(r#"INSERT INTO machine_interfaces (machine_id, segment_id, mac_address, domain_id, hostname,primary_interface)
                                VALUES ($1, $1, 'de:af:de:ad:be:ed', $1, 'myhost', true) returning machine_id"#)
             .bind(id)
             .fetch_one(&pool)
             .await
             .unwrap();
-        let _: (Uuid,) =
+        let _: (Uuid, ) =
             sqlx::query_as(r#"INSERT INTO machine_topologies VALUES ($1, '{"ipmi_ip": "127.0.0.1", "ipmi_user": "admin"}') returning machine_id"#)
                 .bind(id)
                 .fetch_one(&pool)
@@ -157,8 +153,8 @@ mod tests {
                     std::time::Duration::from_secs(20000),
                     server::run(pool, "127.0.0.1:2224".parse().unwrap()),
                 )
-                .await
-                .unwrap_or(());
+                    .await
+                    .unwrap_or(());
             }
             Err(_) => (),
         }

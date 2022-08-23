@@ -341,7 +341,7 @@ pub async fn update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResul
 #[cfg(test)]
 mod tests {
     use super::*;
-    static EXPECTED_IP: &'static str = "127.0.0.2";
+    static EXPECTED_IP: &str = "127.0.0.2";
 
     #[tokio::test]
     async fn test_ipmi_ip() {

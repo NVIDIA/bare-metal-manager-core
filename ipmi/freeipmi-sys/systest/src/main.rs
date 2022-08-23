@@ -1,15 +1,15 @@
 #![allow(bad_style, improper_ctypes)]
 
 
-extern crate libc;
 extern crate freeipmi_sys;
 extern crate getopts;
+extern crate libc;
 
 use freeipmi_sys::{auth_type, cipher_suite, ipmi_interface, power_control, privilege_level};
 use freeipmi_sys::auth_type::{IPMI_AUTHENTICATION_TYPE_MD2, IPMI_AUTHENTICATION_TYPE_MD5, IPMI_AUTHENTICATION_TYPE_NONE, IPMI_AUTHENTICATION_TYPE_OEM_PROP, IPMI_AUTHENTICATION_TYPE_STRAIGHT_PASSWORD_KEY};
 use freeipmi_sys::cipher_suite::{IPMI_CIPHER_HMAC_MD5_AES_CBC_128, IPMI_CIPHER_HMAC_SHA1_AES_CBC_128, IPMI_CIPHER_HMAC_SHA256_AES_CBC_128};
-use freeipmi_sys::ipmi_interface::{IPMI_DEVICE_KCS, IPMI_DEVICE_LAN, IPMI_DEVICE_LAN_2_0};
 use freeipmi_sys::ipmi::*;
+use freeipmi_sys::ipmi_interface::{IPMI_DEVICE_KCS, IPMI_DEVICE_LAN, IPMI_DEVICE_LAN_2_0};
 use freeipmi_sys::power_control::{IPMI_CHASSIS_CONTROL_HARD_RESET, IPMI_CHASSIS_CONTROL_INITIATE_SOFT_SHUTDOWN, IPMI_CHASSIS_CONTROL_POWER_CYCLE, IPMI_CHASSIS_CONTROL_POWER_DOWN, IPMI_CHASSIS_CONTROL_POWER_UP, IPMI_CHASSIS_CONTROL_PULSE_DIAGNOSTIC_INTERRUPT};
 use freeipmi_sys::privilege_level::IPMI_PRIVILEGE_LEVEL_ADMIN;
 
@@ -48,16 +48,16 @@ fn main() -> Result<(), String> {
         match args_given.opt_str("I").unwrap().as_str() {
             "lan" => {
                 intf = IPMI_DEVICE_LAN;
-            },
+            }
             "lanplus" => {
                 intf = IPMI_DEVICE_LAN_2_0;
-            },
+            }
             "local" => {
                 intf = IPMI_DEVICE_KCS;
-            },
+            }
             _ => {
                 error_msg = format!("Invalid interface argument given {}", args_given.opt_str("I").unwrap());
-            },
+            }
         }
     }
     if !error_msg.is_empty() {
@@ -68,22 +68,22 @@ fn main() -> Result<(), String> {
         match args_given.opt_str("A").unwrap().as_str() {
             "NONE" => {
                 auth = IPMI_AUTHENTICATION_TYPE_NONE;
-            },
+            }
             "PASSWORD" => {
                 auth = IPMI_AUTHENTICATION_TYPE_STRAIGHT_PASSWORD_KEY;
-            },
+            }
             "MD2" => {
                 auth = IPMI_AUTHENTICATION_TYPE_MD2;
-            },
+            }
             "MD5" => {
                 auth = IPMI_AUTHENTICATION_TYPE_MD5;
-            },
+            }
             "OEM" => {
                 auth = IPMI_AUTHENTICATION_TYPE_OEM_PROP;
-            },
+            }
             _ => {
                 error_msg = format!("Invalid auth argument given {}", args_given.opt_str("A").unwrap());
-            },
+            }
         }
     }
     if !error_msg.is_empty() {
@@ -94,16 +94,16 @@ fn main() -> Result<(), String> {
         match args_given.opt_str("C").unwrap().as_str() {
             "3" => {
                 cipher = IPMI_CIPHER_HMAC_SHA1_AES_CBC_128;
-            },
+            }
             "8" => {
                 cipher = IPMI_CIPHER_HMAC_MD5_AES_CBC_128;
-            },
+            }
             "17" => {
                 cipher = IPMI_CIPHER_HMAC_SHA256_AES_CBC_128;
-            },
+            }
             _ => {
                 error_msg = format!("Unsupported cipher specified {}", args_given.opt_str("C").unwrap());
-            },
+            }
         }
     }
     if !error_msg.is_empty() {
@@ -114,25 +114,25 @@ fn main() -> Result<(), String> {
         match args_given.opt_str("c").unwrap().as_str() {
             "off" => {
                 action = IPMI_CHASSIS_CONTROL_POWER_DOWN;
-            },
+            }
             "on" => {
                 action = IPMI_CHASSIS_CONTROL_POWER_UP;
-            },
+            }
             "cycle" => {
                 action = IPMI_CHASSIS_CONTROL_POWER_CYCLE;
-            },
+            }
             "reset" => {
                 action = IPMI_CHASSIS_CONTROL_HARD_RESET;
-            },
+            }
             "shutdown" => {
                 action = IPMI_CHASSIS_CONTROL_INITIATE_SOFT_SHUTDOWN;
-            },
+            }
             "status" => {
                 status_cmd = true;
             }
             _ => {
                 error_msg = format!("Unsupported command specified {}", args_given.opt_str("c").unwrap());
-            },
+            }
         }
     }
     if !error_msg.is_empty() {
@@ -150,8 +150,8 @@ fn main() -> Result<(), String> {
     }
 
     let mut ctx = ipmi_ctx::new(hostname, username, password,
-                                    Option::from(intf), Option::from(cipher),
-                                  Option::from(mode), Option::from(auth));
+                                Option::from(intf), Option::from(cipher),
+                                Option::from(mode), Option::from(auth));
 
     if ctx.connect().is_ok() {
         if status_cmd == true {
@@ -162,7 +162,7 @@ fn main() -> Result<(), String> {
                     for item in items {
                         println!("{}", item);
                     }
-                },
+                }
                 Err(e) => {
                     let error_msg = format!("Failed to run chassis status command {}", e);
                     println!("{}", error_msg);
@@ -172,7 +172,7 @@ fn main() -> Result<(), String> {
             match ctx.power_control(action) {
                 Ok(()) => {
                     println!("Successfully ran power control command");
-                },
+                }
                 Err(e) => {
                     let error_msg = format!("Failed to run power control command {}", e);
                     println!("{}", error_msg);

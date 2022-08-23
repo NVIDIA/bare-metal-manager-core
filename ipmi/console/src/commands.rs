@@ -1,19 +1,23 @@
-use crate::ipmi::{HostInfo, IpmiInfo};
-use crate::server::{Server, TaskState};
-use carbide::{bg::Status, ipmi, CarbideError, CarbideResult};
-use console::ConsoleError;
-use futures::executor::block_on;
-use log::error;
-use rpc::forge::v0::UserRoles;
-use sqlx::PgPool;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::sync::{Arc, Mutex};
-use thrussh::server::{Handle, Session};
+
+use futures::executor::block_on;
+use lazy_static::lazy_static;
+use log::error;
+use sqlx::PgPool;
 use thrussh::{ChannelId, CryptoVec};
+use thrussh::server::{Handle, Session};
 use tokio::sync::mpsc::channel;
 use tokio::time;
 use uuid::Uuid;
+
+use carbide::{bg::Status, CarbideError, CarbideResult, ipmi};
+use console::ConsoleError;
+use rpc::forge::v0::UserRoles;
+
+use crate::ipmi::{HostInfo, IpmiInfo};
+use crate::server::{Server, TaskState};
 
 struct AsyncWrapper {}
 
@@ -32,6 +36,8 @@ lazy_static! {
     };
 }
 
+//TODO: remove this when clippy isn't stupid about this
+#[allow(clippy::needless_collect)]
 fn disconnect_handler(
     mut server: Server,
     channel: ChannelId,
@@ -39,6 +45,7 @@ fn disconnect_handler(
 ) -> (Server, Session) {
     let help = "Syntax: disconnect".to_string();
     let command = server.current_command.clone().unwrap();
+    //TODO: would split_whitespace work here?
     let command = command.split(' ').collect::<Vec<&str>>();
     if command.len() != 1 {
         session.data(channel, CryptoVec::from(help));
@@ -115,12 +122,9 @@ fn power_handler(
         return (server, session);
     }
 
-    match validate_host_info(&server) {
-        Err(x) => {
-            session.data(channel, CryptoVec::from(x.to_string()));
-            return (server, session);
-        }
-        _ => {}
+    if let Err(err) = validate_host_info(&server) {
+        session.data(channel, CryptoVec::from(err.to_string()));
+        return (server, session);
     }
     server = AsyncWrapper::handle_power_command(server, channel, command[1].to_string());
     (server, session)
@@ -131,12 +135,9 @@ fn status_handler(
     channel: ChannelId,
     mut session: Session,
 ) -> (Server, Session) {
-    match validate_host_info(&server) {
-        Err(x) => {
-            session.data(channel, CryptoVec::from(x.to_string()));
-            return (server, session);
-        }
-        _ => {}
+    if let Err(err) = validate_host_info(&server) {
+        session.data(channel, CryptoVec::from(err.to_string()));
+        return (server, session);
     }
     server = AsyncWrapper::handle_power_command(server, channel, "status".to_string());
     (server, session)
@@ -147,12 +148,9 @@ fn sol_handler(mut server: Server, channel: ChannelId, mut session: Session) -> 
     let command = command.split(' ').collect::<Vec<&str>>();
     let force = command.len() == 2 && command[1] == "force";
 
-    match validate_host_info(&server) {
-        Err(x) => {
-            session.data(channel, CryptoVec::from(x.to_string()));
-            return (server, session);
-        }
-        _ => {}
+    if let Err(err) = validate_host_info(&server) {
+        session.data(channel, CryptoVec::from(err.to_string()));
+        return (server, session);
     }
     server = AsyncWrapper::handle_sol_command(server, channel, force);
     (server, session)
@@ -175,7 +173,7 @@ fn validate_host_info(server: &Server) -> Result<(), Error> {
         ));
     }
 
-    return Ok(());
+    Ok(())
 }
 
 async fn call_ipmi_api(ipmi_info: IpmiInfo, data: String, pool: PgPool) -> CarbideResult<Uuid> {
@@ -224,7 +222,7 @@ impl AsyncWrapper {
         let pool = server.pool.clone();
         let prompt = server.get_prompt();
         let exec_mode = server.exec_mode;
-        *task_state.lock().unwrap() = TaskState::RUNNING;
+        *task_state.lock().unwrap() = TaskState::Running;
         tokio::task::spawn_blocking(move || {
             tokio::spawn(async move {
                 let mut handle: Handle;
@@ -246,12 +244,10 @@ impl AsyncWrapper {
                     if Status::is_finished(&pool, job_id).await.unwrap() {
                         break;
                     }
-                    match *task_state.lock().unwrap() {
-                        TaskState::CANCELLED => {
-                            task_cancelled = true;
-                            break;
-                        }
-                        _ => {}
+                    //TODO: it is likely an error to be using a synchronous lock in an async fn.
+                    if let TaskState::Cancelled = *task_state.lock().unwrap() {
+                        task_cancelled = true;
+                        break;
                     }
                     time::sleep(time::Duration::from_millis(200)).await;
                 }
@@ -281,7 +277,7 @@ impl AsyncWrapper {
         let _ipmi_info = server.host_info.clone().unwrap().ipmi_info.unwrap().clone();
         let prompt = server.get_prompt();
         let exec_mode = server.exec_mode;
-        *task_state.lock().unwrap() = TaskState::RUNNING;
+        *task_state.lock().unwrap() = TaskState::Running;
         tokio::task::spawn_blocking(move || {
             tokio::spawn(async move {
                 let mut handle: Handle;
@@ -306,11 +302,8 @@ impl AsyncWrapper {
                             CryptoVec::from("Here is sol text.\r\n".to_string()),
                         )
                         .await;
-                    match *task_state.lock().unwrap() {
-                        TaskState::CANCELLED => {
-                            break;
-                        }
-                        _ => {}
+                    if let TaskState::Cancelled = *task_state.lock().unwrap() {
+                        break;
                     }
                 }
 
@@ -364,6 +357,7 @@ pub fn command_handler(
 
 mod util {
     use super::*;
+
     async fn new_line(prompt: String, channel: ChannelId, mut handle: Handle) -> Handle {
         let _ = handle.data(channel, CryptoVec::from_slice(b"\r\n")).await;
         let _ = handle.data(channel, CryptoVec::from(prompt)).await;
@@ -377,7 +371,7 @@ mod util {
         mut handle: Handle,
         exec_mode: bool,
     ) -> Handle {
-        *task_state.lock().unwrap() = TaskState::INIT;
+        *task_state.lock().unwrap() = TaskState::Init;
         if exec_mode {
             let _ = handle.close(channel);
             return handle;
