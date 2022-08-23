@@ -18,6 +18,7 @@ variables:
   CARGO_MAKE_SKIP_CODECOV: "true"
   CARGO_INCREMENTAL: 0
   CARGO_HOME: $CI_PROJECT_DIR/cargo
+  NEED_HELM: "yes"
 
 stages:
   - lint
@@ -155,6 +156,27 @@ pages:
       - public
   only:
     - trunk
+
+build-push-helm:
+  before_script:
+    - apt-get update
+    - apt-get install -y gettext-base
+    - export LOCALBIN=$PWD/"ci/bin"
+    - mkdir -p $LOCALBIN
+    - GOBIN=$LOCALBIN go install github.com/vinodchitraliNVIDIA/helmify/cmd/helmify@v0.0.1
+    - GOBIN=$LOCALBIN go install sigs.k8s.io/kustomize/kustomize/v4@v4.5.7
+    - $LOCALBIN/kustomize build dev/kube/overlays/qa | $LOCALBIN/helmify $CI_PROJECT_NAME
+
+    - yq -i '.carbideApiDeployment.carbideApi.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbideApiDeployment.carbideApi.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbideDnsDeployment.carbideDns.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbideDnsDeployment.carbideDns.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbidePxeDeployment.carbidePxe.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbidePxeDeployment.carbidePxe.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.keaDhcpDeployment.keaDhcp.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.keaDhcpDeployment.keaDhcp.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.version = env(VERSION)' $CI_PROJECT_NAME/Chart.yaml
+    - helm package $CI_PROJECT_NAME/
 
 deploy_dev1:
   extends: .deploy_kustomize
