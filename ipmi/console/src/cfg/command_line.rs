@@ -1,5 +1,3 @@
-extern crate clap;
-
 use clap::Parser;
 
 // TODO(ajf): always look at crate root
@@ -7,7 +5,7 @@ static DEFAULT_CONFIG_PATH: &str = ".config.toml";
 static DEFAULT_DATASTORE: &str = "postgres://carbide_development@localhost";
 
 #[derive(Parser)]
-#[clap(name = env!("CARGO_BIN_NAME"))]
+#[clap(name = env ! ("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
     #[clap(short, long, parse(from_occurrences))]
     pub debug: u8,
@@ -28,19 +26,19 @@ pub(crate) enum Command {
 #[derive(Parser)]
 pub struct Daemon {
     #[clap(
-        short,
-        long,
-        multiple_values(true),
-        require_equals(true),
-        default_value = "0.0.0.0:2222"
+    short,
+    long,
+    multiple_values(true),
+    require_equals(true),
+    default_value = "0.0.0.0:2222"
     )]
     pub listen: Vec<std::net::SocketAddr>,
 
     #[clap(
-        short,
-        long,
-        require_equals(true),
-        default_value = "http://172.20.0.14:1079"
+    short,
+    long,
+    require_equals(true),
+    default_value = "http://172.20.0.14:1079"
     )]
     pub api_endpoint: String,
 

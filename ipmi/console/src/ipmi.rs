@@ -1,8 +1,11 @@
-use crate::auth;
+use std::net::IpAddr;
+
+use uuid::Uuid;
+
 use console::ConsoleError;
 use rpc::forge::v0::UserRoles;
-use std::net::IpAddr;
-use uuid::Uuid;
+
+use crate::auth;
 
 #[derive(Debug, Clone)]
 pub struct IpmiInfo {

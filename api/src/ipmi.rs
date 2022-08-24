@@ -1,18 +1,18 @@
-use crate::bg::{job, CurrentJob, CurrentState, JobRegistry, OwnedHandle, Status, TaskState};
-use crate::{CarbideError, CarbideResult};
-use freeipmi_sys::{
-    self, auth_type, cipher_suite, ipmi::ipmi_ctx, ipmi_interface, power_control, privilege_level,
-};
-use log::{error, info};
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 use sqlx;
-use std::time::Duration;
 use uuid::Uuid;
+
+use freeipmi_sys::{self, IpmiChassisControl};
+
+use crate::bg::{job, CurrentJob, CurrentState, JobRegistry, OwnedHandle, Status, TaskState};
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 enum IpmiTask {
     Status,
-    PowerControl(power_control),
+    PowerControl(IpmiChassisControl),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -37,11 +37,14 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
     {
         Ok(_) => (),
         Err(x) => {
-            error!("Status update failed. Error: {:?}", x)
+            log::error!("Status update failed. Error: {:?}", x)
         }
     }
 }
 
+//Ron: this isn't the right way to do this -- it should be a trait that has this function
+//so that we don't conditionally compile out code during tests.  We have to do shenanigans with 
+//impots 
 #[cfg(test)]
 async fn handle_ipmi_command(cmd: IpmiCommand) -> CarbideResult<String> {
     match cmd.action.unwrap() {
@@ -52,17 +55,21 @@ async fn handle_ipmi_command(cmd: IpmiCommand) -> CarbideResult<String> {
 
 #[cfg(not(test))]
 async fn handle_ipmi_command(cmd: IpmiCommand) -> CarbideResult<String> {
-    let intf: ipmi_interface = ipmi_interface::IPMI_DEVICE_LAN_2_0;
-    let cipher: cipher_suite = cipher_suite::IPMI_CIPHER_HMAC_SHA256_AES_CBC_128;
-    let auth: auth_type = auth_type::IPMI_AUTHENTICATION_TYPE_MD5;
-    let mode: privilege_level = privilege_level::IPMI_PRIVILEGE_LEVEL_ADMIN;
+    use freeipmi_sys::{
+        ipmi::IpmiContext, IpmiAuthenticationType, IpmiCipherSuite, IpmiDevice, IpmiPrivilegeLevel,
+    };
+
+    let interface = IpmiDevice::Lan2_0;
+    let cipher = IpmiCipherSuite::HmacSha256AesCbc128;
+    let auth = IpmiAuthenticationType::Md5;
+    let mode = IpmiPrivilegeLevel::Admin;
     let result: CarbideResult<String>;
 
-    let mut ctx = ipmi_ctx::new(
+    let mut ctx = IpmiContext::new(
         cmd.host,
         cmd.user,
         cmd.password,
-        Option::from(intf),
+        Option::from(interface),
         Option::from(cipher),
         Option::from(mode),
         Option::from(auth),
@@ -138,7 +145,7 @@ async fn command_handler(mut current_job: CurrentJob) -> CarbideResult<()> {
 }
 
 impl IpmiCommand {
-    fn update_action(mut self, action: power_control) -> Self {
+    fn update_action(mut self, action: IpmiChassisControl) -> Self {
         self.action = Some(IpmiTask::PowerControl(action));
         self
     }
@@ -150,9 +157,9 @@ impl IpmiCommand {
 
     async fn launch_command(&self, pool: sqlx::PgPool) -> CarbideResult<Uuid> {
         if self.host.is_empty() || self.user.is_empty() || self.password.is_empty() {
-            return Err(CarbideError::GenericError(format!(
-                "Hostname or Username or Password not specified for lan connection"
-            )));
+            return Err(CarbideError::GenericError(
+                "Hostname or Username or Password not specified for lan connection".to_string(),
+            ));
         }
         let json = serde_json::to_string(self)?;
         if self.action.is_none() {
@@ -161,14 +168,14 @@ impl IpmiCommand {
             ));
         }
         // Default retry 5.
-        Ok(command_handler
+        command_handler
             .builder()
             .set_channel_name("ipmi_handler")
             .set_retry_backoff(Duration::from_millis(10))
             .set_json(&json)?
             .spawn(&pool)
             .await
-            .map_err(CarbideError::from)?)
+            .map_err(CarbideError::from)
     }
 }
 
@@ -182,22 +189,22 @@ impl IpmiCommand {
         }
     }
     pub async fn power_up(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(power_control::IPMI_CHASSIS_CONTROL_POWER_UP)
+        self.update_action(IpmiChassisControl::PowerUp)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_down(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(power_control::IPMI_CHASSIS_CONTROL_POWER_DOWN)
+        self.update_action(IpmiChassisControl::PowerDown)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_cycle(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(power_control::IPMI_CHASSIS_CONTROL_POWER_CYCLE)
+        self.update_action(IpmiChassisControl::PowerCycle)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_reset(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(power_control::IPMI_CHASSIS_CONTROL_HARD_RESET)
+        self.update_action(IpmiChassisControl::HardReset)
             .launch_command(pool.clone())
             .await
     }
@@ -212,23 +219,24 @@ impl IpmiCommand {
 }
 
 pub async fn ipmi_handler(pool: sqlx::PgPool) -> CarbideResult<OwnedHandle> {
-    info!("Starting IPMI handler.");
+    log::info!("Starting IPMI handler.");
     let registry = JobRegistry::new(&[command_handler]);
     let new_pool = pool.clone();
 
     // This function should return ownedhandle. If ownedhandle is dropped, it will stop main event loop also.
-    Ok(registry
+    registry
         .runner(&new_pool)
         .set_concurrency(10, 20)
         .run()
         .await
-        .map_err(CarbideError::from)?)
+        .map_err(CarbideError::from)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tokio::time;
+
+    use super::*;
 
     static TEMP_DB_NAME: &str = "ipmihandler_test";
 
@@ -260,13 +268,7 @@ mod tests {
         sqlx::query(format!("CREATE DATABASE {0} TEMPLATE template0", TEMP_DB_NAME).as_str())
             .execute(&pool)
             .await
-            .unwrap_or_else(|x| {
-                panic!(
-                    "Database creation failed: {} - {}.",
-                    x.to_string(),
-                    base_uri
-                )
-            });
+            .unwrap_or_else(|x| panic!("Database creation failed: {} - {}.", x, base_uri));
 
         let full_uri_db = [base_uri, "/".to_string(), TEMP_DB_NAME.to_string()].concat();
 

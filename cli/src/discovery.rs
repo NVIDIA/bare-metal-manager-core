@@ -1,21 +1,16 @@
-extern crate libudev;
-extern crate uname;
+use std::fs;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::str::Utf8Error;
 
-use crate::ipmi;
+use libudev::{Context, Device};
+use uname::uname;
+
+use ::rpc::machine_discovery::v0 as rpc_discovery;
 use cli::{CarbideClientError, CarbideClientResult};
 use rpc::forge::v0 as rpc;
 
-use ::rpc::machine_discovery::v0 as rpc_discovery;
-
-use libudev::{Context, Device};
-#[allow(unused_imports)]
-use log::{debug, error, info, trace, warn};
-use std::fs;
-use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
-use std::str::{FromStr, Utf8Error};
-use tonic::Response;
-use uname::uname;
+use crate::ipmi;
 
 pub struct Discovery {}
 
@@ -102,7 +97,7 @@ pub fn get_machine_details(
 ) -> CarbideClientResult<rpc::MachineDiscoveryInfo> {
     // uname to detect type
     let info = uname().or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
-    debug!("{:?}", info);
+    log::debug!("{:?}", info);
     // Nics
     let mut enumerator = libudev::Enumerator::new(&context)
         .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
@@ -121,12 +116,12 @@ pub fn get_machine_details(
     let mut nics: Vec<rpc_discovery::NetworkInterface> = Vec::new();
 
     for device in devices {
-        debug!("SysPath - {:?}", device.syspath());
+        log::debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
-            debug!("Property - {:?} - {:?}", p.name(), p.value());
+            log::debug!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
 
         if let Some(_) = device
@@ -165,12 +160,12 @@ pub fn get_machine_details(
         .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
 
     for device in devices {
-        debug!("Syspath - {:?}", device.syspath());
+        log::debug!("Syspath - {:?}", device.syspath());
         for p in device.properties() {
-            debug!("Property - {:?} - {:?}", p.name(), p.value());
+            log::debug!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
     }
     let mut enumerator = libudev::Enumerator::new(&context)
@@ -183,12 +178,12 @@ pub fn get_machine_details(
         .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
 
     for device in devices {
-        debug!("Syspath - {:?}", device.syspath());
+        log::debug!("Syspath - {:?}", device.syspath());
         for p in device.properties() {
-            debug!("Property - {:?} - {:?}", p.name(), p.value());
+            log::debug!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
     }
     // cpus
@@ -198,7 +193,7 @@ pub fn get_machine_details(
 
     let mut cpus: Vec<rpc_discovery::Cpu> = Vec::new();
     for cpu_num in 0..cpu_info.num_cores() {
-        debug!("{:?}", cpu_info.get_info(cpu_num));
+        log::debug!("{:?}", cpu_info.get_info(cpu_num));
         match info.machine.as_str() {
             "aarch64" => {
                 cpus.push(rpc_discovery::Cpu {
@@ -292,9 +287,9 @@ pub fn get_machine_details(
     let mut disks: Vec<rpc_discovery::BlockDevice> = Vec::new();
 
     for device in devices {
-        debug!("{:?}", device.syspath());
+        log::debug!("{:?}", device.syspath());
         for p in device.properties() {
-            debug!("{:?} - {:?}", p.name(), p.value());
+            log::debug!("{:?} - {:?}", p.name(), p.value());
         }
 
         if let Some(_) = device
@@ -315,9 +310,9 @@ pub fn get_machine_details(
         }
     }
 
-    debug!("Disks sent to carbide - {:?}", disks);
-    debug!("CPUs sent to carbide - {:?}", cpus);
-    debug!("NICS send to carbide - {:?}", nics);
+    log::debug!("Disks sent to carbide - {:?}", disks);
+    log::debug!("CPUs sent to carbide - {:?}", cpus);
+    log::debug!("NICS send to carbide - {:?}", nics);
 
     let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
         .map(|m| m.into())
@@ -345,7 +340,7 @@ impl Discovery {
         let request = tonic::Request::new(info);
         client.discover_machine(request).await?;
         if let Err(x) = ipmi::update_ipmi_creds(listen, uuid).await {
-            error!("Error while setting up IPMI. {}", x.to_string());
+            log::error!("Error while setting up IPMI. {}", x.to_string());
             return Err(x);
         }
 
