@@ -197,3 +197,11 @@ deploy_qa:
     deployment_tier: testing
   tags:
     - corp
+
+deploy_nbu:
+  extends: .deploy_kustomize
+  environment: 
+    name: nbu_testing
+    deployment_tier: testing
+  tags:
+    - corp
