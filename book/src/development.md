@@ -112,7 +112,7 @@ of complications in the C lib linking between the IDE and your system and frankl
 To quickly set up your environment to run unit tests, you'll need an initialized PSQL service locally on your system to connect to.  The docker-compose workflow 
 handles this for you, but if you're just trying to set up a simple env to run unit tests run the following:
 
-```docker run -di -e POSTGRES_PASSWORD="admin" -p "5432:5432" --name pgdev postgres:14.1-alpine```
+```docker run --rm -di -e POSTGRES_PASSWORD="admin" -p "5432:5432" --name pgdev postgres:14.1-alpine```
 
 Then init the database:
 
