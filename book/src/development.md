@@ -98,7 +98,6 @@ vpc/ - local copy of forge-vpc code. Used when building local containers
 
     Fedora - ```sudo dnf install -y jq```
 
-
 ## IDE
 
 Recommended IDE for Rust development in the Carbide project is CLion, IntelliJ works as well but includes a lot of extra components that you don't need.  There are plenty 
@@ -129,3 +128,5 @@ Now you should be able to run:
 [Kubernetes workflow](kubernetes/development.md) (STILL WIP but functional)
 
 [iPXE and bootable artifacts](bootable_artifacts.md)
+
+[iPXE image building workflow](ipxe/development.md)
