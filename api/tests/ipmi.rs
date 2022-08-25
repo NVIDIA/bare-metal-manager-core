@@ -12,7 +12,7 @@ use carbide::{
 
 mod common;
 
-static DATA: [(UserRoles, &str, &str); 3] = [
+const DATA: [(UserRoles, &str, &str); 3] = [
     (UserRoles::Administrator, "forge_admin", "randompassword"),
     (UserRoles::User, "forge_user", "randompassword"),
     (UserRoles::Operator, "forge_operator", "randompassword"),

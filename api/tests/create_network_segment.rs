@@ -29,7 +29,7 @@ mod tests {
     use std::net::IpAddr;
     use tokio::time;
 
-    static TEMP_DB_NAME: &str = "network_segmens_tests";
+    const TEMP_DB_NAME: &str = "network_segmens_tests";
 
     fn get_base_uri() -> String {
         if std::env::var("TESTDB_HOST").is_ok()

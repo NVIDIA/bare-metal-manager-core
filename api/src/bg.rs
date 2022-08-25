@@ -152,7 +152,7 @@ mod tests {
     use tokio::time;
     static mut TEST_VAR: i32 = 0;
 
-    static TEMP_DB_NAME: &str = "bghandler_test";
+    const TEMP_DB_NAME: &str = "bghandler_test";
 
     fn get_base_uri() -> String {
         if std::env::var("TESTDB_HOST").is_ok()

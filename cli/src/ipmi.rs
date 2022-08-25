@@ -16,7 +16,7 @@ use std::fmt;
 use std::process::Command;
 use uuid::Uuid;
 
-static PASSWORD_LEN: usize = 16;
+const PASSWORD_LEN: usize = 16;
 
 //TODO: Remove the leading underscores from the variants once they're actually being referenced.
 #[derive(Clone, Debug, Copy)]
@@ -61,7 +61,7 @@ struct UsersList {
     role: IpmitoolRoles,
 }
 
-static USERS: [UsersList; 3] = [
+const USERS: [UsersList; 3] = [
     UsersList {
         user: "forge_admin",
         role: IpmitoolRoles::Administrator,

@@ -60,7 +60,7 @@ mod tests {
 
     use super::*;
 
-    static TEMP_DB_NAME: &str = "console_test";
+    const TEMP_DB_NAME: &str = "console_test";
 
     fn get_base_uri() -> String {
         if std::env::var("TESTDB_HOST").is_ok()
