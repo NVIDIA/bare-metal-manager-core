@@ -18,15 +18,15 @@ use uuid::Uuid;
 
 static PASSWORD_LEN: usize = 16;
 
+//TODO: Remove the leading underscores from the variants once they're actually being referenced.
 #[derive(Clone, Debug, Copy)]
-#[allow(dead_code)] // The enum represents all possible variants. Some are not used, so need to allow dead code.
 enum IpmitoolRoles {
-    Callback = 0x1,
+    _Callback = 0x1,
     User = 0x2,
     Operator = 0x3,
     Administrator = 0x4,
-    OEMProprietary = 0x5,
-    NoAccess = 0xF,
+    _OEMProprietary = 0x5,
+    _NoAccess = 0xF,
 }
 
 impl fmt::Display for IpmitoolRoles {

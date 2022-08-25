@@ -50,29 +50,6 @@ impl FromStr for MachineArchitecture {
     }
 }
 
-#[allow(dead_code)]
-impl VendorClass {
-    pub fn pxe(&self) -> bool {
-        self.client_type == MachineClientClass::PXEClient
-    }
-
-    pub fn http(&self) -> bool {
-        self.client_type == MachineClientClass::HTTPClient
-    }
-
-    pub fn arm(&self) -> bool {
-        self.client_architecture == MachineArchitecture::Arm64
-    }
-
-    pub fn x64(&self) -> bool {
-        self.client_architecture == MachineArchitecture::EfiX64
-    }
-
-    pub fn is_it_modern(&self) -> bool {
-        self.http() && self.arm()
-    }
-}
-
 impl Display for MachineClientClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -166,6 +143,28 @@ impl FromStr for VendorClass {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl VendorClass {
+        pub fn pxe(&self) -> bool {
+            self.client_type == MachineClientClass::PXEClient
+        }
+
+        pub fn http(&self) -> bool {
+            self.client_type == MachineClientClass::HTTPClient
+        }
+
+        pub fn arm(&self) -> bool {
+            self.client_architecture == MachineArchitecture::Arm64
+        }
+
+        pub fn x64(&self) -> bool {
+            self.client_architecture == MachineArchitecture::EfiX64
+        }
+
+        pub fn is_it_modern(&self) -> bool {
+            self.http() && self.arm()
+        }
+    }
 
     #[test]
     fn it_is_pxe_capable() {

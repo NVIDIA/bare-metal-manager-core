@@ -24,12 +24,6 @@ pub struct Machine {
     pub vendor_class: Option<VendorClass>,
 }
 
-//TODO: remove the dead_code once this is referenced
-#[allow(dead_code)]
-pub enum MachineTranslateError {
-    Failure,
-}
-
 impl TryFrom<Discovery> for Machine {
     type Error = String;
 
