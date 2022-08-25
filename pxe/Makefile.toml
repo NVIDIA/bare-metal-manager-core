@@ -261,7 +261,7 @@ cwd = "/tmp/bfb-dump/initramfs-tmp/ubuntu"
 category = "iPXE Kernel"
 description = "Copy the BFB efi kernel on aarch64 gitlab runner"
 command = "cp"
-args = [ "/tmp/bfb-dump/initramfs-tmp/ubuntu/usr/lib/grub/arm64-efi-signed/grubnetaa64.efi.signed", "carbide.efi"]
+args = [ "/tmp/bfb-dump/initramfs-tmp/ubuntu/boot/vmlinuz", "carbide.efi"]
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.bfb-copy-rootfs]
