@@ -1,11 +1,13 @@
-use crate::{Machine, RuntimeConfig};
-use rocket::routes;
-use rocket::serde::uuid;
-use rocket::Route;
-use rocket_dyn_templates::Template;
 use std::collections::HashMap;
 
-#[allow(unused_variables)] // The uuid is in the route so we cant prefix it w an underbar
+use rocket::get;
+use rocket::Route;
+use rocket::routes;
+use rocket::serde::uuid;
+use rocket_dyn_templates::Template;
+
+use crate::{Machine, RuntimeConfig};
+
 #[get("/<uuid>/user-data")]
 pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig) -> Template {
     let mut context: HashMap<String, String> = HashMap::new();
@@ -16,10 +18,14 @@ pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig
     Template::render("user-data", &context)
 }
 
-#[allow(unused_variables)] // The uuid is in the route so we cant prefix it w an underbar
 #[get("/<uuid>/meta-data")]
 pub async fn meta_data(uuid: uuid::Uuid) -> Template {
-    let context: HashMap<String, String> = HashMap::new();
+    let mut context: HashMap<String, String> = HashMap::new();
+
+    //insert it into the context just to use the variable
+    //TODO: figure how what to actually use the UUID for later
+    context.insert("uuid".to_string(), uuid.to_string());
+
     Template::render("printcontext", &context)
 }
 

@@ -1,35 +1,28 @@
-#[macro_use]
-extern crate rocket;
+use std::fmt::{Debug, Display};
 
 use clap::Parser;
-
-use serde::Serialize;
-use std::{default::Default, fmt::Debug, fmt::Display};
-
-mod routes;
-
-use rocket::request::Outcome;
 use rocket::{
     fairing::AdHoc,
     form::Errors,
     fs::FileServer,
     http::Status,
-    request::{self, FromRequest},
+    request::{self, FromRequest, Outcome},
     Request,
 };
 use rocket_dyn_templates::Template;
-
-use rpc::forge::v0;
+use serde::Serialize;
 
 use ::rpc::forge::v0::forge_client::ForgeClient;
 use ::rpc::forge::v0::InterfaceSearchQuery;
+use rpc::forge::v0;
+
+mod routes;
 
 #[derive(Debug)]
 pub struct Machine {
-    #[allow(dead_code)]
     architecture: v0::MachineArchitecture,
     interface: v0::MachineInterface,
-    machine: Option<v0::Machine>
+    machine: Option<v0::Machine>,
 }
 
 #[derive(Clone)]
@@ -56,8 +49,8 @@ struct Args {
 
 impl Serialize for Machine {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
+        where
+            S: serde::Serializer,
     {
         serializer.serialize_newtype_struct("Machine", &self.interface)
     }
@@ -112,38 +105,42 @@ impl<'r> FromRequest<'r> for Machine {
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         let buildarch = match request.query_value::<&str>("buildarch") {
-            Some(Ok(buildarch)) => { match buildarch {
-                "arm64" => v0::MachineArchitecture::Arm,
-                "x86_64" => v0::MachineArchitecture::X86,
-                arch => {
-                    eprintln!("invalid architecture: {:#?}", arch);
-                    return request::Outcome::Failure((
-                        Status::BadRequest,
-                        RPCError::InvalidBuildArch,
-                    ))
+            Some(Ok(buildarch)) => {
+                match buildarch {
+                    "arm64" => v0::MachineArchitecture::Arm,
+                    "x86_64" => v0::MachineArchitecture::X86,
+                    arch => {
+                        eprintln!("invalid architecture: {:#?}", arch);
+                        return request::Outcome::Failure((
+                            Status::BadRequest,
+                            RPCError::InvalidBuildArch,
+                        ));
+                    }
                 }
-            }},
+            }
             Some(Err(errs)) => {
                 return request::Outcome::Failure((
                     Status::BadRequest,
                     RPCError::MalformedBuildArch(errs),
-                ))
-            },
+                ));
+            }
 
             None => {
                 eprintln!("{:#?}", request.param::<&str>(1));
                 match request.param::<&str>(1) {
-                    Some(buildarch) => { match buildarch.unwrap() {
-                        "arm64" => v0::MachineArchitecture::Arm,
-                        "x86_64" => v0::MachineArchitecture::X86,
-                        arch => {
-                            eprintln!("invalid architecture: {:#?}", arch);
-                            return request::Outcome::Failure((
-                                Status::BadRequest,
-                                RPCError::InvalidBuildArch,
-                            ))
+                    Some(buildarch) => {
+                        match buildarch.unwrap() {
+                            "arm64" => v0::MachineArchitecture::Arm,
+                            "x86_64" => v0::MachineArchitecture::X86,
+                            arch => {
+                                eprintln!("invalid architecture: {:#?}", arch);
+                                return request::Outcome::Failure((
+                                    Status::BadRequest,
+                                    RPCError::InvalidBuildArch,
+                                ));
+                            }
                         }
-                    }},
+                    }
                     None => {
                         // For now default to arm64 if none is presented
                         v0::MachineArchitecture::Arm
@@ -161,7 +158,7 @@ impl<'r> FromRequest<'r> for Machine {
                 return request::Outcome::Failure((
                     Status::BadRequest,
                     RPCError::MalformedMachineId(errs),
-                ))
+                ));
             }
             None => {
                 eprintln!("{:#?}", request.param::<rocket::serde::uuid::Uuid>(0));
@@ -171,7 +168,7 @@ impl<'r> FromRequest<'r> for Machine {
                         return request::Outcome::Failure((
                             Status::BadRequest,
                             RPCError::MissingMachineId,
-                        ))
+                        ));
                     }
                 }
             }
@@ -207,7 +204,7 @@ impl<'r> FromRequest<'r> for Machine {
             // TODO(baz): fix this blatantly ugly remove(0) w/o checking the size
             Ok(response) => response.into_inner().interfaces.remove(0),
             Err(err) => {
-                return request::Outcome::Failure((Status::BadRequest, RPCError::RequestError(err)))
+                return request::Outcome::Failure((Status::BadRequest, RPCError::RequestError(err)));
             }
         };
 
@@ -241,21 +238,21 @@ async fn main() -> Result<(), rocket::Error> {
     let static_path = std::path::Path::new(&opts.static_dir);
 
     if !&static_path.exists() {
-        info!(
+        rocket::info!(
             "Static path {} does not exist. Creating directory",
             &static_path.display()
         );
 
         match std::fs::create_dir_all(&static_path) {
-            Ok(_) => info!("Directory {}, created", &static_path.display()),
-            Err(e) => error!("Could not create directory: {}", e),
+            Ok(_) => rocket::info!("Directory {}, created", &static_path.display()),
+            Err(e) => rocket::error!("Could not create directory: {}", e),
         }
     }
 
     rocket::build()
         .mount("/api/v0/pxe", routes::ipxe::routes())
         .mount("/api/v0/cloud-init", routes::cloud_init::routes())
-        .mount("/public", FileServer::from(String::from(opts.static_dir)))
+        .mount("/public", FileServer::from(opts.static_dir))
         .attach(Template::fairing())
         .attach(AdHoc::try_on_ignite(
             "Carbide API Config",
