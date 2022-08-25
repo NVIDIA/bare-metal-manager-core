@@ -192,42 +192,43 @@ extern "C" {
     pub fn ipmiconsole_ctx_destroy(ctx: IpmiConsoleContextType);
 }
 
-#[allow(dead_code)]
 mod ipmi_console_constants {
     /* refer ipmiconsole.h for usage of flags */
-    pub const IPMI_CONSOLE_DEBUG_STDOUT: u32 = 0x00000001;
-    pub const IPMI_CONSOLE_DEBUG_STDERR: u32 = 0x00000002;
-    pub const IPMI_CONSOLE_DEBUG_SYSLOG: u32 = 0x00000004;
-    pub const IPMI_CONSOLE_DEBUG_FILE: u32 = 0x00000008;
-    pub const IPMI_CONSOLE_DEBUG_IPMI_PACKETS: u32 = 0x00000010;
-    pub const IPMI_CONSOLE_DEBUG_DEFAULT: u32 = 0xFFFFFFFF;
+    //TODO: as these flags start to actually be referenced, remove the leading underscore.
+    pub const _IPMI_CONSOLE_DEBUG_STDOUT: u32 = 0x00000001;
+    pub const _IPMI_CONSOLE_DEBUG_STDERR: u32 = 0x00000002;
+    pub const _IPMI_CONSOLE_DEBUG_SYSLOG: u32 = 0x00000004;
+    pub const _IPMI_CONSOLE_DEBUG_FILE: u32 = 0x00000008;
+    pub const _IPMI_CONSOLE_DEBUG_IPMI_PACKETS: u32 = 0x00000010;
+    pub const _IPMI_CONSOLE_DEBUG_DEFAULT: u32 = 0xFFFFFFFF;
 
-    pub const IPMI_CONSOLE_WORKAROUND_AUTHENTICATION_CAPABILITIES: u32 = 0x00000001;
-    pub const IPMI_CONSOLE_WORKAROUND_INTEL_2_0_SESSION: u32 = 0x00000002;
-    pub const IPMI_CONSOLE_WORKAROUND_SUPERMICRO_2_0_SESSION: u32 = 0x00000004;
-    pub const IPMI_CONSOLE_WORKAROUND_SUN_2_0_SESSION: u32 = 0x00000008;
-    pub const IPMI_CONSOLE_WORKAROUND_OPEN_SESSION_PRIVILEGE: u32 = 0x00000010;
-    pub const IPMI_CONSOLE_WORKAROUND_NON_EMPTY_INTEGRITY_CHECK_VALUE: u32 = 0x00000020;
-    pub const IPMI_CONSOLE_WORKAROUND_NO_CHECKSUM_CHECK: u32 = 0x00000040;
-    pub const IPMI_CONSOLE_WORKAROUND_SERIAL_ALERTS_DEFERRED: u32 = 0x00000080;
-    pub const IPMI_CONSOLE_WORKAROUND_INCREMENT_SOL_PACKET_SEQUENCE: u32 = 0x00000100;
-    pub const IPMI_CONSOLE_WORKAROUND_IGNORE_SOL_PAYLOAD_SIZE: u32 = 0x01000000;
-    pub const IPMI_CONSOLE_WORKAROUND_IGNORE_SOL_PORT: u32 = 0x02000000;
-    pub const IPMI_CONSOLE_WORKAROUND_SKIP_SOL_ACTIVATION_STATUS: u32 = 0x04000000;
-    pub const IPMI_CONSOLE_WORKAROUND_SKIP_CHANNEL_PAYLOAD_SUPPORT: u32 = 0x08000000;
-    pub const IPMI_CONSOLE_WORKAROUND_DEFAULT: u32 = 0xFFFFFFFF;
-    pub const IPMI_CONSOLE_ENGINE_CLOSE_FD: u32 = 0x00000001;
-    pub const IPMI_CONSOLE_ENGINE_OUTPUT_ON_SOL_ESTABLISHED: u32 = 0x00000002;
-    pub const IPMI_CONSOLE_ENGINE_LOCK_MEMORY: u32 = 0x00000004;
+    pub const _IPMI_CONSOLE_WORKAROUND_AUTHENTICATION_CAPABILITIES: u32 = 0x00000001;
+    pub const _IPMI_CONSOLE_WORKAROUND_INTEL_2_0_SESSION: u32 = 0x00000002;
+    pub const _IPMI_CONSOLE_WORKAROUND_SUPERMICRO_2_0_SESSION: u32 = 0x00000004;
+    pub const _IPMI_CONSOLE_WORKAROUND_SUN_2_0_SESSION: u32 = 0x00000008;
+    pub const _IPMI_CONSOLE_WORKAROUND_OPEN_SESSION_PRIVILEGE: u32 = 0x00000010;
+    pub const _IPMI_CONSOLE_WORKAROUND_NON_EMPTY_INTEGRITY_CHECK_VALUE: u32 = 0x00000020;
+    pub const _IPMI_CONSOLE_WORKAROUND_NO_CHECKSUM_CHECK: u32 = 0x00000040;
+    pub const _IPMI_CONSOLE_WORKAROUND_SERIAL_ALERTS_DEFERRED: u32 = 0x00000080;
+    pub const _IPMI_CONSOLE_WORKAROUND_INCREMENT_SOL_PACKET_SEQUENCE: u32 = 0x00000100;
+    pub const _IPMI_CONSOLE_WORKAROUND_IGNORE_SOL_PAYLOAD_SIZE: u32 = 0x01000000;
+    pub const _IPMI_CONSOLE_WORKAROUND_IGNORE_SOL_PORT: u32 = 0x02000000;
+    pub const _IPMI_CONSOLE_WORKAROUND_SKIP_SOL_ACTIVATION_STATUS: u32 = 0x04000000;
+    pub const _IPMI_CONSOLE_WORKAROUND_SKIP_CHANNEL_PAYLOAD_SUPPORT: u32 = 0x08000000;
+    pub const _IPMI_CONSOLE_WORKAROUND_DEFAULT: u32 = 0xFFFFFFFF;
+    pub const _IPMI_CONSOLE_ENGINE_CLOSE_FD: u32 = 0x00000001;
+    pub const _IPMI_CONSOLE_ENGINE_OUTPUT_ON_SOL_ESTABLISHED: u32 = 0x00000002;
+    pub const _IPMI_CONSOLE_ENGINE_LOCK_MEMORY: u32 = 0x00000004;
 
     pub const IPMI_CONSOLE_ENGINE_SERIAL_KEEPALIVE: u32 = 0x00000008;
-    pub const IPMI_CONSOLE_ENGINE_SERIAL_KEEPALIVE_EMPTY: u32 = 0x00000010;
-    pub const IPMI_CONSOLE_ENGINE_DEFAULT: u32 = 0xFFFFFFFF;
 
-    pub const IPMI_CONSOLE_BEHAVIOR_ERROR_ON_SOL_INUSE: u32 = 0x00000001;
+    pub const _IPMI_CONSOLE_ENGINE_SERIAL_KEEPALIVE_EMPTY: u32 = 0x00000010;
+    pub const _IPMI_CONSOLE_ENGINE_DEFAULT: u32 = 0xFFFFFFFF;
+
+    pub const _IPMI_CONSOLE_BEHAVIOR_ERROR_ON_SOL_INUSE: u32 = 0x00000001;
     pub const IPMI_CONSOLE_BEHAVIOR_DEACTIVATE_ONLY: u32 = 0x00000002;
-    pub const IPMI_CONSOLE_BEHAVIOR_DEACTIVATE_ALL_INSTANCES: u32 = 0x00000004;
-    pub const IPMI_CONSOLE_BEHAVIOR_DEFAULT: u32 = 0xFFFFFFFF;
+    pub const _IPMI_CONSOLE_BEHAVIOR_DEACTIVATE_ALL_INSTANCES: u32 = 0x00000004;
+    pub const _IPMI_CONSOLE_BEHAVIOR_DEFAULT: u32 = 0xFFFFFFFF;
 }
 
 pub mod ipmi_console {
@@ -247,8 +248,7 @@ pub mod ipmi_console {
         cipher: CipherSuite,
         /* used for ipmi 2.0 / lanplus */
         level: PrivilegeLevel,
-        #[allow(dead_code)]//TODO: remove me when this is referenced.
-        auth_mode: AuthenticationType,
+        _auth_mode: AuthenticationType,
         /* used for ipmi 1.5 / lan */
         lib_ctx: IpmiConsoleContextType,
         fd: RawFd,
@@ -270,7 +270,7 @@ pub mod ipmi_console {
                 password: pass,
                 cipher: algo.unwrap_or(CipherSuite::HmacSha256AesCbc128),
                 level: mode.unwrap_or(PrivilegeLevel::Admin),
-                auth_mode: auth.unwrap_or(AuthenticationType::Md5),
+                _auth_mode: auth.unwrap_or(AuthenticationType::Md5),
                 lib_ctx: ptr::null_mut(),
                 fd: -1,
             }

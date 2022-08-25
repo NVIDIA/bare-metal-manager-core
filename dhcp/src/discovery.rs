@@ -13,9 +13,8 @@ pub struct Discovery {
     pub(crate) relay_address: Ipv4Addr,
     pub(crate) mac_address: MacAddress,
 
-    #[allow(dead_code)]
-    #[builder(setter(into, strip_option), default)]
-    pub(crate) client_system: Option<u16>,
+    #[builder(setter(into, strip_option, name = "client_system"), default)]
+    pub(crate) _client_system: Option<u16>,
 
     #[builder(setter(into, strip_option), default)]
     pub(crate) vendor_class: Option<String>,

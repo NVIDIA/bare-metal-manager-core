@@ -22,8 +22,7 @@ pub struct CarbideDhcpContext {
     api_endpoint: String,
     nameservers: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
-    #[allow(dead_code)]
-    provisioning_server_ipv6: Option<Ipv6Addr>,
+    _provisioning_server_ipv6: Option<Ipv6Addr>,
 }
 
 impl Default for CarbideDhcpContext {
@@ -32,7 +31,7 @@ impl Default for CarbideDhcpContext {
             api_endpoint: "https://[::1]:1079".to_string(),
             nameservers: "1.1.1.1".to_string(),
             provisioning_server_ipv4: None,
-            provisioning_server_ipv6: None,
+            _provisioning_server_ipv6: None,
         }
     }
 }
