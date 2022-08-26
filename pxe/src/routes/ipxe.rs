@@ -5,6 +5,7 @@ use rocket_dyn_templates::Template;
 
 use rpc::forge::v0 as rpc;
 
+use crate::machine_architecture::MachineArchitecture;
 use crate::{Machine, RuntimeConfig};
 
 #[derive(serde::Serialize)]
@@ -69,8 +70,7 @@ sleep 5 ||
 exit ||
 "#,
             invalid_status
-        )
-        ,
+        ),
     }
 }
 
@@ -87,19 +87,21 @@ fn boot_into_discovery(
     config: RuntimeConfig,
 ) -> String {
     let uuid = interface.id.unwrap();
+    let build_arch = MachineArchitecture::from(arch);
+
     match arch {
         rpc::MachineArchitecture::Arm => {
             String::from(BootInstructionGenerator {
                 kernel: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.efi", pxe_url = config.pxe_url),
                 initrd: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.root", pxe_url = config.pxe_url),
-                command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, api_url = config.api_url),
+                command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data?buildarch={build_arch}, pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, build_arch = build_arch, api_url = config.api_url),
             })
         }
         rpc::MachineArchitecture::X86 => {
             String::from(BootInstructionGenerator {
                 kernel: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.efi", pxe_url = config.pxe_url),
                 initrd: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.root", pxe_url = config.pxe_url),
-                command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, api_url = config.api_url),
+                command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data?buildarch={build_arch} pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, build_arch = build_arch, api_url = config.api_url),
             })
         }
     }

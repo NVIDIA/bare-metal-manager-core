@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::{fmt::Debug, fmt::Display};
 
 use clap::Parser;
 use rocket::{
@@ -16,6 +16,7 @@ use ::rpc::forge::v0::forge_client::ForgeClient;
 use ::rpc::forge::v0::InterfaceSearchQuery;
 use rpc::forge::v0;
 
+mod machine_architecture;
 mod routes;
 
 #[derive(Debug)]
@@ -49,8 +50,8 @@ struct Args {
 
 impl Serialize for Machine {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
+    where
+        S: serde::Serializer,
     {
         serializer.serialize_newtype_struct("Machine", &self.interface)
     }
@@ -105,19 +106,17 @@ impl<'r> FromRequest<'r> for Machine {
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         let buildarch = match request.query_value::<&str>("buildarch") {
-            Some(Ok(buildarch)) => {
-                match buildarch {
-                    "arm64" => v0::MachineArchitecture::Arm,
-                    "x86_64" => v0::MachineArchitecture::X86,
-                    arch => {
-                        eprintln!("invalid architecture: {:#?}", arch);
-                        return request::Outcome::Failure((
-                            Status::BadRequest,
-                            RPCError::InvalidBuildArch,
-                        ));
-                    }
+            Some(Ok(buildarch)) => match buildarch {
+                "arm64" => v0::MachineArchitecture::Arm,
+                "x86_64" => v0::MachineArchitecture::X86,
+                arch => {
+                    eprintln!("invalid architecture: {:#?}", arch);
+                    return request::Outcome::Failure((
+                        Status::BadRequest,
+                        RPCError::InvalidBuildArch,
+                    ));
                 }
-            }
+            },
             Some(Err(errs)) => {
                 return request::Outcome::Failure((
                     Status::BadRequest,
@@ -126,30 +125,7 @@ impl<'r> FromRequest<'r> for Machine {
             }
 
             None => {
-                eprintln!("{:#?}", request.param::<&str>(1));
-                match request.param::<&str>(1) {
-                    Some(buildarch) => {
-                        match buildarch.unwrap() {
-                            "arm64" => v0::MachineArchitecture::Arm,
-                            "x86_64" => v0::MachineArchitecture::X86,
-                            arch => {
-                                eprintln!("invalid architecture: {:#?}", arch);
-                                return request::Outcome::Failure((
-                                    Status::BadRequest,
-                                    RPCError::InvalidBuildArch,
-                                ));
-                            }
-                        }
-                    }
-                    None => {
-                        // For now default to arm64 if none is presented
-                        v0::MachineArchitecture::Arm
-                        // return request::Outcome::Failure((
-                        //     Status::BadRequest,
-                        //     RPCError::MissingBuildArch,
-                        // ))
-                    }
-                }
+                return request::Outcome::Failure((Status::BadRequest, RPCError::MissingBuildArch));
             }
         };
         let uuid = match request.query_value::<rocket::serde::uuid::Uuid>("uuid") {
@@ -204,7 +180,10 @@ impl<'r> FromRequest<'r> for Machine {
             // TODO(baz): fix this blatantly ugly remove(0) w/o checking the size
             Ok(response) => response.into_inner().interfaces.remove(0),
             Err(err) => {
-                return request::Outcome::Failure((Status::BadRequest, RPCError::RequestError(err)));
+                return request::Outcome::Failure((
+                    Status::BadRequest,
+                    RPCError::RequestError(err),
+                ));
             }
         };
 
