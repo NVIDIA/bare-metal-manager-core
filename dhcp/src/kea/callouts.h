@@ -16,7 +16,9 @@
 #include "carbide_logger.h"
 #include "carbide_rust.h"
 #include <dhcp/option_custom.h>
+#pragma GCC diagnostic ignored "-Wsign-compare"
 #include <dhcp/option_int.h>
+#pragma GCC diagnostic pop
 
 using namespace isc::hooks;
 using namespace isc::dhcp;
