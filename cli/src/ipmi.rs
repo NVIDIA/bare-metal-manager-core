@@ -6,6 +6,7 @@ use log::{debug, error, info};
 
 #[cfg(test)]
 use std::{println as error, println as debug, println as info};
+use tokio::time::{sleep, Duration};
 
 use rand::Rng;
 use regex::Regex;
@@ -276,7 +277,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     // Enable TCP/LAN access
     let _ = CMD::default()
         .args(vec!["lan", "set", "1", "access", "on"])
-        .output()?;
+        .output(); // Ignore it as this command might fail in some cards.
 
     Ok(())
 }
@@ -328,6 +329,9 @@ pub async fn update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResul
         return Ok(());
     }
 
+    // Wait until ipmi device is ready.
+    wait_until_ipmi_is_ready().await?;
+
     let (ipmi_info, ip) = set_ipmi_creds()?;
     let bmc_metadata: rpc::BmcMetaData = IpmiInfo::convert(ipmi_info, uuid, ip)?;
 
@@ -336,6 +340,27 @@ pub async fn update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResul
     client.update_bmc_meta_data(request).await?;
 
     Ok(())
+}
+
+// This is blocking function.
+async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
+    const RETRY_TIME: Duration = Duration::from_secs(30);
+    const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 6);
+    const MAX_TIMEOUT_COUNT: u64 = MAX_TIMEOUT.as_secs() / RETRY_TIME.as_secs();
+
+    for _ in 0..MAX_TIMEOUT_COUNT {
+        if let Ok(_) = CMD::default().args(vec!["lan", "print"]).output() {
+            return Ok(());
+        } else {
+            sleep(RETRY_TIME).await;
+        }
+    }
+
+    // Reached here, means MAX_TIMEOUT passed and yet ipmitool command is failing.
+    return Err(CarbideClientError::GenericError(format!(
+        "Max timout ({} seconds) is elapsed and still ipmitool is failed.",
+        MAX_TIMEOUT.as_secs(),
+    )));
 }
 
 #[cfg(test)]

@@ -341,7 +341,6 @@ impl Discovery {
         client.discover_machine(request).await?;
         if let Err(x) = ipmi::update_ipmi_creds(listen, uuid).await {
             log::error!("Error while setting up IPMI. {}", x.to_string());
-            return Err(x);
         }
 
         Ok(())
