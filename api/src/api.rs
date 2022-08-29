@@ -15,6 +15,7 @@ use carbide::{
         auth::SshKeyValidationRequest,
         dhcp_entry::DhcpEntry,
         dhcp_record::DhcpRecord,
+        domain::Domain,
         domain::NewDomain,
         instance::NewInstance,
         instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
@@ -509,6 +510,42 @@ impl Forge for Api {
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
+    }
+
+    async fn find_domain(
+        &self,
+        request: Request<rpc::DomainSearchQuery>,
+    ) -> Result<Response<rpc::DomainList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::DomainSearchQuery { id, .. } = request.into_inner();
+
+        let uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => UuidKeyedObjectFilter::All,
+        };
+
+        let result = Domain::find(&mut txn, uuid)
+            .await
+            .map(|domain| rpc::DomainList {
+                domains: domain.into_iter().map(rpc::Domain::from).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
     }
 
     async fn update_domain(
