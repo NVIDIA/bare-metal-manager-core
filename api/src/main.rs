@@ -1,12 +1,12 @@
+#[allow(unused_imports)]
+use log::{debug, error, info, LevelFilter, trace, warn};
+use sqlx::PgPool;
+
+use cfg::{Command, Options};
+
 mod api;
 mod auth;
 mod cfg;
-
-#[allow(unused_imports)]
-use log::{debug, error, info, trace, warn, LevelFilter};
-
-use cfg::{Command, Options};
-use sqlx::PgPool;
 
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::Report> {
@@ -29,7 +29,7 @@ async fn main() -> Result<(), color_eyre::Report> {
         })
         .init();
 
-    match config.subcmd {
+    match config.sub_cmd {
         Command::Migrate(ref m) => {
             let pool = PgPool::connect(&m.datastore[..]).await?;
 

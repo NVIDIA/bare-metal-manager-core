@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use kube::api::DeleteParams;
 use kube::{
     api::{Api, PostParams, ResourceExt},
     Client,
@@ -8,14 +7,14 @@ use kube::{
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use sqlx;
-use sqlx::{Acquire, Connection, PgConnection, PgPool, Postgres, Transaction};
+use sqlx::PgConnection;
+use sqlxmq::{CurrentJob, job, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
-use crate::bg::{job, CurrentJob, CurrentState, JobRegistry, OwnedHandle, Status, TaskState};
-use crate::db::VpcResourceLeaf;
-use crate::vpc_resources::{leaf, managed_resource, resource_group};
-
 use crate::{CarbideError, CarbideResult};
+use crate::bg::{CurrentState, Status, TaskState};
+use crate::db::vpc_resource_leaf::VpcResourceLeaf;
+use crate::vpc_resources::{leaf, managed_resource, resource_group};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum VpcResourceActions {
@@ -64,18 +63,17 @@ impl VpcResourceActions {
     }
 }
 
-async fn leaf_resource_status(spec: leaf::Leaf) -> CarbideResult<leaf::LeafStatus> {
+async fn _leaf_resource_status(spec: leaf::Leaf) -> CarbideResult<leaf::LeafStatus> {
     let client = Client::try_default().await?;
     let namespace = "forge-system";
 
     let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), namespace);
     let leaf_to_status = leafs.get_status(spec.name().as_ref()).await?;
-    let res = match leaf_to_status.status {
+
+    match leaf_to_status.status {
         None => Err(CarbideError::GenericError("None".to_string())),
         Some(x) => Ok(x),
-    };
-
-    res
+    }
 }
 
 async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, state: TaskState) {
@@ -88,7 +86,7 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
             state,
         },
     )
-    .await
+        .await
     {
         Ok(_) => (),
         Err(x) => {
@@ -132,7 +130,7 @@ pub async fn vpc_reconcile_handler(
         "Json parsing ok.".to_string(),
         TaskState::Ongoing,
     )
-    .await;
+        .await;
 
     info!("Kubernetes integration is: {}", kube_enabled);
 
@@ -171,7 +169,7 @@ pub async fn vpc_reconcile_handler(
                             format!("{} Created", s.name()),
                             TaskState::Finished,
                         )
-                        .await;
+                            .await;
 
                         let _ = current_job.complete().await.map_err(CarbideError::from);
                         // After job is marked as complete move VpcResourceStateMachine to accepted
@@ -192,7 +190,7 @@ pub async fn vpc_reconcile_handler(
                             "Unable to create resource".to_string(),
                             TaskState::Error(error.to_string()),
                         )
-                        .await;
+                            .await;
                         // If error move VpcResourceStateMachine to Fail and commit txn
                         vpc_db_resource
                             .advance(&mut new_txn, &rpc::VpcResourceStateMachineInput::Fail)
@@ -203,7 +201,6 @@ pub async fn vpc_reconcile_handler(
             }
             VpcResourceActions::DeleteLeaf(spec) => {
                 let mut state_txn = state_pool.begin().await?;
-                let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), namespace);
                 let vpc_id = uuid::Uuid::from_str(&spec.name())?;
                 let vpc_db_resource = VpcResourceLeaf::find(&mut state_txn, vpc_id).await?;
                 vpc_db_resource
@@ -217,28 +214,28 @@ pub async fn vpc_reconcile_handler(
                     format!("VPC Resource {} deleted", spec.name()),
                     TaskState::Finished,
                 )
-                .await;
+                    .await;
                 let _ = current_job.complete().await.map_err(CarbideError::from);
             }
-            VpcResourceActions::UpdateLeaf(spec) => {
+            VpcResourceActions::UpdateLeaf(_spec) => {
                 todo!()
             }
-            VpcResourceActions::CreateResourceGroup(spec) => {
+            VpcResourceActions::CreateResourceGroup(_spec) => {
                 todo!()
             }
-            VpcResourceActions::UpdateResourceGroup(spec) => {
+            VpcResourceActions::UpdateResourceGroup(_spec) => {
                 todo!()
             }
-            VpcResourceActions::DeleteResourceGroup(spec) => {
+            VpcResourceActions::DeleteResourceGroup(_spec) => {
                 todo!()
             }
-            VpcResourceActions::CreateManagedResource(spec) => {
+            VpcResourceActions::CreateManagedResource(_spec) => {
                 todo!()
             }
-            VpcResourceActions::UpdateManagedResource(spec) => {
+            VpcResourceActions::UpdateManagedResource(_spec) => {
                 todo!()
             }
-            VpcResourceActions::DeleteManagedResource(spec) => {}
+            VpcResourceActions::DeleteManagedResource(_spec) => {}
             VpcResourceActions::StatusLeaf(spec, resource) => {
                 let mut state_txn = state_pool.begin().await?;
 
@@ -248,7 +245,7 @@ pub async fn vpc_reconcile_handler(
                     format!("Started status job for VPC Leaf {}", spec.name()).to_string(),
                     TaskState::Started,
                 )
-                .await;
+                    .await;
 
                 let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), namespace);
                 let mut leaf_to_status = leafs.get_status(spec.name().as_ref()).await?;
@@ -259,7 +256,7 @@ pub async fn vpc_reconcile_handler(
                     format!("Waiting for status from VPC Leaf {}", spec.name()).to_string(),
                     TaskState::Ongoing,
                 )
-                .await;
+                    .await;
 
                 resource
                     .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Wait)

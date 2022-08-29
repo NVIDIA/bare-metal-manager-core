@@ -33,13 +33,10 @@ fn key_to_string(pubkey: &key::PublicKey) -> Result<String, ConsoleError> {
     String::from_utf8(bytes).map_err(ConsoleError::from)
 }
 
-// Validates user and returns role.
-#[cfg(test)]
-pub fn validate_user(user: &str, pubkey: &key::PublicKey) -> Result<UserRoles, ConsoleError> {
+pub fn validate_user_test(_user: &str, _pubkey: &key::PublicKey) -> Result<UserRoles, ConsoleError> {
     Ok(UserRoles::Administrator)
 }
 
-#[cfg(not(test))]
 pub fn validate_user(user: &str, pubkey: &key::PublicKey) -> Result<UserRoles, ConsoleError> {
     use self::rpc::{SshKeyValidationRequest, SshKeyValidationResponse};
 

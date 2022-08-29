@@ -1,12 +1,15 @@
-use crate::{CarbideError, CarbideResult};
-use rpc::forge::v0 as rpc;
-use serde_json::json;
-use sqlx::{Postgres, Transaction};
 use std::convert::TryFrom;
 use std::str::FromStr;
+
+use serde_json::json;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq, sqlx::Type)]
+use rpc::forge::v0 as rpc;
+
+use crate::{CarbideError, CarbideResult};
+
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "user_roles")]
 #[sqlx(rename_all = "lowercase")]
 pub enum UserRoles {
@@ -95,7 +98,7 @@ impl TryFrom<rpc::BmcMetaDataRequest> for BmcMetaDataRequest {
                 None => {
                     return Err(CarbideError::GenericError(
                         "Invalid role found.".to_string(),
-                    ))
+                    ));
                 }
             }),
         })
@@ -177,7 +180,7 @@ impl BmcMetaData {
                        RETURNING mt.machine_id"#;
 
         for data in &self.data {
-            let _: (Uuid,) = sqlx::query_as(query)
+            let _: (Uuid, ) = sqlx::query_as(query)
                 .bind(&self.machine_id)
                 .bind(&data.username)
                 .bind(&data.role)
@@ -200,7 +203,7 @@ impl BmcMetaData {
                        WHERE machine_id=$2
                        RETURNING machine_id"#;
 
-        let _: Option<(Uuid,)> = sqlx::query_as(query)
+        let _: Option<(Uuid, )> = sqlx::query_as(query)
             .bind(&json!(self.ip))
             .bind(&self.machine_id)
             .fetch_optional(&mut *txn)

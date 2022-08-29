@@ -1,15 +1,17 @@
-use std::sync::Once;
-
 use std::str::FromStr;
+use std::sync::Once;
 
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::{
-    AddressSelectionStrategy, Instance, Machine, MachineInterface, MachineTopology, NetworkSegment,
-    NewInstance, NewNetworkPrefix, NewNetworkSegment, NewVpc,
-};
-use carbide::{CarbideError, CarbideResult};
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::instance::NewInstance;
+use carbide::db::machine::Machine;
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::machine_topology::MachineTopology;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
 
 mod common;
 
@@ -88,14 +90,12 @@ async fn test_crud_instance() {
         .await
         .expect("Unable to create topology");
 
-    let instance: Instance = NewInstance {
+    let _instance = NewInstance {
         machine_id: *machine.id(),
     }
     .persist(&mut txn)
     .await
     .expect("Unable to create new instance");
-
-    assert!(matches!(instance, _Instance));
 
     txn.commit().await.unwrap();
 }

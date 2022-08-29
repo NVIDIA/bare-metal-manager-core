@@ -1,20 +1,23 @@
 use std::convert::TryFrom;
 use std::net::IpAddr;
 
-use crate::{
-    db::NetworkPrefix, db::NewNetworkPrefix, db::UuidKeyedObjectFilter, CarbideError, CarbideResult,
-};
-use ::rpc::Timestamp;
 use chrono::prelude::*;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use log::warn;
 use patricia_tree::PatriciaMap;
-use rpc::forge::v0 as rpc;
-use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
+
+use ::rpc::Timestamp;
+use rpc::forge::v0 as rpc;
+
+use crate::{
+    CarbideError, CarbideResult, db::UuidKeyedObjectFilter,
+};
+use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 
 #[derive(Debug)]
 pub enum IpAllocationError {
@@ -209,17 +212,17 @@ impl NetworkSegment {
                 sqlx::query_as::<_, NetworkSegment>(
                     &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
                 )
-                .bind(uuids)
-                .fetch_all(&mut *txn)
-                .await?
+                    .bind(uuids)
+                    .fetch_all(&mut *txn)
+                    .await?
             }
             UuidKeyedObjectFilter::One(uuid) => {
                 sqlx::query_as::<_, NetworkSegment>(
                     &base_query.replace("{where}", "WHERE network_segments.id=$1"),
                 )
-                .bind(uuid)
-                .fetch_all(&mut *txn)
-                .await?
+                    .bind(uuid)
+                    .fetch_all(&mut *txn)
+                    .await?
             }
         };
 
@@ -308,7 +311,7 @@ impl NetworkSegment {
                     }
                 }
 
-                excluded_ips.extend(used_ips.iter().filter_map(|(ip,)| {
+                excluded_ips.extend(used_ips.iter().filter_map(|(ip, )| {
                     segment_prefix
                         .prefix
                         .contains(ip.ip())

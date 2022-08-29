@@ -1,12 +1,14 @@
-use super::MachineAction;
-use crate::CarbideResult;
+use std::collections::HashMap;
+
 use chrono::prelude::*;
 use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
-use std::collections::HashMap;
 
-use rpc::forge::v0 as rpc;
 use ::rpc::Timestamp;
+use rpc::forge::v0 as rpc;
+
+use crate::CarbideResult;
+use crate::db::machine_action::MachineAction;
 
 /// Representation of an event (state transition) on a machine.
 ///

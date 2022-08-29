@@ -1,24 +1,31 @@
 //!
 //! Machine - represents a database-backed Machine object
 //!
-use super::{MachineAction, MachineEvent, MachineInterface, MachineState, UuidKeyedObjectFilter};
-use crate::db::VpcResourceLeaf;
-use crate::human_hash;
-use crate::{CarbideError, CarbideResult};
-use ::rpc::MachineStateMachine;
-use ::rpc::MachineStateMachineInput;
-use ::rpc::Timestamp;
+use std::convert::From;
+use std::net::IpAddr;
+
 use chrono::prelude::*;
 use ipnetwork::IpNetwork;
 use log::{info, warn};
 use mac_address::MacAddress;
-use rpc::forge::v0 as rpc;
 use rust_fsm::StateMachine;
-use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
-use std::convert::From;
-use std::net::IpAddr;
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
+
+use ::rpc::MachineStateMachine;
+use ::rpc::MachineStateMachineInput;
+use ::rpc::Timestamp;
+use rpc::forge::v0 as rpc;
+
+use crate::{CarbideError, CarbideResult};
+use crate::db::machine_action::MachineAction;
+use crate::db::machine_event::MachineEvent;
+use crate::db::machine_interface::MachineInterface;
+use crate::db::machine_state::MachineState;
+use crate::human_hash;
+
+use super::UuidKeyedObjectFilter;
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
@@ -134,7 +141,7 @@ impl Machine {
     ) -> CarbideResult<Self> {
         match interface.machine_id {
             None => {
-                let row: (Uuid,) =
+                let row: (Uuid, ) =
                     sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
                         .fetch_one(&mut *txn)
                         .await?;
@@ -172,10 +179,10 @@ impl Machine {
             sqlx::query_as(
                 "UPDATE machines SET vpc_leaf_id=$1::uuid where id=$2::uuid RETURNING *",
             )
-            .bind(vpc_leaf_id)
-            .bind(machine_id)
-            .fetch_one(&mut *txn)
-            .await?,
+                .bind(vpc_leaf_id)
+                .bind(machine_id)
+                .fetch_one(&mut *txn)
+                .await?,
         )
     }
 
@@ -196,7 +203,7 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
         relay: IpAddr,
-    ) -> CarbideResult<Vec<(Uuid,)>> {
+    ) -> CarbideResult<Vec<(Uuid, )>> {
         let sql = r#"
         SELECT m.id FROM
             machines m
@@ -269,7 +276,7 @@ impl Machine {
 
     fn state_machine(
         &self,
-        events: &Vec<MachineEvent>,
+        events: &[MachineEvent],
     ) -> CarbideResult<StateMachine<MachineStateMachine>> {
         let mut machine: StateMachine<MachineStateMachine> = StateMachine::new();
         events
@@ -301,13 +308,13 @@ impl Machine {
             .consume(action)
             .map_err(CarbideError::InvalidState)?;
 
-        let id: (i64,) = sqlx::query_as(
+        let id: (i64, ) = sqlx::query_as(
             "INSERT INTO machine_events (machine_id, action) VALUES ($1::uuid, $2) RETURNING id",
         )
-        .bind(self.id())
-        .bind(MachineAction::from(action))
-        .fetch_one(txn)
-        .await?;
+            .bind(self.id())
+            .bind(MachineAction::from(action))
+            .fetch_one(txn)
+            .await?;
 
         log::info!("Event ID is {}", id.0);
 

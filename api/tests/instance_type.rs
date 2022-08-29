@@ -1,12 +1,11 @@
-mod common;
-
-use carbide::{
-    db::{InstanceType, NewInstanceType},
-    CarbideResult,
-};
-
-use carbide::db::{DeactivateInstanceType, UpdateInstanceType};
 use log::LevelFilter;
+
+use carbide::db::instance_type::{
+    DeactivateInstanceType, InstanceType, NewInstanceType, UpdateInstanceType,
+};
+use carbide::CarbideResult;
+
+mod common;
 
 #[tokio::test]
 async fn test_instance_type_crud() {
@@ -33,9 +32,8 @@ async fn test_instance_type_crud() {
     .await;
 
     let unwrapped = &segment.unwrap();
-    assert!(matches!(unwrapped, _InstanceType));
 
-    let updatedType = UpdateInstanceType {
+    let _updated_type = UpdateInstanceType {
         id: unwrapped.id,
         short_name: format!("{0}_updated", unwrapped.short_name).to_string(),
         description: format!("{0}_updated", unwrapped.description).to_string(),
@@ -44,13 +42,9 @@ async fn test_instance_type_crud() {
     .update(&mut txn)
     .await;
 
-    assert!(matches!(updatedType.unwrap(), _InstanceType));
-
-    let deletedType = DeactivateInstanceType { id: unwrapped.id }
+    let _deleted_type = DeactivateInstanceType { id: unwrapped.id }
         .deactivate(&mut txn)
         .await;
 
     txn.commit().await.unwrap();
-
-    assert!(matches!(deletedType.unwrap(), _InstanceType));
 }

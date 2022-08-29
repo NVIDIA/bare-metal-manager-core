@@ -1,6 +1,8 @@
-use carbide::{db::SshKeyValidationRequest, CarbideError};
-use rpc::forge::v0 as rpc;
 use sqlx::Postgres;
+
+use carbide::db::auth::SshKeyValidationRequest;
+use carbide::CarbideError;
+use rpc::forge::v0 as rpc;
 
 mod common;
 

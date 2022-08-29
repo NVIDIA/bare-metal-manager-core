@@ -1,7 +1,8 @@
+use std::collections::BTreeMap;
+
 use kube::CustomResource;
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
 
 /// LeafSpec defines the desired state of Leaf
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]

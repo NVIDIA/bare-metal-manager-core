@@ -1,15 +1,15 @@
 use std::convert::TryFrom;
 
 use chrono::prelude::*;
-use sqlx::types::uuid;
 use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::types::uuid;
 use uuid::Uuid;
 
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
 
-use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
+use crate::db::UuidKeyedObjectFilter;
 
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
 const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
@@ -92,15 +92,15 @@ impl NewDomain {
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e)
-                    if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
-                {
-                    CarbideError::InvalidDomainName(String::from(&self.name))
-                }
+                if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
+                    {
+                        CarbideError::InvalidDomainName(String::from(&self.name))
+                    }
                 sqlx::Error::Database(e)
-                    if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
-                {
-                    CarbideError::InvalidDomainName(String::from(&self.name))
-                }
+                if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
+                    {
+                        CarbideError::InvalidDomainName(String::from(&self.name))
+                    }
                 _ => CarbideError::from(err),
             })
     }

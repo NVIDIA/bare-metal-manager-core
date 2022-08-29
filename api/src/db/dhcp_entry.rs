@@ -1,5 +1,6 @@
-use crate::CarbideResult;
 use sqlx::{FromRow, Postgres, Transaction};
+
+use crate::CarbideResult;
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID

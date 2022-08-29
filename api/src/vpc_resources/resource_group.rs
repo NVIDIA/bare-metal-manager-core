@@ -1,6 +1,6 @@
 use kube::CustomResource;
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// ResourceGroupSpec defines the desired state of ResourceGroup.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]

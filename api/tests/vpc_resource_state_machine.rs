@@ -2,7 +2,7 @@ use std::sync::Once;
 
 use log::LevelFilter;
 
-use carbide::db::{NewVpcResourceLeaf, VpcResourceLeaf};
+use carbide::db::vpc_resource_leaf::NewVpcResourceLeaf;
 use carbide::CarbideError;
 
 mod common;

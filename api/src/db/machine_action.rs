@@ -1,14 +1,15 @@
-use crate::CarbideError;
 use std::str::FromStr;
 
 //use ::rpc::v0::MachineStateMachineInput;
 use ::rpc::MachineStateMachineInput;
 use rpc::forge::v0 as rpc;
 
+use crate::CarbideError;
+
 /// Representing actions that can be performed on Machines.
 ///
 /// Note that the operations that are valid for a given machine state are checked by the PostgreSQL
-/// database schema, not in this software.  This is to prevent manupulating state to invalid states
+/// database schema, not in this software.  This is to prevent manipulating state to invalid states
 /// when not using the API to enforce database consistency.
 ///
 /// In order to add a new Action to a machine, a migration must be created that adds the new state
@@ -21,7 +22,7 @@ use rpc::forge::v0 as rpc;
 /// Unfortunately the Rust code doesn't distinguish between versions so having multiple state
 /// machine versions with the same MachineAction enum.
 ///
-#[derive(Debug, PartialEq, sqlx::Type)]
+#[derive(Debug, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "machine_action")]
 #[sqlx(rename_all = "lowercase")]
 pub enum MachineAction {

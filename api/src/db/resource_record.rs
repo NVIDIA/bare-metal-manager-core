@@ -1,9 +1,10 @@
-use crate::CarbideResult;
 use ipnetwork::IpNetwork;
-use log::info;
-use rpc::forge::v0 as rpc;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
+
+use rpc::forge::v0 as rpc;
+
+use crate::CarbideResult;
 
 #[derive(Debug, Clone)]
 pub struct ResourceRecord {
@@ -11,31 +12,31 @@ pub struct ResourceRecord {
 }
 
 #[derive(Default, Debug, Clone, FromRow)]
-pub struct Dnsrr {
-    rdata: Option<ResourceRecord>,
+pub struct DnsResourceRecord {
+    record_data: Option<ResourceRecord>,
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct DnsQuestion {
-    pub q_name: Option<String>,
-    pub q_type: Option<u32>,
-    pub q_class: Option<u32>,
+    pub query_name: Option<String>,
+    pub query_type: Option<u32>,
+    pub query_class: Option<u32>,
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct DnsResponse {
-    pub rrs: Vec<Dnsrr>,
-    pub rcode: Option<u32>,
+    pub resource_records: Vec<DnsResourceRecord>,
+    pub response_code: Option<u32>,
 }
 
 impl DnsResponse {
-    pub fn rr(&mut self, rr: Dnsrr) -> &mut DnsResponse {
-        self.rrs.push(rr);
+    pub fn add_record(&mut self, resource_record: DnsResourceRecord) -> &mut DnsResponse {
+        self.resource_records.push(resource_record);
         self
     }
 
-    pub fn rcode(&mut self, rcode: u32) -> &mut DnsResponse {
-        self.rcode = Some(rcode);
+    pub fn with_response_code(&mut self, response_code: u32) -> &mut DnsResponse {
+        self.response_code = Some(response_code);
         self
     }
 }
@@ -55,10 +56,10 @@ impl From<ResourceRecord> for String {
 }
 
 // Protobuf does not have an IPAddr type, so convert to string
-impl From<Dnsrr> for rpc::dns_message::dns_response::Dnsrr {
-    fn from(dns: Dnsrr) -> Self {
+impl From<DnsResourceRecord> for rpc::dns_message::dns_response::Dnsrr {
+    fn from(dns: DnsResourceRecord) -> Self {
         rpc::dns_message::dns_response::Dnsrr {
-            rdata: dns.rdata.map(|r| r.record.ip().to_string()),
+            rdata: dns.record_data.map(|r| r.record.ip().to_string()),
         }
     }
 }
@@ -66,8 +67,12 @@ impl From<Dnsrr> for rpc::dns_message::dns_response::Dnsrr {
 impl From<DnsResponse> for rpc::dns_message::DnsResponse {
     fn from(dns: DnsResponse) -> Self {
         rpc::dns_message::DnsResponse {
-            rcode: dns.rcode,
-            rrs: dns.rrs.into_iter().map(|rr| rr.into()).collect(),
+            rcode: dns.response_code,
+            rrs: dns
+                .resource_records
+                .into_iter()
+                .map(|rr| rr.into())
+                .collect(),
         }
     }
 }
@@ -79,21 +84,21 @@ impl DnsQuestion {
     ) -> CarbideResult<DnsResponse> {
         let mut response = DnsResponse::default();
 
-        info!("{:?}", question);
-        let _record = match question.q_type {
+        log::info!("{:?}", question);
+        match question.query_type {
             Some(1) => {
                 let result = sqlx::query_as::<_, ResourceRecord>(
                     "SELECT resource_record from dns_records WHERE q_name=$1 AND family(resource_record) = 4;",
                 )
-                .bind(Some(question.q_name))
-                .fetch_one(&mut *txn)
-                .await?;
-                info!("{:?}", result);
-                let rr = Dnsrr {
-                    rdata: Some(result),
+                    .bind(Some(question.query_name))
+                    .fetch_one(&mut *txn)
+                    .await?;
+                log::info!("{:?}", result);
+                let rr = DnsResourceRecord {
+                    record_data: Some(result),
                 };
-                response.rrs.push(rr);
-                response.rcode = Some(1);
+                response.resource_records.push(rr);
+                response.response_code = Some(1);
             }
             None => (),
             _ => (),

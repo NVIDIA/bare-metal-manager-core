@@ -4,11 +4,15 @@ use std::sync::Once;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::{
-    AddressSelectionStrategy, Instance, InstanceSubnet, Machine, MachineInterface, NetworkSegment,
-    NewInstance, NewNetworkPrefix, NewNetworkSegment, NewVpc, VpcResourceState,
-};
-use carbide::CarbideError;
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::instance::NewInstance;
+use carbide::db::instance_subnet::InstanceSubnet;
+use carbide::db::machine::Machine;
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
+use carbide::db::vpc_resource_state::VpcResourceState;
 
 use crate::common::TestDatabaseManager;
 
@@ -51,9 +55,9 @@ async fn new_instance_subnet_matches_machine_interface() {
         name: "Test VPC".to_string(),
         organization: String::new(),
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create VPC");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create VPC");
 
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
@@ -74,9 +78,9 @@ async fn new_instance_subnet_matches_machine_interface() {
             },
         ],
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create network segment");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create network segment");
 
     txn.commit().await.unwrap();
 
@@ -89,8 +93,8 @@ async fn new_instance_subnet_matches_machine_interface() {
         true,
         AddressSelectionStrategy::Automatic,
     )
-    .await
-    .expect("Unable to create machine interface");
+        .await
+        .expect("Unable to create machine interface");
 
     let new_machine = Machine::create(&mut txn2, new_interface.clone())
         .await
@@ -138,9 +142,9 @@ async fn new_instance_in_init_state() {
         name: "Test VPC".to_string(),
         organization: String::new(),
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create VPC");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create VPC");
 
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
@@ -161,9 +165,9 @@ async fn new_instance_in_init_state() {
             },
         ],
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create network segment");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create network segment");
 
     txn.commit().await.unwrap();
 
@@ -176,8 +180,8 @@ async fn new_instance_in_init_state() {
         true,
         AddressSelectionStrategy::Automatic,
     )
-    .await
-    .expect("Unable to create machine interface");
+        .await
+        .expect("Unable to create machine interface");
 
     let new_machine = Machine::create(&mut txn2, new_interface.clone())
         .await
@@ -227,9 +231,9 @@ async fn instance_subnet_state_machine_advance() {
         name: "Test VPC".to_string(),
         organization: String::new(),
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create VPC");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create VPC");
 
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
@@ -250,9 +254,9 @@ async fn instance_subnet_state_machine_advance() {
             },
         ],
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create network segment");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create network segment");
 
     txn.commit().await.unwrap();
 
@@ -265,8 +269,8 @@ async fn instance_subnet_state_machine_advance() {
         true,
         AddressSelectionStrategy::Automatic,
     )
-    .await
-    .expect("Unable to create machine interface");
+        .await
+        .expect("Unable to create machine interface");
 
     let new_machine = Machine::create(&mut txn2, new_interface.clone())
         .await

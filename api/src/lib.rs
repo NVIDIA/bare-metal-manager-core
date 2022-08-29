@@ -1,8 +1,9 @@
+use std::net::IpAddr;
+
 use log::info;
 use mac_address::MacAddress;
 use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
-use std::net::IpAddr;
 use tonic::Status;
 
 pub mod bg;

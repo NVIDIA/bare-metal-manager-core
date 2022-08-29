@@ -1,15 +1,16 @@
 use log::LevelFilter;
-use rpc::forge::v0 as rpc;
 use sqlx::Postgres;
 
-use carbide::{
-    db::{
-        AddressSelectionStrategy, Domain, Machine, MachineInterface, NetworkSegment, NewDomain,
-        NewNetworkPrefix, NewNetworkSegment, NewVpc, Tag, TagAssociation, TagCreate, TagDelete,
-        TagTargetKind, TagsList,
-    },
-    CarbideResult,
-};
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::domain::{Domain, NewDomain};
+use carbide::db::machine::Machine;
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::tags::{Tag, TagAssociation, TagCreate, TagDelete, TagTargetKind, TagsList};
+use carbide::db::vpc::NewVpc;
+use carbide::CarbideResult;
+use rpc::forge::v0 as rpc;
 
 mod common;
 
@@ -98,11 +99,9 @@ async fn create_machine(txn: &mut sqlx::Transaction<'_, Postgres>) -> Machine {
     .await
     .expect("Unable to create interface");
 
-    let new_machine = Machine::create(txn, new_interface)
+    Machine::create(txn, new_interface)
         .await
-        .expect("Unable to create machine");
-
-    new_machine
+        .expect("Unable to create machine")
 }
 
 async fn test_list(

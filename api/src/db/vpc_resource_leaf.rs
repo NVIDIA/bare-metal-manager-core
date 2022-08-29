@@ -1,15 +1,15 @@
 use rust_fsm::StateMachine;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::postgres::PgRow;
 
 use ::rpc::VpcResourceStateMachine;
 use ::rpc::VpcResourceStateMachineInput;
 
+use crate::{CarbideError, CarbideResult};
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::db::vpc_resource_leaf_event::VpcResourceLeafEvent;
 use crate::db::vpc_resource_state::VpcResourceState;
-use crate::{CarbideError, CarbideResult};
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -111,7 +111,7 @@ impl NewVpcResourceLeaf {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<VpcResourceLeaf> {
-        let (vpc_resource_id,) =
+        let (vpc_resource_id, ) =
             sqlx::query_as("INSERT INTO vpc_resource_leafs DEFAULT VALUES returning id")
                 .fetch_one(&mut *txn)
                 .await?;

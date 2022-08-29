@@ -1,8 +1,10 @@
-use crate::CarbideResult;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use rpc::forge::v0 as rpc;
 use sqlx::{FromRow, Postgres, Transaction};
+
+use rpc::forge::v0 as rpc;
+
+use crate::CarbideResult;
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID

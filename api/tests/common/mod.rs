@@ -1,29 +1,26 @@
-use carbide::bg::{job, CurrentJob, CurrentState, JobRegistry, OwnedHandle, Status, TaskState};
-use carbide::kubernetes::vpc_reconcile_handler;
-use carbide::{CarbideError, CarbideResult};
-use color_eyre::owo_colors::OwoColorize;
-use kube::Client;
-use rand::prelude::*;
-use sqlx::PgPool;
 use std::env;
 
+use rand::prelude::*;
+use sqlx::PgPool;
+
+use carbide::CarbideResult;
+
 pub struct TestDatabaseManager {
-    #[allow(dead_code)]
-    template_pool: PgPool,
+    _template_pool: PgPool,
     pub pool: PgPool,
 }
 
 impl TestDatabaseManager {
     pub(crate) async fn new() -> CarbideResult<Self> {
-        if std::env::var("TESTDB_HOST").is_ok()
-            || std::env::var("TESTDB_USER").is_ok()
-            || std::env::var("TESTDB_PASSWORD").is_ok()
+        if env::var("TESTDB_HOST").is_ok()
+            || env::var("TESTDB_USER").is_ok()
+            || env::var("TESTDB_PASSWORD").is_ok()
         {
             Self::_new(&format!(
                 "postgres://{0}:{1}@{2}",
-                std::env::var("TESTDB_USER").unwrap(),
-                std::env::var("TESTDB_PASSWORD").unwrap(),
-                std::env::var("TESTDB_HOST").unwrap(),
+                env::var("TESTDB_USER").unwrap(),
+                env::var("TESTDB_PASSWORD").unwrap(),
+                env::var("TESTDB_HOST").unwrap(),
             ))
             .await
         } else {
@@ -71,41 +68,17 @@ impl TestDatabaseManager {
 
         let full_uri_db = [base_uri, "/", &temporary_database_name[..]].concat();
 
-        let mut real_pool = sqlx::PgPool::connect(&full_uri_db).await?;
+        let real_pool = sqlx::PgPool::connect(&full_uri_db).await?;
 
-        carbide::db::migrations::migrate(&mut real_pool)
-            .await
-            .unwrap();
+        carbide::db::migrations::migrate(&real_pool).await.unwrap();
 
         Ok(Self {
-            template_pool,
+            _template_pool: template_pool,
             pool: real_pool,
         })
     }
 }
-pub async fn test_bgkubernetes_handler(
-    url: String,
-    kube_enabled: bool,
-) -> CarbideResult<OwnedHandle> {
-    log::info!("Starting Kubernetes handler.");
-    let mut registry = JobRegistry::new(&[vpc_reconcile_handler]);
-    let new_pool = TestDatabaseManager::new()
-        .await
-        .expect("Cannot create test database manager")
-        .pool;
 
-    // To keep callpath happy, use bogus URL and false for now
-    registry.set_context(url.clone());
-    registry.set_context(kube_enabled);
-
-    // This function should return ownedhandle. If ownedhandle is dropped, it will stop main event loop also.
-    registry
-        .runner(&new_pool)
-        .set_concurrency(10, 20)
-        .run()
-        .await
-        .map_err(CarbideError::from)
-}
 // TODO: implement database drop
 //
 //impl Drop for TestDatabaseManager {

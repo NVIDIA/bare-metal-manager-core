@@ -4,10 +4,12 @@ use std::sync::Once;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::{
-    AddressSelectionStrategy, Domain, Machine, MachineInterface, NetworkSegment, NewDomain,
-    NewNetworkPrefix, NewNetworkSegment, NewVpc,
-};
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::domain::{Domain, NewDomain};
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
 
 mod common;
 
@@ -57,7 +59,7 @@ async fn test_machine_rename() {
 
     let vpc = NewVpc {
         name: "Test VPC".to_string(),
-        organization: String::new()
+        organization: String::new(),
     }
     .persist(&mut txn2)
     .await

@@ -1,17 +1,17 @@
-use crate::CarbideError;
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use sqlx::{postgres::PgRow, Row};
 
+use ::rpc::MachineStateMachineState;
 use rpc::forge::v0 as rpc;
 
-use ::rpc::MachineStateMachineState;
-use std::fmt::{Display, Formatter};
+use crate::CarbideError;
 
 #[derive(sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 #[sqlx(type_name = "machine_state")]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MachineState {
     Init,
     New,

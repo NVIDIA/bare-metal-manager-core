@@ -1,17 +1,17 @@
 use std::collections::HashSet;
 
 use chrono::prelude::*;
-use log::{debug, info};
 use serde::Deserialize;
 use serde_json::Value;
-use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
+use sqlx::postgres::PgRow;
 
+use crate::CarbideResult;
 use crate::db::dpu_machine::DpuMachine;
-use crate::db::{Machine, NewVpcResourceLeaf};
+use crate::db::machine::Machine;
+use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
 use crate::kubernetes::VpcResourceActions;
 use crate::vpc_resources::leaf;
-use crate::CarbideResult;
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
@@ -55,12 +55,12 @@ impl MachineTopology {
 
         let mut res = false;
         if let Some(interface) = network_interfaces {
-            debug!("Interfaces Hash found");
+            log::debug!("Interfaces Hash found");
             if let Some(attributes) = Some(interface) {
-                debug!("Looking for attributes on interface: {}", interface);
+                log::debug!("Looking for attributes on interface: {}", interface);
                 if let Some(attribute) = attributes.as_array() {
                     for a in attribute {
-                        info!("Interface Info: {}", a);
+                        log::info!("Interface Info: {}", a);
                         let mac_address =
                             if let Some(mac_address) = a.get("mac_address").unwrap().as_str() {
                                 mac_address
@@ -69,13 +69,13 @@ impl MachineTopology {
                             };
                         match a.get("pci_properties") {
                             None => {
-                                info!(
+                                log::info!(
                                     "Unable to find PCI PROPERTIES for interface {}",
                                     mac_address
                                 );
                             }
                             Some(x) => {
-                                info!("Network interface {} contains necessary information for examination. Checking if this is a DPU.", mac_address);
+                                log::info!("Network interface {} contains necessary information for examination. Checking if this is a DPU.", mac_address);
                                 // If for some reason there is no vendor/device in pci_properties
                                 // set to 0'
                                 let vendor = x["vendor"].as_str().unwrap_or("0x0000");
@@ -91,11 +91,11 @@ impl MachineTopology {
 
                                 match dpu_count.len() {
                                     0 => {
-                                        info!("VENDOR AND DEVICE INFORMATION DOES NOT MATCH, INTERFACE {} IS NOT A DPU", mac_address);
+                                        log::info!("VENDOR AND DEVICE INFORMATION DOES NOT MATCH, INTERFACE {} IS NOT A DPU", mac_address);
                                         res = false;
                                     }
                                     _ => {
-                                        info!("VENDOR AND DEVICE INFORMATION MATCHES - PCI_ID {} and MAC_ADDRESS: {}", mac_address, dpu_pci_id);
+                                        log::info!("VENDOR AND DEVICE INFORMATION MATCHES - PCI_ID {} and MAC_ADDRESS: {}", mac_address, dpu_pci_id);
                                         res = true;
                                     }
                                 }
@@ -119,11 +119,11 @@ impl MachineTopology {
 
         match res {
             None => {
-                info!("We have never seen this discovery and machine data before");
+                log::info!("We have never seen this discovery and machine data before");
                 Ok(false)
             }
-            Some(x) => {
-                info!("Discovery data for machine already exists");
+            Some(_pg_row) => {
+                log::info!("Discovery data for machine already exists");
                 Ok(true)
             }
         }
@@ -135,30 +135,30 @@ impl MachineTopology {
         discovery: String,
     ) -> CarbideResult<Option<Self>> {
         if Self::discovered(&mut *txn, machine_id).await? {
-            info!("Discovery data for machine {} already exists", machine_id);
+            log::info!("Discovery data for machine {} already exists", machine_id);
             Ok(None)
         } else {
             let res = sqlx::query_as(
                 "INSERT INTO machine_topologies VALUES ($1::uuid, $2::json) RETURNING *",
             )
-            .bind(&machine_id)
-            .bind(&discovery)
-            .fetch_one(&mut *txn)
-            .await?;
+                .bind(&machine_id)
+                .bind(&discovery)
+                .fetch_one(&mut *txn)
+                .await?;
 
             if Self::is_dpu(&discovery).await? {
                 let new_leaf = NewVpcResourceLeaf::new().persist(&mut *txn).await?;
 
-                info!("Generating new leaf id {}", new_leaf.id());
+                log::info!("Generating new leaf id {}", new_leaf.id());
 
                 let machine_dpu =
                     Machine::associate_vpc_leaf_id(&mut *txn, *machine_id, *new_leaf.id()).await?;
 
                 if let Some(machine) = Machine::find_one(&mut *txn, *machine_dpu.id()).await? {
-                    info!("Machine with ID: {} found", machine.id());
+                    log::info!("Machine with ID: {} found", machine.id());
                     for mut interface in machine.interfaces().iter().cloned() {
                         if machine.vpc_leaf_id().is_some() {
-                            info!("Machine VPC_LEAF_ID: {:?}", machine.vpc_leaf_id());
+                            log::info!("Machine VPC_LEAF_ID: {:?}", machine.vpc_leaf_id());
                             interface
                                 .associate_interface_with_dpu_machine(&mut *txn, machine.id())
                                 .await?;
@@ -179,7 +179,7 @@ impl MachineTopology {
                         host_interfaces: None,
                     },
                 );
-                info!("Leafspec sent to kubernetes: {:?}", leaf_spec);
+                log::info!("Leafspec sent to kubernetes: {:?}", leaf_spec);
 
                 let db_conn = txn.acquire().await?;
 
