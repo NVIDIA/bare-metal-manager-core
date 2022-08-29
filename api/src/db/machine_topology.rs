@@ -3,32 +3,31 @@ use std::collections::HashSet;
 use chrono::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
-use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use sqlx::postgres::PgRow;
+use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
-use crate::CarbideResult;
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::machine::Machine;
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
 use crate::kubernetes::VpcResourceActions;
 use crate::vpc_resources::leaf;
+use crate::CarbideResult;
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct MachineTopology {
-    machine_id: uuid::Uuid,
-    topology: serde_json::Value,
-    created: DateTime<Utc>,
-    updated: DateTime<Utc>,
+    _machine_id: uuid::Uuid,
+    _topology: Value,
+    _created: DateTime<Utc>,
+    _updated: DateTime<Utc>,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineTopology {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(MachineTopology {
-            machine_id: row.try_get("machine_id")?,
-            topology: row.try_get("topology")?,
-            created: row.try_get("created")?,
-            updated: row.try_get("updated")?,
+            _machine_id: row.try_get("machine_id")?,
+            _topology: row.try_get("topology")?,
+            _created: row.try_get("created")?,
+            _updated: row.try_get("updated")?,
         })
     }
 }
@@ -141,10 +140,10 @@ impl MachineTopology {
             let res = sqlx::query_as(
                 "INSERT INTO machine_topologies VALUES ($1::uuid, $2::json) RETURNING *",
             )
-                .bind(&machine_id)
-                .bind(&discovery)
-                .fetch_one(&mut *txn)
-                .await?;
+            .bind(&machine_id)
+            .bind(&discovery)
+            .fetch_one(&mut *txn)
+            .await?;
 
             if Self::is_dpu(&discovery).await? {
                 let new_leaf = NewVpcResourceLeaf::new().persist(&mut *txn).await?;

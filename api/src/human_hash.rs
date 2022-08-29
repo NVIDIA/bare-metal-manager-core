@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 /// Class for custom humanhashers
 pub struct HumanHasher {
-    words: Wordlist,
+    pub words: Wordlist,
 }
 
 /// List of 256 strings usable for human readable hash digests
@@ -279,12 +279,6 @@ pub const DEFAULT_WORDLIST: Wordlist = &[
 
 /// Human Hasher
 impl HumanHasher {
-    /// Create a new hasher with a custom wordlist
-    #[allow(dead_code)]
-    pub fn new(words: Wordlist) -> HumanHasher {
-        HumanHasher { words }
-    }
-
     /// Create a human readable digest for a UUID. Makes the collision space worse,
     /// reducing it to 1:(2^(8*`words_out`)-1).
     pub fn humanize(&self, uuid: &Uuid, words_out: usize) -> String {
@@ -318,8 +312,8 @@ pub fn humanize(uuid: &Uuid, words_out: usize) -> String {
 mod tests {
     use uuid::Uuid;
 
-    use super::{HumanHasher, humanize};
     use super::DEFAULT_WORDLIST;
+    use super::{humanize, HumanHasher};
 
     const TEST_UUID: &str = "bc0f47f93dd046578d7eee645999b95e";
 
@@ -342,7 +336,9 @@ mod tests {
     fn class_works() {
         let tuid = Uuid::parse_str(TEST_UUID).unwrap();
 
-        let hzr = HumanHasher::new(DEFAULT_WORDLIST);
+        let hzr = HumanHasher {
+            words: DEFAULT_WORDLIST,
+        };
 
         assert_eq!(humanize(&tuid, 4), hzr.humanize(&tuid, 4));
     }

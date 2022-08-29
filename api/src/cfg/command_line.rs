@@ -29,11 +29,11 @@ pub(crate) enum Command {
 #[derive(Parser)]
 pub struct Daemon {
     #[clap(
-    short,
-    long,
-    multiple_values(true),
-    require_equals(true),
-    default_value = "[::]:1079"
+        short,
+        long,
+        multiple_values(true),
+        require_equals(true),
+        default_value = "[::]:1079"
     )]
     pub listen: Vec<std::net::SocketAddr>,
 

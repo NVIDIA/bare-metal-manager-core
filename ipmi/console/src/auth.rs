@@ -33,7 +33,10 @@ fn key_to_string(pubkey: &key::PublicKey) -> Result<String, ConsoleError> {
     String::from_utf8(bytes).map_err(ConsoleError::from)
 }
 
-pub fn validate_user_test(_user: &str, _pubkey: &key::PublicKey) -> Result<UserRoles, ConsoleError> {
+pub fn validate_user_test(
+    _user: &str,
+    _pubkey: &key::PublicKey,
+) -> Result<UserRoles, ConsoleError> {
     Ok(UserRoles::Administrator)
 }
 

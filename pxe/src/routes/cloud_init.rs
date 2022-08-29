@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use rocket::get;
-use rocket::Route;
 use rocket::routes;
 use rocket::serde::uuid;
+use rocket::Route;
 use rocket_dyn_templates::Template;
 
 use crate::{Machine, RuntimeConfig};

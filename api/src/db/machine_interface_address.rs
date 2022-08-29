@@ -40,20 +40,20 @@ impl MachineInterfaceAddress {
                 sqlx::query_as::<_, MachineInterfaceAddress>(
                     &base_query.replace("{where}", "WHERE mia.interface_id=$1"),
                 )
-                    .bind(uuid)
-                    .fetch_all(&mut *txn)
-                    .await?
+                .bind(uuid)
+                .fetch_all(&mut *txn)
+                .await?
             }
             UuidKeyedObjectFilter::List(list) => {
                 sqlx::query_as::<_, MachineInterfaceAddress>(
                     &base_query.replace("{where}", "WHERE mia.interface_id=ANY($1)"),
                 )
-                    .bind(list)
-                    .fetch_all(&mut *txn)
-                    .await?
+                .bind(list)
+                .fetch_all(&mut *txn)
+                .await?
             }
         }
-            .into_iter()
-            .into_group_map_by(|address| address.interface_id))
+        .into_iter()
+        .into_group_map_by(|address| address.interface_id))
     }
 }

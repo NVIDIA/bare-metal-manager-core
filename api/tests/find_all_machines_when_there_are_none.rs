@@ -1,7 +1,7 @@
 use std::sync::Once;
 
-use log::LevelFilter;
 use carbide::db::machine::Machine;
+use log::LevelFilter;
 
 mod common;
 

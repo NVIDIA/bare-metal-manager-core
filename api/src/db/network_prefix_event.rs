@@ -7,8 +7,8 @@ use sqlx::{FromRow, Postgres, Transaction};
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
 
-use crate::CarbideResult;
 use crate::db::vpc_resource_action::VpcResourceAction;
+use crate::CarbideResult;
 
 #[derive(Debug, FromRow)]
 pub struct NetworkPrefixEvent {
@@ -81,11 +81,11 @@ impl NetworkPrefixEvent {
         Ok(sqlx::query_as::<_, Self>(
             "SELECT * FROM network_prefix_events WHERE network_prefix_id=ANY($1)",
         )
-            .bind(ids)
-            .fetch_all(&mut *txn)
-            .await?
-            .into_iter()
-            .into_group_map_by(|event| event.network_prefix_id))
+        .bind(ids)
+        .fetch_all(&mut *txn)
+        .await?
+        .into_iter()
+        .into_group_map_by(|event| event.network_prefix_id))
     }
 
     pub async fn for_network_prefix(
@@ -95,8 +95,8 @@ impl NetworkPrefixEvent {
         Ok(sqlx::query_as::<_, Self>(
             "SELECT * FROM network_prefix_events WHERE network_prefix_id=$1::uuid;",
         )
-            .bind(id)
-            .fetch_all(&mut *txn)
-            .await?)
+        .bind(id)
+        .fetch_all(&mut *txn)
+        .await?)
     }
 }

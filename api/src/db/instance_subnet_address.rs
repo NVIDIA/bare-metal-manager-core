@@ -41,20 +41,20 @@ impl InstanceSubnetAddress {
                 sqlx::query_as::<_, InstanceSubnetAddress>(
                     &base_query.replace("{where}", "WHERE isa.instance_subnet_id=$1"),
                 )
-                    .bind(uuid)
-                    .fetch_all(&mut *txn)
-                    .await?
+                .bind(uuid)
+                .fetch_all(&mut *txn)
+                .await?
             }
             UuidKeyedObjectFilter::List(list) => {
                 sqlx::query_as::<_, InstanceSubnetAddress>(
                     &base_query.replace("{where}", "WHERE isa.instance_subnet_id=ANY($1)"),
                 )
-                    .bind(list)
-                    .fetch_all(&mut *txn)
-                    .await?
+                .bind(list)
+                .fetch_all(&mut *txn)
+                .await?
             }
         }
-            .into_iter()
-            .into_group_map_by(|address| address.instance_subnet_id))
+        .into_iter()
+        .into_group_map_by(|address| address.instance_subnet_id))
     }
 }

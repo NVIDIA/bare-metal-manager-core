@@ -2,19 +2,19 @@ use std::convert::TryFrom;
 
 use ipnetwork::IpNetwork;
 use rust_fsm::StateMachine;
-use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use sqlx::postgres::PgRow;
+use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use ::rpc::VpcResourceStateMachine;
 use ::rpc::VpcResourceStateMachineInput;
 use rpc::forge::v0 as rpc;
 
-use crate::{CarbideError, CarbideResult};
 use crate::db::network_prefix_event::NetworkPrefixEvent;
-use crate::db::UuidKeyedObjectFilter;
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::db::vpc_resource_state::VpcResourceState;
+use crate::db::UuidKeyedObjectFilter;
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug)]
 pub struct NetworkPrefix {
@@ -114,17 +114,17 @@ impl NetworkPrefix {
                 sqlx::query_as::<_, NetworkPrefix>(
                     &base_query.replace("{where}", "WHERE segment_id=$1"),
                 )
-                    .bind(uuid)
-                    .fetch_all(&mut *txn)
-                    .await?
+                .bind(uuid)
+                .fetch_all(&mut *txn)
+                .await?
             }
             UuidKeyedObjectFilter::List(list) => {
                 sqlx::query_as::<_, NetworkPrefix>(
                     &base_query.replace("{where}", "WHERE segment_id=ANY($1)"),
                 )
-                    .bind(list)
-                    .fetch_all(&mut *txn)
-                    .await?
+                .bind(list)
+                .fetch_all(&mut *txn)
+                .await?
             }
         })
     }

@@ -49,10 +49,12 @@ fn convert_property_to_string<'a>(
             ))),
             _ => Ok(default_value),
         },
-        Some(p) => p.to_str().ok_or(CarbideClientError::GenericError(format!(
-            "Could not transform os string to string for property {}",
-            name
-        ))),
+        Some(p) => p.to_str().ok_or_else(|| {
+            CarbideClientError::GenericError(format!(
+                "Could not transform os string to string for property {}",
+                name
+            ))
+        }),
     };
 }
 
@@ -96,17 +98,17 @@ pub fn get_machine_details(
     uuid: &str,
 ) -> CarbideClientResult<rpc::MachineDiscoveryInfo> {
     // uname to detect type
-    let info = uname().or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    let info = uname().map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     log::debug!("{:?}", info);
     // Nics
-    let mut enumerator = libudev::Enumerator::new(&context)
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    let mut enumerator = libudev::Enumerator::new(context)
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     enumerator
         .match_subsystem("net")
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     let devices = enumerator
         .scan_devices()
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
 
     // mellanox ID_MODEL_ID = "0xa2d6"
     // mellanox ID_VENDOR_ID = "0x15b3"
@@ -124,9 +126,10 @@ pub fn get_machine_details(
             log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
 
-        if let Some(_) = device
+        if device
             .property_value("ID_PCI_SUBCLASS_FROM_DATABASE")
             .filter(|v| v.eq_ignore_ascii_case("Ethernet controller"))
+            .is_some()
         {
             nics.push(rpc_discovery::NetworkInterface {
                 mac_address: convert_udev_to_mac(
@@ -150,14 +153,14 @@ pub fn get_machine_details(
     // package_cpu_list = list of CPU's sharing the same physical_package_id
     // core_cpus_list = list of CPU's within the same core
     // key name in attribute of 'nodeX' indicates the numa node the CPU is part of
-    let mut enumerator = libudev::Enumerator::new(&context)
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    let mut enumerator = libudev::Enumerator::new(context)
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     enumerator
         .match_subsystem("cpu")
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     let devices = enumerator
         .scan_devices()
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
 
     for device in devices {
         log::debug!("Syspath - {:?}", device.syspath());
@@ -168,14 +171,14 @@ pub fn get_machine_details(
             log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
     }
-    let mut enumerator = libudev::Enumerator::new(&context)
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    let mut enumerator = libudev::Enumerator::new(context)
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     enumerator
         .match_subsystem("node")
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     let devices = enumerator
         .scan_devices()
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
 
     for device in devices {
         log::debug!("Syspath - {:?}", device.syspath());
@@ -189,7 +192,7 @@ pub fn get_machine_details(
     // cpus
     // TODO(baz): make this work with udev one day... I tried and it gave me useless information on the cpu subsystem
     let cpu_info =
-        procfs::CpuInfo::new().or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+        procfs::CpuInfo::new().map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
 
     let mut cpus: Vec<rpc_discovery::Cpu> = Vec::new();
     for cpu_num in 0..cpu_info.num_cores() {
@@ -200,23 +203,29 @@ pub fn get_machine_details(
                     vendor: cpu_info
                         .get_info(cpu_num)
                         .and_then(|mut m| m.remove("CPU implementer"))
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get arm vendor name".to_string(),
-                        ))?
+                        .ok_or_else(|| {
+                            CarbideClientError::GenericError(
+                                "Could not get arm vendor name".to_string(),
+                            )
+                        })?
                         .to_string(),
                     model: cpu_info
                         .get_info(cpu_num)
                         .and_then(|mut m| m.remove("CPU variant"))
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get arm model name".to_string(),
-                        ))?
+                        .ok_or_else(|| {
+                            CarbideClientError::GenericError(
+                                "Could not get arm model name".to_string(),
+                            )
+                        })?
                         .to_string(),
                     frequency: cpu_info
                         .get_info(cpu_num)
                         .and_then(|mut m| m.remove("BogoMIPS"))
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get arm frequency".to_string(),
-                        ))?
+                        .ok_or_else(|| {
+                            CarbideClientError::GenericError(
+                                "Could not get arm frequency".to_string(),
+                            )
+                        })?
                         .to_string(),
                     number: cpu_num as u32,
                     socket: 0,
@@ -228,40 +237,46 @@ pub fn get_machine_details(
                 cpus.push(rpc_discovery::Cpu {
                     vendor: cpu_info
                         .vendor_id(cpu_num)
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get vendor name".to_string(),
-                        ))?
+                        .ok_or_else(|| {
+                            CarbideClientError::GenericError(
+                                "Could not get vendor name".to_string(),
+                            )
+                        })?
                         .to_string(),
                     model: cpu_info
                         .model_name(cpu_num)
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get model name".to_string(),
-                        ))?
+                        .ok_or_else(|| {
+                            CarbideClientError::GenericError("Could not get model name".to_string())
+                        })?
                         .to_string(),
                     frequency: cpu_info
                         .get_info(cpu_num)
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get cpu info".to_string(),
-                        ))?
+                        .ok_or_else(|| {
+                            CarbideClientError::GenericError("Could not get cpu info".to_string())
+                        })?
                         .get("cpu MHz")
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get cpu MHz field".to_string(),
-                        ))?
+                        .ok_or_else(|| {
+                            CarbideClientError::GenericError(
+                                "Could not get cpu MHz field".to_string(),
+                            )
+                        })?
                         .to_string(),
                     number: cpu_num as u32,
-                    socket: cpu_info.physical_id(cpu_num).ok_or(
-                        CarbideClientError::GenericError("Could not get cpu info".to_string()),
-                    )?,
+                    socket: cpu_info.physical_id(cpu_num).ok_or_else(|| {
+                        CarbideClientError::GenericError("Could not get cpu info".to_string())
+                    })?,
                     core: cpu_info
                         .get_info(cpu_num)
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get cpu info".to_string(),
-                        ))?
+                        .ok_or_else(|| {
+                            CarbideClientError::GenericError("Could not get cpu info".to_string())
+                        })?
                         .get("core id")
                         .map(|c| c.parse::<u32>().unwrap_or(0))
-                        .ok_or(CarbideClientError::GenericError(
-                            "Could not get cpu core id field".to_string(),
-                        ))?,
+                        .ok_or_else(|| {
+                            CarbideClientError::GenericError(
+                                "Could not get cpu core id field".to_string(),
+                            )
+                        })?,
                     node: 0,
                 });
             }
@@ -275,14 +290,14 @@ pub fn get_machine_details(
     }
 
     // disks
-    let mut enumerator = libudev::Enumerator::new(&context)
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+    let mut enumerator = libudev::Enumerator::new(context)
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     enumerator
         .match_subsystem("block")
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     let devices = enumerator
         .scan_devices()
-        .or_else(|e| Err(CarbideClientError::GenericError(e.to_string())))?;
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
 
     let mut disks: Vec<rpc_discovery::BlockDevice> = Vec::new();
 
@@ -292,13 +307,14 @@ pub fn get_machine_details(
             log::debug!("{:?} - {:?}", p.name(), p.value());
         }
 
-        if let Some(_) = device
+        if device
             .property_value("DEVPATH")
             .map(|v| v.to_str())
-            .ok_or(CarbideClientError::GenericError(
-                "Could not decode DEVPATH".to_string(),
-            ))?
+            .ok_or_else(|| {
+                CarbideClientError::GenericError("Could not decode DEVPATH".to_string())
+            })?
             .filter(|v| !v.contains("virtual"))
+            .is_some()
         {
             disks.push(rpc_discovery::BlockDevice {
                 model: convert_property_to_string("ID_MODEL", "NO_MODEL", &device)?.to_string(),

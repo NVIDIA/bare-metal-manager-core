@@ -18,9 +18,12 @@ impl DhcpEntry {
         txn: &mut Transaction<'_, Postgres>,
         machine_interface_id: &uuid::Uuid,
     ) -> CarbideResult<Vec<DhcpEntry>> {
-        Ok(sqlx::query_as("SELECT * FROM dhcp_entries WHERE machine_interface_id = $1::uuid")
-            .bind(machine_interface_id)
-            .fetch_all(&mut *txn).await?)
+        Ok(
+            sqlx::query_as("SELECT * FROM dhcp_entries WHERE machine_interface_id = $1::uuid")
+                .bind(machine_interface_id)
+                .fetch_all(&mut *txn)
+                .await?,
+        )
     }
 
     pub async fn persist(

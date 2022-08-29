@@ -7,8 +7,8 @@ use sqlx::{FromRow, Postgres, Transaction};
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
 
-use crate::CarbideResult;
 use crate::db::vpc_resource_action::VpcResourceAction;
+use crate::CarbideResult;
 
 #[derive(Debug, FromRow)]
 pub struct InstanceSubnetEvent {
@@ -81,11 +81,11 @@ impl InstanceSubnetEvent {
         Ok(sqlx::query_as::<_, Self>(
             "SELECT * FROM instance_subnet_events WHERE instance_subnet_id=ANY($1)",
         )
-            .bind(ids)
-            .fetch_all(&mut *txn)
-            .await?
-            .into_iter()
-            .into_group_map_by(|event| event.instance_subnet_id))
+        .bind(ids)
+        .fetch_all(&mut *txn)
+        .await?
+        .into_iter()
+        .into_group_map_by(|event| event.instance_subnet_id))
     }
 
     pub async fn for_instance_subnet(
@@ -95,8 +95,8 @@ impl InstanceSubnetEvent {
         Ok(sqlx::query_as::<_, Self>(
             "SELECT * FROM instance_subnet_events WHERE instance_subnet_id=$1::uuid;",
         )
-            .bind(id)
-            .fetch_all(&mut *txn)
-            .await?)
+        .bind(id)
+        .fetch_all(&mut *txn)
+        .await?)
     }
 }

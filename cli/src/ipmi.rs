@@ -1,21 +1,18 @@
-use crate::IN_QEMU_VM;
-use cli::CarbideClientError;
-use cli::CarbideClientResult;
-#[cfg(not(test))]
-use log::{debug, error, info};
-
-#[cfg(test)]
-use std::{println as error, println as debug, println as info};
-use tokio::time::{sleep, Duration};
-
-use rand::Rng;
-use regex::Regex;
-use rpc::forge::v0 as rpc;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::process::Command;
+
+use rand::Rng;
+use regex::Regex;
+use tokio::time::{sleep, Duration};
 use uuid::Uuid;
+
+use cli::CarbideClientError;
+use cli::CarbideClientResult;
+use rpc::forge::v0 as rpc;
+
+use crate::IN_QEMU_VM;
 
 const PASSWORD_LEN: usize = 16;
 
@@ -113,19 +110,19 @@ impl IpmiInfo {
     }
 }
 
-struct CMD {
+struct Cmd {
     command: Command,
 }
 
-impl Default for CMD {
+impl Default for Cmd {
     fn default() -> Self {
-        CMD {
+        Cmd {
             command: Command::new("ipmitool"),
         }
     }
 }
 
-impl CMD {
+impl Cmd {
     fn args(mut self, args: Vec<&str>) -> Self {
         self.command.args(args);
         self
@@ -155,17 +152,16 @@ impl CMD {
 
 fn get_lan_print() -> CarbideClientResult<String> {
     if cfg!(test) {
-        use std::fs;
-        fs::read_to_string("test/lan_print.txt")
+        std::fs::read_to_string("test/lan_print.txt")
             .map_err(|x| cli::CarbideClientError::GenericError(x.to_string()))
     } else {
-        CMD::default().args(vec!["lan", "print"]).output()
+        Cmd::default().args(vec!["lan", "print"]).output()
     }
 }
 
 fn fetch_ipmi_ip() -> CarbideClientResult<String> {
     let pattern = Regex::new("IP Address *: (.*?)$")?;
-    info!("Fetching BMC IP Address.");
+    log::info!("Fetching BMC IP Address.");
     let output = get_lan_print()?;
     let ip = output
         .lines()
@@ -175,7 +171,7 @@ fn fetch_ipmi_ip() -> CarbideClientResult<String> {
         .collect::<Vec<String>>();
 
     if ip.is_empty() {
-        error!("Could not find IP address. Output: {}", output);
+        log::error!("Could not find IP address. Output: {}", output);
         return Err(CarbideClientError::GenericError(
             "Could not find IP address.".to_string(),
         ));
@@ -184,12 +180,12 @@ fn fetch_ipmi_ip() -> CarbideClientResult<String> {
 }
 
 fn get_user_list() -> CarbideClientResult<String> {
-    info!("Fetching current configured users list.");
+    log::info!("Fetching current configured users list.");
     if cfg!(test) {
         use std::fs;
         Ok(fs::read_to_string("test/user_list.csv").unwrap())
     } else {
-        CMD::default()
+        Cmd::default()
             .args(vec!["user", "list", "1", "-c"])
             .output()
     }
@@ -200,7 +196,7 @@ fn fetch_ipmi_users_and_free_ids() -> CarbideClientResult<(Vec<String>, HashMap<
 
     let free_ids = output
         .lines()
-        .map(|x| x.split(",").collect::<Vec<&str>>())
+        .map(|x| x.split(',').collect::<Vec<&str>>())
         .filter(|x| x[1].to_string().is_empty())
         .map(|x| x[0].to_string())
         .collect::<Vec<String>>();
@@ -208,7 +204,7 @@ fn fetch_ipmi_users_and_free_ids() -> CarbideClientResult<(Vec<String>, HashMap<
     // username: user_id mapping
     let user_to_id: HashMap<String, String> = output
         .lines()
-        .map(|x| x.split(",").collect::<Vec<&str>>())
+        .map(|x| x.split(',').collect::<Vec<&str>>())
         .filter(|x| !x[1].to_string().is_empty())
         .map(|x| (x[1].to_string(), x[0].to_string()))
         .collect();
@@ -217,7 +213,7 @@ fn fetch_ipmi_users_and_free_ids() -> CarbideClientResult<(Vec<String>, HashMap<
 }
 
 fn create_ipmi_user(id: &String, user: &String) -> CarbideClientResult<()> {
-    let _ = CMD::default()
+    let _ = Cmd::default()
         .args(vec!["user", "set", "name", id, user])
         .output()?;
     Ok(())
@@ -245,23 +241,23 @@ fn generate_password() -> String {
 
 fn set_ipmi_password(id: &String) -> CarbideClientResult<String> {
     let password = generate_password();
-    info!("Updating password for id {}", id);
-    let _ = CMD::default()
+    log::info!("Updating password for id {}", id);
+    let _ = Cmd::default()
         .args(vec!["user", "set", "password", id, &password])
         .output()?;
-    debug!("Updated password {} for id {}", password, id);
+    log::debug!("Updated password {} for id {}", password, id);
     Ok(password)
 }
 
 fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
-    info!("Setting privileges for id {}", id);
+    log::info!("Setting privileges for id {}", id);
     let role = format!("privilege={}", role as u8);
 
     // Enable user
-    let _ = CMD::default().args(vec!["user", "enable", id]).output()?;
+    let _ = Cmd::default().args(vec!["user", "enable", id]).output()?;
 
     // Set user privilege and channel access
-    let _ = CMD::default()
+    let _ = Cmd::default()
         .args(vec![
             "channel",
             "setaccess",
@@ -275,7 +271,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
         .output()?;
 
     // Enable TCP/LAN access
-    let _ = CMD::default()
+    let _ = Cmd::default()
         .args(vec!["lan", "set", "1", "access", "on"])
         .output(); // Ignore it as this command might fail in some cards.
 
@@ -292,7 +288,7 @@ fn set_ipmi_creds() -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
         let id = if let Some(user_id) = user_to_id.get(&user_name) {
             // User already exists.
             // Get Id
-            info!(
+            log::info!(
                 "User {} already exists. Only setting password and privileges.",
                 user_name
             );
@@ -305,7 +301,7 @@ fn set_ipmi_creds() -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
                     pos, user_name
                 )));
             }
-            info!("Creating user {}", user_name);
+            log::info!("Creating user {}", user_name);
             let free_id = free_ids[pos].clone();
             create_ipmi_user(&free_id, &user_name)?;
             free_id
@@ -349,7 +345,7 @@ async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
     const MAX_TIMEOUT_COUNT: u64 = MAX_TIMEOUT.as_secs() / RETRY_TIME.as_secs();
 
     for _ in 0..MAX_TIMEOUT_COUNT {
-        if let Ok(_) = CMD::default().args(vec!["lan", "print"]).output() {
+        if Cmd::default().args(vec!["lan", "print"]).output().is_ok() {
             return Ok(());
         } else {
             sleep(RETRY_TIME).await;
@@ -357,15 +353,16 @@ async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
     }
 
     // Reached here, means MAX_TIMEOUT passed and yet ipmitool command is failing.
-    return Err(CarbideClientError::GenericError(format!(
+    Err(CarbideClientError::GenericError(format!(
         "Max timout ({} seconds) is elapsed and still ipmitool is failed.",
         MAX_TIMEOUT.as_secs(),
-    )));
+    )))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     static EXPECTED_IP: &str = "127.0.0.2";
 
     #[tokio::test]

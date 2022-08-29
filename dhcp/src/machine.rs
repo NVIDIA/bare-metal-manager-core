@@ -254,8 +254,7 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
 
     std::mem::forget(machine);
 
-    fqdn.map(|f| f.into_raw())
-        .unwrap_or(ptr::null_mut())
+    fqdn.map(|f| f.into_raw()).unwrap_or(ptr::null_mut())
 }
 
 #[no_mangle]

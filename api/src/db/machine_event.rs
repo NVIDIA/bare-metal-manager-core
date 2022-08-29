@@ -7,8 +7,8 @@ use sqlx::{FromRow, Postgres, Transaction};
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
 
-use crate::CarbideResult;
 use crate::db::machine_action::MachineAction;
+use crate::CarbideResult;
 
 /// Representation of an event (state transition) on a machine.
 ///

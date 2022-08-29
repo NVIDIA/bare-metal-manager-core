@@ -4,17 +4,16 @@ use kube::{
     api::{Api, PostParams, ResourceExt},
     Client,
 };
-use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use sqlx;
 use sqlx::PgConnection;
-use sqlxmq::{CurrentJob, job, JobRegistry, OwnedHandle};
+use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
-use crate::{CarbideError, CarbideResult};
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::vpc_resources::{leaf, managed_resource, resource_group};
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum VpcResourceActions {
@@ -43,7 +42,7 @@ impl VpcResourceActions {
     async fn enqueue(&self, pool: &mut PgConnection) -> CarbideResult<Uuid> {
         let json = serde_json::to_string(self)?;
 
-        info!("Job definition {}", &json);
+        log::info!("Job definition {}", &json);
 
         // TODO retry_backoff should be configurable in CLI
 
@@ -86,11 +85,11 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
             state,
         },
     )
-        .await
+    .await
     {
         Ok(_) => (),
         Err(x) => {
-            error!("Status update failed. Error: {:?}", x)
+            log::error!("Status update failed. Error: {:?}", x)
         }
     }
 }
@@ -101,7 +100,7 @@ pub async fn vpc_reconcile_handler(
     url: String,
     kube_enabled: bool,
 ) -> CarbideResult<()> {
-    debug!("Kubernetes integration is: {}", kube_enabled);
+    log::debug!("Kubernetes integration is: {}", kube_enabled);
 
     let state_pool = Db::new(&url).await?.0;
     let status_pool = Db::new(&url).await?.0;
@@ -119,7 +118,7 @@ pub async fn vpc_reconcile_handler(
     // Retrieve job payload as JSON
     let data: Option<String> = current_job.json()?;
 
-    debug!("JOB DEFINITION: {:?}", &data);
+    log::debug!("JOB DEFINITION: {:?}", &data);
 
     // Parse payload as JSON into VpcResource
     let vpc_resource: VpcResourceActions = serde_json::from_str(&(data.unwrap()))?;
@@ -130,9 +129,9 @@ pub async fn vpc_reconcile_handler(
         "Json parsing ok.".to_string(),
         TaskState::Ongoing,
     )
-        .await;
+    .await;
 
-    info!("Kubernetes integration is: {}", kube_enabled);
+    log::info!("Kubernetes integration is: {}", kube_enabled);
 
     if kube_enabled {
         let client = Client::try_default().await?;
@@ -169,7 +168,7 @@ pub async fn vpc_reconcile_handler(
                             format!("{} Created", s.name()),
                             TaskState::Finished,
                         )
-                            .await;
+                        .await;
 
                         let _ = current_job.complete().await.map_err(CarbideError::from);
                         // After job is marked as complete move VpcResourceStateMachine to accepted
@@ -190,7 +189,7 @@ pub async fn vpc_reconcile_handler(
                             "Unable to create resource".to_string(),
                             TaskState::Error(error.to_string()),
                         )
-                            .await;
+                        .await;
                         // If error move VpcResourceStateMachine to Fail and commit txn
                         vpc_db_resource
                             .advance(&mut new_txn, &rpc::VpcResourceStateMachineInput::Fail)
@@ -214,7 +213,7 @@ pub async fn vpc_reconcile_handler(
                     format!("VPC Resource {} deleted", spec.name()),
                     TaskState::Finished,
                 )
-                    .await;
+                .await;
                 let _ = current_job.complete().await.map_err(CarbideError::from);
             }
             VpcResourceActions::UpdateLeaf(_spec) => {
@@ -245,7 +244,7 @@ pub async fn vpc_reconcile_handler(
                     format!("Started status job for VPC Leaf {}", spec.name()).to_string(),
                     TaskState::Started,
                 )
-                    .await;
+                .await;
 
                 let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), namespace);
                 let mut leaf_to_status = leafs.get_status(spec.name().as_ref()).await?;
@@ -256,7 +255,7 @@ pub async fn vpc_reconcile_handler(
                     format!("Waiting for status from VPC Leaf {}", spec.name()).to_string(),
                     TaskState::Ongoing,
                 )
-                    .await;
+                .await;
 
                 resource
                     .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Wait)
@@ -267,10 +266,10 @@ pub async fn vpc_reconcile_handler(
 
                 loop {
                     if leaf_to_status.status.is_some() {
-                        info!("Status CRD for LeafSpec {}", spec.name());
+                        log::info!("Status CRD for LeafSpec {}", spec.name());
                         break;
                     }
-                    info!(
+                    log::info!(
                         "Received status for LeafSpec {} ---- {:?}",
                         spec.name(),
                         leaf_to_status.status
@@ -280,7 +279,7 @@ pub async fn vpc_reconcile_handler(
                 }
 
                 /*            while leaf_to_status.status.is_none() {
-                                debug!("Waiting for status from VPC Resource: {}", spec.name());
+                                log::debug!("Waiting for status from VPC Resource: {}", spec.name());
                                 tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
 
                                 update_status(
@@ -299,8 +298,8 @@ pub async fn vpc_reconcile_handler(
                                 let _ = current_job.complete().await.map_err(CarbideError::from);
                             }
                 */
-                debug!("Status for VPC Resource: {} received", spec.name());
-                debug!(
+                log::debug!("Status for VPC Resource: {} received", spec.name());
+                log::debug!(
                     "Status for VPC Resource is -------------- {:?}",
                     spec.status
                 );
@@ -316,7 +315,7 @@ pub async fn vpc_reconcile_handler(
 }
 
 pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideResult<OwnedHandle> {
-    info!("Starting Kubernetes handler.");
+    log::info!("Starting Kubernetes handler.");
     let mut registry = JobRegistry::new(&[vpc_reconcile_handler]);
 
     registry.set_context(url.clone());
@@ -329,7 +328,7 @@ pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideRes
         let client = Client::try_default().await?;
         let api_version = client.apiserver_version().await?;
 
-        info!(
+        log::info!(
             "Kube API reachable. Kube Version info: {}",
             serde_json::json!(api_version)
         );

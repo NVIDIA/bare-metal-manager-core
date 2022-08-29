@@ -8,8 +8,9 @@ use tower::ServiceBuilder;
 
 use ::rpc::MachineStateMachineInput;
 use auth::CarbideAuth;
+use carbide::ipmi::ipmi_handler;
+use carbide::kubernetes::bgkubernetes_handler;
 use carbide::{
-    CarbideError,
     db::{
         auth::SshKeyValidationRequest,
         dhcp_entry::DhcpEntry,
@@ -25,12 +26,11 @@ use carbide::{
         network_segment::{NetworkSegment, NewNetworkSegment},
         resource_record::DnsQuestion,
         tags::{Tag, TagAssociation, TagCreate, TagDelete, TagsList},
-        UuidKeyedObjectFilter,
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
+        UuidKeyedObjectFilter,
     },
+    CarbideError,
 };
-use carbide::ipmi::ipmi_handler;
-use carbide::kubernetes::bgkubernetes_handler;
 pub use rpc::forge::v0 as rpc;
 
 use crate::auth;
@@ -78,7 +78,11 @@ impl Forge for Api {
             .await
             .map(|dnsrr| rpc::dns_message::DnsResponse {
                 rcode: dnsrr.response_code,
-                rrs: dnsrr.resource_records.into_iter().map(|r| r.into()).collect(),
+                rrs: dnsrr
+                    .resource_records
+                    .into_iter()
+                    .map(|r| r.into())
+                    .collect(),
             })
             .map(Response::new)
             .map_err(CarbideError::from)?;
@@ -183,7 +187,7 @@ impl Forge for Api {
                 Err(_) => Err(CarbideError::GenericError(
                     "Could not marshall an ID from the request".to_string(),
                 )
-                    .into()),
+                .into()),
             },
             _ => Err(
                 CarbideError::GenericError("Could not find an ID in the request".to_string())
@@ -264,7 +268,7 @@ impl Forge for Api {
                     parsed_mac,
                     parsed_relay,
                 )
-                    .await
+                .await
             }
             1 => {
                 let mut ifcs = MachineInterface::find_by_mac_address(&mut txn, parsed_mac).await?;
@@ -296,8 +300,8 @@ impl Forge for Api {
                 machine_interface_id: *machine_interface.id(),
                 vendor_class: vendor,
             }
-                .persist(&mut txn)
-                .await;
+            .persist(&mut txn)
+            .await;
             match res {
                 Ok(_) => {} // do nothing on ok result
                 Err(e) => {
@@ -356,7 +360,7 @@ impl Forge for Api {
             None => Err(CarbideError::NotFoundError(uuid).into()),
             Some(machine) => Ok(rpc::Machine::from(machine)),
         }
-            .map(Response::new);
+        .map(Response::new);
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -722,7 +726,7 @@ impl Forge for Api {
             None => Err(CarbideError::NotFoundError(uuid).into()),
             Some(machine) => Ok(rpc::Machine::from(machine)),
         }
-            .map(Response::new);
+        .map(Response::new);
 
         txn.commit().await.map_err(CarbideError::from)?;
 

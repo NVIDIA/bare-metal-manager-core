@@ -2,13 +2,13 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sqlx;
-use sqlxmq::{CurrentJob, job, JobRegistry, OwnedHandle};
+use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
 use freeipmi_sys::{self, IpmiChassisControl};
 
-use crate::{CarbideError, CarbideResult};
 use crate::bg::{CurrentState, Status, TaskState};
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 enum IpmiTask {
@@ -34,7 +34,7 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
             state,
         },
     )
-        .await
+    .await
     {
         Ok(_) => (),
         Err(x) => {
@@ -44,8 +44,8 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
 }
 
 //Ron: this isn't the right way to do this -- it should be a trait that has this function
-//so that we don't conditionally compile out code during tests.  We have to do shenanigans with 
-//impots 
+//so that we don't conditionally compile out code during tests.  We have to do shenanigans with
+//impots
 #[cfg(test)]
 async fn handle_ipmi_command(cmd: IpmiCommand) -> CarbideResult<String> {
     match cmd.action.unwrap() {
@@ -117,7 +117,7 @@ async fn command_handler(mut current_job: CurrentJob) -> CarbideResult<()> {
         "Json parsing ok.".to_string(),
         TaskState::Ongoing,
     )
-        .await;
+    .await;
 
     if cmd.action.is_none() {
         return Err(CarbideError::GenericError(
@@ -139,7 +139,7 @@ async fn command_handler(mut current_job: CurrentJob) -> CarbideResult<()> {
                 "Failed.".to_string(),
                 TaskState::Error(e.to_string()),
             )
-                .await;
+            .await;
             Err(e)
         }
     }

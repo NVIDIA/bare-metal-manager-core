@@ -301,19 +301,19 @@ extern "C" {
     pub fn ipmi_ctx_get_flags(ctx: IpmiContextType, flags: *mut c_uint) -> c_int;
     /// Inner libfreeipmi C unsafe API - set context flags
     pub fn ipmi_ctx_set_flags(ctx: IpmiContextType, flags: c_uint) -> c_int; // use with care
-/// Inner libfreeipmi C unsafe API - setup IPMI 1.5 lan session
-pub fn ipmi_ctx_open_outofband(
-    ctx: IpmiContextType,
-    hostname: *const c_char,
-    username: *const c_char,
-    password: *const c_char,
-    authentication_type: c_uchar,
-    privilege_level: c_uchar,
-    session_timeout: c_uint,
-    retransmission_timeout: c_uint,
-    workaround_flags: c_uint,
-    flags: c_uint,
-) -> c_int;
+    /// Inner libfreeipmi C unsafe API - setup IPMI 1.5 lan session
+    pub fn ipmi_ctx_open_outofband(
+        ctx: IpmiContextType,
+        hostname: *const c_char,
+        username: *const c_char,
+        password: *const c_char,
+        authentication_type: c_uchar,
+        privilege_level: c_uchar,
+        session_timeout: c_uint,
+        retransmission_timeout: c_uint,
+        workaround_flags: c_uint,
+        flags: c_uint,
+    ) -> c_int;
     /// Inner libfreeipmi C unsafe API - setup IPMI 2.0 lanplus session
     pub fn ipmi_ctx_open_outofband_2_0(
         ctx: IpmiContextType,
@@ -472,18 +472,18 @@ pub fn ipmi_ctx_open_outofband(
 /// with management of unsafe blocks and C variables and buffers.
 /// Also requires familiarity with ipmi and libfreeipmi.
 pub mod ipmi {
-    use std::{fmt, ptr};
     use std::ffi::CString;
     use std::ptr::null_mut;
+    use std::{fmt, ptr};
 
     use libc::{c_int, c_ulonglong};
 
     use crate::{
-        fiid_obj_create, fiid_obj_destroy, FIID_OBJ_GET, FiidObj,
-        ipmi_cmd_chassis_control, ipmi_cmd_get_chassis_status, ipmi_ctx_close, ipmi_ctx_create,
-        ipmi_ctx_destroy, ipmi_ctx_open_inband, ipmi_ctx_open_outofband, ipmi_ctx_open_outofband_2_0,
-        IpmiAuthenticationType, IpmiChassisControl, IpmiChassisIdentifyState, IpmiCipherSuite, IpmiContextType,
-        IpmiDevice, IpmiError, IpmiErrorNum, IpmiPrivilegeLevel, PowerRestorePolicyState,
+        fiid_obj_create, fiid_obj_destroy, ipmi_cmd_chassis_control, ipmi_cmd_get_chassis_status,
+        ipmi_ctx_close, ipmi_ctx_create, ipmi_ctx_destroy, ipmi_ctx_open_inband,
+        ipmi_ctx_open_outofband, ipmi_ctx_open_outofband_2_0, FiidObj, IpmiAuthenticationType,
+        IpmiChassisControl, IpmiChassisIdentifyState, IpmiCipherSuite, IpmiContextType, IpmiDevice,
+        IpmiError, IpmiErrorNum, IpmiPrivilegeLevel, PowerRestorePolicyState, FIID_OBJ_GET,
     };
     use crate::{tmpl_cmd_chassis_control_rs, tmpl_cmd_get_chassis_status_rs};
 
