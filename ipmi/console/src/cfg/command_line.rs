@@ -26,19 +26,19 @@ pub(crate) enum Command {
 #[derive(Parser)]
 pub struct Daemon {
     #[clap(
-    short,
-    long,
-    multiple_values(true),
-    require_equals(true),
-    default_value = "0.0.0.0:2222"
+        short,
+        long,
+        multiple_values(true),
+        require_equals(true),
+        default_value = "0.0.0.0:2222"
     )]
     pub listen: Vec<std::net::SocketAddr>,
 
     #[clap(
-    short,
-    long,
-    require_equals(true),
-    default_value = "http://172.20.0.14:1079"
+        short,
+        long,
+        require_equals(true),
+        default_value = "http://172.20.0.14:1079"
     )]
     pub api_endpoint: String,
 

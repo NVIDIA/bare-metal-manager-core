@@ -3,8 +3,8 @@
 //!
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use sqlx::{FromRow, Postgres, Row, Transaction};
 use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::CarbideResult;

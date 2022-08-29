@@ -6,7 +6,12 @@ use serde::{Deserialize, Serialize};
 
 /// LeafSpec defines the desired state of Leaf
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[kube(group = "networkfabric.vpc.forge.gitlab-master.nvidia.com", version = "v1alpha1", kind = "Leaf", plural = "leafs")]
+#[kube(
+    group = "networkfabric.vpc.forge.gitlab-master.nvidia.com",
+    version = "v1alpha1",
+    kind = "Leaf",
+    plural = "leafs"
+)]
 #[kube(namespaced)]
 #[kube(status = "LeafStatus")]
 pub struct LeafSpec {
@@ -83,4 +88,3 @@ pub struct LeafStatusConditions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
 }
-

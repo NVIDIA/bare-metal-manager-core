@@ -1,5 +1,4 @@
-#[allow(unused_imports)]
-use log::{debug, error, info, LevelFilter, trace, warn};
+use log::LevelFilter;
 use sqlx::PgPool;
 
 use cfg::{Command, Options};

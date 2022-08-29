@@ -6,11 +6,10 @@ use std::net::IpAddr;
 
 use chrono::prelude::*;
 use ipnetwork::IpNetwork;
-use log::{info, warn};
 use mac_address::MacAddress;
 use rust_fsm::StateMachine;
-use sqlx::{FromRow, Postgres, Row, Transaction};
 use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use ::rpc::MachineStateMachine;
@@ -18,12 +17,12 @@ use ::rpc::MachineStateMachineInput;
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
 
-use crate::{CarbideError, CarbideResult};
 use crate::db::machine_action::MachineAction;
 use crate::db::machine_event::MachineEvent;
 use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_state::MachineState;
 use crate::human_hash;
+use crate::{CarbideError, CarbideResult};
 
 use super::UuidKeyedObjectFilter;
 
@@ -141,7 +140,7 @@ impl Machine {
     ) -> CarbideResult<Self> {
         match interface.machine_id {
             None => {
-                let row: (Uuid, ) =
+                let row: (Uuid,) =
                     sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
                         .fetch_one(&mut *txn)
                         .await?;
@@ -164,7 +163,7 @@ impl Machine {
                 Ok(machine)
             }
             Some(x) => {
-                info!("Machine already exists, returning machine {}", x);
+                log::info!("Machine already exists, returning machine {}", x);
                 Ok(Machine::find_one(&mut *txn, x).await?.unwrap())
             }
         }
@@ -179,10 +178,10 @@ impl Machine {
             sqlx::query_as(
                 "UPDATE machines SET vpc_leaf_id=$1::uuid where id=$2::uuid RETURNING *",
             )
-                .bind(vpc_leaf_id)
-                .bind(machine_id)
-                .fetch_one(&mut *txn)
-                .await?,
+            .bind(vpc_leaf_id)
+            .bind(machine_id)
+            .fetch_one(&mut *txn)
+            .await?,
         )
     }
 
@@ -203,7 +202,7 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
         relay: IpAddr,
-    ) -> CarbideResult<Vec<(Uuid, )>> {
+    ) -> CarbideResult<Vec<(Uuid,)>> {
         let sql = r#"
         SELECT m.id FROM
             machines m
@@ -308,13 +307,13 @@ impl Machine {
             .consume(action)
             .map_err(CarbideError::InvalidState)?;
 
-        let id: (i64, ) = sqlx::query_as(
+        let id: (i64,) = sqlx::query_as(
             "INSERT INTO machine_events (machine_id, action) VALUES ($1::uuid, $2) RETURNING id",
         )
-            .bind(self.id())
-            .bind(MachineAction::from(action))
-            .fetch_one(txn)
-            .await?;
+        .bind(self.id())
+        .bind(MachineAction::from(action))
+        .fetch_one(txn)
+        .await?;
 
         log::info!("Event ID is {}", id.0);
 
@@ -368,13 +367,13 @@ impl Machine {
             if let Some(events) = events_for_machine.remove(&machine.id) {
                 machine.events = events;
             } else {
-                warn!("Machine {0} () has no events", machine.id);
+                log::warn!("Machine {0} () has no events", machine.id);
             }
 
             if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
                 machine.interfaces = interfaces;
             } else {
-                warn!("Machine {0} () has no interfaces", machine.id);
+                log::warn!("Machine {0} () has no interfaces", machine.id);
             }
 
             machine.state = machine

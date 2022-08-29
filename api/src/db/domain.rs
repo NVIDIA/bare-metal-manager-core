@@ -1,26 +1,26 @@
 use std::convert::TryFrom;
 
 use chrono::prelude::*;
-use sqlx::{FromRow, Postgres, Transaction};
 use sqlx::types::uuid;
+use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
 
-use crate::{CarbideError, CarbideResult};
 use crate::db::UuidKeyedObjectFilter;
+use crate::{CarbideError, CarbideResult};
 
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
 const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 
 /// Domain
-/// Dervied trait sqlx::FromRow consist of a series of calls to
+/// Derived trait sqlx::FromRow consist of a series of calls to
 /// [`Row::try_get`] using the name from each struct field
 #[derive(Clone, Debug, FromRow)]
 pub struct Domain {
     /// Uuid is use
-    id: uuid::Uuid,
+    id: Uuid,
     /// domain name e.g. mycompany.com, subdomain.mycompany.com
     name: String,
 
@@ -35,13 +35,12 @@ pub struct NewDomain {
     pub name: String,
 }
 
-#[allow(dead_code)]
 pub struct UpdateDomain {
     pub name: String,
     pub updated: DateTime<Utc>,
 }
 
-// Marshal Domain object into Probobuf
+// Marshal Domain object into Protobuf
 impl From<Domain> for rpc::Domain {
     fn from(src: Domain) -> Self {
         rpc::Domain {
@@ -92,26 +91,22 @@ impl NewDomain {
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e)
-                if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
-                    {
-                        CarbideError::InvalidDomainName(String::from(&self.name))
-                    }
+                    if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
+                {
+                    CarbideError::InvalidDomainName(String::from(&self.name))
+                }
                 sqlx::Error::Database(e)
-                if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
-                    {
-                        CarbideError::InvalidDomainName(String::from(&self.name))
-                    }
+                    if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
+                {
+                    CarbideError::InvalidDomainName(String::from(&self.name))
+                }
                 _ => CarbideError::from(err),
             })
     }
 }
 
 impl UpdateDomain {
-    #[allow(dead_code)]
-    pub async fn persist(
-        &self,
-        _txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<Domain> {
+    pub async fn persist(&self, _txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Domain> {
         todo!()
     }
 }

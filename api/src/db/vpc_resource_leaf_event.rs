@@ -80,11 +80,11 @@ impl VpcResourceLeafEvent {
         Ok(sqlx::query_as::<_, Self>(
             "SELECT * FROM vpc_resource_leaf_events WHERE vpc_leaf_id=ANY($1)",
         )
-            .bind(ids)
-            .fetch_all(&mut *txn)
-            .await?
-            .into_iter()
-            .into_group_map_by(|event| event.vpc_leaf_id))
+        .bind(ids)
+        .fetch_all(&mut *txn)
+        .await?
+        .into_iter()
+        .into_group_map_by(|event| event.vpc_leaf_id))
     }
 
     pub async fn for_leaf(
@@ -94,8 +94,8 @@ impl VpcResourceLeafEvent {
         Ok(sqlx::query_as::<_, Self>(
             "SELECT * FROM vpc_resource_leaf_events WHERE vpc_leaf_id=$1::uuid;",
         )
-            .bind(id)
-            .fetch_all(&mut *txn)
-            .await?)
+        .bind(id)
+        .fetch_all(&mut *txn)
+        .await?)
     }
 }

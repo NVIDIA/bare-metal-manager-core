@@ -1,8 +1,8 @@
 use std::convert::{TryFrom, TryInto};
 
 use chrono::prelude::*;
-use sqlx::{Error, Postgres, Row};
 use sqlx::postgres::PgRow;
+use sqlx::{Error, Postgres, Row};
 use uuid::Uuid;
 
 use ::rpc::Timestamp;
@@ -162,8 +162,8 @@ impl DeactivateInstanceType {
         Ok(sqlx::query_as(
             "UPDATE instance_types SET active=false, updated=now() WHERE id=$1 RETURNING *",
         )
-            .bind(&self.id)
-            .fetch_one(&mut *txn)
-            .await?)
+        .bind(&self.id)
+        .fetch_one(&mut *txn)
+        .await?)
     }
 }

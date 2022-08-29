@@ -100,10 +100,7 @@ pub struct CarbideAuthClaims {
     vpc: Option<String>,
 }
 
-#[allow(dead_code)]
 pub mod authorization {
-    use log::info;
-
     use super::AuthError;
     use super::Request;
 
@@ -139,6 +136,7 @@ pub mod authorization {
     }
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)] //TODO: remove this once auth is used
     pub enum PrivilegeRequirement {
         Require(Privilege),
         Unprivileged,
@@ -146,6 +144,7 @@ pub mod authorization {
 
     impl PrivilegeRequirement {
         // Enforce requirement against a request.
+        #[allow(dead_code)] //TODO: remove this once auth is used
         pub fn authorize_request<B>(&self, request: &Request<B>) -> Result<(), AuthError> {
             let request_auth = request.extensions().get::<RequestAuth>();
             self.authorize(request_auth)
@@ -164,7 +163,9 @@ pub mod authorization {
                 // Insufficient permission level, but allowed under permissive
                 // mode.
                 (false, Some(true)) => {
-                    info!("Request with insufficient authorization allowed due to permissive mode");
+                    log::info!(
+                        "Request with insufficient authorization allowed due to permissive mode"
+                    );
                     Ok(())
                 }
 
@@ -204,10 +205,11 @@ pub mod authorization {
                 Some(p) => p,
             };
 
-            use Privilege::*;
             match (req, privilege) {
-                (_, SiteAdmin) => true,
-                (VpcAdmin(vpc1), VpcAdmin(vpc2)) if vpc1.as_str() == vpc2 => true,
+                (_, Privilege::SiteAdmin) => true,
+                (Privilege::VpcAdmin(vpc1), Privilege::VpcAdmin(vpc2)) if vpc1.as_str() == vpc2 => {
+                    true
+                }
                 (_, _) => false,
             }
         }
@@ -235,6 +237,38 @@ pub mod authorization {
     }
 
     pub type PrivilegeResult = Result<Privilege, AuthError>;
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+
+        #[test]
+        pub fn test_can_accept() {
+            let privilege_requirement = PrivilegeRequirement::Unprivileged;
+            assert!(privilege_requirement.can_accept(None));
+        }
+
+        #[test]
+        pub fn test_authorization() {
+            let privilege_requirement = PrivilegeRequirement::Unprivileged;
+            privilege_requirement.authorize(None).unwrap();
+
+            let privilege_requirement = PrivilegeRequirement::Require(Privilege::SiteAdmin);
+            match privilege_requirement.authorize(None) {
+                Err(AuthError::InsufficientPrivilegeLevel(_)) => {}
+                _ => {
+                    panic!("should have failed with insufficient privilege level");
+                }
+            }
+        }
+
+        #[test]
+        pub fn test_authorize_request() {
+            let request: Request<Vec<u8>> = Request::new(vec![]);
+            let privilege_requirement = PrivilegeRequirement::Unprivileged;
+            privilege_requirement.authorize_request(&request).unwrap();
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug, Clone)]

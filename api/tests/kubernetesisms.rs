@@ -1,7 +1,7 @@
 use std::sync::Once;
 
-use kube::{Api, Client};
 use kube::api::PostParams;
+use kube::{Api, Client};
 use log::LevelFilter;
 
 use carbide::vpc_resources::leaf;

@@ -239,7 +239,14 @@ pub mod ipmi_console {
     use errno::errno;
     use libc::{c_int, ssize_t};
 
-    use crate::{AuthenticationType, CipherSuite, ipmi_console_constants, ipmiconsole_ctx_create, ipmiconsole_ctx_destroy, ipmiconsole_ctx_errnum, ipmiconsole_ctx_fd, ipmiconsole_ctx_generate_break, ipmiconsole_engine_init, ipmiconsole_engine_submit_block, ipmiconsole_engine_teardown, IpmiConsoleContextType, IpmiConsoleEngineConfig, IpmiConsoleError, IpmiConsoleErrorKind, IpmiConsoleIpmiConfig, IpmiConsoleProtocolConfig, PrivilegeLevel};
+    use crate::{
+        ipmi_console_constants, ipmiconsole_ctx_create, ipmiconsole_ctx_destroy,
+        ipmiconsole_ctx_errnum, ipmiconsole_ctx_fd, ipmiconsole_ctx_generate_break,
+        ipmiconsole_engine_init, ipmiconsole_engine_submit_block, ipmiconsole_engine_teardown,
+        AuthenticationType, CipherSuite, IpmiConsoleContextType, IpmiConsoleEngineConfig,
+        IpmiConsoleError, IpmiConsoleErrorKind, IpmiConsoleIpmiConfig, IpmiConsoleProtocolConfig,
+        PrivilegeLevel,
+    };
 
     pub struct IpmiConsoleContext {
         hostname: String,

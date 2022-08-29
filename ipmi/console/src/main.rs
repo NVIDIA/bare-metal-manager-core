@@ -80,20 +80,20 @@ mod tests {
 
     async fn insert_dummy_vals(pool: sqlx::PgPool) {
         println!("Inserting dummy data");
-        let row: (Uuid, ) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES returning id")
+        let row: (Uuid,) = sqlx::query_as("INSERT INTO machines DEFAULT VALUES returning id")
             .fetch_one(&pool)
             .await
             .unwrap();
         let id = row.0;
         println!("{}", id);
-        let _: (Uuid, ) = sqlx::query_as(
+        let _: (Uuid,) = sqlx::query_as(
             "INSERT INTO network_segments (id, name) VALUES ($1, 'test_network') returning id",
         )
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let _: (Uuid, ) =
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let _: (Uuid,) =
             sqlx::query_as("INSERT INTO domains (id, name) VALUES ($1, 'test.com') returning id")
                 .bind(id)
                 .fetch_one(&pool)
@@ -147,16 +147,13 @@ mod tests {
     async fn test_thrussh() {
         let pool = get_database_connection().await.unwrap();
         use std::env;
-        match env::var("SSH_PROXY_MT_ENV") {
-            Ok(_) => {
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(20000),
-                    server::run(pool, "127.0.0.1:2224".parse().unwrap()),
-                )
-                    .await
-                    .unwrap_or(());
-            }
-            Err(_) => (),
+        if env::var("SSH_PROXY_MT_ENV").is_ok() {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(20000),
+                server::run(pool, "127.0.0.1:2224".parse().unwrap()),
+            )
+            .await
+            .unwrap_or(());
         }
     }
 }

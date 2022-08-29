@@ -180,7 +180,7 @@ impl BmcMetaData {
                        RETURNING mt.machine_id"#;
 
         for data in &self.data {
-            let _: (Uuid, ) = sqlx::query_as(query)
+            let _: (Uuid,) = sqlx::query_as(query)
                 .bind(&self.machine_id)
                 .bind(&data.username)
                 .bind(&data.role)
@@ -203,7 +203,7 @@ impl BmcMetaData {
                        WHERE machine_id=$2
                        RETURNING machine_id"#;
 
-        let _: Option<(Uuid, )> = sqlx::query_as(query)
+        let _: Option<(Uuid,)> = sqlx::query_as(query)
             .bind(&json!(self.ip))
             .bind(&self.machine_id)
             .fetch_optional(&mut *txn)

@@ -4,15 +4,14 @@ use std::sync::{Arc, Mutex};
 
 use futures::executor::block_on;
 use lazy_static::lazy_static;
-use log::error;
 use sqlx::PgPool;
-use thrussh::{ChannelId, CryptoVec};
 use thrussh::server::{Handle, Session};
+use thrussh::{ChannelId, CryptoVec};
 use tokio::sync::mpsc::channel;
 use tokio::time;
 use uuid::Uuid;
 
-use carbide::{bg::Status, CarbideError, CarbideResult, ipmi};
+use carbide::{bg::Status, ipmi, CarbideError, CarbideResult};
 use console::ConsoleError;
 use rpc::forge::v0::UserRoles;
 
@@ -218,7 +217,7 @@ impl AsyncWrapper {
     fn handle_power_command(server: Server, channel: ChannelId, data: String) -> Server {
         let clients = server.clients.clone();
         let task_state = server.task_state.clone();
-        let ipmi_info = server.host_info.clone().unwrap().ipmi_info.unwrap().clone();
+        let ipmi_info = server.host_info.clone().unwrap().ipmi_info.unwrap();
         let pool = server.pool.clone();
         let prompt = server.get_prompt();
         let exec_mode = server.exec_mode;
@@ -274,7 +273,7 @@ impl AsyncWrapper {
     fn handle_sol_command(server: Server, channel: ChannelId, _force: bool) -> Server {
         let clients = server.clients.clone();
         let task_state = server.task_state.clone();
-        let _ipmi_info = server.host_info.clone().unwrap().ipmi_info.unwrap().clone();
+        let _ipmi_info = server.host_info.clone().unwrap().ipmi_info.unwrap();
         let prompt = server.get_prompt();
         let exec_mode = server.exec_mode;
         *task_state.lock().unwrap() = TaskState::Running;
@@ -331,7 +330,7 @@ pub fn command_handler(
 
     // Add audit data here.
     if server.current_command.is_none() {
-        error!("No idea how got a empty current_command.");
+        log::error!("No idea how got a empty current_command.");
         return (server, session);
     }
 

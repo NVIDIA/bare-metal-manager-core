@@ -4,7 +4,12 @@ use serde::{Deserialize, Serialize};
 
 /// ManagedResourceSpec defines the desired state of ManagedResource
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[kube(group = "resource.vpc.forge.gitlab-master.nvidia.com", version = "v1alpha1", kind = "ManagedResource", plural = "managedresources")]
+#[kube(
+    group = "resource.vpc.forge.gitlab-master.nvidia.com",
+    version = "v1alpha1",
+    kind = "ManagedResource",
+    plural = "managedresources"
+)]
 #[kube(namespaced)]
 #[kube(status = "ManagedResourceStatus")]
 pub struct ManagedResourceSpec {
@@ -108,4 +113,3 @@ pub struct ManagedResourceStatusNetworkFabricReference {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<String>,
 }
-

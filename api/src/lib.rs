@@ -1,6 +1,5 @@
 use std::net::IpAddr;
 
-use log::info;
 use mac_address::MacAddress;
 use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
@@ -150,7 +149,7 @@ impl From<kube::Error> for CarbideError {
 ///
 impl From<sqlx::Error> for CarbideError {
     fn from(error: sqlx::Error) -> CarbideError {
-        info!("Error: {:?}", error);
+        log::info!("Error: {:?}", error);
 
         if let Some(sql_error) = error.as_database_error() {
             let postgres_error: &PgDatabaseError = sql_error.downcast_ref();

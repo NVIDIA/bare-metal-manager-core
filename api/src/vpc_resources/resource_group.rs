@@ -4,7 +4,12 @@ use serde::{Deserialize, Serialize};
 
 /// ResourceGroupSpec defines the desired state of ResourceGroup.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[kube(group = "resource.vpc.forge.gitlab-master.nvidia.com", version = "v1alpha1", kind = "ResourceGroup", plural = "resourcegroups")]
+#[kube(
+    group = "resource.vpc.forge.gitlab-master.nvidia.com",
+    version = "v1alpha1",
+    kind = "ResourceGroup",
+    plural = "resourcegroups"
+)]
 #[kube(namespaced)]
 #[kube(status = "ResourceGroupStatus")]
 pub struct ResourceGroupSpec {
@@ -140,4 +145,3 @@ pub struct ResourceGroupStatusSoftwareNetworkConfiguration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ovn_service_name: Option<String>,
 }
-

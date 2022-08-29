@@ -4,20 +4,17 @@ use std::net::IpAddr;
 use chrono::prelude::*;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use log::warn;
 use patricia_tree::PatriciaMap;
+use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
-use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
 
-use crate::{
-    CarbideError, CarbideResult, db::UuidKeyedObjectFilter,
-};
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
+use crate::{db::UuidKeyedObjectFilter, CarbideError, CarbideResult};
 
 #[derive(Debug)]
 pub enum IpAllocationError {
@@ -212,17 +209,17 @@ impl NetworkSegment {
                 sqlx::query_as::<_, NetworkSegment>(
                     &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
                 )
-                    .bind(uuids)
-                    .fetch_all(&mut *txn)
-                    .await?
+                .bind(uuids)
+                .fetch_all(&mut *txn)
+                .await?
             }
             UuidKeyedObjectFilter::One(uuid) => {
                 sqlx::query_as::<_, NetworkSegment>(
                     &base_query.replace("{where}", "WHERE network_segments.id=$1"),
                 )
-                    .bind(uuid)
-                    .fetch_all(&mut *txn)
-                    .await?
+                .bind(uuid)
+                .fetch_all(&mut *txn)
+                .await?
             }
         };
 
@@ -243,7 +240,7 @@ impl NetworkSegment {
             if let Some(prefixes) = grouped_prefixes.remove(&record.id) {
                 record.prefixes = prefixes;
             } else {
-                warn!("Network {0} ({1}) has no prefixes?", record.id, record.name);
+                log::warn!("Network {0} ({1}) has no prefixes?", record.id, record.name);
             }
         });
 
@@ -311,7 +308,7 @@ impl NetworkSegment {
                     }
                 }
 
-                excluded_ips.extend(used_ips.iter().filter_map(|(ip, )| {
+                excluded_ips.extend(used_ips.iter().filter_map(|(ip,)| {
                     segment_prefix
                         .prefix
                         .contains(ip.ip())

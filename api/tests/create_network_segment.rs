@@ -59,13 +59,7 @@ mod tests {
         sqlx::query(format!("CREATE DATABASE {0} TEMPLATE template0", TEMP_DB_NAME).as_str())
             .execute(&pool)
             .await
-            .unwrap_or_else(|error| {
-                panic!(
-                    "Database creation failed: {} - {}.",
-                    error,
-                    base_uri
-                )
-            });
+            .unwrap_or_else(|error| panic!("Database creation failed: {} - {}.", error, base_uri));
 
         let full_uri_db = [base_uri, "/".to_string(), TEMP_DB_NAME.to_string()].concat();
 
