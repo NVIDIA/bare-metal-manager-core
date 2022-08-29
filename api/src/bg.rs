@@ -1,9 +1,7 @@
-use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
 use sqlx::types::Json;
-pub use sqlx::{self, postgres::PgRow, PgPool, Postgres, Row};
-pub use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
+use sqlx::{self, postgres::PgRow, PgPool, Postgres, Row};
 use uuid::Uuid;
 
 pub struct Status {}
@@ -16,7 +14,7 @@ pub struct BgStatus {
 }
 
 /// TaskState and CurrentState are used to update status into bg_status table.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TaskState {
     Started,
     Ongoing,
@@ -26,8 +24,10 @@ pub enum TaskState {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CurrentState {
-    pub checkpoint: u32, // Checkpoint location. It can be used in case of retries to identify last failure location.
-    pub msg: String, // Any message which can be fetched during poll. Can be used to store json also.
+    pub checkpoint: u32,
+    // Checkpoint location. It can be used in case of retries to identify last failure location.
+    pub msg: String,
+    // Any message which can be fetched during poll. Can be used to store json also.
     pub state: TaskState, // Task state. Check TaskState for more details.
 }
 
@@ -148,8 +148,11 @@ impl Status {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use sqlxmq::{job, CurrentJob, JobRegistry};
     use tokio::time;
+
+    use super::*;
+
     static mut TEST_VAR: i32 = 0;
 
     const TEMP_DB_NAME: &str = "bghandler_test";
@@ -211,10 +214,10 @@ mod tests {
         .await
         {
             Ok(_) => {
-                debug!("State updated successfully.");
+                log::debug!("State updated successfully.");
             }
             Err(x) => {
-                error!("Status update failed. Error: {:?}", x)
+                log::error!("Status update failed. Error: {:?}", x)
             }
         }
     }
@@ -232,7 +235,7 @@ mod tests {
         time::sleep(time::Duration::from_millis(2000)).await;
         let who: Option<String> = current_job.json().unwrap();
         // Do some work
-        let js = who.as_deref().unwrap_or("world");
+        let _js = who.as_deref().unwrap_or("world");
         update_status(&current_job, 1, "Got JS".to_string(), TaskState::Ongoing).await;
         time::sleep(time::Duration::from_millis(2000)).await;
         unsafe {

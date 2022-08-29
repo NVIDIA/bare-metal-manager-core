@@ -1,14 +1,15 @@
 use sqlx::{PgPool, Postgres};
 use uuid::Uuid;
 
-use carbide::{
-    db::{
-        AddressSelectionStrategy, BmcMetaData, BmcMetaDataRequest, BmcMetadataItem, Domain,
-        Machine, MachineInterface, NetworkSegment, NewDomain, NewNetworkPrefix, NewNetworkSegment,
-        NewVpc, UserRoles,
-    },
-    CarbideResult,
-};
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::domain::{Domain, NewDomain};
+use carbide::db::ipmi::{BmcMetaData, BmcMetaDataRequest, BmcMetadataItem, UserRoles};
+use carbide::db::machine::Machine;
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
+use carbide::CarbideResult;
 
 mod common;
 
@@ -76,11 +77,9 @@ async fn create_machine(txn: &mut sqlx::Transaction<'_, Postgres>) -> Machine {
     .await
     .expect("Unable to create interface");
 
-    let new_machine = Machine::create(txn, new_interface)
+    Machine::create(txn, new_interface)
         .await
-        .expect("Unable to create machine");
-
-    new_machine
+        .expect("Unable to create machine")
 }
 
 async fn create_empty_entry(id: Uuid, pool: PgPool) {
@@ -137,13 +136,13 @@ async fn test_ipmi_cred() {
     let machine = create_machine(&mut txn).await;
     txn.commit().await.unwrap();
 
-    update_bmc_data(machine.id().clone(), pool.clone()).await;
+    update_bmc_data(*machine.id(), pool.clone()).await;
 
     let mut txn = pool.begin().await.unwrap();
 
     for d in &DATA {
         let ipmi_req = BmcMetaDataRequest {
-            machine_id: machine.id().clone(),
+            machine_id: *machine.id(),
             role: d.0.clone(),
         };
 

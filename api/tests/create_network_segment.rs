@@ -1,35 +1,33 @@
 mod common;
-use log::LevelFilter;
-use sqlx::Acquire;
-use std::sync::Once;
-static INIT: Once = Once::new();
-
-fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
-}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::common::TestDatabaseManager;
-    use carbide::bg::Status;
-    use carbide::db::vpc_resource_state::VpcResourceState;
-    use carbide::db::{
-        Domain, NetworkPrefix, NetworkSegment, NewDomain, NewNetworkPrefix, NewNetworkSegment,
-        NewVpc, NewVpcResourceLeaf, Vpc, VpcResourceLeaf,
-    };
-    use carbide::CarbideResult;
-    use futures::TryFutureExt;
     use std::net::IpAddr;
-    use tokio::time;
+    use std::sync::Once;
+
+    use log::LevelFilter;
+
+    use carbide::db::domain::{Domain, NewDomain};
+    use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
+    use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+    use carbide::db::vpc::NewVpc;
+    use carbide::db::vpc_resource_state::VpcResourceState;
+    use carbide::CarbideResult;
+
+    use crate::common::TestDatabaseManager;
 
     const TEMP_DB_NAME: &str = "network_segmens_tests";
+    static INIT: Once = Once::new();
+
+    fn setup() {
+        INIT.call_once(init_logger);
+    }
+
+    fn init_logger() {
+        pretty_env_logger::formatted_timed_builder()
+            .filter_level(LevelFilter::Error)
+            .init();
+    }
 
     fn get_base_uri() -> String {
         if std::env::var("TESTDB_HOST").is_ok()
@@ -48,6 +46,8 @@ mod tests {
     }
 
     async fn get_database_connection() -> Result<sqlx::PgPool, sqlx::Error> {
+        setup();
+
         let base_uri = get_base_uri();
         let full_uri_template = [base_uri.clone(), "/template1".to_string()].concat();
 
@@ -59,10 +59,10 @@ mod tests {
         sqlx::query(format!("CREATE DATABASE {0} TEMPLATE template0", TEMP_DB_NAME).as_str())
             .execute(&pool)
             .await
-            .unwrap_or_else(|x| {
+            .unwrap_or_else(|error| {
                 panic!(
                     "Database creation failed: {} - {}.",
-                    x.to_string(),
+                    error,
                     base_uri
                 )
             });

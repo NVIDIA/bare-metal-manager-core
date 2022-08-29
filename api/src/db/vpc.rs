@@ -2,16 +2,16 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use chrono::prelude::*;
-use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
 use ::rpc::Timestamp;
 
-use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
+use crate::db::UuidKeyedObjectFilter;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
     pub id: Uuid,
     pub name: String,
@@ -176,11 +176,11 @@ impl UpdateVpc {
         Ok(sqlx::query_as(
             "UPDATE vpcs SET name=$1, organization_id=$2, updated=NOW() WHERE id=$3 RETURNING *",
         )
-        .bind(&self.name)
-        .bind(&self.organization)
-        .bind(&self.id)
-        .fetch_one(&mut *txn)
-        .await?)
+            .bind(&self.name)
+            .bind(&self.organization)
+            .bind(&self.id)
+            .fetch_one(&mut *txn)
+            .await?)
     }
 }
 

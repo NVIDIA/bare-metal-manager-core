@@ -1,18 +1,25 @@
-use super::{AddressSelectionStrategy, NetworkSegment, UuidKeyedObjectFilter};
-use crate::db::Machine;
-use crate::{
-    db::network_segment::IpAllocationError, db::MachineInterfaceAddress, CarbideError,
-    CarbideResult,
-};
+use std::collections::HashMap;
+use std::net::IpAddr;
+
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use log::{debug, warn};
 use mac_address::MacAddress;
-use rpc::forge::v0 as rpc;
-use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
-use std::collections::HashMap;
-use std::net::IpAddr;
+use sqlx::{Acquire, FromRow, Postgres, postgres::PgRow, Row, Transaction};
 use uuid::Uuid;
+
+use rpc::forge::v0 as rpc;
+
+use crate::{
+    CarbideError, CarbideResult,
+    db::network_segment::IpAllocationError,
+};
+use crate::db::address_selection_strategy::AddressSelectionStrategy;
+use crate::db::machine::Machine;
+use crate::db::machine_interface_address::MachineInterfaceAddress;
+use crate::db::network_segment::NetworkSegment;
+
+use super::UuidKeyedObjectFilter;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
@@ -81,7 +88,7 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         new_hostname: &str,
     ) -> CarbideResult<&MachineInterface> {
-        let (hostname,) =
+        let (hostname, ) =
             sqlx::query_as("UPDATE machine_interfaces SET hostname=$1 RETURNING hostname")
                 .bind(new_hostname)
                 .fetch_one(txn)
@@ -117,18 +124,18 @@ impl MachineInterface {
         sqlx::query_as(
             "UPDATE machine_interfaces SET machine_id=$1::uuid where id=$2::uuid RETURNING *",
         )
-        .bind(machine_id)
-        .bind(self.id)
-        .fetch_one(&mut *txn)
-        .await
-        .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::Database(e)
+            .bind(machine_id)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|err: sqlx::Error| match err {
+                sqlx::Error::Database(e)
                 if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
-            {
-                CarbideError::OnePrimaryInterface
-            }
-            _ => CarbideError::from(err),
-        })
+                    {
+                        CarbideError::OnePrimaryInterface
+                    }
+                _ => CarbideError::from(err),
+            })
     }
 
     /// Returns the UUID of the machine object
@@ -152,9 +159,9 @@ impl MachineInterface {
             sqlx::query_as(
                 "SELECT * FROM machine_interfaces mi WHERE mi.mac_address = $1::macaddr",
             )
-            .bind(macaddr)
-            .fetch_all(txn)
-            .await?,
+                .bind(macaddr)
+                .fetch_all(txn)
+                .await?,
         )
     }
 
@@ -209,7 +216,7 @@ impl MachineInterface {
                             true,
                             AddressSelectionStrategy::Automatic,
                         )
-                        .await?;
+                            .await?;
                         Ok(v)
                     }
                 }
@@ -295,7 +302,7 @@ impl MachineInterface {
             _ => vec![],
         };
 
-        let interface_id: (Uuid,) = sqlx::query_as("INSERT INTO machine_interfaces (segment_id, mac_address, hostname, domain_id, primary_interface) VALUES ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id")
+        let interface_id: (Uuid, ) = sqlx::query_as("INSERT INTO machine_interfaces (segment_id, mac_address, hostname, domain_id, primary_interface) VALUES ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id")
             .bind(segment.id())
             .bind(macaddr)
             .bind(hostname)
@@ -359,9 +366,9 @@ impl MachineInterface {
                         .replace("{where}", "WHERE mi.{column}=$1")
                         .replace("{column}", column),
                 )
-                .bind(uuid)
-                .fetch_all(&mut *txn)
-                .await?
+                    .bind(uuid)
+                    .fetch_all(&mut *txn)
+                    .await?
             }
             UuidKeyedObjectFilter::List(list) => {
                 sqlx::query_as::<_, MachineInterface>(
@@ -369,9 +376,9 @@ impl MachineInterface {
                         .replace("{where}", "WHERE mi.{column}=ANY($1)")
                         .replace("{column}", column),
                 )
-                .bind(list)
-                .fetch_all(&mut *txn)
-                .await?
+                    .bind(list)
+                    .fetch_all(&mut *txn)
+                    .await?
             }
         };
 
@@ -385,7 +392,7 @@ impl MachineInterface {
                     .as_slice(),
             ),
         )
-        .await?;
+            .await?;
 
         interfaces.iter_mut().for_each(|interface| {
             if let Some(addresses) = addresses_for_interfaces.remove(&interface.id) {

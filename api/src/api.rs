@@ -1,36 +1,42 @@
-use carbide::ipmi::ipmi_handler;
 use std::convert::TryFrom;
 
 use color_eyre::Report;
-#[allow(unused_imports)]
-use log::{debug, error, info, trace, warn, LevelFilter};
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
-use tonic::codegen::Body;
 use tonic_reflection::server::Builder;
 use tower::ServiceBuilder;
 
-use carbide::{
-    db::{
-        BmcMetaData, BmcMetaDataRequest, DeactivateInstanceType, DeleteVpc, DhcpEntry, DhcpRecord,
-        DnsQuestion, Machine, MachineInterface, MachineState, MachineTopology, NetworkSegment,
-        NewDomain, NewInstance, NewInstanceType, NewNetworkSegment, NewVpc,
-        SshKeyValidationRequest, Tag, TagAssociation, TagCreate, TagDelete, TagsList,
-        UpdateInstanceType, UpdateVpc, UuidKeyedObjectFilter, Vpc,
-    },
-    CarbideError,
-};
-
-use self::rpc::forge_server::Forge;
 use ::rpc::MachineStateMachineInput;
-
+use auth::CarbideAuth;
+use carbide::{
+    CarbideError,
+    db::{
+        auth::SshKeyValidationRequest,
+        dhcp_entry::DhcpEntry,
+        dhcp_record::DhcpRecord,
+        domain::NewDomain,
+        instance::NewInstance,
+        instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
+        ipmi::{BmcMetaData, BmcMetaDataRequest},
+        machine::Machine,
+        machine_interface::MachineInterface,
+        machine_state::MachineState,
+        machine_topology::MachineTopology,
+        network_segment::{NetworkSegment, NewNetworkSegment},
+        resource_record::DnsQuestion,
+        tags::{Tag, TagAssociation, TagCreate, TagDelete, TagsList},
+        UuidKeyedObjectFilter,
+        vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
+    },
+};
+use carbide::ipmi::ipmi_handler;
+use carbide::kubernetes::bgkubernetes_handler;
 pub use rpc::forge::v0 as rpc;
 
+use crate::auth;
 use crate::cfg;
 
-use crate::auth;
-use auth::CarbideAuth;
-use carbide::kubernetes::bgkubernetes_handler;
+use self::rpc::forge_server::Forge;
 
 #[derive(Debug)]
 pub struct Api {
@@ -57,9 +63,9 @@ impl Forge for Api {
 
         let question = match q_name.clone() {
             Some(q_name) => DnsQuestion {
-                q_name: Some(q_name),
-                q_type,
-                q_class,
+                query_name: Some(q_name),
+                query_type: q_type,
+                query_class: q_class,
             },
             None => {
                 return Err(Status::invalid_argument(
@@ -71,8 +77,8 @@ impl Forge for Api {
         let results = DnsQuestion::find_record(&mut txn, question)
             .await
             .map(|dnsrr| rpc::dns_message::DnsResponse {
-                rcode: dnsrr.rcode,
-                rrs: dnsrr.rrs.into_iter().map(|r| r.into()).collect(),
+                rcode: dnsrr.response_code,
+                rrs: dnsrr.resource_records.into_iter().map(|r| r.into()).collect(),
             })
             .map(Response::new)
             .map_err(CarbideError::from)?;
@@ -177,7 +183,7 @@ impl Forge for Api {
                 Err(_) => Err(CarbideError::GenericError(
                     "Could not marshall an ID from the request".to_string(),
                 )
-                .into()),
+                    .into()),
             },
             _ => Err(
                 CarbideError::GenericError("Could not find an ID in the request".to_string())
@@ -252,29 +258,31 @@ impl Forge for Api {
 
         let machine_interface = match &existing_machines.len() {
             0 => {
-                info!("No existing machine with mac address {} using network with relay: {}, creating one.", parsed_mac, parsed_relay);
+                log::info!("No existing machine with mac address {} using network with relay: {}, creating one.", parsed_mac, parsed_relay);
                 MachineInterface::validate_existing_mac_and_create(
                     &mut txn,
                     parsed_mac,
                     parsed_relay,
                 )
-                .await
+                    .await
             }
             1 => {
                 let mut ifcs = MachineInterface::find_by_mac_address(&mut txn, parsed_mac).await?;
                 match ifcs.len() {
                     1 => Ok(ifcs.remove(0)),
                     n => {
-                        warn!(
+                        log::warn!(
                             "{0} existing mac address ({1}) for network segment (relay ip: {2})",
-                            n, &mac_address, &relay_address
+                            n,
+                            &mac_address,
+                            &relay_address
                         );
                         Err(CarbideError::NetworkSegmentDuplicateMacAddress(parsed_mac))
                     }
                 }
             }
             _ => {
-                warn!(
+                log::warn!(
                     "More than machine found with mac address ({0}) for network segment (relay ip: {1})",
                     &mac_address, &relay_address
                 );
@@ -285,12 +293,16 @@ impl Forge for Api {
         // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
         if let Some(vendor) = vendor_string {
             let res = DhcpEntry {
-                machine_interface_id: machine_interface.id().clone(),
+                machine_interface_id: *machine_interface.id(),
                 vendor_class: vendor,
-            }.persist(&mut txn).await;
+            }
+                .persist(&mut txn)
+                .await;
             match res {
-                Ok(_) => {}, // do nothing on ok result
-                Err(e) => { debug!("Could not persist dhcp entry {}", e)} // This should not fail the discover call, dhcp happens many times
+                Ok(_) => {} // do nothing on ok result
+                Err(e) => {
+                    log::debug!("Could not persist dhcp entry {}", e)
+                } // This should not fail the discover call, dhcp happens many times
             }
         }
 
@@ -344,7 +356,7 @@ impl Forge for Api {
             None => Err(CarbideError::NotFoundError(uuid).into()),
             Some(machine) => Ok(rpc::Machine::from(machine)),
         }
-        .map(Response::new);
+            .map(Response::new);
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -710,7 +722,7 @@ impl Forge for Api {
             None => Err(CarbideError::NotFoundError(uuid).into()),
             Some(machine) => Ok(rpc::Machine::from(machine)),
         }
-        .map(Response::new);
+            .map(Response::new);
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -960,7 +972,7 @@ impl Forge for Api {
 
 impl Api {
     pub async fn run(daemon_config: &cfg::Daemon) -> Result<(), Report> {
-        info!("Starting API server on {:?}", daemon_config.listen[0]);
+        log::info!("Starting API server on {:?}", daemon_config.listen[0]);
 
         let database_connection = sqlx::Pool::connect(&daemon_config.datastore).await?;
         let conn_clone = database_connection.clone();

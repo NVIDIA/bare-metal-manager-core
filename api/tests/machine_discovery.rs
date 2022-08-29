@@ -1,13 +1,16 @@
 use std::str::FromStr;
 use std::sync::Once;
 
-use carbide::db::{MachineInterface, NewNetworkPrefix, NewVpc};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::{Domain, NetworkSegment, NewDomain, NewNetworkSegment};
+use carbide::db::domain::{Domain, NewDomain};
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
 use carbide::CarbideResult;
 
 mod common;
@@ -28,7 +31,7 @@ fn init_logger() {
 async fn test_machine_discovery_no_domain() {
     setup();
 
-    let mut txn = common::TestDatabaseManager::new()
+    let txn = common::TestDatabaseManager::new()
         .await
         .expect("Could not create database manager")
         .pool
@@ -77,7 +80,7 @@ async fn test_machine_discovery_no_domain() {
     .await
     .expect("Unable to create network segment");
 
-    let machineInterface = MachineInterface::validate_existing_mac_and_create(
+    let machine_interface = MachineInterface::validate_existing_mac_and_create(
         &mut txn2,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         "192.0.2.1".parse().unwrap(),
@@ -88,17 +91,19 @@ async fn test_machine_discovery_no_domain() {
     let wanted_ips: Vec<IpNetwork> = vec![
         "192.0.2.3".parse().unwrap(),
         "2001:db8:f::100".parse().unwrap(),
-    ];
+    ]
+    .into_iter()
+    .sorted()
+    .collect::<Vec<IpNetwork>>();
 
-    assert_eq!(
-        machineInterface
-            .addresses()
-            .iter()
-            .map(|address| address.address)
-            .sorted()
-            .collect::<Vec<IpNetwork>>(),
-        wanted_ips.into_iter().sorted().collect::<Vec<IpNetwork>>()
-    );
+    let actual_ips = machine_interface
+        .addresses()
+        .iter()
+        .map(|address| address.address)
+        .sorted()
+        .collect::<Vec<IpNetwork>>();
+
+    assert_eq!(actual_ips, wanted_ips);
 }
 
 #[tokio::test]
@@ -156,7 +161,7 @@ async fn test_machine_discovery_with_domain() {
     .await
     .expect("Unable to create network segment");
 
-    let machineInterface = MachineInterface::validate_existing_mac_and_create(
+    let machine_interface = MachineInterface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         "192.0.2.1".parse().unwrap(),
@@ -170,7 +175,7 @@ async fn test_machine_discovery_with_domain() {
     ];
 
     assert_eq!(
-        machineInterface
+        machine_interface
             .addresses()
             .iter()
             .map(|address| address.address)
@@ -179,7 +184,7 @@ async fn test_machine_discovery_with_domain() {
         wanted_ips.into_iter().sorted().collect::<Vec<IpNetwork>>()
     );
 
-    assert!(machineInterface
+    assert!(machine_interface
         .addresses()
         .iter()
         .any(|item| item.address == "192.0.2.3".parse().unwrap()));

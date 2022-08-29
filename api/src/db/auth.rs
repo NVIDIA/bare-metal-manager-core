@@ -1,8 +1,9 @@
-use rpc::forge::v0 as rpc;
 use std::convert::TryFrom;
 
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
+
+use rpc::forge::v0 as rpc;
 
 use crate::{db::ipmi::UserRoles, CarbideError, CarbideResult};
 
@@ -22,8 +23,8 @@ impl TryFrom<rpc::SshKeyValidationRequest> for SshKeyValidationRequest {
 
     fn try_from(value: rpc::SshKeyValidationRequest) -> Result<Self, Self::Error> {
         Ok(SshKeyValidationRequest {
-            user: value.user.clone(),
-            pubkey: value.pubkey.clone(),
+            user: value.user,
+            pubkey: value.pubkey,
         })
     }
 }
@@ -47,9 +48,7 @@ impl SshKeyValidationRequest {
                 .bind(&self.user)
                 .fetch_one(&mut *txn)
                 .await
-                .map_err(|err: sqlx::Error| match err {
-                    _ => CarbideError::from(err),
-                })?;
+                .map_err(CarbideError::from)?;
 
         for pkey in user_info.pubkeys {
             let key = pkey.lines().collect::<Vec<&str>>().join("");
@@ -62,9 +61,9 @@ impl SshKeyValidationRequest {
             }
         }
 
-        return Ok(rpc::SshKeyValidationResponse {
+        Ok(rpc::SshKeyValidationResponse {
             is_authenticated: false,
             role: rpc::UserRoles::Noaccess as i32,
-        });
+        })
     }
 }

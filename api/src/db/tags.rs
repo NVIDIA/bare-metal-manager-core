@@ -43,7 +43,7 @@ pub struct TagsListResult {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TagTargetKind {
     Machine = 0,
     NetworkSegment = 1,
@@ -59,9 +59,9 @@ pub struct TagAssociation {
 }
 
 fn get_uuid(target_id: Option<rpc::Uuid>) -> Result<Uuid, CarbideError> {
-    let rpc_uuid = target_id.ok_or(CarbideError::GenericError(format!(
-        "Did not supply a valid Target id UUID",
-    )))?;
+    let rpc_uuid = target_id.ok_or_else(|| {
+        CarbideError::GenericError("Did not supply a valid Target id UUID".to_string())
+    })?;
 
     uuid::Uuid::try_from(rpc_uuid)
         .map_err(|err| CarbideError::GenericError(format!("Invalid id received, Error: {}.", err)))
@@ -107,48 +107,38 @@ impl<'r> sqlx::FromRow<'r, PgRow> for TagAssociation {
 
 impl Tag {
     pub async fn persist(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Tag> {
-        Ok(
-            sqlx::query_as("INSERT INTO tags (slug, name) VALUES ($1, $2) RETURNING *")
-                .bind(&self.slug)
-                .bind(&self.name)
-                .fetch_one(&mut *txn)
-                .await
-                .map_err(|err: sqlx::Error| match err {
-                    _ => CarbideError::from(err),
-                })?,
-        )
+        sqlx::query_as("INSERT INTO tags (slug, name) VALUES ($1, $2) RETURNING *")
+            .bind(&self.slug)
+            .bind(&self.name)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(CarbideError::from)
     }
 
     pub async fn delete(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Tag> {
-        Ok(sqlx::query_as("DELETE from tags WHERE slug=$1 RETURNING *")
+        sqlx::query_as("DELETE from tags WHERE slug=$1 RETURNING *")
             .bind(&self.slug)
             .fetch_one(&mut *txn)
             .await
-            .map_err(|err: sqlx::Error| match err {
-                _ => CarbideError::from(err),
-            })?)
+            .map_err(CarbideError::from)
     }
 
     pub async fn find_all(txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vec<Tag>> {
-        Ok(sqlx::query_as("SELECT * FROM tags")
+        sqlx::query_as("SELECT * FROM tags")
             .fetch_all(&mut *txn)
             .await
-            .map_err(|err: sqlx::Error| match err {
-                _ => CarbideError::from(err),
-            })?)
+            .map_err(CarbideError::from)
     }
 
     pub async fn find_one(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         slug: String,
     ) -> CarbideResult<Vec<Tag>> {
-        Ok(sqlx::query_as("SELECT * FROM tags where slug=$1")
+        sqlx::query_as("SELECT * FROM tags where slug=$1")
             .bind(slug)
             .fetch_all(&mut *txn)
             .await
-            .map_err(|err: sqlx::Error| match err {
-                _ => CarbideError::from(err),
-            })?)
+            .map_err(CarbideError::from)
     }
 
     pub async fn list_all(
@@ -175,8 +165,8 @@ impl TryFrom<rpc::TagCreate> for TagCreate {
             return Ok(TagCreate {
                 tag: Some(Tag {
                     id: None,
-                    name: t.name.to_owned(),
-                    slug: t.slug.to_owned(),
+                    name: t.name,
+                    slug: t.slug,
                 }),
             });
         }
@@ -212,8 +202,8 @@ impl TryFrom<rpc::TagDelete> for TagDelete {
             return Ok(TagDelete {
                 tag: Some(Tag {
                     id: None,
-                    name: t.name.to_owned(),
-                    slug: t.slug.to_owned(),
+                    name: t.name,
+                    slug: t.slug,
                 }),
             });
         }
@@ -246,7 +236,7 @@ impl TryFrom<rpc::TagsList> for TagsList {
 
     fn try_from(value: rpc::TagsList) -> Result<Self, Self::Error> {
         Ok(TagsList {
-            slugs: value.slugs.to_owned(),
+            slugs: value.slugs,
             target: match value.target {
                 Some(id) => match uuid::Uuid::try_from(id) {
                     Ok(uuid) => uuid,
@@ -278,7 +268,7 @@ impl TagsList {
             TagAssociation {
                 tag_id: None,
                 slug: Some(slug.clone()),
-                target: self.target.clone(),
+                target: self.target,
                 target_kind: self.target_kind,
             }
             .assign(txn)
@@ -327,9 +317,7 @@ impl TagAssociation {
             .bind(target)
             .fetch_optional(&mut *txn)
             .await
-            .map_err(|err: sqlx::Error| match err {
-                _ => CarbideError::from(err),
-            })?;
+            .map_err(CarbideError::from)?;
 
         Ok(rpc::TagResult { result: true })
     }
@@ -342,14 +330,12 @@ impl TagAssociation {
         let slug = (*(self
             .slug
             .as_ref()
-            .ok_or(CarbideError::GenericError("Slug is missing.".to_string()))?))
+            .ok_or_else(|| CarbideError::GenericError("Slug is missing.".to_string()))?))
         .to_string();
         let tag_id = Tag::find_one(txn, slug)
             .await?
             .first()
-            .ok_or(CarbideError::GenericError(
-                "Slug not found in db.".to_string(),
-            ))?
+            .ok_or_else(|| CarbideError::GenericError("Slug not found in db.".to_string()))?
             .id;
 
         let query = "INSERT INTO {table} (tag_id, target_id) VALUES ($1, $2) RETURNING *";
@@ -358,9 +344,7 @@ impl TagAssociation {
             .bind(&self.target)
             .fetch_one(&mut *txn)
             .await
-            .map_err(|err: sqlx::Error| match err {
-                _ => CarbideError::from(err),
-            })?;
+            .map_err(CarbideError::from)?;
 
         Ok(rpc::TagResult { result: true })
     }
@@ -373,15 +357,13 @@ impl TagAssociation {
         let slug = (*(self
             .slug
             .as_ref()
-            .ok_or(CarbideError::GenericError("Slug is missing.".to_string()))?))
+            .ok_or_else(|| CarbideError::GenericError("Slug is missing.".to_string()))?))
         .to_string();
 
         let tag_id = Tag::find_one(txn, slug)
             .await?
             .first()
-            .ok_or(CarbideError::GenericError(
-                "Slug not found in db.".to_string(),
-            ))?
+            .ok_or_else(|| CarbideError::GenericError("Slug not found in db.".to_string()))?
             .id;
 
         let query = "DELETE FROM {table} WHERE tag_id=$1 AND target_id=$2 RETURNING *";
@@ -390,9 +372,7 @@ impl TagAssociation {
             .bind(&self.target)
             .fetch_optional(&mut *txn)
             .await
-            .map_err(|err: sqlx::Error| match err {
-                _ => CarbideError::from(err),
-            })?;
+            .map_err(CarbideError::from)?;
 
         Ok(rpc::TagResult { result: true })
     }

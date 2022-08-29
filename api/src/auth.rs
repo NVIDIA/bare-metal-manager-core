@@ -23,9 +23,14 @@ impl CarbideAuth {
         }
     }
 
-    pub fn add_jwt_key(&mut self, algorithm: Algorithm, key_spec: KeySpec, decoding_key: DecodingKey) {
+    pub fn _add_jwt_key(
+        &mut self,
+        algorithm: Algorithm,
+        key_spec: KeySpec,
+        decoding_key: DecodingKey,
+    ) {
         self.jwt_validator
-            .add_key(algorithm, key_spec, decoding_key);
+            ._add_key(algorithm, key_spec, decoding_key);
     }
 
     pub fn set_permissive_mode(&mut self, mode: bool) {
@@ -52,7 +57,7 @@ impl CarbideAuth {
             // A bearer token is all we know how to deal with.
             (auth_scheme == "Bearer")
                 .then(|| auth_credentials)
-                .ok_or(AuthError::UnsupportedAuthType(String::from(auth_scheme)))?
+                .ok_or_else(|| AuthError::UnsupportedAuthType(String::from(auth_scheme)))?
         };
 
         self.jwt_validator.validate(bearer_token)
@@ -97,10 +102,10 @@ pub struct CarbideAuthClaims {
 
 #[allow(dead_code)]
 pub mod authorization {
+    use log::info;
+
     use super::AuthError;
     use super::Request;
-
-    use log::info;
 
     #[derive(Debug, Clone)]
     pub enum Privilege {
@@ -115,9 +120,9 @@ pub mod authorization {
         type Error = AuthError;
 
         fn try_from(value: super::CarbideAuthClaims) -> Result<Self, Self::Error> {
-            let privilege = value.privilege.ok_or(AuthError::InvalidJWTClaims(
-                "No 'privilege' field found in claims".into(),
-            ))?;
+            let privilege = value.privilege.ok_or_else(|| {
+                AuthError::InvalidJWTClaims("No 'privilege' field found in claims".into())
+            })?;
             match privilege.as_str() {
                 "site-admin" => Ok(Privilege::SiteAdmin),
                 "vpc-admin" => match value.vpc {
@@ -131,7 +136,6 @@ pub mod authorization {
                 ))),
             }
         }
-
     }
 
     #[derive(Debug, Clone)]
@@ -154,7 +158,6 @@ pub mod authorization {
             let permissive_mode = request_auth.map(|ra| ra.permissive);
 
             match (sufficient, permissive_mode) {
-
                 // Normal happy path.
                 (true, _) => Ok(()),
 
@@ -170,10 +173,11 @@ pub mod authorization {
                     let reason = request_auth
                         .map(|ra| {
                             ra.privs_result.as_ref()
-                            .map_or_else(
-                                |e: &AuthError| { format!("the request couldn't be authenticated: {e}") },
-                                |p: &Privilege| { format!("the request's privilege level ({p:?}) was insufficient") }
-                            )}
+                                .map_or_else(
+                                    |e: &AuthError| { format!("the request couldn't be authenticated: {e}") },
+                                    |p: &Privilege| { format!("the request's privilege level ({p:?}) was insufficient") },
+                                )
+                        }
                         )
                         .unwrap_or_else(
                             || { String::from("no RequestAuth was found in this request's type map (this shouldn't happen!)") }
@@ -233,7 +237,6 @@ pub mod authorization {
     pub type PrivilegeResult = Result<Privilege, AuthError>;
 }
 
-
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum AuthError {
     #[error("JWT error {0}")]
@@ -265,13 +268,12 @@ pub enum AuthError {
 }
 
 mod jwt {
+    use std::collections::HashMap;
 
+    use jsonwebtoken::{decode, decode_header, Validation};
     pub use jsonwebtoken::{Algorithm, DecodingKey};
 
     use super::{AuthError, CarbideAuthClaims};
-
-    use jsonwebtoken::{decode, decode_header, Validation};
-    use std::collections::HashMap;
 
     #[derive(Clone)]
     pub struct TokenValidator {
@@ -284,7 +286,7 @@ mod jwt {
             Self { validators }
         }
 
-        pub fn add_key(
+        pub fn _add_key(
             &mut self,
             algorithm: Algorithm,
             key_spec: KeySpec,
@@ -302,7 +304,7 @@ mod jwt {
         }
 
         pub fn validate(&self, token: &str) -> Result<CarbideAuthClaims, AuthError> {
-            let header = decode_header(token).map_err(|e| AuthError::JWTDecodeError(e))?;
+            let header = decode_header(token).map_err(AuthError::JWTDecodeError)?;
             let algorithm = header.alg;
             let key_id = header.kid.ok_or(AuthError::JWTFixmeError)?;
             let token_sig_spec = TokenSigSpec {
@@ -319,7 +321,7 @@ mod jwt {
                 &decoder_spec.decoding_key,
                 &decoder_spec.validation,
             )
-            .map_err(|e| AuthError::JWTDecodeError(e))?;
+            .map_err(AuthError::JWTDecodeError)?;
 
             // big time FIXME: We aren't validating the iss/sub/aud fields,
             // since at the time of this writing there isn't anything specified
@@ -348,7 +350,6 @@ mod jwt {
 
     #[cfg(test)]
     mod tests {
-
         use super::*;
 
         #[test]
@@ -370,10 +371,10 @@ mod jwt {
         fn test_decode() {
             // base64 encoding of "this is not a very good secret"
             let b64_key = "dGhpcyBpcyBub3QgYSB2ZXJ5IGdvb2Qgc2VjcmV0";
-            let decode_key = DecodingKey::from_base64_secret(&b64_key).unwrap();
+            let decode_key = DecodingKey::from_base64_secret(b64_key).unwrap();
 
             let mut v = TokenValidator::new();
-            v.add_key(
+            v._add_key(
                 Algorithm::HS256,
                 KeySpec::KeyID("testing-kid".into()),
                 decode_key,
@@ -392,7 +393,7 @@ mod jwt {
             // )
             let jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6InRlc3Rpbmcta2lkIn0.eyJpc3MiOiJ0ZXN0IGlzc3VlciIsImF1ZCI6InRlc3QgYXVkaWVuY2UiLCJzdWIiOiJ0ZXN0IHN1YmplY3QiLCJleHAiOjE5NzA3NjE1NDN9.wyGCEyEdWO47p60jgX_ITp27UPO8WEVC1LtlPNnNDw8";
 
-            let claims = v.validate(&jwt).unwrap();
+            let claims = v.validate(jwt).unwrap();
             assert!(matches!(claims, CarbideAuthClaims { .. }));
             assert_eq!(
                 claims,

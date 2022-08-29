@@ -1,11 +1,8 @@
 use log::LevelFilter;
-use uuid::Uuid;
 
-use carbide::db::{DeleteVpc, UpdateVpc, UuidKeyedObjectFilter};
-use carbide::{
-    db::{NewVpc, Vpc},
-    CarbideResult,
-};
+use carbide::db::vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
+use carbide::db::UuidKeyedObjectFilter;
+use carbide::CarbideResult;
 
 use crate::common::TestDatabaseManager;
 
@@ -27,16 +24,14 @@ async fn create_vpc() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let vpc: CarbideResult<Vpc> = NewVpc {
+    let _vpc = NewVpc {
         name: "Metal".to_string(),
         organization: String::new(),
     }
     .persist(&mut txn)
     .await;
 
-    assert!(matches!(vpc.unwrap(), _Vpc));
-
-    let vpc: CarbideResult<Vpc> = NewVpc {
+    let vpc = NewVpc {
         name: "Metal no Org".to_string(),
         organization: String::new(),
     }
@@ -44,7 +39,6 @@ async fn create_vpc() {
     .await;
 
     let unwrapped = &vpc.unwrap();
-    assert!(matches!(unwrapped, _Vpc));
     assert!(unwrapped.deleted.is_none());
 
     txn.commit().await.unwrap();
@@ -56,15 +50,14 @@ async fn create_vpc() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let updatedVpc = UpdateVpc {
+    let _updated_vpc = UpdateVpc {
         id: unwrapped.id,
         name: unwrapped.name.to_string(),
         organization: String::new(),
     }
     .update(&mut txn)
-    .await;
-
-    assert!(matches!(updatedVpc.unwrap(), _Vpc));
+    .await
+    .unwrap();
 
     let vpc = DeleteVpc { id: unwrapped.id }.delete(&mut txn).await;
 
@@ -72,7 +65,6 @@ async fn create_vpc() {
 
     let vpc = &vpc.unwrap();
 
-    assert!(matches!(vpc, _Vpc));
     assert!(vpc.deleted.is_some());
 }
 
@@ -105,7 +97,11 @@ async fn find_vpc_by_id() {
 
     let unwrapped = &vpc.unwrap();
 
-    let some_vpc = Vpc::find(&mut txn2, UuidKeyedObjectFilter::One(unwrapped.id)).await;
+    let some_vpc = Vpc::find(&mut txn2, UuidKeyedObjectFilter::One(unwrapped.id))
+        .await
+        .unwrap();
 
-    assert!(matches!(some_vpc, unwrapped));
+    assert_eq!(1, some_vpc.len());
+    let first = some_vpc.first().unwrap();
+    assert_eq!(first, unwrapped);
 }

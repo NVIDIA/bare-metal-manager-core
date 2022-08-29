@@ -1,13 +1,14 @@
-use crate::{CarbideError, CarbideResult};
-use sqlx::postgres::PgRow;
-use sqlx::{Error, Postgres, Row};
 use std::convert::{TryFrom, TryInto};
-use uuid::Uuid;
 
 use chrono::prelude::*;
+use sqlx::{Error, Postgres, Row};
+use sqlx::postgres::PgRow;
+use uuid::Uuid;
 
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
+
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Clone, Debug)]
 pub struct InstanceType {
@@ -161,8 +162,8 @@ impl DeactivateInstanceType {
         Ok(sqlx::query_as(
             "UPDATE instance_types SET active=false, updated=now() WHERE id=$1 RETURNING *",
         )
-        .bind(&self.id)
-        .fetch_one(&mut *txn)
-        .await?)
+            .bind(&self.id)
+            .fetch_one(&mut *txn)
+            .await?)
     }
 }

@@ -1,13 +1,15 @@
-mod common;
-
-use carbide::db::{
-    Domain, MachineInterface, NewDomain, NewNetworkPrefix, NewNetworkSegment, NewVpc,
-};
+use std::sync::Once;
 
 use log::LevelFilter;
 
+use carbide::db::domain::{Domain, NewDomain};
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::NewNetworkSegment;
+use carbide::db::vpc::NewVpc;
 use carbide::CarbideResult;
-use std::sync::Once;
+
+mod common;
 
 static INIT: Once = Once::new();
 

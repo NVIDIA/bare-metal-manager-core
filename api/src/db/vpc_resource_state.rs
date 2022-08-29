@@ -12,7 +12,7 @@ use crate::CarbideError;
 #[derive(sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 #[sqlx(type_name = "vpc_resource_state")]
-#[derive(Debug, PartialEq, Deserialize, Serialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Clone)]
 pub enum VpcResourceState {
     Init,
     New,

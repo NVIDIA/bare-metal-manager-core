@@ -1,7 +1,5 @@
-use carbide::{
-    db::{Domain, NewDomain},
-    CarbideError, CarbideResult,
-};
+use carbide::db::domain::{Domain, NewDomain};
+use carbide::{CarbideError, CarbideResult};
 
 use crate::common::TestDatabaseManager;
 

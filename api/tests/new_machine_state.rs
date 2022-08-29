@@ -1,12 +1,16 @@
 use std::str::FromStr;
 use std::sync::Once;
 
-use carbide::db::{
-    AddressSelectionStrategy, Domain, Machine, MachineInterface, MachineState, NetworkSegment,
-    NewDomain, NewNetworkPrefix, NewNetworkSegment, NewVpc,
-};
 use log::LevelFilter;
 use mac_address::MacAddress;
+
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::machine::Machine;
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::machine_state::MachineState;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
 
 mod common;
 
@@ -65,7 +69,7 @@ async fn test_new_machine_state() {
     .await
     .expect("Unable to create network segment");
 
-    let mut new_interface = MachineInterface::create(
+    let new_interface = MachineInterface::create(
         &mut txn,
         &new_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),

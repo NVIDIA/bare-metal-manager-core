@@ -1,18 +1,17 @@
-use log::LevelFilter;
 use std::sync::Once;
 
-use carbide::db::Domain;
-use carbide::db::Machine;
-use carbide::db::MachineInterface;
-use carbide::db::NetworkSegment;
-use carbide::db::NewDomain;
-use carbide::db::NewNetworkPrefix;
-use carbide::db::NewNetworkSegment;
-use carbide::db::{AddressSelectionStrategy, NewVpc};
+use log::LevelFilter;
+
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::domain::{Domain, NewDomain};
+use carbide::db::machine::Machine;
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
+use carbide::{CarbideError, CarbideResult};
 
 mod common;
-
-use carbide::{CarbideError, CarbideResult};
 
 static INIT: Once = Once::new();
 
@@ -83,7 +82,7 @@ async fn prevent_duplicate_mac_addresses() {
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
 
-    let mut new_interface = MachineInterface::create(
+    let new_interface = MachineInterface::create(
         &mut txn,
         &segment,
         &test_mac,
@@ -95,7 +94,7 @@ async fn prevent_duplicate_mac_addresses() {
     .await
     .expect("Unable to create interface");
 
-    let new_machine = Machine::create(&mut txn, new_interface)
+    let _new_machine = Machine::create(&mut txn, new_interface)
         .await
         .expect("Unable to create machine");
 

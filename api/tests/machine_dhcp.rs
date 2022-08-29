@@ -1,12 +1,14 @@
 use std::str::FromStr;
 use std::sync::Once;
 
-use carbide::db::{MachineInterface, NewNetworkPrefix, NewVpc};
-
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::{Domain, NetworkSegment, NewDomain, NewNetworkSegment};
+use carbide::db::domain::{Domain, NewDomain};
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
 use carbide::CarbideResult;
 
 mod common;

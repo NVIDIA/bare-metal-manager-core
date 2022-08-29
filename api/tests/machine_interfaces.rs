@@ -4,10 +4,12 @@ use std::sync::Once;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::{
-    AddressSelectionStrategy, Machine, MachineInterface, NetworkSegment, NewNetworkPrefix,
-    NewNetworkSegment, NewVpc,
-};
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::machine::Machine;
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
 use carbide::CarbideError;
 
 use crate::common::TestDatabaseManager;
@@ -80,7 +82,7 @@ async fn only_one_primary_interface_per_machine() {
 
     txn.commit().await.unwrap();
 
-    let mut new_interface = MachineInterface::create(
+    let new_interface = MachineInterface::create(
         &mut txn2,
         &new_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),

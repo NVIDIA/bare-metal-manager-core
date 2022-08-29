@@ -1,17 +1,18 @@
 use rust_fsm::StateMachine;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, postgres::PgRow, Row, Transaction};
 
 use ::rpc::VpcResourceStateMachine;
 use ::rpc::VpcResourceStateMachineInput;
 use rpc::forge::v0 as rpc;
 
+use crate::{CarbideError, CarbideResult};
+use crate::db::instance::Instance;
+use crate::db::instance_subnet_address::InstanceSubnetAddress;
 use crate::db::instance_subnet_event::InstanceSubnetEvent;
+use crate::db::machine_interface::MachineInterface;
+use crate::db::network_segment::NetworkSegment;
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::db::vpc_resource_state::VpcResourceState;
-use crate::db::Instance;
-use crate::db::MachineInterface;
-use crate::db::NetworkSegment;
-use crate::{db::InstanceSubnetAddress, CarbideError, CarbideResult};
 
 #[derive(Debug)]
 pub struct InstanceSubnet {
@@ -19,7 +20,7 @@ pub struct InstanceSubnet {
     machine_interface_id: uuid::Uuid,
     network_segment_id: uuid::Uuid,
     instance_id: uuid::Uuid,
-    vfid: Option<i32>,
+    vf_id: Option<i32>,
     addresses: Vec<InstanceSubnetAddress>,
     state: VpcResourceState,
     events: Vec<InstanceSubnetEvent>,
@@ -32,7 +33,7 @@ impl<'r> FromRow<'r, PgRow> for InstanceSubnet {
             machine_interface_id: row.try_get("machine_interface_id")?,
             network_segment_id: row.try_get("network_segment_id")?,
             instance_id: row.try_get("instance_id")?,
-            vfid: row.try_get("vfid")?,
+            vf_id: row.try_get("vfid")?,
             addresses: Vec::new(),
             state: VpcResourceState::Init,
             events: Vec::new(),
@@ -47,7 +48,7 @@ impl From<InstanceSubnet> for rpc::InstanceSubnet {
             machine_interface_id: Some(instance_subnet.machine_interface_id.into()),
             network_segment_id: Some(instance_subnet.network_segment_id.into()),
             instance_id: Some(instance_subnet.instance_id.into()),
-            vfid: instance_subnet.vfid,
+            vfid: instance_subnet.vf_id,
             addresses: instance_subnet
                 .addresses
                 .iter()
@@ -127,10 +128,10 @@ impl InstanceSubnet {
         Ok(sqlx::query_as(
             "UPDATE instance_subnets SET instance_id=$1::uuid where id=$2::uuid RETURNING *",
         )
-        .bind(instance_id)
-        .bind(self.id)
-        .fetch_one(&mut *txn)
-        .await?)
+            .bind(instance_id)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await?)
     }
 
     pub fn addresses(&self) -> &Vec<InstanceSubnetAddress> {
@@ -144,14 +145,14 @@ impl InstanceSubnet {
         Ok(sqlx::query_as::<_, Self>(
             "SELECT * FROM instance_subnet_events WHERE instance_subnet_id=$1::uuid;",
         )
-        .bind(id)
-        .fetch_all(&mut *txn)
-        .await?)
+            .bind(id)
+            .fetch_all(&mut *txn)
+            .await?)
     }
 
     pub async fn addresses_for_machine_id(
-        txn: &mut Transaction<'_, Postgres>,
-        machine_id: uuid::Uuid,
+        _txn: &mut Transaction<'_, Postgres>,
+        _machine_id: uuid::Uuid,
     ) -> CarbideResult<Vec<InstanceSubnetAddress>> {
         todo!();
     }
@@ -204,6 +205,6 @@ impl InstanceSubnet {
     }
 
     pub fn vfid(self) -> Option<i32> {
-        self.vfid
+        self.vf_id
     }
 }

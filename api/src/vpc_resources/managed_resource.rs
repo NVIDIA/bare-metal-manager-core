@@ -1,6 +1,6 @@
 use kube::CustomResource;
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// ManagedResourceSpec defines the desired state of ManagedResource
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]

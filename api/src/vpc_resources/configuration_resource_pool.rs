@@ -1,6 +1,6 @@
 use kube::CustomResource;
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// ConfigurationResourcePoolSpec defines the desired state of ConfigurationResourcePool
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
@@ -33,6 +33,5 @@ pub struct ConfigurationResourcePoolRanges {
 
 /// ConfigurationResourcePoolStatus defines the observed state of ConfigurationResourcePool
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct ConfigurationResourcePoolStatus {
-}
+pub struct ConfigurationResourcePoolStatus {}
 

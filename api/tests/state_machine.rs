@@ -1,15 +1,17 @@
-use std::sync::Once;
-
 use std::str::FromStr;
+use std::sync::Once;
 
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::{
-    AddressSelectionStrategy, Machine, MachineInterface, MachineState, NetworkSegment,
-    NewNetworkPrefix, NewNetworkSegment, NewVpc,
-};
 use carbide::CarbideError;
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::machine::Machine;
+use carbide::db::machine_interface::MachineInterface;
+use carbide::db::machine_state::MachineState;
+use carbide::db::network_prefix::NewNetworkPrefix;
+use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::vpc::NewVpc;
 
 mod common;
 
@@ -41,9 +43,9 @@ async fn state_machine_advance_from_db_events() {
         name: "Test VPC".to_string(),
         organization: String::new(),
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create VPC");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create VPC");
 
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
@@ -64,9 +66,9 @@ async fn state_machine_advance_from_db_events() {
             },
         ],
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create network segment");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create network segment");
 
     let new_interface = MachineInterface::create(
         &mut txn,
@@ -77,8 +79,8 @@ async fn state_machine_advance_from_db_events() {
         true,
         AddressSelectionStrategy::Automatic,
     )
-    .await
-    .expect("Unable to create machine interface");
+        .await
+        .expect("Unable to create machine interface");
 
     let machine = Machine::create(&mut txn, new_interface)
         .await
@@ -122,9 +124,9 @@ async fn test_fsm_invalid_advance() {
         name: "Test VPC".to_string(),
         organization: String::new(),
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create VPC");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create VPC");
 
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
@@ -145,9 +147,9 @@ async fn test_fsm_invalid_advance() {
             },
         ],
     }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create network segment");
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create network segment");
 
     let new_interface = MachineInterface::create(
         &mut txn,
@@ -158,8 +160,8 @@ async fn test_fsm_invalid_advance() {
         true,
         AddressSelectionStrategy::Automatic,
     )
-    .await
-    .expect("Unable to create machine interface");
+        .await
+        .expect("Unable to create machine interface");
 
     let machine = Machine::create(&mut txn, new_interface)
         .await

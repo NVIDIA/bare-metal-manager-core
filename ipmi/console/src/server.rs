@@ -51,6 +51,7 @@ pub struct Server {
     pub host_info: Option<HostInfo>,
     pub task_state: Arc<Mutex<TaskState>>,
     pub exec_mode: bool,
+    pub under_test: bool,
 }
 
 impl Server {
@@ -104,7 +105,13 @@ impl server::Handler for Server {
     }
 
     fn auth_publickey(mut self, user: &str, pubkey: &key::PublicKey) -> Self::FutureAuth {
-        match auth::validate_user(user, pubkey) {
+        let validate_fn = if self.under_test {
+            auth::validate_user_test
+        } else {
+            auth::validate_user
+        };
+
+        match validate_fn(user, pubkey) {
             Ok(role) => {
                 self.user = Some(UserInfo {
                     name: user.to_string(),
@@ -250,6 +257,7 @@ pub async fn run(pool: PgPool, address: SocketAddr) {
         host_info: None,
         task_state: Arc::new(Mutex::new(TaskState::Init)),
         exec_mode: false,
+        under_test: cfg!(test),
     };
 
     server::run(config, &address.to_string(), sh).await.unwrap();
