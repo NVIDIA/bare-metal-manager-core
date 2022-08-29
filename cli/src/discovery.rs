@@ -10,8 +10,6 @@ use ::rpc::machine_discovery::v0 as rpc_discovery;
 use cli::{CarbideClientError, CarbideClientResult};
 use rpc::forge::v0 as rpc;
 
-use crate::ipmi;
-
 pub struct Discovery {}
 
 fn convert_udev_to_mac(udev: String) -> CarbideClientResult<String> {
