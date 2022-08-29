@@ -41,7 +41,7 @@ impl fmt::Display for IpmitoolRoles {
 }
 
 impl IpmitoolRoles {
-    fn convert(&self) -> Result<rpc::UserRoles, CarbideClientError> {
+    fn _convert(&self) -> Result<rpc::UserRoles, CarbideClientError> {
         match self {
             IpmitoolRoles::User => Ok(rpc::UserRoles::User),
             IpmitoolRoles::Administrator => Ok(rpc::UserRoles::Administrator),
@@ -76,13 +76,13 @@ const USERS: [UsersList; 3] = [
 
 #[derive(Debug)]
 struct IpmiInfo {
-    user: String,
-    role: IpmitoolRoles,
+    _user: String,
+    _role: IpmitoolRoles,
     password: String,
 }
 
 impl IpmiInfo {
-    fn convert(
+    fn _convert(
         value: Vec<IpmiInfo>,
         uuid: &str,
         ip: String,
@@ -100,9 +100,9 @@ impl IpmiInfo {
 
         for v in value {
             bmc_meta_data.data.push(rpc::bmc_meta_data::DataItem {
-                user: v.user.clone(),
+                user: v._user.clone(),
                 password: v.password.clone(),
-                role: v.role.convert()? as i32,
+                role: v._role._convert()? as i32,
             });
         }
 
@@ -311,8 +311,8 @@ fn set_ipmi_creds() -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
         set_ipmi_props(&id, user_info.role)?;
 
         user_lists.push(IpmiInfo {
-            user: user_name.clone(),
-            role: user_info.role,
+            _user: user_name.clone(),
+            _role: user_info.role,
             password,
         })
     }
@@ -320,16 +320,16 @@ fn set_ipmi_creds() -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
     Ok((user_lists, ip))
 }
 
-pub async fn update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResult<()> {
+pub async fn _update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResult<()> {
     if IN_QEMU_VM.read().unwrap().in_qemu {
         return Ok(());
     }
 
     // Wait until ipmi device is ready.
-    wait_until_ipmi_is_ready().await?;
+    _wait_until_ipmi_is_ready().await?;
 
     let (ipmi_info, ip) = set_ipmi_creds()?;
-    let bmc_metadata: rpc::BmcMetaData = IpmiInfo::convert(ipmi_info, uuid, ip)?;
+    let bmc_metadata: rpc::BmcMetaData = IpmiInfo::_convert(ipmi_info, uuid, ip)?;
 
     let mut client = rpc::forge_client::ForgeClient::connect(listen).await?;
     let request = tonic::Request::new(bmc_metadata);
@@ -339,7 +339,7 @@ pub async fn update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResul
 }
 
 // This is blocking function.
-async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
+async fn _wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
     const RETRY_TIME: Duration = Duration::from_secs(30);
     const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 6);
     const MAX_TIMEOUT_COUNT: u64 = MAX_TIMEOUT.as_secs() / RETRY_TIME.as_secs();
