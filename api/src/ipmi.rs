@@ -1,11 +1,14 @@
+use std::fmt::Debug;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx;
 use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
 use freeipmi_sys::{self, IpmiChassisControl};
+use once_cell::sync::OnceCell;
 
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::{CarbideError, CarbideResult};
@@ -43,66 +46,68 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
     }
 }
 
-//Ron: this isn't the right way to do this -- it should be a trait that has this function
-//so that we don't conditionally compile out code during tests.  We have to do shenanigans with
-//impots
-#[cfg(test)]
-async fn handle_ipmi_command(cmd: IpmiCommand) -> CarbideResult<String> {
-    match cmd.action.unwrap() {
-        IpmiTask::PowerControl(_task) => Ok("Power Control".to_string()),
-        IpmiTask::Status => Ok("Status".to_string()),
-    }
+pub static IPMI_COMMAND_HANDLER: OnceCell<Box<dyn IpmiCommandHandler>> = OnceCell::new();
+
+#[async_trait]
+pub trait IpmiCommandHandler: Send + Sync + 'static + Debug {
+    async fn handle_ipmi_command(&self, cmd: IpmiCommand) -> CarbideResult<String>;
 }
 
-#[cfg(not(test))]
-async fn handle_ipmi_command(cmd: IpmiCommand) -> CarbideResult<String> {
-    use freeipmi_sys::{
-        ipmi::IpmiContext, IpmiAuthenticationType, IpmiCipherSuite, IpmiDevice, IpmiPrivilegeLevel,
-    };
+#[derive(Copy, Clone, Debug)]
+pub struct RealIpmiCommandHandler {}
 
-    let interface = IpmiDevice::Lan2_0;
-    let cipher = IpmiCipherSuite::HmacSha256AesCbc128;
-    let auth = IpmiAuthenticationType::Md5;
-    let mode = IpmiPrivilegeLevel::Admin;
-    let result: CarbideResult<String>;
-
-    let mut ctx = IpmiContext::new(
-        cmd.host,
-        cmd.user,
-        cmd.password,
-        Option::from(interface),
-        Option::from(cipher),
-        Option::from(mode),
-        Option::from(auth),
-    );
-
-    if ctx.connect().is_ok() {
-        result = match cmd.action.unwrap() {
-            IpmiTask::PowerControl(task) => match ctx.power_control(task) {
-                Ok(()) => Ok("Success".to_string()),
-                Err(e) => {
-                    let error_msg = format!("Failed to run power control command {}", e);
-                    Err(CarbideError::GenericError(error_msg))
-                }
-            },
-            IpmiTask::Status => match ctx.chassis_status() {
-                Ok(status) => Ok(status
-                    .iter()
-                    .map(|x| format!("{}", x))
-                    .collect::<Vec<String>>()
-                    .join("\n")),
-                Err(e) => {
-                    let error_msg = format!("Failed to run status command {}", e);
-                    Err(CarbideError::GenericError(error_msg))
-                }
-            },
+#[async_trait]
+impl IpmiCommandHandler for RealIpmiCommandHandler {
+    async fn handle_ipmi_command(&self, cmd: IpmiCommand) -> CarbideResult<String> {
+        use freeipmi_sys::{
+            ipmi::IpmiContext, IpmiAuthenticationType, IpmiCipherSuite, IpmiDevice,
+            IpmiPrivilegeLevel,
         };
-        let _ = ctx.disconnect();
-    } else {
-        result = Err(CarbideError::GenericError("Failed to connect".to_string()))
+
+        let interface = IpmiDevice::Lan2_0;
+        let cipher = IpmiCipherSuite::HmacSha256AesCbc128;
+        let auth = IpmiAuthenticationType::Md5;
+        let mode = IpmiPrivilegeLevel::Admin;
+        let result: CarbideResult<String>;
+
+        let mut ctx = IpmiContext::new(
+            cmd.host,
+            cmd.user,
+            cmd.password,
+            Option::from(interface),
+            Option::from(cipher),
+            Option::from(mode),
+            Option::from(auth),
+        );
+
+        if ctx.connect().is_ok() {
+            result = match cmd.action.unwrap() {
+                IpmiTask::PowerControl(task) => match ctx.power_control(task) {
+                    Ok(()) => Ok("Success".to_string()),
+                    Err(e) => {
+                        let error_msg = format!("Failed to run power control command {}", e);
+                        Err(CarbideError::GenericError(error_msg))
+                    }
+                },
+                IpmiTask::Status => match ctx.chassis_status() {
+                    Ok(status) => Ok(status
+                        .iter()
+                        .map(|x| format!("{}", x))
+                        .collect::<Vec<String>>()
+                        .join("\n")),
+                    Err(e) => {
+                        let error_msg = format!("Failed to run status command {}", e);
+                        Err(CarbideError::GenericError(error_msg))
+                    }
+                },
+            };
+            let _ = ctx.disconnect();
+        } else {
+            result = Err(CarbideError::GenericError("Failed to connect".to_string()))
+        }
+        ctx.destroy();
+        result
     }
-    ctx.destroy();
-    result
 }
 
 #[job(channel_name = "ipmi_handler")]
@@ -125,7 +130,11 @@ async fn command_handler(mut current_job: CurrentJob) -> CarbideResult<()> {
         ));
     }
 
-    let result = handle_ipmi_command(cmd).await;
+    let result = IPMI_COMMAND_HANDLER
+        .get()
+        .expect("no ipmi command handler set")
+        .handle_ipmi_command(cmd)
+        .await;
     match result {
         Ok(s) => {
             update_status(&current_job, 4, s, TaskState::Finished).await;
@@ -219,12 +228,23 @@ impl IpmiCommand {
     //}
 }
 
-pub async fn ipmi_handler(pool: sqlx::PgPool) -> CarbideResult<OwnedHandle> {
+pub async fn ipmi_handler<H>(
+    pool: sqlx::PgPool,
+    ipmi_command_handler: H,
+) -> CarbideResult<OwnedHandle>
+where
+    H: IpmiCommandHandler,
+{
     log::info!("Starting IPMI handler.");
     let registry = JobRegistry::new(&[command_handler]);
     let new_pool = pool.clone();
 
-    // This function should return ownedhandle. If ownedhandle is dropped, it will stop main event loop also.
+    IPMI_COMMAND_HANDLER
+        .set(Box::new(ipmi_command_handler))
+        .expect("cannot set IPMI_COMMAND_HANDLER multiple times");
+
+    // This function returns an OwnedHandle.
+    // If the OwnedHandle is dropped, it will stop main event loop also.
     registry
         .runner(&new_pool)
         .set_concurrency(10, 20)
@@ -240,6 +260,19 @@ mod tests {
     use super::*;
 
     const TEMP_DB_NAME: &str = "ipmihandler_test";
+
+    #[derive(Copy, Clone, Debug)]
+    pub struct TestIpmiCommandHandler {}
+
+    #[async_trait]
+    impl IpmiCommandHandler for TestIpmiCommandHandler {
+        async fn handle_ipmi_command(&self, cmd: IpmiCommand) -> CarbideResult<String> {
+            match cmd.action.unwrap() {
+                IpmiTask::PowerControl(_task) => Ok("Power Control".to_string()),
+                IpmiTask::Status => Ok("Status".to_string()),
+            }
+        }
+    }
 
     fn get_base_uri() -> String {
         if std::env::var("TESTDB_HOST").is_ok()
@@ -283,7 +316,7 @@ mod tests {
     #[tokio::test]
     async fn test_ipmi() {
         let pool = get_database_connection().await.unwrap();
-        let _handle = ipmi_handler(pool.clone()).await;
+        let _handle = ipmi_handler(pool.clone(), TestIpmiCommandHandler {}).await;
         let job = IpmiCommand::new(
             "127.0.0.1".to_string(),
             "test".to_string(),
