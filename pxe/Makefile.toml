@@ -1,6 +1,6 @@
 [env]
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04"
-BFB_NAME = "DOCA_1.4.0_BSP_3.9.2_Ubuntu_20.04-4.hbn.4.bfb"
+BFB_NAME = "DOCA_1.4.0_BSP_3.9.2_Ubuntu_20.04-4.bfb"
 
 [tasks.build-boot-artifacts-x86_64]
 dependencies = [
