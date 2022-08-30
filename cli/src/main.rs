@@ -3,7 +3,7 @@
 mod cfg;
 mod discovery;
 mod done;
-mod ipmi;
+//mod ipmi;
 
 use cfg::{Command, Options};
 use log::LevelFilter;
