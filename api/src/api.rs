@@ -8,7 +8,7 @@ use tower::ServiceBuilder;
 
 use ::rpc::MachineStateMachineInput;
 use auth::CarbideAuth;
-use carbide::ipmi::ipmi_handler;
+use carbide::ipmi::{ipmi_handler, RealIpmiCommandHandler};
 use carbide::kubernetes::bgkubernetes_handler;
 use carbide::{
     db::{
@@ -1046,7 +1046,7 @@ impl Api {
             .build()?;
 
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
-        let _handle = ipmi_handler(conn_clone).await?;
+        let _handle = ipmi_handler(conn_clone, RealIpmiCommandHandler {}).await?;
 
         let _kube_handle =
             bgkubernetes_handler(daemon_config.datastore.to_owned(), daemon_config.kubernetes)
