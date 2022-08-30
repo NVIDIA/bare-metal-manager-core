@@ -12,9 +12,11 @@ use crate::{Machine, RuntimeConfig};
 pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig) -> Template {
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine.interface.mac_address);
+    context.insert("hostname".to_string(), machine.interface.hostname);
     context.insert("interface_id".to_string(), uuid.to_string());
     context.insert("api_url".to_string(), config.api_url);
     context.insert("pxe_url".to_string(), config.pxe_url);
+    context.insert("ntp_server".to_string(), config.ntp_server);
     Template::render("user-data", &context)
 }
 
