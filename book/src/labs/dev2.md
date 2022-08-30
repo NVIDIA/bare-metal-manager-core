@@ -86,9 +86,9 @@ Credentials
 | rno1-m03-b19-cpu-03 | 10.180.222.69 |
 | rno1-m03-b19-cpu-04 | 10.180.222.70 |
 | rno1-m03-b19-cpu-05 | 10.180.222.71 |
-| rno1-m03-b17-cpu-08 | 10.180.221.203|
-| rno1-m03-b18-cpu-08 | 10.180.222.208|
-| rno1-m03-b19-cpu-08 | 10.180.222.213|
+| rno1-m03-b17-cpu-08 | 10.180.221.207|
+| rno1-m03-b18-cpu-08 | 10.180.222.216|
+| rno1-m03-b19-cpu-08 | 10.180.222.217|
 
 
 **Note: We currently using kubectl as a way to interact with forge vpc directly. Eventually this will be replaced by grpcurl interacting with forge-api server.**
