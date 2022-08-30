@@ -38,6 +38,9 @@ Details
 | 10.180.222.41 |	10:70:fd:18:10:7e |	10.180.222.49 |	10:70:fd:18:10:8a |	MT2203X26585 |rno1-m03-b19-cpu-02  |
 | 10.180.222.53 |	6a:7c:1a:43:16:64 |	10.180.222.44 |	10:70:fd:18:10:5a |	MT2203X26582 | rno1-m03-b17-cpu-06 - e2e data-plane |
 | 10.180.222.55	| 10:70:fd:18:0e:fe	| 10.180.222.54	| 10:70:fd:18:0f:0a |	MT2203X26561 ||
+| 10.180.222.206| 08:c0:eb:cb:0e:68 | 10.180.222.213 | 08:c0:eb:cb:0e:74 | | rno1-m03-b19-cpu-08 - dogfood - dell |
+| 10.180.221.208| b2:b5:46:3f:df:7f | 10.180.221.203 | 08:c0:eb:cb:0e:04 | | rno1-m03-b17-cpu-08 - dogfood - dell |
+| 10.180.222.215| b2:28:8f:52:44:68 | 10.180.222.208 | 08:c0:eb:cb:0e:14 | | rno1-m03-b18-cpu-08 - dogfood - dell |
 
 The following 3 nodes are the control plane and have manually set IPs with no dhcp helper on the switch.
 
@@ -83,6 +86,9 @@ Credentials
 | rno1-m03-b19-cpu-03 | 10.180.222.69 |
 | rno1-m03-b19-cpu-04 | 10.180.222.70 |
 | rno1-m03-b19-cpu-05 | 10.180.222.71 |
+| rno1-m03-b17-cpu-08 | 10.180.221.203|
+| rno1-m03-b18-cpu-08 | 10.180.222.208|
+| rno1-m03-b19-cpu-08 | 10.180.222.213|
 
 
 **Note: We currently using kubectl as a way to interact with forge vpc directly. Eventually this will be replaced by grpcurl interacting with forge-api server.**
