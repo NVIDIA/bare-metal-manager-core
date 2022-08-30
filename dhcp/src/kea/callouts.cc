@@ -39,6 +39,19 @@ void CDHCPOptionsHandler<Option>::resetOption(boost::any param) {
   }
 }
 
+Option4AddrLst::AddressContainer getAddresses(std::string ips) {
+    std::stringstream ss(ips);
+    std::vector<isc::asiolink::IOAddress> out;
+    char delim = ',';
+ 
+    std::string s;
+    while (std::getline(ss, s, delim)) {
+        out.push_back(isc::asiolink::IOAddress(s));
+    }
+
+    return out;
+}
+
 void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
   switch (option) {
   case DHO_ROUTERS:
@@ -48,11 +61,11 @@ void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
     break;
   case DHO_NAME_SERVERS:
     response4_ptr->addOption(OptionPtr(new Option4AddrLst(
-        option, isc::asiolink::IOAddress(boost::any_cast<char *>(param)))));
+        option, getAddresses(boost::any_cast<std::string>(param)))));
     break;
   case DHO_DOMAIN_NAME_SERVERS:
     response4_ptr->addOption(OptionPtr(new Option4AddrLst(
-        option, isc::asiolink::IOAddress(boost::any_cast<char *>(param)))));
+        option, getAddresses(boost::any_cast<std::string>(param)))));
     break;
   case DHO_SUBNET_MASK:
   case DHO_BROADCAST_ADDRESS:
@@ -152,10 +165,11 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr,
 
   // DNS servers
   char *machine_nameservers = machine_get_nameservers(machine);
+  std::string nameservers(machine_nameservers);
   update_option<Option>(handle, response4_ptr, DHO_NAME_SERVERS,
-                        machine_nameservers);
+                        nameservers);
   update_option<Option>(handle, response4_ptr, DHO_DOMAIN_NAME_SERVERS,
-                        machine_nameservers);
+                        nameservers);
   machine_free_nameservers(machine_nameservers);
 
   // Set Interface MTU
