@@ -6,6 +6,7 @@ cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 debug:
   verbose: true
 timezone: "Etc/UTC"
+fqdn: {{ hostname }}
 manage_etc_hosts: true
 users:
   - name: ubuntu
@@ -14,11 +15,20 @@ users:
     lock_passwd: false
     passwd: $6$QnKhCwOoDCL7WBiY$KgzONMVSjgq/137.pYEwHYQwLLR1CMuqhn2jMOxqhXEni8nQsynh.s6qhdqOWoB5CLhOnM2fjtKuAwf6rm5.6.
     groups: [adm, audio, cdrom, dialout, dip, floppy, lxd, netdev, plugdev, sudo, video]
+packages:
+  - chrony
+write_files:
+  - path: /etc/chrony/chrony.conf
+    permissions: 0644
+    content: |
+      server {{ ntp_server }} iburst
 runcmd:
   - [ sudo, efibootmgr, -o, "F,40"]
   - [ /usr/bin/systemctl, enable, containerd ]
   - [ /usr/bin/systemctl, start, containerd ]
   - [ /usr/bin/systemctl, enable, kubelet ]
+  - [ systemctl, enable, chrony ]
+  - [ systemctl, restart, chrony ]
   - [ mkdir, -p, /opt/hbn_installer, /opt/carbide ]
   - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/doca_container_configs_1.3.0.zip, -P, /opt/hbn_installer ]
   - [ /usr/bin/unzip, /opt/hbn_installer/doca_container_configs_1.3.0.zip, -d, /opt/hbn_installer/ ]
@@ -26,14 +36,10 @@ runcmd:
   - [ cp, /opt/hbn_installer/configs/1.3.0/doca_hbn.yaml, /etc/kubelet.d/ ]
   - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli, -P, /opt/carbide ]
   - [ chmod, +x, /opt/carbide/carbide-cli ]
+  - [ /opt/carbide/carbide-cli, --listen={{ api_url }}, discovery, --uuid={{ interface_id }} ]
   - [ /opt/carbide/carbide-cli, --listen={{ api_url }}, done, --uuid={{ interface_id }} ]
   - [ /usr/sbin/reboot ]
 EOF
-
-mkdir -p /opt/carbide
-wget {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli -P /opt/carbide
-chmod +x /opt/carbide/carbide-cli
-/opt/carbide/carbide-cli --listen={{ api_url }} discovery --uuid={{ interface_id }}
 
 }
 

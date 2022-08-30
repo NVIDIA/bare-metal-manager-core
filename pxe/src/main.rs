@@ -1,6 +1,7 @@
 use std::{fmt::Debug, fmt::Display};
 
 use clap::Parser;
+use rocket::figment::Figment;
 use rocket::{
     fairing::AdHoc,
     form::Errors,
@@ -30,6 +31,7 @@ pub struct Machine {
 pub struct RuntimeConfig {
     api_url: String,
     pxe_url: String,
+    ntp_server: String,
 }
 
 pub enum RPCError<'a> {
@@ -236,15 +238,16 @@ async fn main() -> Result<(), rocket::Error> {
         .attach(AdHoc::try_on_ignite(
             "Carbide API Config",
             |rocket| async move {
-                if let Ok(api_url) = rocket.figment().extract_inner::<String>("carbide_api_url") {
-                    if let Ok(pxe_url) = rocket.figment().extract_inner::<String>("carbide_pxe_url")
-                    {
-                        Ok(rocket.manage(RuntimeConfig { api_url, pxe_url }))
-                    } else {
+                match extract_params(rocket.figment()) {
+                    Ok(config) => Ok(rocket.manage(RuntimeConfig {
+                        api_url: config.api_url,
+                        pxe_url: config.pxe_url,
+                        ntp_server: config.ntp_server,
+                    })),
+                    Err(err) => {
+                        println!("An unexpected error occurred in rocket setup: {}", err);
                         Err(rocket)
                     }
-                } else {
-                    Err(rocket)
                 }
             },
         ))
@@ -252,4 +255,18 @@ async fn main() -> Result<(), rocket::Error> {
         .await?
         .launch()
         .await
+}
+
+fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
+    Ok(RuntimeConfig {
+        api_url: figment
+            .extract_inner::<String>("carbide_api_url")
+            .map_err(|_| "Could not extract carbide_api_url from config")?,
+        pxe_url: figment
+            .extract_inner::<String>("carbide_pxe_url")
+            .map_err(|_| "Could not extract carbide_pxe_url from config")?,
+        ntp_server: figment
+            .extract_inner::<String>("carbide_ntp_server")
+            .map_err(|_| "Could not extract ntp_server from config")?,
+    })
 }
