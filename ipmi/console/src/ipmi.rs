@@ -21,11 +21,7 @@ pub struct HostInfo {
 }
 
 impl IpmiInfo {
-    async fn new(id: Uuid, role: UserRoles) -> Result<Self, ConsoleError> {
-        IpmiInfo::get_bmc_metadata(id, role)
-    }
-
-    fn get_bmc_metadata(id: Uuid, role: UserRoles) -> Result<IpmiInfo, ConsoleError> {
+    fn new(id: Uuid, role: UserRoles) -> Result<Self, ConsoleError> {
         auth::get_bmc_metadata(id, role)
     }
 }
@@ -38,7 +34,7 @@ impl HostInfo {
             ipmi_info: None,
         };
 
-        let ipmi_info = IpmiInfo::new(host_info.id, role).await?;
+        let ipmi_info = IpmiInfo::new(host_info.id, role)?;
         host_info.ipmi_info = Some(ipmi_info);
         Ok(host_info)
     }

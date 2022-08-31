@@ -11,7 +11,7 @@ pub struct TestDatabaseManager {
 }
 
 impl TestDatabaseManager {
-    pub(crate) async fn new() -> CarbideResult<Self> {
+    pub async fn new() -> CarbideResult<Self> {
         if env::var("TESTDB_HOST").is_ok()
             || env::var("TESTDB_USER").is_ok()
             || env::var("TESTDB_PASSWORD").is_ok()
