@@ -14,6 +14,7 @@ use rocket_dyn_templates::Template;
 use serde::Serialize;
 
 use ::rpc::forge::v0::forge_client::ForgeClient;
+use ::rpc::forge::v0::DomainSearchQuery;
 use ::rpc::forge::v0::InterfaceSearchQuery;
 use rpc::forge::v0;
 
@@ -24,6 +25,7 @@ mod routes;
 pub struct Machine {
     architecture: v0::MachineArchitecture,
     interface: v0::MachineInterface,
+    domain: v0::Domain,
     machine: Option<v0::Machine>,
 }
 
@@ -189,10 +191,27 @@ impl<'r> FromRequest<'r> for Machine {
             }
         };
 
+        let request = tonic::Request::new(DomainSearchQuery {
+            id: interface.domain_id.clone(),
+            name: None,
+        });
+
+        let domain = match client.find_domain(request).await {
+            // TODO(baz): fix this blatantly ugly remove(0) w/o checking the size
+            Ok(response) => response.into_inner().domains.remove(0),
+            Err(err) => {
+                return request::Outcome::Failure((
+                    Status::BadRequest,
+                    RPCError::RequestError(err),
+                ));
+            }
+        };
+
         match interface.machine_id.clone() {
             None => request::Outcome::Success(Machine {
                 architecture: buildarch,
                 interface,
+                domain,
                 machine: None,
             }),
             Some(machine_id) => {
@@ -201,6 +220,7 @@ impl<'r> FromRequest<'r> for Machine {
                     Ok(machine) => request::Outcome::Success(Machine {
                         architecture: buildarch,
                         interface,
+                        domain,
                         machine: Some(machine.into_inner()),
                     }),
                     Err(err) => {
