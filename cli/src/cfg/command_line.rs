@@ -25,6 +25,8 @@ pub(crate) enum Command {
     Discovery(Discovery),
     #[clap(about = "Done provisioning")]
     Done(Done),
+    #[clap(about = "Reset (deprovisioning)")]
+    Reset(Reset),
 }
 
 #[derive(Parser)]
@@ -35,6 +37,12 @@ pub struct Discovery {
 
 #[derive(Parser)]
 pub struct Done {
+    #[clap(short, long, multiple_values(false), require_equals(true))]
+    pub uuid: String,
+}
+
+#[derive(Parser)]
+pub struct Reset {
     #[clap(short, long, multiple_values(false), require_equals(true))]
     pub uuid: String,
 }
