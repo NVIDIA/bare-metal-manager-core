@@ -99,7 +99,6 @@ async fn create_empty_entry(id: Uuid, pool: PgPool) {
     txn.commit().await.unwrap();
 }
 
-#[cfg(test)]
 async fn update_bmc_data(id: Uuid, pool: PgPool) {
     let meta_data = BmcMetaData {
         machine_id: id,

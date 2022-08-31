@@ -100,17 +100,6 @@ pub fn validate_user(user: &str, pubkey: &key::PublicKey) -> Result<UserRoles, C
     })
 }
 
-#[cfg(test)]
-pub fn get_bmc_metadata(_machine_id: Uuid, _role: UserRoles) -> Result<IpmiInfo, ConsoleError> {
-    Ok(IpmiInfo {
-        ip: "127.0.0.2".parse()?,
-        user: "temp".to_string(),
-        password: "temp".to_string(),
-    })
-}
-
-#[cfg(not(test))]
-// Takes role and finds first user as per role and returns it.
 pub fn get_bmc_metadata(machine_id: Uuid, role: UserRoles) -> Result<IpmiInfo, ConsoleError> {
     use self::rpc::{BmcMetaDataRequest, BmcMetaDataResponse};
 

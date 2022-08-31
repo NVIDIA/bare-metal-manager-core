@@ -1,85 +1,78 @@
 use crate::common::TestDatabaseManager;
+use carbide::db::vpc_resource_leaf::{NewVpcResourceLeaf, VpcResourceLeaf};
+use carbide::CarbideResult;
 
 mod common;
 
-#[cfg(test)]
-mod tests {
-    use carbide::db::vpc_resource_leaf::{NewVpcResourceLeaf, VpcResourceLeaf};
-    use carbide::CarbideResult;
+#[tokio::test]
+async fn new_leafs_are_in_new_state() {
+    let db = TestDatabaseManager::new()
+        .await
+        .expect("Could not create database manager");
 
-    use crate::TestDatabaseManager;
+    let mut txn = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
 
-    #[tokio::test]
-    async fn new_leafs_are_in_new_state() {
-        let db = TestDatabaseManager::new()
-            .await
-            .expect("Could not create database manager");
+    let leaf = NewVpcResourceLeaf::new()
+        .persist(&mut txn)
+        .await
+        .expect("Could not create new leaf");
 
-        let mut txn = db
-            .pool
-            .begin()
-            .await
-            .expect("Unable to create transaction on database pool");
+    txn.commit().await.expect("Could not create new leaf");
 
-        let leaf = NewVpcResourceLeaf::new()
-            .persist(&mut txn)
-            .await
-            .expect("Could not create new leaf");
+    let mut txn2 = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
 
-        txn.commit().await.expect("Could not create new leaf");
+    let vpc_resource_leaf = VpcResourceLeaf::find(&mut txn2, leaf.id().to_owned())
+        .await
+        .expect("Could not find newly created leaf");
 
-        let mut txn2 = db
-            .pool
-            .begin()
-            .await
-            .expect("Unable to create transaction on database pool");
+    let current_state = vpc_resource_leaf
+        .current_state(&mut txn2)
+        .await
+        .expect("Could not get current state of leaf");
 
-        let vpc_resource_leaf = VpcResourceLeaf::find(&mut txn2, leaf.id().to_owned())
-            .await
-            .expect("Could not find newly created leaf");
+    log::info!("Current state - {}", current_state);
 
-        let current_state = vpc_resource_leaf
-            .current_state(&mut txn2)
-            .await
-            .expect("Could not get current state of leaf");
+    // assert!(matches!(current_state, VpcResourceState::New));
+}
 
-        log::info!("Current state - {}", current_state);
-
-        // assert!(matches!(current_state, VpcResourceState::New));
+#[tokio::test]
+async fn find_leaf_by_id() {
+    if let Err(e) = pretty_env_logger::try_init() {
+        eprintln!("An error occured {}", e)
     }
+    let db = TestDatabaseManager::new()
+        .await
+        .expect("Could not create database manager");
 
-    #[tokio::test]
-    async fn find_leaf_by_id() {
-        if let Err(e) = pretty_env_logger::try_init() {
-            eprintln!("An error occured {}", e)
-        }
-        let db = TestDatabaseManager::new()
-            .await
-            .expect("Could not create database manager");
+    let mut txn = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
 
-        let mut txn = db
-            .pool
-            .begin()
-            .await
-            .expect("Unable to create transaction on database pool");
+    let leaf: CarbideResult<VpcResourceLeaf> = NewVpcResourceLeaf::new().persist(&mut txn).await;
 
-        let leaf: CarbideResult<VpcResourceLeaf> =
-            NewVpcResourceLeaf::new().persist(&mut txn).await;
+    txn.commit()
+        .await
+        .expect("Unable to create new VpcResourceLeaf");
 
-        txn.commit()
-            .await
-            .expect("Unable to create new VpcResourceLeaf");
+    let mut txn2 = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
 
-        let mut txn2 = db
-            .pool
-            .begin()
-            .await
-            .expect("Unable to create transaction on database pool");
+    let _unwrapped = &leaf.expect("Unable to unmarshal leaf from Result");
 
-        let _unwrapped = &leaf.expect("Unable to unmarshal leaf from Result");
+    let some_leaf = VpcResourceLeaf::find(&mut txn2, _unwrapped.id().to_owned()).await;
 
-        let some_leaf = VpcResourceLeaf::find(&mut txn2, _unwrapped.id().to_owned()).await;
-
-        assert!(matches!(some_leaf, _unwrapped));
-    }
+    assert!(matches!(some_leaf, _unwrapped));
 }

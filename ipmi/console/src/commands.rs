@@ -2,12 +2,10 @@ use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::sync::{Arc, Mutex};
 
-use futures::executor::block_on;
 use lazy_static::lazy_static;
 use sqlx::PgPool;
 use thrussh::server::{Handle, Session};
 use thrussh::{ChannelId, CryptoVec};
-use tokio::sync::mpsc::channel;
 use tokio::time;
 use uuid::Uuid;
 
@@ -189,29 +187,9 @@ async fn call_ipmi_api(ipmi_info: IpmiInfo, data: String, pool: PgPool) -> Carbi
     }
 }
 
-// AsyncWrapper is using tokio::task::spawn_blocking to process command in separate thread.
-// Tokio has limitation of 500 blocking thread only.
-// Please note that this is parallel running commands, not parallel user sessions.
-// In case 500 limit is not enough, we can replace spawn_blocking with standard thread.
-// Before doing so, just think about load on server.
 impl AsyncWrapper {
     fn get_host_details(role: UserRoles, data: String) -> Result<HostInfo, ConsoleError> {
-        let (tx, mut rx) = channel(10);
-        tokio::task::spawn_blocking(move || {
-            tokio::spawn(async move {
-                let host_info = HostInfo::new(data, role).await;
-                let _ = tx.send(host_info).await;
-            });
-        });
-
-        block_on(async {
-            match rx.recv().await {
-                Some(x) => x,
-                None => Err(ConsoleError::GenericError(
-                    "Error in getting data.".to_string(),
-                )),
-            }
-        })
+        futures::executor::block_on(async { HostInfo::new(data, role).await })
     }
 
     fn handle_power_command(server: Server, channel: ChannelId, data: String) -> Server {
@@ -222,49 +200,47 @@ impl AsyncWrapper {
         let prompt = server.get_prompt();
         let exec_mode = server.exec_mode;
         *task_state.lock().unwrap() = TaskState::Running;
-        tokio::task::spawn_blocking(move || {
-            tokio::spawn(async move {
-                let mut handle: Handle;
-                {
-                    let mut clients = clients.lock().unwrap();
-                    handle = clients.get_mut(&(server.id, channel)).unwrap().clone();
-                }
+        tokio::spawn(async move {
+            let mut handle: Handle;
+            {
+                let mut clients = clients.lock().unwrap();
+                handle = clients.get_mut(&(server.id, channel)).unwrap().clone();
+            }
 
-                let job_id = call_ipmi_api(ipmi_info, data, pool.clone()).await;
-                if job_id.is_err() {
-                    util::end_task(task_state, prompt, channel, handle, exec_mode).await;
-                    return;
-                }
-
-                let job_id = job_id.unwrap();
-                let mut task_cancelled: bool = false;
-
-                loop {
-                    if Status::is_finished(&pool, job_id).await.unwrap() {
-                        break;
-                    }
-                    //TODO: it is likely an error to be using a synchronous lock in an async fn.
-                    if let TaskState::Cancelled = *task_state.lock().unwrap() {
-                        task_cancelled = true;
-                        break;
-                    }
-                    time::sleep(time::Duration::from_millis(200)).await;
-                }
-
-                match Status::poll(&pool, job_id).await {
-                    Ok(fs) => {
-                        let _ = handle
-                            .data(channel, CryptoVec::from(fs.msg.trim().to_string()))
-                            .await;
-                    }
-                    Err(x) => {
-                        if !task_cancelled {
-                            let _ = handle.data(channel, CryptoVec::from(x.to_string())).await;
-                        }
-                    }
-                };
+            let job_id = call_ipmi_api(ipmi_info, data, pool.clone()).await;
+            if job_id.is_err() {
                 util::end_task(task_state, prompt, channel, handle, exec_mode).await;
-            });
+                return;
+            }
+
+            let job_id = job_id.unwrap();
+            let mut task_cancelled: bool = false;
+
+            loop {
+                if Status::is_finished(&pool, job_id).await.unwrap() {
+                    break;
+                }
+                //TODO: Ron: it is likely an error to be using a synchronous lock in an async context.
+                if let TaskState::Cancelled = *task_state.lock().unwrap() {
+                    task_cancelled = true;
+                    break;
+                }
+                time::sleep(time::Duration::from_millis(200)).await;
+            }
+
+            match Status::poll(&pool, job_id).await {
+                Ok(fs) => {
+                    let _ = handle
+                        .data(channel, CryptoVec::from(fs.msg.trim().to_string()))
+                        .await;
+                }
+                Err(x) => {
+                    if !task_cancelled {
+                        let _ = handle.data(channel, CryptoVec::from(x.to_string())).await;
+                    }
+                }
+            };
+            util::end_task(task_state, prompt, channel, handle, exec_mode).await;
         });
 
         server
@@ -277,37 +253,35 @@ impl AsyncWrapper {
         let prompt = server.get_prompt();
         let exec_mode = server.exec_mode;
         *task_state.lock().unwrap() = TaskState::Running;
-        tokio::task::spawn_blocking(move || {
-            tokio::spawn(async move {
-                let mut handle: Handle;
-                {
-                    let mut clients = clients.lock().unwrap();
-                    handle = clients.get_mut(&(server.id, channel)).unwrap().clone();
-                }
+        tokio::spawn(async move {
+            let mut handle: Handle;
+            {
+                let mut clients = clients.lock().unwrap();
+                handle = clients.get_mut(&(server.id, channel)).unwrap().clone();
+            }
 
-                loop {
-                    // Ipmi sol read logic comes here.
-                    // It should be non blocking based on some timeout.
-                    // if ipmi.read(buf, timeout) != error {
-                    //   handle.data(buf);
-                    // } else {
-                    //   handle.data("connect closed by host: error:");
-                    //   break
-                    // }
-                    time::sleep(time::Duration::from_millis(500)).await;
-                    let _ = handle
-                        .data(
-                            channel,
-                            CryptoVec::from("Here is sol text.\r\n".to_string()),
-                        )
-                        .await;
-                    if let TaskState::Cancelled = *task_state.lock().unwrap() {
-                        break;
-                    }
+            loop {
+                // Ipmi sol read logic comes here.
+                // It should be non blocking based on some timeout.
+                // if ipmi.read(buf, timeout) != error {
+                //   handle.data(buf);
+                // } else {
+                //   handle.data("connect closed by host: error:");
+                //   break
+                // }
+                time::sleep(time::Duration::from_millis(500)).await;
+                let _ = handle
+                    .data(
+                        channel,
+                        CryptoVec::from("Here is sol text.\r\n".to_string()),
+                    )
+                    .await;
+                if let TaskState::Cancelled = *task_state.lock().unwrap() {
+                    break;
                 }
+            }
 
-                util::end_task(task_state, prompt, channel, handle, exec_mode).await;
-            });
+            util::end_task(task_state, prompt, channel, handle, exec_mode).await;
         });
 
         server
