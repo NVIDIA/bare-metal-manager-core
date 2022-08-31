@@ -13,6 +13,8 @@ rpc = { path = "../rpc" }
 tonic = "0.7.0"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
+libc = "0.2"
+rlimit = "0.6.2"
 
 log = "*"
 once_cell = "*"

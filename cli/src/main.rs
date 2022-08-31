@@ -1,6 +1,7 @@
 // extern crate core;
 
 mod cfg;
+mod deprovision;
 mod discovery;
 mod done;
 //mod ipmi;
@@ -62,6 +63,9 @@ async fn main() -> Result<(), color_eyre::Report> {
         }
         Command::Done(d) => {
             done::Done::run(config.listen, &d.uuid).await?;
+        }
+        Command::Reset(d) => {
+            deprovision::Deprovision::run(config.listen, &d.uuid).await?;
         }
     }
     Ok(())
