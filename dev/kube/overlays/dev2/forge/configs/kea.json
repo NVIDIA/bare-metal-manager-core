@@ -18,7 +18,7 @@
         "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
         "parameters": {
           "carbide-api-url": "http://carbide-api-http:12079",
-          "carbide-nameservers": "10.149.10.130",
+          "carbide-nameservers": "10.149.10.130,10.149.10.132,10.180.37.3",
           "carbide-provisioning-server-ipv4": "10.180.32.10"
         }
       }
