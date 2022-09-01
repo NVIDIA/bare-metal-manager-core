@@ -170,6 +170,7 @@ impl Serialize for Domain {
         state.serialize_field("name", &self.name)?;
         state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
         state.serialize_field("updated", &self.updated.as_ref().map(|ts| ts.seconds))?;
+        state.serialize_field("deleted", &self.updated.as_ref().map(|ts| ts.seconds))?;
         state.end()
     }
 }
