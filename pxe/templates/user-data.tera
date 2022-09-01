@@ -25,12 +25,12 @@ write_files:
   - path: /etc/sysctl.d/98-hbn.conf
     permissions: '0644'
     content: |
-net.ipv4.ip_forward = 1
-net.ipv6.conf.all.forwarding = 1
-kernel.shmmax = 4294967296
-vm.hubetlb_shm_group = 0
-vm.nr_hugepages=2048
-vm.min_free_kbytes=67584
+      net.ipv4.ip_forward = 1
+      net.ipv6.conf.all.forwarding = 1
+      kernel.shmmax = 4294967296
+      vm.hubetlb_shm_group = 0
+      vm.nr_hugepages=2048
+      vm.min_free_kbytes=67584
 runcmd:
   - [ sudo, efibootmgr, -o, "F,40"]
   - [ /usr/bin/systemctl, enable, containerd ]
