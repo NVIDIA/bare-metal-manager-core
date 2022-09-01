@@ -20,15 +20,19 @@ const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 #[derive(Clone, Debug, FromRow)]
 pub struct Domain {
     /// Uuid is use
-    id: Uuid,
+    pub id: Uuid,
     /// domain name e.g. mycompany.com, subdomain.mycompany.com
-    name: String,
+    pub name: String,
 
     /// When this domain record was created
-    created: DateTime<Utc>,
+    pub created: DateTime<Utc>,
 
     /// When the domain record was last modified
-    updated: DateTime<Utc>,
+    pub updated: DateTime<Utc>,
+
+    // when the domain was deleted
+    pub deleted: Option<DateTime<Utc>>,
+
 }
 
 pub struct NewDomain {
@@ -54,6 +58,11 @@ impl From<Domain> for rpc::Domain {
 
             updated: Some(Timestamp {
                 seconds: src.updated.timestamp(),
+                nanos: 0,
+            }),
+
+             deleted: src.deleted.map(|t| Timestamp {
+                seconds: t.timestamp(),
                 nanos: 0,
             }),
         }
@@ -127,20 +136,21 @@ impl Domain {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
     ) -> CarbideResult<Vec<Domain>> {
+        // TODO(jdg):  Add a deleted option to find
         let results: Vec<Domain> = match filter {
             UuidKeyedObjectFilter::All => {
-                sqlx::query_as("SELECT * FROM domains")
+                sqlx::query_as("SELECT * FROM domains WHERE deleted is NULL")
                     .fetch_all(&mut *txn)
                     .await?
             }
             UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as("SELECT * FROM domains WHERE id = $1")
+                sqlx::query_as("SELECT * FROM domains WHERE id = $1 AND deleted is NULL")
                     .bind(uuid)
                     .fetch_all(&mut *txn)
                     .await?
             }
             UuidKeyedObjectFilter::List(list) => {
-                sqlx::query_as("select * from domains WHERE id = ANY($1)")
+                sqlx::query_as("select * from domains WHERE id = ANY($1) AND deleted is NULL")
                     .bind(list)
                     .fetch_all(&mut *txn)
                     .await?
@@ -156,6 +166,7 @@ impl Domain {
             name: name.to_string(),
             created: Utc::now(),
             updated: Utc::now(),
+            deleted: None,
         }
     }
 
@@ -209,18 +220,25 @@ impl Domain {
         todo!()
     }
 
-    pub async fn delete(
-        _txn: &mut Transaction<'_, Postgres>,
-        _uuid: Uuid,
-    ) -> CarbideResult<Option<Self>> {
-        todo!()
+    pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Domain> {
+
+        Ok(sqlx::query_as(
+            "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
+        )
+        .bind(&self.id)
+        .fetch_one(&mut *txn)
+        .await?)
+
     }
 
-    pub async fn update(
-        _txn: &mut Transaction<'_, Postgres>,
-        _uuid: Uuid,
-    ) -> CarbideResult<Option<Self>> {
-        todo!()
+    pub async fn update(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Domain> {
+        Ok(
+            sqlx::query_as("UPDATE domains SET name=$1, updated=NOW() WHERE id=$2 RETURNING *")
+                .bind(&self.name)
+                .bind(&self.id)
+                .fetch_one(&mut *txn)
+                .await?,
+        )
     }
 
     pub fn id(&self) -> &uuid::Uuid {

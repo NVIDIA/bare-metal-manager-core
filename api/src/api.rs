@@ -550,16 +550,97 @@ impl Forge for Api {
 
     async fn update_domain(
         &self,
-        _request: Request<rpc::Domain>,
+        request: Request<rpc::Domain>,
     ) -> Result<Response<rpc::Domain>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::Domain { id, name, .. } = request.into_inner();
+
+        // TODO(jdg): Move this out into a function and share it with delete
+        let uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::not_found("No domain object found matching requested UUID".to_string() ));
+            }
+        };
+
+        let mut domains = Domain::find(&mut txn, uuid).await?;
+
+        let mut dom = match domains.len() {
+            0 => return Err(Status::not_found("domain not found")),
+            1 => domains.remove(0),
+            _ => return Err(Status::internal("Found more than one domain with the specified UUID")),
+        };
+
+        dom.name = name;
+        let response = Ok(dom
+            .update(&mut txn)
+            .await
+            .map(rpc::Domain::from)
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn delete_domain(
         &self,
-        _request: Request<rpc::DomainDeletion>,
+        request: Request<rpc::DomainDeletion>,
     ) -> Result<Response<rpc::DomainDeletionResult>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::DomainDeletion { id, .. } = request.into_inner();
+
+        // load from find from domain.rs
+        let uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("No UUID provided".to_string()));
+            }
+        };
+
+        let mut domains = Domain::find(&mut txn, uuid).await?;
+
+        let dom = match domains.len() {
+            0 => return Err(Status::not_found("domain not found")),
+            1 => domains.remove(0),
+            _ => return Err(Status::internal("Found more than one domain with the specified UUID")),
+        };
+
+        let response = Ok(dom
+            .delete(&mut txn)
+            .await
+            .map(|_| rpc::DomainDeletionResult {})
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
     }
 
     async fn create_vpc(&self, request: Request<rpc::Vpc>) -> Result<Response<rpc::Vpc>, Status> {
