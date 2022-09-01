@@ -61,11 +61,17 @@ async fn create_vpc() {
 
     let vpc = DeleteVpc { id: unwrapped.id }.delete(&mut txn).await;
 
-    txn.commit().await.unwrap();
-
     let vpc = &vpc.unwrap();
 
     assert!(vpc.deleted.is_some());
+
+    // verify find doesn't pick up deleted vpc
+    let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(unwrapped.id))
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert!(vpcs.is_empty());
 }
 
 #[tokio::test]

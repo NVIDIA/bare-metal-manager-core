@@ -77,18 +77,18 @@ impl Vpc {
     ) -> CarbideResult<Vec<Vpc>> {
         let results: Vec<Vpc> = match filter {
             UuidKeyedObjectFilter::All => {
-                sqlx::query_as("SELECT * FROM vpcs")
+                sqlx::query_as("SELECT * FROM vpcs WHERE deleted is NULL")
                     .fetch_all(&mut *txn)
                     .await?
             }
             UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as("SELECT * FROM vpcs WHERE id = $1")
+                sqlx::query_as("SELECT * FROM vpcs WHERE id = $1 and deleted is NULL")
                     .bind(uuid)
                     .fetch_all(&mut *txn)
                     .await?
             }
             UuidKeyedObjectFilter::List(list) => {
-                sqlx::query_as("select * from vpcs WHERE id = ANY($1)")
+                sqlx::query_as("select * from vpcs WHERE id = ANY($1) and deleted is NULL")
                     .bind(list)
                     .fetch_all(&mut *txn)
                     .await?
