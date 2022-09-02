@@ -38,6 +38,7 @@ runcmd:
   - [ /usr/bin/systemctl, enable, kubelet ]
   - [ systemctl, enable, chrony ]
   - [ systemctl, restart, chrony ]
+  - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
   - [ mkdir, -p, /opt/hbn_installer, /opt/carbide ]
   - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/doca_container_configs_1.4.0.zip, -P, /opt/hbn_installer ]
   - [ /usr/bin/unzip, /opt/hbn_installer/doca_container_configs_1.4.0.zip, -d, /opt/hbn_installer/ ]
