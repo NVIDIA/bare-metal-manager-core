@@ -55,3 +55,4 @@ configMapGenerator:
     behavior: replace
     files:
       - Rocket.toml=configs/rocket.toml
+      - artifacts.json=configs/artifacts.json

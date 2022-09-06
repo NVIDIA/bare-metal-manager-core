@@ -75,6 +75,8 @@ services:
       - ca-certificate:/identity
     environment:
       - ROCKET_port=1080
+      - ARTIFACT_AUTHORIZATION_USER=$ARTIFACT_AUTHORIZATION_USER
+      - ARTIFACT_AUTHORIZATION_TOKEN=$ARTIFACT_AUTHORIZATION_TOKEN
     command: cargo watch -C pxe -x run
 
     

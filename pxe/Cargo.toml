@@ -1,7 +1,7 @@
 [package]
 name = "carbide-pxe"
 version = "0.0.1"
-edition = "2018"
+edition = "2021"
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
 #readme = "README.md"
 
@@ -10,27 +10,27 @@ name = "carbide"
 path = "src/main.rs"
 
 [dependencies]
-# protobufs/rpc interface
+async-compression = { version = "0.3.14", features = ["tokio", "gzip"] }
+clap = { version = "~3", features = ["derive"]}
+eui48 = "0.4.0"
+futures = "0.3.24"
+futures-util = "0.3.24"
+hex = "0.4.3"
+ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
+itertools = "*"
+rand = "0.8.5"
+reqwest = { version = "0.11.11", features = ["stream"] }
+rocket = { version = "= 0.5.0-rc.1", features = ["uuid"] }
 rpc = { path = "../rpc" }
-tonic = "0.7.0"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
-
-# webserver
-rocket = { version = "= 0.5.0-rc.1", features = ["uuid"] }
+sha2 = "0.10.3"
 tera = "*"
-
-# data types
-uuid = { version = "0.8.2", features = ["v4", "serde"] }
-ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
-eui48 = "0.4.0"
-
-# misc
-itertools = "*"
 thiserror = "1.0"
-
-# cli
-clap = { version = "~3", features = ["derive"]}
+tokio = {version = "1.20.1", features = ["full"]}
+tokio-tar = "0.3.0"
+tonic = "0.7.0"
+uuid = { version = "0.8.2", features = ["v4", "serde"] }
 
 [build-dependencies]
 tonic-build = "0.7.0"

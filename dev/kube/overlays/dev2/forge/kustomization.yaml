@@ -55,3 +55,7 @@ configMapGenerator:
     behavior: replace
     files:
       - Rocket.toml=configs/rocket.toml
+  - name: carbide-artifacts-config
+    behavior: replace
+    files:
+      - artifacts.json=configs/artifacts.json

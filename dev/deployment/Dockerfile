@@ -40,3 +40,4 @@ COPY --from=builder /carbide/target/debug/libdhcp.so /usr/lib/x86_64-linux-gnu/k
 COPY api/migrations/ /opt/carbide/migrations/
 COPY pxe/templates/*  /opt/carbide/pxe/templates/
 COPY pxe/Rocket.toml /opt/carbide/
+COPY pxe/artifacts.json /opt/carbide/
