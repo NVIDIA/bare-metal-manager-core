@@ -158,6 +158,9 @@ pages:
     - trunk
 
 build-push-helm:
+  variables:
+    PUSH_TO_NVCR: 'true'
+    HELM_FILE_NAME: "${CI_PROJECT_NAME}-${VERSION}"
   before_script:
     - apt-get update
     - apt-get install -y gettext-base
