@@ -60,7 +60,7 @@ async fn only_one_primary_interface_per_machine() {
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: None,
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![
@@ -153,7 +153,7 @@ async fn many_non_primary_interfaces_per_machine() {
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: None,
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![
@@ -224,7 +224,7 @@ async fn valdate_mac_address_before_creating_interface() {
     NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: None,
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![

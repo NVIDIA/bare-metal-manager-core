@@ -60,7 +60,7 @@ async fn prevent_duplicate_mac_addresses() {
     let segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain_id: Some(domain).unwrap().map(|d| d.id().to_owned()),
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![

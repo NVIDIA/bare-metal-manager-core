@@ -49,7 +49,7 @@ async fn test_new_machine_state() {
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: None,
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![
