@@ -10,3 +10,4 @@ configMapGenerator:
     behavior:  create
     files:
     - Rocket.toml=rocket.toml
+    - artifacts.json=artifacts.json

@@ -20,6 +20,8 @@ spec:
         - name: carbide-pxe
           image: carbide:latest
           env:
+            - name: ARTIFACT_CONFIG
+              value: "/tmp/carbide/artifacts.json"
             - name: ROCKET_CONFIG
               value: "/tmp/carbide/Rocket.toml"
             - name: ROCKET_TEMPLATE_DIR

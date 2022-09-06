@@ -18,6 +18,9 @@ use ::rpc::forge::v0::DomainSearchQuery;
 use ::rpc::forge::v0::InterfaceSearchQuery;
 use rpc::forge::v0;
 
+use crate::artifacts::ArtifactConfig;
+
+mod artifacts;
 mod machine_architecture;
 mod routes;
 
@@ -239,15 +242,23 @@ async fn main() -> Result<(), rocket::Error> {
     let static_path = std::path::Path::new(&opts.static_dir);
 
     if !&static_path.exists() {
-        rocket::info!(
+        println!(
             "Static path {} does not exist. Creating directory",
             &static_path.display()
         );
 
         match std::fs::create_dir_all(&static_path) {
-            Ok(_) => rocket::info!("Directory {}, created", &static_path.display()),
-            Err(e) => rocket::error!("Could not create directory: {}", e),
+            Ok(_) => println!("Directory {}, created", &static_path.display()),
+            Err(e) => eprintln!("Could not create directory: {}", e),
         }
+    }
+
+    let artifact_configuration = ArtifactConfig::from_config_file("artifacts.json")
+        .expect("unable to parse artifact configuration file?");
+    println!("Artifact config parsed: {}", &artifact_configuration);
+
+    if let Err(error) = artifact_configuration.validate_artifacts(static_path).await {
+        eprintln!("Error validating artifacts. Error: {:?}", error);
     }
 
     rocket::build()
