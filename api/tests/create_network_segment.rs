@@ -120,7 +120,7 @@ async fn test_create_segment_with_domain() {
     let segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain_id: Some(domain.unwrap().id().to_owned()),
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![
@@ -192,7 +192,7 @@ async fn test_create_segment_init_state() {
     let segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain_id: None,
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![
@@ -260,7 +260,7 @@ async fn test_advance_network_prefix_state() {
     let segment: NetworkSegment = NewNetworkSegment {
         name: "integration_test".to_string(),
         subdomain_id: None,
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![

@@ -42,7 +42,7 @@ pub struct NewNetworkSegment {
     pub name: String,
     pub subdomain_id: Option<Uuid>,
     pub vpc_id: Option<Uuid>,
-    pub mtu: Option<i32>,
+    pub mtu: i32,
     pub prefixes: Vec<NewNetworkPrefix>,
 }
 
@@ -89,7 +89,7 @@ impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
                 Some(v) => Some(uuid::Uuid::try_from(v)?),
                 None => None,
             },
-            mtu: value.mtu,
+            mtu: value.mtu.unwrap_or(1500i32), // Set a default of 1500 if there is none specified
             prefixes: value
                 .prefixes
                 .into_iter()

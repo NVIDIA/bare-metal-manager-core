@@ -50,7 +50,7 @@ async fn state_machine_advance_from_db_events() {
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: None,
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![
@@ -131,7 +131,7 @@ async fn test_fsm_invalid_advance() {
     let new_segment: NetworkSegment = NewNetworkSegment {
         name: "test-network".to_string(),
         subdomain_id: None,
-        mtu: Some(1500i32),
+        mtu: 1500i32,
         vpc_id: Some(vpc.id),
 
         prefixes: vec![

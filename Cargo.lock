@@ -706,6 +706,7 @@ version = "0.0.1"
 dependencies = [
  "clap",
  "color-eyre",
+ "libc",
  "libudev",
  "log",
  "once_cell",
@@ -713,6 +714,7 @@ dependencies = [
  "procfs",
  "rand",
  "regex",
+ "rlimit",
  "rpc",
  "serde",
  "serde_json",
@@ -3294,6 +3296,15 @@ dependencies = [
  "untrusted",
  "web-sys",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "rlimit"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc0bf25554376fd362f54332b8410a625c71f15445bca32ffdfdf4ec9ac91726"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
