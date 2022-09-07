@@ -1,14 +1,18 @@
+use std::str::FromStr;
 use std::net::IpAddr;
 use std::sync::Once;
 
 use log::LevelFilter;
+use mac_address::MacAddress;
 
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::domain::{Domain, NewDomain};
+use carbide::db::machine_interface::MachineInterface;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
 use carbide::db::vpc::NewVpc;
 use carbide::db::vpc_resource_state::VpcResourceState;
-use carbide::CarbideResult;
+use carbide::{CarbideError, CarbideResult};
 
 use crate::common::TestDatabaseManager;
 
@@ -316,4 +320,176 @@ async fn test_advance_network_prefix_state() {
     println!("Current -----  {}", current_state);
 
     assert_eq!(current_state, VpcResourceState::Ready);
+}
+#[tokio::test]
+async fn test_network_segment_delete() {
+    let db = TestDatabaseManager::new()
+        .await
+        .expect("Could not create database manager");
+
+    let mut txn = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    // Simple test of a segment with nothing associated
+    let segment: NetworkSegment = NewNetworkSegment {
+        name: "delete_test".to_string(),
+        subdomain_id: None,
+        mtu: Some(1500i32),
+        vpc_id: None,
+
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "192.0.2.1/24".parse().expect("can't parse network"),
+                gateway: "192.0.2.1".parse().ok(),
+                num_reserved: 1,
+            },
+            NewNetworkPrefix {
+                prefix: "2001:db8:f::/64".parse().expect("can't parse network"),
+                gateway: None,
+                num_reserved: 100,
+            },
+        ],
+    }
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create network segment");
+
+    let delete_result = segment.delete(&mut txn).await;
+
+    txn.commit().await.unwrap();
+    assert!(matches!(delete_result, Ok(_)));
+}
+
+#[tokio::test]
+async fn test_network_segment_delete_fails() {
+    let db = TestDatabaseManager::new()
+        .await
+        .expect("Could not create database manager");
+
+    let mut txn = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: String::new(),
+    }
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create VPC");
+
+    let my_domain = "dwrt.com";
+
+    let domain: CarbideResult<Domain> = NewDomain {
+        name: my_domain.to_string(),
+    }
+        .persist(&mut txn)
+        .await;
+
+    let segment: NetworkSegment = NewNetworkSegment {
+        name: "integration_test".to_string(),
+        subdomain_id: Some(domain.unwrap().id().to_owned()),
+        mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
+
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "192.0.2.1/24".parse().expect("can't parse network"),
+                gateway: "192.0.2.1".parse().ok(),
+                num_reserved: 1,
+            },
+            NewNetworkPrefix {
+                prefix: "2001:db8:f::/64".parse().expect("can't parse network"),
+                gateway: None,
+                num_reserved: 100,
+            },
+        ],
+    }
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create network segment");
+
+    let delete_result = segment.delete(&mut txn).await;
+
+    txn.commit().await.unwrap();
+
+    assert!(matches!(delete_result, Err(CarbideError::NetworkSegmentDelete(_))));
+}
+#[tokio::test]
+async fn test_network_segment_delete_fails_with_associated_mi() {
+    setup();
+
+    let db = TestDatabaseManager::new()
+        .await
+        .expect("Could not create database manager");
+
+    let mut txn = db
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let vpc = NewVpc {
+        name: "Test VPC".to_string(),
+        organization: String::new(),
+    }
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create VPC");
+
+    let my_domain = "dwrt.com";
+
+    let domain: CarbideResult<Domain> = NewDomain {
+        name: my_domain.to_string(),
+    }
+        .persist(&mut txn)
+        .await;
+
+    let segment: NetworkSegment = NewNetworkSegment {
+        name: "mideletetest".to_string(),
+        subdomain_id: Some(domain.unwrap().id().to_owned()),
+        mtu: Some(1500i32),
+        vpc_id: Some(vpc.id),
+
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "192.0.2.1/24".parse().expect("can't parse network"),
+                gateway: "192.0.2.1".parse().ok(),
+                num_reserved: 1,
+            },
+            NewNetworkPrefix {
+                prefix: "2001:db8:f::/64".parse().expect("can't parse network"),
+                gateway: None,
+                num_reserved: 100,
+            },
+        ],
+    }
+        .persist(&mut txn)
+        .await
+        .expect("Unable to create network segment");
+
+        let _new_interface = MachineInterface::create(
+        &mut txn,
+        &segment,
+        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
+        None,
+        "colklink".to_string(),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await
+    .expect("Unable to create machine interface");
+
+    let delete_result = segment.delete(&mut txn).await;
+
+    txn.commit().await.unwrap();
+
+    assert!(matches!(delete_result, Err(CarbideError::NetworkSegmentDelete(_))));
+
+
 }

@@ -13,6 +13,7 @@ use uuid::Uuid;
 use ::rpc::Timestamp;
 use rpc::forge::v0 as rpc;
 
+use crate::db::machine_interface::MachineInterface;
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use crate::{db::UuidKeyedObjectFilter, CarbideError, CarbideResult};
 
@@ -33,6 +34,7 @@ pub struct NetworkSegment {
 
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
+    pub deleted: Option<DateTime<Utc>>,
 
     pub prefixes: Vec<NetworkPrefix>,
 }
@@ -57,6 +59,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             vpc_id: row.try_get("vpc_id")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
+            deleted: row.try_get("deleted")?,
             mtu: row.try_get("mtu")?,
             prefixes: Vec::new(),
         })
@@ -121,6 +124,12 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
                 seconds: src.updated.timestamp(),
                 nanos: 0,
             }),
+
+            deleted: src.deleted.map(|t| Timestamp {
+                seconds: t.timestamp(),
+                nanos: 0,
+            }),
+
             prefixes: src
                 .prefixes
                 .into_iter()
@@ -200,23 +209,27 @@ impl NetworkSegment {
 
         let mut all_records: Vec<NetworkSegment> = match filter {
             UuidKeyedObjectFilter::All => {
-                sqlx::query_as::<_, NetworkSegment>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut *txn)
-                    .await?
+                sqlx::query_as::<_, NetworkSegment>(
+                    &base_query.replace("{where}", "WHERE deleted is NULL"),
+                )
+                .fetch_all(&mut *txn)
+                .await?
             }
 
             UuidKeyedObjectFilter::List(uuids) => {
-                sqlx::query_as::<_, NetworkSegment>(
-                    &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
-                )
+                sqlx::query_as::<_, NetworkSegment>(&base_query.replace(
+                    "{where}",
+                    "WHERE network_segments.id=ANY($1) and deleted is NULL",
+                ))
                 .bind(uuids)
                 .fetch_all(&mut *txn)
                 .await?
             }
             UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as::<_, NetworkSegment>(
-                    &base_query.replace("{where}", "WHERE network_segments.id=$1"),
-                )
+                sqlx::query_as::<_, NetworkSegment>(&base_query.replace(
+                    "{where}",
+                    "WHERE network_segments.id=$1 and deleted is NULL",
+                ))
                 .bind(uuid)
                 .fetch_all(&mut *txn)
                 .await?
@@ -352,5 +365,44 @@ impl NetworkSegment {
             .collect();
 
         Ok(addresses)
+    }
+
+    pub async fn is_ok_to_delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), String> {
+        if self.vpc_id.is_some() || self.subdomain_id.is_some() {
+            return Err(
+                "NetworkSegment can not be deleted with associated VPC or SubDomain".to_string(),
+            );
+        }
+
+        let machine_interfaces = MachineInterface::find_by_segment_id(txn, &self.id).await;
+
+        match machine_interfaces {
+            Ok(mis) => {
+                if !mis.is_empty() {
+                    Err(
+                        "NetworkSegment can't be deleted with attached MachineInterface(s)"
+                            .to_string(),
+                    )
+                } else {
+                    Ok(())
+                }
+            }
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
+    pub async fn delete(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<NetworkSegment> {
+        match self.is_ok_to_delete(txn).await {
+            Err(msg) => CarbideResult::Err(CarbideError::NetworkSegmentDelete(msg)),
+            Ok(_) => Ok(sqlx::query_as(
+                "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
+            )
+            .bind(&self.id)
+            .fetch_one(&mut *txn)
+            .await?),
+        }
     }
 }

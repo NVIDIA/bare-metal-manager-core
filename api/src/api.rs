@@ -475,17 +475,46 @@ impl Forge for Api {
 
     async fn delete_network_segment(
         &self,
-        _request: Request<rpc::NetworkSegmentDeletion>,
+        request: Request<rpc::NetworkSegmentDeletion>,
     ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
-        let txn = self
+        let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        // TODO(ajf): actually delete the thing, or likely return an error.
+        let rpc::NetworkSegmentDeletion { id, .. } = request.into_inner();
 
-        let response = Ok(Response::new(rpc::NetworkSegmentDeletionResult {}));
+        let uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("No UUID provided".to_string()));
+            }
+        };
+
+        let mut segments = NetworkSegment::find(&mut txn, uuid).await?;
+
+        let segment = match segments.len() {
+            1 => segments.remove(0),
+            _ => return Err(Status::not_found("network segment not found")),
+        };
+
+        // NOTE(jdg): We don't have to enforce the NULL subdomain and VPC entry here because
+        // we're leaving that up to the object call and checking in the db layer instead
+
+        let response = Ok(segment
+            .delete(&mut txn)
+            .await
+            .map(|_| rpc::NetworkSegmentDeletionResult {})
+            .map(Response::new)?);
 
         txn.commit().await.map_err(CarbideError::from)?;
 

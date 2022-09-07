@@ -22,7 +22,7 @@ const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_mac
 
 #[derive(Debug, Clone)]
 pub struct MachineInterface {
-    id: uuid::Uuid,
+    pub id: uuid::Uuid,
     attached_dpu_machine_id: Option<uuid::Uuid>,
     domain_id: Option<uuid::Uuid>,
     pub machine_id: Option<uuid::Uuid>,
@@ -170,6 +170,20 @@ impl MachineInterface {
                 .await?
                 .into_iter()
                 .into_group_map_by(|interface| interface.machine_id.unwrap()),
+        )
+    }
+
+    pub async fn find_by_segment_id(
+        txn: &mut Transaction<'_, Postgres>,
+        segment_id: &uuid::Uuid,
+    ) -> CarbideResult<Vec<MachineInterface>> {
+        Ok(
+            sqlx::query_as(
+                "SELECT * FROM machine_interfaces WHERE segment_id = $1",
+            )
+                .bind(segment_id)
+                .fetch_all(txn)
+                .await?,
         )
     }
 
