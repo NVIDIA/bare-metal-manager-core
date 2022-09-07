@@ -253,7 +253,9 @@ async fn main() -> Result<(), rocket::Error> {
         }
     }
 
-    let artifact_configuration = ArtifactConfig::from_config_file("artifacts.json")
+    let configuration_file_path =
+        std::env::var("ARTIFACT_CONFIG").unwrap_or_else(|_| "artifacts.json".to_string());
+    let artifact_configuration = ArtifactConfig::from_config_file(configuration_file_path)
         .expect("unable to parse artifact configuration file?");
     println!("Artifact config parsed: {}", &artifact_configuration);
 
