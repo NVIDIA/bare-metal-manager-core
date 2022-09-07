@@ -187,6 +187,7 @@ message NetworkSegment {
 
   google.protobuf.Timestamp created = 11;
   google.protobuf.Timestamp updated = 12;
+  google.protobuf.Timestamp deleted = 13;
 }
 
 message NetworkPrefix {

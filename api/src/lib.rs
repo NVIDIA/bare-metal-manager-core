@@ -84,6 +84,9 @@ pub enum CarbideError {
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
     NetworkSegmentsExhausted(String),
 
+    #[error("Network has attached VPC or Subdomain : {0}")]
+    NetworkSegmentDelete(String),
+
     #[error("A machine that was just created, failed to return any rows: {0}")]
     DatabaseInconsistencyOnMachineCreate(uuid::Uuid),
 
