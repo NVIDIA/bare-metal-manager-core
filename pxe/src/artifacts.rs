@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -64,10 +64,16 @@ impl Display for ArtifactConfig {
 }
 
 impl ArtifactConfig {
-    pub fn from_config_file<P: AsRef<Path>>(
+    pub fn from_config_file<P: AsRef<Path> + Debug>(
         configuration_file_path: P,
     ) -> Result<Self, ArtifactConfigReadError> {
-        let json_string = fs::read_to_string(configuration_file_path)?;
+        let json_string = fs::read_to_string(&configuration_file_path).map_err(|err| {
+            eprintln!(
+                "unable to read config file to string from path: {:?}, underlying error: {}",
+                configuration_file_path, err
+            );
+            err
+        })?;
         let mut config = serde_json::from_str::<ArtifactConfig>(json_string.as_str())?;
 
         if let (Ok(user), Ok(token)) = (

@@ -52,7 +52,6 @@ configMapGenerator:
     files:
       - kea_config.conf=configs/kea.json
   - name: carbide-pxe-config
-    behavior: replace
+    behavior: merge
     files:
       - Rocket.toml=configs/rocket.toml
-      - artifacts.json=configs/artifacts.json

@@ -1,0 +1,21 @@
+{
+  "__comment": "note that if you touch any of the artifact URLs, you should also touch all of the checksums that changed checksums are just the result from `shasum -a 256 <filename>` if all of the checksum files are not present with valid checksums, the code will nuke the artifact and re-download each time",
+  "forge-boot-artifact-aarch64": {
+    "url": "https://urm.nvidia.com/artifactory/swngc-ngcc-generic-local/nvmetal/boot-artifacts/aarch64/forge-boot-artifacts-43717121.tar.gz",
+    "architecture": "Aarch64",
+    "checksums": {
+      "carbide.root": "6c3cb3c5699d4a8a85502d68ac6dd772c762e152958ea779e4a1e5f037e120b2",
+      "carbide.efi": "6d335998660c18729f9e481e1678d3c2399f875bf5cfd22e853247c46b6c2519",
+      "ipxe.efi": "29e25f4a2ef385022655699bd915d70536686ea76af3766d3efdf47cf4acc387"
+    }
+  },
+  "forge-user-data-artifact-aarch64": {
+    "url": "https://urm.nvidia.com/artifactory/swngc-ngcc-generic-local/nvmetal/user-data-artifacts/aarch64/forge-user-data-artifacts-43788376.tar.gz",
+    "architecture": "Aarch64",
+    "checksums": {
+      "carbide-cli": "9855a6ca227ea7055b247f12fb1403e4176b6637766a11e5b3414a9c50354f12",
+      "doca_container_configs_1.4.0.zip": "2f4007a7e79ce10917674ac0cc1becf88b9bb3289238a5e324077a83c20f569c"
+    }
+  },
+  "__TODO": "we also need to add the x86 files to this scheme somehow?  For now I'm ignoring that."
+}
