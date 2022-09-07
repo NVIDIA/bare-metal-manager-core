@@ -113,7 +113,7 @@ pub async fn vpc_reconcile_handler(
 
     update_status(&current_job, 1, "Started".to_string(), TaskState::Started).await;
 
-    let mut vpc_status_db_connection = status_pool.acquire().await?;
+    let _vpc_status_db_connection = status_pool.acquire().await?;
 
     // Retrieve job payload as JSON
     let data: Option<String> = current_job.json()?;
@@ -177,10 +177,16 @@ pub async fn vpc_reconcile_handler(
                             .advance(&mut status_txn, &rpc::VpcResourceStateMachineInput::Accept)
                             .await?;
                         new_txn.commit().await?;
+
+                        log::info!("Created VPC Object {} ({:?})", s.name(), s.status.unwrap());
+
+                        let o = leafs.get_status(&spec.name()).await?;
+
+                        log::info!("VPC Status Object: {:?}", o.status);
                         // Spawn another background job to watch status
-                        VpcResourceActions::StatusLeaf(s, vpc_db_resource)
-                            .reconcile(vpc_status_db_connection.as_mut())
-                            .await?;
+                        //VpcResourceActions::StatusLeaf(s, vpc_db_resource)
+                        //    .reconcile(vpc_status_db_connection.as_mut())
+                        //   .await?;
                     }
                     Err(error) => {
                         update_status(
