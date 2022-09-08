@@ -403,9 +403,15 @@ fn leaf_status_matcher(matched_leaf_name: &str) -> impl Condition<leaf::Leaf> + 
                                 })
                                 .last();
 
+                            // now that we have the most recent timestamp,
+                            // validate that it is "ready" and that the host_admin_IP field is populated with something.
                             if let Some(condition) = latest_condition {
-                                if let Some(status) = condition.status.as_ref() {
-                                    return status.to_lowercase().as_str() == "true";
+                                if let Some(condition_status) = condition.status.as_ref() {
+                                    if condition_status.to_lowercase().as_str() != "true" {
+                                        return false;
+                                    }
+
+                                    return status.host_admin_i_ps.is_some();
                                 }
                             }
                         }
