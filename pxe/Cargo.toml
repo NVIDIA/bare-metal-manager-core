@@ -29,11 +29,11 @@ tera = "*"
 thiserror = "1.0"
 tokio = {version = "1.20.1", features = ["full"]}
 tokio-tar = "0.3.0"
-tonic = "0.7.0"
-uuid = { version = "0.8.2", features = ["v4", "serde"] }
+tonic = "0.8.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [build-dependencies]
-tonic-build = "0.7.0"
+tonic-build = "0.8.0"
 
 [dev-dependencies]
 rand = "*"

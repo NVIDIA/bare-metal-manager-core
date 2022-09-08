@@ -17,10 +17,9 @@ itertools = "*"
 log = { version = "*" }
 pretty_env_logger = "*"
 rpc = { path = "../rpc" }
-sqlx = { version = "0.5", features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros"] }
 thiserror = "1.0"
 tokio = { version = "1.9", features = ["full"] }
-tonic = { version = "0.7.0", features = ["tls"] }
+tonic = { version = "0.8.0", features = ["tls"] }
 trust-dns-server = { version = "0.21.1" }
 
 [dev-dependencies]

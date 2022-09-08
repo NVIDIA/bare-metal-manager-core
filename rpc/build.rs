@@ -13,6 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(".", "#[allow(unknown_lints, clippy::all)]") // don't lint generated code
         .build_server(true)
         .build_client(true)
+        .protoc_arg("--experimental_allow_proto3_optional")
         .compile(
             &["proto/forge.proto", "proto/machine_discovery.proto"],
             &["proto"],

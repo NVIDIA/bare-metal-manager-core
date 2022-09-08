@@ -109,7 +109,7 @@ fn get_os_mem_info() -> Result<StructOsMemInfo, String> {
 }
 
 fn memclr(msize: u64) -> i64 {
-	//Allocate all available memory and fill it with 1
+    //Allocate all available memory and fill it with 1
 
     let orig_brk = unsafe { libc::sbrk(0) };
     let new_brk = unsafe { orig_brk.offset(msize as isize) };
@@ -174,7 +174,6 @@ fn cleanup_ram() -> Result<(), String> {
 pub struct Deprovision {}
 impl Deprovision {
     pub async fn run(_listen: String, _uuid: &str) -> CarbideClientResult<()> {
-
         //do nvme cleanup only if stdin is /dev/null. This is because we afraid to cleanum someone's nvme drive.
         let stdin_link = match fs::read_link("/proc/self/fd/0") {
             Ok(o) => o.to_string_lossy().to_string(),
