@@ -167,7 +167,7 @@ async fn update_domain() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let update_result= updated_domain.update(&mut txn).await;
+    let update_result = updated_domain.update(&mut txn).await;
 
     txn.commit().await.unwrap();
 

@@ -178,7 +178,7 @@ impl Serialize for Domain {
 impl From<uuid::Uuid> for forge::v0::Uuid {
     fn from(uuid: uuid::Uuid) -> forge::v0::Uuid {
         forge::v0::Uuid {
-            value: uuid.to_hyphenated().to_string(),
+            value: uuid.hyphenated().to_string(),
         }
     }
 }

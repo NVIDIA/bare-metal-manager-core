@@ -9,13 +9,13 @@ name = "ipmi-proxy"
 path = "src/main.rs"
 
 [dependencies]
-uuid = { version = "0.8.2", features = ["v4", "serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
 carbide-api = { path = "../../api" }
 rpc = { path = "../../rpc" }
-sqlx = { version = "0.5", features = ["mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
+sqlx = { version = "0.6", features = ["mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
 tokio = { version = "1.9", features = ["full"] }
 tokio-stream = "*"
-tonic = "*"
+tonic = { version = "0.8.0", features = ["tls"] }
 
 thrussh = { version = "0.33.5", features = ["openssl"] }
 thrussh-keys = { version = "0.21.0", features = ["openssl"] }
