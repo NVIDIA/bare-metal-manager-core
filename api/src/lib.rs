@@ -125,6 +125,12 @@ pub enum CarbideError {
 
     #[error("Kubernetes Client Error - {0}")]
     KubeClientError(kube::Error),
+
+    #[error("Tokio Timeout Error - {0}")]
+    TokioTimeoutError(#[from] tokio::time::error::Elapsed),
+
+    #[error("Kube Runtime Wait Error - {0}")]
+    KubeWaitError(#[from] kube::runtime::wait::Error),
 }
 
 impl From<CarbideError> for tonic::Status {

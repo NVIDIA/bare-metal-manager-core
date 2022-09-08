@@ -178,9 +178,7 @@ impl MachineInterface {
         segment_id: &uuid::Uuid,
     ) -> CarbideResult<Vec<MachineInterface>> {
         Ok(
-            sqlx::query_as(
-                "SELECT * FROM machine_interfaces WHERE segment_id = $1",
-            )
+            sqlx::query_as("SELECT * FROM machine_interfaces WHERE segment_id = $1")
                 .bind(segment_id)
                 .fetch_all(txn)
                 .await?,

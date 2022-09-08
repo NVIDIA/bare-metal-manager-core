@@ -1,5 +1,9 @@
 use std::str::FromStr;
+use std::time::SystemTime;
 
+use chrono::DateTime;
+use itertools::Itertools;
+use kube::runtime::wait::{await_condition, Condition};
 use kube::{
     api::{Api, PostParams, ResourceExt},
     Client,
@@ -145,8 +149,9 @@ pub async fn vpc_reconcile_handler(
 
                 let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), namespace);
 
+                let spec_name = spec.name().to_string();
                 // Kube CRD names are strings, so we have to convert from string to uuid::Uuid
-                let vpc_id = uuid::Uuid::from_str(&spec.name())?;
+                let vpc_id = uuid::Uuid::from_str(spec_name.as_str())?;
 
                 let vpc_db_resource = VpcResourceLeaf::find(&mut vpc_txn, vpc_id).await?;
 
@@ -180,9 +185,19 @@ pub async fn vpc_reconcile_handler(
 
                         log::info!("Created VPC Object {} ({:?})", s.name(), s.status.unwrap());
 
-                        let o = leafs.get_status(&spec.name()).await?;
+                        let api: Api<leaf::Leaf> = Api::all(client);
+                        let waiter = await_condition(
+                            api,
+                            spec_name.as_str(),
+                            leaf_status_matcher(spec_name.as_str()),
+                        );
+                        let _ =
+                            tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
+                                .await
+                                .map(|result| result.map_err(CarbideError::from))?;
+                        let newly_created_leaf = leafs.get_status(&spec.name()).await?;
 
-                        log::info!("VPC Status Object: {:?}", o.status);
+                        log::info!("VPC Status Object: {:?}", newly_created_leaf.status);
                         // Spawn another background job to watch status
                         //VpcResourceActions::StatusLeaf(s, vpc_db_resource)
                         //    .reconcile(vpc_status_db_connection.as_mut())
@@ -318,6 +333,88 @@ pub async fn vpc_reconcile_handler(
         }
     }
     Ok(())
+}
+/*
+kind: Leaf
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1","kind":"Leaf","metadata":{"annotations":{},"name":"rno1-m03-b19-cpu-05","namespace":"forge-system"},"spec":{"control":{"managementIP":"10.180.222.48","vendor":"cumulus"},"hostAdminIPs":{"pf0hpf":"10.180.124.8"},"hostInterfaces":{"rno1-m03-b19-cpu-05-en0":"pf0hpf","rno1-m03-b19-cpu-05-en1":"pf1hpf"}}}
+  creationTimestamp: "2022-08-05T18:41:17Z"
+  finalizers:
+  - leaf.networkfabric.vpc.forge/finalizer
+  generation: 6
+  name: rno1-m03-b19-cpu-05
+  namespace: forge-system
+  resourceVersion: "31052364"
+  uid: 19fb9c6a-8e6b-4484-af11-f304469e9090
+spec:
+  control:
+    managementIP: 10.180.222.48
+    vendor: cumulus
+  hostAdminIPs:
+    pf0hpf: 10.180.124.8
+  hostInterfaces:
+    rno1-m03-b19-cpu-05-en0: pf0hpf
+    rno1-m03-b19-cpu-05-en1: pf1hpf
+status:
+  asn: 4240186200
+  conditions:
+  - lastTransitionTime: "2022-09-02T17:33:15Z"
+    status: "True"
+    type: Liveness
+  hostAdminDHCPServer: 10.180.32.74
+  hostAdminIPs:
+    pf0hpf: 10.180.124.8
+  loopbackIP: 10.180.96.235
+*/
+
+fn leaf_status_matcher(matched_leaf_name: &str) -> impl Condition<leaf::Leaf> + '_ {
+    move |obj: Option<&leaf::Leaf>| {
+        if let Some(leaf) = obj.as_ref() {
+            if let Some(name) = leaf.metadata.name.as_ref() {
+                if name == matched_leaf_name {
+                    // we have the right leaf, now we can check the condition
+                    if let Some(status) = leaf.status.as_ref() {
+                        if let Some(conditions) = status.conditions.as_ref() {
+                            let latest_condition = conditions
+                                .iter()
+                                .sorted_by_key(|condition_to_be_sorted| {
+                                    if let Some(time_stamp) =
+                                        condition_to_be_sorted.last_transition_time.as_ref()
+                                    {
+                                        if let Ok(duration) = chrono::DateTime::parse_from_rfc3339(
+                                            time_stamp.as_str(),
+                                        ) {
+                                            duration
+                                                .signed_duration_since(
+                                                    DateTime::<chrono::Utc>::from(
+                                                        SystemTime::UNIX_EPOCH,
+                                                    ),
+                                                )
+                                                .num_milliseconds()
+                                                as u64
+                                        } else {
+                                            0
+                                        }
+                                    } else {
+                                        0
+                                    }
+                                })
+                                .last();
+
+                            if let Some(condition) = latest_condition {
+                                if let Some(status) = condition.status.as_ref() {
+                                    return status.to_lowercase().as_str() == "true";
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideResult<OwnedHandle> {
