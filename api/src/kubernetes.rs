@@ -166,11 +166,11 @@ pub async fn vpc_reconcile_handler(
 
                 let result = leafs.create(&PostParams::default(), &spec).await;
                 match result {
-                    Ok(s) => {
+                    Ok(new_leaf) => {
                         update_status(
                             &current_job,
                             4,
-                            format!("{} Created", s.name()),
+                            format!("{} Created", new_leaf.name()),
                             TaskState::Finished,
                         )
                         .await;
@@ -183,7 +183,7 @@ pub async fn vpc_reconcile_handler(
                             .await?;
                         new_txn.commit().await?;
 
-                        log::info!("Created VPC Object {} ({:?})", s.name(), s.status.unwrap());
+                        log::info!("Created VPC Object {} ({:?})", new_leaf.name(), new_leaf);
 
                         let api: Api<leaf::Leaf> = Api::all(client);
                         let waiter = await_condition(
