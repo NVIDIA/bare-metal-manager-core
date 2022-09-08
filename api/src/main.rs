@@ -26,6 +26,7 @@ async fn main() -> Result<(), color_eyre::Report> {
                 LevelFilter::Trace
             }
         })
+        .filter_module("sqlx::query", LevelFilter::Warn)
         .init();
 
     match config.sub_cmd {

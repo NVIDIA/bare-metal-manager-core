@@ -601,7 +601,9 @@ impl Forge for Api {
                 }
             },
             None => {
-                return Err(Status::not_found("No domain object found matching requested UUID".to_string() ));
+                return Err(Status::not_found(
+                    "No domain object found matching requested UUID".to_string(),
+                ));
             }
         };
 
@@ -610,7 +612,11 @@ impl Forge for Api {
         let mut dom = match domains.len() {
             0 => return Err(Status::not_found("domain not found")),
             1 => domains.remove(0),
-            _ => return Err(Status::internal("Found more than one domain with the specified UUID")),
+            _ => {
+                return Err(Status::internal(
+                    "Found more than one domain with the specified UUID",
+                ))
+            }
         };
 
         dom.name = name;
@@ -658,7 +664,11 @@ impl Forge for Api {
         let dom = match domains.len() {
             0 => return Err(Status::not_found("domain not found")),
             1 => domains.remove(0),
-            _ => return Err(Status::internal("Found more than one domain with the specified UUID")),
+            _ => {
+                return Err(Status::internal(
+                    "Found more than one domain with the specified UUID",
+                ))
+            }
         };
 
         let response = Ok(dom

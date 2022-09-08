@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use chrono::prelude::*;
 use serde::Deserialize;
@@ -174,10 +174,14 @@ impl MachineTopology {
                             management_ip: Some(dpu.address().ip().to_string()),
                             vendor: Some("DPU".to_string()),
                         }),
-                        host_admin_i_ps: None,
+                        host_admin_i_ps: Some(BTreeMap::from([(
+                            "pf0hpf".to_string(),
+                            "".to_string(),
+                        )])),
                         host_interfaces: None,
                     },
                 );
+
                 log::info!("Leafspec sent to kubernetes: {:?}", leaf_spec);
 
                 let db_conn = txn.acquire().await?;
