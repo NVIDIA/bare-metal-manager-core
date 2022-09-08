@@ -32,7 +32,6 @@ pub struct Domain {
 
     // when the domain was deleted
     pub deleted: Option<DateTime<Utc>>,
-
 }
 
 pub struct NewDomain {
@@ -61,7 +60,7 @@ impl From<Domain> for rpc::Domain {
                 nanos: 0,
             }),
 
-             deleted: src.deleted.map(|t| Timestamp {
+            deleted: src.deleted.map(|t| Timestamp {
                 seconds: t.timestamp(),
                 nanos: 0,
             }),
@@ -221,14 +220,12 @@ impl Domain {
     }
 
     pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Domain> {
-
         Ok(sqlx::query_as(
             "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
         )
         .bind(&self.id)
         .fetch_one(&mut *txn)
         .await?)
-
     }
 
     pub async fn update(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Domain> {
