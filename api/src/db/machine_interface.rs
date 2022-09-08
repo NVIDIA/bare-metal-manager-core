@@ -33,6 +33,24 @@ pub struct MachineInterface {
     addresses: Vec<MachineInterfaceAddress>,
 }
 
+/*
+RON AND IAN Discussion Notes -
+ 2022-09-08T22:51:51.560Z INFO  carbide_api::api     > No existing machine with mac address 08:C0:EB:CB:0D:F4 using network with relay: 10.180.221.193, creating one.
+
+ - a DPU comes up and is provisioned with an OOB IP address
+ - a DPU gets assigned a kube VPC-resource-leaf ID and we store this in our database
+ - We send Vpc "spec" to kubernetes and wait for Kube-vpc to provision DPU and assign a loopback IP
+    -- we specifically store the loopback IP address that Kube allocates/provisions on our leaf resource.
+ - a guest (referred to as x86 for brevity) comes up and does DHCP to get an IP address
+    -- as part of the IP address allocation, the machine information is stored in our database
+    -- at this point, we need to know the VPL ID of the DPU associated with this guest
+    -- the loopback IP address of the DPU is located in the DHCP request (the gipaddr), and we need to map that to a VPL ID,
+        so that we can update the leaf on Kube with the IP address we're handing out to the x86 guest.
+    -- we can use this loopback IP to map back to the VPL ID, so that we can update the leaf with the new x86 host IP Address.
+ - the machine, with its brand new x86 host IP address, boots via pxe over http.
+ - if the machine is de-provisioned, the x86 IP address will need to be removed from both our database and Kube so that it
+    can be handed back out to another machine.
+*/
 impl<'r> FromRow<'r, PgRow> for MachineInterface {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(MachineInterface {
