@@ -6,6 +6,7 @@ mkdir -p tmp
 git fetch ssh://git@gitlab-master.nvidia.com:12051/nvmetal/vpc.git main
 git subtree pull --prefix vpc/ ssh://git@gitlab-master.nvidia.com:12051/nvmetal/vpc.git main --squash -m 'updated rust structs for vpc crds'
 kustomize build vpc/config/crd/ -o tmp/
+sed -i -e '/asn:/{N;N;N;d;}' tmp/apiextensions.k8s.io_v1_customresourcedefinition_leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml
 '''
 cwd="${REPO_ROOT}"
 
@@ -13,10 +14,15 @@ cwd="${REPO_ROOT}"
 category="vpc"
 workspace = false
 script = '''
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_configurationresourcepools.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/configuration_resource_pool.rs
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/leaf.rs
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_managedresources.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/managed_resource.rs
-kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_resourcegroups.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/kube/vpc/resource_group.rs
+mkdir -p api/src/vpc_resources
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_configurationresourcepools.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/vpc_resources/configuration_resource_pool.rs
+rustfmt --edition 2021 api/src/vpc_resources/configuration_resource_pool.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/vpc_resources/leaf.rs
+rustfmt --edition 2021 api/src/vpc_resources/leaf.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_managedresources.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/vpc_resources/managed_resource.rs
+rustfmt --edition 2021 api/src/vpc_resources/managed_resource.rs
+kopium -Adf tmp/apiextensions.k8s.io_v1_customresourcedefinition_resourcegroups.resource.vpc.forge.gitlab-master.nvidia.com.yaml > api/src/vpc_resources/resource_group.rs
+rustfmt --edition 2021 api/src/vpc_resources/resource_group.rs
 '''
 cwd="${REPO_ROOT}"
 
