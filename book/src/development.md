@@ -61,7 +61,7 @@ vpc/ - local copy of forge-vpc code. Used when building local containers
 
     Fedora - ```sudo dnf install -y kea kea-devel dea-libs``` 
 
-8. You can install PostgresSql locally, but it might be easier to start a docker container when you need to. This is especially useful when running `cargo test` manually.    
+8. You can install PostgreSQL locally, but it might be easier to start a docker container when you need to. This is especially useful when running `cargo test` manually.    
     ```docker run -e POSTGRES_PASSWORD="admin" -p "5432:5432" postgres:14.1-alpine```
     
     a. Postgresql CLI utilities should be installed locally
@@ -90,7 +90,15 @@ vpc/ - local copy of forge-vpc code. Used when building local containers
 
 11. Install golang using whatever method is most convient for you.  `forge-vpc` (which is in a subtree of the `forge-provisioner` repo uses golang)
 12. Because forge-api uses only GRPC, you will need to install some GRPC based client utilities for interacting with the API `evans` and `grpccurl` are primary two.
-13. Install 'jq' from system package manager
+13. Additionally, ```prost-build``` needs access to the protobuf compiler to parse proto files (it doesn't implement it's own parser).
+
+    Arch - ```sudo pacman -S protobuf```
+
+    Debian - ```sudo apt-get install protobuf-compiler```
+
+    Fedora - ```sudo dnf install -y protobuf```
+
+14. Install 'jq' from system package manager
 
     Arch - ```sudo pacman -S jq```
 
