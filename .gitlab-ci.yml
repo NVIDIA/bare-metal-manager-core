@@ -160,7 +160,7 @@ pages:
 build-push-helm:
   variables:
     PUSH_TO_NVCR: 'true'
-    HELM_FILE_NAME: "${CI_PROJECT_NAME}-${HELM_VERSION}"
+    HELM_FILE_NAME: "${CI_PROJECT_NAME}-${VERSION}"
   before_script:
     - apt-get update
     - apt-get install -y gettext-base
@@ -178,7 +178,7 @@ build-push-helm:
     - yq -i '.carbidePxeDeployment.carbidePxe.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
     - yq -i '.keaDhcpDeployment.keaDhcp.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
     - yq -i '.keaDhcpDeployment.keaDhcp.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.version = env(HELM_VERSION)' $CI_PROJECT_NAME/Chart.yaml
+    - yq -i '.version = env(VERSION)' $CI_PROJECT_NAME/Chart.yaml
     - helm package $CI_PROJECT_NAME/
 
 deploy_dev1:
