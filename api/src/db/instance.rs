@@ -33,7 +33,6 @@ impl From<Instance> for rpc::Instance {
             id: Some(src.id.into()),
             segment_id: None,
             machine_id: Some(src.machine_id.into()),
-            operating_system: None,
             user_data: None,
             custom_ipxe: None,
             ssh_keys: vec![],

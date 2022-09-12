@@ -251,16 +251,14 @@ message Instance {
   UUID segment_id = 2;
   UUID machine_id = 3;
 
-  OperatingSystem operating_system = 4;
+  optional string user_data = 4;
+  optional string custom_ipxe = 5;
 
-  optional string user_data = 5;
-  optional string custom_ipxe = 6;
+  repeated string ssh_keys = 6;
 
-  repeated string ssh_keys = 7;
-
-  google.protobuf.Timestamp requested = 8;
-  google.protobuf.Timestamp started = 9;
-  google.protobuf.Timestamp finished = 10;
+  google.protobuf.Timestamp requested = 7;
+  google.protobuf.Timestamp started = 8;
+  google.protobuf.Timestamp finished = 9;
 }
 
 message InstanceSubnet {
@@ -272,11 +270,6 @@ message InstanceSubnet {
   repeated string addresses = 6;
   VpcResourceState state = 7;
   repeated InstanceSubnetEvent events = 8;
-}
-
-message OperatingSystem {
-  UUID id = 1;
-  string name = 2;
 }
 
 message InstanceDeletionRequest {
