@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use rust_fsm::StateMachine;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
@@ -14,6 +16,7 @@ use crate::{CarbideError, CarbideResult};
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct VpcResourceLeaf {
     id: uuid::Uuid,
+    loopback_ip_address: Option<IpAddr>,
     state: VpcResourceState,
     events: Vec<VpcResourceLeafEvent>,
 }
@@ -25,6 +28,7 @@ impl<'r> FromRow<'r, PgRow> for VpcResourceLeaf {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(VpcResourceLeaf {
             id: row.try_get("id")?,
+            loopback_ip_address: row.try_get("loopback_ip_address")?,
             state: VpcResourceState::Init,
             events: Vec::new(),
         })
@@ -50,6 +54,23 @@ impl VpcResourceLeaf {
         let events = VpcResourceLeafEvent::for_leaf(txn, &self.id).await?;
         let state_machine = self.state_machine(&events)?;
         Ok(VpcResourceState::from(state_machine.state()))
+    }
+
+    pub async fn update_loopback_ip_address(
+        &mut self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        ip_address: IpAddr,
+    ) -> CarbideResult<VpcResourceLeaf> {
+        let leaf = sqlx::query_as(
+            "UPDATE vpc_resource_leafs SET loopback_ip_address=$1::inet where id=$2::uuid RETURNING *",
+        )
+            .bind(ip_address)
+            .bind(&self.id)
+            .fetch_one(&mut *txn)
+            .await?;
+
+        self.loopback_ip_address = Some(ip_address);
+        Ok(leaf)
     }
 
     fn state_machine(
@@ -98,6 +119,11 @@ impl VpcResourceLeaf {
     /// Returns the list of Events the machine has experienced
     pub fn events(&self) -> &[VpcResourceLeafEvent] {
         &self.events
+    }
+
+    /// Returns IP Address
+    pub fn loopback_ip_address(&self) -> &Option<IpAddr> {
+        &self.loopback_ip_address
     }
 }
 
