@@ -31,11 +31,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libipmiconsole-dev \
   libipmiconsole2 \
   cmake \
+  unzip \
   && rm -rf /var/lib/apt/lists/*
 
+RUN mkdir -p /opt/protobuf && \
+    rm -rf /tmp/protobuf && \
+    mkdir -p /tmp/protobuf && \
+    curl -L https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-linux-x86_64.zip -o /tmp/protobuf/protobuf.zip && \
+    unzip -d /tmp/protobuf /tmp/protobuf/protobuf.zip && \
+    mv /tmp/protobuf/bin/protoc /opt/protobuf/ && \
+    mv /tmp/protobuf/include /opt/protobuf/ && \
+    rm -rf /tmp/protobuf
+ENV PATH "$PATH:/opt/protobuf"
+ENV PROTOC "/opt/protobuf/protoc"
+ENV PROTOC_INCLUDE "/opt/protobuf/include"
 RUN rustup component add rustfmt rust-src
 
 RUN --mount=type=cache,target=/app/.cargo/registry/index \
-    --mount=type=cache,target=/app/.cargo/registry/cache \
-    --mount=type=cache,target=/app/.cargo/git/db \
-    cargo install --force cargo-make cargo-watch sqlx-cli
+  --mount=type=cache,target=/app/.cargo/registry/cache \
+  --mount=type=cache,target=/app/.cargo/git/db \
+  cargo install --force cargo-make cargo-watch sqlx-cli
