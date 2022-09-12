@@ -2,16 +2,16 @@ package internal_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/json"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -26,7 +26,7 @@ var _ = Describe("Networkpolicy", func() {
 	type networkPolicyMatch struct {
 		Method string
 		Url    string
-		Rules  *internal.NetworkPolicyRules
+		Body   interface{}
 	}
 	type matcherState int
 	const (
@@ -44,6 +44,69 @@ var _ = Describe("Networkpolicy", func() {
 		vpcNp        *v1alpha1.NetworkPolicy
 		vpcNpLabels  = map[string]string{"network-policy-vpc": "true"}
 		mrLabels     = map[string]string{"network-policy-site": "true", "network-policy-vpc": "true"}
+		denyId       = internal.DefaultDenyNetworkPolicy.ID
+		denyAllRules = map[uint16]*internal.AclRule{
+			denyId: {
+				Match: internal.AclRuleMatch{
+					IP: internal.AclRuleMatchIP{
+						Protocol: internal.ACLProtocolUDP,
+					},
+				},
+				Action: internal.ACLActionDeny,
+			},
+			denyId + 1: {
+				Match: internal.AclRuleMatch{
+					IP: internal.AclRuleMatchIP{
+						Protocol: internal.ACLProtocolTCP,
+					},
+				},
+				Action: internal.ACLActionDeny,
+			},
+			denyId + 2: {
+				Match: internal.AclRuleMatch{
+					IP: internal.AclRuleMatchIP{
+						Protocol: internal.ACLProtocolICMP,
+					},
+				},
+				Action: internal.ACLActionDeny,
+			},
+		}
+		permitId           = internal.DefaultPermitNetworkPolicy.ID
+		permitRelatedRules = map[uint16]*internal.AclRule{
+			permitId: {
+				Match: internal.AclRuleMatch{
+					IP: internal.AclRuleMatchIP{
+						Protocol: internal.ACLProtocolUDP,
+					},
+					Conntrack: internal.ACLReplyConntrackState,
+				},
+				Action: internal.ACLActionPermit,
+			},
+			permitId + 1: {
+				Match: internal.AclRuleMatch{
+					IP: internal.AclRuleMatchIP{
+						Protocol: internal.ACLProtocolTCP,
+					},
+					Conntrack: internal.ACLReplyConntrackState,
+				},
+				Action: internal.ACLActionPermit,
+			},
+			permitId + 2: {
+				Match: internal.AclRuleMatch{
+					IP: internal.AclRuleMatchIP{
+						Protocol: internal.ACLProtocolICMP,
+					},
+					Conntrack: internal.ACLReplyConntrackState,
+				},
+				Action: internal.ACLActionPermit,
+			},
+		}
+		addDefaultPolicies    []networkPolicyMatch
+		deleteDefaultPolicies []networkPolicyMatch
+		addSiteNpPolicies     []networkPolicyMatch
+		deleteSiteNpPolicies  []networkPolicyMatch
+		addVpcNpPolicies      []networkPolicyMatch
+		deleteVpcNpPolicies   []networkPolicyMatch
 	)
 	BeforeEach(func() {
 		internal.NetworkPolicyPriorityRuleIDMap = []uint16{128, 256, 60000, 60128, 60256}
@@ -67,7 +130,7 @@ var _ = Describe("Networkpolicy", func() {
 						},
 						Ports: []v1alpha1.NetworkPolicyPort{{
 							Begin:    53,
-							Protocol: "UDP",
+							Protocol: internal.ACLProtocolUDP,
 						}},
 					},
 					{
@@ -79,17 +142,18 @@ var _ = Describe("Networkpolicy", func() {
 						Ports: []v1alpha1.NetworkPolicyPort{
 							{
 								Begin:    80,
-								Protocol: "TCP",
+								Protocol: internal.ACLProtocolTCP,
 							},
 							{
 								Begin:    8080,
-								Protocol: "TCP",
+								Protocol: internal.ACLProtocolTCP,
 							},
 						},
 					},
 				},
 			},
 		}
+
 		vpcNp = &v1alpha1.NetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "vpc-np",
@@ -160,188 +224,340 @@ var _ = Describe("Networkpolicy", func() {
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	generateLeafMatchers := func(snp *v1alpha1.NetworkPolicy, toggoleNp bool) [][]networkPolicyMatch {
+	generateNPRules := func(np *v1alpha1.NetworkPolicy) (
+		egressRules map[uint16]*internal.AclRule,
+		ingressRules map[uint16]*internal.AclRule) {
+
+		id := uint16(np.Status.ID)
+		Expect(id).ToNot(BeZero())
+
+		if np.Name == vpcNp.Name {
+			egressRules = map[uint16]*internal.AclRule{
+				id: {
+					Match: internal.AclRuleMatch{
+						IP: internal.AclRuleMatchIP{
+							Protocol: internal.ACLProtocolUDP,
+						},
+						Conntrack: internal.ACLRequestConntrackState,
+					},
+					Action: internal.ACLActionPermit,
+				},
+				id + 1: {
+					Match: internal.AclRuleMatch{
+						IP: internal.AclRuleMatchIP{
+							Protocol: internal.ACLProtocolTCP,
+						},
+						Conntrack: internal.ACLRequestConntrackState,
+					},
+					Action: internal.ACLActionPermit,
+				},
+				id + 2: {
+					Match: internal.AclRuleMatch{
+						IP: internal.AclRuleMatchIP{
+							Protocol: internal.ACLProtocolICMP,
+						},
+						Conntrack: internal.ACLRequestConntrackState,
+					},
+					Action: internal.ACLActionPermit,
+				},
+			}
+			ingressRules = map[uint16]*internal.AclRule{
+				id: {
+					Match: internal.AclRuleMatch{
+						IP: internal.AclRuleMatchIP{
+							SourceIP: string(mr.Spec.HostInterfaceIP + "/32"),
+							Protocol: internal.ACLProtocolUDP,
+						},
+						Conntrack: internal.ACLRequestConntrackState,
+					},
+					Action: internal.ACLActionPermit,
+				},
+				id + 1: {
+					Match: internal.AclRuleMatch{
+						IP: internal.AclRuleMatchIP{
+							SourceIP: string(mr.Spec.HostInterfaceIP + "/32"),
+							Protocol: internal.ACLProtocolTCP,
+						},
+						Conntrack: internal.ACLRequestConntrackState,
+					},
+					Action: internal.ACLActionPermit,
+				},
+				id + 2: {
+					Match: internal.AclRuleMatch{
+						IP: internal.AclRuleMatchIP{
+							SourceIP: string(mr.Spec.HostInterfaceIP + "/32"),
+							Protocol: internal.ACLProtocolICMP,
+						},
+						Conntrack: internal.ACLRequestConntrackState,
+					},
+					Action: internal.ACLActionPermit,
+				},
+			}
+			return
+		}
+
+		egressRules = make(map[uint16]*internal.AclRule)
+		for _, r := range np.Spec.EgressRules {
+			for _, addr := range r.ToAddresses {
+				for _, port := range r.Ports {
+					aclRule := &internal.AclRule{
+						Match: internal.AclRuleMatch{
+							IP: internal.AclRuleMatchIP{
+								DestIP:   string(addr.IPCIDR),
+								DestPort: map[uint16]struct{}{uint16(port.Begin): {}},
+								Protocol: strings.ToLower(string(port.Protocol)),
+							},
+							Conntrack: internal.ACLRequestConntrackState,
+						},
+						Action: internal.ACLActionPermit,
+					}
+					egressRules[id] = aclRule
+					id++
+				}
+			}
+		}
+		return
+	}
+
+	generateLeafMatchers := func(snp *v1alpha1.NetworkPolicy, toggleNp bool) [][]networkPolicyMatch {
+		egressPermitRules := make(map[uint16]*internal.AclRule)
+		for k, v := range permitRelatedRules {
+			egressPermitRules[k] = v
+		}
+		egressPermitRules[permitId+3] = &internal.AclRule{
+			Match: internal.AclRuleMatch{
+				IP: internal.AclRuleMatchIP{
+					DestIP:   "255.255.255.255/32",
+					DestPort: map[uint16]struct{}{67: {}},
+					Protocol: internal.ACLProtocolUDP,
+				},
+			},
+			Action: internal.ACLActionPermit,
+		}
+		addDefaultPolicies = []networkPolicyMatch{
+			{
+				Method: http.MethodPatch,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(internal.DefaultDenyNetworkPolicyName), internal.ACLNameSuffixIngress),
+				Body: internal.ACLDirectionOutBound,
+			},
+			{
+				Method: http.MethodPatch,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(internal.DefaultDenyNetworkPolicyName), internal.ACLNameSuffixEgress),
+				Body: internal.ACLDirectionInBound,
+			},
+			{
+				Method: http.MethodPatch,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(internal.DefaultPermitNetworkPolicyName), internal.ACLNameSuffixIngress),
+				Body: internal.ACLDirectionOutBound,
+			},
+			{
+				Method: http.MethodPatch,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(internal.DefaultPermitNetworkPolicyName), internal.ACLNameSuffixEgress),
+				Body: internal.ACLDirectionInBound,
+			},
+			{
+				Method: http.MethodPatch,
+				Url: "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(internal.DefaultDenyNetworkPolicyName),
+					internal.ACLNameSuffixIngress),
+				Body: internal.Acl{
+					Type: internal.ACLTypeIPv4,
+					Rule: denyAllRules,
+				},
+			},
+			{
+				Method: http.MethodPatch,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(internal.DefaultDenyNetworkPolicyName), internal.ACLNameSuffixEgress),
+				Body: internal.Acl{
+					Type: internal.ACLTypeIPv4,
+					Rule: denyAllRules,
+				},
+			},
+			{
+				Method: http.MethodPatch,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(internal.DefaultPermitNetworkPolicyName), internal.ACLNameSuffixIngress),
+				Body: internal.Acl{
+					Type: internal.ACLTypeIPv4,
+					Rule: permitRelatedRules,
+				},
+			},
+			{
+				Method: http.MethodPatch,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(internal.DefaultPermitNetworkPolicyName), internal.ACLNameSuffixEgress),
+				Body: internal.Acl{
+					Type: internal.ACLTypeIPv4,
+					Rule: egressPermitRules,
+				},
+			},
+		}
+		deleteDefaultPolicies = []networkPolicyMatch{
+			/*
+				{
+					Method: http.MethodDelete,
+					Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+						internal.AclNamePrue(internal.DefaultDenyNetworkPolicyName), internal.ACLNameSuffixIngress),
+				},
+				{
+					Method: http.MethodDelete,
+					Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+						internal.AclNamePrue(internal.DefaultDenyNetworkPolicyName), internal.ACLNameSuffixEgress),
+				},
+				{
+					Method: http.MethodDelete,
+					Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+						internal.AclNamePrue(internal.DefaultPermitNetworkPolicyName), internal.ACLNameSuffixIngress),
+				},
+				{
+					Method: http.MethodDelete,
+					Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+						internal.AclNamePrue(internal.DefaultPermitNetworkPolicyName), internal.ACLNameSuffixEgress),
+				},
+			*/
+			{
+				Method: http.MethodDelete,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(internal.DefaultDenyNetworkPolicyName), internal.ACLNameSuffixIngress),
+			},
+			{
+				Method: http.MethodDelete,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(internal.DefaultDenyNetworkPolicyName), internal.ACLNameSuffixEgress),
+			},
+			{
+				Method: http.MethodDelete,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(internal.DefaultPermitNetworkPolicyName), internal.ACLNameSuffixIngress),
+			},
+			{
+				Method: http.MethodDelete,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(internal.DefaultPermitNetworkPolicyName), internal.ACLNameSuffixEgress),
+			},
+		}
 		matchers := [][]networkPolicyMatch{
-			{ // matcherStageLeaf
-				{
-					Method: http.MethodPost,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules: internal.DefaultPermitNetworkPolicy.GetRules(
-						internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-				},
-				{
-					Method: http.MethodPost,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules: internal.DefaultDenyNetworkPolicy.GetRules(
-						internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-				},
-			},
-			{ // matcherStageManagedResource
-				{
-					Method: http.MethodDelete,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules: internal.DefaultPermitNetworkPolicy.GetRules(
-						internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-				},
-				{
-					Method: http.MethodDelete,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules: internal.DefaultDenyNetworkPolicy.GetRules(
-						internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-				},
-			},
-			{}, // matcherStageDeleteNP
-			{}, // matcherStageAddNP
-			{ // matcherStageNoManagedResource
-				{
-					Method: http.MethodPost,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules: internal.DefaultPermitNetworkPolicy.GetRules(
-						internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-				},
-				{
-					Method: http.MethodPost,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules: internal.DefaultDenyNetworkPolicy.GetRules(
-						internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-				},
-			},
-			{ // matcherStageNoLeaf
-				{
-					Method: http.MethodDelete,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules: internal.DefaultPermitNetworkPolicy.GetRules(
-						internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-				},
-				{
-					Method: http.MethodDelete,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules: internal.DefaultDenyNetworkPolicy.GetRules(
-						internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-				},
-			},
+			addDefaultPolicies,    // matcherStageLeaf
+			{},                    // matcherStageManagedResource
+			{},                    // matcherStageDeleteNP
+			{},                    // matcherStageAddNP
+			{},                    // matcherStageNoManagedResource
+			deleteDefaultPolicies, // matcherStageNoLeaf
 		}
 		if snp == nil {
 			return matchers
 		}
-		np := (&internal.NetworkPolicy{}).Populate(snp)
-		matchers[matcherStageLeaf] = append(matchers[matcherStageLeaf],
-			networkPolicyMatch{
-				Method: http.MethodPost,
-				Url:    "network-policy/" + networkfabric.LeafName,
-				Rules:  np.GetRules(internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-			})
-		matchers[matcherStageNoLeaf] = append(matchers[matcherStageNoLeaf],
-			networkPolicyMatch{
-				Method: http.MethodDelete,
-				Url:    "network-policy/" + networkfabric.LeafName,
-				Rules:  np.GetRules(internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-			})
-		matchers[matcherStageManagedResource] = append(matchers[matcherStageManagedResource],
-			networkPolicyMatch{
-				Method: http.MethodDelete,
-				Url:    "network-policy/" + networkfabric.LeafName,
-				Rules:  np.GetRules(internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-			})
-		matchers[matcherStageNoManagedResource] = append(matchers[matcherStageNoManagedResource],
-			networkPolicyMatch{
-				Method: http.MethodPost,
-				Url:    "network-policy/" + networkfabric.LeafName,
-				Rules:  np.GetRules(internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-			})
-		// matcher for test remove and add site-np on leafs.
-		if toggoleNp {
-			matchers[matcherStageDeleteNP] = []networkPolicyMatch{
-				{
-					Method: http.MethodDelete,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules:  np.GetRules(internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
+		egressRules, _ := generateNPRules(snp)
+		addSiteNpPolicies = []networkPolicyMatch{
+			{
+				Method: http.MethodPatch,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(snp.Name), internal.ACLNameSuffixEgress),
+				Body: internal.ACLDirectionInBound,
+			},
+			{
+				Method: http.MethodPatch,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(snp.Name), internal.ACLNameSuffixEgress),
+				Body: internal.Acl{
+					Type: internal.ACLTypeIPv4,
+					Rule: egressRules,
 				},
-			}
-			matchers[matcherStageAddNP] = []networkPolicyMatch{
-				{
-					Method: http.MethodPost,
-					Url:    "network-policy/" + networkfabric.LeafName,
-					Rules:  np.GetRules(internal.HostAdminLeafPort, leaf.Name, networkfabric.LeafName, nil),
-				},
-			}
-
+			},
 		}
+		deleteSiteNpPolicies = []networkPolicyMatch{
+			{
+				Method: http.MethodDelete,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(snp.Name), internal.ACLNameSuffixEgress),
+			},
+			{
+				Method: http.MethodDelete,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(snp.Name), internal.ACLNameSuffixIngress),
+			},
+			{
+				Method: http.MethodDelete,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(snp.Name), internal.ACLNameSuffixEgress),
+			},
+			{
+				Method: http.MethodDelete,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(snp.Name), internal.ACLNameSuffixIngress),
+			},
+		}
+		matchers[matcherStageLeaf] = append(matchers[matcherStageLeaf], addSiteNpPolicies...)
+		matchers[matcherStageNoLeaf] = append(matchers[matcherStageNoLeaf], deleteSiteNpPolicies[:2]...)
+
+		if !toggleNp {
+			return matchers
+		}
+		// matcher for test remove and add site-np on leafs.
+		matchers[matcherStageDeleteNP] = append(matchers[matcherStageDeleteNP], deleteSiteNpPolicies...)
+		matchers[matcherStageAddNP] = append(matchers[matcherStageAddNP], addSiteNpPolicies...)
 		return matchers
 	}
 
-	generateManagedResourceMatchers := func(matchers [][]networkPolicyMatch, snp, vnp *v1alpha1.NetworkPolicy, toggoleNp bool) [][]networkPolicyMatch {
-		leafPort := ""
-		for _, v := range leaf.Spec.HostInterfaces {
-			leafPort = v
+	generateManagedResourceMatchers := func(matchers [][]networkPolicyMatch, toggoleNp bool) [][]networkPolicyMatch {
+		egressRules, ingressRules := generateNPRules(vpcNp)
+		addVpcNpPolicies = []networkPolicyMatch{
+			{
+				Method: http.MethodPatch,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(vpcNp.Name), internal.ACLNameSuffixEgress),
+				Body: internal.ACLDirectionInBound,
+			},
+			{
+				Method: http.MethodPatch,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(vpcNp.Name), internal.ACLNameSuffixEgress),
+				Body: internal.Acl{
+					Type: internal.ACLTypeIPv4,
+					Rule: egressRules,
+				},
+			},
+			{
+				Method: http.MethodPatch,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(vpcNp.Name), internal.ACLNameSuffixIngress),
+				Body: internal.ACLDirectionOutBound,
+			},
+			{
+				Method: http.MethodPatch,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(vpcNp.Name), internal.ACLNameSuffixIngress),
+				Body: internal.Acl{
+					Type: internal.ACLTypeIPv4,
+					Rule: ingressRules,
+				},
+			},
 		}
-		// Re-write ManagedResourceSelector with ManagedResource IP for validation because
-		// at this time, ManagedResource is not known to the manager.
-		vnp = vnp.DeepCopy()
-		for _, rule := range vnp.Spec.IngressRules {
-			rule.FromAddresses[0].ManagedResourceSelector.MatchLabels = nil
-			rule.FromAddresses[0].IPCIDR = mr.Spec.HostInterfaceIP + "/32"
+		deleteVpcNpPolicies = []networkPolicyMatch{
+			{
+				Method: http.MethodDelete,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(vpcNp.Name), internal.ACLNameSuffixEgress),
+			},
+			{
+				Method: http.MethodDelete,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(vpcNp.Name), internal.ACLNameSuffixEgress),
+			},
+			{
+				Method: http.MethodDelete,
+				Url: fmt.Sprintf(internal.InterfaceACLURI, internal.HostAdminLeafPort,
+					internal.AclNamePrue(vpcNp.Name), internal.ACLNameSuffixIngress),
+			},
+			{
+				Method: http.MethodDelete,
+				Url:    "cue_v1/" + fmt.Sprintf(internal.ACLURI, internal.AclNamePrue(vpcNp.Name), internal.ACLNameSuffixIngress),
+			},
 		}
-		ivnp := (&internal.NetworkPolicy{}).Populate(vnp)
-		isnp := (&internal.NetworkPolicy{}).Populate(snp)
 
-		matchers[matcherStageManagedResource] = append(matchers[matcherStageManagedResource],
-			networkPolicyMatch{
-				Method: http.MethodPost,
-				Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-				Rules:  internal.DefaultPermitNetworkPolicy.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-			},
-			networkPolicyMatch{
-				Method: http.MethodPost,
-				Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-				Rules:  internal.DefaultDenyNetworkPolicy.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-			},
-			networkPolicyMatch{
-				Method: http.MethodPost,
-				Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-				Rules:  isnp.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-			},
-			networkPolicyMatch{
-				Method: http.MethodPost,
-				Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-				Rules:  ivnp.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-			})
-		matchers[matcherStageNoManagedResource] = append(matchers[matcherStageNoManagedResource],
-			networkPolicyMatch{
-				Method: http.MethodDelete,
-				Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-				Rules:  internal.DefaultPermitNetworkPolicy.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-			},
-			networkPolicyMatch{
-				Method: http.MethodDelete,
-				Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-				Rules:  internal.DefaultDenyNetworkPolicy.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-			},
-			networkPolicyMatch{
-				Method: http.MethodDelete,
-				Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-				Rules:  isnp.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-			},
-			networkPolicyMatch{
-				Method: http.MethodDelete,
-				Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-				Rules:  ivnp.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-			})
+		matchers[matcherStageManagedResource] = append(matchers[matcherStageManagedResource], addDefaultPolicies...)
+		matchers[matcherStageManagedResource] = append(matchers[matcherStageManagedResource], addSiteNpPolicies...)
+		matchers[matcherStageManagedResource] = append(matchers[matcherStageManagedResource], addVpcNpPolicies...)
+		matchers[matcherStageNoManagedResource] = append(matchers[matcherStageNoManagedResource], deleteVpcNpPolicies...)
+		matchers[matcherStageNoManagedResource] = append(matchers[matcherStageNoManagedResource], addDefaultPolicies...)
+		matchers[matcherStageNoManagedResource] = append(matchers[matcherStageNoManagedResource], addSiteNpPolicies...)
 
-		if toggoleNp {
-			matchers[matcherStageAddNP] = append(matchers[matcherStageAddNP],
-				networkPolicyMatch{
-					Method: http.MethodPost,
-					Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-					Rules:  ivnp.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-				})
-			matchers[matcherStageDeleteNP] = append(matchers[matcherStageDeleteNP],
-				networkPolicyMatch{
-					Method: http.MethodDelete,
-					Url:    "network-policy/" + v1alpha1.ManagedResourceName,
-					Rules:  ivnp.GetRules(leafPort, mr.Name, v1alpha1.ManagedResourceName, nil),
-				})
+		if !toggoleNp {
+			return matchers
 		}
+		matchers[matcherStageAddNP] = append(matchers[matcherStageAddNP], addVpcNpPolicies...)
+		matchers[matcherStageDeleteNP] = append(matchers[matcherStageDeleteNP], deleteVpcNpPolicies...)
 		return matchers
 	}
 
@@ -358,37 +574,31 @@ var _ = Describe("Networkpolicy", func() {
 				} else if req.Method == http.MethodGet && strings.Contains(req.URL.String(), "/revision/") {
 					return json.Marshal(&map[string]interface{}{
 						"state": "applied"})
-				} /* else if req.Method == http.MethodPatch && strings.HasSuffix(req.URL.String(), "/revision/revision_1") {
-					// Validate commits here.
-				} */
-				if !strings.Contains(req.URL.String(), "/network-policy") {
+				}
+
+				if !strings.Contains(req.URL.String(), "/acl/") {
 					// Don't care if not NetworkPolicy related in this test.
 					return json.Marshal(&map[string]interface{}{
 						"status": 200})
 				}
-				var rules internal.NetworkPolicyRules
-				data := make([]byte, 1024)
+				data := make([]byte, 2056)
 				n, err := req.Body.Read(data)
 				Expect(err).ToNot(HaveOccurred())
-				err = json.Unmarshal(data[0:n], &rules)
-				Expect(err).ToNot(HaveOccurred())
-				for _, rule := range rules.Rules {
-					if rule.Addresses != nil {
-						rule.Addresses.IP = rule.Addresses.IP.To4()
-					}
-				}
-				logf.Log.V(1).Info("http mock", "NetworkPolicyRules", rules)
+				logf.Log.V(1).Info("http mock", "Body", string(data[0:n]))
 				tmpMatchers := matchers[matcherStage]
 				for i := range tmpMatchers {
 					matcher := &tmpMatchers[i]
+					expect, err := json.Marshal(matcher.Body)
+					Expect(err).ToNot(HaveOccurred())
 					if strings.Contains(req.URL.String(), matcher.Url) && req.Method == matcher.Method &&
-						rules.Equal(matcher.Rules) {
-						matchers[matcherStage][i] = matchers[matcherStage][len(tmpMatchers)-1]
+						string(data[0:n]) == string(expect) {
+						tmpMatchers[i] = tmpMatchers[len(tmpMatchers)-1]
 						tmpMatchers = tmpMatchers[:len(tmpMatchers)-1]
 						break
 					}
 				}
 				if len(tmpMatchers)+1 != len(matchers[matcherStage]) {
+					logf.Log.V(1).Info("TODO remove later", "Stage", matcherStage, "Matcher", tmpMatchers)
 					Fail("Did not find matching action")
 				}
 				matchers[matcherStage] = tmpMatchers
@@ -433,7 +643,7 @@ var _ = Describe("Networkpolicy", func() {
 			npProp.ID < internal.NetworkPolicyPriorityRuleIDMap[internal.NetworkPolicyPriorityDefaultPermit]) {
 			Fail(fmt.Sprintf("Incorrect NetworkPolicyProperties: %v", npProp.ID))
 		}
-		np.Status.ID = npProp.ID
+		np.Status.ID = int32(npProp.ID)
 		err = k8sClient.Status().Update(context.Background(), np)
 		Expect(err).ToNot(HaveOccurred())
 	}
@@ -574,32 +784,14 @@ var _ = Describe("Networkpolicy", func() {
 					err := vpcManager.CreateOrUpdateNetworkPolicy(context.Background(), npEvt.Name)
 					Expect(vpc.IsBackendConfigurationInProgress(err) || err == nil).To(BeTrue())
 					continue
-
 				case <-stop:
 					return fmt.Errorf("no Event")
 				}
 			}
 		}, 10, 1).Should(BeNil())
+		// give time to allow host admin config after resource is removed.
+		drainEvents()
 		Expect(*matchers).To(BeEmpty())
-	}
-
-	drainEvents := func() {
-		leafEventChan := vpcManager.GetEvent(networkfabric.LeafName)
-		mrEventChan := vpcManager.GetEvent(v1alpha1.ManagedResourceName)
-		npEventChan := vpcManager.GetEvent(v1alpha1.NetworkPolicyName)
-		stop := time.Tick(time.Second * 2)
-		for {
-			select {
-			case <-leafEventChan:
-				continue
-			case <-mrEventChan:
-				continue
-			case <-npEventChan:
-				continue
-			case <-stop:
-				return
-			}
-		}
 	}
 
 	It("Host is unassigned", func() {
@@ -650,7 +842,7 @@ var _ = Describe("Networkpolicy", func() {
 		addNetworkPolicy(vpcNp)
 
 		matchers := generateLeafMatchers(siteNp, false)
-		matchers = generateManagedResourceMatchers(matchers, siteNp, vpcNp, true)
+		matchers = generateManagedResourceMatchers(matchers, true)
 		testExpectations(matchers)
 
 		By("Verify adding Leaf")

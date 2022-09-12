@@ -11,7 +11,8 @@ leaderElection:
   #resourceName: f1cf94cd.vpc.forge.gitlab-master.nvidia.com
 forge:
   # hbnDevice is true if managed leaf devices are HBN on DPUs.
-  hbnDevice: false
+  hbnDevice: true
   # defaultASN is default ASN assigned to leaf devices.
-  # default value is 65535
-  # defaultASN: 65535
+  defaultASN: 65535
+  # enableNetworkPolicy enables NetworkPolicy/ACL support.
+  enableNetworkPolicy: false

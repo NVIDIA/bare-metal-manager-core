@@ -22,8 +22,6 @@ import (
 const (
 	EnvCumulusUser = "CUMULUS_USER"
 	EnvCumulusPwd  = "CUMULUS_PWD"
-	EnvSSHUser     = "SSH_USER"
-	EnvSSHPwd      = "SSH_PWD"
 )
 
 const (
@@ -62,6 +60,8 @@ type NetworkDeviceTransport interface {
 	SshHBN(cmd string) (string, error)
 	// GetHBNContainerID returns HBN containerID.
 	GetHBNContainerID() (string, error)
+	// SetLogger sets transport logger
+	SetLogger(logger logr.Logger)
 }
 
 type NetworkDevice interface {
@@ -72,10 +72,8 @@ type NetworkDevice interface {
 	SetMaintenanceMode(bool)
 	// IsInMaintenanceMode returns whether the device is in maintenance mode.
 	IsInMaintenanceMode() bool
-	// SetHostAdminIPs sets admin IPs for hosts.
-	SetHostAdminIPs(map[string]string, bool)
 	// Liveness continuously probes the liveness of the device.
-	Liveness(doReconcile bool)
+	Liveness()
 	// IsReachable is true if the device is alive and operating.
 	IsReachable() bool
 	// GetNICIdentifiers returns all hosts connected to this device.
@@ -94,6 +92,8 @@ type NetworkDevice interface {
 	IsUnmanaged() bool
 	// GetProperties returns networkDevice Properties
 	GetProperties() (*properties.NetworkDeviceProperties, error)
+	// SetReconcile sets device in reconcile state
+	SetReconcile(reconcile bool)
 }
 
 type ConfigurationBackendState int
@@ -270,12 +270,12 @@ func (i *FabricOverlayNetworkImplementation) GetNetworkProperties() (*properties
 	prefixLen, _ := i.network.Mask.Size()
 	return &properties.OverlayNetworkProperties{
 		FabricConfig: &v1alpha12.FabricNetworkConfiguration{
-			VNI:    i.vni,
-			VlanID: i.vlan,
+			VNI:    int32(i.vni),
+			VlanID: int32(i.vlan),
 		},
 		Network: &v1alpha12.IPNet{
 			IP:           v1alpha12.IPAddress(i.network.IP.String()),
-			PrefixLength: uint32(prefixLen),
+			PrefixLength: int32(prefixLen),
 			Gateway:      v1alpha12.IPAddress(i.gateway.String()),
 		},
 		DHCPCircID: GetVlanInterfaceFromID(i.vlan),

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 
+	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -57,14 +58,14 @@ func init() {
 }
 
 func main() {
-	var configFile, nvueFile, dhcrelayFile string
+	var configFile, nvueFile string
 
 	flag.StringVar(&configFile, "config", "", "Configuration file")
 	flag.StringVar(&nvueFile, "hbn-nvue-config", "", "HBN Nvue configuration file")
-	flag.StringVar(&dhcrelayFile, "hbn-dhcrelay-config", "", "HBN DHCRelay configuration file")
 
 	opts := zap.Options{
 		Development: true,
+		TimeEncoder: zapcore.RFC3339TimeEncoder,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -83,18 +84,13 @@ func main() {
 	vpc.HBNConfig.HBNDevice = config.Forge.HBNDevice
 	vpc.HBNConfig.DefaultASN = config.Forge.DefaultASN
 	vpc.HBNConfig.NVUEConfig, err = os.ReadFile(nvueFile)
+	*vpc.EnableNetworkPolicy = config.Forge.EnableNetworkPolicy
 	if err != nil {
 		setupLog.Error(err, "Failed to open nvue config file", "Path", nvueFile)
 		os.Exit(1)
 	}
-	vpc.HBNConfig.DHCPRelayConfig, err = os.ReadFile(dhcrelayFile)
-	if err != nil {
-		setupLog.Error(err, "Failed to open dhcrelay config file", "Path", dhcrelayFile)
-		os.Exit(1)
-	}
 	setupLog.Info("Input configurations", "Config", config)
 	setupLog.WithName("NVUE").Info(fmt.Sprintln(string(vpc.HBNConfig.NVUEConfig)))
-	setupLog.WithName("DHCRelay").Info(fmt.Sprintln(string(vpc.HBNConfig.DHCPRelayConfig)))
 
 	ns := os.Getenv("K8S_NAMESPACE")
 	if len(ns) == 0 {
@@ -184,14 +180,16 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "Leaf")
 		os.Exit(1)
 	}
-	if err = (&resourcecontrollers.NetworkPolicyReconciler{
+	npMgr := &resourcecontrollers.NetworkPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		VPCMgr: vpcMgr,
-	}).SetupWithManager(mgr); err != nil {
+	}
+	if err = npMgr.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NetworkPolicy")
 		os.Exit(1)
 	}
+	_ = mgr.Add(npMgr)
 	if err = (&resourcev1alpha1.NetworkPolicy{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "NetworkPolicy")
 		os.Exit(1)

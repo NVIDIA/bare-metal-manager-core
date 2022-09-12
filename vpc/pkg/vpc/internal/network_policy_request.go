@@ -95,6 +95,7 @@ type NetworkPolicyAddress struct {
 	Addresses []string
 	Selectors []map[string]string
 	Ports     []NetworkPolicyPorts
+	Related   bool
 }
 
 // NetworkPolicy is the internal interpretation of NetworkPolicy CRD.
@@ -125,26 +126,26 @@ func convertNetworkPolicyAddress(addresses []v1alpha1.NetworkPolicyAddress, port
 		// No ports specified, allow all traffic.
 		npAddr.Ports = append(npAddr.Ports,
 			NetworkPolicyPorts{
-				Protocol: string(v1alpha1.NetworkPolicyProtocolTCP)},
-			NetworkPolicyPorts{
 				Protocol: string(v1alpha1.NetworkPolicyProtocolUDP)},
+			NetworkPolicyPorts{
+				Protocol: string(v1alpha1.NetworkPolicyProtocolTCP)},
 			NetworkPolicyPorts{
 				Protocol: string(v1alpha1.NetworkPolicyProtocolICMP)})
 	} else {
-		for _, ports := range ports {
-			if ports.Begin > 0 {
-				begin := ports.Begin
+		for _, port := range ports {
+			if port.Begin > 0 {
+				begin := port.Begin
 				end := begin + 1
-				if ports.End > 0 {
-					end = ports.End
+				if port.End > 0 {
+					end = port.End
 				}
-				ports := NetworkPolicyPorts{
-					Protocol: string(ports.Protocol),
+				tPorts := NetworkPolicyPorts{
+					Protocol: string(port.Protocol),
 				}
 				for p := begin; p < end; p++ {
-					ports.Ports = append(ports.Ports, p)
+					tPorts.Ports = append(tPorts.Ports, uint16(p))
 				}
-				npAddr.Ports = append(npAddr.Ports, ports)
+				npAddr.Ports = append(npAddr.Ports, tPorts)
 			}
 		}
 	}
@@ -186,7 +187,7 @@ func insertNetworkPolicyRules(addresses []NetworkPolicyAddress, dir NetworkPolic
 						Addresses: ipnet,
 						Protocol:  port.Protocol,
 						Direction: dir,
-						NIC:       devicePort,
+						Related:   i.Related,
 					})
 				} else {
 					for _, p := range port.Ports {
@@ -195,7 +196,7 @@ func insertNetworkPolicyRules(addresses []NetworkPolicyAddress, dir NetworkPolic
 							Protocol:  port.Protocol,
 							Port:      p,
 							Direction: dir,
-							NIC:       devicePort,
+							Related:   i.Related,
 						})
 					}
 				}
@@ -207,7 +208,7 @@ func insertNetworkPolicyRules(addresses []NetworkPolicyAddress, dir NetworkPolic
 func (n *NetworkPolicy) Populate(np *v1alpha1.NetworkPolicy) *NetworkPolicy {
 	spec := np.Spec
 	n.Name = np.Name
-	n.ID = np.Status.ID
+	n.ID = uint16(np.Status.ID)
 	if len(spec.LeafSelector.MatchLabels) > 0 {
 		n.LeafSelector = spec.LeafSelector.MatchLabels
 	}
@@ -229,11 +230,15 @@ func (n *NetworkPolicy) GetRules(devicePort string, resourceName, resourceKind s
 		RuleIDStart:       n.ID,
 		ResourceKind:      resourceKind,
 		ResourceName:      resourceName,
+		DevicePort:        devicePort,
 	}
 	insertNetworkPolicyRules(n.Ingress, NetworkPolicyDirectionIngress, devicePort, mgr, rules)
 	insertNetworkPolicyRules(n.Egress, NetworkPolicyDirectionEgress, devicePort, mgr, rules)
-	for _, rule := range rules.Rules {
-		rule.IsStateless = n.stateless
+	for i := range rules.Rules {
+		rule := &rules.Rules[i]
+		// Hack: if IP is bcast, rule cannot be stateful.
+		forceStateless := rule.Addresses != nil && rule.Addresses.IP.String() == "255.255.255.255"
+		rule.IsStateless = n.stateless || forceStateless
 		rule.IsDrop = n.Drop
 	}
 	return rules
@@ -241,26 +246,25 @@ func (n *NetworkPolicy) GetRules(devicePort string, resourceName, resourceKind s
 
 // NetworkPolicyRule is internal structure derived from internal NetworkPolicy.
 // Each NetworkPolicyRule corresponds to a single underlying ACL rule.
-// Json tagged for unit testing.
 type NetworkPolicyRule struct {
-	Addresses   *net.IPNet             `json:"addresses,omitempty"`
-	Protocol    string                 `json:"protocol,omitempty"`
-	Port        uint16                 `json:"port,omitempty"`
-	Direction   NetworkPolicyDirection `json:"direction,omitempty"`
-	NIC         string                 `json:"nic,omitempty"`
-	IsStateless bool                   `json:"stateless,omitempty"`
-	IsDrop      bool                   `json:"drop,omitempty"`
+	Addresses   *net.IPNet
+	Protocol    string
+	Port        uint16
+	Direction   NetworkPolicyDirection
+	IsStateless bool
+	IsDrop      bool
+	Related     bool
 }
 
 // NetworkPolicyRules is the internal representable of NetworkPolicy CRD configured on
 // a Leaf or a ManagedResource.
-// Json tagged for unit testing.
 type NetworkPolicyRules struct {
-	NetworkPolicyName string              `json:"networkPolicyName,omitempty"`
-	ResourceName      string              `json:"resourceName,omitempty"`
-	ResourceKind      string              `json:"resourceKind,omitempty"`
-	RuleIDStart       uint16              `json:"ruleIDStart,omitempty"`
-	Rules             []NetworkPolicyRule `json:"rules,omitempty"`
+	NetworkPolicyName string
+	ResourceName      string
+	ResourceKind      string
+	RuleIDStart       uint16
+	Rules             []NetworkPolicyRule
+	DevicePort        string
 }
 
 func (n *NetworkPolicyRules) Key() string {
@@ -276,12 +280,7 @@ func (n *NetworkPolicyRules) Equal(request ConfigurationRequest) bool {
 }
 
 func (n *NetworkPolicyRules) GetBackendState(m *vpcManager) (ConfigurationBackendState, error) {
-	ch := make(chan *ConfigurationBackendResult)
-	go func() {
-		// Use go routine to avoid potentially nested mutexes.
-		ch <- m.networkPolicyMgr.GetNetworkPolicyResourceConfigurationState(n.NetworkPolicyName, n.ResourceName, n.ResourceKind)
-	}()
-	rlt := <-ch
+	rlt := m.networkPolicyMgr.GetNetworkPolicyResourceConfigurationState(n.NetworkPolicyName, n.ResourceName, n.ResourceKind)
 	if rlt == nil {
 		return BackendStateUnknown, nil
 	}
@@ -289,16 +288,14 @@ func (n *NetworkPolicyRules) GetBackendState(m *vpcManager) (ConfigurationBacken
 }
 
 func (n *NetworkPolicyRules) SetBackendState(m *vpcManager, state ConfigurationBackendState, err error, notifyChange bool) error {
-	ch := make(chan error)
-	go func() {
-		// Use go routine to avoid potentially nested mutexes.
-		ch <- m.networkPolicyMgr.UpdateNetworkPolicyResourceConfigurationState(n.NetworkPolicyName, n.ResourceName, n.ResourceKind,
-			ConfigurationBackendResult{
-				State: state,
-				Error: err,
-			})
-	}()
-	ret := <-ch
+	ret := m.networkPolicyMgr.updateNetworkPolicyResourceConfigurationState(n.NetworkPolicyName, n.ResourceName, n.ResourceKind,
+		ConfigurationBackendResult{
+			State: state,
+			Error: err,
+		}, false)
+	if !notifyChange {
+		return ret
+	}
 	if n.ResourceKind == v1alpha1.ManagedResourceName {
 		m.managedResources.NotifyChange(n.ResourceName)
 	} else if n.ResourceKind == v1alpha12.LeafName {

@@ -47,6 +47,12 @@ func (r *NetworkPolicy) Default() {
 	networkpolicylog.Info("default", "name", r.Name)
 	for i := range r.Spec.IngressRules {
 		rule := &r.Spec.IngressRules[i]
+		for j := range rule.FromAddresses {
+			addr := &rule.FromAddresses[j]
+			if len(addr.IPCIDR) > 0 && net.ParseIP(string(addr.IPCIDR)) != nil {
+				addr.IPCIDR += "/32"
+			}
+		}
 		if rule.FromAddresses == nil {
 			rule.FromAddresses = []NetworkPolicyAddress{{IPCIDR: "0.0.0.0/0"}}
 		}
@@ -59,6 +65,12 @@ func (r *NetworkPolicy) Default() {
 	}
 	for i := range r.Spec.EgressRules {
 		rule := &r.Spec.EgressRules[i]
+		for j := range rule.ToAddresses {
+			addr := &rule.ToAddresses[j]
+			if len(addr.IPCIDR) > 0 && net.ParseIP(string(addr.IPCIDR)) != nil {
+				addr.IPCIDR += "/32"
+			}
+		}
 		if rule.ToAddresses == nil {
 			rule.ToAddresses = []NetworkPolicyAddress{{IPCIDR: "0.0.0.0/0"}}
 		}
@@ -86,11 +98,9 @@ func validateNetworkPolicy(spec *NetworkPolicySpec) error {
 			if addr.ManagedResourceSelector.MatchLabels != nil && len(addr.IPCIDR) > 0 {
 				return fmt.Errorf("ip address can either be IPCIDR block or ManagedResourceSelector, but not both")
 			}
-			if _, _, err := net.ParseCIDR(string(addr.IPCIDR)); err != nil {
-				if ip := net.ParseIP(string(addr.IPCIDR)); ip != nil {
-					addr.IPCIDR += "/32"
-				} else {
-					return fmt.Errorf("inccrrect IPCIDR address format")
+			if len(addr.IPCIDR) > 0 {
+				if _, _, err := net.ParseCIDR(string(addr.IPCIDR)); err != nil {
+					return fmt.Errorf("incorrect IPCIDR address format")
 				}
 			}
 		}
@@ -108,11 +118,9 @@ func validateNetworkPolicy(spec *NetworkPolicySpec) error {
 			if addr.ManagedResourceSelector.MatchLabels != nil && len(addr.IPCIDR) > 0 {
 				return fmt.Errorf("ip address can either be IPCIDR block or ManagedResourceSelector, but not both")
 			}
-			if _, _, err := net.ParseCIDR(string(addr.IPCIDR)); err != nil {
-				if ip := net.ParseIP(string(addr.IPCIDR)); ip != nil {
-					addr.IPCIDR += "/32"
-				} else {
-					return fmt.Errorf("inccrrect IPCIDR address format")
+			if len(addr.IPCIDR) > 0 {
+				if _, _, err := net.ParseCIDR(string(addr.IPCIDR)); err != nil {
+					return fmt.Errorf("incorrect IPCIDR address format")
 				}
 			}
 		}

@@ -51,11 +51,13 @@ const (
 )
 
 var (
-	NetworkPolicyPriorityRuleIDMapDefault = []uint16{128, 256, 60000, 60128, 60256}
+	// NetworkPolicyPriorityRuleIDMapDefault reflects HBN hard code 8 priority levels mapping to rule ID,
+	// mostly will be allocated to NetworkPolicyPriorityWhileList.
+	NetworkPolicyPriorityRuleIDMapDefault = []uint16{8000, 16000, 40000, 48000, 56000}
 )
 
 const (
-	networkPolicyMaxID             = 8
+	networkPolicyMaxID             = 16
 	HostAdminLeafPort              = "pf0hpf"
 	DefaultDenyNetworkPolicyName   = "default-deny"
 	DefaultPermitNetworkPolicyName = "default-permit"
@@ -63,31 +65,60 @@ const (
 
 var (
 	DefaultDenyNetworkPolicy = &NetworkPolicy{
-		Name:      DefaultDenyNetworkPolicyName,
-		Ingress:   []NetworkPolicyAddress{{}},
-		Egress:    []NetworkPolicyAddress{{}},
+		Name: DefaultDenyNetworkPolicyName,
+		// default deny all traffic in ingress direction.
+		Ingress: []NetworkPolicyAddress{{
+			Ports: []NetworkPolicyPorts{
+				{Protocol: ACLProtocolUDP},
+				{Protocol: ACLProtocolTCP},
+				{Protocol: ACLProtocolICMP},
+			},
+		}},
+		// default deny all traffic in egress direction.
+		Egress: []NetworkPolicyAddress{{
+			Ports: []NetworkPolicyPorts{
+				{Protocol: ACLProtocolUDP},
+				{Protocol: ACLProtocolTCP},
+				{Protocol: ACLProtocolICMP},
+			},
+		}},
 		ID:        NetworkPolicyPriorityRuleIDMap[NetworkPolicyPriorityDefaultDeny-1] + 1,
 		Drop:      true,
 		stateless: true,
 	}
 	DefaultPermitNetworkPolicy = &NetworkPolicy{
 		Name: DefaultPermitNetworkPolicyName,
-		Ingress: []NetworkPolicyAddress{{
-			Ports: []NetworkPolicyPorts{{
-				Ports:    []uint16{68},
-				Protocol: "UDP",
+		Egress: []NetworkPolicyAddress{
+			// allow egress traffic on sessions already established.
+			{
+				Ports: []NetworkPolicyPorts{
+					{Protocol: ACLProtocolUDP},
+					{Protocol: ACLProtocolTCP},
+					{Protocol: ACLProtocolICMP},
+				},
+				Related: true,
+			},
+			// allow egress bcast DHCP discovery
+			{
+				Addresses: []string{"255.255.255.255/32"},
+				Ports: []NetworkPolicyPorts{{
+					Ports:    []uint16{67},
+					Protocol: ACLProtocolUDP,
+				}},
+			},
+		},
+		Ingress: []NetworkPolicyAddress{
+			// allow ingress traffic on sessions already established.
+			{
+				Ports: []NetworkPolicyPorts{
+					{Protocol: ACLProtocolUDP},
+					{Protocol: ACLProtocolTCP},
+					{Protocol: ACLProtocolICMP},
+				},
+				Related: true,
 			}},
-		}},
-		Egress: []NetworkPolicyAddress{{
-			Addresses: []string{"255.255.255.255/32"},
-			Ports: []NetworkPolicyPorts{{
-				Ports:    []uint16{67},
-				Protocol: "UDP",
-			}},
-		}},
-		ID:        NetworkPolicyPriorityRuleIDMap[NetworkPolicyPriorityDefaultPermit-1] + 1,
-		Drop:      false,
-		stateless: true,
+		ID:   1,
+		Drop: false,
 	}
 )
 
@@ -416,7 +447,8 @@ func (m *NetworkPolicyManager) getNetworkDeviceFromResource(resource *NetworkPol
 	} else {
 		ll, _ := m.networkDevices.ByIndex(networkDeviceByConnectedNICs, resource.Identifier)
 		if len(ll) == 0 {
-			m.log.V(1).Info("NetworkPolicy update cannot find NetworkDevice", "HostNIC", resource.Identifier)
+			m.log.V(1).Info("Cannot find NetworkDevice from resource",
+				"HostNIC", resource.Identifier, "Resource", resource.Name, "Kind", resource.Kind)
 			return nil
 		}
 		i = ll[0]
@@ -623,24 +655,22 @@ func (m *NetworkPolicyManager) DeleteNetworkPolicyResource(resource *NetworkPoli
 	if !exists {
 		return nil
 	}
+	inSync := true
 	devOp := m.getNetworkDeviceFromResource(resource)
-	if devOp == nil {
-		// Failed to find the network device on which this NetworkPolicy is configured.
-		return NewNetworkDeviceNotAvailableError(v1alpha12.LeafName, "")
-	}
 	delReqs := m.generateDefaultRules(devOp.devicePort, resource.Name, resource.Kind)
 	nps := m.computeResourceNetworkPolicies(resource)
 	notifyNps := m.computeResourceUsedByNetworkPolicies(resource, nil)
-	for _, np := range nps {
-		delReqs = append(delReqs, np.GetRules(devOp.devicePort, resource.Name, resource.Kind, m))
-	}
-	inSync := true
-	if len(delReqs) > 0 {
-		syn, err := devOp.NetworkDevice.UpdateConfigurations(delReqs, false, false, true)
-		if err != nil {
-			return err
+	if devOp != nil {
+		for _, np := range nps {
+			delReqs = append(delReqs, np.GetRules(devOp.devicePort, resource.Name, resource.Kind, m))
 		}
-		inSync = inSync && syn
+		if len(delReqs) > 0 {
+			syn, err := devOp.NetworkDevice.UpdateConfigurations(delReqs, false, false, true)
+			if err != nil {
+				return err
+			}
+			inSync = inSync && syn
+		}
 	}
 
 	// Update resource before notify.
@@ -744,7 +774,7 @@ func (m *NetworkPolicyManager) DeleteNetworkPolicy(np *NetworkPolicy) (err error
 		return nil
 	}
 	if np.ID == 0 {
-		m.log.V(1).Info("Delete NetworkPolicy with ID", "Name", np.Name)
+		m.log.V(1).Info("Delete NetworkPolicy without ID", "Name", np.Name)
 		m.networkPolicies.Delete(np)
 		return nil
 	}
@@ -773,14 +803,20 @@ func (m *NetworkPolicyManager) DeleteNetworkPolicy(np *NetworkPolicy) (err error
 		return NewBackendConfigurationInProgress("Fabric", v1alpha1.NetworkPolicyName, "")
 	}
 	m.deleteBackendStates(np.Name, networkPolicyStateByNetworkPolicy)
+	if err := m.idPool.Release(np.ID); err != nil {
+		return err
+	}
 	return m.networkPolicies.Delete(np)
 }
 
 // GetNetworkPolicyProperty returns backend property of a NetworkPolicy.
-func (m *NetworkPolicyManager) GetNetworkPolicyProperty(name string) (*properties.NetworkPolicyProperties, error) {
+func (m *NetworkPolicyManager) GetNetworkPolicyProperty(name string) (prop *properties.NetworkPolicyProperties, err error) {
 	if m == nil {
-		return nil, nil
+		return &properties.NetworkPolicyProperties{}, nil
 	}
+	defer func() {
+		m.log.V(1).Info("GetNetworkPolicyProperty completed", "Name", name, "Property", prop, "Error", err)
+	}()
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	i, exists, _ := m.networkPolicies.GetByKey(name)
@@ -795,9 +831,6 @@ func (m *NetworkPolicyManager) GetNetworkPolicyResourceConfigurationState(npName
 	if m == nil {
 		return nil
 	}
-	// Hack, no lock because it may be recursive lock.
-	// m.mutex.Lock()
-	// defer m.mutex.Unlock()
 	key := (&NetworkPolicyBackendState{
 		Name:              name,
 		Kind:              kind,
@@ -832,22 +865,13 @@ func (m *NetworkPolicyManager) updateNetworkPolicyResourceConfigurationState(npN
 	return m.networkPolicyBackendStates.Update(state)
 }
 
-func (m *NetworkPolicyManager) UpdateNetworkPolicyResourceConfigurationState(npName, name, kind string, rlt ConfigurationBackendResult) error {
-	if m == nil {
-		return nil
-	}
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	return m.updateNetworkPolicyResourceConfigurationState(npName, name, kind, rlt, false)
-}
-
 // GetNetworkPolicyResourceProperty returns NetworkPolicy
 func (m *NetworkPolicyManager) GetNetworkPolicyResourceProperty(name, kind string) (prop *properties.NetworkPolicyResourceProperties, err error) {
 	if m == nil {
 		return nil, nil
 	}
 	defer func() {
-		m.log.V(1).Info("GetNetworkPolicyResourceProperty completed", "Kind", kind, "Name", name, "Error", err)
+		m.log.V(1).Info("GetNetworkPolicyResourceProperty completed", "Kind", kind, "Name", name, "Property", prop, "Error", err)
 	}()
 	m.mutex.Lock()
 	defer m.mutex.Unlock()

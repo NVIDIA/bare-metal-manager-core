@@ -18,18 +18,12 @@ pub struct LeafSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control: Option<LeafControl>,
     /// HostAdminIPs are host IPs when hosts are not part of any tenant networks, but still need to access the network for host discovery, imaging, etc. The key-value pair is the leaf port and the IP address assigned to the host interface connecting to the leaf port
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "hostAdminIPs"
-    )]
+    #[serde(rename = "hostAdminIPs")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_admin_i_ps: Option<BTreeMap<String, String>>,
     /// HostInterfaces are host interfaces connected to this Leaf. The key value pair is the host interface identifier and the leaf port connected to the host interface.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "hostInterfaces"
-    )]
+    #[serde(rename = "hostInterfaces")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_interfaces: Option<BTreeMap<String, String>>,
 }
 
@@ -37,18 +31,12 @@ pub struct LeafSpec {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct LeafControl {
     /// MaintenanceMode is set to true when the controller no longer actively configures the device.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "maintenanceMode"
-    )]
+    #[serde(rename = "maintenanceMode")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maintenance_mode: Option<bool>,
     /// ManagementIP is the management interface IP to access this network device.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "managementIP"
-    )]
+    #[serde(rename = "managementIP")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub management_ip: Option<String>,
     /// Vendor is this network device's vendor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,36 +46,27 @@ pub struct LeafControl {
 /// LeafStatus defines the observed state of Leaf
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct LeafStatus {
+    /// ASN assigned to this leaf.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asn: Option<i64>,
     /// Conditions are the conditions of this Leaf device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conditions: Option<Vec<LeafStatusConditions>>,
     /// HostAdminDHCPServer is the DHCPServer for hosts in un-assigned state.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "hostAdminDHCPServer"
-    )]
+    #[serde(rename = "hostAdminDHCPServer")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_admin_dhcp_server: Option<String>,
     /// HostAdminIPs are host IPs in un-assigned state.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "hostAdminIPs"
-    )]
+    #[serde(rename = "hostAdminIPs")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_admin_i_ps: Option<BTreeMap<String, String>>,
     /// LoobackIP assigned to this leaf.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "loopbackIP"
-    )]
+    #[serde(rename = "loopbackIP")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loopback_ip: Option<String>,
     /// NetworkPolicies applied to this Leaf.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "networkPolicies"
-    )]
+    #[serde(rename = "networkPolicies")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_policies: Option<Vec<String>>,
 }
 
@@ -95,11 +74,8 @@ pub struct LeafStatus {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct LeafStatusConditions {
     /// LastTransitionTime is the last transaction time for this ResourceGroup.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "lastTransitionTime"
-    )]
+    #[serde(rename = "lastTransitionTime")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_transition_time: Option<String>,
     /// Message is the response received from the network device.
     #[serde(default, skip_serializing_if = "Option::is_none")]

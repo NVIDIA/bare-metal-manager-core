@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/vishvananda/netlink"
 	"google.golang.org/grpc"
@@ -108,7 +108,7 @@ var _ = Describe("Agent", func() {
 	It("Process", func() {
 		By("Check keep alive")
 		svcClient := rpc.NewAgentServiceClient(grpcConn)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
 		defer cancel()
 		status, err := svcClient.AliveProbe(ctx, &rpc.Probe{})
 		Expect(err).ToNot(HaveOccurred())

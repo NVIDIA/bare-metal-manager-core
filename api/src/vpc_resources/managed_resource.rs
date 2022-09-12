@@ -14,45 +14,32 @@ use serde::{Deserialize, Serialize};
 #[kube(status = "ManagedResourceStatus")]
 pub struct ManagedResourceSpec {
     /// State is ManagedResource's state.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "State")]
+    #[serde(rename = "State")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
     /// DPUIPs are IPs on DPU. if HostInterfaceAccess >= FabricAccess it must contain second IP which will be used to access the host from DC. This attribute is only required if ResourceGroup.Spec.NetworkImplementationType=Software
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "dpuIPs")]
+    #[serde(rename = "dpuIPs")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dpu_i_ps: Option<Vec<String>>,
     /// HostInterface uniquely identifies a host interface.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "hostInterface"
-    )]
+    #[serde(rename = "hostInterface")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_interface: Option<String>,
     /// HostInterfaceAccess specifies a host interface's accessibility.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "hostInterfaceAccess"
-    )]
+    #[serde(rename = "hostInterfaceAccess")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_interface_access: Option<String>,
     /// HostInterfaceIP is the host interface IP of this ManagedResource.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "hostInterfaceIP"
-    )]
+    #[serde(rename = "hostInterfaceIP")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_interface_ip: Option<String>,
     /// HostInterfaceMAC is the host MAC of this ManagedResource.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "hostInterfaceMAC"
-    )]
+    #[serde(rename = "hostInterfaceMAC")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_interface_mac: Option<String>,
     /// ResourceGroup this ManagedResource belongs.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "resourceGroup"
-    )]
+    #[serde(rename = "resourceGroup")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_group: Option<String>,
     /// Type is this ManagedResource type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,25 +53,16 @@ pub struct ManagedResourceStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conditions: Option<Vec<ManagedResourceStatusConditions>>,
     /// HostAccessIPs are IPs to access the host from within DC or from the public domain.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "hostAccessIPs"
-    )]
+    #[serde(rename = "hostAccessIPs")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_access_i_ps: Option<ManagedResourceStatusHostAccessIPs>,
     /// NetworkFabricReference refers to a network fabric device that this ManagedResource connects to.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "networkFabricReference"
-    )]
+    #[serde(rename = "networkFabricReference")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_fabric_reference: Option<ManagedResourceStatusNetworkFabricReference>,
     /// NetworkPolicies applied to this ManagedResource.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "networkPolicies"
-    )]
+    #[serde(rename = "networkPolicies")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_policies: Option<Vec<String>>,
 }
 
@@ -92,11 +70,8 @@ pub struct ManagedResourceStatus {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ManagedResourceStatusConditions {
     /// LastTransitionTime is the last transaction time for this ManagedResource.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "lastTransitionTime"
-    )]
+    #[serde(rename = "lastTransitionTime")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_transition_time: Option<String>,
     /// Message is message for the transaction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,21 +91,20 @@ pub struct ManagedResourceStatusConditions {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ManagedResourceStatusHostAccessIPs {
     /// FabricIP is a network fabric IP routable within a data center.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "fabricIP")]
+    #[serde(rename = "fabricIP")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fabric_ip: Option<String>,
     /// HostIP is an overlay IP assigned to the host.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "hostIP")]
+    #[serde(rename = "hostIP")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_ip: Option<String>,
 }
 
 /// NetworkFabricReference refers to a network fabric device that this ManagedResource connects to.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ManagedResourceStatusNetworkFabricReference {
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "ConfigurationState"
-    )]
+    #[serde(rename = "ConfigurationState")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub configuration_state: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,

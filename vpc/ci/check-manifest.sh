@@ -27,9 +27,10 @@ pushd $THIS_DIR/.. > /dev/null
 
 YAMLS=(
     "config/forge.yaml"
+    "config/crd/bases"
 )
 
-rm "${YAMLS[@]}"
+rm -r "${YAMLS[@]}"
 make manifests
 diff="$(git status --porcelain ${YAMLS[@]})"
 

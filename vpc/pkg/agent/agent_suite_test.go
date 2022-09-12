@@ -4,10 +4,9 @@ import (
 	"os/exec"
 	"testing"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/vishvananda/netlink"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
@@ -16,14 +15,12 @@ var (
 	brName   = "br-transport"
 	uplink   = "eth0"
 	hostlink = "hostlink"
-	bindPort = ":6666"
+	bindPort = ":6662"
 )
 
 func TestAgent(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Agent Suite",
-		[]Reporter{printer.NewlineReporter{}})
+	RunSpecs(t, "Agent Suite")
 }
 
 var _ = BeforeSuite(func() {

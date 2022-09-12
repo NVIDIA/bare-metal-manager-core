@@ -1,10 +1,9 @@
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.9.0
   creationTimestamp: null
   name: configurationresourcepools.networkfabric.vpc.forge.gitlab-master.nvidia.com
 spec:
@@ -41,6 +40,8 @@ spec:
               allocationBlockSize:
                 description: AllocationBlockBitSize is allocation block size in bits.
                 format: int32
+                maximum: 268435455
+                minimum: 0
                 type: integer
               ranges:
                 description: Range is the ConfigurationResourcePool half-open range
@@ -69,9 +70,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []

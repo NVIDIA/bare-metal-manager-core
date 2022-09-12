@@ -1,10 +1,9 @@
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.9.0
   creationTimestamp: null
   name: networkpolicies.resource.vpc.forge.gitlab-master.nvidia.com
 spec:
@@ -16,7 +15,11 @@ spec:
     singular: networkpolicy
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.id
+      name: rule-id
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: NetworkPolicy is the Schema for the networkpolicies API
@@ -52,8 +55,14 @@ spec:
                           begin:
                             description: '[Begin, end) specify half-close IP packet
                               port.'
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
                             type: integer
                           end:
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
                             type: integer
                           protocol:
                             description: Protocol is the IP packet protocol, default
@@ -127,8 +136,14 @@ spec:
                           begin:
                             description: '[Begin, end) specify half-close IP packet
                               port.'
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
                             type: integer
                           end:
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
                             type: integer
                           protocol:
                             description: Protocol is the IP packet protocol, default
@@ -193,6 +208,9 @@ spec:
                 type: array
               id:
                 description: ID is runtime allocated ID associated with this NetworkPolicy.
+                format: int32
+                maximum: 65535
+                minimum: 1
                 type: integer
             type: object
         type: object
@@ -200,9 +218,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []

@@ -1,10 +1,9 @@
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.9.0
   creationTimestamp: null
   name: resourcegroups.resource.vpc.forge.gitlab-master.nvidia.com
 spec:
@@ -128,10 +127,14 @@ spec:
                     description: VlanID is the ID of VLAN interfaces for this overlay
                       network
                     format: int32
+                    maximum: 4095
+                    minimum: 2
                     type: integer
                   vni:
                     description: VNI is the vni for this overlay network.
                     format: int32
+                    maximum: 16777215
+                    minimum: 4096
                     type: integer
                   vrf:
                     description: VRF is the VRF name for this overlay network. TODO,
@@ -182,9 +185,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []

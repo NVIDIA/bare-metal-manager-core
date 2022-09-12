@@ -149,10 +149,15 @@ func (r *ManagedResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return HandleReconcileReturnErr(err)
 	}
 	if !reflect.DeepEqual(properties.HostAccessIPs, mr.Status.HostAccessIPs) ||
-		!reflect.DeepEqual(properties.FabricReference, mr.Status.NetworkFabricReference) {
+		!reflect.DeepEqual(properties.FabricReference, mr.Status.NetworkFabricReference) ||
+		(properties.NetworkPolicyProperties != nil &&
+			!reflect.DeepEqual(properties.NetworkPolicyProperties.Applied, mr.Status.NetworkPolicies)) {
 		// Update status from backend.
 		mr.Status.HostAccessIPs = properties.HostAccessIPs
 		mr.Status.NetworkFabricReference = properties.FabricReference
+		if properties.NetworkPolicyProperties != nil {
+			mr.Status.NetworkPolicies = properties.NetworkPolicyProperties.Applied
+		}
 		updateStatus = true
 	}
 	updateStatus = r.updateConditions(mr, resource.ManagedResourceConditionTypeAdd, nil)
@@ -190,7 +195,8 @@ func (r *ManagedResourceReconciler) updateConditions(mr *resource.ManagedResourc
 }
 
 func (r *ManagedResourceReconciler) Start(ctx context.Context) error {
-	log := logf.Log.WithName("ManagedResourceReconciler")
+	log := logf.Log.WithName("ManagedResourceReconciler event handler")
+	log.Info("Starting")
 	req := ctrl.Request{}
 	for {
 		select {
@@ -198,8 +204,8 @@ func (r *ManagedResourceReconciler) Start(ctx context.Context) error {
 			log.V(1).Info("Reconciler stopped")
 			return nil
 		case req.NamespacedName = <-r.VPCMgr.GetEvent(resource.ManagedResourceName):
+			log.V(1).Info("Backend event detected", "ManagedResource", req)
 			if _, err := r.Reconcile(ctx, req); err != nil {
-				log.V(1).Info("Backend event error detected", "ManagedResource", req, "Error", err)
 				// r.VPCMgr.AddEvent(resource.ManagedResourceName, req.NamespacedName)
 			}
 		}

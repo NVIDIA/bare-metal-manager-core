@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,7 +34,6 @@ var _ = Describe("Hbn", func() {
 		asnRange        = []uint64{65500, 65535}
 		asnPool         *resourcepool.IntegerPool
 		startupYaml     *bytes.Buffer
-		dhcRelayConf    *bytes.Buffer
 		hbnContainerID  = "1234"
 	)
 	setupHBNConfig := func(reset bool) {
@@ -49,14 +48,10 @@ var _ = Describe("Hbn", func() {
 		var err error
 		hbnConfig.NVUEConfig, err = os.ReadFile(configPath)
 		Expect(err).ToNot(HaveOccurred(), configPath)
-		configPath = filepath.Join(filepath.Dir(fPath), "../../../config/manager/hbn_dhcrelay_config")
-		hbnConfig.DHCPRelayConfig, err = os.ReadFile(configPath)
-		Expect(err).ToNot(HaveOccurred(), configPath)
 		hbnConfig.DefaultASN = 65535
 	}
 	BeforeEach(func() {
 		startupYaml = nil
-		dhcRelayConf = nil
 		setupHBNConfig(false)
 		initResources()
 		leaf.Spec.HostInterfaces = nil
@@ -84,7 +79,7 @@ var _ = Describe("Hbn", func() {
 		setupHBNConfig(true)
 	})
 
-	testAddLeaf := func(sshCmds, hbnCmds map[string]int, hbnId string, remove bool, modifier func()) {
+	SetExpectations := func(sshCmds, hbnCmds map[string]int, hbnId string) {
 		mockCumulusTransport.EXPECT().GetHBNContainerID().AnyTimes().DoAndReturn(
 			func() (string, error) {
 				return hbnId, nil
@@ -107,12 +102,8 @@ var _ = Describe("Hbn", func() {
 				}
 				if cmd == "sudo ls /var/lib/hbn/etc/nvue.d/" {
 					return "startup.yaml", nil
-				} else if cmd == "sudo ls /var/lib/hbn/etc/supervisor/conf.d/" {
-					return "supervisor-isc-dhcp-relay.conf", nil
 				} else if cmd == "sudo cat /var/lib/hbn/etc/nvue.d/startup.yaml" {
 					return startupYaml.String(), nil
-				} else if cmd == "sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf" {
-					return dhcRelayConf.String(), nil
 				}
 				return "", nil
 			})
@@ -145,6 +136,10 @@ var _ = Describe("Hbn", func() {
 				return json.Marshal(&map[string]interface{}{
 					"status": 200})
 			})
+	}
+
+	testAddLeaf := func(sshCmds, hbnCmds map[string]int, hbnId string, remove bool, modifier func()) {
+		SetExpectations(sshCmds, hbnCmds, hbnId)
 		err := vpcManager.CreateOrUpdateOverlayNetwork(context.Background(), adminRg.Name)
 		Expect(err).ToNot(HaveOccurred())
 		_, err = vpcManager.GetOverlayNetworkProperties(context.Background(), adminRg.Name)
@@ -205,32 +200,28 @@ var _ = Describe("Hbn", func() {
 
 	It("Add new leaf for new HBN", func() {
 		sshCmds := map[string]int{
-			"echo -e": 2, // generate startup and dhcrelay files
-			"sudo systemctl start containerd.service":                                    1,
-			"sudo systemctl enable containerd.service":                                   1,
-			"sudo systemctl start kubelet.service":                                       1,
-			"sudo systemctl enable kubelet.service":                                      1,
-			"sudo ls /var/lib/hbn/etc/supervisor/conf.d/":                                1,
-			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 1,
+			"echo -e": 1, // generate startup.
+			"sudo systemctl start containerd.service":  1,
+			"sudo systemctl enable containerd.service": 1,
+			"sudo systemctl start kubelet.service":     1,
+			"sudo systemctl enable kubelet.service":    1,
 		}
 
 		hbnCmds := map[string]int{
 			"nv config apply startup --assume-yes": 1,
-			"supervisorctl update":                 1,
 			"supervisorctl status nvued":           1,
+			"nv config save":                       1,
 		}
 		testAddLeaf(sshCmds, hbnCmds, "", false, nil)
 	})
 
 	It("Add new leaf for existing HBN", func() {
 		sshCmds := map[string]int{
-			"echo -e": 2, // generate startup and dhcrelay file
-			"sudo ls /var/lib/hbn/etc/supervisor/conf.d/":                                1,
-			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 1,
+			"echo -e": 1, // generate startup
 		}
 		hbnCmds := map[string]int{
 			"nv config apply startup --assume-yes": 1,
-			"supervisorctl update":                 1,
+			"nv config save":                       1,
 		}
 		testAddLeaf(sshCmds, hbnCmds, hbnContainerID, false, nil)
 	})
@@ -257,7 +248,7 @@ var _ = Describe("Hbn", func() {
 			UplinkGroup        string
 		}{
 			LoopbackIP:         leaf.Status.LoopbackIP,
-			ASN:                leaf.Status.ASN,
+			ASN:                uint32(leaf.Status.ASN),
 			FromUnderlayFilter: internal.ForgeFromUnderlayFilter,
 			ToUnderlayFilter:   internal.ForgeToUnderlayFilter,
 			UplinkGroup:        internal.ForgeUplink,
@@ -265,20 +256,10 @@ var _ = Describe("Hbn", func() {
 		err = t.Execute(startupYaml, nparam)
 		Expect(err).ToNot(HaveOccurred())
 
-		t = template.Must(template.New("").Parse(string(internal.HBNConfig.DHCPRelayConfig)))
-		dhcRelayConf = &bytes.Buffer{}
-		dparam := &struct {
-			DHCPServer    string
-			HostInterface string
-		}{
-			DHCPServer:    string(adminRg.Spec.DHCPServer),
-			HostInterface: fmt.Sprintf("vlan%d", vlanRange[0]),
-		}
-		err = t.Execute(dhcRelayConf, dparam)
 		Expect(err).ToNot(HaveOccurred())
 		sshCmds := map[string]int{
-			"sudo ls /var/lib/hbn/etc/nvue.d/":              1,
-			"sudo cat /var/lib/hbn/etc/nvue.d/startup.yaml": 1,
+			//			"sudo ls /var/lib/hbn/etc/nvue.d/":              1,
+			//			"sudo cat /var/lib/hbn/etc/nvue.d/startup.yaml": 1,
 		}
 		hbnCmds := map[string]int{}
 		tmpLeaf := &networkfabric.Leaf{}
@@ -304,19 +285,17 @@ var _ = Describe("Hbn", func() {
 
 	It("Update host admin IP", func() {
 		sshCmds := map[string]int{
-			"echo -e": 3, // generate startup and 2 (one from update) dhcrelay files
-			"sudo systemctl start containerd.service":                                    1,
-			"sudo systemctl enable containerd.service":                                   1,
-			"sudo systemctl start kubelet.service":                                       1,
-			"sudo systemctl enable kubelet.service":                                      1,
-			"sudo ls /var/lib/hbn/etc/supervisor/conf.d/":                                2,
-			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 2,
+			"echo -e": 1, // generate startup.
+			"sudo systemctl start containerd.service":  1,
+			"sudo systemctl enable containerd.service": 1,
+			"sudo systemctl start kubelet.service":     1,
+			"sudo systemctl enable kubelet.service":    1,
 		}
 
 		hbnCmds := map[string]int{
 			"nv config apply startup --assume-yes": 1,
-			"supervisorctl update":                 2,
 			"supervisorctl status nvued":           1,
+			"nv config save":                       2,
 		}
 		modifier := func() {
 			go func() {
@@ -334,25 +313,54 @@ var _ = Describe("Hbn", func() {
 
 	It("Delete a existing leaf", func() {
 		sshCmds := map[string]int{
-			"echo -e": 2, // generate startup and dhcrelay file
-			"sudo systemctl start containerd.service":                                      1,
-			"sudo systemctl enable containerd.service":                                     1,
-			"sudo systemctl start kubelet.service":                                         1,
-			"sudo systemctl enable kubelet.service":                                        1,
-			"sudo ls /var/lib/hbn/etc/supervisor/conf.d/":                                  1,
-			"sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf":   1,
-			"sudo systemctl stop kubelet.service":                                          1,
-			"sudo systemctl disable kubelet.service":                                       1,
-			"sudo crictl rm -f " + hbnContainerID:                                          1,
-			"sudo rm -f /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf": 1,
+			"echo -e": 1, // generate startup
+			"sudo systemctl start containerd.service":  1,
+			"sudo systemctl enable containerd.service": 1,
+			"sudo systemctl start kubelet.service":     1,
+			"sudo systemctl enable kubelet.service":    1,
+			"sudo systemctl stop kubelet.service":      1,
+			"sudo systemctl disable kubelet.service":   1,
+			"sudo crictl rm -f " + hbnContainerID:      1,
 		}
 
 		hbnCmds := map[string]int{
-			"supervisorctl update":                 1,
 			"nv config apply startup --assume-yes": 1,
 			"supervisorctl status nvued":           1,
+			"nv config save":                       1,
 		}
 		testAddLeaf(sshCmds, hbnCmds, "", true, nil)
+	})
+
+	It("Delete reconcile", func() {
+		err := vpcManager.CreateOrUpdateOverlayNetwork(context.Background(), adminRg.Name)
+		Expect(err).ToNot(HaveOccurred())
+		leaf.Status.Conditions = []networkfabric.NetworkDeviceCondition{
+			{LastTransitionTime: metav1.Time{Time: time.Now().Add(-time.Second * 10)}},
+		}
+		err = k8sClient.Status().Update(context.Background(), leaf)
+		Expect(err).ToNot(HaveOccurred())
+		sshCmds := map[string]int{
+			"sudo systemctl stop kubelet.service":    1,
+			"sudo systemctl disable kubelet.service": 1,
+			"sudo crictl rm -f " + hbnContainerID:    1,
+		}
+		SetExpectations(sshCmds, nil, hbnContainerID)
+		err = vpcManager.RemoveNetworkDevice(context.Background(), networkfabric.LeafName, leaf.Name)
+		Expect(err).To(HaveOccurred())
+		leafEventChan := vpcManager.GetEvent(networkfabric.LeafName)
+		Eventually(func() error {
+			stop := time.Tick(time.Second * 1)
+			select {
+			case leafEvt := <-leafEventChan:
+				err := vpcManager.RemoveNetworkDevice(context.Background(), networkfabric.LeafName, leafEvt.Name)
+				logf.Log.V(1).Info("Remove device result", "Error", err)
+				return err
+			case <-stop:
+				return fmt.Errorf("no Event")
+
+			}
+		}, 10, 1).Should(BeNil())
+		Expect(sshCmds).To(BeEmpty())
 	})
 
 	It("ContainerID", func() {

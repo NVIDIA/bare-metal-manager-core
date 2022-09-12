@@ -261,8 +261,10 @@ impl Forge for Api {
         let existing_machines =
             Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
 
+        let newly_created_interface;
         let machine_interface = match &existing_machines.len() {
             0 => {
+                newly_created_interface = true;
                 log::info!("No existing machine with mac address {} using network with relay: {}, creating one.", parsed_mac, parsed_relay);
                 MachineInterface::validate_existing_mac_and_create(
                     &mut txn,
@@ -272,6 +274,7 @@ impl Forge for Api {
                 .await
             }
             1 => {
+                newly_created_interface = false;
                 let mut ifcs = MachineInterface::find_by_mac_address(&mut txn, parsed_mac).await?;
                 match ifcs.len() {
                     1 => Ok(ifcs.remove(0)),
@@ -287,6 +290,7 @@ impl Forge for Api {
                 }
             }
             _ => {
+                newly_created_interface = false;
                 log::warn!(
                     "More than machine found with mac address ({0}) for network segment (relay ip: {1})",
                     &mac_address, &relay_address
@@ -324,11 +328,20 @@ impl Forge for Api {
         // is a speed issue to overcome.
         let response = match NetworkSegment::for_relay(&mut txn, parsed_relay).await? {
             None => Err(CarbideError::NoNetworkSegmentsForRelay(parsed_relay).into()),
-            Some(network) => Ok(Response::new(
-                DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, network.id())
+            Some(network) => Ok(Response::new({
+                let record = DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, network.id())
                     .await?
-                    .into(),
-            )),
+                    .into();
+
+                if newly_created_interface {
+                    // TODO: here, query our persisted mapping of relay_address -> vpc-resource-leaf-id and update the VPC resource leaf
+                    // with the address field of the record we are about to return
+                    // NOTE: if the mapping doesn't exist, then this assumed to be a newly provisioned DPU coming online
+                    // we should at least log a warning that this happens. if this happens to something other than a DPU,
+                    // then the machine will not properly be provisioned
+                }
+                record
+            })),
         };
 
         txn.commit().await.map_err(CarbideError::from)?;

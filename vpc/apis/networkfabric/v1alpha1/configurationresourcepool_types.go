@@ -69,7 +69,9 @@ type ConfigurationResourcePoolSpec struct {
 	// Range is the ConfigurationResourcePool half-open range [Start, End).
 	Ranges []PoolRange `json:"ranges,omitempty"`
 	// AllocationBlockBitSize is allocation block size in bits.
-	AllocationBlockSize uint32 `json:"allocationBlockSize,omitempty"`
+	// +kubebuilder:validation:Maximum:=268435455
+	// +kubebuilder:validation:Minimum:=0
+	AllocationBlockSize int32 `json:"allocationBlockSize,omitempty"`
 }
 
 // ConfigurationResourcePoolStatus defines the observed state of ConfigurationResourcePool

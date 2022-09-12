@@ -14,6 +14,14 @@
     nve:
       vxlan:
         enable: on
+    service:
+      dhcp-relay:
+        default:
+          giaddress-interface:
+            lo: {}
+          interface:
+            p0: {}
+            p1: {}
     router:
       bgp:
         autonomous-system: {{.ASN}}
@@ -30,6 +38,16 @@
         route-map:
           {{.ToUnderlayFilter}}:
             rule:
+              '65530':
+                action:
+                  deny: {}
+                match:
+                  interface: oob_net0
+              '65531':
+                action:
+                  deny: {}
+                match:
+                  interface: tmfifo_net0
               '65535':
                 action:
                   permit: {}

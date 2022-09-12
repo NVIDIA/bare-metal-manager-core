@@ -45,7 +45,7 @@ func (r *ConfigurationResourcePool) SetupWebhookWithManager(mgr ctrl.Manager) er
 
 type poolConfig struct {
 	Type             PoolRangeType
-	SupportedBitSize []uint32
+	SupportedBitSize []int32
 }
 
 var (
@@ -59,7 +59,7 @@ var (
 		},
 		string(OverlayIPv4ResourcePool): {
 			Type:             RangeTypeIPv4,
-			SupportedBitSize: []uint32{0, 3, 4, 5, 6, 7, 8},
+			SupportedBitSize: []int32{0, 3, 4, 5, 6, 7, 8},
 		},
 		string(VNIResourcePool): {
 			Type: RangeTypeInteger,

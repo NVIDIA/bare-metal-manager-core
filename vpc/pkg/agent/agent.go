@@ -150,7 +150,7 @@ func (agent *VPCAgent) SetOvn(_ context.Context, config *rpc.OVNConfig) (*rpc.Se
 		agent.ovnStop <- struct{}{}
 		close(agent.ovnStop)
 		agent.ovnStop = nil
-		if err := wait.Poll(time.Second*10, time.Second, func() (bool, error) {
+		if err := wait.Poll(time.Second, time.Second*100, func() (bool, error) {
 			if err := utils.Execute("pgrep", nil, nil, "-f", ovnControllerBin); err == nil {
 				return false, nil
 			}

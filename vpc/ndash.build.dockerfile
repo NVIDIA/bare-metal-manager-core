@@ -1,4 +1,4 @@
-FROM golang:1.16
+FROM golang:1.18
 
 
 RUN echo "deb http://deb.debian.org/debian bullseye-backports main" >> /etc/apt/sources.list
@@ -16,8 +16,11 @@ RUN unzip protoc-3.12.4-linux-x86_64.zip -d /usr
 RUN go install github.com/golang/mock/mockgen@v1.6.0
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
 RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
+RUN go install github.com/jstemmer/go-junit-report@latest
 RUN export PATH="$PATH:$(go env GOPATH)/bin"
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 RUN chmod +x kubectl
+RUN GO111MODULE=on go install github.com/mikefarah/yq/v3@latest
+
 
 

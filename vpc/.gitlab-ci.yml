@@ -13,10 +13,12 @@
 # limitations under the License.
 
 variables:
-  NSPECT_ID: NSPECT-57MC-92NZ
-  APPLICATION_NAME: forge-connectivity
-  APPLICATION_DOCKERFILE:  build/images/forge/Dockerfile.nobuild
+  NSPECT_ID: NSPECT-K66V-JJ0K
+  APPLICATION_DOCKER_IMAGE: quay.io/nvidia/forge-connectivity
+  NVCR_APPLICATION_DOCKER_IMAGE: nvcr.io/nvidian/forge/forge-connectivity
+  APPLICATION_DOCKERFILE: build/images/forge/Dockerfile.nobuild
   KUSTOMIZE_LOCATION: config
+  NEED_HELM: "yes"
 
 include:
   - project: 'nvmetal/gitlab-templates'
@@ -48,7 +50,6 @@ test:
   before_script:
     - export DEBIAN_FRONTEND=noninteractive
     - apt-get install -y isc-dhcp-relay
-    - go get -u github.com/jstemmer/go-junit-report
   script:
     - make test
   tags:
@@ -58,11 +59,41 @@ test:
     reports:
       junit: report.xml
 
+license-checks:
+  before_script:
+    - /bin/bash -l -c "wget https://go.dev/dl/go1.18.4.linux-amd64.tar.gz"
+    - /bin/bash -l -c "rm -rf /go"
+    - /bin/bash -l -c "tar -C / -xzf go1.18.4.linux-amd64.tar.gz"
+  rules:
+    - changes:
+#        - go.sum
+        - .license-config.yml
+    - if: $CI_COMMIT_TAG
+
 build-push-kustomize:
   before_script:
     - apt-get update
     - apt-get install -y gettext-base
     - make manifests-ci
+
+
+build-push-helm:
+  variables:
+    PUSH_TO_NVCR: 'true'
+    HELM_FILE_NAME: "vpc-${HELM_VERSION}"
+  when: manual
+  before_script:
+    - apt-get update
+    - apt-get install -y gettext-base
+    - make manifests-ci
+    - yq -i '.grpcServer.grpcServer.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.grpcServer.grpcServer.image.repository = "nvcr.io/nvidian/forge/forge-connectivity"' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.controllerManager.kubeRbacProxy.image.repository = "nvcr.io/nvidian/forge/kube-rbac-proxy"' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.controllerManager.manager.image.repository = "nvcr.io/nvidian/forge/forge-connectivity"' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.controllerManager.manager.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.version = env(HELM_VERSION)' $CI_PROJECT_NAME/Chart.yaml
+    - helm package $CI_PROJECT_NAME/
+
 
 deploy_dev1:
   extends: .deploy_kustomize
@@ -72,12 +103,25 @@ deploy_dev1:
 
 deploy_dev2:
   extends: .deploy_kustomize
-  needs: 
-    - prepare-ci
-    - deploy_dev1
   environment: 
     name: dev2
     deployment_tier: staging
+
+deploy_qa:
+  extends: .deploy_kustomize
+  environment: 
+    name: qa
+    deployment_tier: testing
+  tags:
+    - corp
+
+deploy_nbu:
+  extends: .deploy_kustomize
+  environment: 
+    name: nbu_testing
+    deployment_tier: testing
+  tags:
+    - corp
 
 #TODO Change this to label based run
 e2e-test:

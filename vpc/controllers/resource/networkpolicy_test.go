@@ -6,7 +6,7 @@ import (
 	"reflect"
 
 	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -101,7 +101,7 @@ var _ = Describe("Networkpolicy", func() {
 				return fmt.Errorf("wait for condition")
 			}
 			tnp.Status.Conditions[0].LastTransitionTime = metav1.Time{}
-			if !reflect.DeepEqual(&tnp.Status.Conditions[0], npCond) || tnp.Status.ID != npProperties.ID {
+			if !reflect.DeepEqual(&tnp.Status.Conditions[0], npCond) || tnp.Status.ID != int32(npProperties.ID) {
 				return fmt.Errorf("wait for status")
 			}
 			return nil

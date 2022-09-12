@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/time/rate"
@@ -39,8 +40,9 @@ type vpcManager struct {
 	adminResourceGroup     *FabricOverlayNetworkImplementation
 	eventQueue             *vpcManagerEventQueue
 	networkDevices         *vpcManagerDevice
-	networkDeviceTransport map[string]func(string, string, string, string, string) (NetworkDeviceTransport, error)
+	networkDeviceTransport map[string]func(string, string, string) (NetworkDeviceTransport, error)
 	networkPolicyMgr       *NetworkPolicyManager
+	startTime              time.Time
 }
 
 func NewManager(cl client.Client, podController *controllers.PodReconciler, crdNS string,
@@ -99,18 +101,10 @@ func NewManager(cl client.Client, podController *controllers.PodReconciler, crdN
 		},
 		log:         logf.Log.WithName("VPCManager"),
 		resourceMgr: resourceMgr,
-		networkDeviceTransport: map[string]func(string, string, string, string, string) (NetworkDeviceTransport, error){
+		networkDeviceTransport: map[string]func(string, string, string) (NetworkDeviceTransport, error){
 			networkfabric.LeafName: NewCumulusTransport,
 		},
 		managedResources: managedResources,
-	}
-
-	if EnableNetworkPolicy {
-		var err error
-		if mgr.networkPolicyMgr, err = newNetworkPolicyManager(mgr.networkDevices, mgr.resourceMgr, mgr.eventQueue, crdNS); err != nil {
-			logf.Log.WithName("VPCManage").Error(err, "Failed to create NetworkPolicyMgr")
-			return nil
-		}
 	}
 	return mgr
 }
@@ -126,6 +120,7 @@ func getNetworkDeviceK8sKindName(s string) (string, string) {
 
 func (m *vpcManager) Start(ctx context.Context) error {
 	m.log.Info("Starting")
+	m.startTime = time.Now()
 	var wg sync.WaitGroup
 	for i := 0; i < EventWorkerNum; i++ {
 		wg.Add(1)
@@ -141,10 +136,19 @@ func (m *vpcManager) Start(ctx context.Context) error {
 			m.networkDevices.RunWorker()
 		}()
 	}
+
+	if EnableNetworkPolicy {
+		var err error
+		if m.networkPolicyMgr, err = newNetworkPolicyManager(m.networkDevices, m.resourceMgr, m.eventQueue, m.k8sNamespace); err != nil {
+			m.log.Error(err, "Failed to create NetworkPolicyMgr")
+			return err
+		}
+		m.log.Info("NetworkPolicyMgr created")
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		m.networkPolicyMgr.Start(ctx)
+		_ = m.networkPolicyMgr.Start(ctx)
 	}()
 	<-ctx.Done()
 	for _, n := range m.overlayNetworks {
@@ -158,7 +162,7 @@ func (m *vpcManager) Start(ctx context.Context) error {
 }
 
 // SetNetworkDeviceTransport sets transport creator for network devices.
-func (m *vpcManager) SetNetworkDeviceTransport(transport map[string]func(string, string, string, string, string) (NetworkDeviceTransport, error)) {
+func (m *vpcManager) SetNetworkDeviceTransport(transport map[string]func(string, string, string) (NetworkDeviceTransport, error)) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	m.networkDeviceTransport = transport
@@ -438,7 +442,7 @@ func (m *vpcManager) RemoveResourceToNetwork(ctx context.Context, managedResourc
 }
 
 // CreateOrUpdateNetworkDevice updates a network device and optionally probe the device,
-func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name string) error {
+func (m *vpcManager) createOrUpdateNetworkDevice(ctx context.Context, kind, name string, createOnly bool) error {
 	m.log.V(1).Info("CreateOrUpdateNetworkDevice", "Kind", kind, "Name", name)
 	var device NetworkDevice
 	if kind != networkfabric.LeafName {
@@ -453,41 +457,63 @@ func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name
 		return err
 	}
 	key := getInternalNetworkDeviceName(kind, name)
-	d, ok, _ := m.networkDevices.GetByKey(key)
+	d, exists, _ := m.networkDevices.GetByKey(key)
+	if exists && createOnly {
+		return nil
+	}
 	var doReconcile bool
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	if ok {
+	if exists {
 		device = d.(NetworkDevice)
 		device.SetMaintenanceMode(leaf.Spec.Control.MaintenanceMode)
 		device.SetMgmtIP(leaf.Spec.Control.ManagementIP)
 		device.SetNICIdentifiers(leaf.Spec.HostInterfaces)
-		device.SetHostAdminIPs(leaf.Spec.HostAdminIPs, false)
 	} else {
 		if err := m.checkLeafPrerequisites(leaf); err != nil {
 			return err
 		}
-		user, pwd, sshUser, sshPwd, err := m.getCredential(kind, name)
+		user, pwd, err := m.getCredential(kind, name)
 		if err != nil {
 			return err
 		}
 		trans, err := m.networkDeviceTransport[kind](
-			leaf.Spec.Control.ManagementIP, user, pwd, sshUser, sshPwd)
+			leaf.Spec.Control.ManagementIP, user, pwd)
 		if err != nil {
 			return err
 		}
 		device, err = NewCumulus(m, key,
 			leaf.Spec.Control.MaintenanceMode, leaf.Spec.HostInterfaces,
-			leaf.Status.ASN, leaf.Status.LoopbackIP, trans)
+			uint32(leaf.Status.ASN), leaf.Status.LoopbackIP, trans)
 		if err != nil {
 			return err
 		}
-		doReconcile = IsNetworkDeviceAlive(leaf)
-		device.SetHostAdminIPs(leaf.Spec.HostAdminIPs, doReconcile)
-		go device.Liveness(doReconcile)
+		if createOnly {
+			device.SetReconcile(true)
+			return m.networkDevices.Update(device)
+		}
 	}
 	if err := m.networkDevices.Update(device); err != nil {
 		return err
+	}
+
+	// Update host admin config.
+	adminReq := &HostAdminRequest{
+		hostAdminIPs: leaf.Spec.HostAdminIPs,
+		deviceName:   key,
+	}
+	if !exists {
+		doReconcile = IsNetworkDeviceAlive(leaf)
+		device.SetReconcile(doReconcile)
+		device.Liveness()
+		if len(adminReq.hostAdminIPs) > 0 {
+			// update configuration after device is added to the cache in case of reconcile.
+			_, _ = device.UpdateConfigurations([]ConfigurationRequest{adminReq}, true, doReconcile, false)
+		}
+	} else {
+		doReconcile = device.(*Cumulus).inReconcile
+		isDelete := len(adminReq.hostAdminIPs) == 0 && !doReconcile
+		_, _ = device.UpdateConfigurations([]ConfigurationRequest{adminReq}, true, doReconcile, isDelete)
 	}
 	// Notify changes to networkPolicy
 	npResource := (&NetworkPolicyResource{}).Populate(leaf)
@@ -496,6 +522,10 @@ func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name
 		return NewAlreadyExistError(kind, name)
 	}
 	return npErr
+}
+
+func (m *vpcManager) CreateOrUpdateNetworkDevice(ctx context.Context, kind, name string) error {
+	return m.createOrUpdateNetworkDevice(ctx, kind, name, false)
 }
 
 func (m *vpcManager) GetNetworkDeviceProperties(_ context.Context, kind, name string) (*properties.NetworkDeviceProperties, error) {
@@ -531,6 +561,15 @@ func (m *vpcManager) RemoveNetworkDevice(ctx context.Context, kind, name string)
 			return err
 		}
 		maintenanceMode = leaf.Spec.Control.MaintenanceMode
+		if len(leaf.Status.Conditions) > 0 &&
+			leaf.Status.Conditions[0].LastTransitionTime.Time.Before(m.startTime) {
+			// A device remove request happens before manager start
+			// perhaps due to controller restarts during removal.
+			// Reconcile with removal.
+			if err := m.createOrUpdateNetworkDevice(ctx, kind, name, true); err != nil {
+				m.log.Error(err, "Reconcile RemoveNetworkDevice failed")
+			}
+		}
 	default:
 		return fmt.Errorf("unknown device type: %v", kind)
 	}
@@ -546,7 +585,7 @@ func (m *vpcManager) RemoveNetworkDevice(ctx context.Context, kind, name string)
 		return nil
 	}
 	dev.(NetworkDevice).SetMaintenanceMode(maintenanceMode)
-	if err := dev.(NetworkDevice).Unmanage(); err != nil {
+	if err = dev.(NetworkDevice).Unmanage(); err != nil {
 		return err
 	}
 	if err = m.networkDevices.Delete(dev); err != nil {
@@ -586,7 +625,7 @@ func (m *vpcManager) DeleteNetworkPolicy(ctx context.Context, name string) error
 	return m.networkPolicyMgr.DeleteNetworkPolicy((&NetworkPolicy{}).Populate(np))
 }
 
-func (m *vpcManager) GetNetworkPolicyProperties(ctx context.Context, name string) (*properties.NetworkPolicyProperties, error) {
+func (m *vpcManager) GetNetworkPolicyProperties(_ context.Context, name string) (*properties.NetworkPolicyProperties, error) {
 	return m.networkPolicyMgr.GetNetworkPolicyProperty(name)
 }
 
@@ -630,17 +669,17 @@ func (m *vpcManager) setNetwork(t *TenantNetwork, resourceGroup string) {
 	m.overlayNetworks[resourceGroup] = t
 }
 
-func (m *vpcManager) getCredential(kind, name string) (string, string, string, string, error) {
+func (m *vpcManager) getCredential(kind, name string) (string, string, error) {
 	var usr, pwd string
 	usr = os.Getenv(EnvCumulusUser)
 	pwd = os.Getenv(EnvCumulusPwd)
 	if len(usr) == 0 {
-		return "", "", "", "", fmt.Errorf("cannot get user from env for device: %v:%v", kind, name)
+		return "", "", fmt.Errorf("cannot get user from env for device: %v:%v", kind, name)
 	}
 	if len(pwd) == 0 {
-		return "", "", "", "", fmt.Errorf("cannot get pwd from env for device: %v:%v", kind, name)
+		return "", "", fmt.Errorf("cannot get pwd from env for device: %v:%v", kind, name)
 	}
-	return usr, pwd, os.Getenv(EnvSSHUser), os.Getenv(EnvSSHPwd), nil
+	return usr, pwd, nil
 }
 
 func (m *vpcManager) checkResourceGroupPrerequisites(rg *resource.ResourceGroup) error {
@@ -665,7 +704,7 @@ func (m *vpcManager) checkResourceGroupPrerequisites(rg *resource.ResourceGroup)
 			continue
 		}
 		if intPool := m.resourceMgr.GetIntegerPool(name); intPool == nil {
-			return NewMissingResourcePoolError(string(name))
+			return NewMissingResourcePoolError(name)
 		}
 	}
 	return nil

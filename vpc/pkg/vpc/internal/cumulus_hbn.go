@@ -36,8 +36,11 @@ type HBNState int
               |    controller.startup.yaml             |               |
    -----------|----------------------------------------|---------------|--------------
    Connected  | loopback/ASN and                       |Connected      | Connect
-              | device.startup ==                      |Init           | Stop
+              | device.startup ==                      |Stopping       | Stop
               |     controller.startup                 |               |
+  -------------------------------------------------------------------------------------
+   Stopping   |                                        | Init          | Stop (OK)
+              |                                        | Stoppting     | Stop (NOK)
   -------------------------------------------------------------------------------------
 */
 
@@ -45,6 +48,7 @@ const (
 	HBNInit HBNState = iota
 	HBNConnecting
 	HBNConnected
+	HBNStopping
 	HBNInvalid
 )
 
@@ -69,18 +73,6 @@ func (h *HBN) getHBNOperationStartup() (string, error) {
 		return "", nil
 	}
 	return h.Ssh("sudo cat /var/lib/hbn/etc/nvue.d/startup.yaml")
-}
-
-// getHBNDhcRealyConf retrieves startu from the HBN device.
-func (h *HBN) getHBNDhcRealyConf() (string, error) {
-	output, err := h.Ssh("sudo ls /var/lib/hbn/etc/supervisor/conf.d/")
-	if err != nil {
-		return "", err
-	}
-	if !strings.Contains(output, "supervisor-isc-dhcp-relay.conf") {
-		return "", nil
-	}
-	return h.Ssh("sudo cat /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf")
 }
 
 // getHBNDesiredStartup returns desired NVUE startup.yaml that may or may not
@@ -115,11 +107,15 @@ func (h *HBN) GetHBNState() HBNState {
 	return h.state
 }
 
-// computeHBNState returns next HBN state.
-func (h *HBN) computeHBNState(isConnect bool) (HBNState, error) {
-	if !isConnect {
-		return HBNInit, nil
+func (h *HBN) SetHBNState(s HBNState) {
+	if h == nil {
+		return
 	}
+	h.state = s
+}
+
+// computeHBNState returns next HBN state.
+func (h *HBN) computeHBNState() (HBNState, error) {
 	if h.state > HBNInit {
 		return h.state, nil
 	}
@@ -154,11 +150,11 @@ func (h *HBN) Connect(forced bool) (err error) {
 		h.err = err
 	}()
 	h.log.V(1).Info("Connect", "LoopbackIP", h.loopbackIP, "ASN", h.asn, "Forced", forced)
-	h.state, err = h.computeHBNState(true)
+	h.state, err = h.computeHBNState()
 	if err != nil {
 		return err
 	}
-	if h.state >= HBNConnected && !forced {
+	if h.state == HBNConnected && !forced {
 		return nil
 	}
 	if h.asn == 0 {
@@ -209,7 +205,7 @@ func (h *HBN) Stop(forced bool) (err error) {
 	if h.state == HBNInit && !forced {
 		return nil
 	}
-	nextState, _ := h.computeHBNState(false)
+	h.state = HBNStopping
 	if _, err = h.Ssh("sudo systemctl stop kubelet.service"); err != nil {
 		return err
 	}
@@ -220,16 +216,22 @@ func (h *HBN) Stop(forced bool) (err error) {
 	if err != nil {
 		return err
 	}
-	if len(id) == 0 {
-		return nil
+	if len(id) > 0 {
+		if _, err = h.Ssh("sudo crictl rm -f " + id); err != nil {
+			return err
+		}
 	}
-	if _, err = h.Ssh("sudo crictl rm -f " + id); err != nil {
-		return err
+	h.state = HBNInit
+	if h.asn > 0 {
+		if pool := h.manager.resourceMgr.GetIntegerPool(string(v1alpha1.ASNResourcePool)); pool != nil {
+			pool.Release(h.asn)
+		}
 	}
-	if _, err = h.Ssh("sudo rm -f /var/lib/hbn/etc/supervisor/conf.d/supervisor-isc-dhcp-relay.conf"); err != nil {
-		return err
+	if len(h.loopbackIP) > 0 {
+		if pool := h.manager.resourceMgr.GetIPv4Pool(string(v1alpha1.LoopbackIPResourcePool)); pool != nil {
+			pool.Release(h.loopbackIP)
+		}
 	}
-	h.state = nextState
 	return nil
 }
 
@@ -252,6 +254,18 @@ func (h *HBN) GetError() error {
 		return nil
 	}
 	return h.err
+}
+
+func (h *HBN) Save() error {
+	if h == nil || h.state != HBNConnected {
+		return nil
+	}
+	// save configuration.
+	out, err := h.SshHBN("nv config save")
+	if err != nil {
+		h.log.Error(err, "Failed to save configuration", "Out", out)
+	}
+	return err
 }
 
 // start HBN.
