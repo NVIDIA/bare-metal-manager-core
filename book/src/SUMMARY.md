@@ -2,6 +2,8 @@
 
 - [Introduction](README.md)
 - [Architecture](architecture.md)
+- [Workflow](workflow.md)
+
 - [Usage]()
 
 # Components
