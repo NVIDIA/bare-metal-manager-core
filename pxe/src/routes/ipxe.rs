@@ -9,10 +9,16 @@ use crate::machine_architecture::MachineArchitecture;
 use crate::{Machine, RuntimeConfig};
 
 #[derive(serde::Serialize)]
-pub struct BootInstructionGenerator {
-    pub kernel: String,
-    pub command_line: String,
-    pub initrd: String,
+pub enum InstructionGenerator {
+    X86 {
+        kernel: String,
+        command_line: String,
+    },
+    Arm {
+        kernel: String,
+        command_line: String,
+        initrd: String,
+    },
 }
 
 #[derive(serde::Serialize)]
@@ -20,18 +26,40 @@ pub struct IpxeScript<'a> {
     pub content: &'a str,
 }
 
-impl From<BootInstructionGenerator> for String {
-    fn from(b: BootInstructionGenerator) -> Self {
-        let output = format!(
-            r#"
+impl From<InstructionGenerator> for String {
+    fn from(b: InstructionGenerator) -> Self {
+        match b {
+            InstructionGenerator::Arm {
+                kernel,
+                command_line,
+                initrd,
+            } => {
+                let output = format!(
+                    r#"
 kernel {} initrd=initrd.img {} ||
 imgfetch --name initrd.img {} ||
 boot ||
 "#,
-            b.kernel, b.command_line, b.initrd
-        );
-        println!("Output of the generation - {:?}", output);
-        output
+                    kernel, command_line, initrd
+                );
+                println!("Output of the generation - {:?}", output);
+                output
+            }
+            InstructionGenerator::X86 {
+                kernel,
+                command_line,
+            } => {
+                let output = format!(
+                    r#"
+kernel {} {} ||
+boot ||
+"#,
+                    kernel, command_line
+                );
+                println!("Output of the generation - {:?}", output);
+                output
+            }
+        }
     }
 }
 
@@ -91,17 +119,18 @@ fn boot_into_discovery(
 
     match arch {
         rpc::MachineArchitecture::Arm => {
-            String::from(BootInstructionGenerator {
-                kernel: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.efi", pxe_url = config.pxe_url),
-                command_line: format!("console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data?buildarch={build_arch} pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, build_arch = build_arch, api_url = config.api_url),
-                initrd: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.root", pxe_url = config.pxe_url),
+            String::from(
+                InstructionGenerator::Arm {
+                    kernel: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.efi", pxe_url = config.pxe_url),
+                    command_line: format!("console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data?buildarch={build_arch} pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, build_arch = build_arch, api_url = config.api_url),
+                    initrd: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.root", pxe_url = config.pxe_url),
             })
         }
         rpc::MachineArchitecture::X86 => {
-            String::from(BootInstructionGenerator {
-                kernel: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.efi", pxe_url = config.pxe_url),
-                command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data?buildarch={build_arch} pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, build_arch = build_arch, api_url = config.api_url),
-                initrd: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.root", pxe_url = config.pxe_url),
+            String::from( InstructionGenerator::X86 {
+                    kernel: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.efi", pxe_url = config.pxe_url),
+                    command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data?buildarch={build_arch} pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, build_arch = build_arch, api_url = config.api_url),
+
             })
         }
     }
