@@ -169,15 +169,18 @@ build-push-helm:
     - GOBIN=$LOCALBIN go install github.com/vinodchitraliNVIDIA/helmify/cmd/helmify@v0.0.1
     - GOBIN=$LOCALBIN go install sigs.k8s.io/kustomize/kustomize/v4@v4.5.7
     - $LOCALBIN/kustomize build dev/kube/overlays/qa | $LOCALBIN/helmify $CI_PROJECT_NAME
-
     - yq -i '.carbideApiDeployment.carbideApi.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbideApiDeployment.carbideApi.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbideApiDeployment.carbideApi.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.carbideDnsDeployment.carbideDns.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbideDnsDeployment.carbideDns.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbideDnsDeployment.carbideDns.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.carbidePxeDeployment.carbidePxe.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbidePxeDeployment.carbidePxe.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbidePxeDeployment.carbidePxe.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.keaDhcpDeployment.keaDhcp.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.keaDhcpDeployment.keaDhcp.image.repository = env(APPLICATION_DOCKER_IMAGE)' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.keaDhcpDeployment.keaDhcp.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbideApiDeployment.envoy.image.tag = "v0.0.1"' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbideApiDeployment.envoy.image.repository = "nvcr.io/nvidian/forge/envoy-dev"' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbidePxeDeployment.envoy.image.tag = "v0.0.1"' $CI_PROJECT_NAME/values.yaml
+    - yq -i '.carbidePxeDeployment.envoy.image.repository = "nvcr.io/nvidian/forge/envoy-dev"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.version = env(HELM_VERSION)' $CI_PROJECT_NAME/Chart.yaml
     - helm package $CI_PROJECT_NAME/
 
