@@ -112,8 +112,8 @@ func (r *ResourceGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		fErr = vpc.IgnoreNetworkDeviceNotAvailableError(fErr)
 	}()
 
-	if uint64(len(mrList.Items)) != rg.Status.ManagedResourceCount {
-		rg.Status.ManagedResourceCount = uint64(len(mrList.Items))
+	if int64(len(mrList.Items)) != rg.Status.ManagedResourceCount {
+		rg.Status.ManagedResourceCount = int64(len(mrList.Items))
 		updateStatus = true
 	}
 

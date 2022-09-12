@@ -1,4 +1,4 @@
-FROM golang:1.16
+FROM golang:1.18
 
 RUN apt update && apt install -y unzip && rm -rf /var/lib/apt/lists/*
 RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v3.12.4/protoc-3.12.4-linux-x86_64.zip

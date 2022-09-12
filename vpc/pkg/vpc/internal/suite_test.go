@@ -21,16 +21,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/zap/zapcore"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -151,8 +152,8 @@ func startManager() {
 	vpcManager = vpc.NewVPCManager(k8sClient, nil, namespace, resourceManager)
 	impl := internal.GetVPCManagerImpl(vpcManager)
 	impl.SetNetworkDeviceTransport(
-		map[string]func(string, string, string, string, string) (internal.NetworkDeviceTransport, error){
-			networkfabricv1alpha1.LeafName: func(_, _, _, _, _ string) (internal.NetworkDeviceTransport, error) {
+		map[string]func(string, string, string) (internal.NetworkDeviceTransport, error){
+			networkfabricv1alpha1.LeafName: func(_, _, _ string) (internal.NetworkDeviceTransport, error) {
 				return mockCumulusTransport, nil
 			},
 		})
@@ -164,15 +165,37 @@ func stopManager() {
 	mockController.Finish()
 	ctxCancel()
 }
+
+func drainEvents() {
+	leafEventChan := vpcManager.GetEvent(networkfabricv1alpha1.LeafName)
+	mrEventChan := vpcManager.GetEvent(resourcev1alpha1.ManagedResourceName)
+	npEventChan := vpcManager.GetEvent(resourcev1alpha1.NetworkPolicyName)
+	stop := time.Tick(time.Second * 2)
+	for {
+		select {
+		case <-leafEventChan:
+			continue
+		case <-mrEventChan:
+			continue
+		case <-npEventChan:
+			continue
+		case <-stop:
+			return
+		}
+	}
+}
+
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Internal Forge Suite",
-		[]Reporter{printer.NewlineReporter{}})
+	RunSpecs(t, "Internal Forge Suite")
 }
 
 var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	opts := zap.Options{
+		Development: true,
+		TimeEncoder: zapcore.RFC3339TimeEncoder,
+	}
+	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true), zap.UseFlagOptions(&opts)))
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
@@ -206,7 +229,7 @@ var _ = BeforeSuite(func() {
 	os.Setenv(internal.EnvCumulusUser, "test-user")
 	os.Setenv(internal.EnvCumulusPwd, "test-pwd")
 
-}, 60)
+})
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")

@@ -25,6 +25,7 @@ import (
 	http "net/http"
 	reflect "reflect"
 
+	logr "github.com/go-logr/logr"
 	gomock "github.com/golang/mock/gomock"
 )
 
@@ -93,6 +94,18 @@ func (m *MockNetworkDeviceTransport) Send(arg0 *http.Request) ([]byte, error) {
 func (mr *MockNetworkDeviceTransportMockRecorder) Send(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockNetworkDeviceTransport)(nil).Send), arg0)
+}
+
+// SetLogger mocks base method.
+func (m *MockNetworkDeviceTransport) SetLogger(arg0 logr.Logger) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetLogger", arg0)
+}
+
+// SetLogger indicates an expected call of SetLogger.
+func (mr *MockNetworkDeviceTransportMockRecorder) SetLogger(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLogger", reflect.TypeOf((*MockNetworkDeviceTransport)(nil).SetLogger), arg0)
 }
 
 // SetMgmtIP mocks base method.

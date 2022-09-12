@@ -61,7 +61,7 @@ const (
 // IPNet describes an IPv4 or IPv6 network.
 type IPNet struct {
 	IP           IPAddress `json:"ip,omitempty"`
-	PrefixLength uint32    `json:"prefixLength,omitempty"`
+	PrefixLength int32     `json:"prefixLength,omitempty"`
 	// Gateway is the default gateway for IPv4 subnet.
 	Gateway IPAddress `json:"gateway,omitempty"`
 }
@@ -102,9 +102,13 @@ type FabricNetworkConfiguration struct {
 	// TODO, Do we need VRF ??
 	VRF string `json:"vrf,omitempty"`
 	// VNI is the vni for this overlay network.
-	VNI uint32 `json:"vni,omitempty"`
+	// +kubebuilder:validation:Maximum:=16777215
+	// +kubebuilder:validation:Minimum:=4096
+	VNI int32 `json:"vni,omitempty"`
 	// VlanID is the ID of VLAN interfaces for this overlay network
-	VlanID uint32 `json:"vlanID,omitempty"`
+	// +kubebuilder:validation:Maximum:=4095
+	// +kubebuilder:validation:Minimum:=2
+	VlanID int32 `json:"vlanID,omitempty"`
 }
 
 type SoftwareNetworkConfiguration struct {
@@ -126,7 +130,7 @@ type ResourceGroupStatus struct {
 	DHCPCircID string `json:"dhcpCircID,omitempty"`
 
 	// ManagedResourceCount is the number of ManagedResources in the ResourceGroup.
-	ManagedResourceCount uint64 `json:"managedResourceCount,omitempty"`
+	ManagedResourceCount int64 `json:"managedResourceCount,omitempty"`
 	// FabricNetworkConfiguration is the fabric configuration supporting this overlay network.
 	FabricNetworkConfiguration *FabricNetworkConfiguration `json:"fabricNetworkConfiguration,omitempty"`
 	// SoftwareNetworkConfiguration is the software defined overlay network configuration.

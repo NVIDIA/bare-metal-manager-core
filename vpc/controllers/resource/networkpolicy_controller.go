@@ -89,6 +89,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// NetworkPolicy is being deleted.
 		if controllerutil.ContainsFinalizer(np, resourcev1alpha1.NetworkPolicyFinalizer) {
 			if err = r.VPCMgr.DeleteNetworkPolicy(ctx, req.Name); err != nil {
+				log.V(1).Info("Failed to remove network policy", "NetworkPolicy", req, "Error", err)
 				updateStatus = r.updateStatus(np, resourcev1alpha1.NetworkPolicyConditionTypeDestroy, 0, err)
 				return HandleReconcileReturnErr(err)
 			}
@@ -111,12 +112,12 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		updateStatus = r.updateStatus(np, resourcev1alpha1.NetworkPolicyConditionTypeCreate, 0, err)
 		return HandleReconcileReturnErr(err)
 	}
-	updateStatus = r.updateStatus(np, resourcev1alpha1.NetworkPolicyConditionTypeCreate, properties.ID, nil)
+	updateStatus = r.updateStatus(np, resourcev1alpha1.NetworkPolicyConditionTypeCreate, int32(properties.ID), nil)
 	return ctrl.Result{}, nil
 }
 
 func (r *NetworkPolicyReconciler) updateStatus(np *resourcev1alpha1.NetworkPolicy,
-	condType resourcev1alpha1.NetworkPolicyConditionType, policyID uint16, err error) bool {
+	condType resourcev1alpha1.NetworkPolicyConditionType, policyID int32, err error) bool {
 	clen := len(np.Status.Conditions)
 	if clen == 0 || np.Status.Conditions[clen-1].Type != condType {
 		np.Status.Conditions = append(np.Status.Conditions, resourcev1alpha1.NetworkPolicyCondition{})
@@ -132,8 +133,9 @@ func (r *NetworkPolicyReconciler) updateStatus(np *resourcev1alpha1.NetworkPolic
 	if cond.Status == status && cond.Type == condType && cond.Message == msg && np.Status.ID == policyID {
 		return false
 	}
-
-	np.Status.ID = policyID
+	if policyID > 0 {
+		np.Status.ID = policyID
+	}
 	*cond = resourcev1alpha1.NetworkPolicyCondition{
 		Type:               condType,
 		Status:             status,
@@ -148,4 +150,20 @@ func (r *NetworkPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&resourcev1alpha1.NetworkPolicy{}).
 		Complete(r)
+}
+
+func (r *NetworkPolicyReconciler) Start(ctx context.Context) error {
+	log := logf.Log.WithName("NetworkPolicyReconciler")
+	req := ctrl.Request{}
+	for {
+		select {
+		case <-ctx.Done():
+			log.V(1).Info("Reconciler stopped")
+			return nil
+		case req.NamespacedName = <-r.VPCMgr.GetEvent(resourcev1alpha1.NetworkPolicyName):
+			if _, err := r.Reconcile(ctx, req); err != nil {
+				log.V(1).Info("Backend event error detected", "NetworkPolicy", req, "Error", err)
+			}
+		}
+	}
 }

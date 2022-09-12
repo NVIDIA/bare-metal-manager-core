@@ -95,7 +95,7 @@ func (s *resourceGroupServer) CreateResourceGroup(ctx context.Context, spec *Res
 			TenantIdentifier: spec.TenantIdentifier,
 			Network: &vpcresource.IPNet{
 				IP:           vpcresource.IPAddress(net.IP(spec.Network.Ip).String()),
-				PrefixLength: spec.Network.PrefixLength,
+				PrefixLength: int32(spec.Network.PrefixLength),
 				Gateway:      vpcresource.IPAddress(net.IP(spec.Network.Gateway).String()),
 			},
 			NetworkImplementationType: vpcresource.OverlayNetworkImplementationType(spec.NetworkImplementationType.String()),
@@ -128,7 +128,7 @@ func (s *resourceGroupServer) UpdateResourceGroup(ictx context.Context, spec *Re
 			TenantIdentifier: spec.TenantIdentifier,
 			Network: &vpcresource.IPNet{
 				IP:           vpcresource.IPAddress(net.IP(spec.Network.Ip).String()),
-				PrefixLength: spec.Network.PrefixLength,
+				PrefixLength: int32(spec.Network.PrefixLength),
 				Gateway:      vpcresource.IPAddress(net.IP(spec.Network.Gateway).String()),
 			},
 			NetworkImplementationType: vpcresource.OverlayNetworkImplementationType(spec.NetworkImplementationType.String()),

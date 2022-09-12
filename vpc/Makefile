@@ -1,13 +1,20 @@
 
+KUSTOMIZE_VERSION ?= v3.8.7
+CONTROLLER_TOOLS_VERSION ?= v0.9.0
+GOLANG_VERSION ?= 1.18
+ENVTEST_K8S_VERSION = 1.24.1
+HELMIFY_VERSION = v0.3.7
+
 # Image URL to use all building/pushing image targets
 IMG ?= quay.io/nvidia/forge-connectivity:latest
 OVN_IMG ?= quay.io/nvidia/forge-connectivity-ovn:v21.06
 TEST_IMG ?= forge-connectivity/test:latest
-BUILD_IMAGE ?= golang:1.16
-KUSTOMIZE_IMAGE ?= k8s.gcr.io/kustomize/kustomize:v3.8.7
+BUILD_IMAGE ?= golang:$(GOLANG_VERSION)
+KUSTOMIZE_IMAGE ?= k8s.gcr.io/kustomize/kustomize:$(KUSTOMIZE_VERSION)
 # Tool Chain images not pushed to quay
 PROTOC_IMAGE ?= forge/protoc:3.12.4
-CONTROLLER_GEN_IMAGE ?= forge/controller-gen:v0.4.1
+CONTROLLER_GEN_IMAGE ?= forge/controller-gen:$(CONTROLLER_TOOLS_VERSION)
+
 BUILD_DIRS := bin       \
 			.go/cache 	\
 			.go/pkg 
@@ -28,7 +35,8 @@ DOCKERIZED ?= true
 SRC_DIR=$(CURDIR)
 
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
-CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
+# CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
+CRD_OPTIONS =
 PROTO_C ?= protoc
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
@@ -57,6 +65,7 @@ else
 DOCKERIZE=docker run --rm --privileged -t -i \
           		-e "GOCACHE=/tmp/gocache" \
           		-e "GOPATH=/tmp/gopath" \
+          		-e ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
           		-w /usr/src/forge \
           		-v $(shell go env GOPATH):/tmp/gopath:ro \
           		-v $(shell go env GOCACHE):/tmp/gocache:ro \
@@ -67,6 +76,8 @@ endif
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 KUSTOMIZE = $(shell pwd)/bin/kustomize
+ENVTEST = $(shell pwd)/bin/setup-envtest
+HELMIFY = $(shell pwd)/bin/helmify
 
 ifeq ($(DOCKERIZED),true)
 $(info running with DOCKERIZED set to true...)
@@ -133,7 +144,7 @@ help: ## Display this help.
 ##@ Development
 
 manifests: controller-gen kustomize ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook crd paths="./apis/..."  output:crd:artifacts:config=config/crd/bases
 	FORGE_CONTROL_PLANE=forge envsubst < config/default/kustomization.template.yaml > config/default/kustomization.yaml
 	$(KUSTOMIZE) build config/default > config/forge.yaml
 	FORGE_CONTROL_PLANE=forge-canary envsubst < config/default/kustomization.template.yaml > config/default/kustomization.yaml
@@ -142,12 +153,13 @@ manifests: controller-gen kustomize ## Generate WebhookConfiguration, ClusterRol
 	$(KUSTOMIZE) build config/default > config/forge-dev.yaml
 	rm config/default/kustomization.yaml
 
-manifests-ci:
+manifests-ci: manifests helmify
 	FORGE_CONTROL_PLANE=forge envsubst < config/default/kustomization.template.yaml > config/default/kustomization.yaml
 	rm config/default/kustomization.template.yaml
+	$(KUSTOMIZE) build config/default | $(HELMIFY) vpc
 
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 	$(PROTO_C) --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative rpc/rpc.proto
 
 fmt: ## Run go fmt against code.
@@ -157,22 +169,16 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	$(DBUILD) go vet ./...
 
-ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 #test: manifests generate fmt vet ## Run tests.
-test: mock-gen
-	mkdir -p ${ENVTEST_ASSETS_DIR}
-	test -f ${ENVTEST_ASSETS_DIR}/setup-envtest.sh || curl -sSLo ${ENVTEST_ASSETS_DIR}/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.8.3/hack/setup-envtest.sh
-#	source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh; fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); go test $(shell go list ./... | grep -v agent) -coverprofile cover.out
+test: mock-gen envtest
 	if [[ -z "${TEST_IMG_EXISTS}" ]] && [[ -z "${IN_CI}" ]]; then \
 	  docker build -t ${TEST_IMG} -f build/images/forge/Dockerfile.test .;\
 	fi
 	touch cover.out
-	${DOCKERIZE} ./hack/run_test.sh
+	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) ${DOCKERIZE} ./hack/run_test.sh
 
-test-env:
-	mkdir -p ${ENVTEST_ASSETS_DIR}
-	test -f ${ENVTEST_ASSETS_DIR}/setup-envtest.sh || curl -sSLo ${ENVTEST_ASSETS_DIR}/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.8.3/hack/setup-envtest.sh
-	${DOCKERIZE} bash
+test-env: envtest
+	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) ${DOCKERIZE}  bash
 
 
 mock-gen: generate
@@ -209,27 +215,21 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	kubectl delete -f config/forge.yaml
 
+# tools
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 controller-gen: ## Download controller-gen locally if necessary.
 ifneq ($(DOCKERIZED),true)
-	$(info running without DOCKERIZED calling go-get-tool...)
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.4.1)
+	GOBIN=$(PROJECT_DIR)/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@${CONTROLLER_TOOLS_VERSION}
 endif
 
+KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 kustomize: ## Download kustomize locally if necessary.
 ifneq ($(DOCKERIZED),true)
-	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v3@v3.8.7)
+	test -f $(PROJECT_DIR)/bin/kustomize || curl -s $(KUSTOMIZE_INSTALL_SCRIPT) | bash -s -- $(subst v,,$(KUSTOMIZE_VERSION)) $(PROJECT_DIR)/bin
 endif
 
-# go-get-tool will 'go get' any package $2 and install it to $1.
-PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
-define go-get-tool
-@[ -f $(1) ] || { \
-set -e ;\
-TMP_DIR=$$(mktemp -d) ;\
-cd $$TMP_DIR ;\
-go mod init tmp ;\
-echo "Downloading $(2)" ;\
-GOBIN=$(PROJECT_DIR)/bin go get $(2) ;\
-rm -rf $$TMP_DIR ;\
-}
-endef
+envtest: ## Download envtest-setup locally if necessary.
+	GOBIN=$(PROJECT_DIR)/bin go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+helmify:
+	GOBIN=$(PROJECT_DIR)/bin go install github.com/arttor/helmify/cmd/helmify@${HELMIFY_VERSION}

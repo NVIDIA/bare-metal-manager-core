@@ -124,7 +124,8 @@ func (r *LeafReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *LeafReconciler) Start(ctx context.Context) error {
-	log := logf.Log.WithName("LeafReconciler")
+	log := logf.Log.WithName("LeafReconciler event handler")
+	log.Info("Starting")
 	req := ctrl.Request{}
 	for {
 		select {
@@ -145,9 +146,11 @@ func needUpdateStatus(properties *properties.NetworkDeviceProperties, status *ne
 		return status.ASN > 0 || len(status.LoopbackIP) > 0 && len(status.HostAdminIPs) > 0 ||
 			len(status.HostAdminDHCPServer) > 0
 	}
-	return properties.ASN != status.ASN || properties.LoopbackIP != status.LoopbackIP ||
+	return int64(properties.ASN) != status.ASN || properties.LoopbackIP != status.LoopbackIP ||
 		properties.AdminDHCPServer != status.HostAdminDHCPServer ||
-		!reflect.DeepEqual(properties.AdminHostIPs, status.HostAdminIPs)
+		!reflect.DeepEqual(properties.AdminHostIPs, status.HostAdminIPs) ||
+		properties.NetworkPolicyProperties != nil &&
+			!reflect.DeepEqual(properties.NetworkPolicyProperties.Applied, status.NetworkPolicies)
 }
 
 func updateStatus(properties *properties.NetworkDeviceProperties, status *networkfabric.LeafStatus) {
@@ -158,10 +161,13 @@ func updateStatus(properties *properties.NetworkDeviceProperties, status *networ
 		status.HostAdminDHCPServer = ""
 		return
 	}
-	status.ASN = properties.ASN
+	status.ASN = int64(properties.ASN)
 	status.HostAdminIPs = properties.AdminHostIPs
 	status.HostAdminDHCPServer = properties.AdminDHCPServer
 	status.LoopbackIP = properties.LoopbackIP
+	if properties.NetworkPolicyProperties != nil {
+		status.NetworkPolicies = properties.NetworkPolicyProperties.Applied
+	}
 }
 
 func updateNetworkDeviceStatus(leaf *networkfabric.Leaf, properties *properties.NetworkDeviceProperties, err error) bool {

@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"net"
 
-	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -66,7 +65,7 @@ var _ = Describe("ResourcePool", func() {
 		}
 	})
 
-	table.DescribeTable("IP resource pool",
+	DescribeTable("IP resource pool",
 		func(poolName string, prefixLen int32) {
 			mgr := resourcepool.NewManager(k8sClient, namespace)
 			if prefixLen == 0 {
@@ -126,7 +125,7 @@ var _ = Describe("ResourcePool", func() {
 					Expect(err).ToNot(HaveOccurred())
 					rg.Status.Network = &v1alpha12.IPNet{
 						IP:           v1alpha12.IPAddress(ip),
-						PrefixLength: uint32(prefixLen),
+						PrefixLength: prefixLen,
 					}
 					err = k8sClient.Status().Update(context.Background(), rg)
 					Expect(err).ToNot(HaveOccurred())
@@ -136,11 +135,11 @@ var _ = Describe("ResourcePool", func() {
 					mr.Namespace = namespace
 					mr.Spec.ResourceGroup = rg1.Name
 					mr.Spec.HostInterfaceAccess = v1alpha12.HostAccessFabric
+					err := k8sClient.Create(context.Background(), mr)
+					Expect(err).ToNot(HaveOccurred())
 					mr.Status.HostAccessIPs = &v1alpha12.IPAssociation{
 						FabricIP: v1alpha12.IPAddress(ip),
 					}
-					err := k8sClient.Create(context.Background(), mr)
-					Expect(err).ToNot(HaveOccurred())
 					err = k8sClient.Status().Update(context.Background(), mr)
 					Expect(err).ToNot(HaveOccurred())
 				}
@@ -157,16 +156,16 @@ var _ = Describe("ResourcePool", func() {
 			err = mgr.Delete(poolName)
 			Expect(err).ToNot(HaveOccurred())
 		},
-		table.Entry("Overlay IP pool", string(v1alpha1.OverlayIPv4ResourcePool), int32(0)),
-		table.Entry("Public IP pool", string(v1alpha1.PublicIPv4ResourcePool), int32(32)),
-		table.Entry("Datacenter IP pool", string(v1alpha1.DatacenterIPv4ResourcePool), int32(32)))
+		Entry("Overlay IP pool", string(v1alpha1.OverlayIPv4ResourcePool), int32(0)),
+		Entry("Public IP pool", string(v1alpha1.PublicIPv4ResourcePool), int32(32)),
+		Entry("Datacenter IP pool", string(v1alpha1.DatacenterIPv4ResourcePool), int32(32)))
 
-	table.DescribeTable("Integer resource pool",
-		func(poolName string) {
+	DescribeTable("Integer resource pool",
+		func(poolName string, lower, upper uint64) {
 			mgr := resourcepool.NewManager(k8sClient, namespace)
 			rangeSize := 1 + randGen.Intn(3)
 			cnt := 1 + randGen.Intn(24)
-			intRanges := generateIntegerRage(cnt, rangeSize, uint64(^uint16(0)))
+			intRanges := generateIntegerRage(cnt, rangeSize, lower, upper)
 			logf.Log.V(1).Info("Generated range", "Count", cnt, "RangeCnt", rangeSize, "Range", intRanges)
 			intPool := mgr.CreateIntegerPool(poolName, intRanges)
 			Expect(mgr.GetIntegerPool(poolName)).To(Equal(intPool))
@@ -203,9 +202,9 @@ var _ = Describe("ResourcePool", func() {
 					np := &v1alpha12.NetworkPolicy{}
 					np.Name = fmt.Sprintf("np-%d", val)
 					np.Namespace = namespace
-					np.Status.ID = uint16(val)
 					err := k8sClient.Create(context.Background(), np)
 					Expect(err).ToNot(HaveOccurred())
+					np.Status.ID = int32(val)
 					err = k8sClient.Status().Update(context.Background(), np)
 					Expect(err).ToNot(HaveOccurred())
 				}
@@ -215,17 +214,17 @@ var _ = Describe("ResourcePool", func() {
 					rg.Name = fmt.Sprintf("rg-%d", val)
 					rg.Namespace = namespace
 					rg.Spec.NetworkImplementationType = v1alpha12.OverlayNetworkImplementationTypeFabric
+					err := k8sClient.Create(context.Background(), rg)
+					Expect(err).ToNot(HaveOccurred())
 					if poolName == string(v1alpha1.VNIResourcePool) {
 						rg.Status.FabricNetworkConfiguration = &v1alpha12.FabricNetworkConfiguration{
-							VNI: uint32(val),
+							VNI: int32(val),
 						}
 					} else if poolName == string(v1alpha1.VlanIDResourcePool) {
 						rg.Status.FabricNetworkConfiguration = &v1alpha12.FabricNetworkConfiguration{
-							VlanID: uint32(val),
+							VlanID: int32(val),
 						}
 					}
-					err := k8sClient.Create(context.Background(), rg)
-					Expect(err).ToNot(HaveOccurred())
 					err = k8sClient.Status().Update(context.Background(), rg)
 					Expect(err).ToNot(HaveOccurred())
 				}
@@ -235,14 +234,14 @@ var _ = Describe("ResourcePool", func() {
 			Expect(intPool.Available()).To(BeZero(), "Reconciled all resources")
 
 			By("Update resource pool")
-			intRanges = generateIntegerRage(cnt, 1, uint64(^uint16(0)))
+			intRanges = generateIntegerRage(cnt, 1, lower, upper)
 			intPool.Update(intRanges)
 			Expect(intPool.Available()).To(Equal(uint64(cnt)), "Update resource pool")
 
 			err = mgr.Delete(poolName)
 			Expect(err).ToNot(HaveOccurred())
 		},
-		table.Entry("VNI pool", string(v1alpha1.VNIResourcePool)),
-		table.Entry("Vlan pool", string(v1alpha1.VlanIDResourcePool)),
-		table.Entry("NetworkPolicyID pool", resourcepool.RuntimePoolNetworkPolicyIDPool))
+		Entry("VNI pool", string(v1alpha1.VNIResourcePool), uint64(5000), uint64(20000)),
+		Entry("Vlan pool", string(v1alpha1.VlanIDResourcePool), uint64(2), uint64(4000)),
+		Entry("NetworkPolicyID pool", resourcepool.RuntimePoolNetworkPolicyIDPool, uint64(1), uint64(64000)))
 })

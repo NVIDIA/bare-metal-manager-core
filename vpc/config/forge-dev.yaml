@@ -11,7 +11,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: forge-dev-system/forge-dev-serving-cert
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.9.0
   name: configurationresourcepools.networkfabric.vpc.forge.gitlab-master.nvidia.com
 spec:
   conversion:
@@ -51,6 +51,8 @@ spec:
               allocationBlockSize:
                 description: AllocationBlockBitSize is allocation block size in bits.
                 format: int32
+                maximum: 268435455
+                minimum: 0
                 type: integer
               ranges:
                 description: Range is the ConfigurationResourcePool half-open range [Start, End).
@@ -77,19 +79,13 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: forge-dev-system/forge-dev-serving-cert
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.9.0
   name: leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com
 spec:
   conversion:
@@ -168,7 +164,9 @@ spec:
             properties:
               asn:
                 description: ASN assigned to this leaf.
-                format: int32
+                format: int64
+                maximum: 4294967295
+                minimum: 0
                 type: integer
               conditions:
                 description: Conditions are the conditions of this Leaf device.
@@ -212,19 +210,13 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: forge-dev-system/forge-dev-serving-cert
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.9.0
   name: managedresources.resource.vpc.forge.gitlab-master.nvidia.com
 spec:
   conversion:
@@ -364,19 +356,13 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: forge-dev-system/forge-dev-serving-cert
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.9.0
   name: networkpolicies.resource.vpc.forge.gitlab-master.nvidia.com
 spec:
   conversion:
@@ -397,7 +383,11 @@ spec:
     singular: networkpolicy
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.id
+      name: rule-id
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: NetworkPolicy is the Schema for the networkpolicies API
@@ -424,8 +414,14 @@ spec:
                         properties:
                           begin:
                             description: '[Begin, end) specify half-close IP packet port.'
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
                             type: integer
                           end:
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
                             type: integer
                           protocol:
                             description: Protocol is the IP packet protocol, default to TCP.
@@ -485,8 +481,14 @@ spec:
                         properties:
                           begin:
                             description: '[Begin, end) specify half-close IP packet port.'
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
                             type: integer
                           end:
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
                             type: integer
                           protocol:
                             description: Protocol is the IP packet protocol, default to TCP.
@@ -544,6 +546,9 @@ spec:
                 type: array
               id:
                 description: ID is runtime allocated ID associated with this NetworkPolicy.
+                format: int32
+                maximum: 65535
+                minimum: 1
                 type: integer
             type: object
         type: object
@@ -551,19 +556,13 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: forge-dev-system/forge-dev-serving-cert
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.9.0
   name: resourcegroups.resource.vpc.forge.gitlab-master.nvidia.com
 spec:
   conversion:
@@ -680,10 +679,14 @@ spec:
                   vlanID:
                     description: VlanID is the ID of VLAN interfaces for this overlay network
                     format: int32
+                    maximum: 4095
+                    minimum: 2
                     type: integer
                   vni:
                     description: VNI is the vni for this overlay network.
                     format: int32
+                    maximum: 16777215
+                    minimum: 4096
                     type: integer
                   vrf:
                     description: VRF is the VRF name for this overlay network. TODO, Do we need VRF ??
@@ -728,18 +731,12 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.9.0
   creationTimestamp: null
   name: sharedresources.resource.vpc.forge.gitlab-master.nvidia.com
 spec:
@@ -812,12 +809,6 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -1143,23 +1134,6 @@ subjects:
 ---
 apiVersion: v1
 data:
-  hbn_dhcrelay_config: |
-    [program: dhcrelay]
-    command = /usr/sbin/dhcrelay --nl -d -i {{.HostInterface}} -i p0 -i p1 -U lo {{.DHCPServer}}
-    autostart = true
-    autorestart = unexpected
-    startsecs = 10
-    startretries = 3
-    exitcodes = 0
-    stopsignal = TERM
-    stopwaitsecs = 10
-kind: ConfigMap
-metadata:
-  name: forge-dev-hbn-dhcrelay-config
-  namespace: forge-dev-system
----
-apiVersion: v1
-data:
   hbn_nvue_config.yaml: |-
     - set:
         evpn:
@@ -1177,6 +1151,14 @@ data:
         nve:
           vxlan:
             enable: on
+        service:
+          dhcp-relay:
+            default:
+              giaddress-interface:
+                lo: {}
+              interface:
+                p0: {}
+                p1: {}
         router:
           bgp:
             autonomous-system: {{.ASN}}
@@ -1193,6 +1175,16 @@ data:
             route-map:
               {{.ToUnderlayFilter}}:
                 rule:
+                  '65530':
+                    action:
+                      deny: {}
+                    match:
+                      interface: oob_net0
+                  '65531':
+                    action:
+                      deny: {}
+                    match:
+                      interface: tmfifo_net0
                   '65535':
                     action:
                       permit: {}
@@ -1255,10 +1247,11 @@ data:
       #resourceName: f1cf94cd.vpc.forge.gitlab-master.nvidia.com
     forge:
       # hbnDevice is true if managed leaf devices are HBN on DPUs.
-      hbnDevice: false
+      hbnDevice: true
       # defaultASN is default ASN assigned to leaf devices.
-      # default value is 65535
-      # defaultASN: 65535
+      defaultASN: 65535
+      # enableNetworkPolicy enables NetworkPolicy/ACL support.
+      enableNetworkPolicy: false
 kind: ConfigMap
 metadata:
   name: forge-dev-manager-config
@@ -1278,19 +1271,6 @@ spec:
     targetPort: https
   selector:
     control-plane: controller-manager
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: forge-dev-grpc-server
-  namespace: forge-dev-system
-spec:
-  ports:
-  - name: server-port
-    port: 8080
-    protocol: TCP
-  sessionAffinity: None
-  type: NodePort
 ---
 apiVersion: v1
 kind: Service
@@ -1325,7 +1305,6 @@ spec:
       - args:
         - --config=controller_manager_config.yaml
         - --hbn-nvue-config=hbn_nvue_config.yaml
-        - --hbn-dhcrelay-config=hbn_dhcrelay_config
         command:
         - /manager
         env:
@@ -1381,9 +1360,6 @@ spec:
         - mountPath: /hbn_nvue_config.yaml
           name: hbn-nvue-config
           subPath: hbn_nvue_config.yaml
-        - mountPath: /hbn_dhcrelay_config
-          name: hbn-dhcrelay-config
-          subPath: hbn_dhcrelay_config
         - mountPath: /manager-cert
           name: manager-cert
       - args:
@@ -1411,9 +1387,6 @@ spec:
       - configMap:
           name: forge-dev-hbn-nvue-config
         name: hbn-nvue-config
-      - configMap:
-          name: forge-dev-hbn-dhcrelay-config
-        name: hbn-dhcrelay-config
       - name: manager-cert
         secret:
           secretName: forge-vpc-cert

@@ -42,8 +42,8 @@ func (n *NetworkRequest) Populate(rg *resource.ResourceGroup) *NetworkRequest {
 		n.Gateway = net.ParseIP(string(network.Gateway))
 	}
 	if rg.Status.FabricNetworkConfiguration != nil {
-		n.VNI = rg.Status.FabricNetworkConfiguration.VNI
-		n.VLAN = rg.Status.FabricNetworkConfiguration.VlanID
+		n.VNI = uint32(rg.Status.FabricNetworkConfiguration.VNI)
+		n.VLAN = uint32(rg.Status.FabricNetworkConfiguration.VlanID)
 	}
 	n.Exist = rg.Status.Network != nil
 	return n

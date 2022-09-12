@@ -135,7 +135,7 @@ func getFabricIPFromManagedResource(cl client.Client, poolname, ns string) ([]st
 			continue
 		}
 		if (i.Spec.HostInterfaceAccess == v1alpha1.HostAccessEgress || i.Spec.HostInterfaceAccess == v1alpha1.HostAccessFabric) &&
-			len(i.Status.HostAccessIPs.FabricIP) > 0 {
+			i.Status.HostAccessIPs != nil && len(i.Status.HostAccessIPs.FabricIP) > 0 {
 			ret = append(ret, string(i.Status.HostAccessIPs.FabricIP))
 		}
 	}

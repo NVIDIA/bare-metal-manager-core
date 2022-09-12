@@ -198,6 +198,9 @@ pub async fn vpc_reconcile_handler(
                         let newly_created_leaf = leafs.get_status(&spec.name()).await?;
 
                         log::info!("VPC Status Object: {:?}", newly_created_leaf.status);
+
+                        // TODO we need to persist the loopback IP address and the vpc-resource-leaf id mapping HERE
+
                         // Spawn another background job to watch status
                         //VpcResourceActions::StatusLeaf(s, vpc_db_resource)
                         //    .reconcile(vpc_status_db_connection.as_mut())

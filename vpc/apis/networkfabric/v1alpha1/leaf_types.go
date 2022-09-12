@@ -82,7 +82,9 @@ type LeafStatus struct {
 	// Conditions are the conditions of this Leaf device.
 	Conditions []NetworkDeviceCondition `json:"conditions,omitempty"`
 	// ASN assigned to this leaf.
-	ASN uint32 `json:"asn,omitempty"`
+	// +kubebuilder:validation:Maximum:=4294967295
+	// +kubebuilder:validation:Minimum:=0
+	ASN int64 `json:"asn,omitempty"`
 	// LoobackIP assigned to this leaf.
 	LoopbackIP string `json:"loopbackIP,omitempty"`
 	// HostAdminIPs are host IPs in un-assigned state.

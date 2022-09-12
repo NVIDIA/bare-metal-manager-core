@@ -58,8 +58,12 @@ type NetworkPolicyAddress struct {
 
 type NetworkPolicyPort struct {
 	// [Begin, end) specify half-close IP packet port.
-	Begin uint16 `json:"begin,required"`
-	End   uint16 `json:"end,omitempty"`
+	// +kubebuilder:validation:Maximum:=65535
+	// +kubebuilder:validation:Minimum:=1
+	Begin int32 `json:"begin,required"`
+	// +kubebuilder:validation:Maximum:=65535
+	// +kubebuilder:validation:Minimum:=1
+	End int32 `json:"end,omitempty"`
 	// Protocol is the IP packet protocol, default to TCP.
 	Protocol NetworkPolicyProtocol `json:"protocol,omitempty"`
 }
@@ -110,13 +114,16 @@ type NetworkPolicySpec struct {
 // NetworkPolicyStatus defines the observed state of NetworkPolicy
 type NetworkPolicyStatus struct {
 	// ID is runtime allocated ID associated with this NetworkPolicy.
-	ID uint16 `json:"id,omitempty"`
+	// +kubebuilder:validation:Maximum:=65535
+	// +kubebuilder:validation:Minimum:=1
+	ID int32 `json:"id,omitempty"`
 	// Conditions defines responses of NetworkPolicy create/delete/update
 	Conditions []NetworkPolicyCondition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="rule-id",type=string,JSONPath=`.status.id`
 
 // NetworkPolicy is the Schema for the networkpolicies API
 type NetworkPolicy struct {

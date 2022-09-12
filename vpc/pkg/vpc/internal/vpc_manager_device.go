@@ -34,6 +34,7 @@ func (q *vpcManagerDevice) NotifyChange(key string, hostNics []string) {
 	i, _, _ := q.GetByKey(key)
 	_, ok := i.(NetworkDevice)
 	if !ok {
+		q.log.V(1).Info("Notify network device change, not found", "Name", key)
 		return
 	}
 	q.managedResources.NotifyNetworkDeviceChange(hostNics)
@@ -44,7 +45,7 @@ func (q *vpcManagerDevice) NotifyChange(key string, hostNics []string) {
 }
 
 func (q *vpcManagerDevice) Add(device NetworkDevice, retry bool) {
-	q.log.V(1).Info("Configuration queued for device", "Device", device.Key())
+	q.log.V(1).Info("Configuration queued for device", "Device", device.Key(), "Retry", retry)
 	if !retry {
 		q.queue.Add(device)
 		return

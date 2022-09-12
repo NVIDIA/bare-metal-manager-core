@@ -36,8 +36,10 @@ spec:
           value: "cumulus"
         - name: CUMULUS_PWD
           value: "cumulus1234"
+        # obsolete, using single credetial to configure and access cumulus/hbn
         - name: SSH_USER
           value: ""
+        # obsolete, using single credetial to configure and access cumulus/hbn
         - name: SSH_PWD
           value: ""
         - name: SSH_PORT
@@ -74,19 +76,6 @@ spec:
       terminationGracePeriodSeconds: 10
       #nodeSelector:
       #  vpc.forge.nvidia.com/node: control
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: grpc-server
-  namespace: system
-spec:
-  ports:
-    - name: server-port
-      port: 8080
-      protocol: TCP
-  sessionAffinity: None
-  type: NodePort
 ---
 apiVersion: apps/v1
 kind: Deployment

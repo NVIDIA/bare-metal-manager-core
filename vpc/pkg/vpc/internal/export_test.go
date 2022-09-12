@@ -6,6 +6,10 @@ package internal
 
 import "fmt"
 
+var (
+	AclNamePrue = aclNamePrune
+)
+
 func GetVPCManagerImpl(i interface{}) *vpcManager {
 	return i.(*vpcManager)
 }

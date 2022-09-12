@@ -11,6 +11,3 @@ configMapGenerator:
 - name: hbn-nvue-config
   files:
   - hbn_nvue_config.yaml
-- name: hbn-dhcrelay-config
-  files:
-  - hbn_dhcrelay_config

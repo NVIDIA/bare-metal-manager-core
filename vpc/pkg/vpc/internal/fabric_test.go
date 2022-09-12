@@ -2,18 +2,17 @@ package internal_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/json"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -41,7 +40,7 @@ var _ = Describe("fabric", func() {
 	validateNetworkProperties := func(prop *properties.OverlayNetworkProperties, spec *resource.ResourceGroupSpec) {
 		Expect(prop.Network).ToNot(BeNil(), "Properties has network")
 		if len(spec.OverlayIPPool) > 0 {
-			Expect(prop.Network.PrefixLength).To(Equal(overlayIPPool.PrefixLen), "Auto network match IP prefix")
+			Expect(prop.Network.PrefixLength).To(Equal(int32(overlayIPPool.PrefixLen)), "Auto network match IP prefix")
 			Expect(overlayIPPool.Allocated(prop.Network.IP)).To(BeTrue(), "Auto network match subnet")
 			Expect(overlayIPPool.Allocated(prop.Network.Gateway)).To(BeTrue(), "Auto network match gateway")
 		} else {
@@ -52,7 +51,7 @@ var _ = Describe("fabric", func() {
 		Expect(prop.FabricConfig).ToNot(BeNil(), "Properties has fabric configuration")
 		Expect(vlanPool.Allocated(prop.FabricConfig.VlanID)).To(BeTrue(), "Vlan is allocated")
 		Expect(vniPool.Allocated(prop.FabricConfig.VNI)).To(BeTrue(), "Vni is allocated")
-		Expect(prop.DHCPCircID).To(Equal(internal.GetVlanInterfaceFromID(prop.FabricConfig.VlanID)))
+		Expect(prop.DHCPCircID).To(Equal(internal.GetVlanInterfaceFromID(uint32(prop.FabricConfig.VlanID))))
 	}
 
 	validateResourceProperties := func(prop *properties.ResourceProperties, spec *resource.ManagedResourceSpec,
@@ -213,9 +212,11 @@ var _ = Describe("fabric", func() {
 		mrEventChan := vpcManager.GetEvent(resource.ManagedResourceName)
 
 		// Create network device.
+		leafStatus := leaf.Status.DeepCopy()
 		err := k8sClient.Create(context.Background(), leaf)
 		Expect(err).ToNot(HaveOccurred())
-		if len(leaf.Status.Conditions) > 0 {
+		if len(leafStatus.Conditions) > 0 {
+			leafStatus.DeepCopyInto(&leaf.Status)
 			err = k8sClient.Status().Update(context.Background(), leaf)
 			Expect(err).ToNot(HaveOccurred())
 		}
@@ -245,9 +246,11 @@ var _ = Describe("fabric", func() {
 			}, 10, 1).Should(BeNil())
 		}
 		// Create managed resource.
+		mrStatus := mr.Status.DeepCopy()
 		err = k8sClient.Create(context.Background(), mr)
 		Expect(err).ToNot(HaveOccurred())
-		if len(mr.Status.Conditions) > 0 {
+		if len(mrStatus.Conditions) > 0 {
+			mrStatus.DeepCopyInto(&mr.Status)
 			err = k8sClient.Status().Update(context.Background(), mr)
 			Expect(err).ToNot(HaveOccurred())
 		}
@@ -282,6 +285,7 @@ var _ = Describe("fabric", func() {
 		if modifyTest != nil {
 			modifyTest(leafEventChan, mrEventChan)
 		}
+		drainEvents()
 
 		// Remove managed resource.
 		err = vpcManager.RemoveResourceToNetwork(context.Background(), mr.Name)
@@ -304,14 +308,26 @@ var _ = Describe("fabric", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Remove network device.
-		err = vpcManager.RemoveNetworkDevice(context.Background(), networkfabric.LeafName, leaf.Name)
-		Expect(err).ToNot(HaveOccurred())
+		Eventually(func() error {
+			stop := time.Tick(time.Second)
+			for {
+				select {
+				case leafEvt := <-leafEventChan:
+					if err = vpcManager.RemoveNetworkDevice(context.Background(), networkfabric.LeafName, leafEvt.Name); err != nil {
+						continue
+					}
+					return nil
+				case <-stop:
+					return fmt.Errorf("no event")
+				}
+			}
+		}, 10, 1).Should(BeNil())
 		err = k8sClient.Delete(context.Background(), leaf)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(commits).To(BeZero())
 	}
 
-	table.DescribeTable("ResourceGroup",
+	DescribeTable("ResourceGroup",
 		func(vni, vlan, overlay bool, err error) {
 			if overlay {
 				rg.Spec.OverlayIPPool = string(networkfabric.OverlayIPv4ResourcePool)
@@ -319,11 +335,11 @@ var _ = Describe("fabric", func() {
 			}
 			testResourceGroup(vni, vlan, false, true, err)
 		},
-		table.Entry("With tenant provided IP", true, true, false, nil),
-		table.Entry("With allocated IP", true, true, true, nil),
-		table.Entry("Without VNI", false, true, true,
+		Entry("With tenant provided IP", true, true, false, nil),
+		Entry("With allocated IP", true, true, true, nil),
+		Entry("Without VNI", false, true, true,
 			internal.NewMissingResourcePoolError(string(networkfabric.VNIResourcePool))),
-		table.Entry("Without Vlan", true, false, true,
+		Entry("Without Vlan", true, false, true,
 			internal.NewMissingResourcePoolError(string(networkfabric.VlanIDResourcePool))),
 	)
 
@@ -338,13 +354,13 @@ var _ = Describe("fabric", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		table.DescribeTable("Life cycle",
+		DescribeTable("Life cycle",
 			func(commits int, // changes commit to the device.
 				modifyTest func(_, _ <-chan client.ObjectKey)) {
 				testManagedResource(commits, modifyTest)
 			},
-			table.Entry("Normal", 4, nil),                      // 2 commits for overlay; 2 commits for adminIPs
-			table.Entry("Modify host IP", 5, testHostIPChange), // 3 commits for overlay; 2 commits for adminIPs
+			Entry("Normal", 5, nil),                      // 2 commits for overlay; 3 commits for adminIPs
+			Entry("Modify host IP", 6, testHostIPChange), // 3 commits for overlay; 3 commits for adminIPs
 		)
 
 		It("Reconcile", func() {
@@ -365,8 +381,8 @@ var _ = Describe("fabric", func() {
 			oldIntv := internal.CumulusLivenessInterval
 			defer func() { internal.CumulusLivenessInterval = oldIntv }()
 			internal.CumulusLivenessInterval = 3 * time.Second
-			// 1 commit for delete overlay, 1 commit for reconfigure underlay.
-			testManagedResource(2, func(_, _ <-chan client.ObjectKey) { time.Sleep(time.Second * 5) })
+			// 1 commit for delete overlay, 2 commits for host admin.
+			testManagedResource(3, func(_, _ <-chan client.ObjectKey) { time.Sleep(time.Second * 5) })
 		})
 	})
 })

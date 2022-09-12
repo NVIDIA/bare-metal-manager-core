@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -42,7 +42,7 @@ var _ = Describe("ResourceGroup", func() {
 		getErrCnt          int
 		setErrCnt          int
 		deleteErrCnt       int
-		managedResourceCnt uint64
+		managedResourceCnt int64
 	)
 
 	BeforeEach(func() {
@@ -77,7 +77,7 @@ var _ = Describe("ResourceGroup", func() {
 		networkProperties = &properties.OverlayNetworkProperties{
 			FabricConfig: &vpcresource.FabricNetworkConfiguration{
 				VRF: "test-vrf",
-				VNI: 1000,
+				VNI: 5000,
 			},
 			DHCPCircID: "vlan10",
 			Network: &vpcresource.IPNet{

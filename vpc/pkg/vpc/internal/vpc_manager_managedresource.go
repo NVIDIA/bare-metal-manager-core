@@ -134,6 +134,7 @@ func (r *vpcManagerManagedResource) CreateOrUpdate(req *PortRequest, impl Overla
 		// Preserve state from backend.
 		rt.State = i.(*managedResourceRuntime).State
 		rt.Error = i.(*managedResourceRuntime).Error
+		rt.DoReconcile = i.(*managedResourceRuntime).DoReconcile
 	} else {
 		// new rt.
 		if IsManagedResourceReady(mr) {
