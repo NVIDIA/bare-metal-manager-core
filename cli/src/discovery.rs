@@ -340,6 +340,7 @@ pub fn get_machine_details(
                     network_interfaces: nics,
                     cpus,
                     block_devices: disks,
+                    machine_type: info.machine.as_str().to_owned(),
                 },
             ),
         ),

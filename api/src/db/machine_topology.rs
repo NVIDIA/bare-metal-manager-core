@@ -11,7 +11,7 @@ use crate::db::machine::Machine;
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
 use crate::kubernetes::VpcResourceActions;
 use crate::vpc_resources::leaf;
-use crate::CarbideResult;
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Deserialize)]
 pub struct MachineTopology {
@@ -44,6 +44,7 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
 impl MachineTopology {
     pub async fn is_dpu(discovery: &str) -> CarbideResult<bool> {
         let data: Value = serde_json::from_str(discovery)?;
+        let arm_type = "aarch64";
 
         // Update list with id's we care about
         let dpu_ids = HashSet::from(["0x15b3:0xa2d6", "0x1af4:0x1000"]);
@@ -51,6 +52,7 @@ impl MachineTopology {
         // TODO - unwrap_or() instead of expect()
 
         let network_interfaces = data["discovery_data"]["InfoV0"].get("network_interfaces");
+        let machine_type_val = data["discovery_data"]["InfoV0"].get("machine_type");
 
         let mut res = false;
         if let Some(interface) = network_interfaces {
@@ -104,6 +106,20 @@ impl MachineTopology {
                 }
             }
         }
+
+        if res {
+            if let Some(machine_type) = machine_type_val {
+                res = arm_type
+                    == machine_type.as_str().ok_or_else(||CarbideError::GenericError(
+                        "Machine type parsing failed.".to_string(),
+                    ))?;
+            } else {
+                return Err(CarbideError::GenericError(
+                    "Machine Type field is missing.".to_string(),
+                ));
+            }
+        }
+
         Ok(res)
     }
 
