@@ -80,6 +80,7 @@ impl Serialize for DiscoveryInfo {
         state.serialize_field("network_interfaces", &self.network_interfaces)?;
         state.serialize_field("cpus", &self.cpus)?;
         state.serialize_field("block_devices", &self.block_devices)?;
+        state.serialize_field("machine_type", &self.machine_type)?;
         state.end()
     }
 }
