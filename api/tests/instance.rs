@@ -86,9 +86,14 @@ async fn test_crud_instance() {
         .await
         .expect("Unable to create machine");
 
-    MachineTopology::create(&mut txn, machine.id(), "{\"some\":\"json\"}".to_string())
-        .await
-        .expect("Unable to create topology");
+    MachineTopology::create(
+        &mut txn,
+        machine.id(),
+        "{\"discovery_data\": { \"InfoV0\": { \"machine_type\": \"aarch64\", \"some\":\"json\"}}}"
+            .to_string(),
+    )
+    .await
+    .expect("Unable to create topology");
 
     let _instance = NewInstance {
         machine_id: *machine.id(),
