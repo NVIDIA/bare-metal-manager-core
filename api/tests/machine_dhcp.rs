@@ -1,8 +1,8 @@
-use std::str::FromStr;
-use std::sync::Once;
-
 use log::LevelFilter;
+use sqlx::prelude::*;
+
 use mac_address::MacAddress;
+use std::str::FromStr;
 
 use carbide::db::domain::{Domain, NewDomain};
 use carbide::db::machine_interface::MachineInterface;
@@ -11,39 +11,15 @@ use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
 use carbide::db::vpc::NewVpc;
 use carbide::CarbideResult;
 
-mod common;
-
-static INIT: Once = Once::new();
-
-fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
+#[sqlx::test]
+async fn test_machine_dhcp(pool: sqlx::PgPool) -> sqlx::Result<()> {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
-}
 
-#[tokio::test]
-async fn test_machine_dhcp() {
-    setup();
+    let mut connection = pool.acquire().await?;
 
-    let mut txn = common::TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager")
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    let mut txn2 = common::TestDatabaseManager::new()
-        .await
-        .expect("Could not create second database manager")
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on db pool");
+    let mut txn = connection.begin().await?;
 
     let my_domain = "dwrt.com";
 
@@ -53,7 +29,11 @@ async fn test_machine_dhcp() {
     .persist(&mut txn)
     .await;
 
-    let domain = Domain::find_by_name(&mut txn2, my_domain.to_string())
+    txn.commit().await?;
+
+    let mut txn = connection.begin().await?;
+
+    let domain = Domain::find_by_name(&mut txn, my_domain.to_string())
         .await
         .expect("Could not find domain in DB");
 
@@ -61,7 +41,7 @@ async fn test_machine_dhcp() {
         name: "Test VPC".to_string(),
         organization: String::new(),
     }
-    .persist(&mut txn2)
+    .persist(&mut txn)
     .await
     .expect("Unable to create VPC");
 
@@ -86,7 +66,7 @@ async fn test_machine_dhcp() {
             },
         ],
     }
-    .persist(&mut txn2)
+    .persist(&mut txn)
     .await
     .expect("Unable to create network segment");
 
@@ -94,7 +74,7 @@ async fn test_machine_dhcp() {
     let test_gateway_address = "192.0.2.1".parse().unwrap();
 
     let _machine = MachineInterface::validate_existing_mac_and_create(
-        &mut txn2,
+        &mut txn,
         test_mac_address,
         test_gateway_address,
     )
@@ -103,7 +83,5 @@ async fn test_machine_dhcp() {
 
     txn.commit().await.unwrap();
 
-    //    let dhcp = DhcpRecord::find_by_id_ipv4(&mut txn, &test_mac_address, segment.id()).await;
-    //
-    //    assert_eq!(dhcp.address_ipv4().unwrap(), &test_ipv4_prefix);
+    Ok(())
 }

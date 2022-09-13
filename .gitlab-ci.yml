@@ -17,7 +17,6 @@ variables:
   KEA_BIN_PATH: /usr/bin
   KEA_INCLUDE_PATH: /usr/include/kea
 
-  CARGO_MAKE_SKIP_CODECOV: "true"
   CARGO_INCREMENTAL: 0
   CARGO_HOME: $CI_PROJECT_DIR/cargo
   NEED_HELM: "yes"
@@ -62,9 +61,13 @@ build-container-arm:
 
 build-cargo:
   stage: build
+  variables:
+    CARGO_MAKE_SKIP_CODECOV: "true"
+    DATABASE_URL: "postgresql://%2Fvar%2Frun%2Fpostgresql/template1"
   script:
     - /etc/init.d/postgresql start
-    - cargo make --env CARGO_MAKE_RUN_CLIPPY=true  workspace-ci-flow
+    - sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
+    - cargo make --env CARGO_MAKE_RUN_CLIPPY=true workspace-ci-flow
   after_script:
     - find target/debug/deps/ target/debug/.fingerprint/ -maxdepth 1 -mindepth 1 \( -type d  -name "rpc-*" -or -name "dhcp-*" -or -name "pxe-*" -or -name "dhcp-*" -or -name "dns-*" -or -name "cli-*" -or -name "ipmi-*" -or -name "vpc-*" \) -print0 | xargs -r0t rm -rf
     - find target/debug -maxdepth 1 -type f -delete
