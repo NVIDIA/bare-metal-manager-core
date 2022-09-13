@@ -96,7 +96,8 @@ async fn find_leaf_and_update_loopback_ip() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let leaf: CarbideResult<VpcResourceLeaf> = NewVpcResourceLeaf::new().persist(&mut txn).await;
+    let leaf_result: CarbideResult<VpcResourceLeaf> =
+        NewVpcResourceLeaf::new().persist(&mut txn).await;
 
     txn.commit()
         .await
@@ -108,12 +109,14 @@ async fn find_leaf_and_update_loopback_ip() {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let _unwrapped = &leaf.expect("Unable to unmarshal leaf from Result");
+    let leaf = leaf_result.unwrap();
+    let leaf_id = leaf.id();
 
     let address = IpAddr::from_str("1.2.3.4").unwrap();
-    let mut new_leaf = VpcResourceLeaf::find(&mut txn2, _unwrapped.id().to_owned())
+    let mut new_leaf = VpcResourceLeaf::find(&mut txn2, leaf_id.to_owned())
         .await
         .unwrap();
+
     new_leaf
         .update_loopback_ip_address(&mut txn2, address)
         .await

@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::SystemTime;
 
@@ -151,9 +152,9 @@ pub async fn vpc_reconcile_handler(
 
                 let spec_name = spec.name().to_string();
                 // Kube CRD names are strings, so we have to convert from string to uuid::Uuid
-                let vpc_id = uuid::Uuid::from_str(spec_name.as_str())?;
+                let vpc_id = Uuid::from_str(spec_name.as_str())?;
 
-                let vpc_db_resource = VpcResourceLeaf::find(&mut vpc_txn, vpc_id).await?;
+                let mut vpc_db_resource = VpcResourceLeaf::find(&mut vpc_txn, vpc_id).await?;
 
                 // Set transaction to Advance VpcResourceStateMachine to Submitting
                 vpc_db_resource
@@ -167,23 +168,23 @@ pub async fn vpc_reconcile_handler(
                 let result = leafs.create(&PostParams::default(), &spec).await;
                 match result {
                     Ok(new_leaf) => {
-                        update_status(
-                            &current_job,
-                            4,
-                            format!("{} Created", new_leaf.name()),
-                            TaskState::Finished,
-                        )
-                        .await;
-
-                        let _ = current_job.complete().await.map_err(CarbideError::from);
                         // After job is marked as complete move VpcResourceStateMachine to accepted
                         // and commit transaction
                         vpc_db_resource
                             .advance(&mut status_txn, &rpc::VpcResourceStateMachineInput::Accept)
                             .await?;
                         new_txn.commit().await?;
+                        let mut last_txn = state_pool.begin().await?;
 
                         log::info!("Created VPC Object {} ({:?})", new_leaf.name(), new_leaf);
+
+                        update_status(
+                            &current_job,
+                            2,
+                            "VPC Leaf object created, waiting for status object".to_string(),
+                            TaskState::Ongoing,
+                        )
+                        .await;
 
                         let api: Api<leaf::Leaf> = Api::all(client);
                         let waiter = await_condition(
@@ -198,13 +199,41 @@ pub async fn vpc_reconcile_handler(
                         let newly_created_leaf = leafs.get_status(&spec.name()).await?;
 
                         log::info!("VPC Status Object: {:?}", newly_created_leaf.status);
+                        update_status(
+                            &current_job,
+                            2,
+                            "VPC Leaf status object retrieved".to_string(),
+                            TaskState::Ongoing,
+                        )
+                        .await;
 
-                        // TODO we need to persist the loopback IP address and the vpc-resource-leaf id mapping HERE
+                        if let Some(status) = newly_created_leaf.status.as_ref() {
+                            if let Some(address_str) = status.loopback_ip.as_ref() {
+                                if let Ok(ip_address) = IpAddr::from_str(address_str.as_str()) {
+                                    vpc_db_resource
+                                        .update_loopback_ip_address(&mut last_txn, ip_address)
+                                        .await?;
+                                } else {
+                                    todo!("can't parse loopback IP as a valid IP Address this is bad -- wtf kube :P")
+                                }
+                            } else {
+                                todo!("no loopback IP this is bad -- we waited for it to be ready so it can't not have this")
+                            }
+                        } else {
+                            todo!("no status this is bad -- we waited for it to be ready so it can't not have this")
+                        }
 
-                        // Spawn another background job to watch status
-                        //VpcResourceActions::StatusLeaf(s, vpc_db_resource)
-                        //    .reconcile(vpc_status_db_connection.as_mut())
-                        //   .await?;
+                        last_txn.commit().await?;
+
+                        update_status(
+                            &current_job,
+                            3,
+                            format!("{} Creation completed", new_leaf.name()),
+                            TaskState::Finished,
+                        )
+                        .await;
+
+                        let _ = current_job.complete().await.map_err(CarbideError::from);
                     }
                     Err(error) => {
                         update_status(
@@ -224,8 +253,9 @@ pub async fn vpc_reconcile_handler(
             }
             VpcResourceActions::DeleteLeaf(spec) => {
                 let mut state_txn = state_pool.begin().await?;
-                let vpc_id = uuid::Uuid::from_str(&spec.name())?;
+                let vpc_id = Uuid::from_str(&spec.name())?;
                 let vpc_db_resource = VpcResourceLeaf::find(&mut state_txn, vpc_id).await?;
+
                 vpc_db_resource
                     .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Submit)
                     .await?;
@@ -240,7 +270,21 @@ pub async fn vpc_reconcile_handler(
                 .await;
                 let _ = current_job.complete().await.map_err(CarbideError::from);
             }
-            VpcResourceActions::UpdateLeaf(_spec) => {
+            VpcResourceActions::UpdateLeaf(spec) => {
+                let spec_name = spec.name().to_string();
+
+                let api: Api<leaf::Leaf> = Api::all(client);
+                let _leaf_to_find = api.get(&spec_name).await?;
+
+                let mut state_txn = state_pool.begin().await?;
+
+                let vpc_id = Uuid::from_str(&spec_name)?;
+                let vpc_db_resource = VpcResourceLeaf::find(&mut state_txn, vpc_id).await?;
+
+                vpc_db_resource
+                    .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Submit)
+                    .await?;
+
                 todo!()
             }
             VpcResourceActions::CreateResourceGroup(_spec) => {

@@ -76,7 +76,7 @@ impl Serialize for DiscoveryInfo {
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("DiscoveryInfo", 3)?;
+        let mut state = serializer.serialize_struct("DiscoveryInfo", 4)?;
         state.serialize_field("network_interfaces", &self.network_interfaces)?;
         state.serialize_field("cpus", &self.cpus)?;
         state.serialize_field("block_devices", &self.block_devices)?;
@@ -90,7 +90,7 @@ impl Serialize for NetworkInterface {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("NetworkInterface", 3)?;
+        let mut state = serializer.serialize_struct("NetworkInterface", 2)?;
 
         state.serialize_field("mac_address", &self.mac_address)?;
         state.serialize_field("pci_properties", &self.pci_properties)?;
