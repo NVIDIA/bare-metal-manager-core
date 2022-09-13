@@ -273,6 +273,8 @@ pub async fn vpc_reconcile_handler(
             VpcResourceActions::UpdateLeaf(spec) => {
                 let spec_name = spec.name().to_string();
 
+                let mut new_spec = spec;
+
                 let api: Api<leaf::Leaf> = Api::all(client);
                 let _leaf_to_find = api.get(&spec_name).await?;
 
@@ -281,8 +283,16 @@ pub async fn vpc_reconcile_handler(
                 let vpc_id = Uuid::from_str(&spec_name)?;
                 let vpc_db_resource = VpcResourceLeaf::find(&mut state_txn, vpc_id).await?;
 
+                let resource_version = _leaf_to_find.metadata.resource_version;
+
                 vpc_db_resource
                     .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Submit)
+                    .await?;
+
+                // Updates must contain the most recent observed version
+                new_spec.metadata.resource_version = resource_version;
+
+                api.replace(&spec_name, &PostParams::default(), &new_spec)
                     .await?;
 
                 todo!()

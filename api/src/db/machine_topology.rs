@@ -32,6 +32,55 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
     }
 }
 
+fn does_attributes_contain_dpu_pci_ids(dpu_pci_ids: &HashSet<&str>, attributes: &[Value]) -> bool {
+    attributes.iter().any(|attribute| {
+        log::info!("Interface Info: {}", attribute);
+        let mac_address = if let Some(mac_address) = attribute.get("mac_address").unwrap().as_str() {
+            mac_address
+        } else {
+            "FF:FF:FF:FF:FF:FF"
+        };
+        match attribute.get("pci_properties") {
+            None => {
+                log::info!(
+                    "Unable to find PCI PROPERTIES for interface {}",
+                    mac_address
+                );
+            }
+            Some(pci_property) => {
+                log::info!("Network interface {} contains necessary information for examination. Checking if this is a DPU.", mac_address);
+                // If for some reason there is no vendor/device in pci_properties
+                // set to 0'
+                let vendor = pci_property["vendor"].as_str().unwrap_or("0x0000");
+                let device = pci_property["device"].as_str().unwrap_or("0x0000");
+
+                let dpu_pci_id = format!("{}:{}", vendor, device);
+
+                let submitted_discovery_data = HashSet::from([dpu_pci_id.as_str()]);
+
+                // Compare contents of
+                let dpu_count: HashSet<_> =
+                    submitted_discovery_data.intersection(dpu_pci_ids).collect();
+
+                match dpu_count.len() {
+                    0 => {
+                        log::info!("VENDOR AND DEVICE INFORMATION DOES NOT MATCH, INTERFACE {} IS NOT A DPU", mac_address);
+                    }
+                    _ => {
+                        log::info!(
+                            "VENDOR AND DEVICE INFORMATION MATCHES - PCI_ID {} and MAC_ADDRESS: {}",
+                            dpu_pci_id,
+                            mac_address
+                        );
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    })
+}
+
 // Object({"machine_id": Object({"value": String("0c005a38-dc1c-4a98-938e-6ce39a84840e")}),
 // "discovery_data": Object({"InfoV0": Object({"network_interfaces":
 // Array([Object({"mac_address": String("52:54:00:12:34:56"), "pci_properties": Object({"vendor": String("0x1af4"),
@@ -44,83 +93,38 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
 impl MachineTopology {
     pub async fn is_dpu(discovery: &str) -> CarbideResult<bool> {
         let data: Value = serde_json::from_str(discovery)?;
-        let arm_type = "aarch64";
-
-        // Update list with id's we care about
-        let dpu_ids = HashSet::from(["0x15b3:0xa2d6", "0x1af4:0x1000"]);
-
-        // TODO - unwrap_or() instead of expect()
 
         let network_interfaces = data["discovery_data"]["InfoV0"].get("network_interfaces");
         let machine_type_val = data["discovery_data"]["InfoV0"].get("machine_type");
 
-        let mut res = false;
-        if let Some(interface) = network_interfaces {
+        let machine_type_str = if let Some(machine_type) = machine_type_val {
+            machine_type.as_str().ok_or_else(|| {
+                CarbideError::GenericError("Machine type parsing failed.".to_string())
+            })?
+        } else {
+            return Err(CarbideError::GenericError(
+                "Machine Type field is missing.".to_string(),
+            ));
+        };
+
+        let arm_type = "aarch64";
+        if machine_type_str != arm_type {
+            return Ok(false);
+        }
+
+        Ok(if let Some(attributes) = network_interfaces {
             log::debug!("Interfaces Hash found");
-            if let Some(attributes) = Some(interface) {
-                log::debug!("Looking for attributes on interface: {}", interface);
-                if let Some(attribute) = attributes.as_array() {
-                    for a in attribute {
-                        log::info!("Interface Info: {}", a);
-                        let mac_address =
-                            if let Some(mac_address) = a.get("mac_address").unwrap().as_str() {
-                                mac_address
-                            } else {
-                                "FF:FF:FF:FF:FF:FF"
-                            };
-                        match a.get("pci_properties") {
-                            None => {
-                                log::info!(
-                                    "Unable to find PCI PROPERTIES for interface {}",
-                                    mac_address
-                                );
-                            }
-                            Some(x) => {
-                                log::info!("Network interface {} contains necessary information for examination. Checking if this is a DPU.", mac_address);
-                                // If for some reason there is no vendor/device in pci_properties
-                                // set to 0'
-                                let vendor = x["vendor"].as_str().unwrap_or("0x0000");
-                                let device = x["device"].as_str().unwrap_or("0x0000");
-
-                                let dpu_pci_id = vec![vendor, device].join(":");
-
-                                let submitted_discovery_data = HashSet::from([dpu_pci_id.as_str()]);
-
-                                // Compare contents of
-                                let dpu_count: HashSet<_> =
-                                    submitted_discovery_data.intersection(&dpu_ids).collect();
-
-                                match dpu_count.len() {
-                                    0 => {
-                                        log::info!("VENDOR AND DEVICE INFORMATION DOES NOT MATCH, INTERFACE {} IS NOT A DPU", mac_address);
-                                        res = false;
-                                    }
-                                    _ => {
-                                        log::info!("VENDOR AND DEVICE INFORMATION MATCHES - PCI_ID {} and MAC_ADDRESS: {}", mac_address, dpu_pci_id);
-                                        res = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if res {
-            if let Some(machine_type) = machine_type_val {
-                res = arm_type
-                    == machine_type.as_str().ok_or_else(|| {
-                        CarbideError::GenericError("Machine type parsing failed.".to_string())
-                    })?;
+            log::debug!("Looking for attributes on interface: {}", attributes);
+            if let Some(attributes) = attributes.as_array() {
+                // Update list with id's we care about
+                let dpu_pci_ids = HashSet::from(["0x15b3:0xa2d6", "0x1af4:0x1000"]);
+                does_attributes_contain_dpu_pci_ids(&dpu_pci_ids, attributes)
             } else {
-                return Err(CarbideError::GenericError(
-                    "Machine Type field is missing.".to_string(),
-                ));
+                false // attributes isn't a json array
             }
-        }
-
-        Ok(res)
+        } else {
+            false // has no network interfaces/attribute
+        })
     }
 
     pub async fn discovered(

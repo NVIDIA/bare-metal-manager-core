@@ -253,3 +253,87 @@ state_machine! {
     WaitingForVpc => { VpcSuccess => Ready, Fail => Broken, },
     Broken(Recommission) => Init,
 }
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        BlockDevice, Cpu, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, NetworkInterface,
+        PciDeviceProperties,
+    };
+
+    fn create_test_cpu() -> Cpu {
+        Cpu {
+            vendor: "vendor".to_string(),
+            model: "model".to_string(),
+            frequency: "frequency".to_string(),
+            number: 1_u32,
+            socket: 1,
+            core: 1,
+            node: 0,
+        }
+    }
+
+    fn create_test_block_device() -> BlockDevice {
+        BlockDevice {
+            model: "model".to_string(),
+            revision: "revision".to_string(),
+            serial: "serial".to_string(),
+        }
+    }
+
+    fn create_test_pci_device_properties() -> PciDeviceProperties {
+        PciDeviceProperties {
+            vendor: "vendor".to_string(),
+            device: "device".to_string(),
+            path: "path".to_string(),
+            numa_node: 1,
+            description: Some("description".to_string()),
+        }
+    }
+
+    fn create_test_network_interface() -> NetworkInterface {
+        NetworkInterface {
+            mac_address: "mac_address".to_string(),
+            pci_properties: Some(create_test_pci_device_properties()),
+        }
+    }
+
+    fn create_test_discovery_info() -> DiscoveryInfo {
+        DiscoveryInfo {
+            network_interfaces: vec![create_test_network_interface()],
+            cpus: vec![create_test_cpu()],
+            block_devices: vec![create_test_block_device()],
+            machine_type: "machine_type".to_string(),
+        }
+    }
+
+    fn create_test_discovery_data_info_v0() -> DiscoveryData {
+        DiscoveryData::InfoV0(create_test_discovery_info())
+    }
+
+    fn create_test_machine_discovery_info() -> MachineDiscoveryInfo {
+        let rpc_uuid_str = uuid::Uuid::new_v4().to_string();
+        let rpc_uuid: crate::Uuid = uuid::Uuid::parse_str(rpc_uuid_str.as_str()).unwrap().into();
+
+        MachineDiscoveryInfo {
+            machine_id: Some(rpc_uuid),
+            discovery_data: Some(create_test_discovery_data_info_v0()),
+        }
+    }
+
+    #[test]
+    pub fn machine_discovery_info_there_and_back_again() {
+        let machine_discovery_info = create_test_machine_discovery_info();
+
+        let serialized_string = serde_json::to_string(&machine_discovery_info).unwrap();
+        let json_value: serde_json::Value = serde_json::from_str(&serialized_string).unwrap();
+
+        let info_v0 = &json_value["discovery_data"];
+        let discovery_data = &info_v0["InfoV0"];
+        let machine_type = &discovery_data["machine_type"];
+        let machine_type = machine_type.as_str().unwrap();
+
+        assert_eq!("machine_type", machine_type);
+        // we should also be testing more than one field coming back
+    }
+}

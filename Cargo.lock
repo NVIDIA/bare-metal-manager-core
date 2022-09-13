@@ -3469,6 +3469,7 @@ dependencies = [
  "prost-types",
  "rust-fsm",
  "serde",
+ "serde_json",
  "tonic",
  "tonic-build",
  "tonic-reflection",
