@@ -11,6 +11,8 @@ services:
   dhcp-relay:
     depends_on:
       - carbide-dhcp
+    cap_add: 
+      - CAP_NET_ADMIN
     container_name: "dhcp-relay"
     networks:
       carbide:
