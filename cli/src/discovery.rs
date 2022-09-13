@@ -326,7 +326,8 @@ pub fn get_machine_details(
 
     log::debug!("Disks sent to carbide - {:?}", disks);
     log::debug!("CPUs sent to carbide - {:?}", cpus);
-    log::debug!("NICS send to carbide - {:?}", nics);
+    log::debug!("NICS sent to carbide - {:?}", nics);
+    log::debug!("Machine Type sent to carbide - {}", info.machine.as_str());
 
     let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
         .map(|m| m.into())

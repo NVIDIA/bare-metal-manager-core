@@ -91,7 +91,7 @@ impl Status {
         }
     }
 
-    /// This method will read from `bg_status` table based on `id` and resturn json status message.
+    /// This method will read from `bg_status` table based on `id` and return json status message.
     /// User should use `update` method to update status periodically.
     pub async fn poll(pool: &PgPool, id: Uuid) -> Result<CurrentState, sqlx::Error> {
         let query = "SELECT id, status, last_updated from bg_status WHERE id=$1";
@@ -108,7 +108,7 @@ impl Status {
         }
     }
 
-    /// This method will read from `bg_status` table based on `id` and resturn boolean to indicate
+    /// This method will read from `bg_status` table based on `id` and return boolean to indicate
     /// if task is finished or not. It also check if all retries are exhausted.
     /// User should use `update` method to update status periodically.
     pub async fn is_finished(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
@@ -119,7 +119,7 @@ impl Status {
         }
     }
 
-    /// This method will read from `bg_status` table based on `id` and resturn boolean to indicate
+    /// This method will read from `bg_status` table based on `id` and return boolean to indicate
     /// if task is finished or not. It also check if all retries are exhausted.
     /// User should use `update` method to update status periodically.
     pub async fn is_failed(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
