@@ -110,9 +110,9 @@ impl MachineTopology {
         if res {
             if let Some(machine_type) = machine_type_val {
                 res = arm_type
-                    == machine_type.as_str().ok_or_else(||CarbideError::GenericError(
-                        "Machine type parsing failed.".to_string(),
-                    ))?;
+                    == machine_type.as_str().ok_or_else(|| {
+                        CarbideError::GenericError("Machine type parsing failed.".to_string())
+                    })?;
             } else {
                 return Err(CarbideError::GenericError(
                     "Machine Type field is missing.".to_string(),

@@ -114,9 +114,14 @@ dependencies = [
 ]
 
 [tasks.clippy]
+description = "Runs clippy code linter."
+category = "Test"
+dependencies = ["install-clippy"]
 command = "cargo"
 args = ["clippy", "--tests"]
 
 [tasks.workspace-ci-flow]
-dependencies = [ "clippy" ]
 args = ["--no-default-features"]
+
+[tasks.clippy-ci-flow]
+condition = { env_set = [ "CARGO_MAKE_RUN_CLIPPY" ] }
