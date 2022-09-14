@@ -360,6 +360,7 @@ message DhcpDiscovery {
   string mac_address = 1;
   string relay_address = 2;
   optional string vendor_string = 3;
+  optional string link_address = 4;
 }
 
 message DhcpRecord {

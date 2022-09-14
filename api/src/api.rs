@@ -257,15 +257,23 @@ impl Forge for Api {
         let rpc::DhcpDiscovery {
             mac_address,
             relay_address,
+            link_address,
             vendor_string,
             ..
         } = request.into_inner();
+
+        // first, we detect that the link address is present or not, and use it  if it exists, and fall back to the relay address if not
+        // we do this so that we can properly serve an address via DHCP because we can only serve address from "our" CIDR, and "our" CIDR is identified by the
+        // link address, but the actual relay_address is necessary to look up leaf_ids
+        let address_to_use_for_dhcp = link_address.as_ref().unwrap_or(&relay_address);
 
         let parsed_mac: MacAddress = mac_address
             .parse::<MacAddress>()
             .map_err(CarbideError::from)?;
 
-        let parsed_relay = relay_address.parse().map_err(CarbideError::from)?;
+        let parsed_relay = address_to_use_for_dhcp
+            .parse()
+            .map_err(CarbideError::from)?;
 
         let existing_machines =
             Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
@@ -292,7 +300,7 @@ impl Forge for Api {
                             "{0} existing mac address ({1}) for network segment (relay ip: {2})",
                             n,
                             &mac_address,
-                            &relay_address
+                            &address_to_use_for_dhcp
                         );
                         Err(CarbideError::NetworkSegmentDuplicateMacAddress(parsed_mac))
                     }
@@ -302,7 +310,7 @@ impl Forge for Api {
                 newly_created_interface = false;
                 log::warn!(
                     "More than machine found with mac address ({0}) for network segment (relay ip: {1})",
-                    &mac_address, &relay_address
+                    &mac_address, &address_to_use_for_dhcp
                 );
                 Err(CarbideError::NetworkSegmentDuplicateMacAddress(parsed_mac))
             }
@@ -355,12 +363,8 @@ impl Forge for Api {
                     // if this is a DPU coming up for the very first time. In this case we need to do nothing -- because
                     // the provisioning step in 'discover_machine' is going to create this mapping for us.
                     if let Some(dpu) = resource {
-                        // TODO: here, query our persisted mapping of relay_address -> vpc-resource-leaf-id and update the VPC resource leaf
-                        // with the address field of the record we are about to return
-                        // NOTE: if the mapping doesn't exist, then this assumed to be a newly provisioned DPU coming online
-                        // we should at least log a warning that this happens. if this happens to something other than a DPU,
-                        // then the machine will not properly be provisioned
                         // we need to go look at our mapping and get the assigned leaf ID for this relay address
+                        //TODO: think about making a GET leaf call in VPC resource actions
                         let client = Client::try_default().await.map_err(CarbideError::from)?;
                         let namespace = FORGE_KUBE_NAMESPACE;
                         let leafs: KubeApi<leaf::Leaf> = KubeApi::namespaced(client, namespace);
