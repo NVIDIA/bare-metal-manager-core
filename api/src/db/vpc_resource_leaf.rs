@@ -47,6 +47,20 @@ impl VpcResourceLeaf {
                 .await?,
         )
     }
+
+    pub async fn find_by_loopback_ip(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        ip_address: IpAddr,
+    ) -> CarbideResult<Option<VpcResourceLeaf>> {
+        let result =
+            sqlx::query_as("SELECT * from vpc_resource_leafs WHERE loopback_ip_address = $1")
+                .bind(ip_address)
+                .fetch_optional(&mut *txn)
+                .await?;
+
+        Ok(result)
+    }
+
     pub async fn current_state(
         &self,
         txn: &mut Transaction<'_, Postgres>,

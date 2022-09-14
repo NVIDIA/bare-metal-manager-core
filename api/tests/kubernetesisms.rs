@@ -4,6 +4,7 @@ use kube::api::PostParams;
 use kube::{Api, Client};
 use log::LevelFilter;
 
+use carbide::db::constants::FORGE_KUBE_NAMESPACE;
 use carbide::vpc_resources::leaf;
 
 static INIT: Once = Once::new();
@@ -26,7 +27,7 @@ async fn create_leaf_in_kube() {
     let client = Client::try_default()
         .await
         .expect("Unable to connect to kubernetes");
-    let namespace = "forge-system";
+    let namespace = FORGE_KUBE_NAMESPACE;
 
     let leafname = uuid::Uuid::new_v4().to_string();
 

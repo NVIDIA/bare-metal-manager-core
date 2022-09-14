@@ -6,6 +6,7 @@ use serde_json::Value;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
+use crate::db::constants::ADMIN_DPU_NETWORK_INTERFACE;
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::machine::Machine;
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
@@ -195,7 +196,7 @@ impl MachineTopology {
                             vendor: Some("DPU".to_string()),
                         }),
                         host_admin_i_ps: Some(BTreeMap::from([(
-                            "pf0hpf".to_string(),
+                            ADMIN_DPU_NETWORK_INTERFACE.to_string(),
                             "".to_string(),
                         )])),
                         host_interfaces: None,

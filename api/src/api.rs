@@ -1,18 +1,27 @@
+use std::collections::BTreeMap;
 use std::convert::TryFrom;
+use std::net::IpAddr;
+use std::str::FromStr;
 
 use color_eyre::Report;
+use kube::{api::Api as KubeApi, Client};
 use mac_address::MacAddress;
+use sqlx::Acquire;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 use tower::ServiceBuilder;
 
 use ::rpc::MachineStateMachineInput;
 use auth::CarbideAuth;
+use carbide::db::constants::FORGE_KUBE_NAMESPACE;
+use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
 use carbide::ipmi::{ipmi_handler, RealIpmiCommandHandler};
-use carbide::kubernetes::bgkubernetes_handler;
+use carbide::kubernetes::{bgkubernetes_handler, VpcResourceActions};
+use carbide::vpc_resources::leaf;
 use carbide::{
     db::{
         auth::SshKeyValidationRequest,
+        constants::ADMIN_DPU_NETWORK_INTERFACE,
         dhcp_entry::DhcpEntry,
         dhcp_record::DhcpRecord,
         domain::Domain,
@@ -329,16 +338,60 @@ impl Forge for Api {
         let response = match NetworkSegment::for_relay(&mut txn, parsed_relay).await? {
             None => Err(CarbideError::NoNetworkSegmentsForRelay(parsed_relay).into()),
             Some(network) => Ok(Response::new({
-                let record = DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, network.id())
-                    .await?
-                    .into();
+                let record: rpc::DhcpRecord =
+                    DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, network.id())
+                        .await?
+                        .into();
 
                 if newly_created_interface {
-                    // TODO: here, query our persisted mapping of relay_address -> vpc-resource-leaf-id and update the VPC resource leaf
-                    // with the address field of the record we are about to return
-                    // NOTE: if the mapping doesn't exist, then this assumed to be a newly provisioned DPU coming online
-                    // we should at least log a warning that this happens. if this happens to something other than a DPU,
-                    // then the machine will not properly be provisioned
+                    let relay_ip = IpAddr::from_str(&relay_address)
+                        .map_err(|err| CarbideError::GenericError(err.to_string()))?;
+
+                    let resource = VpcResourceLeaf::find_by_loopback_ip(&mut txn, relay_ip).await?;
+
+                    // we're using the presence of the mapping as a "tell" for whether this ia DPU -- we literally
+                    // fail provisioning of a leaf if it doesn't have this loopback assigned, precisely so that we
+                    // can create this mapping.  The only way for it to not be present for a given relay address is
+                    // if this is a DPU coming up for the very first time. In this case we need to do nothing -- because
+                    // the provisioning step in 'discover_machine' is going to create this mapping for us.
+                    if let Some(dpu) = resource {
+                        // TODO: here, query our persisted mapping of relay_address -> vpc-resource-leaf-id and update the VPC resource leaf
+                        // with the address field of the record we are about to return
+                        // NOTE: if the mapping doesn't exist, then this assumed to be a newly provisioned DPU coming online
+                        // we should at least log a warning that this happens. if this happens to something other than a DPU,
+                        // then the machine will not properly be provisioned
+                        // we need to go look at our mapping and get the assigned leaf ID for this relay address
+                        let client = Client::try_default().await.map_err(CarbideError::from)?;
+                        let namespace = FORGE_KUBE_NAMESPACE;
+                        let leafs: KubeApi<leaf::Leaf> = KubeApi::namespaced(client, namespace);
+                        let mut leaf = leafs
+                            .get(dpu.id().to_string().as_str())
+                            .await
+                            .map_err(|err| CarbideError::GenericError(err.to_string()))?;
+
+                        let new_host_admin_ips_map = BTreeMap::from([(
+                            ADMIN_DPU_NETWORK_INTERFACE.to_string(),
+                            record.address.to_string(),
+                        )]);
+                        leaf.spec.host_admin_i_ps = Some(new_host_admin_ips_map);
+
+                        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+
+                        VpcResourceActions::UpdateLeaf(leaf)
+                            .reconcile(db_conn)
+                            .await?;
+                        //spec:
+                        //  control:
+                        //    managementIP: 10.180.221.200
+                        //    vendor: DPU
+                        //  hostAdminIPs:
+                        //    pf0hpf: ""
+                    } else {
+                        log::info!(
+                            "VpcResourceLeaf not found, using relay ip: {} assuming this is DPU DHCPDISCOVER",
+                            relay_address
+                        )
+                    }
                 }
                 record
             })),
