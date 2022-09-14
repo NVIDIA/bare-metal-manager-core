@@ -1,5 +1,6 @@
 pub mod address_selection_strategy;
 pub mod auth;
+pub mod constants;
 pub mod dhcp_entry;
 pub mod dhcp_record;
 pub mod domain;

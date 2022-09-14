@@ -16,6 +16,7 @@ use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
 use crate::bg::{CurrentState, Status, TaskState};
+use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::vpc_resources::{leaf, managed_resource, resource_group};
 use crate::{CarbideError, CarbideResult};
@@ -69,9 +70,7 @@ impl VpcResourceActions {
 
 async fn _leaf_resource_status(spec: leaf::Leaf) -> CarbideResult<leaf::LeafStatus> {
     let client = Client::try_default().await?;
-    let namespace = "forge-system";
-
-    let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), namespace);
+    let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), FORGE_KUBE_NAMESPACE);
     let leaf_to_status = leafs.get_status(spec.name().as_ref()).await?;
 
     match leaf_to_status.status {
@@ -140,7 +139,7 @@ pub async fn vpc_reconcile_handler(
 
     if kube_enabled {
         let client = Client::try_default().await?;
-        let namespace = "forge-system";
+        let namespace = FORGE_KUBE_NAMESPACE;
 
         match vpc_resource {
             VpcResourceActions::CreateLeaf(spec) => {
@@ -276,14 +275,14 @@ pub async fn vpc_reconcile_handler(
                 let mut new_spec = spec;
 
                 let api: Api<leaf::Leaf> = Api::all(client);
-                let _leaf_to_find = api.get(&spec_name).await?;
+                let leaf_to_find = api.get(&spec_name).await?;
 
                 let mut state_txn = state_pool.begin().await?;
 
                 let vpc_id = Uuid::from_str(&spec_name)?;
                 let vpc_db_resource = VpcResourceLeaf::find(&mut state_txn, vpc_id).await?;
 
-                let resource_version = _leaf_to_find.metadata.resource_version;
+                let resource_version = leaf_to_find.metadata.resource_version;
 
                 vpc_db_resource
                     .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Submit)
@@ -294,8 +293,6 @@ pub async fn vpc_reconcile_handler(
 
                 api.replace(&spec_name, &PostParams::default(), &new_spec)
                     .await?;
-
-                todo!()
             }
             VpcResourceActions::CreateResourceGroup(_spec) => {
                 todo!()
