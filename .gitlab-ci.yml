@@ -187,6 +187,8 @@ build-push-helm:
     - yq -i '.carbidePxeDeployment.envoy.image.tag = "v0.0.1"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.carbidePxeDeployment.envoy.image.repository = "nvcr.io/nvidian/forge/envoy-dev"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.version = env(HELM_VERSION)' $CI_PROJECT_NAME/Chart.yaml
+    - rm -rf $CI_PROJECT_NAME/templates/gitlab-container-registry.yaml
+    - sed -i 's/{{ include "carbide.fullname" . }}-gitlab-container-registry/imagepullsecret/g' $CI_PROJECT_NAME/templates/deployment.yaml
     - helm package $CI_PROJECT_NAME/
 
 deploy_dev1:
