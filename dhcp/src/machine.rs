@@ -38,12 +38,6 @@ impl TryFrom<Discovery> for Machine {
             None => None,
         };
 
-        // If link_select_address is present, use it else relay address to allocate a IP.
-        let link_address = discovery
-            .link_select_address
-            .unwrap_or(discovery.relay_address)
-            .to_string();
-
         // Option<X>
         //   if none then none
         //   if some then parse if err fail
@@ -66,7 +60,8 @@ impl TryFrom<Discovery> for Machine {
                 Ok(mut client) => {
                     let request = tonic::Request::new(rpc::DhcpDiscovery {
                         mac_address: discovery.mac_address.to_string(),
-                        relay_address: link_address,
+                        relay_address: discovery.relay_address.to_string(),
+                        link_address: discovery.link_select_address.map(|addr| addr.to_string()),
                         vendor_string: discovery.vendor_class.clone(),
                     });
 

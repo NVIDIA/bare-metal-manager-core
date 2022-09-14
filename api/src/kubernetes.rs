@@ -291,8 +291,19 @@ pub async fn vpc_reconcile_handler(
                 // Updates must contain the most recent observed version
                 new_spec.metadata.resource_version = resource_version;
 
-                api.replace(&spec_name, &PostParams::default(), &new_spec)
+                let result = api
+                    .replace(&spec_name, &PostParams::default(), &new_spec)
                     .await?;
+
+                update_status(
+                    &current_job,
+                    3,
+                    format!("Leaf Updated {result:?}"),
+                    TaskState::Finished,
+                )
+                .await;
+
+                let _ = current_job.complete().await.map_err(CarbideError::from);
             }
             VpcResourceActions::CreateResourceGroup(_spec) => {
                 todo!()
