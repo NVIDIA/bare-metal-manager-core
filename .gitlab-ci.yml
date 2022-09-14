@@ -63,10 +63,11 @@ build-cargo:
   stage: build
   variables:
     CARGO_MAKE_SKIP_CODECOV: "true"
-    DATABASE_URL: "postgresql://%2Fvar%2Frun%2Fpostgresql/template1"
+    DATABASE_URL: "postgresql://%2Fvar%2Frun%2Fpostgresql"
   script:
     - /etc/init.d/postgresql start
     - sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
+    - createdb root
     - cargo make --env CARGO_MAKE_RUN_CLIPPY=true workspace-ci-flow
   after_script:
     - find target/debug/deps/ target/debug/.fingerprint/ -maxdepth 1 -mindepth 1 \( -type d  -name "rpc-*" -or -name "dhcp-*" -or -name "pxe-*" -or -name "dhcp-*" -or -name "dns-*" -or -name "cli-*" -or -name "ipmi-*" -or -name "vpc-*" \) -print0 | xargs -r0t rm -rf

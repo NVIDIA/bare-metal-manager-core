@@ -405,4 +405,21 @@ impl NetworkSegment {
             .await?),
         }
     }
+
+    pub async fn update(
+        &self,
+
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<NetworkSegment> {
+        Ok(sqlx::query_as(
+            "UPDATE network_segments SET name=$1, subdomain_id=$2, vpc_id=$3, mtu=$4, updated=NOW() WHERE id=$5 RETURNING *",
+        )
+        .bind(&self.name)
+        .bind(&self.subdomain_id)
+        .bind(&self.vpc_id)
+        .bind(&self.mtu)
+        .bind(&self.id)
+        .fetch_one(&mut *txn)
+        .await?)
+    }
 }
