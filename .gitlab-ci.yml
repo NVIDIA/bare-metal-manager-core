@@ -174,7 +174,7 @@ build-push-helm:
     - mkdir -p $LOCALBIN
     - GOBIN=$LOCALBIN go install github.com/vinodchitraliNVIDIA/helmify/cmd/helmify@v0.0.1
     - GOBIN=$LOCALBIN go install sigs.k8s.io/kustomize/kustomize/v4@v4.5.7
-    - $LOCALBIN/kustomize build dev/kube/overlays/qa | $LOCALBIN/helmify $CI_PROJECT_NAME
+    - $LOCALBIN/kustomize build dev/kube/overlays/helm | $LOCALBIN/helmify $CI_PROJECT_NAME
     - yq -i '.carbideApiDeployment.carbideApi.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
     - yq -i '.carbideApiDeployment.carbideApi.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.carbideDnsDeployment.carbideDns.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
@@ -188,9 +188,11 @@ build-push-helm:
     - yq -i '.carbidePxeDeployment.envoy.image.tag = "v0.0.1"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.carbidePxeDeployment.envoy.image.repository = "nvcr.io/nvidian/forge/envoy-dev"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.version = env(HELM_VERSION)' $CI_PROJECT_NAME/Chart.yaml
-    - rm -rf $CI_PROJECT_NAME/templates/gitlab-container-registry.yaml
-    - sed -i 's/{{ include "carbide.fullname" . }}-gitlab-container-registry/imagepullsecret/g' $CI_PROJECT_NAME/templates/deployment.yaml
-    - helm package $CI_PROJECT_NAME/
+    - |
+      NAMESPACE=forge-system  yq -i '.NameSpace = env(NAMESPACE)' $CI_PROJECT_NAME/values.yaml
+      sed -i '/^metadata:/a \ \ namespace: {{ .Values.NameSpace }}' $CI_PROJECT_NAME/templates/*
+      sed -i 's/carbide-postgres-pguser-carbide-postgres/{{ include "carbide.fullname" . }}-postgres-pguser-carbide-postgres/g' $CI_PROJECT_NAME/templates/deployment.yaml
+      helm package $CI_PROJECT_NAME/
 
 deploy_dev1:
   extends: .deploy_kustomize
