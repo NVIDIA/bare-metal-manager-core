@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-pxe-deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: envoy
+          ports:
+            - containerPort: 8083
+              name: pxe-envoy-http
+          volumeMounts:
+            - mountPath: /etc/certs
+              name: cert
+              readOnly: true
+            - mountPath: /etc/envoy
+              name: envoy-config
+            - mountPath: /tmp/envoy-tls
+              name: envoy-config-tls
+            - mountPath: /tmp/envoy-ca
+              name: envoy-config-cacert
+      volumes:
+        - name: cert
+          secret:
+            defaultMode: 420
+            secretName: forge-provisioner-cert
+        - name: envoy-config
+          configMap:
+            name: envoy-carbide-pxe-config
+        - name: envoy-config-tls
+          configMap:
+            name: envoy-resource-tls
+        - name: envoy-config-cacert
+          configMap:
+            name: envoy-resource-tls-ca
+        - name: cert-ca
+      imagePullSecrets:
+        - name: imagepullsecret
