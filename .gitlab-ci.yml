@@ -221,3 +221,11 @@ deploy_nbu:
     deployment_tier: testing
   tags:
     - corp
+
+deploy_dogfood:
+  extends: .deploy_helm
+  environment:
+    name: dogfood
+    deployment_tier: testing
+  tags:
+    - corp
