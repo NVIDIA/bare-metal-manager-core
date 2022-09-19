@@ -3,7 +3,7 @@ kind: PostgresCluster
 metadata:
   name: postgres
 spec:
-  image: registry.developers.crunchydata.com/crunchydata/crunchy-postgres:ubi8-14.2-1
+  image: nvcr.io/nvidian/forge/crunchy-postgres:ubi8-14.2-1
   postgresVersion: 14
   instances:
     - name: instance1
@@ -15,7 +15,7 @@ spec:
             storage: 10Gi
   backups:
     pgbackrest:
-      image: registry.developers.crunchydata.com/crunchydata/crunchy-pgbackrest:ubi8-2.38-0
+      image: nvcr.io/nvidian/forge/crunchy-pgbackrest:ubi8-2.38-0
       repos:
       - name: repo1
         volume:
