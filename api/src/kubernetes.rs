@@ -284,6 +284,13 @@ pub async fn vpc_reconcile_handler(
 
                 let resource_version = leaf_to_find.metadata.resource_version;
 
+                //TODO: make it so that we don't have to manage resource lifetimes out here
+                vpc_db_resource
+                    .advance(
+                        &mut state_txn,
+                        &rpc::VpcResourceStateMachineInput::Initialize,
+                    )
+                    .await?;
                 vpc_db_resource
                     .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Submit)
                     .await?;
