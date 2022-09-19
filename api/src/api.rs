@@ -1,30 +1,20 @@
-use std::collections::BTreeMap;
 use std::convert::TryFrom;
-use std::net::IpAddr;
-use std::str::FromStr;
 
 use color_eyre::Report;
-use ipnetwork::Ipv4Network;
-use kube::{api::Api as KubeApi, Client};
+use lru::LruCache;
 use mac_address::MacAddress;
-use sqlx::Acquire;
+use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 use tower::ServiceBuilder;
 
 use ::rpc::MachineStateMachineInput;
 use auth::CarbideAuth;
-use carbide::db::constants::FORGE_KUBE_NAMESPACE;
-use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
 use carbide::ipmi::{ipmi_handler, RealIpmiCommandHandler};
-use carbide::kubernetes::{bgkubernetes_handler, VpcResourceActions};
-use carbide::vpc_resources::leaf;
+use carbide::kubernetes::bgkubernetes_handler;
 use carbide::{
     db::{
         auth::SshKeyValidationRequest,
-        constants::ADMIN_DPU_NETWORK_INTERFACE,
-        dhcp_entry::DhcpEntry,
-        dhcp_record::DhcpRecord,
         domain::Domain,
         domain::NewDomain,
         instance::NewInstance,
@@ -46,12 +36,14 @@ pub use rpc::forge::v0 as rpc;
 
 use crate::auth;
 use crate::cfg;
+use crate::dhcp_discover::RecordCacheEntry;
 
 use self::rpc::forge_server::Forge;
 
 #[derive(Debug)]
 pub struct Api {
-    database_connection: sqlx::PgPool,
+    pub(crate) database_connection: sqlx::PgPool,
+    pub(crate) dhcp_discovery_cache: Mutex<LruCache<MacAddress, RecordCacheEntry>>,
 }
 
 #[tonic::async_trait]
@@ -249,166 +241,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::DhcpDiscovery>,
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc::DhcpDiscovery {
-            mac_address,
-            relay_address,
-            link_address,
-            vendor_string,
-            ..
-        } = request.into_inner();
-
-        // first, we detect that the link address is present or not, and use it  if it exists, and fall back to the relay address if not
-        // we do this so that we can properly serve an address via DHCP because we can only serve address from "our" CIDR, and "our" CIDR is identified by the
-        // link address, but the actual relay_address is necessary to look up leaf_ids
-        let address_to_use_for_dhcp = link_address.as_ref().unwrap_or(&relay_address);
-
-        let parsed_mac: MacAddress = mac_address
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-
-        let parsed_relay = address_to_use_for_dhcp
-            .parse()
-            .map_err(CarbideError::from)?;
-
-        let existing_machines =
-            Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
-
-        let newly_created_interface;
-        let machine_interface = match &existing_machines.len() {
-            0 => {
-                newly_created_interface = true;
-                log::info!("No existing machine with mac address {} using network with relay: {}, creating one.", parsed_mac, parsed_relay);
-                MachineInterface::validate_existing_mac_and_create(
-                    &mut txn,
-                    parsed_mac,
-                    parsed_relay,
-                )
-                .await
-            }
-            1 => {
-                newly_created_interface = false;
-                let mut ifcs = MachineInterface::find_by_mac_address(&mut txn, parsed_mac).await?;
-                match ifcs.len() {
-                    1 => Ok(ifcs.remove(0)),
-                    n => {
-                        log::warn!(
-                            "{0} existing mac address ({1}) for network segment (relay ip: {2})",
-                            n,
-                            &mac_address,
-                            &address_to_use_for_dhcp
-                        );
-                        Err(CarbideError::NetworkSegmentDuplicateMacAddress(parsed_mac))
-                    }
-                }
-            }
-            _ => {
-                newly_created_interface = false;
-                log::warn!(
-                    "More than machine found with mac address ({0}) for network segment (relay ip: {1})",
-                    &mac_address, &address_to_use_for_dhcp
-                );
-                Err(CarbideError::NetworkSegmentDuplicateMacAddress(parsed_mac))
-            }
-        }?;
-
-        // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
-        if let Some(vendor) = vendor_string {
-            let res = DhcpEntry {
-                machine_interface_id: *machine_interface.id(),
-                vendor_class: vendor,
-            }
-            .persist(&mut txn)
-            .await;
-            match res {
-                Ok(_) => {} // do nothing on ok result
-                Err(e) => {
-                    log::debug!("Could not persist dhcp entry {}", e)
-                } // This should not fail the discover call, dhcp happens many times
-            }
-        }
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        // There is some small bit of duplicated logic in the existing machines lookup and this.
-        // A lookup for the machine interface is done above and could be combined with this if there
-        // is a speed issue to overcome.
-        let response = match NetworkSegment::for_relay(&mut txn, parsed_relay).await? {
-            None => Err(CarbideError::NoNetworkSegmentsForRelay(parsed_relay).into()),
-            Some(network) => Ok(Response::new({
-                let record: rpc::DhcpRecord =
-                    DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, network.id())
-                        .await?
-                        .into();
-
-                if newly_created_interface {
-                    let relay_ip = IpAddr::from_str(&relay_address)
-                        .map_err(|err| CarbideError::GenericError(err.to_string()))?;
-
-                    let resource = VpcResourceLeaf::find_by_loopback_ip(&mut txn, relay_ip).await?;
-
-                    // we're using the presence of the mapping as a "tell" for whether this ia DPU -- we literally
-                    // fail provisioning of a leaf if it doesn't have this loopback assigned, precisely so that we
-                    // can create this mapping.  The only way for it to not be present for a given relay address is
-                    // if this is a DPU coming up for the very first time. In this case we need to do nothing -- because
-                    // the provisioning step in 'discover_machine' is going to create this mapping for us.
-                    if let Some(dpu) = resource {
-                        // we need to go look at our mapping and get the assigned leaf ID for this relay address
-                        //TODO: think about making a GET leaf call in VPC resource actions
-                        let client = Client::try_default().await.map_err(CarbideError::from)?;
-                        let namespace = FORGE_KUBE_NAMESPACE;
-                        let leafs: KubeApi<leaf::Leaf> = KubeApi::namespaced(client, namespace);
-                        let mut leaf = leafs
-                            .get(dpu.id().to_string().as_str())
-                            .await
-                            .map_err(|err| CarbideError::GenericError(err.to_string()))?;
-
-                        let host_admin_ip_network = Ipv4Network::from_str(record.address.as_str())
-                            .map_err(|err| CarbideError::GenericError(err.to_string()))?;
-                        let host_admin_ip_address_string = host_admin_ip_network.ip().to_string();
-
-                        let new_host_admin_ips_map = BTreeMap::from([(
-                            ADMIN_DPU_NETWORK_INTERFACE.to_string(),
-                            host_admin_ip_address_string,
-                        )]);
-                        leaf.spec.host_admin_i_ps = Some(new_host_admin_ips_map);
-
-                        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
-
-                        VpcResourceActions::UpdateLeaf(leaf)
-                            .reconcile(db_conn)
-                            .await?;
-                        //spec:
-                        //  control:
-                        //    managementIP: 10.180.221.200
-                        //    vendor: DPU
-                        //  hostAdminIPs:
-                        //    pf0hpf: ""
-                    } else {
-                        log::info!(
-                            "VpcResourceLeaf not found, using relay ip: {} assuming this is DPU DHCPDISCOVER",
-                            relay_address
-                        )
-                    }
-                }
-                record
-            })),
-        };
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
+        crate::dhcp_discover::discover_dhcp(self, request).await
     }
 
     async fn done(&self, request: Request<rpc::Uuid>) -> Result<Response<rpc::Machine>, Status> {
@@ -1214,6 +1047,9 @@ impl Api {
         let conn_clone = database_connection.clone();
         let api_service = Api {
             database_connection,
+            dhcp_discovery_cache: Mutex::new(LruCache::new(
+                std::num::NonZeroUsize::new(1000).unwrap(),
+            )),
         };
 
         let mut authenticator = CarbideAuth::new();

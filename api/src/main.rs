@@ -6,6 +6,7 @@ use cfg::{Command, Options};
 mod api;
 mod auth;
 mod cfg;
+mod dhcp_discover;
 
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::Report> {

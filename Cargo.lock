@@ -496,6 +496,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "log",
+ "lru",
  "mac_address",
  "once_cell",
  "patricia_tree",
@@ -2273,6 +2274,15 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-subscriber 0.3.15",
+]
+
+[[package]]
+name = "lru"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "936d98d2ddd79c18641c6709e7bb09981449694e402d1a0f0f657ea8d61f4a51"
+dependencies = [
+ "hashbrown",
 ]
 
 [[package]]
