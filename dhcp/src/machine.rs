@@ -138,7 +138,7 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
     0
 }
 
-/// Invoke the discovery processs
+/// Invoke the discovery process
 ///
 /// # Safety
 /// This function deferences a pointer to a Machine object which is an opaque pointer

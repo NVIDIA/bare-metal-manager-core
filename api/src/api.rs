@@ -4,6 +4,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use color_eyre::Report;
+use ipnetwork::Ipv4Network;
 use kube::{api::Api as KubeApi, Client};
 use mac_address::MacAddress;
 use sqlx::Acquire;
@@ -373,9 +374,13 @@ impl Forge for Api {
                             .await
                             .map_err(|err| CarbideError::GenericError(err.to_string()))?;
 
+                        let host_admin_ip_network = Ipv4Network::from_str(record.address.as_str())
+                            .map_err(|err| CarbideError::GenericError(err.to_string()))?;
+                        let host_admin_ip_address_string = host_admin_ip_network.ip().to_string();
+
                         let new_host_admin_ips_map = BTreeMap::from([(
                             ADMIN_DPU_NETWORK_INTERFACE.to_string(),
-                            record.address.to_string(),
+                            host_admin_ip_address_string,
                         )]);
                         leaf.spec.host_admin_i_ps = Some(new_host_admin_ips_map);
 
