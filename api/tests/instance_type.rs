@@ -5,20 +5,16 @@ use carbide::db::instance_type::{
 };
 use carbide::CarbideResult;
 
-mod common;
-
-#[tokio::test]
-async fn test_instance_type_crud() {
+#[ctor::ctor]
+fn setup() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
+}
 
-    let db = common::TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
-
-    let mut txn = db
-        .pool
+#[sqlx::test]
+async fn test_instance_type_crud(pool: sqlx::PgPool) {
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");

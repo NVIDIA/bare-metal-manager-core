@@ -1,5 +1,4 @@
 use std::str::FromStr;
-use std::sync::Once;
 
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
@@ -15,13 +14,8 @@ use carbide::CarbideResult;
 
 mod common;
 
-static INIT: Once = Once::new();
-
+#[ctor::ctor]
 fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
@@ -29,8 +23,6 @@ fn init_logger() {
 
 #[tokio::test]
 async fn test_machine_discovery_no_domain() {
-    setup();
-
     let txn = common::TestDatabaseManager::new()
         .await
         .expect("Could not create database manager")
@@ -108,8 +100,6 @@ async fn test_machine_discovery_no_domain() {
 
 #[tokio::test]
 async fn test_machine_discovery_with_domain() {
-    setup();
-
     let mut txn = common::TestDatabaseManager::new()
         .await
         .expect("Could not create database manager")

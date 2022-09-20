@@ -1,5 +1,4 @@
 use std::str::FromStr;
-use std::sync::Once;
 
 use log::LevelFilter;
 use mac_address::MacAddress;
@@ -14,31 +13,15 @@ use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
 use carbide::db::vpc::NewVpc;
 use carbide::db::vpc_resource_state::VpcResourceState;
 
-use crate::common::TestDatabaseManager;
-
-mod common;
-
-static INIT: Once = Once::new();
-
+#[ctor::ctor]
 fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
 }
 
-#[tokio::test]
-async fn new_instance_subnet_matches_machine_interface() {
-    setup();
-
-    let pool = TestDatabaseManager::new()
-        .await
-        .expect("Unable to create database pool")
-        .pool;
-
+#[sqlx::test]
+async fn new_instance_subnet_matches_machine_interface(pool: sqlx::PgPool) {
     let mut txn = pool.begin().await.expect("Unable to create txn");
 
     let mut txn2 = pool
@@ -117,15 +100,8 @@ async fn new_instance_subnet_matches_machine_interface() {
     assert_eq!(instance_subnet.machine_interface_id(), new_interface.id())
 }
 
-#[tokio::test]
-async fn new_instance_in_init_state() {
-    setup();
-
-    let pool = TestDatabaseManager::new()
-        .await
-        .expect("Unable to create database pool")
-        .pool;
-
+#[sqlx::test]
+async fn new_instance_in_init_state(pool: sqlx::PgPool) {
     let mut txn = pool.begin().await.expect("Unable to create txn");
 
     let mut txn2 = pool
@@ -206,15 +182,8 @@ async fn new_instance_in_init_state() {
     assert_eq!(current_state, VpcResourceState::New)
 }
 
-#[tokio::test]
-async fn instance_subnet_state_machine_advance() {
-    setup();
-
-    let pool = TestDatabaseManager::new()
-        .await
-        .expect("Unable to create database pool")
-        .pool;
-
+#[sqlx::test]
+async fn instance_subnet_state_machine_advance(pool: sqlx::PgPool) {
     let mut txn = pool.begin().await.expect("Unable to create txn");
 
     let mut txn2 = pool

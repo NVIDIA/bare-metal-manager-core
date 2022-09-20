@@ -1,19 +1,11 @@
 use carbide::db::domain::{Domain, NewDomain};
 use carbide::{CarbideError, CarbideResult};
 
-use crate::common::TestDatabaseManager;
 use uuid::Uuid;
 
-mod common;
-
-#[tokio::test]
-async fn create_delete_valid_domain() {
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
-
-    let mut txn = db
-        .pool
+#[sqlx::test]
+async fn create_delete_valid_domain(pool: sqlx::PgPool) {
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -37,14 +29,9 @@ async fn create_delete_valid_domain() {
     assert!(domains.is_empty());
 }
 
-#[tokio::test]
-async fn create_invalid_domain_case() {
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
-
-    let mut txn = db
-        .pool
+#[sqlx::test]
+async fn create_invalid_domain_case(pool: sqlx::PgPool) {
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -58,14 +45,9 @@ async fn create_invalid_domain_case() {
     assert!(matches!(domain, Err(CarbideError::InvalidDomainName(_))));
 }
 
-#[tokio::test]
-async fn create_invalid_domain_regex() {
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
-
-    let mut txn = db
-        .pool
+#[sqlx::test]
+async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -81,14 +63,9 @@ async fn create_invalid_domain_regex() {
     assert!(matches!(domain, Err(CarbideError::InvalidDomainName(_))));
 }
 
-#[tokio::test]
-async fn find_domain() {
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
-
-    let mut txn = db
-        .pool
+#[sqlx::test]
+async fn find_domain(pool: sqlx::PgPool) {
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -101,8 +78,7 @@ async fn find_domain() {
 
     assert!(domain.is_ok());
 
-    let mut txn = db
-        .pool
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -135,14 +111,9 @@ async fn find_domain() {
     assert!(domains.is_empty());
 }
 
-#[tokio::test]
-async fn update_domain() {
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
-
-    let mut txn = db
-        .pool
+#[sqlx::test]
+async fn update_domain(pool: sqlx::PgPool) {
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -161,8 +132,7 @@ async fn update_domain() {
 
     updated_domain.name = updated_name;
 
-    let mut txn = db
-        .pool
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");

@@ -1,32 +1,28 @@
 use log::LevelFilter;
 use sqlx::prelude::*;
-use std::sync::Once;
 
 use carbide::db::network_segment::NetworkSegment;
 
-static INIT: Once = Once::new();
-
+#[ctor::ctor]
 fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
+        .filter_level(LevelFilter::Warn)
         .init();
 }
 
-#[sqlx::test(fixtures("network_segment_complete"))]
+const SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_update_network_segment_name(pool: sqlx::PgPool) -> sqlx::Result<()> {
-    setup();
     let mut connection = pool.acquire().await?;
     let mut txn = connection.begin().await?;
 
-    let id = uuid::uuid!("c11169d9-ad20-4705-8707-4e62a3ad4731");
-
-    let mut segments = NetworkSegment::find(&mut txn, carbide::db::UuidKeyedObjectFilter::One(id))
-        .await
-        .unwrap();
+    let mut segments = NetworkSegment::find(
+        &mut txn,
+        carbide::db::UuidKeyedObjectFilter::One(SEGMENT_ID),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(segments.len(), 1);
 
@@ -34,30 +30,27 @@ async fn test_update_network_segment_name(pool: sqlx::PgPool) -> sqlx::Result<()
 
     let update_result = segments[0].update(&mut txn).await;
 
+    txn.commit().await?;
+
     assert!(matches!(update_result, Ok(_)));
-    match update_result {
-        Ok(s) => println!("segment: {s:?}"),
-        Err(e) => println!("error updating: {e:?}"),
-    }
-    txn.commit().await.unwrap();
 
     Ok(())
 }
 
-#[sqlx::test(fixtures("network_segment_complete"))]
-async fn test_update_network_segment_vpc(pool: sqlx::PgPool) -> sqlx::Result<()> {
-    setup();
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_update_network_segment_vpc(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut connection = pool.acquire().await?;
     let mut txn = connection.begin().await?;
 
-    let id = uuid::uuid!("c11169d9-ad20-4705-8707-4e62a3ad4731");
-    let _original_vpc = uuid::uuid!("885906cf-cfd0-477f-91e1-38b9a65c8c28");
+    let updated_vpc_id = uuid::uuid!("d5001c6f-c55a-4fa8-bbbe-f989977469b5");
 
-    let updated_vpc_id = uuid::uuid!("6ff68e7a-c54e-42a0-8ae2-8e63180c97af");
-
-    let mut segments = NetworkSegment::find(&mut txn, carbide::db::UuidKeyedObjectFilter::One(id))
-        .await
-        .unwrap();
+    let mut segments = NetworkSegment::find(
+        &mut txn,
+        carbide::db::UuidKeyedObjectFilter::One(SEGMENT_ID),
+    )
+    .await?;
 
     assert_eq!(segments.len(), 1);
 
@@ -66,27 +59,25 @@ async fn test_update_network_segment_vpc(pool: sqlx::PgPool) -> sqlx::Result<()>
     let update_result = segments[0].update(&mut txn).await;
 
     assert!(matches!(update_result, Ok(_)));
-    match update_result {
-        Ok(s) => println!("segment: {s:?}"),
-        Err(e) => println!("error updating: {e:?}"),
-    }
-    txn.commit().await.unwrap();
+
+    txn.commit().await?;
 
     Ok(())
 }
-#[sqlx::test(fixtures("network_segment_complete"))]
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_update_network_segment_domain(pool: sqlx::PgPool) -> sqlx::Result<()> {
-    setup();
     let mut connection = pool.acquire().await?;
     let mut txn = connection.begin().await?;
 
-    let id = uuid::uuid!("c11169d9-ad20-4705-8707-4e62a3ad4731");
-    let _original_domain = uuid::uuid!("7687f939-727c-431e-a474-e15d70a9a728");
-    let updated_domain_id = uuid::uuid!("04d015b9-56e9-4e1b-84f0-5574893cd576");
+    let updated_domain_id = uuid::uuid!("48db2509-3b88-4db6-b77b-aa389d370e02");
 
-    let mut segments = NetworkSegment::find(&mut txn, carbide::db::UuidKeyedObjectFilter::One(id))
-        .await
-        .unwrap();
+    let mut segments = NetworkSegment::find(
+        &mut txn,
+        carbide::db::UuidKeyedObjectFilter::One(SEGMENT_ID),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(segments.len(), 1);
 
@@ -104,21 +95,20 @@ async fn test_update_network_segment_domain(pool: sqlx::PgPool) -> sqlx::Result<
     Ok(())
 }
 
-#[sqlx::test(fixtures("network_segment_complete"))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_update_network_segment_all(pool: sqlx::PgPool) -> sqlx::Result<()> {
-    setup();
     let mut connection = pool.acquire().await?;
     let mut txn = connection.begin().await?;
 
-    let id = uuid::uuid!("c11169d9-ad20-4705-8707-4e62a3ad4731");
-    let _original_domain = uuid::uuid!("7687f939-727c-431e-a474-e15d70a9a728");
-    let updated_domain_id = uuid::uuid!("04d015b9-56e9-4e1b-84f0-5574893cd576");
-    let _original_vpc = uuid::uuid!("885906cf-cfd0-477f-91e1-38b9a65c8c28");
-    let updated_vpc_id = uuid::uuid!("6ff68e7a-c54e-42a0-8ae2-8e63180c97af");
+    let updated_domain_id = uuid::uuid!("48db2509-3b88-4db6-b77b-aa389d370e02");
+    let updated_vpc_id = uuid::uuid!("d5001c6f-c55a-4fa8-bbbe-f989977469b5");
 
-    let mut segments = NetworkSegment::find(&mut txn, carbide::db::UuidKeyedObjectFilter::One(id))
-        .await
-        .unwrap();
+    let mut segments = NetworkSegment::find(
+        &mut txn,
+        carbide::db::UuidKeyedObjectFilter::One(SEGMENT_ID),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(segments.len(), 1);
 

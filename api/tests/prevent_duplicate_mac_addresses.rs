@@ -1,5 +1,3 @@
-use std::sync::Once;
-
 use log::LevelFilter;
 
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
@@ -13,13 +11,8 @@ use carbide::{CarbideError, CarbideResult};
 
 mod common;
 
-static INIT: Once = Once::new();
-
+#[ctor::ctor]
 fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
@@ -27,8 +20,6 @@ fn init_logger() {
 
 #[tokio::test]
 async fn prevent_duplicate_mac_addresses() {
-    setup();
-
     let mut txn = common::TestDatabaseManager::new()
         .await
         .expect("Could not create database manager")

@@ -1,5 +1,4 @@
 use std::str::FromStr;
-use std::sync::Once;
 
 use log::LevelFilter;
 use mac_address::MacAddress;
@@ -15,13 +14,8 @@ use carbide::CarbideError;
 
 mod common;
 
-static INIT: Once = Once::new();
-
+#[ctor::ctor]
 fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
@@ -29,8 +23,6 @@ fn init_logger() {
 
 #[tokio::test]
 async fn state_machine_advance_from_db_events() {
-    setup();
-
     let mut txn = common::TestDatabaseManager::new()
         .await
         .expect("Could not create database manager")
@@ -110,8 +102,6 @@ async fn state_machine_advance_from_db_events() {
 
 #[tokio::test]
 async fn test_fsm_invalid_advance() {
-    setup();
-
     let mut txn = common::TestDatabaseManager::new()
         .await
         .expect("Could not create database manager")

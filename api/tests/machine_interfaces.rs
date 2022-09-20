@@ -1,6 +1,4 @@
 use std::str::FromStr;
-use std::sync::Once;
-
 use log::LevelFilter;
 use mac_address::MacAddress;
 
@@ -16,13 +14,8 @@ use crate::common::TestDatabaseManager;
 
 mod common;
 
-static INIT: Once = Once::new();
-
+#[ctor::ctor]
 fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
@@ -30,8 +23,6 @@ fn init_logger() {
 
 #[tokio::test]
 async fn only_one_primary_interface_per_machine() {
-    setup();
-
     let pool = TestDatabaseManager::new()
         .await
         .expect("Unable to create database pool")
@@ -123,8 +114,6 @@ async fn only_one_primary_interface_per_machine() {
 
 #[tokio::test]
 async fn many_non_primary_interfaces_per_machine() {
-    setup();
-
     let pool = TestDatabaseManager::new()
         .await
         .expect("Unable to create database pool")
