@@ -272,10 +272,14 @@ pub async fn vpc_reconcile_handler(
             VpcResourceActions::UpdateLeaf(spec) => {
                 let spec_name = spec.name().to_string();
 
+                log::info!("UpdateLeaf spec - {spec_name} {spec:?}");
+
                 let mut new_spec = spec;
 
-                let api: Api<leaf::Leaf> = Api::all(client);
+                let api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
                 let leaf_to_find = api.get(&spec_name).await?;
+
+                log::info!("leaf_to_find leaf - {leaf_to_find:?}");
 
                 let mut state_txn = state_pool.begin().await?;
 
@@ -297,6 +301,8 @@ pub async fn vpc_reconcile_handler(
 
                 // Updates must contain the most recent observed version
                 new_spec.metadata.resource_version = resource_version;
+
+                log::info!("UpdateLeaf new_spec - {new_spec:?}");
 
                 let result = api
                     .replace(&spec_name, &PostParams::default(), &new_spec)
