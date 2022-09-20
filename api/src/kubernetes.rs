@@ -269,32 +269,34 @@ pub async fn vpc_reconcile_handler(
                 .await;
                 let _ = current_job.complete().await.map_err(CarbideError::from);
             }
-            VpcResourceActions::UpdateLeaf(spec) => {
-                let spec_name = spec.name().to_string();
+            VpcResourceActions::UpdateLeaf(mut new_spec) => {
+                let spec_name = new_spec.name().to_string();
 
-                log::info!("UpdateLeaf spec - {spec_name} {spec:?}");
+                log::info!("UpdateLeaf spec - {spec_name} {new_spec:?}");
 
-                let mut new_spec = spec;
+                let leaf_api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+                let original_leaf = leaf_api.get(&spec_name).await?;
 
-                let api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
-                let leaf_to_find = api.get(&spec_name).await?;
+                log::info!("leaf_to_find leaf - {original_leaf:?}");
 
-                log::info!("leaf_to_find leaf - {leaf_to_find:?}");
-
+                let mut init_state_txn = state_pool.begin().await?;
                 let mut state_txn = state_pool.begin().await?;
 
                 let vpc_id = Uuid::from_str(&spec_name)?;
                 let vpc_db_resource = VpcResourceLeaf::find(&mut state_txn, vpc_id).await?;
 
-                let resource_version = leaf_to_find.metadata.resource_version;
+                let resource_version = original_leaf.resource_version();
 
                 //TODO: make it so that we don't have to manage resource lifetimes out here
                 vpc_db_resource
                     .advance(
-                        &mut state_txn,
+                        &mut init_state_txn,
                         &rpc::VpcResourceStateMachineInput::Initialize,
                     )
                     .await?;
+
+                init_state_txn.commit().await?;
+
                 vpc_db_resource
                     .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Submit)
                     .await?;
@@ -304,17 +306,45 @@ pub async fn vpc_reconcile_handler(
 
                 log::info!("UpdateLeaf new_spec - {new_spec:?}");
 
-                let result = api
+                let result = leaf_api
                     .replace(&spec_name, &PostParams::default(), &new_spec)
-                    .await?;
+                    .await;
 
-                update_status(
-                    &current_job,
-                    3,
-                    format!("Leaf Updated {result:?}"),
-                    TaskState::Finished,
-                )
-                .await;
+                match result {
+                    Ok(updated_leaf) => {
+                        update_status(
+                            &current_job,
+                            3,
+                            format!("Updating leaf in VPC {:?}", updated_leaf),
+                            TaskState::Ongoing,
+                        )
+                        .await;
+
+                        vpc_db_resource
+                            .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Accept)
+                            .await?;
+
+                        state_txn.commit().await?;
+                    }
+                    Err(error) => {
+                        vpc_db_resource
+                            .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Fail)
+                            .await?;
+
+                        update_status(
+                            &current_job,
+                            6,
+                            "Unable to update resource".to_string(),
+                            TaskState::Error(error.to_string()),
+                        )
+                        .await;
+                        state_txn.commit().await?;
+                    }
+                }
+
+                //vpc_db_resource
+                //    .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Ready)
+                //.await?;
 
                 let _ = current_job.complete().await.map_err(CarbideError::from);
             }
