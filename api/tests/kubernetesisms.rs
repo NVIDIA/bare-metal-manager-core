@@ -1,5 +1,3 @@
-use std::sync::Once;
-
 use kube::api::PostParams;
 use kube::{Api, Client};
 use log::LevelFilter;
@@ -7,13 +5,8 @@ use log::LevelFilter;
 use carbide::db::constants::FORGE_KUBE_NAMESPACE;
 use carbide::vpc_resources::leaf;
 
-static INIT: Once = Once::new();
-
+#[ctor::ctor]
 fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
@@ -22,8 +15,6 @@ fn init_logger() {
 #[tokio::test]
 #[ignore]
 async fn create_leaf_in_kube() {
-    setup();
-
     let client = Client::try_default()
         .await
         .expect("Unable to connect to kubernetes");

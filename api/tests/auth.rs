@@ -1,38 +1,9 @@
-use sqlx::Postgres;
-
 use carbide::db::auth::SshKeyValidationRequest;
 use carbide::CarbideError;
 use rpc::forge::v0 as rpc;
 
-mod common;
-
-async fn create_user(txn: &mut sqlx::Transaction<'_, Postgres>) -> Result<(), String> {
-    let _: (String,) = sqlx::query_as(
-        r#"INSERT INTO ssh_public_keys (username, role, pubkeys)
-            VALUES('testuser', 'administrator', '{"testkey"}') 
-            returning username"#,
-    )
-    .fetch_one(txn)
-    .await
-    .unwrap();
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_auth() {
-    let pool = common::TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager")
-        .pool;
-
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    create_user(&mut txn).await.unwrap();
-    txn.commit().await.unwrap();
-
+#[sqlx::test(fixtures("user_ssh_key"))]
+async fn test_auth(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let mut txn = pool
         .begin()
         .await
@@ -49,22 +20,12 @@ async fn test_auth() {
         rpc::UserRoles::from_i32(response.role).unwrap(),
         rpc::UserRoles::Administrator
     );
+
+    Ok(())
 }
 
-#[tokio::test]
-async fn test_auth_fail() {
-    let pool = common::TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager")
-        .pool;
-
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    create_user(&mut txn).await.unwrap();
-    txn.commit().await.unwrap();
-
+#[sqlx::test(fixtures("user_ssh_key"))]
+async fn test_auth_fail(pool: sqlx::PgPool) {
     let mut txn = pool
         .begin()
         .await
@@ -79,13 +40,8 @@ async fn test_auth_fail() {
     assert!(!response.is_authenticated);
 }
 
-#[tokio::test]
-async fn test_auth_fail_no_user() {
-    let pool = common::TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager")
-        .pool;
-
+#[sqlx::test]
+async fn test_auth_fail_no_user(pool: sqlx::PgPool) {
     let mut txn = pool
         .begin()
         .await

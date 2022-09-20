@@ -1,5 +1,4 @@
 use std::str::FromStr;
-use std::sync::Once;
 
 use log::LevelFilter;
 use mac_address::MacAddress;
@@ -13,28 +12,16 @@ use carbide::db::network_prefix::NewNetworkPrefix;
 use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
 use carbide::db::vpc::NewVpc;
 
-mod common;
-
-static INIT: Once = Once::new();
-
+#[ctor::ctor]
 fn setup() {
-    INIT.call_once(init_logger);
-}
-
-fn init_logger() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
 }
 
-#[tokio::test]
-async fn test_crud_instance() {
-    setup();
-
-    let mut txn = common::TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager")
-        .pool
+#[sqlx::test]
+async fn test_crud_instance(pool: sqlx::PgPool) {
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
