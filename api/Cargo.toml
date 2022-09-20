@@ -39,13 +39,15 @@ serde_json = "*"
 sqlx = { version = "0.6", features = [ "runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json" ] }
 sqlxmq = { version = "0.4", default-features = false, features = [ "runtime-tokio-rustls"]}
 thiserror = "1.0"
-tokio = { version = "1.9", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
 tokio-stream = "*"
 tonic = { version = "0.8.0", features = ["tls"] }
 tonic-reflection = "0.5.0"
 tower = "0.4"
 tower-http = { version = "0.3", features = ["auth"] }
 tower-layer = "0.3"
+tracing = "*"
+tracing-subscriber = { version = "*", features = [ "env-filter", "local-time"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [build-dependencies]

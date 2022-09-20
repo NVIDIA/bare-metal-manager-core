@@ -48,6 +48,7 @@ pub struct Api {
 
 #[tonic::async_trait]
 impl Forge for Api {
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn lookup_record(
         &self,
         request: Request<rpc::dns_message::DnsQuestion>,
@@ -93,6 +94,7 @@ impl Forge for Api {
         Ok(results)
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn network_segments_for_vpc(
         &self,
         request: Request<rpc::VpcSearchQuery>,
@@ -134,6 +136,7 @@ impl Forge for Api {
         Ok(results)
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_vpcs(
         &self,
         request: Request<rpc::VpcSearchQuery>,
@@ -170,6 +173,7 @@ impl Forge for Api {
         Ok(result)
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_interfaces(
         &self,
         request: Request<rpc::InterfaceSearchQuery>,
@@ -201,6 +205,7 @@ impl Forge for Api {
         response.map(Response::new)
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_machines(
         &self,
         request: Request<rpc::MachineSearchQuery>,
@@ -237,6 +242,7 @@ impl Forge for Api {
         Ok(result)
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn discover_dhcp(
         &self,
         request: Request<rpc::DhcpDiscovery>,
@@ -244,6 +250,7 @@ impl Forge for Api {
         crate::dhcp_discover::discover_dhcp(self, request).await
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn done(&self, request: Request<rpc::Uuid>) -> Result<Response<rpc::Machine>, Status> {
         let mut txn = self
             .database_connection
@@ -276,6 +283,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn discover_machine(
         &self,
         request: Request<rpc::MachineDiscoveryInfo>,
@@ -337,10 +345,13 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn find_network_segments(
         &self,
         _request: Request<rpc::NetworkSegmentQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+        log::debug!("Fetching database transaction");
+
         let mut txn = self
             .database_connection
             .begin()
@@ -355,11 +366,11 @@ impl Forge for Api {
             .map(rpc::NetworkSegmentList::from)
             .map(Response::new)
             .map_err(CarbideError::from)?;
-        //.map_err(|e| Status::new(Code::Internal, format!("{:?}", e)));
 
         Ok(network)
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_network_segment(
         &self,
         request: Request<rpc::NetworkSegment>,
@@ -381,6 +392,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_network_segment(
         &self,
         request: Request<rpc::NetworkSegmentDeletion>,
@@ -429,6 +441,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_domain(
         &self,
         request: Request<rpc::Domain>,
@@ -449,6 +462,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_domain(
         &self,
         request: Request<rpc::DomainSearchQuery>,
@@ -485,6 +499,7 @@ impl Forge for Api {
         Ok(result)
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_domain(
         &self,
         request: Request<rpc::Domain>,
@@ -539,6 +554,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_domain(
         &self,
         request: Request<rpc::DomainDeletion>,
@@ -590,6 +606,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_vpc(&self, request: Request<rpc::Vpc>) -> Result<Response<rpc::Vpc>, Status> {
         let mut txn = self
             .database_connection
@@ -608,6 +625,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_vpc(&self, request: Request<rpc::Vpc>) -> Result<Response<rpc::Vpc>, Status> {
         let mut txn = self
             .database_connection
@@ -626,6 +644,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_vpc(
         &self,
         request: Request<rpc::VpcDeletion>,
@@ -647,6 +666,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn update_network_segment(
         &self,
         _request: Request<rpc::NetworkSegment>,
@@ -654,6 +674,7 @@ impl Forge for Api {
         todo!()
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_instance(
         &self,
         request: Request<rpc::Instance>,
@@ -754,6 +775,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn update_instance(
         &self,
         _request: Request<rpc::Instance>,
@@ -761,6 +783,7 @@ impl Forge for Api {
         todo!()
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn delete_instance(
         &self,
         _request: Request<rpc::InstanceDeletionRequest>,
@@ -768,6 +791,7 @@ impl Forge for Api {
         todo!()
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn invoke_instance_power(
         &self,
         _request: Request<rpc::InstancePowerRequest>,
@@ -775,6 +799,7 @@ impl Forge for Api {
         todo!()
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn get_machine(
         &self,
         request: Request<rpc::Uuid>,
@@ -798,6 +823,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_instance_type(
         &self,
         request: Request<rpc::InstanceType>,
@@ -819,6 +845,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_instance_type(
         &self,
         request: Request<rpc::InstanceType>,
@@ -840,6 +867,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_instance_type(
         &self,
         request: Request<rpc::InstanceTypeDeletion>,
@@ -861,6 +889,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_tag(
         &self,
         request: Request<rpc::TagCreate>,
@@ -881,6 +910,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_tag(
         &self,
         request: Request<rpc::TagDelete>,
@@ -901,6 +931,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn set_tags(
         &self,
         request: Request<rpc::TagsList>,
@@ -921,6 +952,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn list_tags(
         &self,
         _request: Request<rpc::TagVoid>,
@@ -938,6 +970,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn assign_tag(
         &self,
         request: Request<rpc::TagAssign>,
@@ -958,6 +991,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn remove_tag(
         &self,
         request: Request<rpc::TagRemove>,
@@ -978,6 +1012,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn validate_user_ssh_key(
         &self,
         request: Request<rpc::SshKeyValidationRequest>,
@@ -998,6 +1033,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn get_bmc_meta_data(
         &self,
         request: Request<rpc::BmcMetaDataRequest>,
@@ -1018,6 +1054,7 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_bmc_meta_data(
         &self,
         request: Request<rpc::BmcMetaData>,
@@ -1040,6 +1077,7 @@ impl Forge for Api {
 }
 
 impl Api {
+    #[tracing::instrument(skip_all)]
     pub async fn run(daemon_config: &cfg::Daemon) -> Result<(), Report> {
         log::info!("Starting API server on {:?}", daemon_config.listen[0]);
 
