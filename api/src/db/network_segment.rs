@@ -201,6 +201,7 @@ impl NetworkSegment {
         }
     }
 
+    #[tracing::instrument(skip(txn, filter))]
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,

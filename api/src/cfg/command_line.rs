@@ -52,6 +52,7 @@ pub struct Migrate {
 }
 
 impl Options {
+    #[tracing::instrument]
     pub fn load() -> Self {
         Self::parse()
     }
