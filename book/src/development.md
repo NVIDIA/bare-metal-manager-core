@@ -15,7 +15,7 @@ For a list env vars we predefine look at
 1. Install rust by following directions [here](https://www.rust-lang.org/tools/install)
 2. Install additional cargo utilities
 
-    ```cargo install cargo-watch cargo-make```
+    ```cargo install cargo-watch cargo-make sccache```
 3. Install docker following these [directions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository)
 4. Install docker-compose using your system package manager
 
