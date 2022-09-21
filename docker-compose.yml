@@ -64,6 +64,8 @@ services:
     command: cargo watch -C api -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
     ports:
       - 1079:1079
+    environment:
+      - CARBIDE_DHCP_SERVER="172.20.0.12"
 
   carbide-pxe:
     depends_on:

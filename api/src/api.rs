@@ -1,8 +1,11 @@
 use std::convert::TryFrom;
 
+use carbide::db::network_prefix::NetworkPrefix;
 use color_eyre::Report;
 use lru::LruCache;
 use mac_address::MacAddress;
+use sqlx::Acquire;
+use std::env;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
@@ -11,7 +14,7 @@ use tower::ServiceBuilder;
 use ::rpc::MachineStateMachineInput;
 use auth::CarbideAuth;
 use carbide::ipmi::{ipmi_handler, RealIpmiCommandHandler};
-use carbide::kubernetes::bgkubernetes_handler;
+use carbide::kubernetes::{bgkubernetes_handler, create_resource_group, delete_resource_group};
 use carbide::{
     db::{
         auth::SshKeyValidationRequest,
@@ -32,13 +35,21 @@ use carbide::{
     },
     CarbideError,
 };
+use once_cell::sync::Lazy;
 pub use rpc::forge::v0 as rpc;
+use std::sync::RwLock;
 
 use crate::auth;
 use crate::cfg;
 use crate::dhcp_discover::RecordCacheEntry;
 
 use self::rpc::forge_server::Forge;
+
+pub struct ExternalConfig {
+    pub dhcp_server: Option<String>,
+}
+pub static CONFIG: Lazy<RwLock<ExternalConfig>> =
+    Lazy::new(|| RwLock::new(ExternalConfig { dhcp_server: None }));
 
 #[derive(Debug)]
 pub struct Api {
@@ -381,12 +392,20 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(NewNetworkSegment::try_from(request.into_inner())?
+        let response = NewNetworkSegment::try_from(request.into_inner())?
             .persist(&mut txn)
-            .await
-            .map(rpc::NetworkSegment::from)
-            .map(Response::new)?);
+            .await;
 
+        let dhcp_server = CONFIG.read().unwrap().dhcp_server.clone();
+        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+
+        if let Ok(segment) = response.as_ref() {
+            for prefix in &segment.prefixes {
+                create_resource_group(prefix, db_conn, dhcp_server.clone()).await?;
+            }
+        }
+
+        let response = Ok(response.map(rpc::NetworkSegment::from).map(Response::new)?);
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
@@ -430,11 +449,21 @@ impl Forge for Api {
         // NOTE(jdg): We don't have to enforce the NULL subdomain and VPC entry here because
         // we're leaving that up to the object call and checking in the db layer instead
 
+        let prefixes =
+            NetworkPrefix::find_by_segment(&mut txn, UuidKeyedObjectFilter::One(*segment.id()))
+                .await?;
+
         let response = Ok(segment
             .delete(&mut txn)
             .await
             .map(|_| rpc::NetworkSegmentDeletionResult {})
             .map(Response::new)?);
+
+        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+
+        for prefix in &prefixes {
+            delete_resource_group(prefix, db_conn).await?;
+        }
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -1076,6 +1105,12 @@ impl Forge for Api {
     }
 }
 
+fn update_external_config() {
+    let dhcp_server =
+        env::var("CARBIDE_DHCP_SERVER").expect("Env variable CARBIDE_DHCP_SERVER is not defined.");
+    CONFIG.write().unwrap().dhcp_server = Some(dhcp_server);
+}
+
 impl Api {
     #[tracing::instrument(skip_all)]
     pub async fn run(daemon_config: &cfg::Daemon) -> Result<(), Report> {
@@ -1103,6 +1138,8 @@ impl Api {
             auth::DecodingKey::from_base64_secret("dWggb2g=").unwrap(),
         );
         */
+
+        update_external_config();
 
         let auth_layer = ServiceBuilder::new()
             .layer(tower_http::auth::RequireAuthorizationLayer::custom(
