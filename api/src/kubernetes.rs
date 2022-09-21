@@ -6,7 +6,7 @@ use chrono::DateTime;
 use itertools::Itertools;
 use kube::runtime::wait::{await_condition, Condition};
 use kube::{
-    api::{Api, PostParams, ResourceExt},
+    api::{Api, DeleteParams, PostParams, ResourceExt},
     Client,
 };
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::constants::FORGE_KUBE_NAMESPACE;
+use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::vpc_resources::{leaf, managed_resource, resource_group};
 use crate::{CarbideError, CarbideResult};
@@ -93,6 +94,103 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
         Ok(_) => (),
         Err(x) => {
             log::error!("Status update failed. Error: {:?}", x)
+        }
+    }
+}
+
+async fn create_resource_group_handler(
+    mut current_job: CurrentJob,
+    spec: resource_group::ResourceGroup,
+    client: Client,
+) -> CarbideResult<()> {
+    let spec_name = spec.name().to_string();
+    log::info!("Creating resource_group with name {}.", spec_name);
+
+    update_status(
+        &current_job,
+        0,
+        format!("Creating resource group with name {}", spec_name),
+        TaskState::Ongoing,
+    )
+    .await;
+
+    let resource: Api<resource_group::ResourceGroup> =
+        Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+    let result = resource.create(&PostParams::default(), &spec).await;
+
+    match result {
+        Ok(_) => {
+            update_status(
+                &current_job,
+                1,
+                format!("ResourceGroup creation {} is successful.", spec.name()),
+                TaskState::Finished,
+            )
+            .await;
+            let _ = current_job.complete().await.map_err(CarbideError::from);
+            Ok(())
+        }
+        Err(err) => {
+            update_status(
+                &current_job,
+                2,
+                format!(
+                    "ResourceGroup creation {} failed. Error: {}",
+                    spec.name(),
+                    err
+                ),
+                TaskState::Error(err.to_string()),
+            )
+            .await;
+            Err(CarbideError::GenericError(err.to_string()))
+        }
+    }
+}
+
+async fn delete_resource_group_handler(
+    mut current_job: CurrentJob,
+    spec: resource_group::ResourceGroup,
+    client: Client,
+) -> CarbideResult<()> {
+    let spec_name = spec.name().to_string();
+
+    update_status(
+        &current_job,
+        0,
+        format!("Deleting resource group with name {}", spec_name),
+        TaskState::Ongoing,
+    )
+    .await;
+
+    let resource: Api<resource_group::ResourceGroup> =
+        Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+    let result = resource.delete(&spec_name, &DeleteParams::default()).await;
+
+    match result {
+        Ok(_) => {
+            update_status(
+                &current_job,
+                1,
+                format!("ResourceGroup deletion {} is successful.", spec.name()),
+                TaskState::Finished,
+            )
+            .await;
+            let _ = current_job.complete().await.map_err(CarbideError::from);
+            Ok(())
+        }
+        Err(err) => {
+            update_status(
+                &current_job,
+                2,
+                format!(
+                    "ResourceGroup deletion {} failed. Error: {}",
+                    spec.name(),
+                    err
+                ),
+                TaskState::Error(err.to_string()),
+            )
+            .await;
+            Err(CarbideError::GenericError(err.to_string()))
         }
     }
 }
@@ -287,14 +385,14 @@ pub async fn vpc_reconcile_handler(
                     }
                 }
             }
-            VpcResourceActions::CreateResourceGroup(_spec) => {
-                todo!()
+            VpcResourceActions::CreateResourceGroup(spec) => {
+                create_resource_group_handler(current_job, spec, client).await?;
             }
             VpcResourceActions::UpdateResourceGroup(_spec) => {
                 todo!()
             }
-            VpcResourceActions::DeleteResourceGroup(_spec) => {
-                todo!()
+            VpcResourceActions::DeleteResourceGroup(spec) => {
+                delete_resource_group_handler(current_job, spec, client).await?;
             }
             VpcResourceActions::CreateManagedResource(_spec) => {
                 todo!()
@@ -423,4 +521,80 @@ pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideRes
         .run()
         .await
         .map_err(CarbideError::from)
+}
+
+pub async fn create_resource_group(
+    prefix: &NetworkPrefix,
+    db_conn: &mut PgConnection,
+    dhcp_server: Option<String>,
+) -> CarbideResult<()> {
+    let gateway = prefix.gateway.map(|x| x.ip().to_string());
+
+    let (ip, prefix_length) = (
+        Some(prefix.prefix.ip().to_string()),
+        Some(prefix.prefix.prefix() as i32),
+    );
+
+    let resource_group_network = resource_group::ResourceGroupSpec {
+        dhcp_server,
+        fabric_ip_pool: None,
+        network: Some(resource_group::ResourceGroupNetwork {
+            gateway,
+            ip,
+            prefix_length,
+        }),
+        network_implementation_type: None,
+        overlay_ip_pool: None,
+        tenant_identifier: None,
+    };
+
+    let resource_group =
+        resource_group::ResourceGroup::new(&prefix.id.to_string(), resource_group_network);
+
+    log::info!("ResourceGroup sent to kubernetes: {:?}", resource_group);
+
+    VpcResourceActions::CreateResourceGroup(resource_group)
+        .reconcile(db_conn)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn delete_resource_group(
+    prefix: &NetworkPrefix,
+    db_conn: &mut PgConnection,
+) -> CarbideResult<()> {
+    let gateway = prefix.gateway.map(|x| x.ip().to_string());
+
+    let (ip, prefix_length) = (
+        Some(prefix.prefix.ip().to_string()),
+        Some(prefix.prefix.prefix() as i32),
+    );
+
+    let resource_group_network = resource_group::ResourceGroupSpec {
+        dhcp_server: None,
+        fabric_ip_pool: None,
+        network: Some(resource_group::ResourceGroupNetwork {
+            gateway,
+            ip,
+            prefix_length,
+        }),
+        network_implementation_type: None,
+        overlay_ip_pool: None,
+        tenant_identifier: None,
+    };
+
+    let resource_group =
+        resource_group::ResourceGroup::new(&prefix.id.to_string(), resource_group_network);
+
+    log::info!(
+        "ResourceGroupDelete sent to kubernetes: {:?}",
+        resource_group
+    );
+
+    VpcResourceActions::DeleteResourceGroup(resource_group)
+        .reconcile(db_conn)
+        .await?;
+
+    Ok(())
 }
