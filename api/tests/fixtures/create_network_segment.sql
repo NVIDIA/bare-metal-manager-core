@@ -16,5 +16,4 @@ INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved) VALUES 
 	'91609f10-c91d-470d-a260-6293ea0c1200',
 	'192.0.2.0/24',
 	'192.0.2.1',
-	2);
-
+	3);
