@@ -189,9 +189,9 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         uuid: uuid::Uuid,
     ) -> CarbideResult<Option<Self>> {
-        Machine::find(txn, UuidKeyedObjectFilter::One(uuid))
-            .await
-            .map(|v| v.into_iter().next())
+        Ok(Machine::find(txn, UuidKeyedObjectFilter::One(uuid))
+            .await?
+            .pop())
     }
 
     pub fn generate_hostname_from_uuid(uuid: &uuid::Uuid) -> String {
