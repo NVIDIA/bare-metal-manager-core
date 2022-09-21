@@ -1,2 +1,5 @@
 [target.'cfg(all())']
 rustflags = ["-D", "warnings"]
+
+[build]
+rustc-wrapper = "sccache"
