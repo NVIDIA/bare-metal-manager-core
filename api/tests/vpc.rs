@@ -2,112 +2,78 @@ use log::LevelFilter;
 
 use carbide::db::vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
 use carbide::db::UuidKeyedObjectFilter;
-use carbide::CarbideResult;
 
-use crate::common::TestDatabaseManager;
+const FIXTURE_CREATED_VPC_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
 
-mod common;
-
-#[tokio::test]
-async fn create_vpc() {
+#[ctor::ctor]
+fn setup() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
+}
 
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
+#[sqlx::test]
+async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
 
-    let mut txn = db
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    let _vpc = NewVpc {
-        name: "Metal".to_string(),
+    NewVpc {
+        name: "Forge".to_string(),
         organization: String::new(),
     }
     .persist(&mut txn)
-    .await;
+    .await?;
 
     let vpc = NewVpc {
-        name: "Metal no Org".to_string(),
+        name: "Forge no Org".to_string(),
         organization: String::new(),
     }
     .persist(&mut txn)
-    .await;
+    .await?;
 
-    let unwrapped = &vpc.unwrap();
-    assert!(unwrapped.deleted.is_none());
+    assert!(matches!(vpc.deleted, None));
 
     txn.commit().await.unwrap();
 
-    // create another transaction to ensure the updated field is updated properly
-    let mut txn = db
-        .pool
+    let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
 
     let _updated_vpc = UpdateVpc {
-        id: unwrapped.id,
-        name: unwrapped.name.to_string(),
+        id: vpc.id,
+        name: vpc.name.to_string(),
         organization: String::new(),
     }
     .update(&mut txn)
     .await
     .unwrap();
 
-    let vpc = DeleteVpc { id: unwrapped.id }.delete(&mut txn).await;
+    let vpc = DeleteVpc { id: vpc.id }.delete(&mut txn).await;
 
     let vpc = &vpc.unwrap();
 
     assert!(vpc.deleted.is_some());
 
-    // verify find doesn't pick up deleted vpc
-    let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(unwrapped.id))
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
+    let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(vpc.id)).await?;
+
+    txn.commit().await?;
 
     assert!(vpcs.is_empty());
+
+    Ok(())
 }
 
-#[tokio::test]
-async fn find_vpc_by_id() {
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
+#[sqlx::test(fixtures("create_vpc"))]
+async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
 
-    let mut txn = db
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    let vpc: CarbideResult<Vpc> = NewVpc {
-        name: "Metal no Org".to_string(),
-        organization: String::new(),
-    }
-    .persist(&mut txn)
-    .await;
-
-    txn.commit().await.unwrap();
-
-    let mut txn2 = db
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    let unwrapped = &vpc.unwrap();
-
-    let some_vpc = Vpc::find(&mut txn2, UuidKeyedObjectFilter::One(unwrapped.id))
-        .await
-        .unwrap();
+    let some_vpc = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(FIXTURE_CREATED_VPC_ID)).await?;
 
     assert_eq!(1, some_vpc.len());
+
     let first = some_vpc.first().unwrap();
-    assert_eq!(first, unwrapped);
+
+    assert_eq!(first.id, FIXTURE_CREATED_VPC_ID);
+
+    Ok(())
 }
