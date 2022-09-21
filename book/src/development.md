@@ -7,38 +7,12 @@ environment.
 
 There are preset environment variables that are used throughout the repo.  `${REPO_ROOT}` is used to represent the top of the forge repo tree.
 
-For a list  env vars we predefine look at
+For a list env vars we predefine look at
 `${REPO_ROOT}/.envrc`
-
-## Codebase overview
-api - forge primary entrpoint for GRPC API calls. This component receives all the  GRPC calls
-
-book/ - architecture of forge book.  aka "the book"
-
-dev/ - a catch all directory for things that are not code related but are used
-to support forge.  e.g. Dockerfiles, kubernetes yaml, etc.
-
-dhcp/ - kea dhcp plugin.  Forge uses ISC Kea for a dhcp event loop.  This code
-intercepts DHCPDISCOVERs from dhcp-relays and passes the info to carbide-api
-
-dns/  - provides DNS resolution for assets in forge databse
-
-ipmi/ - a rust FII library around FreeIPMI.  This is used for issuing IPMI
-commands to machines
-
-pxe/ - forge-pxe is a web service which provides iPXE and cloud-init data to
-machines
-
-rpc/ - protobuf definitions and a rust library which handles marshalling
-data from/to GRPC to native rust types
-
-vendor/ - external libraries
-
-vpc/ - local copy of forge-vpc code. Used when building local containers
 
 ## Local environment prep
 
-1.  Install rust by following directions [here](https://www.rust-lang.org/tools/install)
+1. Install rust by following directions [here](https://www.rust-lang.org/tools/install)
 2. Install additional cargo utilities
 
     ```cargo install cargo-watch cargo-make```
