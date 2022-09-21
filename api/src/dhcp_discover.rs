@@ -175,7 +175,19 @@ pub async fn discover_dhcp(
                         ADMIN_DPU_NETWORK_INTERFACE.to_string(),
                         host_admin_ip_address_string,
                     )]);
+
+                    let hyphenated_mac_address = str::replace(&parsed_mac.to_string(), ":", "-");
+
+                    // TODO Need to handle VF as well, this assumes PF
+                    let new_host_interfaces_map = BTreeMap::from([(
+                        ADMIN_DPU_NETWORK_INTERFACE.to_string(),
+                        hyphenated_mac_address,
+                    )]);
+
+                    log::info!("Using: {new_host_interfaces_map:?} for host_interfaces mapping");
+
                     leaf.spec.host_admin_i_ps = Some(new_host_admin_ips_map);
+                    leaf.spec.host_interfaces = Some(new_host_interfaces_map);
 
                     let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
 

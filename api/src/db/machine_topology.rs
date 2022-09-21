@@ -210,30 +210,6 @@ impl MachineTopology {
                 VpcResourceActions::CreateLeaf(leaf_spec)
                     .reconcile(db_conn)
                     .await?;
-
-                //  VpcResourceActions::CreateLeaf(leaf_spec)
-                //     .reconcile(&mut *txn)
-                //     .await?;
-
-                //let machine = Machine::find_one(&mut *txn, *machine_id).await?.unwrap();
-                // let foo = machine.associate_vpc_leaf_id();
-
-                // forge-prov -> leafSpec
-                // name = leaf.id()
-                // call to NewVpcResourceLeaf.persist() that returns UUID of new leaf
-                // machine.find machine_id
-                // machine.associate_vpc_leaf_id(leaf_id)
-                // machine.interfaces.mac_address
-                // machine.interfaces.address - management_ip = dpu_mgmt ip
-                //
-                //VpcResourceActions::CreateLeaf()
-
-                // forge-prov -> leafSpec
-                // name = leaf.id()
-                // management_ip = machine_interface_address
-                // vendor = DPU
-                // host_admin_i_ps = "leaf.uuid=interface"
-                // host_interfaces = "interface.mac_address=leafUuid"
             }
             Ok(Some(res))
         }
