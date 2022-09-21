@@ -50,4 +50,4 @@ RUN rustup component add rustfmt rust-src
 RUN --mount=type=cache,target=/app/.cargo/registry/index \
   --mount=type=cache,target=/app/.cargo/registry/cache \
   --mount=type=cache,target=/app/.cargo/git/db \
-  cargo install --force cargo-make cargo-watch sqlx-cli
+  cargo install --force cargo-make cargo-watch sqlx-cli sccache
