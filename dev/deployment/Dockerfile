@@ -9,7 +9,7 @@ ENV KEA_INCLUDE_PATH /usr/include/kea
 ENV KEA_BIN_PATH /usr/bin
 ENV KEA_LIB_PATH /usr/lib/kea
 RUN rustup component add rustfmt
-RUN cargo install cargo-make mdbook mdbook-mermaid
+RUN cargo install cargo-make mdbook mdbook-mermaid sccache
 RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
 COPY . ./
