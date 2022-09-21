@@ -17,7 +17,8 @@
 
 # Development
 
-- [Contributing]()
+- [Contributing](contributing.md)
+- [Codebase Overview](codebase_overview.md)
 - [Bootable Artifacts](bootable_artifacts.md)
 - [Local Development](development.md)
   - [Docker](docker/development.md)
