@@ -180,8 +180,8 @@ pub async fn discover_dhcp(
 
                     // TODO Need to handle VF as well, this assumes PF
                     let new_host_interfaces_map = BTreeMap::from([(
-                        ADMIN_DPU_NETWORK_INTERFACE.to_string(),
                         hyphenated_mac_address,
+                        ADMIN_DPU_NETWORK_INTERFACE.to_string(),
                     )]);
 
                     log::info!("Using: {new_host_interfaces_map:?} for host_interfaces mapping");
