@@ -54,7 +54,7 @@ impl VpcResourceActions {
 
         vpc_reconcile_handler
             .builder()
-            .set_retry_backoff(std::time::Duration::from_secs(5))
+            .set_retry_backoff(std::time::Duration::from_secs(60))
             .set_channel_name("vpc_reconcile_handler")
             .set_json(&json)?
             .spawn(pool)
