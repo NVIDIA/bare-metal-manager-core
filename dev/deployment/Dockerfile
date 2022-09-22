@@ -1,20 +1,15 @@
-FROM rust:latest as builder
+FROM urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v0.0.1-206-gf23904ca as builder
 
-#COPY pgdg.gpg /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
-#COPY pgdg.list /etc/apt/sources.list.d/pgdg.list
-COPY dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
-COPY dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
-RUN apt update && apt-get install -y build-essential isc-kea-dev libudev-dev libfreeipmi-dev libfreeipmi17 libipmiconsole-dev libipmiconsole2 libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu cmake protobuf-compiler && rm -rf /var/lib/apt/lists/*
-ENV KEA_INCLUDE_PATH /usr/include/kea
-ENV KEA_BIN_PATH /usr/bin
-ENV KEA_LIB_PATH /usr/lib/kea
-RUN rustup component add rustfmt
-RUN cargo install cargo-make mdbook mdbook-mermaid sccache
 RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
 COPY . ./
-
-RUN cargo build
+RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
+    export DATABASE_URL="postgresql://%2Fvar%2Frun%2Fpostgresql" && \
+    export SCCACHE_DIR=/sccache && \
+    /etc/init.d/postgresql start && \
+    sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
+    createdb root && \
+    cargo make --env CARGO_MAKE_RUN_CLIPPY=true workspace-ci-flow
 
 FROM ubuntu:focal as carbide
 #RUN ln -snf /usr/share/zoneinfo/UTC /etc/localtime && echo UTC > /etc/timezone
