@@ -32,7 +32,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     assert!(matches!(vpc.deleted, None));
 
-    txn.commit().await.unwrap();
+    txn.commit().await?;
 
     let mut txn = pool
         .begin()
@@ -45,14 +45,11 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         organization: String::new(),
     }
     .update(&mut txn)
-    .await
-    .unwrap();
+    .await?;
 
-    let vpc = DeleteVpc { id: vpc.id }.delete(&mut txn).await;
+    let vpc = DeleteVpc { id: vpc.id }.delete(&mut txn).await?;
 
-    let vpc = &vpc.unwrap();
-
-    assert!(vpc.deleted.is_some());
+    assert!(matches!(vpc.deleted, Some(_)));
 
     let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(vpc.id)).await?;
 
@@ -71,9 +68,9 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
 
     assert_eq!(1, some_vpc.len());
 
-    let first = some_vpc.first().unwrap();
+    let first = some_vpc.first();
 
-    assert_eq!(first.id, FIXTURE_CREATED_VPC_ID);
+    assert!(matches!(first, Some(x) if x.id == FIXTURE_CREATED_VPC_ID));
 
     Ok(())
 }

@@ -40,9 +40,7 @@ async fn find_leaf_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::E
     txn.commit().await?;
     let mut txn = pool.begin().await?;
 
-    let some_leaf = VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await;
-
-    assert!(matches!(some_leaf, _unwrapped));
+    VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await?;
 
     Ok(())
 }

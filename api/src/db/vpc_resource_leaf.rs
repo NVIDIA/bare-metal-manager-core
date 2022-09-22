@@ -36,6 +36,8 @@ impl<'r> FromRow<'r, PgRow> for VpcResourceLeaf {
 }
 
 impl VpcResourceLeaf {
+    // TODO(ajf): update find() methods to always return a Vec.  Better yet make a findable trait
+    // that always return CarbideResult<Vec<T>>
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         name: uuid::Uuid,

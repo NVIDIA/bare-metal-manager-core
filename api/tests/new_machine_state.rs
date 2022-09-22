@@ -21,13 +21,13 @@ fn setup() {
 async fn test_new_machine_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let machine = Machine::find_one(&mut txn, FIXTURE_CREATED_MACHINE_ID)
-        .await?
-        .unwrap();
+    let machine = Machine::find_one(&mut txn, FIXTURE_CREATED_MACHINE_ID).await?;
 
-    assert_eq!(machine.current_state(&mut txn).await?, MachineState::Init);
+    assert!(matches!(
+        machine,
+        Some(x) if x.current_state(&mut txn).await? == MachineState::Init));
 
-    txn.commit().await.unwrap();
+    txn.commit().await?;
 
     Ok(())
 }

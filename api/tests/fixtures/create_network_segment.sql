@@ -17,3 +17,9 @@ INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved) VALUES 
 	'192.0.2.0/24',
 	'192.0.2.1',
 	3);
+
+INSERT INTO network_segments (id, name, mtu) VALUES (
+	'4de5bdd6-1f28-4ed4-aba7-f52e292f0fe8',
+	'integration_tests_no_vpe_no_domain',
+	1500
+);

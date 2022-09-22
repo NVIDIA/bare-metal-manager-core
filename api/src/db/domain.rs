@@ -211,12 +211,14 @@ impl Domain {
         }
     }
 
-    // TODO make this work
     pub async fn find_by_uuid(
-        _txn: &mut Transaction<'_, Postgres>,
-        _uuid: Uuid,
+        txn: &mut Transaction<'_, Postgres>,
+        uuid: Uuid,
     ) -> CarbideResult<Option<Self>> {
-        todo!()
+        Ok(sqlx::query_as("SELECT * FROM domains WHERE id = $1::uuid")
+            .bind(&uuid)
+            .fetch_optional(&mut *txn)
+            .await?)
     }
 
     pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Domain> {

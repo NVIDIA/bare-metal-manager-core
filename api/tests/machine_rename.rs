@@ -18,10 +18,7 @@ const FIXTURE_CREATED_MACHINE_INTERFACE_ID: uuid::Uuid =
     "create_machine"
 ))]
 async fn test_machine_rename(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = pool.begin().await?;
 
     let new_hostname = "peppersmacker400";
 
@@ -34,7 +31,7 @@ async fn test_machine_rename(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         .update_hostname(&mut txn, new_hostname)
         .await?;
 
-    txn.commit().await.unwrap();
+    txn.commit().await?;
 
     assert_eq!(machine_interface.hostname(), new_hostname);
 
