@@ -82,6 +82,8 @@ build-cargo:
     - sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
     - createdb root
     - cargo make --env CARGO_MAKE_RUN_CLIPPY=true workspace-ci-flow
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
   after_script:
     - cargo clean
 

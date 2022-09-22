@@ -14,7 +14,7 @@ RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
 COPY . ./
 
-RUN cargo build
+RUN cargo build && cargo test
 
 FROM ubuntu:focal as carbide
 #RUN ln -snf /usr/share/zoneinfo/UTC /etc/localtime && echo UTC > /etc/timezone
