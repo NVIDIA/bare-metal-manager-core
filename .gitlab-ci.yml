@@ -135,8 +135,8 @@ build-user-data-artifacts-aarch64:
 
 license-checks:
   before_script:
-    - /bin/bash -l -c "CARGO_HOME=/root/.cargo rustup toolchain uninstall stable-x86_64-unknown-linux-gnu"
-    - /bin/bash -l -c "CARGO_HOME=/root/.cargo rustup toolchain install stable-x86_64-unknown-linux-gnu"
+    - /bin/bash -l -c "cargo rustup toolchain uninstall stable-x86_64-unknown-linux-gnu"
+    - /bin/bash -l -c "cargo rustup toolchain install stable-x86_64-unknown-linux-gnu"
   image:
     name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
   rules:
