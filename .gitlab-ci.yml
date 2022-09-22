@@ -185,6 +185,12 @@ build-push-helm:
       sed -i '/^metadata:/a \ \ namespace: {{ .Values.NameSpace }}' $CI_PROJECT_NAME/templates/*
       sed -i 's/carbide-postgres-pguser-carbide-postgres/{{ include "carbide.fullname" . }}-postgres-pguser-carbide-postgres/g' $CI_PROJECT_NAME/templates/deployment.yaml
       sed -i 's/secretName: forge-provisioner-cert/secretName: {{ include "carbide.fullname" . }}-forge-provisioner-cert/g' $CI_PROJECT_NAME/templates/*
+      cat << EOF > $CI_PROJECT_NAME/templates/namespace.yaml
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: {{ .Values.NameSpace }}
+      EOF
       helm package $CI_PROJECT_NAME/
 
 deploy_dev1:
