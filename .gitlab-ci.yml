@@ -162,6 +162,8 @@ checkmarx-scan-csv:
 
 pages:
   stage: doc
+  image:
+    name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
   script:
     - cargo make book
   artifacts:
