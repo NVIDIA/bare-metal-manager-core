@@ -12,9 +12,17 @@ dependencies = [
 	"book-compile",
 ]
 
+[tasks.build-carbide-cli-ci]
+category = "Build"
+description = "Build carbide-cli in CI"
+workspace = false
+script = '''
+cargo build -p cli
+'''
+
 [tasks.build-carbide-cli]
 category = "Build"
-description = "Build carbide-cli using debian container"
+description = "Build carbide-cli using debian container locally"
 workspace = false
 script = '''
 docker run --rm --volume $(pwd):/code --workdir /code -it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container cargo build -p cli
