@@ -199,5 +199,5 @@ pub extern "C" fn discovery_fetch_machine(ctx: *mut DiscoveryBuilderFFI) -> *mut
 ///
 #[no_mangle]
 pub unsafe extern "C" fn discovery_free(ctx: *mut DiscoveryBuilderFFI) {
-    Box::from_raw(ctx as *mut Discovery);
+    std::mem::drop(Box::from_raw(ctx as *mut Discovery));
 }
