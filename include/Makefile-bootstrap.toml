@@ -1,8 +1,8 @@
 [tasks.build-bootstrap-forge-docker]
 category = "Bootstrap Forge"
 workspace = false
-script_runner = "@shell"
 script = '''
+#!/usr/bin/env bash
 source include/envrc-docker-compose
 echo $DATABASE_URL
 vpc=$(grpcurl -d '{"name":"test_vpc"}' -plaintext 127.0.0.1:1079 forge.v0.Forge/CreateVpc | jq ".id.value" | tr -d '"')
