@@ -70,7 +70,6 @@ impl<B> AuthorizeRequest<B> for CarbideAuth {
     fn authorize(&mut self, request: &mut Request<B>) -> Result<(), Response<Self::ResponseBody>> {
         let jwt_validation = self.try_jwt_validation(request.headers());
 
-        use std::convert::TryInto;
         let mut request_auth =
             authorization::RequestAuth::new(jwt_validation.and_then(|claims| claims.try_into()));
         if self.permissive_mode {
