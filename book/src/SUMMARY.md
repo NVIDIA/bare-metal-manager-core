@@ -32,5 +32,8 @@
   - [Dev2(RENO)](labs/dev2.md)
 - [Production](production.md)
 
+# Glossary
+- [Glossary](glossary.md)
+
 # Archives
 - [Legacy development environment](archives/legacy-development.md)
