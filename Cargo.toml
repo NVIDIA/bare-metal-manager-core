@@ -11,3 +11,6 @@ members = [
   "ipmi/ipmiconsole-sys",
   "ipmi/console"
 ]
+
+[workspace.package]
+edition = "2021"

@@ -1,7 +1,7 @@
 [package]
 name = "carbide-pxe"
 version = "0.0.1"
-edition = "2021"
+edition.workspace = true
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
 #readme = "README.md"
 
