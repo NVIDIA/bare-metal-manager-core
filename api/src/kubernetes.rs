@@ -258,7 +258,7 @@ pub async fn vpc_reconcile_handler(
                         )
                         .await;
 
-                        let api: Api<leaf::Leaf> = Api::all(client);
+                        let api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
                         let waiter = await_condition(
                             api,
                             spec_name.as_str(),
@@ -270,7 +270,7 @@ pub async fn vpc_reconcile_handler(
                                 .map(|result| result.map_err(CarbideError::from))?;
                         let newly_created_leaf = leafs.get_status(&spec.name()).await?;
 
-                        let last_txn = &mut current_job.pool().begin().await?;
+                        let mut last_txn = current_job.pool().begin().await?;
 
                         log::info!("VPC Status Object: {:?}", newly_created_leaf.status);
 
@@ -286,7 +286,7 @@ pub async fn vpc_reconcile_handler(
                             if let Some(address_str) = status.loopback_ip.as_ref() {
                                 if let Ok(ip_address) = IpAddr::from_str(address_str.as_str()) {
                                     vpc_db_resource
-                                        .update_loopback_ip_address(&mut *last_txn, ip_address)
+                                        .update_loopback_ip_address(&mut last_txn, ip_address)
                                         .await?;
                                 } else {
                                     todo!("can't parse loopback IP as a valid IP Address this is bad -- wtf kube :P")
@@ -297,6 +297,9 @@ pub async fn vpc_reconcile_handler(
                         } else {
                             todo!("no status this is bad -- we waited for it to be ready so it can't not have this")
                         }
+
+                        last_txn.commit().await?;
+
                         update_status(
                             &current_job,
                             3,
@@ -306,6 +309,7 @@ pub async fn vpc_reconcile_handler(
                         .await;
 
                         let _ = current_job.complete().await.map_err(CarbideError::from);
+                        log::info!("Jobs done - {}", &current_job.id())
                     }
 
                     Err(error) => {

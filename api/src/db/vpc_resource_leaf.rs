@@ -75,6 +75,11 @@ impl VpcResourceLeaf {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         ip_address: IpAddr,
     ) -> CarbideResult<VpcResourceLeaf> {
+        log::info!(
+            "Updating vpc_resource_leaf {} loopback_ip_address to: {ip_address}",
+            &self.id
+        );
+
         let leaf = sqlx::query_as(
             "UPDATE vpc_resource_leafs SET loopback_ip_address=$1::inet where id=$2::uuid RETURNING *",
         )
