@@ -69,6 +69,7 @@ build-container-arm:
     - changes:
       - $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm
 
+# if you modify this, you must keep it in sync with ${PROJECT_ROOT}/dev/deployment/Dockerfile or you will notice post-merge build failures.
 build-cargo:
   stage: build
   image:
@@ -77,6 +78,7 @@ build-cargo:
     CARGO_MAKE_SKIP_CODECOV: "true"
     DATABASE_URL: "postgresql://%2Fvar%2Frun%2Fpostgresql"
     SCCACHE_DIR: /sccache
+    RUSTC_WRAPPER: sccache
   script:
     - /etc/init.d/postgresql start
     - sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
@@ -136,8 +138,9 @@ build-user-data-artifacts-aarch64:
   when: manual
 
 license-checks:
-  image:
-    name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
+  before_script:
+    - /bin/bash -l -c "CARGO_HOME=/root/.cargo rustup toolchain uninstall stable-x86_64-unknown-linux-gnu"
+    - /bin/bash -l -c "CARGO_HOME=/root/.cargo rustup toolchain install stable-x86_64-unknown-linux-gnu"
   rules:
     - changes:
         - Cargo.lock
