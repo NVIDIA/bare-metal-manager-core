@@ -56,7 +56,7 @@ impl CarbideAuth {
 
             // A bearer token is all we know how to deal with.
             (auth_scheme == "Bearer")
-                .then(|| auth_credentials)
+                .then_some(auth_credentials)
                 .ok_or_else(|| AuthError::UnsupportedAuthType(String::from(auth_scheme)))?
         };
 

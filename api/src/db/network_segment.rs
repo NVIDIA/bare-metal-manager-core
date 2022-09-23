@@ -359,7 +359,7 @@ impl NetworkSegment {
                         excluded_ips
                             .get(to_vec(&address))
                             .is_none()
-                            .then(|| address)
+                            .then_some(address)
                     })
                     .ok_or(IpAllocationError::PrefixExhausted(segment_prefix))
             })

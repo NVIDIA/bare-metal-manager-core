@@ -176,7 +176,7 @@ pub async fn discover_dhcp(
                         host_admin_ip_address_string,
                     )]);
 
-                    let hyphenated_mac_address = str::replace(&parsed_mac.to_string(), ":", "-");
+                    let hyphenated_mac_address = parsed_mac.to_string().replace(':', "-");
 
                     // TODO Need to handle VF as well, this assumes PF
                     let new_host_interfaces_map = BTreeMap::from([(
