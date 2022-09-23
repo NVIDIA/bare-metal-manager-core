@@ -1,127 +1,74 @@
+use log::LevelFilter;
 use std::net::IpAddr;
 use std::str::FromStr;
 
 use carbide::db::vpc_resource_leaf::{NewVpcResourceLeaf, VpcResourceLeaf};
-use carbide::CarbideResult;
 
-use crate::common::TestDatabaseManager;
+#[ctor::ctor]
+fn setup() {
+    pretty_env_logger::formatted_timed_builder()
+        .filter_level(LevelFilter::Error)
+        .init();
+}
 
-mod common;
+#[ignore]
+#[sqlx::test]
+async fn new_leafs_are_in_new_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
 
-#[tokio::test]
-async fn new_leafs_are_in_new_state() {
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
+    let leaf = NewVpcResourceLeaf::new().persist(&mut txn).await?;
 
-    let mut txn = db
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    txn.commit().await?;
+    let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new()
-        .persist(&mut txn)
-        .await
-        .expect("Could not create new leaf");
-
-    txn.commit().await.expect("Could not create new leaf");
-
-    let mut txn2 = db
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    let vpc_resource_leaf = VpcResourceLeaf::find(&mut txn2, leaf.id().to_owned())
-        .await
-        .expect("Could not find newly created leaf");
-
-    let current_state = vpc_resource_leaf
-        .current_state(&mut txn2)
-        .await
-        .expect("Could not get current state of leaf");
+    let vpc_resource_leaf = VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await?;
+    let current_state = vpc_resource_leaf.current_state(&mut txn).await?;
 
     log::info!("Current state - {}", current_state);
 
-    // assert!(matches!(current_state, VpcResourceState::New));
+    //assert!(matches!(current_state, VpcResourceState::New));
+
+    Ok(())
 }
 
-#[tokio::test]
-async fn find_leaf_by_id() {
-    if let Err(e) = pretty_env_logger::try_init() {
-        eprintln!("An error occured {}", e)
-    }
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
+#[sqlx::test]
+async fn find_leaf_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
 
-    let mut txn = db
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let leaf = NewVpcResourceLeaf::new().persist(&mut txn).await?;
 
-    let leaf: CarbideResult<VpcResourceLeaf> = NewVpcResourceLeaf::new().persist(&mut txn).await;
+    txn.commit().await?;
+    let mut txn = pool.begin().await?;
 
-    txn.commit()
-        .await
-        .expect("Unable to create new VpcResourceLeaf");
+    VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await?;
 
-    let mut txn2 = db
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    let _unwrapped = &leaf.expect("Unable to unmarshal leaf from Result");
-
-    let some_leaf = VpcResourceLeaf::find(&mut txn2, _unwrapped.id().to_owned()).await;
-
-    assert!(matches!(some_leaf, _unwrapped));
+    Ok(())
 }
 
-#[tokio::test]
-async fn find_leaf_and_update_loopback_ip() {
-    if let Err(e) = pretty_env_logger::try_init() {
-        eprintln!("An error occurred {}", e)
-    }
-    let db = TestDatabaseManager::new()
-        .await
-        .expect("Could not create database manager");
+#[sqlx::test]
+async fn find_leaf_and_update_loopback_ip(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
 
-    let mut txn = db
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let leaf = NewVpcResourceLeaf::new().persist(&mut txn).await?;
 
-    let leaf_result: CarbideResult<VpcResourceLeaf> =
-        NewVpcResourceLeaf::new().persist(&mut txn).await;
+    txn.commit().await?;
 
-    txn.commit()
-        .await
-        .expect("Unable to create new VpcResourceLeaf");
+    let mut txn = pool.begin().await?;
 
-    let mut txn2 = db
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let address = IpAddr::from_str("1.2.3.4")?;
 
-    let leaf = leaf_result.unwrap();
-    let leaf_id = leaf.id();
-
-    let address = IpAddr::from_str("1.2.3.4").unwrap();
-    let mut new_leaf = VpcResourceLeaf::find(&mut txn2, leaf_id.to_owned())
-        .await
-        .unwrap();
+    let mut new_leaf = VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await?;
 
     new_leaf
-        .update_loopback_ip_address(&mut txn2, address)
-        .await
-        .unwrap();
+        .update_loopback_ip_address(&mut txn, address)
+        .await?;
 
-    let address_string = new_leaf.loopback_ip_address().unwrap().to_string();
-    assert_eq!(address_string, "1.2.3.4".to_string());
+    assert_eq!(
+        new_leaf.loopback_ip_address().map(|ip| ip.to_string()),
+        Some("1.2.3.4".to_string())
+    );
+
+    Ok(())
 }
