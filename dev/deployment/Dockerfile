@@ -3,9 +3,11 @@ FROM urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container
 RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
 COPY . ./
+# if you modify this, you must keep it in sync with ${PROJECT_ROOT}/.gitlab-ci.yml (the build-cargo stanza) or you will notice merge-request build failures.
 RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
     export DATABASE_URL="postgresql://%2Fvar%2Frun%2Fpostgresql" && \
     export SCCACHE_DIR=/sccache && \
+    export RUST_WRAPPER=sccache && \
     /etc/init.d/postgresql start && \
     sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
     createdb root && \
