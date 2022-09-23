@@ -4,7 +4,7 @@
 In order to reach any of IP's in our lab environments you need to be a member of  
 `sagan` ssh groups. 
 
-You must first install the latest version of [nvinit](https://confluence.nvidia.com/display/COS/Security+Engineering+Home#SecurityEngineeringHome-CertificateBasedSSHAccessforNGCHosts) and optionally hashicorp vault.
+You must first install the latest version of [nvinit](https://confluence.nvidia.com/display/COS/NGC+Security+Engineering+Home#NGCSecurityEngineeringHome-Installation&Usage) and optionally hashicorp vault.
 
 SSH group membership:
 
@@ -39,7 +39,7 @@ ssh-add -D
 ```
 
 ```
-nvinit ssh -user <AD username> -aggregate  -passcode <DUO passcode>
+nvinit ssh -user <AD username> -aggregate -passcode <DUO passcode>
 ```
 
 Add the following to your `.ssh/config`. 
