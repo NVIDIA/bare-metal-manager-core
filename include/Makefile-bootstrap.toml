@@ -1,7 +1,10 @@
 [tasks.build-bootstrap-forge-docker]
 category = "Bootstrap Forge"
 workspace = false
+script_runner = "@shell"
 script = '''
+source include/envrc-docker-compose
+echo $DATABASE_URL
 vpc=$(grpcurl -d '{"name":"test_vpc"}' -plaintext 127.0.0.1:1079 forge.v0.Forge/CreateVpc | jq ".id.value" | tr -d '"')
 domain=$(grpcurl -d '{"name":"forge.local"}' -plaintext 127.0.0.1:1079 forge.v0.Forge/CreateDomain | jq ".id.value" | tr -d '"')
 segment=$(grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"prefixes\":[{\"prefix\":\"172.20.0.0/24\",\"gateway\":\"172.20.0.1\",\"reserve_first\":30}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -plaintext 127.0.0.1:1079 forge.v0.Forge/CreateNetworkSegment | jq ".id.value" | tr -d '"')
