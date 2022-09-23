@@ -39,7 +39,7 @@ serde_json = "*"
 sqlx = { version = "0.6", features = [ "runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json" ] }
 sqlxmq = { version = "0.4", default-features = false, features = [ "runtime-tokio-rustls"]}
 thiserror = "1.0"
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true }
 tokio-stream = "*"
 tonic = { version = "0.8.0", features = ["tls"] }
 tonic-reflection = "0.5.0"

@@ -27,7 +27,7 @@ serde_json = "*"
 sha2 = "0.10.3"
 tera = "*"
 thiserror = "1.0"
-tokio = {version = "1.20.1", features = ["full"]}
+tokio = { workspace = true }
 tokio-tar = "0.3.0"
 tonic = "0.8.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
