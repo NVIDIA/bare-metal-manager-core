@@ -1,5 +1,6 @@
 [package]
 name = "systest"
+edition.workspace = true
 version = "0.1.0"
 authors = ["Vishnu Rangayyan <vrangayyan@nvidia.com>"]
 
