@@ -13,7 +13,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 carbide-api = { path = "../../api" }
 rpc = { path = "../../rpc" }
 sqlx = { version = "0.6", features = ["mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
-tokio = { version = "1.9", features = ["full"] }
+tokio = { workspace = true }
 tokio-stream = "*"
 tonic = { version = "0.8.0", features = ["tls"] }
 

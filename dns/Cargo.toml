@@ -18,7 +18,7 @@ log = { version = "*" }
 pretty_env_logger = "*"
 rpc = { path = "../rpc" }
 thiserror = "1.0"
-tokio = { version = "1.9", features = ["full"] }
+tokio = { workspace = true }
 tonic = { version = "0.8.0", features = ["tls"] }
 trust-dns-server = { version = "0.21.1" }
 

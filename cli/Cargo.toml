@@ -18,7 +18,7 @@ rlimit = "0.6.2"
 
 log = "*"
 once_cell = "*"
-tokio = { version = "*", features = ["rt"] }
+tokio = { workspace = true }
 thiserror = "1.0"
 procfs = "*"
 libudev = "*"
