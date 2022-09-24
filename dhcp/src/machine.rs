@@ -97,7 +97,7 @@ impl TryFrom<Discovery> for Machine {
 #[no_mangle]
 pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
+    let machine = unsafe { &mut *ctx };
 
     // todo(ajf): I guess??
     let default_router = "0.0.0.0".to_string();
@@ -114,8 +114,6 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
             &default_router
         })
         .parse::<IpNetwork>();
-
-    std::mem::forget(machine);
 
     match maybe_gateway {
         Ok(gateway) => match gateway {
@@ -147,11 +145,9 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
 #[no_mangle]
 pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
+    let machine = unsafe { &mut *ctx };
 
     let maybe_address = machine.inner.address.parse::<IpNetwork>();
-
-    std::mem::forget(machine);
 
     match maybe_address {
         Ok(address) => match address {
@@ -182,11 +178,9 @@ pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
 #[no_mangle]
 pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
+    let machine = unsafe { &mut *ctx };
 
     let fqdn = CString::new(&machine.inner.fqdn[..]).unwrap();
-
-    std::mem::forget(machine);
 
     fqdn.into_raw()
 }
@@ -199,7 +193,7 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
 #[no_mangle]
 pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
+    let machine = unsafe { &mut *ctx };
 
     let url = if let Some(next_server) = CONFIG
         .read()
@@ -247,15 +241,12 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
         None
     };
 
-    std::mem::forget(machine);
-
     fqdn.map(|f| f.into_raw()).unwrap_or(ptr::null_mut())
 }
 
 #[no_mangle]
 pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
 
     let ip_addr = if let Some(next_server) = CONFIG
         .read()
@@ -271,22 +262,15 @@ pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
             .octets()
     };
 
-    let ret = u32::from_be_bytes(ip_addr);
-
-    std::mem::forget(machine);
-
-    ret
+    u32::from_be_bytes(ip_addr)
 }
 
 #[no_mangle]
 pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
 
     let nameservers = CString::new(CONFIG.read().unwrap().nameservers.clone()).unwrap();
     log::debug!("Nameservers are {:?}", nameservers);
-
-    std::mem::forget(machine);
 
     nameservers.into_raw()
 }
@@ -294,7 +278,7 @@ pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_cha
 #[no_mangle]
 pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
+    let machine = unsafe { &mut *ctx };
 
     let vendor_class = if let Some(vendor_class) = &machine.vendor_class {
         let display = match vendor_class.client_type {
@@ -306,15 +290,13 @@ pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_cha
         CString::new("").unwrap()
     };
 
-    std::mem::forget(machine);
-
     vendor_class.into_raw()
 }
 
 #[no_mangle]
 pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
+    let machine = unsafe { &mut *ctx };
 
     let uuid = if let Some(machine_interface_id) = &machine.inner.machine_interface_id {
         CString::new(machine_interface_id.to_string()).unwrap()
@@ -326,20 +308,15 @@ pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
         CString::new("").unwrap()
     };
 
-    std::mem::forget(machine);
-
     uuid.into_raw()
 }
 
 #[no_mangle]
 pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
+    let machine = unsafe { &mut *ctx };
 
     let maybe_prefix = machine.inner.prefix.parse::<IpNetwork>();
-
-    // We parsed the prefix, so we can forget this memory
-    std::mem::forget(machine);
 
     match maybe_prefix {
         Ok(prefix) => match prefix {
@@ -427,12 +404,9 @@ pub extern "C" fn machine_free_nameservers(nameservers: *mut libc::c_char) {
 #[no_mangle]
 pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = unsafe { Box::from_raw(ctx) };
+    let machine = unsafe { &mut *ctx };
 
     let maybe_prefix = machine.inner.prefix.parse::<IpNetwork>();
-
-    // We parsed the prefix, so we can forget this memory
-    std::mem::forget(machine);
 
     match maybe_prefix {
         Ok(prefix) => match prefix {
