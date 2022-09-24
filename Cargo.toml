@@ -17,3 +17,8 @@ edition = "2021"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+debug = true # Enable debuginfo
+debug-assertions = true # Add some extra assurance during development
+overflow-checks = true # Add some extra assurance during development
