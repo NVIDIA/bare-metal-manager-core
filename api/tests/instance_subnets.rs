@@ -83,17 +83,28 @@ async fn new_instance_subnet_matches_machine_interface(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create machine");
 
-    let new_instance = NewInstance::new(new_machine.id().to_owned())
-        .persist(&mut txn2)
-        .await
-        .unwrap();
+    let new_instance = NewInstance {
+        machine_id: new_machine.id().to_owned(),
+        segment_id: *new_segment.id(),
+        user_data: Some("".to_string()),
+        custom_ipxe: "".to_string(),
+        ssh_keys: vec![],
+    }
+    .persist(&mut txn2)
+    .await
+    .unwrap();
 
     txn2.commit().await.unwrap();
 
-    let instance_subnet =
-        InstanceSubnet::create(&mut txn3, &new_interface, &new_segment, &new_instance, None)
-            .await
-            .unwrap();
+    let instance_subnet = InstanceSubnet::create(
+        &mut txn3,
+        &new_interface,
+        *new_segment.id(),
+        *new_instance.id(),
+        None,
+    )
+    .await
+    .unwrap();
 
     txn3.commit().await.unwrap();
 
@@ -163,17 +174,28 @@ async fn new_instance_in_init_state(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create machine");
 
-    let new_instance = NewInstance::new(new_machine.id().to_owned())
-        .persist(&mut txn2)
-        .await
-        .unwrap();
+    let new_instance = NewInstance {
+        machine_id: new_machine.id().to_owned(),
+        segment_id: *new_segment.id(),
+        user_data: Some("".to_string()),
+        custom_ipxe: "".to_string(),
+        ssh_keys: vec![],
+    }
+    .persist(&mut txn2)
+    .await
+    .unwrap();
 
     txn2.commit().await.unwrap();
 
-    let instance_subnet =
-        InstanceSubnet::create(&mut txn3, &new_interface, &new_segment, &new_instance, None)
-            .await
-            .unwrap();
+    let instance_subnet = InstanceSubnet::create(
+        &mut txn3,
+        &new_interface,
+        *new_segment.id(),
+        *new_instance.id(),
+        None,
+    )
+    .await
+    .unwrap();
 
     let current_state = instance_subnet.current_state(&mut txn3).await.unwrap();
 
@@ -245,17 +267,28 @@ async fn instance_subnet_state_machine_advance(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create machine");
 
-    let new_instance = NewInstance::new(new_machine.id().to_owned())
-        .persist(&mut txn2)
-        .await
-        .unwrap();
+    let new_instance = NewInstance {
+        machine_id: new_machine.id().to_owned(),
+        segment_id: *new_segment.id(),
+        user_data: Some("".to_string()),
+        custom_ipxe: "".to_string(),
+        ssh_keys: vec![],
+    }
+    .persist(&mut txn2)
+    .await
+    .unwrap();
 
     txn2.commit().await.unwrap();
 
-    let instance_subnet =
-        InstanceSubnet::create(&mut txn3, &new_interface, &new_segment, &new_instance, None)
-            .await
-            .unwrap();
+    let instance_subnet = InstanceSubnet::create(
+        &mut txn3,
+        &new_interface,
+        *new_segment.id(),
+        *new_instance.id(),
+        None,
+    )
+    .await
+    .unwrap();
 
     instance_subnet
         .advance(&mut txn3, &rpc::VpcResourceStateMachineInput::Submit)

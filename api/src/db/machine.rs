@@ -151,20 +151,59 @@ impl Machine {
                     Err(x) => Err(x),
                 }?;
 
-                interface
-                    .associate_interface_with_machine(txn, &machine.id)
-                    .await?;
-
-                // Add the initial state
-                machine
-                    .advance(txn, &MachineStateMachineInput::Discover)
-                    .await?;
+                match machine.current_state(&mut *txn).await? {
+                    MachineState::Init => {
+                        interface
+                            .associate_interface_with_machine(txn, &machine.id)
+                            .await?;
+                        // Add the initial state
+                        machine
+                            .advance(txn, &MachineStateMachineInput::Discover)
+                            .await?;
+                        machine
+                            .advance(txn, &MachineStateMachineInput::Adopt)
+                            .await?;
+                        machine
+                            .advance(txn, &MachineStateMachineInput::Test)
+                            .await?;
+                        machine
+                            .advance(txn, &MachineStateMachineInput::Commission)
+                            .await?;
+                    }
+                    rest => {
+                        return Err(CarbideError::GenericError(format!(
+                            "Discover call received in Invalid {} state for machine: {}",
+                            rest,
+                            machine.id()
+                        )));
+                    }
+                }
 
                 Ok(machine)
             }
             Some(x) => {
                 log::info!("Machine already exists, returning machine {}", x);
-                Ok(Machine::find_one(&mut *txn, x).await?.unwrap())
+                let machine = Machine::find_one(&mut *txn, x).await?.unwrap();
+                match machine.current_state(&mut *txn).await? {
+                    MachineState::Reset => {
+                        log::warn!(
+                            "Discover call received in valid {} state for machine: {}",
+                            MachineState::Decommissioned,
+                            machine.id()
+                        );
+                        machine
+                            .advance(txn, &MachineStateMachineInput::Cleanup)
+                            .await?;
+                    }
+                    rest => {
+                        log::warn!(
+                            "Discover call received in Invalid {} state for machine: {}",
+                            rest,
+                            machine.id()
+                        );
+                    }
+                };
+                Ok(machine)
             }
         }
     }

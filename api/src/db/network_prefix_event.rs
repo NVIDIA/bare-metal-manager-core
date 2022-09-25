@@ -10,7 +10,7 @@ use rpc::forge::v0 as rpc;
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::CarbideResult;
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, FromRow, Clone)]
 pub struct NetworkPrefixEvent {
     /// The numeric identifier of the event, this should not be exposed to consumers of this API,
     /// it is not secure.

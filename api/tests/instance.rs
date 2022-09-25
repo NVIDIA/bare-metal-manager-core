@@ -1,16 +1,12 @@
-use std::str::FromStr;
-
+use carbide::db::instance_subnet::InstanceSubnet;
+use carbide::db::machine_interface::MachineInterface;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::address_selection_strategy::AddressSelectionStrategy;
-use carbide::db::instance::NewInstance;
-use carbide::db::machine::Machine;
-use carbide::db::machine_interface::MachineInterface;
-use carbide::db::machine_topology::MachineTopology;
-use carbide::db::network_prefix::NewNetworkPrefix;
-use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
-use carbide::db::vpc::NewVpc;
+use ::rpc::MachineStateMachineInput;
+use carbide::db::instance::{DeleteInstance, Instance, NewInstance};
+use carbide::db::{dhcp_record::DhcpRecord, machine::Machine};
+use std::net::IpAddr;
 
 #[ctor::ctor]
 fn setup() {
@@ -19,75 +15,138 @@ fn setup() {
         .init();
 }
 
-#[sqlx::test]
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_network_segment",
+    "create_machine"
+))]
 async fn test_crud_instance(pool: sqlx::PgPool) {
+    let (instance, segment_id) = create_instance(pool.clone()).await;
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    //println!("Instance details: {:?}", instance);
+    let machine = Machine::find_one(&mut txn, instance.machine_id)
+        .await
+        .unwrap()
+        .unwrap();
+    machine
+        .advance(&mut txn, &MachineStateMachineInput::Discover)
+        .await
+        .unwrap();
+    machine
+        .advance(&mut txn, &MachineStateMachineInput::Adopt)
+        .await
+        .unwrap();
+    machine
+        .advance(&mut txn, &MachineStateMachineInput::Test)
+        .await
+        .unwrap();
+    machine
+        .advance(&mut txn, &MachineStateMachineInput::Commission)
+        .await
+        .unwrap();
+    machine
+        .advance(&mut txn, &MachineStateMachineInput::Assign)
+        .await
+        .unwrap();
+    assert!(
+        Instance::is_instance_configured(&mut txn, instance.machine_id)
+            .await
+            .unwrap()
+    );
+    let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
+    Instance::verify_and_assign_address(
+        &mut txn,
+        "192.0.2.1".parse::<IpAddr>().unwrap(),
+        parsed_mac,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let record = DhcpRecord::find_for_instance(&mut txn, &parsed_mac, &segment_id, *machine.id())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let address = record.address();
+    println!("{:?}", record);
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    Instance::verify_and_assign_address(
+        &mut txn,
+        "192.0.2.1".parse::<IpAddr>().unwrap(),
+        parsed_mac,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let record = DhcpRecord::find_for_instance(&mut txn, &parsed_mac, &segment_id, *machine.id())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(address, record.address());
+    delete_instance(pool, instance.id).await;
+}
+
+async fn delete_instance(pool: sqlx::PgPool, instance_id: uuid::Uuid) {
+    let mut txn = pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    DeleteInstance { instance_id }
+        .delete(&mut txn)
+        .await
+        .expect("Delete instance failed.");
+}
+
+async fn create_instance(pool: sqlx::PgPool) -> (Instance, uuid::Uuid) {
     let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
 
-    let vpc = NewVpc {
-        name: "Test VPC".to_string(),
-        organization: String::new(),
-    }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create VPC");
-
-    let new_segment: NetworkSegment = NewNetworkSegment {
-        name: "test-network".to_string(),
-        subdomain_id: None,
-        mtu: 1500i32,
-        vpc_id: Some(vpc.id),
-
-        prefixes: vec![
-            NewNetworkPrefix {
-                prefix: "2001:db8:f::/64".parse().unwrap(),
-                gateway: None,
-                num_reserved: 100,
-            },
-            NewNetworkPrefix {
-                prefix: "192.0.2.0/24".parse().unwrap(),
-                gateway: "192.0.2.1".parse().ok(),
-                num_reserved: 2,
-            },
-        ],
-    }
-    .persist(&mut txn)
-    .await
-    .expect("Unable to create network segment");
-
-    let new_interface = MachineInterface::create(
-        &mut txn,
-        &new_segment,
-        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        None,
-        "peppersmacker2".to_string(),
-        true,
-        AddressSelectionStrategy::Automatic,
-    )
-    .await
-    .expect("Unable to create machine interface");
-
-    let machine = Machine::create(&mut txn, new_interface)
-        .await
-        .expect("Unable to create machine");
-
-    MachineTopology::create(
-        &mut txn,
-        machine.id(),
-        "{\"discovery_data\": { \"InfoV0\": { \"machine_type\": \"aarch64\", \"some\":\"json\"}}}"
-            .to_string(),
-    )
-    .await
-    .expect("Unable to create topology");
-
-    let _instance = NewInstance {
-        machine_id: *machine.id(),
+    let segment_id: uuid::Uuid = "91609f10-c91d-470d-a260-6293ea0c1200".parse().unwrap();
+    let instance = NewInstance {
+        machine_id: "52dfecb4-8070-4f4b-ba95-f66d0f51fd98".parse().unwrap(),
+        segment_id,
+        user_data: Some("SomeRandomData".to_string()),
+        custom_ipxe: "SomeRandomiPxe".to_string(),
+        ssh_keys: vec!["mykey1".to_owned()],
     }
     .persist(&mut txn)
     .await
     .expect("Unable to create new instance");
 
+    let machine_interface = MachineInterface::find_by_segment_id(&mut txn, &segment_id)
+        .await
+        .unwrap()
+        .remove(0);
+
+    InstanceSubnet::create(&mut txn, &machine_interface, segment_id, instance.id, None)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
+
+    (instance, segment_id)
 }

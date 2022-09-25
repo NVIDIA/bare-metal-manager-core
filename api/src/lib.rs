@@ -131,6 +131,9 @@ pub enum CarbideError {
 
     #[error("Kube Runtime Wait Error - {0}")]
     KubeWaitError(#[from] kube::runtime::wait::Error),
+
+    #[error("Multiple IP assigned by DHCP - {0}")]
+    DHCPMultipleIPAssigned(String),
 }
 
 impl From<CarbideError> for tonic::Status {

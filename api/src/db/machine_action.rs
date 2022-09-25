@@ -36,6 +36,7 @@ pub enum MachineAction {
     Recommission,
     Unassign,
     Release,
+    Cleanup,
 }
 
 impl FromStr for MachineAction {
@@ -53,6 +54,7 @@ impl FromStr for MachineAction {
             "recommission" => Ok(Self::Recommission),
             "unassign" => Ok(Self::Unassign),
             "release" => Ok(Self::Release),
+            "cleanup" => Ok(Self::Cleanup),
             x => Err(CarbideError::DatabaseTypeConversionError(format!(
                 "Unknown source field action: {}",
                 x
@@ -74,6 +76,7 @@ impl From<&MachineStateMachineInput> for MachineAction {
             MachineStateMachineInput::Recommission => MachineAction::Recommission,
             MachineStateMachineInput::Unassign => MachineAction::Unassign,
             MachineStateMachineInput::Release => MachineAction::Release,
+            MachineStateMachineInput::Cleanup => MachineAction::Cleanup,
         }
     }
 }
@@ -91,6 +94,7 @@ impl From<&MachineAction> for MachineStateMachineInput {
             MachineAction::Recommission => MachineStateMachineInput::Recommission,
             MachineAction::Unassign => MachineStateMachineInput::Unassign,
             MachineAction::Release => MachineStateMachineInput::Release,
+            MachineAction::Cleanup => MachineStateMachineInput::Cleanup,
         }
     }
 }
@@ -109,6 +113,7 @@ impl From<MachineAction> for rpc::MachineAction {
             MachineAction::Recommission => rpc::MachineAction::Recommission,
             MachineAction::Unassign => rpc::MachineAction::Unassign,
             MachineAction::Release => rpc::MachineAction::Release,
+            MachineAction::Cleanup => rpc::MachineAction::Cleanup,
         }
     }
 }

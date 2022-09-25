@@ -1,20 +1,22 @@
+use ipnetwork::IpNetwork;
 use rust_fsm::StateMachine;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 
 use ::rpc::VpcResourceStateMachine;
 use ::rpc::VpcResourceStateMachineInput;
 use rpc::forge::v0 as rpc;
 
-use crate::db::instance::Instance;
+use super::address_selection_strategy::AddressSelectionStrategy;
+use super::network_segment::NetworkSegment;
+use super::UuidKeyedObjectFilter;
 use crate::db::instance_subnet_address::InstanceSubnetAddress;
 use crate::db::instance_subnet_event::InstanceSubnetEvent;
 use crate::db::machine_interface::MachineInterface;
-use crate::db::network_segment::NetworkSegment;
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::db::vpc_resource_state::VpcResourceState;
 use crate::{CarbideError, CarbideResult};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InstanceSubnet {
     id: uuid::Uuid,
     machine_interface_id: uuid::Uuid,
@@ -169,18 +171,30 @@ impl InstanceSubnet {
         )
     }
 
+    pub async fn find_by_instance_id(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_subnet_id: uuid::Uuid,
+    ) -> CarbideResult<Vec<InstanceSubnet>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM instance_subnets WHERE instance_id = $1::uuid")
+                .bind(instance_subnet_id)
+                .fetch_all(txn)
+                .await?,
+        )
+    }
+
     pub async fn create(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_interface: &MachineInterface,
-        network_segment: &NetworkSegment,
-        instance: &Instance,
+        network_segment_id: uuid::Uuid,
+        instance_id: uuid::Uuid,
         vfid: Option<i32>,
     ) -> CarbideResult<Self> {
         let instance_subnet: InstanceSubnet =
             sqlx::query_as("INSERT INTO instance_subnets (machine_interface_id, network_segment_id, instance_id, vfid) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int) RETURNING *")
                 .bind(machine_interface.id())
-                .bind(network_segment.id())
-                .bind(instance.id())
+                .bind(network_segment_id)
+                .bind(instance_id)
                 .bind(vfid)
                 .fetch_one(&mut *txn)
                 .await?;
@@ -189,6 +203,36 @@ impl InstanceSubnet {
             .advance(&mut *txn, &VpcResourceStateMachineInput::Initialize)
             .await?;
         Ok(instance_subnet)
+    }
+
+    pub async fn delete_by_instance_id(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+    ) -> CarbideResult<()> {
+        let subnets = InstanceSubnet::find_by_instance_id(txn, instance_id).await?;
+
+        if !subnets.is_empty() {
+            let mut inner_txn = txn.begin().await?;
+            sqlx::query("LOCK TABLE instance_subnet_addresses IN ACCESS EXCLUSIVE MODE")
+                .execute(&mut inner_txn)
+                .await?;
+
+            for subnet in subnets {
+                InstanceSubnetAddress::delete(&mut inner_txn, subnet.id).await?;
+
+                sqlx::query("DELETE FROM instance_subnet_events WHERE instance_subnet_id=$1::uuid")
+                    .bind(subnet.id)
+                    .execute(&mut inner_txn)
+                    .await?;
+            }
+            inner_txn.commit().await?;
+        }
+
+        sqlx::query("DELETE FROM instance_subnets WHERE instance_id=$1::uuid RETURNING id")
+            .bind(instance_id)
+            .execute(&mut *txn)
+            .await?;
+        Ok(())
     }
 
     /// Get a reference to the instance network_segment_id.
@@ -206,5 +250,82 @@ impl InstanceSubnet {
 
     pub fn vfid(self) -> Option<i32> {
         self.vf_id
+    }
+
+    pub async fn get_address(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+        machine_interface: &MachineInterface,
+        segment: &NetworkSegment,
+    ) -> CarbideResult<IpNetwork> {
+        // Validate if instance is assigned to valid subnet.
+        // In case of instance, unlike machine, new interface/subnet will not be created at
+        // runtime. Machine is already discovered and a subnet is created during instance creation.
+        let subnet = InstanceSubnet::find_by_instance_id(txn, instance_id)
+            .await?
+            .into_iter()
+            .filter(|subnet| {
+                subnet.vf_id.is_none()
+                    && subnet.machine_interface_id == machine_interface.id
+                    && subnet.network_segment_id == segment.id
+            })
+            .last()
+            .ok_or_else(|| {
+                CarbideError::GenericError(format!(
+                    "Couldn't find subnet with matching machine/segment id {}/{} i.e. primary for instance: {}.",
+                    machine_interface.id,
+                    segment.id,
+                    instance_id
+                ))
+            })?;
+
+        let mut address = InstanceSubnetAddress::find_for_instance(
+            &mut *txn,
+            UuidKeyedObjectFilter::One(subnet.id),
+        )
+        .await?
+        .remove(&subnet.id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|subnet_address| subnet_address.address.is_ipv4())
+        .collect::<Vec<InstanceSubnetAddress>>();
+
+        match address.len() {
+            0 => {
+                // No address is allocated yet. Let's allocate some.
+                let mut ipv4_addresses = InstanceSubnetAddress::create(
+                    &mut *txn,
+                    segment,
+                    AddressSelectionStrategy::Automatic,
+                    subnet.id,
+                )
+                .await?
+                .into_iter()
+                .filter(|address| address.is_ipv4())
+                .collect::<Vec<IpNetwork>>();
+
+                match ipv4_addresses.len() {
+                    1 => Ok(ipv4_addresses.remove(0)),
+                    _ => {
+                        log::warn!(
+                            "Inconsistant IP allocation done by DHCP for instance: {}, ipv4_addresses: {:?}",
+                            instance_id, ipv4_addresses
+                        );
+
+                        Err(CarbideError::DHCPMultipleIPAssigned(format!("Inconsistant IP allocation done by DHCP for instance: {}, ipv4_addresses: {:?}", instance_id, ipv4_addresses)))
+                    }
+                }
+            }
+            1 => Ok(address.remove(0).address),
+            _ => {
+                log::warn!(
+                    "More than one IPv4 Address is allocated to instance: {}",
+                    instance_id
+                );
+                Err(CarbideError::NetworkSegmentDuplicateMacAddress(
+                    machine_interface.mac_address,
+                ))
+            }
+        }
     }
 }

@@ -83,12 +83,13 @@ pub async fn boot(contents: Machine, config: RuntimeConfig) -> Template {
 
 fn determine_boot_from_state(
     machine: rpc::Machine,
-    _interface: rpc::MachineInterface,
-    _config: RuntimeConfig,
+    interface: rpc::MachineInterface,
+    config: RuntimeConfig,
 ) -> String {
     match machine.state.as_str() {
         // The DPU needs an error code to force boot into the OS
-        "new" => "exit 1".to_string(),
+        "ready" => "exit 1".to_string(),
+        "reset" => boot_into_discovery(rpc::MachineArchitecture::X86, interface, config),
         "assigned" => boot_into_netbootxyz(),
         // any unrecognized state will cause ipxe to stop working with this message
         invalid_status => format!(

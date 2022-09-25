@@ -27,7 +27,7 @@ pub struct MachineInterface {
     domain_id: Option<uuid::Uuid>,
     pub machine_id: Option<uuid::Uuid>,
     segment_id: uuid::Uuid,
-    mac_address: MacAddress,
+    pub mac_address: MacAddress,
     hostname: String,
     primary_interface: bool,
     addresses: Vec<MachineInterfaceAddress>,
@@ -267,6 +267,65 @@ impl MachineInterface {
         }
     }
 
+    pub async fn allocate_addresses(
+        txn: &mut Transaction<'_, Postgres>,
+        segment: &NetworkSegment,
+        addresses: AddressSelectionStrategy<'_>,
+    ) -> CarbideResult<Vec<IpNetwork>> {
+        match addresses {
+            AddressSelectionStrategy::Automatic => {
+                // DeadLock: if these tables needs to be locked anywhere else, follow the sequence to
+                // avoid deadlock.
+                sqlx::query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE")
+                    .execute(&mut *txn)
+                    .await?;
+                sqlx::query("LOCK TABLE instance_subnet_addresses IN ACCESS EXCLUSIVE MODE")
+                    .execute(&mut *txn)
+                    .await?;
+
+                //
+                // Get the next address for each prefix on this network segment.  Split the result
+                // list into successes and failures.
+                //
+                let (success, failures) = segment.next_address(&mut *txn).await?.into_iter().fold(
+                    (vec![], vec![]),
+                    |(mut successes, mut failures), item| {
+                        match item {
+                            Ok(address) => successes.push(address),
+                            Err(error) => failures.push(error),
+                        };
+
+                        (successes, failures)
+                    },
+                );
+
+                //
+                // If there's any failures, join the errors together and return it wrapped in a new
+                // error type.
+                //
+                if !failures.is_empty() {
+                    Err(CarbideError::NetworkSegmentsExhausted(
+                        failures
+                            .into_iter()
+                            .map(|failure| match failure {
+                                IpAllocationError::PrefixExhausted(prefix) => format!(
+                                    "Prefix: {0} ({1}) has exhausted all address space",
+                                    prefix.id, prefix.prefix
+                                ),
+                            })
+                            .join(", "),
+                    ))
+                } else {
+                    //
+                    // Otherwise just return the list of allocated IPs
+                    //
+                    Ok(success.into_iter().map(IpNetwork::from).collect_vec())
+                }
+            }
+            _ => Ok(vec![]),
+        }
+    }
+
     pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
         segment: &NetworkSegment,
@@ -280,54 +339,8 @@ impl MachineInterface {
         let mut inner_txn = txn.begin().await?;
 
         // If either requested addresses are auto-generated, we lock the entire table.
-        let allocated_addresses = match addresses {
-            AddressSelectionStrategy::Automatic => {
-                sqlx::query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE")
-                    .execute(&mut inner_txn)
-                    .await?;
-
-                //
-                // Get the next address for each prefix on this network segment.  Split the result
-                // list into successes and failures.
-                //
-                let (success, failures) = segment
-                    .next_address(&mut inner_txn)
-                    .await?
-                    .into_iter()
-                    .fold((vec![], vec![]), |(mut successes, mut failures), item| {
-                        match item {
-                            Ok(address) => successes.push(address),
-                            Err(error) => failures.push(error),
-                        };
-
-                        (successes, failures)
-                    });
-
-                //
-                // If there's any failures, join the errors together and return it wrapped in a new
-                // error type.
-                //
-                if !failures.is_empty() {
-                    return Err(CarbideError::NetworkSegmentsExhausted(
-                        failures
-                            .into_iter()
-                            .map(|failure| match failure {
-                                IpAllocationError::PrefixExhausted(prefix) => format!(
-                                    "Prefix: {0} ({1}) has exhausted all address space",
-                                    prefix.id, prefix.prefix
-                                ),
-                            })
-                            .join(", "),
-                    ));
-                } else {
-                    //
-                    // Otherwise just return the list of allocated IPs
-                    //
-                    success.into_iter().map(IpNetwork::from).collect_vec()
-                }
-            }
-            _ => vec![],
-        };
+        let allocated_addresses =
+            Self::allocate_addresses(&mut inner_txn, segment, addresses).await?;
 
         let interface_id: (Uuid, ) = sqlx::query_as("INSERT INTO machine_interfaces (segment_id, mac_address, hostname, domain_id, primary_interface) VALUES ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id")
             .bind(segment.id())
@@ -429,5 +442,25 @@ impl MachineInterface {
         });
 
         Ok(interfaces)
+    }
+
+    pub async fn get_machine_interface_primary(
+        machine_id: uuid::Uuid,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<MachineInterface> {
+        MachineInterface::find_by_machine_ids(txn, &[machine_id])
+            .await?
+            .remove(&machine_id)
+            .ok_or(CarbideError::NotFoundError(machine_id))?
+            .into_iter()
+            .filter(|m_intf| m_intf.primary_interface())
+            .collect::<Vec<MachineInterface>>()
+            .pop()
+            .ok_or_else(|| {
+                CarbideError::GenericError(format!(
+                    "Couldn't find primary interface for {}.",
+                    machine_id
+                ))
+            })
     }
 }

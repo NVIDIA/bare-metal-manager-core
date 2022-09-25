@@ -252,7 +252,7 @@ message Instance {
   UUID machine_id = 3;
 
   optional string user_data = 4;
-  optional string custom_ipxe = 5;
+  string custom_ipxe = 5;
 
   repeated string ssh_keys = 6;
 
@@ -354,6 +354,7 @@ enum MachineAction {
   RECOMMISSION = 8;
   UNASSIGN = 9;
   RELEASE = 10;
+  CLEANUP = 11;
 }
 
 message DhcpDiscovery {
