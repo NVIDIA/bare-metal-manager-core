@@ -222,7 +222,8 @@ state_machine! {
     Adopted => {Test => Tested, Fail => Broken,},
     Tested => {Commission => Ready, Fail => Broken,},
     Ready => {Assign => Assigned, Decommission => Decommissioned, Fail => Broken,},
-    Assigned => {Unassign => Ready, Fail => Broken},
+    Assigned => {Unassign => Reset, Fail => Broken},
+    Reset => {Cleanup => Ready, Fail => Broken},
     Broken(Recommission) => Tested,
     Decommissioned => {Recommission => Tested, Release => New},
 }

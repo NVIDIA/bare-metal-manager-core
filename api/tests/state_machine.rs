@@ -70,8 +70,26 @@ async fn test_fsm_invalid_advance(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         .await?
         .unwrap();
 
+    // Insert some valid state changes into the db
+    machine
+        .advance(&mut txn, &rpc::MachineStateMachineInput::Discover)
+        .await
+        .unwrap();
+    machine
+        .advance(&mut txn, &rpc::MachineStateMachineInput::Adopt)
+        .await
+        .unwrap();
+    machine
+        .advance(&mut txn, &rpc::MachineStateMachineInput::Test)
+        .await
+        .unwrap();
+    machine
+        .advance(&mut txn, &rpc::MachineStateMachineInput::Commission)
+        .await
+        .unwrap();
+
     let state = machine.current_state(&mut txn).await.unwrap();
-    assert!(matches!(state, MachineState::Init));
+    assert!(matches!(state, MachineState::Ready));
 
     assert!(matches!(
         machine

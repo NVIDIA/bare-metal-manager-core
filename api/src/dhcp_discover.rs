@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use carbide::db::instance::Instance;
 use ipnetwork::Ipv4Network;
 use kube::{api::Api as KubeApi, Client};
 use mac_address::MacAddress;
@@ -28,6 +29,7 @@ use crate::api::Api;
 pub struct RecordCacheEntry {
     pub record: rpc::DhcpRecord,
     pub timestamp: Instant,
+    pub link_address: IpAddr,
 }
 
 pub async fn discover_dhcp(
@@ -52,6 +54,9 @@ pub async fn discover_dhcp(
     // we do this so that we can properly serve an address via DHCP because we can only serve address from "our" CIDR, and "our" CIDR is identified by the
     // link address, but the actual relay_address is necessary to look up leaf_ids
     let address_to_use_for_dhcp = link_address.as_ref().unwrap_or(&relay_address);
+    let parsed_relay = address_to_use_for_dhcp
+        .parse()
+        .map_err(CarbideError::from)?;
 
     let parsed_mac: MacAddress = mac_address
         .parse::<MacAddress>()
@@ -59,7 +64,9 @@ pub async fn discover_dhcp(
     {
         let mut dhcp_discovery_cache = api.dhcp_discovery_cache.lock().await;
         if let Some(cache_entry) = dhcp_discovery_cache.get(&parsed_mac) {
-            if cache_entry.timestamp.elapsed() < Duration::from_secs(60) {
+            if cache_entry.timestamp.elapsed() < Duration::from_secs(60)
+                && cache_entry.link_address == parsed_relay
+            {
                 log::info!("returning cached response for {parsed_mac:?}");
                 let record_clone = cache_entry.record.clone();
                 return Ok(Response::new(record_clone));
@@ -69,12 +76,49 @@ pub async fn discover_dhcp(
         }
     }
 
-    let parsed_relay = address_to_use_for_dhcp
-        .parse()
-        .map_err(CarbideError::from)?;
-
     let existing_machines =
         Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
+
+    // Instance handling
+    if existing_machines.len() == 1
+        && Instance::is_instance_configured(&mut txn, existing_machines[0].0).await?
+    {
+        let segment_id =
+            Instance::verify_and_assign_address(&mut txn, parsed_relay, parsed_mac).await?;
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        // TODO: Update Managed resource.
+        let mut txn = api
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let record: rpc::DhcpRecord = DhcpRecord::find_for_instance(
+            &mut txn,
+            &parsed_mac,
+            &segment_id,
+            existing_machines[0].0,
+        )
+        .await?
+        .into();
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        let record_clone = record.clone();
+
+        api.dhcp_discovery_cache.lock().await.put(
+            parsed_mac,
+            RecordCacheEntry {
+                record: record_clone,
+                timestamp: Instant::now(),
+                link_address: parsed_relay,
+            },
+        );
+
+        return Ok(Response::new(record));
+    }
 
     let newly_created_interface;
     let machine_interface = match &existing_machines.len() {
@@ -213,6 +257,7 @@ pub async fn discover_dhcp(
                 RecordCacheEntry {
                     record: record_clone,
                     timestamp: Instant::now(),
+                    link_address: parsed_relay,
                 },
             );
             record

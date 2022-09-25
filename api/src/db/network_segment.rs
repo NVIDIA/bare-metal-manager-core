@@ -295,6 +295,11 @@ impl NetworkSegment {
              SELECT address FROM machine_interface_addresses
              INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
              INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id
+             WHERE network_segments.id = $1::uuid
+             UNION
+             SELECT address FROM instance_subnet_addresses
+             INNER JOIN instance_subnets ON instance_subnets.id = instance_subnet_addresses.instance_subnet_id
+             INNER JOIN network_segments ON instance_subnets.network_segment_id = network_segments.id
              WHERE network_segments.id = $1::uuid")
             .bind(self.id())
             .fetch_all(&mut *txn)

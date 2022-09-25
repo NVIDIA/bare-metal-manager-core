@@ -56,4 +56,21 @@ impl DhcpRecord {
             .bind(segment_id)
             .fetch_one(&mut *txn).await?)
     }
+
+    pub async fn find_for_instance(
+        txn: &mut Transaction<'_, Postgres>,
+        mac_address: &MacAddress,
+        segment_id: &uuid::Uuid,
+        machine_id: uuid::Uuid,
+    ) -> CarbideResult<DhcpRecord> {
+        Ok(sqlx::query_as("SELECT * FROM instance_dhcp_records WHERE mac_address = $1::macaddr AND segment_id = $2::uuid AND machine_id=$3::uuid AND vfid IS null AND family(prefix) = 4")
+            .bind(mac_address)
+            .bind(segment_id)
+            .bind(machine_id)
+            .fetch_one(&mut *txn).await?)
+    }
+
+    pub fn address(&self) -> IpNetwork {
+        self.address
+    }
 }

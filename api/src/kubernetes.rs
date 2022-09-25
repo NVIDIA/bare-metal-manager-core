@@ -11,7 +11,7 @@ use kube::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx;
-use sqlx::PgConnection;
+use sqlx::{Acquire, PgConnection, Postgres};
 use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
@@ -184,6 +184,104 @@ async fn delete_resource_group_handler(
                 2,
                 format!(
                     "ResourceGroup deletion {} failed. Error: {}",
+                    spec.name(),
+                    err
+                ),
+                TaskState::Error(err.to_string()),
+            )
+            .await;
+            Err(CarbideError::GenericError(err.to_string()))
+        }
+    }
+}
+
+async fn create_managed_resource_handler(
+    mut current_job: CurrentJob,
+    spec: managed_resource::ManagedResource,
+    client: Client,
+) -> CarbideResult<()> {
+    let spec_name = spec.name().to_string();
+    log::info!("Creating resource_group with name {}.", spec_name);
+
+    update_status(
+        &current_job,
+        0,
+        format!("Creating managed_resource with name {}", spec_name),
+        TaskState::Ongoing,
+    )
+    .await;
+
+    let resource: Api<managed_resource::ManagedResource> =
+        Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+    let result = resource.create(&PostParams::default(), &spec).await;
+
+    match result {
+        Ok(_) => {
+            update_status(
+                &current_job,
+                1,
+                format!("ManagedResource creation {} is successful.", spec.name()),
+                TaskState::Finished,
+            )
+            .await;
+            let _ = current_job.complete().await.map_err(CarbideError::from);
+            Ok(())
+        }
+        Err(err) => {
+            update_status(
+                &current_job,
+                2,
+                format!(
+                    "ManagedResource creation {} failed. Error: {}",
+                    spec.name(),
+                    err
+                ),
+                TaskState::Error(err.to_string()),
+            )
+            .await;
+            Err(CarbideError::GenericError(err.to_string()))
+        }
+    }
+}
+
+async fn delete_managed_resource_handler(
+    mut current_job: CurrentJob,
+    spec: managed_resource::ManagedResource,
+    client: Client,
+) -> CarbideResult<()> {
+    let spec_name = spec.name().to_string();
+    log::info!("Deleting resource_group with name {}.", spec_name);
+
+    update_status(
+        &current_job,
+        0,
+        format!("Deleting managed_resource with name {}", spec_name),
+        TaskState::Ongoing,
+    )
+    .await;
+
+    let resource: Api<managed_resource::ManagedResource> =
+        Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+    let result = resource.delete(&spec_name, &DeleteParams::default()).await;
+
+    match result {
+        Ok(_) => {
+            update_status(
+                &current_job,
+                1,
+                format!("ManagedResource deletion {} is successful.", spec.name()),
+                TaskState::Finished,
+            )
+            .await;
+            let _ = current_job.complete().await.map_err(CarbideError::from);
+            Ok(())
+        }
+        Err(err) => {
+            update_status(
+                &current_job,
+                2,
+                format!(
+                    "ManagedResource deletion {} failed. Error: {}",
                     spec.name(),
                     err
                 ),
@@ -398,13 +496,15 @@ pub async fn vpc_reconcile_handler(
             VpcResourceActions::DeleteResourceGroup(spec) => {
                 delete_resource_group_handler(current_job, spec, client).await?;
             }
-            VpcResourceActions::CreateManagedResource(_spec) => {
-                todo!()
+            VpcResourceActions::CreateManagedResource(spec) => {
+                create_managed_resource_handler(current_job, spec, client).await?;
             }
             VpcResourceActions::UpdateManagedResource(_spec) => {
                 todo!()
             }
-            VpcResourceActions::DeleteManagedResource(_spec) => {}
+            VpcResourceActions::DeleteManagedResource(spec) => {
+                delete_managed_resource_handler(current_job, spec, client).await?;
+            }
         }
     }
     Ok(())
@@ -525,6 +625,89 @@ pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideRes
         .run()
         .await
         .map_err(CarbideError::from)
+}
+
+pub async fn create_managed_resource(
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+    segment_id: uuid::Uuid,
+    host_interface: Option<String>,
+    managed_resource_name: String,
+) -> CarbideResult<()> {
+    // find_by_segmentcan return max two prefixes, one for ipv4 and another for ipv6
+    // Ipv4 is needed for now.
+    let prefix = NetworkPrefix::find_by_segment(
+        &mut *txn,
+        crate::db::UuidKeyedObjectFilter::One(segment_id),
+    )
+    .await?
+    .into_iter()
+    .filter(|x| x.prefix.is_ipv4())
+    .last()
+    .ok_or_else(|| {
+        CarbideError::GenericError(format!(
+            "Counldn't find IPV4 NetworkPrefix for segment {}",
+            segment_id
+        ))
+    })?;
+
+    let managed_resource_spec = managed_resource::ManagedResourceSpec {
+        state: None,
+        dpu_i_ps: None,
+        host_interface,
+        host_interface_access: None,
+        host_interface_ip: None,
+        host_interface_mac: None,
+        resource_group: Some(prefix.id.to_string()),
+        r#type: None,
+    };
+
+    let managed_resource =
+        managed_resource::ManagedResource::new(&managed_resource_name, managed_resource_spec);
+
+    log::info!(
+        "CreateManagedResource sent to kubernetes with data: {:?}",
+        managed_resource
+    );
+
+    let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+    VpcResourceActions::CreateManagedResource(managed_resource)
+        .reconcile(db_conn)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn delete_managed_resource(
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+    managed_resource_name: String,
+) -> CarbideResult<()> {
+    // find_by_segmentcan return max two prefixes, one for ipv4 and another for ipv6
+    // Ipv4 is needed for now.
+    let managed_resource_spec = managed_resource::ManagedResourceSpec {
+        state: None,
+        dpu_i_ps: None,
+        host_interface: None,
+        host_interface_access: None,
+        host_interface_ip: None,
+        host_interface_mac: None,
+        resource_group: None,
+        r#type: None,
+    };
+
+    let managed_resource =
+        managed_resource::ManagedResource::new(&managed_resource_name, managed_resource_spec);
+
+    log::info!(
+        "DeleteManagedResource sent to kubernetes with data: {:?}",
+        managed_resource
+    );
+
+    let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+    VpcResourceActions::DeleteManagedResource(managed_resource)
+        .reconcile(db_conn)
+        .await?;
+
+    Ok(())
 }
 
 pub async fn create_resource_group(

@@ -16,7 +16,7 @@ use crate::db::vpc_resource_state::VpcResourceState;
 use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NetworkPrefix {
     pub id: uuid::Uuid,
     pub segment_id: Uuid,

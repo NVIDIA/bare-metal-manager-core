@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 
+use carbide::db::instance_subnet::InstanceSubnet;
 use carbide::db::network_prefix::NetworkPrefix;
 use color_eyre::Report;
 use lru::LruCache;
@@ -14,13 +15,16 @@ use tower::ServiceBuilder;
 use ::rpc::MachineStateMachineInput;
 use auth::CarbideAuth;
 use carbide::ipmi::{ipmi_handler, RealIpmiCommandHandler};
-use carbide::kubernetes::{bgkubernetes_handler, create_resource_group, delete_resource_group};
+use carbide::kubernetes::{
+    bgkubernetes_handler, create_managed_resource, create_resource_group, delete_managed_resource,
+    delete_resource_group,
+};
 use carbide::{
     db::{
         auth::SshKeyValidationRequest,
         domain::Domain,
         domain::NewDomain,
-        instance::NewInstance,
+        instance::{DeleteInstance, NewInstance},
         instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
         ipmi::{BmcMetaData, BmcMetaDataRequest},
         machine::Machine,
@@ -727,61 +731,13 @@ impl Forge for Api {
             Some(m) => m,
         };
 
+        // A new instance can be created only in Ready state.
         match machine.current_state(&mut txn).await? {
-            // TODO(baz): make these different states matter
-            MachineState::Init => {
-                return Err(Status::invalid_argument(format!(
-                    "Machine was was not discovered yet but is in the database {}",
-                    machine_id
-                )));
-            }
-            MachineState::New => {
-                // Blindly march forward to ready
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Adopt)
-                    .await?;
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Test)
-                    .await?;
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Commission)
-                    .await?;
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Assign)
-                    .await?;
-            }
-            MachineState::Adopted => {
-                // Blindly march forward to ready
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Test)
-                    .await?;
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Commission)
-                    .await?;
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Assign)
-                    .await?;
-            }
-            MachineState::Tested => {
-                // Blindly march forward to ready
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Commission)
-                    .await?;
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Assign)
-                    .await?;
-            }
             MachineState::Ready => {
-                // This is where we want to be for PXE to show the correct menu
+                // Blindly march forward to ready
                 machine
                     .advance(&mut txn, &MachineStateMachineInput::Assign)
                     .await?;
-            }
-            MachineState::Assigned => {
-                return Err(Status::invalid_argument(format!(
-                    "Machine was already assigned {}",
-                    machine_id
-                )));
             }
             rest => {
                 return Err(Status::invalid_argument(format!(
@@ -791,11 +747,34 @@ impl Forge for Api {
             }
         }
 
-        let response = Ok(instance
-            .persist(&mut txn)
-            .await
-            .map(rpc::Instance::from)
-            .map(Response::new)?);
+        let response = instance.persist(&mut txn).await;
+
+        if let Ok(instance_details) = response.as_ref() {
+            let machine_interface = MachineInterface::get_machine_interface_primary(
+                instance_details.machine_id,
+                &mut txn,
+            )
+            .await?;
+
+            InstanceSubnet::create(
+                &mut txn,
+                &machine_interface,
+                instance.segment_id,
+                *instance_details.id(),
+                None,
+            )
+            .await?;
+
+            create_managed_resource(
+                &mut txn,
+                instance.segment_id,
+                Some(machine_interface.mac_address.to_string()),
+                instance_details.managed_resource_id.to_string(),
+            )
+            .await?;
+        }
+
+        let response = Ok(response.map(rpc::Instance::from).map(Response::new)?);
 
         // TODO(baz): reboot the machine
 
@@ -812,12 +791,52 @@ impl Forge for Api {
         todo!()
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_instance(
         &self,
-        _request: Request<rpc::InstanceDeletionRequest>,
+        request: Request<rpc::InstanceDeletionRequest>,
     ) -> Result<Response<rpc::InstanceDeletionResult>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let delete_instance = DeleteInstance::try_from(request.into_inner())?;
+        let instance = delete_instance.delete(&mut txn).await?;
+
+        // Change state to Decommissioned
+        let machine = match Machine::find_one(&mut txn, instance.machine_id).await? {
+            None => {
+                return Err(Status::invalid_argument(format!(
+                    "Supplied invalid UUID: {}",
+                    instance.machine_id
+                )));
+            }
+            Some(m) => m,
+        };
+
+        // After deleted instance, machine should be moved to Decommissioned state.
+        match machine.current_state(&mut txn).await? {
+            MachineState::Assigned => {
+                machine
+                    .advance(&mut txn, &MachineStateMachineInput::Unassign)
+                    .await?;
+            }
+            rest => {
+                return Err(Status::invalid_argument(format!(
+                    "Could not create instance given machine state {:?}",
+                    rest
+                )));
+            }
+        };
+
+        delete_managed_resource(&mut txn, instance.managed_resource_id.to_string()).await?;
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        // TODO: Reboot machine
+
+        Ok(Response::new(rpc::InstanceDeletionResult {}))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
