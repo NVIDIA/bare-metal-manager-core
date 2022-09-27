@@ -201,6 +201,8 @@ build-push-helm:
     - yq -i '.carbidePxeDeployment.envoy.image.tag = "35f8d59b1172a85f02dd119791a9ef42c728cfa8"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.carbidePxeDeployment.envoy.image.repository = "nvcr.io/nvidian/forge/envoy-dev"' $CI_PROJECT_NAME/values.yaml
     - yq -i '.version = env(HELM_VERSION)' $CI_PROJECT_NAME/Chart.yaml
+    - yq -i '."carbide-db-migrations"+={"image":{"repository":"nvcr.io/nvidian/forge/nvmetal-carbide","tag":env(VERSION)}}'
+    - sed -i 's|quay.io/nvidia/nvmetal-carbide:latest|{{ .Values.carbide-db-migrations.image.repository }}:{{ .Values.carbide-db-migrations.image.tag }}|g' $CI_PROJECT_NAME/templates/carbide-db-migrations.yaml
     - |
       NAMESPACE=forge-system  yq -i '.NameSpace = env(NAMESPACE)' $CI_PROJECT_NAME/values.yaml
       sed -i '/^spec:/a \ \ imagePullSecrets:\n \ \- name: imagepullsecret' $CI_PROJECT_NAME/templates/postgres.yaml
