@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 
+use carbide::db::instance::Instance;
 use carbide::db::instance_subnet::InstanceSubnet;
 use carbide::db::network_prefix::NetworkPrefix;
 use color_eyre::Report;
@@ -935,6 +936,29 @@ impl Forge for Api {
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn find_instance_by_machine_id(
+        &self,
+        request: Request<rpc::Uuid>,
+    ) -> Result<Response<rpc::Instance>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+
+        let response = Instance::find_by_machine_id(&mut txn, uuid)
+            .await
+            .map(rpc::Instance::from)
+            .map(Response::new)?;
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        Ok(response)
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]

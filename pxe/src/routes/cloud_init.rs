@@ -6,10 +6,37 @@ use rocket::serde::uuid;
 use rocket::Route;
 use rocket_dyn_templates::Template;
 
-use crate::{Machine, RuntimeConfig};
+use crate::{routes::RpcContext, Machine, RuntimeConfig};
 
-#[get("/<uuid>/user-data")]
-pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig) -> Template {
+async fn user_data_handler_in_assigned(
+    machine: Machine,
+    config: RuntimeConfig,
+) -> (String, HashMap<String, String>) {
+    let user_data = match machine.machine {
+        Some(rpc_machine) => {
+            match RpcContext::get_instance(rpc_machine.id.unwrap(), config.api_url.clone()).await {
+                Ok(instance) => instance
+                    .user_data
+                    .unwrap_or_else(|| "User data is not available.".to_string()),
+                Err(err) => {
+                    eprintln!("{}", err);
+                    format!("Failed to fetch user_data: {}", err)
+                }
+            }
+        }
+        None => "Failed to fetch machine_details.".to_string(),
+    };
+
+    let mut context: HashMap<String, String> = HashMap::new();
+    context.insert("user-data".to_string(), user_data);
+    ("user-data-assigned".to_string(), context)
+}
+
+async fn user_data_handler(
+    uuid: uuid::Uuid,
+    machine: Machine,
+    config: RuntimeConfig,
+) -> (String, HashMap<String, String>) {
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine.interface.mac_address);
     context.insert(
@@ -20,7 +47,19 @@ pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig
     context.insert("api_url".to_string(), config.api_url);
     context.insert("pxe_url".to_string(), config.pxe_url);
     context.insert("ntp_server".to_string(), config.ntp_server);
-    Template::render("user-data", &context)
+    ("user-data".to_string(), context)
+}
+
+#[get("/<uuid>/user-data")]
+pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig) -> Template {
+    let (template, context) = match machine.machine.as_ref() {
+        Some(rpc_machine) if rpc_machine.state == "assigned" => {
+            user_data_handler_in_assigned(machine, config).await
+        }
+
+        _ => user_data_handler(uuid, machine, config).await,
+    };
+    Template::render(template, &context)
 }
 
 #[get("/<uuid>/meta-data")]
