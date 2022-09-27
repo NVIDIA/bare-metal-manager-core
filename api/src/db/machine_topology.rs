@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, HashSet};
 
 use chrono::prelude::*;
+use rpc::DiscoveryData;
+use rpc::MachineDiscoveryInfo;
+use rpc::NetworkInterface;
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::postgres::PgRow;
@@ -33,15 +36,14 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
     }
 }
 
-fn does_attributes_contain_dpu_pci_ids(dpu_pci_ids: &HashSet<&str>, attributes: &[Value]) -> bool {
-    attributes.iter().any(|attribute| {
-        log::info!("Interface Info: {}", attribute);
-        let mac_address = if let Some(mac_address) = attribute.get("mac_address").unwrap().as_str() {
-            mac_address
-        } else {
-            "FF:FF:FF:FF:FF:FF"
-        };
-        match attribute.get("pci_properties") {
+fn does_attributes_contain_dpu_pci_ids(
+    dpu_pci_ids: &HashSet<&str>,
+    interfaces: &[NetworkInterface],
+) -> bool {
+    interfaces.iter().any(|interface| {
+        log::info!("Interface Info: {:?}", interface);
+        let mac_address = interface.mac_address.as_str();
+        match &interface.pci_properties {
             None => {
                 log::info!(
                     "Unable to find PCI PROPERTIES for interface {}",
@@ -52,30 +54,21 @@ fn does_attributes_contain_dpu_pci_ids(dpu_pci_ids: &HashSet<&str>, attributes: 
                 log::info!("Network interface {} contains necessary information for examination. Checking if this is a DPU.", mac_address);
                 // If for some reason there is no vendor/device in pci_properties
                 // set to 0'
-                let vendor = pci_property["vendor"].as_str().unwrap_or("0x0000");
-                let device = pci_property["device"].as_str().unwrap_or("0x0000");
+                let vendor = pci_property.vendor.as_str();
+                let device = pci_property.device.as_str();
 
-                let dpu_pci_id = format!("{}:{}", vendor, device);
+                let pci_id = format!("{}:{}", vendor, device);
 
-                let submitted_discovery_data = HashSet::from([dpu_pci_id.as_str()]);
-
-                // Compare contents of
-                let dpu_count: HashSet<_> =
-                    submitted_discovery_data.intersection(dpu_pci_ids).collect();
-
-                match dpu_count.len() {
-                    0 => {
-                        log::info!("VENDOR AND DEVICE INFORMATION DOES NOT MATCH, INTERFACE {} IS NOT A DPU", mac_address);
-                    }
-                    _ => {
-                        log::info!(
-                            "VENDOR AND DEVICE INFORMATION MATCHES - PCI_ID {} and MAC_ADDRESS: {}",
-                            dpu_pci_id,
-                            mac_address
-                        );
-                        return true;
-                    }
+                if dpu_pci_ids.contains(pci_id.as_str()) {
+                    log::info!(
+                        "VENDOR AND DEVICE INFORMATION MATCHES - PCI_ID {} and MAC_ADDRESS: {}",
+                        pci_id,
+                        mac_address
+                    );
+                    return true;
                 }
+
+                log::info!("VENDOR AND DEVICE INFORMATION DOES NOT MATCH, INTERFACE {} IS NOT A DPU", mac_address);
             }
         }
         false
@@ -92,40 +85,39 @@ fn does_attributes_contain_dpu_pci_ids(dpu_pci_ids: &HashSet<&str>, attributes: 
 // "block_devices": Array([Object({"serial": String("QM00003"), "model": String("QEMU_DVD-ROM"), "revision": String("2.5+")}),
 // Object({"serial": String("NO_SERIAL"), "model": String("NO_MODEL"), "revision": String("NO_REVISION")})])})})})
 impl MachineTopology {
-    pub async fn is_dpu(discovery: &str) -> CarbideResult<bool> {
-        let data: Value = serde_json::from_str(discovery)?;
-
-        let network_interfaces = data["discovery_data"]["InfoV0"].get("network_interfaces");
-        let machine_type_val = data["discovery_data"]["InfoV0"].get("machine_type");
-
-        let machine_type_str = if let Some(machine_type) = machine_type_val {
-            machine_type.as_str().ok_or_else(|| {
-                CarbideError::GenericError("Machine type parsing failed.".to_string())
-            })?
+    pub fn is_dpu(discovery: &rpc::forge::v0::MachineDiscoveryInfo) -> CarbideResult<bool> {
+        let discovery_data = if let Some(DiscoveryData::InfoV0(data)) = &discovery.discovery_data {
+            data
         } else {
             return Err(CarbideError::GenericError(
-                "Machine Type field is missing.".to_string(),
+                "Discovery data is missing.".to_string(),
             ));
         };
 
-        let arm_type = "aarch64";
-        if machine_type_str != arm_type {
+        let network_interfaces = &discovery_data.network_interfaces;
+        let machine_type = &discovery_data.machine_type;
+
+        const ARM_TYPE: &str = "aarch64";
+        if machine_type != ARM_TYPE {
             return Ok(false);
         }
 
-        Ok(if let Some(attributes) = network_interfaces {
-            log::debug!("Interfaces Hash found");
-            log::debug!("Looking for attributes on interface: {}", attributes);
-            if let Some(attributes) = attributes.as_array() {
-                // Update list with id's we care about
-                let dpu_pci_ids = HashSet::from(["0x15b3:0xa2d6", "0x1af4:0x1000"]);
-                does_attributes_contain_dpu_pci_ids(&dpu_pci_ids, attributes)
-            } else {
-                false // attributes isn't a json array
-            }
-        } else {
-            false // has no network interfaces/attribute
-        })
+        if network_interfaces.is_empty() {
+            return Ok(false); // has no network interfaces/attribute
+        }
+
+        log::debug!("Interfaces Hash found");
+        log::debug!(
+            "Looking for attributes on interface: {:?}",
+            network_interfaces
+        );
+
+        // Update list with id's we care about
+        let dpu_pci_ids = HashSet::from(["0x15b3:0xa2d6", "0x1af4:0x1000"]);
+        Ok(does_attributes_contain_dpu_pci_ids(
+            &dpu_pci_ids,
+            &network_interfaces[..],
+        ))
     }
 
     pub async fn discovered(
@@ -152,21 +144,22 @@ impl MachineTopology {
     pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &uuid::Uuid,
-        discovery: String,
+        discovery: &MachineDiscoveryInfo,
     ) -> CarbideResult<Option<Self>> {
         if Self::discovered(&mut *txn, machine_id).await? {
             log::info!("Discovery data for machine {} already exists", machine_id);
             Ok(None)
         } else {
+            let json = serde_json::to_string(&discovery).map_err(CarbideError::from)?;
             let res = sqlx::query_as(
                 "INSERT INTO machine_topologies VALUES ($1::uuid, $2::json) RETURNING *",
             )
             .bind(&machine_id)
-            .bind(&discovery)
+            .bind(&json)
             .fetch_one(&mut *txn)
             .await?;
 
-            if Self::is_dpu(&discovery).await? {
+            if Self::is_dpu(discovery)? {
                 let new_leaf = NewVpcResourceLeaf::new().persist(&mut *txn).await?;
 
                 log::info!("Generating new leaf id {}", new_leaf.id());

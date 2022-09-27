@@ -15,17 +15,18 @@ use std::str::FromStr;
 pub use prost_types::Timestamp;
 use serde::ser::SerializeStruct;
 
-use forge::v0::machine_discovery_info::DiscoveryData;
+// TODO: These might either all be pub and rexported or none
+pub use forge::v0::machine_discovery_info::DiscoveryData;
 use forge::v0::Domain;
-use forge::v0::MachineDiscoveryInfo;
+pub use forge::v0::MachineDiscoveryInfo;
 use forge::v0::MachineEvent;
 use forge::v0::MachineInterface;
 use forge::v0::Uuid;
-use machine_discovery::v0::BlockDevice;
-use machine_discovery::v0::Cpu;
-use machine_discovery::v0::DiscoveryInfo;
-use machine_discovery::v0::NetworkInterface;
-use machine_discovery::v0::PciDeviceProperties;
+pub use machine_discovery::v0::BlockDevice;
+pub use machine_discovery::v0::Cpu;
+pub use machine_discovery::v0::DiscoveryInfo;
+pub use machine_discovery::v0::NetworkInterface;
+pub use machine_discovery::v0::PciDeviceProperties;
 
 use rust_fsm::*;
 
