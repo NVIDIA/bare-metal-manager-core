@@ -32,6 +32,7 @@ service Forge {
   // Manage instances on machines
   rpc CreateInstance(Instance) returns (Instance);
   rpc UpdateInstance(Instance) returns (Instance);
+  rpc FindInstanceByMachineID(UUID) returns (Instance);
   rpc DeleteInstance(InstanceDeletionRequest) returns (InstanceDeletionResult);
 
   rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
