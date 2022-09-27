@@ -329,8 +329,6 @@ impl Forge for Api {
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
 
-        let json = serde_json::to_string(&di).map_err(CarbideError::from)?;
-
         let machine = Machine::create(&mut txn, interface)
             .await
             .map(rpc::Machine::from)?;
@@ -352,7 +350,7 @@ impl Forge for Api {
             }
         };
 
-        MachineTopology::create(&mut txn, &uuid, json).await?;
+        MachineTopology::create(&mut txn, &uuid, &di).await?;
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {}));
 

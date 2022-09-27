@@ -32,9 +32,51 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = pool.begin().await?;
 
-    let json = r#"{"machine_id": {"value": "1685191a-50f2-49da-a75e-81b8d8dfbc2c"}, "discovery_data": {"InfoV0": {"cpus": [{"core": 0, "node": 0, "model": "Intel(R) Core(TM) i9-10920X CPU @ 3.50GHz", "number": 0, "socket": 0, "vendor": "GenuineIntel", "frequency": "3503.998"}], "machine_type": "x86_64", "block_devices": [{"model": "QEMU_DVD-ROM", "serial": "QM00003", "revision": "2.5+"}, {"model": "NO_MODEL", "serial": "NO_SERIAL", "revision": "NO_REVISION"}], "network_interfaces": [{"mac_address": "52:54:00:12:34:56", "pci_properties": {"path": "/devices/pci0000:00/0000:00:04.0/virtio1/net/ens4", "device": "0x1000", "vendor": "0x1af4", "numa_node": 2147483647, "description": "Virtio network device"}}]}}}"#;
+    let discovery_data = rpc::DiscoveryInfo {
+        block_devices: vec![
+            rpc::BlockDevice {
+                model: "QEMU_DVD-ROM".to_string(),
+                serial: "QM00003".to_string(),
+                revision: "2.5+".to_string(),
+            },
+            rpc::BlockDevice {
+                model: "NO_MODEL".to_string(),
+                serial: "NO_SERIAL".to_string(),
+                revision: "NO_REVISION".to_string(),
+            },
+        ],
+        cpus: vec![rpc::Cpu {
+            core: 0,
+            node: 0,
+            number: 0,
+            socket: 0,
+            vendor: "GenuineIntel".to_string(),
+            model: "Intel(R) Core(TM) i9-10920X CPU @ 3.50GHz".to_string(),
+            frequency: "3503.998".to_string(),
+        }],
+        machine_type: "x86_64".to_string(),
+        network_interfaces: vec![rpc::NetworkInterface {
+            mac_address: "52:54:00:12:34:56".to_string(),
+            pci_properties: Some(rpc::PciDeviceProperties {
+                path: "/devices/pci0000:00/0000:00:04.0/virtio1/net/ens4".to_string(),
+                description: Some("Virtio network device".to_string()),
+                device: "0x1000".to_string(),
+                numa_node: 2147483647,
+                vendor: "0x1af4".to_string(),
+            }),
+        }],
+    };
 
-    MachineTopology::create(&mut txn, machine.id(), json.to_string()).await?;
+    let machine_info = rpc::forge::v0::MachineDiscoveryInfo {
+        machine_id: Some(rpc::forge::v0::Uuid {
+            value: "1685191a-50f2-49da-a75e-81b8d8dfbc2c".to_string(),
+        }),
+        discovery_data: Some(
+            rpc::forge::v0::machine_discovery_info::DiscoveryData::InfoV0(discovery_data),
+        ),
+    };
+
+    MachineTopology::create(&mut txn, machine.id(), &machine_info).await?;
 
     txn.commit().await?;
 
