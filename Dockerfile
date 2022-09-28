@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   isc-kea-dhcp4-server \
   isc-kea-dhcp6-server \
   libboost-dev \
+  libudev-dev \
   postgresql-client-14 \
   postgresql-client-14-dbgsym \
   vault \
