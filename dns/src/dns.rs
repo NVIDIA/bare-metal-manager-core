@@ -15,7 +15,7 @@ use trust_dns_server::proto::rr::RecordType::A;
 use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 use trust_dns_server::ServerFuture;
 
-use rpc::forge::v0 as rpc;
+use ::rpc::forge as rpc;
 
 use crate::cfg;
 

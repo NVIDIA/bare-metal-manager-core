@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use carbide::{bg::Status, ipmi, CarbideError, CarbideResult};
 use console::ConsoleError;
-use rpc::forge::v0::UserRoles;
+use rpc::forge::UserRoles;
 
 use crate::ipmi::{HostInfo, IpmiInfo};
 use crate::server::{Server, TaskState};

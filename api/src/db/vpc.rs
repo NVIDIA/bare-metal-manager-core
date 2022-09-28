@@ -99,9 +99,9 @@ impl Vpc {
     }
 }
 
-impl From<Vpc> for rpc::forge::v0::Vpc {
+impl From<Vpc> for rpc::forge::Vpc {
     fn from(src: Vpc) -> Self {
-        rpc::forge::v0::Vpc {
+        rpc::forge::Vpc {
             id: Some(src.id.into()),
             name: src.name,
             organization: src.organization_id,
@@ -121,10 +121,10 @@ impl From<Vpc> for rpc::forge::v0::Vpc {
     }
 }
 
-impl TryFrom<rpc::forge::v0::Vpc> for NewVpc {
+impl TryFrom<rpc::forge::Vpc> for NewVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::forge::v0::Vpc) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::forge::Vpc) -> Result<Self, Self::Error> {
         if value.id.is_some() {
             return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
                 "VPC",
@@ -137,10 +137,10 @@ impl TryFrom<rpc::forge::v0::Vpc> for NewVpc {
     }
 }
 
-impl TryFrom<rpc::forge::v0::Vpc> for UpdateVpc {
+impl TryFrom<rpc::forge::Vpc> for UpdateVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::forge::v0::Vpc) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::forge::Vpc) -> Result<Self, Self::Error> {
         Ok(UpdateVpc {
             id: value
                 .id
@@ -152,10 +152,10 @@ impl TryFrom<rpc::forge::v0::Vpc> for UpdateVpc {
     }
 }
 
-impl TryFrom<rpc::forge::v0::VpcDeletion> for DeleteVpc {
+impl TryFrom<rpc::forge::VpcDeletion> for DeleteVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::forge::v0::VpcDeletion) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::forge::VpcDeletion) -> Result<Self, Self::Error> {
         Ok(DeleteVpc {
             id: value
                 .id
@@ -165,9 +165,9 @@ impl TryFrom<rpc::forge::v0::VpcDeletion> for DeleteVpc {
     }
 }
 
-impl From<Vpc> for rpc::forge::v0::VpcDeletionResult {
+impl From<Vpc> for rpc::forge::VpcDeletionResult {
     fn from(_src: Vpc) -> Self {
-        rpc::forge::v0::VpcDeletionResult {}
+        rpc::forge::VpcDeletionResult {}
     }
 }
 

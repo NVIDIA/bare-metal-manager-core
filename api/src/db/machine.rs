@@ -12,10 +12,10 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use ::rpc::forge as rpc;
 use ::rpc::MachineStateMachine;
 use ::rpc::MachineStateMachineInput;
 use ::rpc::Timestamp;
-use rpc::forge::v0 as rpc;
 
 use crate::db::machine_action::MachineAction;
 use crate::db::machine_event::MachineEvent;

@@ -7,8 +7,8 @@ use chrono::prelude::*;
 use mac_address::MacAddress;
 use sqlx::{FromRow, Postgres, Transaction};
 
+use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
-use rpc::forge::v0 as rpc;
 
 use crate::{db::machine_interface::MachineInterface, CarbideError, CarbideResult};
 

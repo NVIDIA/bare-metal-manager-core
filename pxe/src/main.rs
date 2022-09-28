@@ -13,10 +13,10 @@ use rocket::{
 use rocket_dyn_templates::Template;
 use serde::Serialize;
 
-use ::rpc::forge::v0::forge_client::ForgeClient;
-use ::rpc::forge::v0::DomainSearchQuery;
-use ::rpc::forge::v0::InterfaceSearchQuery;
-use rpc::forge::v0;
+use ::rpc::forge;
+use ::rpc::forge::forge_client::ForgeClient;
+use ::rpc::forge::DomainSearchQuery;
+use ::rpc::forge::InterfaceSearchQuery;
 
 use crate::artifacts::ArtifactConfig;
 
@@ -26,10 +26,10 @@ mod routes;
 
 #[derive(Debug)]
 pub struct Machine {
-    architecture: v0::MachineArchitecture,
-    interface: v0::MachineInterface,
-    domain: v0::Domain,
-    machine: Option<v0::Machine>,
+    architecture: forge::MachineArchitecture,
+    interface: forge::MachineInterface,
+    domain: forge::Domain,
+    machine: Option<forge::Machine>,
 }
 
 #[derive(Clone)]
@@ -114,8 +114,8 @@ impl<'r> FromRequest<'r> for Machine {
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         let buildarch = match request.query_value::<&str>("buildarch") {
             Some(Ok(buildarch)) => match buildarch {
-                "arm64" => v0::MachineArchitecture::Arm,
-                "x86_64" => v0::MachineArchitecture::X86,
+                "arm64" => forge::MachineArchitecture::Arm,
+                "x86_64" => forge::MachineArchitecture::X86,
                 arch => {
                     eprintln!("invalid architecture: {:#?}", arch);
                     return request::Outcome::Failure((
@@ -178,7 +178,7 @@ impl<'r> FromRequest<'r> for Machine {
         };
 
         let request = tonic::Request::new(InterfaceSearchQuery {
-            id: Some(rpc::forge::v0::Uuid {
+            id: Some(forge::Uuid {
                 value: uuid.to_string(),
             }),
         });

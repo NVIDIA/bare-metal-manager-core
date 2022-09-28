@@ -5,8 +5,8 @@ use sqlx::types::uuid;
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
+use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
-use rpc::forge::v0 as rpc;
 
 use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};

@@ -1,5 +1,5 @@
-use log::LevelFilter;
 use carbide::db::network_segment::NetworkSegment;
+use log::LevelFilter;
 
 #[ctor::ctor]
 fn setup() {

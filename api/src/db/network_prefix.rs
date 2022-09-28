@@ -6,9 +6,9 @@ use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use ::rpc::forge as rpc;
 use ::rpc::VpcResourceStateMachine;
 use ::rpc::VpcResourceStateMachineInput;
-use rpc::forge::v0 as rpc;
 
 use crate::db::network_prefix_event::NetworkPrefixEvent;
 use crate::db::vpc_resource_action::VpcResourceAction;

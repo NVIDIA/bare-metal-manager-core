@@ -2,7 +2,7 @@ use ipnetwork::IpNetwork;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
-use rpc::forge::v0 as rpc;
+use ::rpc::forge as rpc;
 
 use crate::CarbideResult;
 

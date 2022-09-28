@@ -1,6 +1,6 @@
+use ::rpc::forge as rpc;
 use carbide::db::auth::SshKeyValidationRequest;
 use carbide::CarbideError;
-use rpc::forge::v0 as rpc;
 
 #[sqlx::test(fixtures("user_ssh_key"))]
 async fn test_auth(pool: sqlx::PgPool) -> sqlx::Result<()> {

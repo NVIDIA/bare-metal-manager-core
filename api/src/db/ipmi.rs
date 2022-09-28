@@ -5,7 +5,7 @@ use serde_json::json;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use rpc::forge::v0 as rpc;
+use ::rpc::forge as rpc;
 
 use crate::{CarbideError, CarbideResult};
 

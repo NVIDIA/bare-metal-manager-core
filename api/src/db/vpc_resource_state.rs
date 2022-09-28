@@ -4,8 +4,8 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, Row};
 
+use ::rpc::forge as rpc;
 use ::rpc::VpcResourceStateMachineState;
-use rpc::forge::v0 as rpc;
 
 use crate::CarbideError;
 

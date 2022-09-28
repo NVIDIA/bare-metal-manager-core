@@ -1,6 +1,7 @@
-use rpc::forge::v0 as rpc;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
+use ::rpc::forge as rpc;
 
 #[derive(Debug, Clone)]
 pub enum MachineArchitecture {

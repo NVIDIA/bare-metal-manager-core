@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use ::rpc::forge as rpc;
 use ::rpc::VpcResourceStateMachineInput;
-use rpc::forge::v0 as rpc;
 
 use crate::CarbideError;
 

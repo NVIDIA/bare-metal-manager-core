@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use thrussh_keys::{key, write_public_key_base64};
 use uuid::Uuid;
 
+use ::rpc::forge as rpc;
 use console::ConsoleError;
-use rpc::forge::v0 as rpc;
 
 use crate::ipmi::IpmiInfo;
 
