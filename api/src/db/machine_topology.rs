@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, HashSet};
 
 use chrono::prelude::*;
-use rpc::DiscoveryData;
-use rpc::MachineDiscoveryInfo;
-use rpc::NetworkInterface;
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
+
+use rpc::DiscoveryData;
+use rpc::MachineDiscoveryInfo;
+use rpc::NetworkInterface;
 
 use crate::db::constants::ADMIN_DPU_NETWORK_INTERFACE;
 use crate::db::dpu_machine::DpuMachine;
@@ -85,8 +86,8 @@ fn does_attributes_contain_dpu_pci_ids(
 // "block_devices": Array([Object({"serial": String("QM00003"), "model": String("QEMU_DVD-ROM"), "revision": String("2.5+")}),
 // Object({"serial": String("NO_SERIAL"), "model": String("NO_MODEL"), "revision": String("NO_REVISION")})])})})})
 impl MachineTopology {
-    pub fn is_dpu(discovery: &rpc::forge::v0::MachineDiscoveryInfo) -> CarbideResult<bool> {
-        let discovery_data = if let Some(DiscoveryData::InfoV0(data)) = &discovery.discovery_data {
+    pub fn is_dpu(discovery: &rpc::forge::MachineDiscoveryInfo) -> CarbideResult<bool> {
+        let discovery_data = if let Some(DiscoveryData::Info(data)) = &discovery.discovery_data {
             data
         } else {
             return Err(CarbideError::GenericError(

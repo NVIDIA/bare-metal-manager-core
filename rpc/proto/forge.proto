@@ -6,7 +6,7 @@ import "google/protobuf/duration.proto";
 
 import "machine_discovery.proto";
 
-package forge.v0;
+package forge;
 
 //import "machine_discovery.proto";
 
@@ -484,7 +484,7 @@ message BMCStatus {}
 message MachineDiscoveryInfo {
   UUID machine_id = 1;
   oneof discovery_data {
-    machine_discovery.v0.DiscoveryInfo info_v0 = 2;
+    machine_discovery.DiscoveryInfo info = 2;
   }
 }
 

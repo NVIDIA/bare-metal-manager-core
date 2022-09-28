@@ -2,19 +2,20 @@ use ipnetwork::IpNetwork;
 use rust_fsm::StateMachine;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 
+use ::rpc::forge as rpc;
 use ::rpc::VpcResourceStateMachine;
 use ::rpc::VpcResourceStateMachineInput;
-use rpc::forge::v0 as rpc;
 
-use super::address_selection_strategy::AddressSelectionStrategy;
-use super::network_segment::NetworkSegment;
-use super::UuidKeyedObjectFilter;
 use crate::db::instance_subnet_address::InstanceSubnetAddress;
 use crate::db::instance_subnet_event::InstanceSubnetEvent;
 use crate::db::machine_interface::MachineInterface;
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::db::vpc_resource_state::VpcResourceState;
 use crate::{CarbideError, CarbideResult};
+
+use super::address_selection_strategy::AddressSelectionStrategy;
+use super::network_segment::NetworkSegment;
+use super::UuidKeyedObjectFilter;
 
 #[derive(Debug, Clone)]
 pub struct InstanceSubnet {

@@ -10,8 +10,8 @@ use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
+use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
-use rpc::forge::v0 as rpc;
 
 use crate::db::machine_interface::MachineInterface;
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};

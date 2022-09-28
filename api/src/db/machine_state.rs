@@ -3,8 +3,8 @@ use std::str::FromStr;
 
 use sqlx::{postgres::PgRow, Row};
 
+use ::rpc::forge as rpc;
 use ::rpc::MachineStateMachineState;
-use rpc::forge::v0 as rpc;
 
 use crate::CarbideError;
 

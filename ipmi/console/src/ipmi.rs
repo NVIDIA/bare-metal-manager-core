@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use uuid::Uuid;
 
 use console::ConsoleError;
-use rpc::forge::v0::UserRoles;
+use rpc::forge::UserRoles;
 
 use crate::auth;
 

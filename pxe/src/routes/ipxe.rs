@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
-use ::rpc::forge::v0 as rpc;
 use rocket::{get, routes, Route};
 use rocket_dyn_templates::Template;
+
+use ::rpc::forge as rpc;
 
 use crate::machine_architecture::MachineArchitecture;
 use crate::routes::RpcContext;

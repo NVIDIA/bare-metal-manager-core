@@ -1,7 +1,7 @@
+use ::rpc::forge as rpc;
+
 pub mod cloud_init;
 pub mod ipxe;
-
-use ::rpc::forge::v0 as rpc;
 
 pub struct RpcContext;
 

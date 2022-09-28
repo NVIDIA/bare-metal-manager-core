@@ -5,7 +5,7 @@ use std::ptr;
 
 use ipnetwork::IpNetwork;
 
-use rpc::forge::v0 as rpc;
+use ::rpc::forge as rpc;
 
 use crate::discovery::Discovery;
 use crate::vendor_class::{MachineArchitecture, MachineClientClass, VendorClass};

@@ -4,8 +4,8 @@ use chrono::prelude::*;
 use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
 
+use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
-use rpc::forge::v0 as rpc;
 
 use crate::db::machine_action::MachineAction;
 use crate::CarbideResult;

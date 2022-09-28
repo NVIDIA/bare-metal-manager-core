@@ -9,7 +9,7 @@ use thrussh::{ChannelId, CryptoVec};
 use thrussh_keys::*;
 use uuid::Uuid;
 
-use rpc::forge::v0::UserRoles;
+use rpc::forge::UserRoles;
 
 use crate::auth;
 use crate::commands::command_handler;

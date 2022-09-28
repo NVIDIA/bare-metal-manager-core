@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package machine_discovery.v0;
+package machine_discovery;
 
 
 message DiscoveryInfo {

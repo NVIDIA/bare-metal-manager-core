@@ -3,14 +3,15 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use carbide::db::instance::Instance;
 use ipnetwork::Ipv4Network;
 use kube::{api::Api as KubeApi, Client};
 use mac_address::MacAddress;
 use sqlx::Acquire;
 use tonic::{Request, Response, Status};
 
+pub use ::rpc::forge as rpc;
 use carbide::db::constants::FORGE_KUBE_NAMESPACE;
+use carbide::db::instance::Instance;
 use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
 use carbide::kubernetes::VpcResourceActions;
 use carbide::vpc_resources::leaf;
@@ -21,7 +22,6 @@ use carbide::{
     },
     CarbideError,
 };
-pub use rpc::forge::v0 as rpc;
 
 use crate::api::Api;
 

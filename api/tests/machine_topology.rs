@@ -67,13 +67,13 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         }],
     };
 
-    let machine_info = rpc::forge::v0::MachineDiscoveryInfo {
-        machine_id: Some(rpc::forge::v0::Uuid {
+    let machine_info = rpc::forge::MachineDiscoveryInfo {
+        machine_id: Some(rpc::forge::Uuid {
             value: "1685191a-50f2-49da-a75e-81b8d8dfbc2c".to_string(),
         }),
-        discovery_data: Some(
-            rpc::forge::v0::machine_discovery_info::DiscoveryData::InfoV0(discovery_data),
-        ),
+        discovery_data: Some(rpc::forge::machine_discovery_info::DiscoveryData::Info(
+            discovery_data,
+        )),
     };
 
     MachineTopology::create(&mut txn, machine.id(), &machine_info).await?;

@@ -5,8 +5,8 @@ use sqlx::postgres::PgRow;
 use sqlx::{Error, Postgres, Row};
 use uuid::Uuid;
 
+use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
-use rpc::forge::v0 as rpc;
 
 use crate::{CarbideError, CarbideResult};
 

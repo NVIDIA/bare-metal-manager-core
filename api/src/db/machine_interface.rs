@@ -7,7 +7,7 @@ use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use rpc::forge::v0 as rpc;
+use ::rpc::forge as rpc;
 
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;

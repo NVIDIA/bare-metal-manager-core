@@ -4,38 +4,29 @@
 //! interact with the API Service
 //!
 
-use mac_address::{MacAddress, MacParseError};
-use prost::Message;
-use serde::{Serialize, Serializer};
 use std::convert::From;
 use std::convert::TryFrom;
 use std::fmt::Display;
 use std::str::FromStr;
 
+use mac_address::{MacAddress, MacParseError};
+use prost::Message;
 pub use prost_types::Timestamp;
-use serde::ser::SerializeStruct;
-
-// TODO: These might either all be pub and rexported or none
-pub use forge::v0::machine_discovery_info::DiscoveryData;
-use forge::v0::Domain;
-pub use forge::v0::MachineDiscoveryInfo;
-use forge::v0::MachineEvent;
-use forge::v0::MachineInterface;
-use forge::v0::Uuid;
-pub use machine_discovery::v0::BlockDevice;
-pub use machine_discovery::v0::Cpu;
-pub use machine_discovery::v0::DiscoveryInfo;
-pub use machine_discovery::v0::NetworkInterface;
-pub use machine_discovery::v0::PciDeviceProperties;
-
 use rust_fsm::*;
+use serde::ser::SerializeStruct;
+use serde::{Serialize, Serializer};
 
-// In order for CLion to grok the generated files, we need to use include! instead of
-// tonic's built in include. To include the proto build in CLion, ensure that the experimental
-// `org.rust.cargo.evaluate.build.scripts` flag is enabled.
-include!(concat!(env!("OUT_DIR"), "/common.rs"));
+pub use crate::protos::forge::{
+    self, machine_discovery_info::DiscoveryData, Domain, MachineDiscoveryInfo, MachineEvent,
+    MachineInterface, Uuid,
+};
+pub use crate::protos::machine_discovery::{
+    self, BlockDevice, Cpu, DiscoveryInfo, NetworkInterface, PciDeviceProperties,
+};
 
-pub const REFLECTION_SERVICE_DESCRIPTOR: &[u8] = tonic::include_file_descriptor_set!("forge.v0");
+pub mod protos;
+
+pub const REFLECTION_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("protos/forge.bin");
 
 pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
     let mut expected = Vec::new();
@@ -65,8 +56,8 @@ impl Serialize for DiscoveryData {
         S: Serializer,
     {
         match *self {
-            DiscoveryData::InfoV0(ref d) => {
-                serializer.serialize_newtype_variant("DiscoveryData", 0, "InfoV0", &d)
+            DiscoveryData::Info(ref d) => {
+                serializer.serialize_newtype_variant("DiscoveryData", 0, "Info", &d)
             }
         }
     }
@@ -177,29 +168,29 @@ impl Serialize for Domain {
     }
 }
 
-impl From<uuid::Uuid> for forge::v0::Uuid {
-    fn from(uuid: uuid::Uuid) -> forge::v0::Uuid {
-        forge::v0::Uuid {
+impl From<uuid::Uuid> for forge::Uuid {
+    fn from(uuid: uuid::Uuid) -> forge::Uuid {
+        forge::Uuid {
             value: uuid.hyphenated().to_string(),
         }
     }
 }
 
-impl TryFrom<forge::v0::Uuid> for uuid::Uuid {
+impl TryFrom<forge::Uuid> for uuid::Uuid {
     type Error = uuid::Error;
     fn try_from(uuid: Uuid) -> Result<Self, Self::Error> {
         uuid::Uuid::parse_str(&uuid.value)
     }
 }
 
-impl TryFrom<&forge::v0::Uuid> for uuid::Uuid {
+impl TryFrom<&forge::Uuid> for uuid::Uuid {
     type Error = uuid::Error;
     fn try_from(uuid: &Uuid) -> Result<Self, Self::Error> {
         uuid::Uuid::parse_str(&uuid.value)
     }
 }
 
-impl Display for forge::v0::Uuid {
+impl Display for forge::Uuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match uuid::Uuid::try_from(self) {
             Ok(uuid) => write!(f, "{}", uuid),
@@ -309,8 +300,8 @@ mod test {
         }
     }
 
-    fn create_test_discovery_data_info_v0() -> DiscoveryData {
-        DiscoveryData::InfoV0(create_test_discovery_info())
+    fn create_test_discovery_data_info() -> DiscoveryData {
+        DiscoveryData::Info(create_test_discovery_info())
     }
 
     fn create_test_machine_discovery_info() -> MachineDiscoveryInfo {
@@ -319,7 +310,7 @@ mod test {
 
         MachineDiscoveryInfo {
             machine_id: Some(rpc_uuid),
-            discovery_data: Some(create_test_discovery_data_info_v0()),
+            discovery_data: Some(create_test_discovery_data_info()),
         }
     }
 
@@ -330,8 +321,8 @@ mod test {
         let serialized_string = serde_json::to_string(&machine_discovery_info).unwrap();
         let json_value: serde_json::Value = serde_json::from_str(&serialized_string).unwrap();
 
-        let info_v0 = &json_value["discovery_data"];
-        let discovery_data = &info_v0["InfoV0"];
+        let info = &json_value["discovery_data"];
+        let discovery_data = &info["Info"];
         let machine_type = &discovery_data["machine_type"];
         let machine_type = machine_type.as_str().unwrap();
 

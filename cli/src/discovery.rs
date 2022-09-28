@@ -6,9 +6,9 @@ use std::str::Utf8Error;
 use libudev::{Context, Device};
 use uname::uname;
 
-use ::rpc::machine_discovery::v0 as rpc_discovery;
+use ::rpc::forge as rpc;
+use ::rpc::machine_discovery as rpc_discovery;
 use cli::{CarbideClientError, CarbideClientResult};
-use rpc::forge::v0 as rpc;
 
 pub struct Discovery {}
 
@@ -335,16 +335,14 @@ pub fn get_machine_details(
 
     Ok(rpc::MachineDiscoveryInfo {
         machine_id: Some(rpc_uuid),
-        discovery_data: Some(
-            ::rpc::forge::v0::machine_discovery_info::DiscoveryData::InfoV0(
-                rpc_discovery::DiscoveryInfo {
-                    network_interfaces: nics,
-                    cpus,
-                    block_devices: disks,
-                    machine_type: info.machine.as_str().to_owned(),
-                },
-            ),
-        ),
+        discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
+            rpc_discovery::DiscoveryInfo {
+                network_interfaces: nics,
+                cpus,
+                block_devices: disks,
+                machine_type: info.machine.as_str().to_owned(),
+            },
+        )),
     })
 }
 
