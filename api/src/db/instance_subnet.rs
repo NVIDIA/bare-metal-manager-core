@@ -257,7 +257,7 @@ impl InstanceSubnet {
         instance_id: uuid::Uuid,
         machine_interface: &MachineInterface,
         segment: &NetworkSegment,
-    ) -> CarbideResult<IpNetwork> {
+    ) -> CarbideResult<(IpNetwork, bool)> {
         // Validate if instance is assigned to valid subnet.
         // In case of instance, unlike machine, new interface/subnet will not be created at
         // runtime. Machine is already discovered and a subnet is created during instance creation.
@@ -305,7 +305,7 @@ impl InstanceSubnet {
                 .collect::<Vec<IpNetwork>>();
 
                 match ipv4_addresses.len() {
-                    1 => Ok(ipv4_addresses.remove(0)),
+                    1 => Ok((ipv4_addresses.remove(0), true)),
                     _ => {
                         log::warn!(
                             "Inconsistant IP allocation done by DHCP for instance: {}, ipv4_addresses: {:?}",
@@ -316,7 +316,7 @@ impl InstanceSubnet {
                     }
                 }
             }
-            1 => Ok(address.remove(0).address),
+            1 => Ok((address.remove(0).address, false)),
             _ => {
                 log::warn!(
                     "More than one IPv4 Address is allocated to instance: {}",

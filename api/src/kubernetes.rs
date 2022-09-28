@@ -35,6 +35,12 @@ pub enum VpcResourceActions {
     DeleteManagedResource(managed_resource::ManagedResource),
 }
 
+#[derive(Debug, Clone)]
+pub enum Operation {
+    Create,
+    Update,
+}
+
 #[derive(Debug)]
 pub struct Db(sqlx::PgPool);
 
@@ -468,7 +474,7 @@ pub async fn vpc_reconcile_handler(
                             &current_job,
                             3,
                             format!("Updating leaf in VPC {:?}", updated_leaf),
-                            TaskState::Ongoing,
+                            TaskState::Finished,
                         )
                         .await;
 
@@ -499,8 +505,52 @@ pub async fn vpc_reconcile_handler(
             VpcResourceActions::CreateManagedResource(spec) => {
                 create_managed_resource_handler(current_job, spec, client).await?;
             }
-            VpcResourceActions::UpdateManagedResource(_spec) => {
-                todo!()
+            VpcResourceActions::UpdateManagedResource(mut new_spec) => {
+                let spec_name = new_spec.name().to_string();
+
+                log::info!("UpdateManagedResource spec - {spec_name} {new_spec:?}");
+
+                let mr_api: Api<managed_resource::ManagedResource> =
+                    Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+                let original_mr = mr_api.get(&spec_name).await?;
+
+                log::info!("leaf_to_find leaf - {original_mr:?}");
+
+                let resource_version = original_mr.resource_version();
+
+                // Updates must contain the most recent observed version
+                new_spec.metadata.resource_version = resource_version;
+
+                log::info!("ManagedResource new_spec - {new_spec:?}");
+
+                let result = mr_api
+                    .replace(&spec_name, &PostParams::default(), &new_spec)
+                    .await;
+
+                match result {
+                    Ok(updated_leaf) => {
+                        update_status(
+                            &current_job,
+                            3,
+                            format!("Updated leaf in VPC {:?}", updated_leaf),
+                            TaskState::Finished,
+                        )
+                        .await;
+
+                        log::info!("Updated leaf: {updated_leaf:?}");
+                        let _ = current_job.complete().await.map_err(CarbideError::from);
+                    }
+                    Err(error) => {
+                        log::error!("Error updating leaf: {error}");
+                        update_status(
+                            &current_job,
+                            6,
+                            "Unable to update resource".to_string(),
+                            TaskState::Error(error.to_string()),
+                        )
+                        .await;
+                    }
+                }
             }
             VpcResourceActions::DeleteManagedResource(spec) => {
                 delete_managed_resource_handler(current_job, spec, client).await?;
@@ -627,11 +677,13 @@ pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideRes
         .map_err(CarbideError::from)
 }
 
-pub async fn create_managed_resource(
+pub async fn create_or_update_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     segment_id: uuid::Uuid,
     host_interface: Option<String>,
     managed_resource_name: String,
+    host_interface_ip: Option<String>,
+    operation: Operation,
 ) -> CarbideResult<()> {
     // find_by_segmentcan return max two prefixes, one for ipv4 and another for ipv6
     // Ipv4 is needed for now.
@@ -655,7 +707,7 @@ pub async fn create_managed_resource(
         dpu_i_ps: None,
         host_interface,
         host_interface_access: None,
-        host_interface_ip: None,
+        host_interface_ip,
         host_interface_mac: None,
         resource_group: Some(prefix.id.to_string()),
         r#type: None,
@@ -665,14 +717,24 @@ pub async fn create_managed_resource(
         managed_resource::ManagedResource::new(&managed_resource_name, managed_resource_spec);
 
     log::info!(
-        "CreateManagedResource sent to kubernetes with data: {:?}",
-        managed_resource
+        "ManagedResource sent to kubernetes with data: {:?}, Opeartion: {:?}",
+        managed_resource,
+        operation
     );
 
     let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
-    VpcResourceActions::CreateManagedResource(managed_resource)
-        .reconcile(db_conn)
-        .await?;
+    match operation {
+        Operation::Create => {
+            VpcResourceActions::CreateManagedResource(managed_resource)
+                .reconcile(db_conn)
+                .await?;
+        }
+        Operation::Update => {
+            VpcResourceActions::UpdateManagedResource(managed_resource)
+                .reconcile(db_conn)
+                .await?;
+        }
+    };
 
     Ok(())
 }

@@ -12,7 +12,7 @@ use tonic::{Request, Response, Status};
 
 use carbide::db::constants::FORGE_KUBE_NAMESPACE;
 use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
-use carbide::kubernetes::VpcResourceActions;
+use carbide::kubernetes::{self, create_or_update_managed_resource, VpcResourceActions};
 use carbide::vpc_resources::leaf;
 use carbide::{
     db::{
@@ -83,7 +83,7 @@ pub async fn discover_dhcp(
     if existing_machines.len() == 1
         && Instance::is_instance_configured(&mut txn, existing_machines[0].0).await?
     {
-        let segment_id =
+        let (segment_id, new_allocation) =
             Instance::verify_and_assign_address(&mut txn, parsed_relay, parsed_mac).await?;
 
         txn.commit().await.map_err(CarbideError::from)?;
@@ -95,17 +95,30 @@ pub async fn discover_dhcp(
             .await
             .map_err(CarbideError::from)?;
 
-        let record: rpc::DhcpRecord = DhcpRecord::find_for_instance(
+        let record = DhcpRecord::find_for_instance(
             &mut txn,
             &parsed_mac,
             &segment_id,
             existing_machines[0].0,
         )
-        .await?
-        .into();
+        .await?;
 
+        if new_allocation {
+            let instance = Instance::find_by_machine_id(&mut txn, existing_machines[0].0).await?;
+            let ip = record.address().ip().to_string();
+            create_or_update_managed_resource(
+                &mut txn,
+                segment_id,
+                Some(parsed_mac.to_string()),
+                instance.managed_resource_id.to_string(),
+                Some(ip),
+                kubernetes::Operation::Update,
+            )
+            .await?;
+        }
+
+        let record: rpc::DhcpRecord = record.into();
         txn.commit().await.map_err(CarbideError::from)?;
-
         let record_clone = record.clone();
 
         api.dhcp_discovery_cache.lock().await.put(
