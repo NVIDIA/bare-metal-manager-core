@@ -208,7 +208,7 @@ build-push-helm:
       NAMESPACE=forge-system  yq -i '.NameSpace = env(NAMESPACE)' $CI_PROJECT_NAME/values.yaml
       sed -i '/^spec:/a \ \ imagePullSecrets:\n \ \- name: imagepullsecret' $CI_PROJECT_NAME/templates/postgres.yaml
       sed -i '/^metadata:/a \ \ namespace: {{ .Values.NameSpace }}' $CI_PROJECT_NAME/templates/*
-      sed -i 's/carbide-postgres-pguser-carbide-postgres/{{ .Release.Name }}-postgres-pguser-carbide-postgres/g' $CI_PROJECT_NAME/templates/*
+      sed -i 's/carbide-postgres-pguser-carbide-postgres/{{ .Release.Name }}-postgres-pguser-{{ .Release.Name }}-postgres/g' $CI_PROJECT_NAME/templates/*
       sed -i 's/secretName: forge-provisioner-cert/secretName: {{ include "carbide.fullname" . }}-forge-provisioner-cert/g' $CI_PROJECT_NAME/templates/*
       sed -i 's/{{ .Release.Namespace }}/{{ .Values.NameSpace }}/g' $CI_PROJECT_NAME/templates/*
       cat << EOF > $CI_PROJECT_NAME/templates/namespace.yaml
