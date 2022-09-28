@@ -42,6 +42,8 @@ runcmd:
   - [ /usr/bin/mlxconfig, -y, -d, /dev/mst/mt*_pciconf0, s, SRIOV_EN=True, NUM_OF_VFS=16, HIDE_PORT2_PF=True ]
   - [ mkdir, -p, /opt/hbn_installer, /opt/carbide ]
   - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/doca_container_configs_1.4.0.zip, -P, /opt/hbn_installer ]
+  - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/forge-dpu_1.0-1.deb, -P, /tmp/forge-dpu_1.0-1.deb ]
+  - [ dpkg, -i, /tmp/forge-dpu_1.0-1.deb ]
   - [ /usr/bin/unzip, /opt/hbn_installer/doca_container_configs_1.4.0.zip, -d, /opt/hbn_installer/ ]
   - [ chmod, +x, /opt/hbn_installer/scripts/doca_hbn/hbn-dpu-setup.sh]
   - [ cd, /opt/hbn_installer/scripts/doca_hbn ]
