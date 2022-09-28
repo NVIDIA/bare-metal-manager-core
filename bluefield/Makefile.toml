@@ -1,0 +1,26 @@
+[tasks.setup-forge-dpu-deb]
+category = "Build"
+workspace = false
+script = '''
+	vers=$(grep Version misc/DEBIAN/control | cut -d : -f 2 | sed s/\ //g) && \
+	export vers && \
+	mkdir -p "forge-dpu_${vers}/lib/systemd/system" && \
+	mkdir -p "forge-dpu_${vers}/usr/bin" && \
+	cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/" && \
+	cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/" && \
+	cp -r misc/DEBIAN "forge-dpu_${vers}/"
+'''
+
+[tasks.build-forge-dpu-deb]
+category = "Build"
+description = "Build the forge-dpu.deb package"
+workspace = false
+script = '''
+	vers=$(grep Version misc/DEBIAN/control | cut -d : -f 2 | sed s/\ //g) && \
+	export vers && \
+	dpkg-deb --build forge-dpu_${vers} && \
+	cp forge-dpu_${vers}.deb ../cli/
+'''
+dependencies = [
+	"setup-forge-dpu-deb"
+]

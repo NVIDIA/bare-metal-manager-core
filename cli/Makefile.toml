@@ -19,6 +19,7 @@ dependencies = [
     "update-cli-checksum-aarch64",
     "download-hbn-installer",
     "update-hbn-installer-checksum",
+    {name = "build-forge-dpu-deb", path="../bluefield/Makefile.toml"},
 ]
 
 [tasks.build-user-data-artifacts-aarch64-ci]
@@ -26,6 +27,7 @@ dependencies = [
     "build",
     "copy-cli-to-pxe-aarch64",
     "download-hbn-installer",
+    {name = "build-forge-dpu-deb", path="../bluefield/Makefile.toml"},
     "package-user-data-artifacts-aarch64",
     "upload-user-data-artifacts-aarch64",
 ]
@@ -63,6 +65,7 @@ args = [
     ".",
 ]
 cwd = "../pxe/static/blobs/internal/aarch64"
+
 
 [tasks.update-hbn-installer-checksum]
 category = "User Data"
@@ -104,7 +107,8 @@ args = [
     "-czvf",
     "${CI_PROJECT_DIR}/forge-user-data-artifacts-${CI_BUILD_ID}.tar.gz",
     "carbide-cli",
-    "doca_container_configs_1.4.0.zip"
+    "doca_container_configs_1.4.0.zip",
+    "forge-dpu_1.0-1.deb"
 ]
 cwd = "../pxe/static/blobs/internal/aarch64"
 
