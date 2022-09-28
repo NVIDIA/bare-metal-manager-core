@@ -154,7 +154,7 @@ impl Instance {
         txn: &mut Transaction<'_, Postgres>,
         relay: IpAddr,
         mac_address: MacAddress,
-    ) -> CarbideResult<uuid::Uuid> {
+    ) -> CarbideResult<(uuid::Uuid, bool)> {
         let machine_interfaces = MachineInterface::find_by_mac_address(txn, mac_address).await?;
         match machine_interfaces.len() {
             1 => {
@@ -166,17 +166,17 @@ impl Instance {
                 match NetworkSegment::for_relay(txn, relay).await? {
                     None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
                     Some(segment) => {
-                        let address = InstanceSubnet::get_address(
+                        let (address, new_allocation) = InstanceSubnet::get_address(
                             &mut *txn,
                             instance.id,
                             machine_interface,
                             &segment,
                         )
                         .await
-                        .map(|x| x.ip())?;
+                        .map(|(x, y)| (x.ip(), y))?;
 
                         log::info!("IP assigned to {} is {}.", instance.id(), address);
-                        Ok(segment.id)
+                        Ok((segment.id, new_allocation))
                     }
                 }
             }
