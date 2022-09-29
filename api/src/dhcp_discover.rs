@@ -76,6 +76,8 @@ pub async fn discover_dhcp(
         }
     }
 
+    let hyphenated_mac_address = parsed_mac.to_string().replace(':', "-");
+
     let existing_machines =
         Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
 
@@ -109,7 +111,7 @@ pub async fn discover_dhcp(
             create_or_update_managed_resource(
                 &mut txn,
                 segment_id,
-                Some(parsed_mac.to_string()),
+                Some(hyphenated_mac_address),
                 instance.managed_resource_id.to_string(),
                 Some(ip),
                 kubernetes::Operation::Update,
@@ -232,8 +234,6 @@ pub async fn discover_dhcp(
                         ADMIN_DPU_NETWORK_INTERFACE.to_string(),
                         host_admin_ip_address_string,
                     )]);
-
-                    let hyphenated_mac_address = parsed_mac.to_string().replace(':', "-");
 
                     // TODO Need to handle VF as well, this assumes PF
                     let new_host_interfaces_map = BTreeMap::from([(
