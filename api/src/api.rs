@@ -163,24 +163,35 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::VpcSearchQuery { id, .. } = request.into_inner();
+        let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
 
-        let _uuid = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
-                }
+        let vpcs = match (id, name) {
+            (Some(id), _ ) => {
+                let id = id;
+                let uuid = match uuid::Uuid::try_from(id) {
+                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                    Err(err) => {
+                        return Err(Status::invalid_argument(format!(
+                            "Supplied invalid UUID: {}",
+                            err
+                        )));
+                    }
+                };
+                Vpc::find(&mut txn, uuid)
+                    .await
             },
-            None => UuidKeyedObjectFilter::All,
+            (None, Some(name)) => {
+                Vpc::find_by_name(&mut txn, name)
+                    .await
+            },
+            (None, None) => {
+                Vpc::find(&mut txn, UuidKeyedObjectFilter::All)
+                    .await
+            },
         };
 
-        let result = Vpc::find(&mut txn, _uuid)
-            .await
-            .map(|vpc| rpc::VpcList {
+        let result = vpcs
+            .map(|vpc |rpc::VpcList {
                 vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
             })
             .map(Response::new)

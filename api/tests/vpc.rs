@@ -74,3 +74,18 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
 
     Ok(())
 }
+
+#[sqlx::test(fixtures("create_vpc"))]
+async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let some_vpc = Vpc::find_by_name(&mut txn, "test vpc 1".to_string()).await?;
+
+    assert_eq!(1, some_vpc.len());
+
+    let first = some_vpc.first();
+
+    assert!(matches!(first, Some(x) if x.id == FIXTURE_CREATED_VPC_ID));
+
+    Ok(())
+}
