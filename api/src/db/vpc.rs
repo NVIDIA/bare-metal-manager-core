@@ -97,6 +97,17 @@ impl Vpc {
 
         Ok(results)
     }
+    pub async fn find_by_name(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        name: String,
+    ) -> CarbideResult<Vec<Vpc>>{
+
+        Ok(sqlx::query_as("SELECT * FROM vpcs WHERE name = $1 and deleted is NULL")
+            .bind(name)
+            .fetch_all(&mut *txn)
+            .await?)
+    }
+
 }
 
 impl From<Vpc> for rpc::forge::Vpc {
