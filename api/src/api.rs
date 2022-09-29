@@ -359,10 +359,10 @@ impl Forge for Api {
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_network_segments(
         &self,
-        _request: Request<rpc::NetworkSegmentQuery>,
+        request: Request<rpc::NetworkSegmentQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
         log::debug!("Fetching database transaction");
 
@@ -372,7 +372,22 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let network = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::All)
+        let rpc::NetworkSegmentQuery{ id, .. } = request.into_inner();
+
+        let uuid_filter = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => UuidKeyedObjectFilter::All,
+        };
+
+        let result = NetworkSegment::find(&mut txn, uuid_filter)
             .await
             .map(|network| rpc::NetworkSegmentList {
                 network_segments: network.into_iter().map(rpc::NetworkSegment::from).collect(),
@@ -381,7 +396,7 @@ impl Forge for Api {
             .map(Response::new)
             .map_err(CarbideError::from)?;
 
-        Ok(network)
+        Ok(result)
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
