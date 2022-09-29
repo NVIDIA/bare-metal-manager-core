@@ -764,10 +764,12 @@ impl Forge for Api {
             )
             .await?;
 
+            let hyphenated_mac_address =
+                machine_interface.mac_address.to_string().replace(':', "-");
             create_or_update_managed_resource(
                 &mut txn,
                 instance.segment_id,
-                Some(machine_interface.mac_address.to_string()),
+                Some(hyphenated_mac_address),
                 instance_details.managed_resource_id.to_string(),
                 None,
                 kubernetes::Operation::Create,
