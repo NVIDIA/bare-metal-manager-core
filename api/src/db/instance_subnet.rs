@@ -15,7 +15,6 @@ use crate::{CarbideError, CarbideResult};
 
 use super::address_selection_strategy::AddressSelectionStrategy;
 use super::network_segment::NetworkSegment;
-use super::UuidKeyedObjectFilter;
 
 #[derive(Debug, Clone)]
 pub struct InstanceSubnet {
@@ -256,76 +255,30 @@ impl InstanceSubnet {
     pub async fn get_address(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: uuid::Uuid,
-        machine_interface: &MachineInterface,
         segment: &NetworkSegment,
-    ) -> CarbideResult<(IpNetwork, bool)> {
-        // Validate if instance is assigned to valid subnet.
-        // In case of instance, unlike machine, new interface/subnet will not be created at
-        // runtime. Machine is already discovered and a subnet is created during instance creation.
-        let subnet = InstanceSubnet::find_by_instance_id(txn, instance_id)
-            .await?
-            .into_iter()
-            .filter(|subnet| {
-                subnet.vf_id.is_none()
-                    && subnet.machine_interface_id == machine_interface.id
-                    && subnet.network_segment_id == segment.id
-            })
-            .last()
-            .ok_or_else(|| {
-                CarbideError::GenericError(format!(
-                    "Couldn't find subnet with matching machine/segment id {}/{} i.e. primary for instance: {}.",
-                    machine_interface.id,
-                    segment.id,
-                    instance_id
-                ))
-            })?;
-
-        let mut address = InstanceSubnetAddress::find_for_instance(
+        subnet: InstanceSubnet,
+    ) -> CarbideResult<IpNetwork> {
+        // No address is allocated yet. Let's allocate some.
+        let mut ipv4_addresses = InstanceSubnetAddress::create(
             &mut *txn,
-            UuidKeyedObjectFilter::One(subnet.id),
+            segment,
+            AddressSelectionStrategy::Automatic,
+            subnet.id,
         )
         .await?
-        .remove(&subnet.id)
-        .unwrap_or_default()
         .into_iter()
-        .filter(|subnet_address| subnet_address.address.is_ipv4())
-        .collect::<Vec<InstanceSubnetAddress>>();
+        .filter(|address| address.is_ipv4())
+        .collect::<Vec<IpNetwork>>();
 
-        match address.len() {
-            0 => {
-                // No address is allocated yet. Let's allocate some.
-                let mut ipv4_addresses = InstanceSubnetAddress::create(
-                    &mut *txn,
-                    segment,
-                    AddressSelectionStrategy::Automatic,
-                    subnet.id,
-                )
-                .await?
-                .into_iter()
-                .filter(|address| address.is_ipv4())
-                .collect::<Vec<IpNetwork>>();
-
-                match ipv4_addresses.len() {
-                    1 => Ok((ipv4_addresses.remove(0), true)),
-                    _ => {
-                        log::warn!(
+        match ipv4_addresses.len() {
+            1 => Ok(ipv4_addresses.remove(0)),
+            _ => {
+                log::warn!(
                             "Inconsistant IP allocation done by DHCP for instance: {}, ipv4_addresses: {:?}",
                             instance_id, ipv4_addresses
                         );
 
-                        Err(CarbideError::DHCPMultipleIPAssigned(format!("Inconsistant IP allocation done by DHCP for instance: {}, ipv4_addresses: {:?}", instance_id, ipv4_addresses)))
-                    }
-                }
-            }
-            1 => Ok((address.remove(0).address, false)),
-            _ => {
-                log::warn!(
-                    "More than one IPv4 Address is allocated to instance: {}",
-                    instance_id
-                );
-                Err(CarbideError::NetworkSegmentDuplicateMacAddress(
-                    machine_interface.mac_address,
-                ))
+                Err(CarbideError::DHCPMultipleIPAssigned(format!("Inconsistant IP allocation done by DHCP for instance: {}, ipv4_addresses: {:?}", instance_id, ipv4_addresses)))
             }
         }
     }

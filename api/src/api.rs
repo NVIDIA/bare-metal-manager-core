@@ -20,8 +20,8 @@ use carbide::db::instance_subnet::InstanceSubnet;
 use carbide::db::network_prefix::NetworkPrefix;
 use carbide::ipmi::{ipmi_handler, RealIpmiCommandHandler};
 use carbide::kubernetes::{
-    self, bgkubernetes_handler, create_or_update_managed_resource, create_resource_group,
-    delete_managed_resource, delete_resource_group,
+    bgkubernetes_handler, create_managed_resource, create_resource_group, delete_managed_resource,
+    delete_resource_group,
 };
 use carbide::{
     db::{
@@ -781,7 +781,7 @@ impl Forge for Api {
             )
             .await?;
 
-            InstanceSubnet::create(
+            let subnet = InstanceSubnet::create(
                 &mut txn,
                 &machine_interface,
                 instance.segment_id,
@@ -790,15 +790,18 @@ impl Forge for Api {
             )
             .await?;
 
+            let ip_addr = instance_details
+                .assign_address(&mut txn, subnet, instance.segment_id)
+                .await?;
+
             let hyphenated_mac_address =
                 machine_interface.mac_address.to_string().replace(':', "-");
-            create_or_update_managed_resource(
+            create_managed_resource(
                 &mut txn,
                 instance.segment_id,
                 Some(hyphenated_mac_address),
                 instance_details.managed_resource_id.to_string(),
-                None,
-                kubernetes::Operation::Create,
+                Some(ip_addr.to_string()),
             )
             .await?;
         }

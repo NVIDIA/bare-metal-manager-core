@@ -10,12 +10,9 @@ use sqlx::{FromRow, Postgres, Transaction};
 use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
 
-use crate::{db::machine_interface::MachineInterface, CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult};
 
-use super::{
-    instance_subnet::InstanceSubnet, machine::Machine, machine_state::MachineState,
-    network_segment::NetworkSegment,
-};
+use super::{instance_subnet::InstanceSubnet, network_segment::NetworkSegment};
 
 #[derive(Debug, FromRow)]
 pub struct Instance {
@@ -134,72 +131,67 @@ impl Instance {
         )
     }
 
-    pub async fn is_instance_configured(
+    async fn find_by_mac_and_segment(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: uuid::Uuid,
-    ) -> CarbideResult<bool> {
-        match Machine::find_one(&mut *txn, machine_id).await? {
-            None => {
-                log::warn!("Supplied invalid UUID: {}", machine_id);
-                Err(CarbideError::NotFoundError(machine_id))
+        segment_id: uuid::Uuid,
+        parsed_mac: MacAddress,
+    ) -> CarbideResult<Self> {
+        Ok(sqlx::query_as(r#"SELECT i.id as id, i.machine_id as machine_id,
+                                    i.requested as requested, i.started as started,
+                                    i.finished as finished, i,user_data as user_data,
+                                    i.custom_ipxe as custom_ipxe, i.ssh_keys as ssh_keys,
+                                    i.managed_resource_id as managed_resource_id FROM instances i 
+                                      INNER JOIN instance_subnets s ON i.id = s.instance_id
+                                      INNER JOIN machine_interfaces ms ON ms.id = s.machine_interface_id
+                                      WHERE
+                                        ms.mac_address = $1 AND s.network_segment_id = $2"#)
+            .bind(parsed_mac)
+            .bind(segment_id)
+            .fetch_one(&mut *txn)
+            .await?)
+    }
+
+    pub async fn find_by_mac_and_relay(
+        txn: &mut Transaction<'_, Postgres>,
+        relay: IpAddr,
+        parsed_mac: MacAddress,
+    ) -> CarbideResult<Option<Instance>> {
+        match NetworkSegment::for_relay(txn, relay).await? {
+            None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
+            Some(segment) => {
+                Ok(
+                    match Instance::find_by_mac_and_segment(&mut *txn, segment.id, parsed_mac).await
+                    {
+                        Ok(instance) => Some(instance),
+                        Err(CarbideError::DatabaseError(sqlx::Error::RowNotFound)) => None, // Instance is not found.
+                        Err(er) => {
+                            return Err(er);
+                        }
+                    },
+                )
             }
-            Some(m) => match m.current_state(&mut *txn).await? {
-                MachineState::Assigned => Ok(true),
-                _ => Ok(false),
-            },
         }
     }
 
-    pub async fn verify_and_assign_address(
+    pub async fn assign_address(
+        &self,
         txn: &mut Transaction<'_, Postgres>,
-        relay: IpAddr,
-        mac_address: MacAddress,
-    ) -> CarbideResult<(uuid::Uuid, bool)> {
-        let machine_interfaces = MachineInterface::find_by_mac_address(txn, mac_address).await?;
-        match machine_interfaces.len() {
-            1 => {
-                let machine_interface = &machine_interfaces[0];
-                let machine_id = machine_interface
-                    .machine_id
-                    .ok_or(CarbideError::NotFoundError(machine_interface.id))?;
-                let instance = Instance::find_by_machine_id(txn, machine_id).await?;
-                match NetworkSegment::for_relay(txn, relay).await? {
-                    None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
-                    Some(segment) => {
-                        let (address, new_allocation) = InstanceSubnet::get_address(
-                            &mut *txn,
-                            instance.id,
-                            machine_interface,
-                            &segment,
-                        )
-                        .await
-                        .map(|(x, y)| (x.ip(), y))?;
-
-                        log::info!("IP assigned to {} is {}.", instance.id(), address);
-                        Ok((segment.id, new_allocation))
-                    }
-                }
-            }
-            0 => {
-                log::warn!(
-                    "No machine returned with mac: {} for relay: {}",
-                    mac_address,
-                    relay
-                );
-                Err(CarbideError::GenericError(format!(
-                    "No machine returned with mac: {}",
-                    mac_address
-                )))
-            }
-            _ => {
-                log::warn!(
-                    "More than existing mac address ({}) for network segment (relay ip: {}), found: {:?}",
-                    &mac_address,
-                    &relay, machine_interfaces
-                );
-                Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
-            }
+        subnet: InstanceSubnet,
+        segment_id: uuid::Uuid,
+    ) -> CarbideResult<IpAddr> {
+        let mut segments =
+            NetworkSegment::find(txn, super::UuidKeyedObjectFilter::One(segment_id)).await?;
+        if segments.is_empty() {
+            return Err(CarbideError::NotFoundError(segment_id));
         }
+
+        let segment = segments.remove(0);
+        let address = InstanceSubnet::get_address(&mut *txn, self.id, &segment, subnet)
+            .await
+            .map(|x| x.ip())?;
+
+        log::info!("IP assigned to {} is {}.", self.id(), address);
+        Ok(address)
     }
 }
 
