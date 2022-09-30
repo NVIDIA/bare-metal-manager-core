@@ -33,7 +33,7 @@ use crate::{CarbideError, CarbideResult};
 #[derive(Debug, Deserialize)]
 pub struct MachineTopology {
     machine_id: uuid::Uuid,
-    _topology: Value,
+    topology: Value,
     _created: DateTime<Utc>,
     _updated: DateTime<Utc>,
 }
@@ -42,7 +42,7 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(MachineTopology {
             machine_id: row.try_get("machine_id")?,
-            _topology: row.try_get("topology")?,
+            topology: row.try_get("topology")?,
             _created: row.try_get("created")?,
             _updated: row.try_get("updated")?,
         })
@@ -233,5 +233,10 @@ impl MachineTopology {
             .into_iter()
             .into_group_map_by(|t: &Self| t.machine_id);
         Ok(topologies)
+    }
+
+    #[allow(dead_code)]
+    pub fn topology(&self) -> &serde_json::Value {
+        &self.topology
     }
 }
