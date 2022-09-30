@@ -9,9 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::prelude::*;
+use itertools::Itertools;
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::postgres::PgRow;
@@ -31,7 +32,7 @@ use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Deserialize)]
 pub struct MachineTopology {
-    _machine_id: uuid::Uuid,
+    machine_id: uuid::Uuid,
     _topology: Value,
     _created: DateTime<Utc>,
     _updated: DateTime<Utc>,
@@ -40,7 +41,7 @@ pub struct MachineTopology {
 impl<'r> FromRow<'r, PgRow> for MachineTopology {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(MachineTopology {
-            _machine_id: row.try_get("machine_id")?,
+            machine_id: row.try_get("machine_id")?,
             _topology: row.try_get("topology")?,
             _created: row.try_get("created")?,
             _updated: row.try_get("updated")?,
@@ -218,5 +219,19 @@ impl MachineTopology {
             }
             Ok(Some(res))
         }
+    }
+
+    pub async fn find_by_machine_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_ids: &[uuid::Uuid],
+    ) -> CarbideResult<HashMap<uuid::Uuid, Vec<Self>>> {
+        let query = "SELECT * FROM machine_topologies WHERE machine_id=ANY($1);";
+        let topologies = sqlx::query_as(query)
+            .bind(machine_ids)
+            .fetch_all(&mut *txn)
+            .await?
+            .into_iter()
+            .into_group_map_by(|t: &Self| t.machine_id);
+        Ok(topologies)
     }
 }
