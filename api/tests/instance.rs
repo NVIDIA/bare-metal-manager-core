@@ -22,6 +22,20 @@ fn setup() {
     "create_machine"
 ))]
 async fn test_crud_instance(pool: sqlx::PgPool) {
+    let parsed_relay = "192.0.2.1".parse::<IpAddr>().unwrap();
+    let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    assert!(
+        Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    txn.commit().await.unwrap();
     let (instance, segment_id) = create_instance(pool.clone()).await;
     let mut txn = pool
         .clone()
@@ -53,19 +67,16 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .advance(&mut txn, &MachineStateMachineInput::Assign)
         .await
         .unwrap();
-    assert!(
-        Instance::is_instance_configured(&mut txn, instance.machine_id)
+
+    assert_eq!(
+        Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac)
             .await
             .unwrap()
+            .unwrap()
+            .machine_id,
+        *machine.id()
     );
-    let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
-    Instance::verify_and_assign_address(
-        &mut txn,
-        "192.0.2.1".parse::<IpAddr>().unwrap(),
-        parsed_mac,
-    )
-    .await
-    .unwrap();
+
     txn.commit().await.unwrap();
 
     let mut txn = pool
@@ -79,33 +90,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .unwrap();
     txn.commit().await.unwrap();
 
-    let address = record.address();
-    println!("{:?}", record);
-    let mut txn = pool
-        .clone()
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    Instance::verify_and_assign_address(
-        &mut txn,
-        "192.0.2.1".parse::<IpAddr>().unwrap(),
-        parsed_mac,
-    )
-    .await
-    .unwrap();
-    txn.commit().await.unwrap();
-    let mut txn = pool
-        .clone()
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    let record = DhcpRecord::find_for_instance(&mut txn, &parsed_mac, &segment_id, *machine.id())
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-    assert_eq!(address, record.address());
+    println!("Assigned address: {}", record.address());
     delete_instance(pool, instance.id).await;
 }
 
@@ -143,7 +128,13 @@ async fn create_instance(pool: sqlx::PgPool) -> (Instance, uuid::Uuid) {
         .unwrap()
         .remove(0);
 
-    InstanceSubnet::create(&mut txn, &machine_interface, segment_id, instance.id, None)
+    let subnet =
+        InstanceSubnet::create(&mut txn, &machine_interface, segment_id, instance.id, None)
+            .await
+            .unwrap();
+
+    instance
+        .assign_address(&mut txn, subnet, segment_id)
         .await
         .unwrap();
     txn.commit().await.unwrap();

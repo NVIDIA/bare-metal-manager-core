@@ -13,7 +13,7 @@ pub use ::rpc::forge as rpc;
 use carbide::db::constants::FORGE_KUBE_NAMESPACE;
 use carbide::db::instance::Instance;
 use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
-use carbide::kubernetes::{self, create_or_update_managed_resource, VpcResourceActions};
+use carbide::kubernetes::VpcResourceActions;
 use carbide::vpc_resources::leaf;
 use carbide::{
     db::{
@@ -82,44 +82,21 @@ pub async fn discover_dhcp(
         Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
 
     // Instance handling
-    if existing_machines.len() == 1
-        && Instance::is_instance_configured(&mut txn, existing_machines[0].0).await?
-    {
-        let (segment_id, new_allocation) =
-            Instance::verify_and_assign_address(&mut txn, parsed_relay, parsed_mac).await?;
+    let possible_instance: Option<Instance> =
+        Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac).await?;
 
-        txn.commit().await.map_err(CarbideError::from)?;
+    if let Some(instance) = possible_instance {
+        let segment = match NetworkSegment::for_relay(&mut txn, parsed_relay).await? {
+            Some(segment) => segment,
+            None => {
+                return Err(CarbideError::NoNetworkSegmentsForRelay(parsed_relay).into());
+            }
+        };
 
-        // TODO: Update Managed resource.
-        let mut txn = api
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let record = DhcpRecord::find_for_instance(
-            &mut txn,
-            &parsed_mac,
-            &segment_id,
-            existing_machines[0].0,
-        )
-        .await?;
-
-        if new_allocation {
-            let instance = Instance::find_by_machine_id(&mut txn, existing_machines[0].0).await?;
-            let ip = record.address().ip().to_string();
-            create_or_update_managed_resource(
-                &mut txn,
-                segment_id,
-                Some(hyphenated_mac_address),
-                instance.managed_resource_id.to_string(),
-                Some(ip),
-                kubernetes::Operation::Update,
-            )
-            .await?;
-        }
-
-        let record: rpc::DhcpRecord = record.into();
+        let record: rpc::DhcpRecord =
+            DhcpRecord::find_for_instance(&mut txn, &parsed_mac, &segment.id, instance.machine_id)
+                .await?
+                .into();
         txn.commit().await.map_err(CarbideError::from)?;
         let record_clone = record.clone();
 
