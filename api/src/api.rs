@@ -1177,6 +1177,55 @@ impl Forge for Api {
 
         response
     }
+
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
+    async fn update_security_group_policy(
+        &self,
+        _request: Request<rpc::SecurityGroupPolicy>
+    ) ->  Result<Response<rpc::SecurityGroupPolicy>, Status> {
+        todo!()
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
+    async fn delete_security_group_policy(
+        &self,
+        _request: Request<rpc::SecurityGroupPolicyDeletion>
+    ) -> Result<Response<()>, Status> {
+        todo!()
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
+    async fn bind_security_group(
+        &self,
+        _request: Request<rpc::SecurityGroupBind>
+    ) -> Result<Response<()>, Status> {
+        todo!()
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
+    async fn unbind_security_group(
+        &self,
+        _request: Request<rpc::SecurityGroupBind>
+    ) -> Result<Response<()>, Status> {
+        todo!()
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
+    async fn list_security_group_policies(
+        &self,
+        _request: Request<rpc::SecurityGroupPolicyQuery>
+    ) -> Result<Response<rpc::SecurityGroupPolicyList>, Status> {
+        todo!()
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
+    async fn list_security_group_binds(
+        &self,
+        _request: Request<rpc::SecurityGroupBindQuery>
+    ) -> Result<Response<rpc::SecurityGroupBindList>, Status> {
+        todo!()
+    }
+
 }
 
 fn update_external_config() {
