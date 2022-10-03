@@ -28,7 +28,7 @@ async fn user_data_handler_in_assigned(
     };
 
     let mut context: HashMap<String, String> = HashMap::new();
-    context.insert("user-data".to_string(), user_data);
+    context.insert("user_data".to_string(), user_data);
     ("user-data-assigned".to_string(), context)
 }
 
