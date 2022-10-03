@@ -248,6 +248,7 @@ where
     registry
         .runner(&new_pool)
         .set_concurrency(10, 20)
+        .set_channel_names(&["ipmi_handler"])
         .run()
         .await
         .map_err(CarbideError::from)

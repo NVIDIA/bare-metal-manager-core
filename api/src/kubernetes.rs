@@ -622,6 +622,7 @@ pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideRes
     registry
         .runner(&new_pool)
         .set_concurrency(10, 20)
+        .set_channel_names(&["vpc_reconcile_handler"])
         .run()
         .await
         .map_err(CarbideError::from)
