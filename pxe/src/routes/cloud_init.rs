@@ -73,6 +73,14 @@ pub async fn meta_data(uuid: uuid::Uuid) -> Template {
     Template::render("printcontext", &context)
 }
 
+#[get("/<uuid>/vendor-data")]
+pub async fn vendor_data(uuid: uuid::Uuid) -> Template {
+    // placeholder content stolen from the meta_data call above
+    let mut context: HashMap<String, String> = HashMap::new();
+    context.insert("uuid".to_string(), uuid.to_string());
+    Template::render("printcontext", &context)
+}
+
 pub fn routes() -> Vec<Route> {
-    routes![user_data, meta_data]
+    routes![user_data, meta_data, vendor_data]
 }
