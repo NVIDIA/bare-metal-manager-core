@@ -71,9 +71,16 @@ pub async fn whoami(machine: Machine) -> Template {
 
 #[get("/boot")]
 pub async fn boot(contents: Machine, config: RuntimeConfig) -> Template {
-    let instructions = match contents.machine {
-        None => boot_into_discovery(contents.architecture, contents.interface, config),
-        Some(m) => determine_boot_from_state(m, contents.interface, config).await,
+    let instructions = match contents.architecture {
+        Some(arch) => match contents.machine {
+            None => boot_into_discovery(arch, contents.interface, config),
+            Some(m) => determine_boot_from_state(m, contents.interface, config).await,
+        },
+        None => r#"
+echo Architecture was not specified ||
+exit 102 ||
+"#
+        .to_string(),
     };
 
     let mut context = HashMap::new();
