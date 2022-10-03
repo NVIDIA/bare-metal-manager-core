@@ -9,6 +9,7 @@ use kube::{
     api::{Api, DeleteParams, PostParams, ResourceExt},
     Client,
 };
+use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx;
 use sqlx::{Acquire, PgConnection, Postgres};
@@ -631,7 +632,7 @@ pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideRes
 pub async fn create_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     segment_id: uuid::Uuid,
-    host_interface: Option<String>,
+    host_mac_address: Option<MacAddress>,
     managed_resource_name: String,
     host_interface_ip: Option<String>,
 ) -> CarbideResult<()> {
@@ -651,6 +652,8 @@ pub async fn create_managed_resource(
             segment_id
         ))
     })?;
+
+    let host_interface = host_mac_address.map(|mac| mac.to_string().replace(':', "-"));
 
     let managed_resource_spec = managed_resource::ManagedResourceSpec {
         state: None,

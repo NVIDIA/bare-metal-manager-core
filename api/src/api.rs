@@ -794,12 +794,10 @@ impl Forge for Api {
                 .assign_address(&mut txn, subnet, instance.segment_id)
                 .await?;
 
-            let hyphenated_mac_address =
-                machine_interface.mac_address.to_string().replace(':', "-");
             create_managed_resource(
                 &mut txn,
                 instance.segment_id,
-                Some(hyphenated_mac_address),
+                Some(machine_interface.mac_address),
                 instance_details.managed_resource_id.to_string(),
                 Some(ip_addr.to_string()),
             )
