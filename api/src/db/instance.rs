@@ -5,16 +5,19 @@ use std::{
 
 use chrono::prelude::*;
 use mac_address::MacAddress;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
 
+use crate::db::instance_subnet_address::InstanceSubnetAddress;
+use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 
 use super::{instance_subnet::InstanceSubnet, network_segment::NetworkSegment};
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, Clone)]
 pub struct Instance {
     pub id: uuid::Uuid,
     pub machine_id: uuid::Uuid,
@@ -25,6 +28,7 @@ pub struct Instance {
     pub custom_ipxe: String,
     pub ssh_keys: Vec<String>,
     pub managed_resource_id: uuid::Uuid,
+    pub addresses: Vec<InstanceSubnetAddress>,
 }
 
 pub struct NewInstance {
@@ -38,7 +42,22 @@ pub struct NewInstance {
 pub struct DeleteInstance {
     pub instance_id: uuid::Uuid,
 }
-
+impl<'r> FromRow<'r, PgRow> for Instance {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Instance {
+            id: row.try_get("id")?,
+            machine_id: row.try_get("machine_id")?,
+            requested: row.try_get("requested")?,
+            started: row.try_get("started")?,
+            finished: row.try_get("finished")?,
+            user_data: row.try_get("user_data")?,
+            custom_ipxe: row.try_get("custom_ipxe")?,
+            ssh_keys: Vec::new(),
+            managed_resource_id: row.try_get("managed_resource_id")?,
+            addresses: Vec::new(),
+        })
+    }
+}
 impl From<Instance> for rpc::Instance {
     fn from(src: Instance) -> Self {
         rpc::Instance {
@@ -60,6 +79,11 @@ impl From<Instance> for rpc::Instance {
                 seconds: t.timestamp(),
                 nanos: 0,
             }),
+            addresses: src
+                .addresses
+                .into_iter()
+                .map(|addr| addr.address.to_string())
+                .collect(),
         }
     }
 }
@@ -123,12 +147,23 @@ impl Instance {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
     ) -> CarbideResult<Instance> {
-        Ok(
+        let mut instance: Instance =
             sqlx::query_as("SELECT * from instances WHERE machine_id = $1::uuid")
                 .bind(machine_id)
                 .fetch_one(&mut *txn)
-                .await?,
+                .await?;
+
+        let interface_address = InstanceSubnetAddress::find_for_instance(
+            &mut *txn,
+            UuidKeyedObjectFilter::One(instance.id().to_owned()),
         )
+        .await?;
+
+        let _ = interface_address
+            .into_iter()
+            .map(|(_, isa)| instance.addresses = isa);
+
+        Ok(instance)
     }
 
     async fn find_by_mac_and_segment(

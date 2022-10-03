@@ -275,6 +275,8 @@ message Instance {
   google.protobuf.Timestamp requested = 7;
   google.protobuf.Timestamp started = 8;
   google.protobuf.Timestamp finished = 9;
+
+  repeated string addresses = 10;
 }
 
 message InstanceSubnet {
