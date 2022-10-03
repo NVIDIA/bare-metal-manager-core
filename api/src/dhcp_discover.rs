@@ -76,8 +76,6 @@ pub async fn discover_dhcp(
         }
     }
 
-    let hyphenated_mac_address = parsed_mac.to_string().replace(':', "-");
-
     let existing_machines =
         Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
 
@@ -213,8 +211,10 @@ pub async fn discover_dhcp(
                     )]);
 
                     // TODO Need to handle VF as well, this assumes PF
+                    // Note that key in this map needs to be consistent with the host identifier in the Leaf spec
+                    // Since we place a hyphenated mac address there as identifier - we need it here too.
                     let new_host_interfaces_map = BTreeMap::from([(
-                        hyphenated_mac_address,
+                        parsed_mac.to_string().replace(':', "-"),
                         ADMIN_DPU_NETWORK_INTERFACE.to_string(),
                     )]);
 
