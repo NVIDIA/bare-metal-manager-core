@@ -26,7 +26,7 @@ mod routes;
 
 #[derive(Debug)]
 pub struct Machine {
-    architecture: forge::MachineArchitecture,
+    architecture: Option<forge::MachineArchitecture>,
     interface: forge::MachineInterface,
     domain: forge::Domain,
     machine: Option<forge::Machine>,
@@ -43,7 +43,6 @@ pub enum RPCError<'a> {
     RequestError(tonic::Status),
     MissingClientConfig,
     MissingMachineId,
-    MissingBuildArch,
     InvalidBuildArch,
     MalformedMachineId(Errors<'a>),
     MalformedBuildArch(Errors<'a>),
@@ -83,8 +82,6 @@ impl Display for RPCError<'_> {
                 Self::MissingMachineId =>
                     "Missing Machine Identifier (UUID) specified in URI parameter uuid".to_string(),
                 Self::MalformedMachineId(err) => format!("Malformed Machine UUID: {}", err),
-                RPCError::MissingBuildArch =>
-                    "Missing Build arch specified in URI parameter buildarch".to_string(),
                 RPCError::InvalidBuildArch =>
                     "Invalid build arch specified in URI parameter buildarch".to_string(),
                 RPCError::MalformedBuildArch(err) => format!("Malformed build arch: {}", err),
@@ -114,8 +111,8 @@ impl<'r> FromRequest<'r> for Machine {
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         let buildarch = match request.query_value::<&str>("buildarch") {
             Some(Ok(buildarch)) => match buildarch {
-                "arm64" => forge::MachineArchitecture::Arm,
-                "x86_64" => forge::MachineArchitecture::X86,
+                "arm64" => Some(forge::MachineArchitecture::Arm),
+                "x86_64" => Some(forge::MachineArchitecture::X86),
                 arch => {
                     eprintln!("invalid architecture: {:#?}", arch);
                     return request::Outcome::Failure((
@@ -130,10 +127,7 @@ impl<'r> FromRequest<'r> for Machine {
                     RPCError::MalformedBuildArch(errs),
                 ));
             }
-
-            None => {
-                return request::Outcome::Failure((Status::BadRequest, RPCError::MissingBuildArch));
-            }
+            None => None,
         };
         let uuid = match request.query_value::<rocket::serde::uuid::Uuid>("uuid") {
             Some(Ok(uuid)) => uuid,
