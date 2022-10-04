@@ -49,6 +49,33 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum MachineTopologyConversionError {
+    #[error("Machine topology conversion error: {0}")]
+    ConversionError(String),
+
+    #[error("Discovery info deserialization error: {0}")]
+    DiscoveryInfoDeserializationError(#[from] serde_json::Error),
+}
+
+impl TryFrom<MachineTopology> for rpc::DiscoveryInfo {
+    type Error = MachineTopologyConversionError;
+
+    fn try_from(value: MachineTopology) -> Result<Self, Self::Error> {
+        let topology = value.topology();
+        let di_value = topology
+            .get("discovery_data")
+            .and_then(|dd| dd.get("Info"))
+            .ok_or_else(|| {
+                MachineTopologyConversionError::ConversionError(
+                    "No nested 'discovery_data.Info' value in topology data".into(),
+                )
+            })?
+            .clone();
+        serde_json::from_value(di_value).map_err(|e| e.into())
+    }
+}
+
 fn does_attributes_contain_dpu_pci_ids(
     dpu_pci_ids: &HashSet<&str>,
     interfaces: &[NetworkInterface],
