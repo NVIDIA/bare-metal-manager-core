@@ -130,6 +130,19 @@ impl From<Machine> for rpc::Machine {
                 .into_iter()
                 .map(|interface| interface.into())
                 .collect(),
+            discovery_info: machine.discovery_data.and_then(|mt: MachineTopology| {
+                match mt.try_into() {
+                    Ok(di) => Some(di),
+                    Err(e) => {
+                        log::warn!(
+                            "Topology for machine {} couldn't be parsed into discovery info: {}",
+                            &machine.id,
+                            e,
+                        );
+                        None
+                    }
+                }
+            }),
         }
     }
 }

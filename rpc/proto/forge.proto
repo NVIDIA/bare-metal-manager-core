@@ -328,6 +328,7 @@ message Machine {
   repeated MachineEvent events = 8;
   repeated MachineInterface interfaces = 9;
 
+  optional machine_discovery.DiscoveryInfo discovery_info = 10;
 }
 
 enum MachineArchitecture {
