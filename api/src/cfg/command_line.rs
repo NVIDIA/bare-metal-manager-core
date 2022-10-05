@@ -2,7 +2,6 @@ use clap::Parser;
 
 // TODO(ajf): always look at crate root
 const DEFAULT_CONFIG_PATH: &str = ".config.toml";
-const DEFAULT_DATASTORE: &str = "postgres://carbide_development@localhost";
 
 #[derive(Parser)]
 #[clap(name = env ! ("CARGO_BIN_NAME"))]
@@ -37,7 +36,7 @@ pub struct Daemon {
     )]
     pub listen: Vec<std::net::SocketAddr>,
 
-    #[clap(long, require_equals(true), default_value = DEFAULT_DATASTORE)]
+    #[clap(long, require_equals(true), env = "DATABASE_URL")]
     pub datastore: String,
 
     /// Enable kubernetes integrations
@@ -47,7 +46,7 @@ pub struct Daemon {
 
 #[derive(Parser)]
 pub struct Migrate {
-    #[clap(long, require_equals(true), default_value = DEFAULT_DATASTORE)]
+    #[clap(long, require_equals(true), env = "DATABASE_URL")]
     pub datastore: String,
 }
 
