@@ -1,5 +1,5 @@
 # Virtual Machine PXE Client
-To test the PXE process using a generic QEMU virtual machinem, you start qemu
+To test the PXE process using a generic QEMU virtual machine, you start qemu
 w/o graphics support.  If the OS is graphical (e.g. ubuntu livecd) remove
 `-nographic` and `display none` to have a GUI window start on desktop.
 

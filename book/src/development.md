@@ -21,7 +21,7 @@ For a list env vars we predefine look at
 
     Arch - ```sudo pacman -S docker-compose```
 
-    Debian - ```sudo apt-get install docker-compose```
+    Debian - ```sudo apt-get install -y docker-compose```
 
     Fedora - ```sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin```
 
@@ -31,7 +31,7 @@ For a list env vars we predefine look at
     
     Arch - ```sudo pacman -S kea```
     
-    Debian - ```sudo apt-get install isc-kea-dhcp4-server isc-kea-dev```
+    Debian - ```sudo apt-get install -y isc-kea-dhcp4-server isc-kea-dev```
 
     Fedora - ```sudo dnf install -y kea kea-devel dea-libs``` 
 
@@ -42,7 +42,7 @@ For a list env vars we predefine look at
     
     Arch - ```sudo pacman -S postgresql-client```
 
-    Debian - ```sudo apt-get install postgresql-client```
+    Debian - ```sudo apt-get install -y postgresql-client```
 
     Fedora - ```sudo dnf install -y postgres```
 
@@ -50,7 +50,7 @@ For a list env vars we predefine look at
 
      Arch - ```sudo pacman -S qemu edk2-omvf```
 
-     Debian - ```apt-get install qemu ovmf```
+     Debian - ```apt-get install -y qemu qemu-kvm ovmf```
 
      Fedora - ```sudo dnf -y install bridge-utils libvirt virt-install qemu-kvm```
 
@@ -58,7 +58,7 @@ For a list env vars we predefine look at
     
     Arch - ```sudo pacman -S direnv```
     
-    Debian - ```sudo apt-get install direnv```
+    Debian - ```sudo apt-get install -y direnv```
 
     Fedora - ```sudo dnf install -y direnv```
 
@@ -68,7 +68,7 @@ For a list env vars we predefine look at
 
     Arch - ```sudo pacman -S protobuf```
 
-    Debian - ```sudo apt-get install protobuf-compiler```
+    Debian - ```sudo apt-get install -y protobuf-compiler```
 
     Fedora - ```sudo dnf install -y protobuf```
 
@@ -76,9 +76,17 @@ For a list env vars we predefine look at
 
     Arch - ```sudo pacman -S jq```
 
-    Debian - ```sudo apt-get install jq```
+    Debian - ```sudo apt-get install -y jq```
 
     Fedora - ```sudo dnf install -y jq```
+
+15. Install 'mkosi' and 'debootstrap' from system package manager
+
+    Debian - ```sudo apt-get install -y mkosi debootstrap```
+
+16. Install `liblzma-dev` from system package manager
+
+    Debian - ```sudo apt-get install -y liblzma-dev```
 
 ## IDE
 
