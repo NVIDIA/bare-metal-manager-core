@@ -25,6 +25,7 @@
   - [Kubernetes](kubernetes/development.md)
 - [Data Model]()
 - [DPU/Bluefield](dpu-operations.md)
+- [iPXE](ipxe/development.md)
 
 # Environments
 - [Labs](labs.md)
