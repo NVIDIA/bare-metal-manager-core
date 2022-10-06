@@ -254,3 +254,17 @@ deploy_dogfood:
     deployment_tier: testing
   tags:
     - corp
+
+deploy_fleet_command_site_0:
+  extends: .deploy_fleet_command
+  variables:
+    APP_NAME: carbide
+    HELM_CHART_NAME: carbide
+    HELM_VER: ${HELM_VERSION}
+    DEPLOYMENT_NAME: carbide
+    LOCATION: site-0
+  environment:
+    name: fleet_command
+    deployment_tier: testing
+  tags:
+    - corp
