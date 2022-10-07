@@ -1,167 +1,238 @@
-use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use lazy_static::lazy_static;
 use sqlx::PgPool;
 use thrussh::server::{Handle, Session};
 use thrussh::{ChannelId, CryptoVec};
+use tokio::sync::Mutex;
 use tokio::time;
+use tonic::async_trait;
 use uuid::Uuid;
 
 use carbide::{bg::Status, ipmi, CarbideError, CarbideResult};
-use console::ConsoleError;
-use rpc::forge::UserRoles;
 
+use crate::auth::UserValidator;
 use crate::ipmi::{HostInfo, IpmiInfo};
-use crate::server::{Server, TaskState};
+use crate::server::{Server, ServerInfo, TaskState};
 
-struct AsyncWrapper {}
-
-type CHandler = fn(server: Server, channel: ChannelId, session: Session) -> (Server, Session);
-
-lazy_static! {
-    static ref COMMAND_HANDLER: HashMap<&'static str, CHandler> = {
-        let mut map = HashMap::new();
-        map.insert("connect", connect_handler as CHandler);
-        map.insert("disconnect", disconnect_handler as CHandler);
-        map.insert("power", power_handler as CHandler);
-        map.insert("status", status_handler as CHandler);
-        map.insert("sol", sol_handler as CHandler);
-
-        map
-    };
+#[async_trait]
+pub trait CommandHandler: Send + Sync {
+    async fn handle_command(
+        &self,
+        server_info: ServerInfo,
+        channel: ChannelId,
+        session: Session,
+    ) -> (ServerInfo, Session);
 }
 
-//TODO: remove this when clippy isn't stupid about this
-#[allow(clippy::needless_collect)]
-fn disconnect_handler(
-    mut server: Server,
-    channel: ChannelId,
-    mut session: Session,
-) -> (Server, Session) {
-    let help = "Syntax: disconnect".to_string();
-    let command = server.current_command.clone().unwrap();
-    //TODO: would split_whitespace work here?
-    let command = command.split(' ').collect::<Vec<&str>>();
-    if command.len() != 1 {
-        session.data(channel, CryptoVec::from(help));
-        return (server, session);
-    }
+#[derive(Clone)]
+pub struct DisconnectHandler {}
 
-    match server.host_info {
-        Some(_) => {
-            server.host_info = None;
-            session.data(
-                channel,
-                CryptoVec::from(String::from("Host is disconnected successfully.")),
-            );
+#[async_trait]
+impl CommandHandler for DisconnectHandler {
+    async fn handle_command(
+        &self,
+        mut server_info: ServerInfo,
+        channel: ChannelId,
+        mut session: Session,
+    ) -> (ServerInfo, Session) {
+        let help = "Syntax: disconnect".to_string();
+        let command = server_info.current_command.clone().unwrap();
+        let command_count = command.split(' ').count();
+        if command_count != 1 {
+            session.data(channel, CryptoVec::from(help));
+            return (server_info, session);
         }
-        None => {
-            session.data(
-                channel,
-                CryptoVec::from(String::from("No host is connected.")),
-            );
+
+        match server_info.host_info {
+            Some(_) => {
+                server_info.host_info = None;
+                session.data(
+                    channel,
+                    CryptoVec::from(String::from("Host is disconnected successfully.")),
+                );
+            }
+            None => {
+                session.data(
+                    channel,
+                    CryptoVec::from(String::from("No host is connected.")),
+                );
+            }
         }
-    }
 
-    (server, session)
+        (server_info, session)
+    }
 }
 
-fn connect_handler(
-    mut server: Server,
-    channel: ChannelId,
-    mut session: Session,
-) -> (Server, Session) {
-    let help = "Syntax: connect <machine_id>".to_string();
-    let command = server.current_command.clone().unwrap();
-    let command = command.split(' ').collect::<Vec<&str>>();
-    if command.len() != 2 {
-        session.data(channel, CryptoVec::from(help));
-        return (server, session);
-    }
-    let role = server.user.clone().unwrap().role;
+#[derive(Clone)]
+pub struct ConnectHandler {}
 
-    if server.host_info.is_some() {
-        server.host_info = None;
-    }
-
-    match AsyncWrapper::get_host_details(role, command[1].to_string()) {
-        Ok(x) => {
-            session.data(
-                channel,
-                CryptoVec::from(format!("Connected to host: {}", command[1])),
-            );
-            server.host_info = Some(x);
+#[async_trait]
+impl CommandHandler for ConnectHandler {
+    async fn handle_command(
+        &self,
+        mut server_info: ServerInfo,
+        channel: ChannelId,
+        mut session: Session,
+    ) -> (ServerInfo, Session) {
+        let help = "Syntax: connect <machine_id>".to_string();
+        let command = server_info.current_command.clone().unwrap();
+        let command = command.split(' ').collect::<Vec<&str>>();
+        if command.len() != 2 {
+            session.data(channel, CryptoVec::from(help));
+            return (server_info, session);
         }
-        Err(x) => {
-            session.data(
-                channel,
-                CryptoVec::from(format!("Connect failed. Error: {}", x)),
-            );
+        let role = server_info.user.clone().unwrap().role;
+
+        if server_info.host_info.is_some() {
+            server_info.host_info = None;
         }
-    };
 
-    (server, session)
+        let api_endpoint = server_info.console_context.api_endpoint.clone();
+
+        match HostInfo::new(command[1].to_string(), role, api_endpoint).await {
+            Ok(x) => {
+                session.data(
+                    channel,
+                    CryptoVec::from(format!("Connected to host: {}", command[1])),
+                );
+                server_info.host_info = Some(x);
+            }
+            Err(x) => {
+                session.data(
+                    channel,
+                    CryptoVec::from(format!("Connect failed. Error: {}", x)),
+                );
+            }
+        };
+
+        (server_info, session)
+    }
 }
 
-fn power_handler(
-    mut server: Server,
-    channel: ChannelId,
-    mut session: Session,
-) -> (Server, Session) {
-    let possible_commands: [&str; 5] = ["up", "down", "reset", "cycle", "status"];
-    let help = format!("Syntax: power <{}>", possible_commands.join("/"));
-    let command = server.current_command.clone().unwrap();
-    let command = command.split(' ').collect::<Vec<&str>>();
-    if command.len() != 2 || !possible_commands.contains(&command[1]) {
-        session.data(channel, CryptoVec::from(help));
-        return (server, session);
-    }
+#[derive(Clone)]
+pub struct PowerHandler {}
 
-    if let Err(err) = validate_host_info(&server) {
-        session.data(channel, CryptoVec::from(err.to_string()));
-        return (server, session);
+#[async_trait]
+impl CommandHandler for PowerHandler {
+    async fn handle_command(
+        &self,
+        mut server_info: ServerInfo,
+        channel: ChannelId,
+        mut session: Session,
+    ) -> (ServerInfo, Session) {
+        let possible_commands: [&str; 5] = ["up", "down", "reset", "cycle", "status"];
+        let help = format!("Syntax: power <{}>", possible_commands.join("/"));
+        let command = server_info.current_command.clone().unwrap();
+        let command = command.split(' ').collect::<Vec<&str>>();
+        if command.len() != 2 || !possible_commands.contains(&command[1]) {
+            session.data(channel, CryptoVec::from(help));
+            return (server_info, session);
+        }
+
+        if let Err(err) = validate_host_info(&server_info) {
+            session.data(channel, CryptoVec::from(err.to_string()));
+            return (server_info, session);
+        }
+
+        server_info = handle_power_command(server_info, channel, command[1].to_string()).await;
+        (server_info, session)
     }
-    server = AsyncWrapper::handle_power_command(server, channel, command[1].to_string());
-    (server, session)
 }
 
-fn status_handler(
-    mut server: Server,
-    channel: ChannelId,
-    mut session: Session,
-) -> (Server, Session) {
-    if let Err(err) = validate_host_info(&server) {
-        session.data(channel, CryptoVec::from(err.to_string()));
-        return (server, session);
+#[derive(Clone)]
+pub struct StatusHandler {}
+
+#[async_trait]
+impl CommandHandler for StatusHandler {
+    async fn handle_command(
+        &self,
+        mut server_info: ServerInfo,
+        channel: ChannelId,
+        mut session: Session,
+    ) -> (ServerInfo, Session) {
+        if let Err(err) = validate_host_info(&server_info) {
+            session.data(channel, CryptoVec::from(err.to_string()));
+            return (server_info, session);
+        }
+        server_info = handle_power_command(server_info, channel, "status".to_string()).await;
+        (server_info, session)
     }
-    server = AsyncWrapper::handle_power_command(server, channel, "status".to_string());
-    (server, session)
 }
 
-fn sol_handler(mut server: Server, channel: ChannelId, mut session: Session) -> (Server, Session) {
-    let command = server.current_command.clone().unwrap();
-    let command = command.split(' ').collect::<Vec<&str>>();
-    let force = command.len() == 2 && command[1] == "force";
+#[derive(Clone)]
+pub struct SolHandler {}
 
-    if let Err(err) = validate_host_info(&server) {
-        session.data(channel, CryptoVec::from(err.to_string()));
-        return (server, session);
+#[async_trait]
+impl CommandHandler for SolHandler {
+    async fn handle_command(
+        &self,
+        server_info: ServerInfo,
+        channel: ChannelId,
+        mut session: Session,
+    ) -> (ServerInfo, Session) {
+        let command = server_info.current_command.clone().unwrap();
+        let command = command.split(' ').collect::<Vec<&str>>();
+
+        //TODO: either implement something that uses this or remove it
+        let _force = command.len() == 2 && command[1] == "force";
+
+        if let Err(err) = validate_host_info(&server_info) {
+            session.data(channel, CryptoVec::from(err.to_string()));
+            return (server_info, session);
+        }
+
+        let task_state = server_info.task_state.clone();
+        let prompt = server_info.get_prompt();
+        let exec_mode = server_info.exec_mode;
+        let clients = server_info.clients.clone();
+        {
+            *task_state.lock().await = TaskState::Running;
+        }
+        tokio::spawn(async move {
+            let mut handle: Handle;
+            {
+                let mut clients = clients.lock().await;
+                handle = clients.get_mut(&(server_info.id, channel)).unwrap().clone();
+            }
+
+            loop {
+                // Ipmi sol read logic comes here.
+                // It should be non blocking based on some timeout.
+                // if ipmi.read(buf, timeout) != error {
+                //   handle.data(buf);
+                // } else {
+                //   handle.data("connect closed by host: error:");
+                //   break
+                // }
+                time::sleep(time::Duration::from_millis(500)).await;
+                let _ = handle
+                    .data(
+                        channel,
+                        CryptoVec::from("Here is sol text.\r\n".to_string()),
+                    )
+                    .await;
+                if let TaskState::Cancelled = *task_state.lock().await {
+                    break;
+                }
+            }
+
+            util::end_task(task_state, prompt, channel, handle, exec_mode).await;
+        });
+
+        (server_info, session)
     }
-    server = AsyncWrapper::handle_sol_command(server, channel, force);
-    (server, session)
 }
 
-fn validate_host_info(server: &Server) -> Result<(), Error> {
-    if server.host_info.is_none() {
+fn validate_host_info(server_info: &ServerInfo) -> Result<(), Error> {
+    if server_info.host_info.is_none() {
         return Err(Error::new(
             ErrorKind::Other,
             "Host info is not available. Execute 'connect <machine_id>' first.",
         ));
     }
 
-    let ipmi_info = server.host_info.clone().unwrap().ipmi_info;
+    let ipmi_info = server_info.host_info.clone().unwrap().ipmi_info;
 
     if ipmi_info.is_none() {
         return Err(Error::new(
@@ -187,45 +258,38 @@ async fn call_ipmi_api(ipmi_info: IpmiInfo, data: String, pool: PgPool) -> Carbi
     }
 }
 
-impl AsyncWrapper {
-    fn get_host_details(role: UserRoles, data: String) -> Result<HostInfo, ConsoleError> {
-        futures::executor::block_on(async { HostInfo::new(data, role).await })
+async fn handle_power_command(
+    server_info: ServerInfo,
+    channel: ChannelId,
+    data: String,
+) -> ServerInfo {
+    let task_state = server_info.task_state.clone();
+    let ipmi_info = server_info.host_info.clone().unwrap().ipmi_info.unwrap();
+    let pool = server_info.pool.clone();
+    let clients = server_info.clients.clone();
+    let prompt = server_info.get_prompt();
+    let exec_mode = server_info.exec_mode;
+    {
+        *task_state.lock().await = TaskState::Running;
     }
+    tokio::spawn(async move {
+        let mut handle: Handle;
+        {
+            let mut clients = clients.lock().await;
+            handle = clients.get_mut(&(server_info.id, channel)).unwrap().clone();
+        }
 
-    fn handle_power_command(server: Server, channel: ChannelId, data: String) -> Server {
-        let clients = server.clients.clone();
-        let task_state = server.task_state.clone();
-        let ipmi_info = server.host_info.clone().unwrap().ipmi_info.unwrap();
-        let pool = server.pool.clone();
-        let prompt = server.get_prompt();
-        let exec_mode = server.exec_mode;
-        *task_state.lock().unwrap() = TaskState::Running;
-        tokio::spawn(async move {
-            let mut handle: Handle;
-            {
-                let mut clients = clients.lock().unwrap();
-                handle = clients.get_mut(&(server.id, channel)).unwrap().clone();
-            }
-
-            let job_id = call_ipmi_api(ipmi_info, data, pool.clone()).await;
-            if job_id.is_err() {
-                util::end_task(task_state, prompt, channel, handle, exec_mode).await;
-                return;
-            }
-
-            let job_id = job_id.unwrap();
+        if let Ok(job_id) = call_ipmi_api(ipmi_info, data, pool.clone()).await {
             let mut task_cancelled: bool = false;
-
             loop {
                 if Status::is_finished(&pool, job_id).await.unwrap() {
                     break;
                 }
-                //TODO: Ron: it is likely an error to be using a synchronous lock in an async context.
-                if let TaskState::Cancelled = *task_state.lock().unwrap() {
+                if let TaskState::Cancelled = *task_state.lock().await {
                     task_cancelled = true;
                     break;
                 }
-                time::sleep(time::Duration::from_millis(200)).await;
+                time::sleep(time::Duration::from_millis(500)).await;
             }
 
             match Status::poll(&pool, job_id).await {
@@ -240,62 +304,27 @@ impl AsyncWrapper {
                     }
                 }
             };
-            util::end_task(task_state, prompt, channel, handle, exec_mode).await;
-        });
-
-        server
-    }
-
-    fn handle_sol_command(server: Server, channel: ChannelId, _force: bool) -> Server {
-        let clients = server.clients.clone();
-        let task_state = server.task_state.clone();
-        let _ipmi_info = server.host_info.clone().unwrap().ipmi_info.unwrap();
-        let prompt = server.get_prompt();
-        let exec_mode = server.exec_mode;
-        *task_state.lock().unwrap() = TaskState::Running;
-        tokio::spawn(async move {
-            let mut handle: Handle;
-            {
-                let mut clients = clients.lock().unwrap();
-                handle = clients.get_mut(&(server.id, channel)).unwrap().clone();
-            }
-
-            loop {
-                // Ipmi sol read logic comes here.
-                // It should be non blocking based on some timeout.
-                // if ipmi.read(buf, timeout) != error {
-                //   handle.data(buf);
-                // } else {
-                //   handle.data("connect closed by host: error:");
-                //   break
-                // }
-                time::sleep(time::Duration::from_millis(500)).await;
-                let _ = handle
-                    .data(
-                        channel,
-                        CryptoVec::from("Here is sol text.\r\n".to_string()),
-                    )
-                    .await;
-                if let TaskState::Cancelled = *task_state.lock().unwrap() {
-                    break;
-                }
-            }
-
-            util::end_task(task_state, prompt, channel, handle, exec_mode).await;
-        });
-
-        server
-    }
+        }
+        util::end_task(task_state, prompt, channel, handle, exec_mode).await;
+    });
+    server_info
 }
 
-pub fn command_handler(
-    server: Server,
+// TODO: the next pattern to clean up is the one where we pass objects and then return them.
+// we should just be passing &mut objects as arguments.
+// The *entire* return value here is unnecessary.
+pub async fn command_handler<V>(
+    mut server: Server<V>,
     channel: ChannelId,
     mut session: Session,
-) -> (Server, Session) {
+) -> (Server<V>, Session)
+where
+    V: Send + Sync + UserValidator,
+{
     let help = format!(
         "Possible commands: {}",
-        COMMAND_HANDLER
+        server
+            .handlers
             .keys()
             .map(|s| &**s)
             .collect::<Vec<&str>>()
@@ -303,12 +332,12 @@ pub fn command_handler(
     );
 
     // Add audit data here.
-    if server.current_command.is_none() {
+    if server.server_info.current_command.is_none() {
         log::error!("No idea how got a empty current_command.");
         return (server, session);
     }
 
-    let command = server.current_command.clone().unwrap();
+    let command = server.server_info.current_command.clone().unwrap();
     let command = command.split(' ').collect::<Vec<&str>>()[0];
 
     if command == "?" || command == "help" {
@@ -316,16 +345,23 @@ pub fn command_handler(
         return (server, session);
     }
 
-    if !COMMAND_HANDLER.contains_key(command) {
-        session.data(
-            channel,
-            CryptoVec::from(format!("Unknown Command: {}\r\n", command)),
-        );
-        session.data(channel, CryptoVec::from(help));
-        return (server, session);
+    match server.handlers.get(command.to_string().as_str()) {
+        Some(handler) => {
+            let (server_info, session) = handler
+                .handle_command(server.server_info, channel, session)
+                .await;
+            server.server_info = server_info;
+            (server, session)
+        }
+        None => {
+            session.data(
+                channel,
+                CryptoVec::from(format!("Unknown Command: {}\r\n", command)),
+            );
+            session.data(channel, CryptoVec::from(help));
+            (server, session)
+        }
     }
-
-    COMMAND_HANDLER[&command](server, channel, session)
 }
 
 mod util {
@@ -344,7 +380,7 @@ mod util {
         mut handle: Handle,
         exec_mode: bool,
     ) -> Handle {
-        *task_state.lock().unwrap() = TaskState::Init;
+        *task_state.lock().await = TaskState::Init;
         if exec_mode {
             let _ = handle.close(channel);
             return handle;

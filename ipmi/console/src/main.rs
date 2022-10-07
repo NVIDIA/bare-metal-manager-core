@@ -1,10 +1,9 @@
-use std::sync::RwLock;
-
 use log::LevelFilter;
-use once_cell::sync::Lazy;
 use sqlx::PgPool;
 
 use cfg::{Command, Options};
+
+use crate::auth::RealUserValidator;
 
 mod auth;
 mod cfg;
@@ -12,14 +11,8 @@ mod commands;
 mod ipmi;
 mod server;
 
-static CONFIG: Lazy<RwLock<ConsoleContext>> = Lazy::new(|| {
-    RwLock::new(ConsoleContext {
-        api_endpoint: "http://[::1]:1079".to_string(),
-    })
-});
-
-#[derive(Debug)]
-struct ConsoleContext {
+#[derive(Debug, Clone)]
+pub struct ConsoleContext {
     api_endpoint: String,
 }
 
@@ -46,9 +39,16 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     match config.subcmd {
         Command::Run(ref config) => {
-            CONFIG.write().unwrap().api_endpoint = config.api_endpoint.clone();
             let pool = PgPool::connect(&config.datastore[..]).await?;
-            server::run(pool, config.listen[0]).await;
+            server::run(
+                pool,
+                config.listen[0],
+                ConsoleContext {
+                    api_endpoint: config.api_endpoint.clone(),
+                },
+                RealUserValidator {},
+            )
+            .await;
         }
     }
     Ok(())
@@ -56,7 +56,14 @@ async fn main() -> Result<(), color_eyre::Report> {
 
 #[cfg(test)]
 mod tests {
+    use thrussh_keys::key;
+    use tonic::async_trait;
     use uuid::Uuid;
+
+    use console::ConsoleError;
+    use rpc::forge::UserRoles;
+
+    use crate::auth::UserValidator;
 
     use super::*;
 
@@ -143,6 +150,21 @@ mod tests {
         Ok(real_pool)
     }
 
+    #[derive(Clone, Debug)]
+    struct TestUserValidator {}
+
+    #[async_trait]
+    impl UserValidator for TestUserValidator {
+        async fn validate_user(
+            &self,
+            _user: &str,
+            _pubkey: &key::PublicKey,
+            _console_context: &ConsoleContext,
+        ) -> Result<UserRoles, ConsoleError> {
+            Ok(UserRoles::Administrator)
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_thrussh() {
         let pool = get_database_connection().await.unwrap();
@@ -150,7 +172,14 @@ mod tests {
         if env::var("SSH_PROXY_MT_ENV").is_ok() {
             tokio::time::timeout(
                 std::time::Duration::from_secs(20000),
-                server::run(pool, "127.0.0.1:2224".parse().unwrap()),
+                server::run(
+                    pool,
+                    "127.0.0.1:2224".parse().unwrap(),
+                    ConsoleContext {
+                        api_endpoint: "http://[::1]:1079".to_string(),
+                    },
+                    TestUserValidator {},
+                ),
             )
             .await
             .unwrap_or(());
