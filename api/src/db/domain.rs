@@ -209,19 +209,14 @@ impl Domain {
     pub async fn find_by_name(
         txn: &mut Transaction<'_, Postgres>,
         name: String,
-    ) -> CarbideResult<Option<Self>> {
-        let mut results: Vec<Domain> = sqlx::query_as("SELECT * FROM domains WHERE name = $1")
-            .bind(&name)
-            .fetch_all(&mut *txn)
-            .await?;
-
-        match results.len() {
-            0 => Ok(None),
-            1 => Ok(Some(results.remove(0))),
-            _ => Err(CarbideError::DuplicateDomain(name)),
-        }
+    ) -> CarbideResult<Vec<Self>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM domains WHERE name= $1 and deleted is NULL")
+                .bind(name)
+                .fetch_all(&mut *txn)
+                .await?,
+        )
     }
-
     pub async fn find_by_uuid(
         txn: &mut Transaction<'_, Postgres>,
         uuid: Uuid,

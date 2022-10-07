@@ -247,25 +247,28 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::MachineSearchQuery { id, .. } = request.into_inner();
-
-        let _uuid = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
-                }
-            },
-            None => UuidKeyedObjectFilter::All,
+        let rpc::MachineSearchQuery { id, fqdn, .. } = request.into_inner();
+        let machines = match (id, fqdn) {
+            (Some(id), _) => {
+                let id = id;
+                let uuid = match uuid::Uuid::try_from(id) {
+                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                    Err(err) => {
+                        return Err(Status::invalid_argument(format!(
+                            "Invalid UUID supplied: {}",
+                            err
+                        )));
+                    }
+                };
+                Machine::find(&mut txn, uuid).await
+            }
+            (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, fqdn).await,
+            (None, None) => Machine::find(&mut txn, UuidKeyedObjectFilter::All).await,
         };
 
-        let result = Machine::find(&mut txn, _uuid)
-            .await
-            .map(|m| rpc::MachineList {
-                machines: m.into_iter().map(rpc::Machine::from).collect(),
+        let result = machines
+            .map(|machine| rpc::MachineList {
+                machines: machine.into_iter().map(rpc::Machine::from).collect(),
             })
             .map(Response::new)
             .map_err(CarbideError::from)?;
@@ -535,23 +538,26 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::DomainSearchQuery { id, .. } = request.into_inner();
-
-        let uuid = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
-                }
-            },
-            None => UuidKeyedObjectFilter::All,
+        let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
+        let domains = match (id, name) {
+            (Some(id), _) => {
+                let id = id;
+                let uuid = match uuid::Uuid::try_from(id) {
+                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                    Err(err) => {
+                        return Err(Status::invalid_argument(format!(
+                            "Invalid UUID supplied: {}",
+                            err
+                        )));
+                    }
+                };
+                Domain::find(&mut txn, uuid).await
+            }
+            (None, Some(name)) => Domain::find_by_name(&mut txn, name).await,
+            (None, None) => Domain::find(&mut txn, UuidKeyedObjectFilter::All).await,
         };
 
-        let result = Domain::find(&mut txn, uuid)
-            .await
+        let result = domains
             .map(|domain| rpc::DomainList {
                 domains: domain.into_iter().map(rpc::Domain::from).collect(),
             })
@@ -1183,15 +1189,15 @@ impl Forge for Api {
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn update_security_group_policy(
         &self,
-        _request: Request<rpc::SecurityGroupPolicy>
-    ) ->  Result<Response<rpc::SecurityGroupPolicy>, Status> {
+        _request: Request<rpc::SecurityGroupPolicy>,
+    ) -> Result<Response<rpc::SecurityGroupPolicy>, Status> {
         todo!()
     }
 
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn delete_security_group_policy(
         &self,
-        _request: Request<rpc::SecurityGroupPolicyDeletion>
+        _request: Request<rpc::SecurityGroupPolicyDeletion>,
     ) -> Result<Response<()>, Status> {
         todo!()
     }
@@ -1199,7 +1205,7 @@ impl Forge for Api {
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn bind_security_group(
         &self,
-        _request: Request<rpc::SecurityGroupBind>
+        _request: Request<rpc::SecurityGroupBind>,
     ) -> Result<Response<()>, Status> {
         todo!()
     }
@@ -1207,7 +1213,7 @@ impl Forge for Api {
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn unbind_security_group(
         &self,
-        _request: Request<rpc::SecurityGroupBind>
+        _request: Request<rpc::SecurityGroupBind>,
     ) -> Result<Response<()>, Status> {
         todo!()
     }
@@ -1215,7 +1221,7 @@ impl Forge for Api {
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn list_security_group_policies(
         &self,
-        _request: Request<rpc::SecurityGroupPolicyQuery>
+        _request: Request<rpc::SecurityGroupPolicyQuery>,
     ) -> Result<Response<rpc::SecurityGroupPolicyList>, Status> {
         todo!()
     }
@@ -1223,11 +1229,10 @@ impl Forge for Api {
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn list_security_group_binds(
         &self,
-        _request: Request<rpc::SecurityGroupBindQuery>
+        _request: Request<rpc::SecurityGroupBindQuery>,
     ) -> Result<Response<rpc::SecurityGroupBindList>, Status> {
         todo!()
     }
-
 }
 
 async fn update_external_config() {

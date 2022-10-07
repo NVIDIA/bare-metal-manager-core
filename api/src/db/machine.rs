@@ -433,6 +433,18 @@ impl Machine {
 
         Ok(all_machines)
     }
+
+    pub async fn find_by_fqdn(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        fqdn: String,
+    ) -> CarbideResult<Vec<Machine>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM machines WHERE fqdn= $1 and deleted is NULL")
+                .bind(fqdn)
+                .fetch_all(&mut *txn)
+                .await?,
+        )
+    }
 }
 
 #[cfg(test)]
