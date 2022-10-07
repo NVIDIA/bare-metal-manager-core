@@ -34,7 +34,7 @@ use crate::{CarbideError, CarbideResult};
 pub struct MachineTopology {
     machine_id: uuid::Uuid,
     topology: Value,
-    _created: DateTime<Utc>,
+    created: DateTime<Utc>,
     _updated: DateTime<Utc>,
 }
 
@@ -43,7 +43,7 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
         Ok(MachineTopology {
             machine_id: row.try_get("machine_id")?,
             topology: row.try_get("topology")?,
-            _created: row.try_get("created")?,
+            created: row.try_get("created")?,
             _updated: row.try_get("updated")?,
         })
     }
@@ -238,5 +238,9 @@ impl MachineTopology {
     #[allow(dead_code)]
     pub fn topology(&self) -> &serde_json::Value {
         &self.topology
+    }
+
+    pub fn created(&self) -> DateTime<Utc> {
+        self.created
     }
 }
