@@ -19,7 +19,7 @@ packages:
   - chrony
 write_files:
   - path: /etc/chrony/chrony.conf
-    permissions: 0644
+    permissions: '0644'
     content: |
       server {{ ntp_server }} iburst
   - path: /etc/sysctl.d/98-hbn.conf
@@ -33,6 +33,9 @@ write_files:
       vm.min_free_kbytes=67584
 runcmd:
   - [ sudo, efibootmgr, -o, "F,40"]
+  - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli, -P, /opt/carbide ]
+  - [ chmod, +x, /opt/carbide/carbide-cli ]
+  - [ /opt/carbide/carbide-cli, --listen={{ api_url }}, discovery, --uuid={{ interface_id }} ]
   - [ /usr/bin/systemctl, enable, containerd ]
   - [ /usr/bin/systemctl, start, containerd ]
   - [ /usr/bin/systemctl, enable, kubelet ]
@@ -48,11 +51,8 @@ runcmd:
   - [ chmod, +x, /opt/hbn_installer/scripts/doca_hbn/hbn-dpu-setup.sh]
   - [ cd, /opt/hbn_installer/scripts/doca_hbn ]
   - [ /bin/bash, hbn-dpu-setup.sh ]
-  - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli, -P, /opt/carbide ]
-  - [ chmod, +x, /opt/carbide/carbide-cli ]
-  - [ /opt/carbide/carbide-cli, --listen={{ api_url }}, discovery, --uuid={{ interface_id }} ]
-  - [ /opt/carbide/carbide-cli, --listen={{ api_url }}, done, --uuid={{ interface_id }} ]
   - [ cp, /opt/hbn_installer/configs/1.3.0/doca_hbn.yaml, /etc/kubelet.d/ ]
+  - [ /opt/carbide/carbide-cli, --listen={{ api_url }}, done, --uuid={{ interface_id }} ]
   - [ /usr/sbin/reboot ]
 EOF
 
