@@ -2,6 +2,8 @@
 name = "cli"
 version = "0.0.1"
 edition.workspace = true
+license-file = "LICENSE"
+authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 
 [[bin]]
 name = "carbide-cli"

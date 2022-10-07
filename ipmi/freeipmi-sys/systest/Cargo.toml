@@ -2,7 +2,8 @@
 name = "systest"
 edition.workspace = true
 version = "0.1.0"
-authors = ["Vishnu Rangayyan <vrangayyan@nvidia.com>"]
+license-file = "LICENSE"
+authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 
 [dependencies]
 freeipmi-sys = { path = "..", default-features = false, features = ["libc"] }
