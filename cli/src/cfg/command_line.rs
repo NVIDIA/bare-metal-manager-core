@@ -20,11 +20,12 @@ pub(crate) struct Options {
     #[clap(
         short,
         long,
+        alias("listen"),
         multiple_values(false),
         require_equals(true),
         default_value = "https://[::1]:1079"
     )]
-    pub listen: String,
+    pub api: String,
 
     #[clap(subcommand)]
     pub subcmd: Command,
