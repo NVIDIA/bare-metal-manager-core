@@ -23,6 +23,7 @@
 - [Local Development](development.md)
   - [Docker](docker/development.md)
   - [Kubernetes](kubernetes/development.md)
+- [Visual Studio Code Remote Development](development/vscode_remote.md)
 - [Data Model]()
 - [DPU/Bluefield](dpu-operations.md)
 - [iPXE](ipxe/development.md)
