@@ -14,6 +14,8 @@ members = [
 
 [workspace.package]
 edition = "2021"
+license-file = "LICENSE"
+authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }

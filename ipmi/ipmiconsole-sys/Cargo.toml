@@ -2,9 +2,10 @@
 name = "ipmiconsole-sys"
 version = "1.2.6"
 edition.workspace = true
-authors = ["Vishnu Rangayyan <vrangayyan@nvidia.com"]
+authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 links = "ipmiconsole"
 build = "build.rs"
+license-file = "LICENSE"
 description = """
 Bindings to libipmiconsole for ipmi console access"""
 

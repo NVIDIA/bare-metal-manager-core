@@ -3,6 +3,8 @@ name = "carbide-dns"
 version = "0.0.1"
 edition.workspace = true
 description = "Carbide is bare metal provisioning system with auto-discovery and API based machine manipulation"
+license-file = "LICENSE"
+authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 
 [[bin]]
 name = "carbide-dns"

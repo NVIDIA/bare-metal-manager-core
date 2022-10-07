@@ -2,9 +2,10 @@
 name = "freeipmi-sys"
 version = "1.6.9"
 edition.workspace = true
-authors = ["Vishnu Rangayyan <vrangayyan@nvidia.com"]
+authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 links = "freeipmi"
 build = "build.rs"
+license-file = "LICENSE"
 description = """
 Bindings to libfreeipmi for ipmi commands to out-of-band (ipmi over lan) and inband (kcs, etc) BMCs
 """
