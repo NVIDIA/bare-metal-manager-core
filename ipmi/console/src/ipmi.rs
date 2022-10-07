@@ -21,20 +21,24 @@ pub struct HostInfo {
 }
 
 impl IpmiInfo {
-    fn new(id: Uuid, role: UserRoles) -> Result<Self, ConsoleError> {
-        auth::get_bmc_metadata(id, role)
+    async fn new(id: Uuid, role: UserRoles, api_endpoint: String) -> Result<Self, ConsoleError> {
+        auth::get_bmc_metadata(id, role, api_endpoint).await
     }
 }
 
 impl HostInfo {
-    pub async fn new(data: String, role: UserRoles) -> Result<Self, ConsoleError> {
+    pub async fn new(
+        data: String,
+        role: UserRoles,
+        api_endpoint: String,
+    ) -> Result<Self, ConsoleError> {
         let uid: Uuid = Uuid::parse_str(&data).map_err(ConsoleError::from)?;
         let mut host_info = HostInfo {
             id: uid,
             ipmi_info: None,
         };
 
-        let ipmi_info = IpmiInfo::new(host_info.id, role)?;
+        let ipmi_info = IpmiInfo::new(host_info.id, role, api_endpoint).await?;
         host_info.ipmi_info = Some(ipmi_info);
         Ok(host_info)
     }

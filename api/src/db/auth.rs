@@ -13,6 +13,7 @@ pub struct SshKeyValidationRequest {
     pub pubkey: String,
 }
 
+#[derive(Clone, Debug)]
 struct SshPublicKeys {
     role: UserRoles,
     pubkeys: Vec<String>,
@@ -50,14 +51,17 @@ impl SshKeyValidationRequest {
                 .await
                 .map_err(CarbideError::from)?;
 
-        for pkey in user_info.pubkeys {
-            let key = pkey.lines().collect::<Vec<&str>>().join("");
-            if key.contains(&self.pubkey) {
-                // Key matched
-                return Ok(rpc::SshKeyValidationResponse {
-                    is_authenticated: true,
-                    role: rpc::UserRoles::from(user_info.role) as i32,
-                });
+        // the key is normally formatted like "<algorith> <key>"
+        if let Some(actual_key) = self.pubkey.split_ascii_whitespace().last() {
+            for pkey in user_info.pubkeys {
+                let key = pkey.lines().collect::<Vec<&str>>().join("");
+                if key.contains(actual_key) {
+                    // Key matched
+                    return Ok(rpc::SshKeyValidationResponse {
+                        is_authenticated: true,
+                        role: rpc::UserRoles::from(user_info.role) as i32,
+                    });
+                }
             }
         }
 

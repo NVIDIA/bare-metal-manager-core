@@ -1,6 +1,5 @@
 use std::convert::TryFrom;
 use std::env;
-use std::sync::RwLock;
 
 use color_eyre::Report;
 use lru::LruCache;
@@ -8,6 +7,7 @@ use mac_address::MacAddress;
 use once_cell::sync::Lazy;
 use sqlx::Acquire;
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 use tower::ServiceBuilder;
@@ -166,7 +166,7 @@ impl Forge for Api {
         let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
 
         let vpcs = match (id, name) {
-            (Some(id), _ ) => {
+            (Some(id), _) => {
                 let id = id;
                 let uuid = match uuid::Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
@@ -177,21 +177,14 @@ impl Forge for Api {
                         )));
                     }
                 };
-                Vpc::find(&mut txn, uuid)
-                    .await
-            },
-            (None, Some(name)) => {
-                Vpc::find_by_name(&mut txn, name)
-                    .await
-            },
-            (None, None) => {
-                Vpc::find(&mut txn, UuidKeyedObjectFilter::All)
-                    .await
-            },
+                Vpc::find(&mut txn, uuid).await
+            }
+            (None, Some(name)) => Vpc::find_by_name(&mut txn, name).await,
+            (None, None) => Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await,
         };
 
         let result = vpcs
-            .map(|vpc |rpc::VpcList {
+            .map(|vpc| rpc::VpcList {
                 vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
             })
             .map(Response::new)
@@ -383,7 +376,7 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::NetworkSegmentQuery{ id, .. } = request.into_inner();
+        let rpc::NetworkSegmentQuery { id, .. } = request.into_inner();
 
         let uuid_filter = match id {
             Some(id) => match uuid::Uuid::try_from(id) {
@@ -425,7 +418,7 @@ impl Forge for Api {
             .persist(&mut txn)
             .await;
 
-        let dhcp_server = CONFIG.read().unwrap().dhcp_server.clone();
+        let dhcp_server = CONFIG.read().await.dhcp_server.clone();
         let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
 
         if let Ok(segment) = response.as_ref() {
@@ -1226,10 +1219,10 @@ impl Forge for Api {
 
 }
 
-fn update_external_config() {
+async fn update_external_config() {
     let dhcp_server =
         env::var("CARBIDE_DHCP_SERVER").expect("Env variable CARBIDE_DHCP_SERVER is not defined.");
-    CONFIG.write().unwrap().dhcp_server = Some(dhcp_server);
+    CONFIG.write().await.dhcp_server = Some(dhcp_server);
 }
 
 impl Api {
@@ -1260,7 +1253,7 @@ impl Api {
         );
         */
 
-        update_external_config();
+        update_external_config().await;
 
         let auth_layer = ServiceBuilder::new()
             .layer(tower_http::auth::RequireAuthorizationLayer::custom(
