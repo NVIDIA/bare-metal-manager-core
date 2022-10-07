@@ -108,7 +108,7 @@ args = [
     "${CI_PROJECT_DIR}/forge-user-data-artifacts-${CI_BUILD_ID}.tar.gz",
     "carbide-cli",
     "doca_container_configs_1.4.0.zip",
-    "forge-dpu_1.0-1.deb"
+#    "forge-dpu_1.0-1.deb"
 ]
 cwd = "../pxe/static/blobs/internal/aarch64"
 

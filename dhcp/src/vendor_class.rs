@@ -135,6 +135,10 @@ impl FromStr for VendorClass {
                 client_type: MachineClientClass::PXEClient,
                 client_architecture: MachineArchitecture::EfiX64,
             }),
+            "NVIDIA/BF/OOB" => Ok(VendorClass {
+                client_type: MachineClientClass::HTTPClient,
+                client_architecture: MachineArchitecture::Arm64,
+            }),
             _ => Err(VendorClassParseError::InvalidFormat),
         }
     }
@@ -241,6 +245,12 @@ mod tests {
     #[test]
     fn it_formats_the_parser_armuefi() {
         let vc: VendorClass = "HTTPClient:Arch:00011:UNDI:003000".parse().unwrap();
+        assert_eq!(vc.to_string(), "ARM 64-bit UEFI (HTTP Client)");
+    }
+
+    #[test]
+    fn it_detects_nvidia_bf_oob_as_arm() {
+        let vc: VendorClass = "NVIDIA/BF/OOB".parse().unwrap();
         assert_eq!(vc.to_string(), "ARM 64-bit UEFI (HTTP Client)");
     }
 
