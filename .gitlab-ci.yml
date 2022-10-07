@@ -91,16 +91,20 @@ build-cargo:
 
 build-boot-artifacts-x86_64:
   before_script:
-    - mkdir ~/.jfrog
+    - mkdir -p ~/.jfrog
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
+  tags:
+    - shell
   image:
     name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
   script:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
+  after_script:
+    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   when: manual
 
-build-user-date-artifacts-x86_64:
+build-user-data-artifacts-x86_64:
   before_script:
     - mkdir ~/.jfrog
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
