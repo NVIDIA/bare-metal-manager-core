@@ -22,16 +22,21 @@ impl RpcContext {
             Ok(mut client) => {
                 let request = tonic::Request::new(machine_id.clone());
 
-                client
+                let optional_instance = client
                     .find_instance_by_machine_id(request)
                     .await
-                    .map(|response| response.into_inner())
+                    .map(|response| response.into_inner().instances.into_iter().next())
                     .map_err(|error| {
                         format!(
                             "unable to find instance for machine {} via Carbide: {:?}",
                             machine_id, error
                         )
-                    })
+                    })?;
+
+                optional_instance.ok_or(format!(
+                    "No instance found for machine {} via Carbide",
+                    machine_id
+                ))
             }
             Err(err) => Err(format!("unable to connect to Carbide API: {:?}", err)),
         }
