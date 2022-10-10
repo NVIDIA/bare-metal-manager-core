@@ -28,8 +28,8 @@ use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
 pub use crate::protos::forge::{
-    self, machine_discovery_info::DiscoveryData, Domain, MachineDiscoveryInfo, MachineEvent,
-    MachineInterface, Uuid,
+    self, machine_discovery_info::DiscoveryData, Domain, Machine, MachineAction,
+    MachineDiscoveryInfo, MachineEvent, MachineInterface, MachineList, Uuid,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, NetworkInterface, PciDeviceProperties,
@@ -49,6 +49,27 @@ pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
     expected
 }
 
+impl TryFrom<i32> for MachineAction {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            x if x == MachineAction::Unknown as i32 => Ok(MachineAction::Unknown),
+            x if x == MachineAction::Discover as i32 => Ok(MachineAction::Discover),
+            x if x == MachineAction::Adopt as i32 => Ok(MachineAction::Adopt),
+            x if x == MachineAction::Test as i32 => Ok(MachineAction::Test),
+            x if x == MachineAction::Commission as i32 => Ok(MachineAction::Commission),
+            x if x == MachineAction::Assign as i32 => Ok(MachineAction::Assign),
+            x if x == MachineAction::Fail as i32 => Ok(MachineAction::Fail),
+            x if x == MachineAction::Decommission as i32 => Ok(MachineAction::Decommission),
+            x if x == MachineAction::Recommission as i32 => Ok(MachineAction::Recommission),
+            x if x == MachineAction::Unassign as i32 => Ok(MachineAction::Unassign),
+            x if x == MachineAction::Release as i32 => Ok(MachineAction::Release),
+            x if x == MachineAction::Cleanup as i32 => Ok(MachineAction::Cleanup),
+            _ => Err(()),
+        }
+    }
+}
 impl Serialize for MachineDiscoveryInfo {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -158,6 +179,39 @@ impl Serialize for MachineEvent {
         state.serialize_field("machine_id", &self.machine_id)?;
         state.serialize_field("event", &self.event)?;
         state.serialize_field("time", &self.time.as_ref().map(|ts| ts.seconds))?;
+
+        state.end()
+    }
+}
+
+impl Serialize for MachineList {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("MachineList", 5)?;
+
+        state.serialize_field("machines", &self.machines)?;
+
+        state.end()
+    }
+}
+
+impl Serialize for Machine {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("Machine", 5)?;
+
+        state.serialize_field("id", &self.id)?;
+        //state.serialize_field("supported_instance_type", &self.supported_instance_type)?;
+        state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
+        state.serialize_field("updated", &self.updated.as_ref().map(|ts| ts.seconds))?;
+        state.serialize_field("deployed", &self.deployed.as_ref().map(|ts| ts.seconds))?;
+        state.serialize_field("state", &self.state)?;
+        state.serialize_field("events", &self.events)?;
+        state.serialize_field("interfaces", &self.interfaces)?;
 
         state.end()
     }
