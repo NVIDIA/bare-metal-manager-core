@@ -67,13 +67,13 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     match config.subcmd {
         Command::Discovery(d) => {
-            discovery::Discovery::run(config.listen, &d.uuid).await?;
+            discovery::Discovery::run(config.api, &d.uuid).await?;
         }
         Command::Done(d) => {
-            done::Done::run(config.listen, &d.uuid).await?;
+            done::Done::run(config.api, &d.uuid).await?;
         }
         Command::Reset(d) => {
-            deprovision::Deprovision::run(config.listen, &d.uuid).await?;
+            deprovision::Deprovision::run(config.api, &d.uuid).await?;
         }
     }
     Ok(())

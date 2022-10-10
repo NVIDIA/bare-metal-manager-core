@@ -358,10 +358,10 @@ pub fn get_machine_details(
 }
 
 impl Discovery {
-    pub async fn run(listen: String, uuid: &str) -> CarbideClientResult<()> {
+    pub async fn run(api: String, uuid: &str) -> CarbideClientResult<()> {
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
         let info = get_machine_details(&context, uuid)?;
-        let mut client = rpc::forge_client::ForgeClient::connect(listen.clone()).await?;
+        let mut client = rpc::forge_client::ForgeClient::connect(api.clone()).await?;
         let request = tonic::Request::new(info);
         client.discover_machine(request).await?;
         //if let Err(x) = ipmi::update_ipmi_creds(listen, uuid).await {
