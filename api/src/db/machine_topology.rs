@@ -9,9 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::prelude::*;
+use itertools::Itertools;
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::postgres::PgRow;
@@ -31,20 +32,47 @@ use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Deserialize)]
 pub struct MachineTopology {
-    _machine_id: uuid::Uuid,
-    _topology: Value,
-    _created: DateTime<Utc>,
+    machine_id: uuid::Uuid,
+    topology: Value,
+    created: DateTime<Utc>,
     _updated: DateTime<Utc>,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineTopology {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(MachineTopology {
-            _machine_id: row.try_get("machine_id")?,
-            _topology: row.try_get("topology")?,
-            _created: row.try_get("created")?,
+            machine_id: row.try_get("machine_id")?,
+            topology: row.try_get("topology")?,
+            created: row.try_get("created")?,
             _updated: row.try_get("updated")?,
         })
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum MachineTopologyConversionError {
+    #[error("Machine topology conversion error: {0}")]
+    ConversionError(String),
+
+    #[error("Discovery info deserialization error: {0}")]
+    DiscoveryInfoDeserializationError(#[from] serde_json::Error),
+}
+
+impl TryFrom<MachineTopology> for rpc::DiscoveryInfo {
+    type Error = MachineTopologyConversionError;
+
+    fn try_from(value: MachineTopology) -> Result<Self, Self::Error> {
+        let topology = value.topology();
+        let di_value = topology
+            .get("discovery_data")
+            .and_then(|dd| dd.get("Info"))
+            .ok_or_else(|| {
+                MachineTopologyConversionError::ConversionError(
+                    "No nested 'discovery_data.Info' value in topology data".into(),
+                )
+            })?
+            .clone();
+        serde_json::from_value(di_value).map_err(|e| e.into())
     }
 }
 
@@ -218,5 +246,28 @@ impl MachineTopology {
             }
             Ok(Some(res))
         }
+    }
+
+    pub async fn find_by_machine_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_ids: &[uuid::Uuid],
+    ) -> CarbideResult<HashMap<uuid::Uuid, Vec<Self>>> {
+        let query = "SELECT * FROM machine_topologies WHERE machine_id=ANY($1);";
+        let topologies = sqlx::query_as(query)
+            .bind(machine_ids)
+            .fetch_all(&mut *txn)
+            .await?
+            .into_iter()
+            .into_group_map_by(|t: &Self| t.machine_id);
+        Ok(topologies)
+    }
+
+    #[allow(dead_code)]
+    pub fn topology(&self) -> &serde_json::Value {
+        &self.topology
+    }
+
+    pub fn created(&self) -> DateTime<Utc> {
+        self.created
     }
 }

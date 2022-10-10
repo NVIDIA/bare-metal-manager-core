@@ -32,6 +32,7 @@ use crate::db::machine_action::MachineAction;
 use crate::db::machine_event::MachineEvent;
 use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_state::MachineState;
+use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::{CarbideError, CarbideResult};
 
@@ -71,6 +72,11 @@ pub struct Machine {
     ///
     /// [event]: crate::db::MachineInterface
     interfaces: Vec<MachineInterface>,
+
+    /// The [MachineTopology][discovery data] this machine was created with
+    ///
+    /// [discovery data]: crate::db::machine_topology::MachineTopology
+    discovery_data: Option<MachineTopology>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -86,6 +92,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             state: MachineState::Unknown,
             events: Vec::new(),
             interfaces: Vec::new(),
+            discovery_data: None,
         })
     }
 }
@@ -123,6 +130,19 @@ impl From<Machine> for rpc::Machine {
                 .into_iter()
                 .map(|interface| interface.into())
                 .collect(),
+            discovery_info: machine.discovery_data.and_then(|mt: MachineTopology| {
+                match mt.try_into() {
+                    Ok(di) => Some(di),
+                    Err(e) => {
+                        log::warn!(
+                            "Topology for machine {} couldn't be parsed into discovery info: {}",
+                            &machine.id,
+                            e,
+                        );
+                        None
+                    }
+                }
+            }),
         }
     }
 }
@@ -413,6 +433,9 @@ impl Machine {
         let mut interfaces_for_machine =
             MachineInterface::find_by_machine_ids(&mut *txn, &all_uuids).await?;
 
+        let mut topologies_for_machine =
+            MachineTopology::find_by_machine_ids(&mut *txn, &all_uuids).await?;
+
         all_machines.iter_mut().for_each(|machine| {
             if let Some(events) = events_for_machine.remove(&machine.id) {
                 machine.events = events;
@@ -424,6 +447,20 @@ impl Machine {
                 machine.interfaces = interfaces;
             } else {
                 log::warn!("Machine {0} () has no interfaces", machine.id);
+            }
+
+            machine.discovery_data =
+                topologies_for_machine
+                    .get_mut(&machine.id)
+                    .and_then(|topologies| {
+                        topologies
+                            .drain(..)
+                            // Use the most recent topology if there's more than one.
+                            .reduce(|t1, t2| if t1.created() > t2.created() { t1 } else { t2 })
+                    });
+
+            if machine.discovery_data.is_none() {
+                log::warn!("Machine {0} has no associated discovery data", &machine.id);
             }
 
             machine.state = machine
