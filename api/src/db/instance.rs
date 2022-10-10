@@ -42,6 +42,11 @@ pub struct Instance {
     pub addresses: Vec<InstanceSubnetAddress>,
 }
 
+#[derive(Debug, Clone)]
+pub struct InstanceList {
+    pub instances: Vec<Instance>,
+}
+
 pub struct NewInstance {
     pub machine_id: uuid::Uuid,
     pub segment_id: uuid::Uuid,
@@ -157,22 +162,27 @@ impl Instance {
     pub async fn find_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
-    ) -> CarbideResult<Instance> {
-        let mut instance: Instance =
-            sqlx::query_as("SELECT * from instances WHERE machine_id = $1::uuid")
+    ) -> CarbideResult<Option<Instance>> {
+        let instance = if let Some(mut instance) =
+            sqlx::query_as::<_, Instance>("SELECT * from instances WHERE machine_id = $1::uuid")
                 .bind(machine_id)
-                .fetch_one(&mut *txn)
-                .await?;
+                .fetch_optional(&mut *txn)
+                .await?
+        {
+            let interface_address = InstanceSubnetAddress::find_for_instance(
+                &mut *txn,
+                UuidKeyedObjectFilter::One(instance.id().to_owned()),
+            )
+            .await?;
 
-        let interface_address = InstanceSubnetAddress::find_for_instance(
-            &mut *txn,
-            UuidKeyedObjectFilter::One(instance.id().to_owned()),
-        )
-        .await?;
+            let _ = interface_address
+                .into_iter()
+                .map(|(_, isa)| instance.addresses = isa);
 
-        let _ = interface_address
-            .into_iter()
-            .map(|(_, isa)| instance.addresses = isa);
+            Some(instance)
+        } else {
+            None
+        };
 
         Ok(instance)
     }

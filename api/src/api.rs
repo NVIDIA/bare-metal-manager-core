@@ -24,6 +24,7 @@ use tonic_reflection::server::Builder;
 use tower::ServiceBuilder;
 
 pub use ::rpc::forge as rpc;
+use ::rpc::forge::InstanceList;
 use ::rpc::MachineStateMachineInput;
 use auth::CarbideAuth;
 use carbide::db::instance::Instance;
@@ -981,7 +982,7 @@ impl Forge for Api {
     async fn find_instance_by_machine_id(
         &self,
         request: Request<rpc::Uuid>,
-    ) -> Result<Response<rpc::Instance>, Status> {
+    ) -> Result<Response<InstanceList>, Status> {
         let mut txn = self
             .database_connection
             .begin()
@@ -992,7 +993,13 @@ impl Forge for Api {
 
         let response = Instance::find_by_machine_id(&mut txn, uuid)
             .await
-            .map(rpc::Instance::from)
+            .map(|optional_instance| {
+                optional_instance
+                    .map(|instance| InstanceList {
+                        instances: vec![rpc::Instance::from(instance)],
+                    })
+                    .unwrap_or_default()
+            })
             .map(Response::new)?;
 
         txn.commit().await.map_err(CarbideError::from)?;
