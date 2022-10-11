@@ -9,30 +9,23 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-#![allow(bad_style, improper_ctypes)]
-
 
 extern crate freeipmi_sys;
 extern crate getopts;
 extern crate libc;
 
-use freeipmi_sys::{auth_type, cipher_suite, ipmi_interface, power_control, privilege_level};
-use freeipmi_sys::auth_type::{IPMI_AUTHENTICATION_TYPE_MD2, IPMI_AUTHENTICATION_TYPE_MD5, IPMI_AUTHENTICATION_TYPE_NONE, IPMI_AUTHENTICATION_TYPE_OEM_PROP, IPMI_AUTHENTICATION_TYPE_STRAIGHT_PASSWORD_KEY};
-use freeipmi_sys::cipher_suite::{IPMI_CIPHER_HMAC_MD5_AES_CBC_128, IPMI_CIPHER_HMAC_SHA1_AES_CBC_128, IPMI_CIPHER_HMAC_SHA256_AES_CBC_128};
+use freeipmi_sys::{IpmiAuthenticationType, IpmiCipherSuite, IpmiDevice, IpmiPrivilegeLevel, IpmiChassisControl};
 use freeipmi_sys::ipmi::*;
-use freeipmi_sys::ipmi_interface::{IPMI_DEVICE_KCS, IPMI_DEVICE_LAN, IPMI_DEVICE_LAN_2_0};
-use freeipmi_sys::power_control::{IPMI_CHASSIS_CONTROL_HARD_RESET, IPMI_CHASSIS_CONTROL_INITIATE_SOFT_SHUTDOWN, IPMI_CHASSIS_CONTROL_POWER_CYCLE, IPMI_CHASSIS_CONTROL_POWER_DOWN, IPMI_CHASSIS_CONTROL_POWER_UP, IPMI_CHASSIS_CONTROL_PULSE_DIAGNOSTIC_INTERRUPT};
-use freeipmi_sys::privilege_level::IPMI_PRIVILEGE_LEVEL_ADMIN;
 
 fn main() -> Result<(), String> {
     let mut hostname: String = "".to_string();
     let mut username: String = "".to_string();
     let mut password: String = "".to_string();
-    let mut intf: ipmi_interface = IPMI_DEVICE_LAN_2_0;
-    let mut cipher: cipher_suite = IPMI_CIPHER_HMAC_SHA256_AES_CBC_128;
-    let mut auth: auth_type = IPMI_AUTHENTICATION_TYPE_MD5;
-    let mode: privilege_level = IPMI_PRIVILEGE_LEVEL_ADMIN;
-    let mut action: power_control = IPMI_CHASSIS_CONTROL_PULSE_DIAGNOSTIC_INTERRUPT;
+    let mut intf: IpmiDevice = IpmiDevice::Lan2_0;
+    let mut cipher: IpmiCipherSuite = IpmiCipherSuite::HmacMd5AesCbc128;
+    let mut auth: IpmiAuthenticationType = IpmiAuthenticationType::None;
+    let mode: IpmiPrivilegeLevel = IpmiPrivilegeLevel::Admin;
+    let mut action: IpmiChassisControl = IpmiChassisControl::PulseDiagnosticInterrupt;
     let args: Vec<String> = std::env::args().collect();
     let mut opts = getopts::Options::new();
     let mut status_cmd = false;
@@ -58,13 +51,13 @@ fn main() -> Result<(), String> {
     if args_given.opt_present("I") {
         match args_given.opt_str("I").unwrap().as_str() {
             "lan" => {
-                intf = IPMI_DEVICE_LAN;
+                intf = IpmiDevice::Lan;
             }
             "lanplus" => {
-                intf = IPMI_DEVICE_LAN_2_0;
+                intf = IpmiDevice::Lan2_0;
             }
             "local" => {
-                intf = IPMI_DEVICE_KCS;
+                intf = IpmiDevice::Kcs;
             }
             _ => {
                 error_msg = format!("Invalid interface argument given {}", args_given.opt_str("I").unwrap());
@@ -78,19 +71,19 @@ fn main() -> Result<(), String> {
     if args_given.opt_present("A") {
         match args_given.opt_str("A").unwrap().as_str() {
             "NONE" => {
-                auth = IPMI_AUTHENTICATION_TYPE_NONE;
+                auth = IpmiAuthenticationType::None;
             }
             "PASSWORD" => {
-                auth = IPMI_AUTHENTICATION_TYPE_STRAIGHT_PASSWORD_KEY;
+                auth = IpmiAuthenticationType::StraightPasswordKey;
             }
             "MD2" => {
-                auth = IPMI_AUTHENTICATION_TYPE_MD2;
+                auth = IpmiAuthenticationType::Md2;
             }
             "MD5" => {
-                auth = IPMI_AUTHENTICATION_TYPE_MD5;
+                auth = IpmiAuthenticationType::Md5;
             }
             "OEM" => {
-                auth = IPMI_AUTHENTICATION_TYPE_OEM_PROP;
+                auth = IpmiAuthenticationType::OemProp;
             }
             _ => {
                 error_msg = format!("Invalid auth argument given {}", args_given.opt_str("A").unwrap());
@@ -104,13 +97,13 @@ fn main() -> Result<(), String> {
     if args_given.opt_present("C") {
         match args_given.opt_str("C").unwrap().as_str() {
             "3" => {
-                cipher = IPMI_CIPHER_HMAC_SHA1_AES_CBC_128;
+                cipher = IpmiCipherSuite::HmacSha1AesCbc128;
             }
             "8" => {
-                cipher = IPMI_CIPHER_HMAC_MD5_AES_CBC_128;
+                cipher = IpmiCipherSuite::HmacMd5AesCbc128;
             }
             "17" => {
-                cipher = IPMI_CIPHER_HMAC_SHA256_AES_CBC_128;
+                cipher = IpmiCipherSuite::HmacSha256AesCbc128;
             }
             _ => {
                 error_msg = format!("Unsupported cipher specified {}", args_given.opt_str("C").unwrap());
@@ -124,19 +117,19 @@ fn main() -> Result<(), String> {
     if args_given.opt_present("c") {
         match args_given.opt_str("c").unwrap().as_str() {
             "off" => {
-                action = IPMI_CHASSIS_CONTROL_POWER_DOWN;
+                action = IpmiChassisControl::PowerDown;
             }
             "on" => {
-                action = IPMI_CHASSIS_CONTROL_POWER_UP;
+                action = IpmiChassisControl::PowerUp;
             }
             "cycle" => {
-                action = IPMI_CHASSIS_CONTROL_POWER_CYCLE;
+                action = IpmiChassisControl::PowerCycle;
             }
             "reset" => {
-                action = IPMI_CHASSIS_CONTROL_HARD_RESET;
+                action = IpmiChassisControl::HardReset;
             }
             "shutdown" => {
-                action = IPMI_CHASSIS_CONTROL_INITIATE_SOFT_SHUTDOWN;
+                action = IpmiChassisControl::InitiateSoftShutdown;
             }
             "status" => {
                 status_cmd = true;
@@ -150,22 +143,22 @@ fn main() -> Result<(), String> {
         return Err(error_msg);
     }
 
-    if intf as u8 != IPMI_DEVICE_KCS as u8 {
-        if hostname.is_empty() || username.is_empty() || password.is_empty() {
-            return Err(format!("Hostname or Username or Password not specified for lan connection"));
-        }
+    if intf as u8 != IpmiDevice::Kcs as u8 &&
+        hostname.is_empty() || username.is_empty() || password.is_empty() {
+            return Err(format!("Hostname or Username or Password not specified for lan connection".to_string()));
+
     }
 
-    if action as u8 == IPMI_CHASSIS_CONTROL_PULSE_DIAGNOSTIC_INTERRUPT as u8 && status_cmd == false {
-        return Err(format!("cmd -c not specified"));
+    if action as u8 == IpmiChassisControl::PulseDiagnosticInterrupt as u8 && !status_cmd {
+        return Err(format!("cmd -c not specified").to_string());
     }
 
-    let mut ctx = ipmi_ctx::new(hostname, username, password,
+    let mut ctx = IpmiContext::new(hostname, username, password,
                                 Option::from(intf), Option::from(cipher),
                                 Option::from(mode), Option::from(auth));
 
     if ctx.connect().is_ok() {
-        if status_cmd == true {
+        if status_cmd {
             match ctx.chassis_status() {
                 Ok(status) => {
                     println!("Status:\n");

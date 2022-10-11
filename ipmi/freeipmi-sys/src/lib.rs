@@ -325,6 +325,7 @@ extern "C" {
         workaround_flags: c_uint,
         flags: c_uint,
     ) -> c_int;
+
     /// Inner libfreeipmi C unsafe API - setup IPMI 2.0 lanplus session
     pub fn ipmi_ctx_open_outofband_2_0(
         ctx: IpmiContextType,
@@ -340,6 +341,7 @@ extern "C" {
         workaround_flags: c_uint,
         flags: c_uint,
     ) -> c_int;
+
     /// Inner libfreeipmi C unsafe API - setup IPMI inband (local BMC) session
     pub fn ipmi_ctx_open_inband(
         ctx: IpmiContextType,
@@ -364,6 +366,7 @@ extern "C" {
         workaround_flags: c_uint,
         flags: c_uint,
     ) -> c_int;
+
     /// Inner libfreeipmi C unsafe API - close session
     pub fn ipmi_ctx_close(ctx: IpmiContextType) -> c_int;
     /// Inner libfreeipmi C unsafe API - cleanup context
@@ -468,6 +471,7 @@ extern "C" {
         block_selector: c_uchar,
         obj_cmd_rq: FiidObj,
     ) -> c_int;
+
     // helper functions from fiid/fiid.h
     /// Inner libfreeipmi C unsafe API - allocate fiid api context object
     pub fn fiid_obj_create(tmpl: *const FiidTemplate) -> FiidObj;
@@ -805,13 +809,12 @@ pub mod ipmi {
                 let obj_cmd_rs: FiidObj = fiid_obj_create(&tmpl_cmd_get_chassis_status_rs);
                 let mut val: c_ulonglong = 0;
                 let mut c_query: CString;
-                let mut ret: c_int;
                 if obj_cmd_rs.is_null() {
                     return Err(IpmiError::FiidObjectAllocate(
                         IpmiErrorNum::OutOfMemory as i32,
                     ));
                 }
-                ret = ipmi_cmd_get_chassis_status(self.freeipmi_ctx, obj_cmd_rs);
+                let mut ret: c_int = ipmi_cmd_get_chassis_status(self.freeipmi_ctx, obj_cmd_rs);
                 if ret < 0 {
                     fiid_obj_destroy(obj_cmd_rs);
                     return Err(IpmiError::ChassisStatus(ret as i32));
@@ -821,11 +824,8 @@ pub mod ipmi {
                     c_query = CString::new(item.query.as_str()).unwrap();
                     ret = FIID_OBJ_GET(obj_cmd_rs, c_query.as_ptr(), &mut val);
                     if ret < 0 {
-                        fiid_obj_destroy(obj_cmd_rs);
-                        return Err(IpmiError::FiidQuery(
-                            String::from(item.query.as_str()),
-                            ret as i32,
-                        ));
+                        // some fiid objects we expect may not be available, depending on bmc.
+                        continue;
                     }
                     if val > 0 {
                         item.value = true;
@@ -837,30 +837,15 @@ pub mod ipmi {
 
                 c_query = CString::new(restore_status.query.as_str()).unwrap();
                 ret = FIID_OBJ_GET(obj_cmd_rs, c_query.as_ptr(), &mut val);
-                if ret < 0 {
-                    fiid_obj_destroy(obj_cmd_rs);
-                    return Err(IpmiError::FiidQuery(
-                        String::from(restore_status.query.as_str()),
-                        ret as i32,
-                    ));
-                }
-                if (val as u8) < PowerRestorePolicyState::Unknown.into() {
+                if ret == 0 && (val as u8) < PowerRestorePolicyState::Unknown.into() {
                     restore_status.value = val as u8;
                 }
 
                 c_query = CString::new(identify_status.query.as_str()).unwrap();
                 ret = FIID_OBJ_GET(obj_cmd_rs, c_query.as_ptr(), &mut val);
-                if ret < 0 {
-                    fiid_obj_destroy(obj_cmd_rs);
-                    return Err(IpmiError::FiidQuery(
-                        String::from(identify_status.query.as_str()),
-                        ret as i32,
-                    ));
-                }
-                if (val as u8) < IpmiChassisIdentifyState::IndefinitelyOn.into() {
+                if ret == 0 && (val as u8) < IpmiChassisIdentifyState::IndefinitelyOn.into() {
                     identify_status.value = val as u8;
                 }
-
                 fiid_obj_destroy(obj_cmd_rs);
             }
             Ok(queries)
