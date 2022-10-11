@@ -22,6 +22,7 @@ use crate::db::instance_subnet_event::InstanceSubnetEvent;
 use crate::db::machine_interface::MachineInterface;
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::db::vpc_resource_state::VpcResourceState;
+use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 
 use super::address_selection_strategy::AddressSelectionStrategy;
@@ -37,6 +38,22 @@ pub struct InstanceSubnet {
     addresses: Vec<InstanceSubnetAddress>,
     state: VpcResourceState,
     events: Vec<InstanceSubnetEvent>,
+    network_segments: Vec<NetworkSegment>,
+    interface_function: Option<InterfaceFunction>,
+}
+
+#[derive(Debug, Clone)]
+struct PhysicalFunction {}
+
+#[derive(Debug, Clone)]
+struct VirtualFunction {
+    pub vfid: i32,
+}
+
+#[derive(Debug, Clone)]
+enum InterfaceFunction {
+    Physical(PhysicalFunction),
+    Virtual(VirtualFunction),
 }
 
 impl<'r> FromRow<'r, PgRow> for InstanceSubnet {
@@ -50,7 +67,36 @@ impl<'r> FromRow<'r, PgRow> for InstanceSubnet {
             addresses: Vec::new(),
             state: VpcResourceState::Init,
             events: Vec::new(),
+            network_segments: Vec::new(),
+            interface_function: None,
         })
+    }
+}
+
+impl From<VirtualFunction> for rpc::VirtualFunction {
+    fn from(vf: VirtualFunction) -> Self {
+        rpc::VirtualFunction { vfid: vf.vfid }
+    }
+}
+
+impl From<PhysicalFunction> for rpc::PhysicalFunction {
+    fn from(_: PhysicalFunction) -> Self {
+        Self {}
+    }
+}
+
+impl From<InterfaceFunction> for rpc::instance_subnet::InterfaceFunction {
+    fn from(int_fn: InterfaceFunction) -> rpc::instance_subnet::InterfaceFunction {
+        match int_fn {
+            InterfaceFunction::Physical(_physical) => {
+                rpc::instance_subnet::InterfaceFunction::Pf(::rpc::forge::PhysicalFunction {})
+            }
+            InterfaceFunction::Virtual(virtual_fn) => {
+                rpc::instance_subnet::InterfaceFunction::Vf(::rpc::forge::VirtualFunction {
+                    vfid: virtual_fn.vfid,
+                })
+            }
+        }
     }
 }
 
@@ -73,6 +119,12 @@ impl From<InstanceSubnet> for rpc::InstanceSubnet {
                 .into_iter()
                 .map(|e| e.into())
                 .collect(),
+            network_segments: instance_subnet
+                .network_segments
+                .into_iter()
+                .map(|x| x.into())
+                .collect(),
+            interface_function: instance_subnet.interface_function.map(|x| x.into()),
         }
     }
 }
@@ -184,14 +236,50 @@ impl InstanceSubnet {
 
     pub async fn find_by_instance_id(
         txn: &mut Transaction<'_, Postgres>,
-        instance_subnet_id: uuid::Uuid,
+        instance_id: uuid::Uuid,
     ) -> CarbideResult<Vec<InstanceSubnet>> {
-        Ok(
+        // TODO handle multiple instance subnets and addresses for InstanceSubnet::find_by_instance_id
+        let mut instance_subnets: Vec<InstanceSubnet> =
             sqlx::query_as("SELECT * FROM instance_subnets WHERE instance_id = $1::uuid")
-                .bind(instance_subnet_id)
-                .fetch_all(txn)
-                .await?,
+                .bind(instance_id)
+                .fetch_all(&mut *txn)
+                .await?;
+
+        let instance_subnet_ids: Vec<uuid::Uuid> = instance_subnets.iter().map(|i| i.id).collect();
+
+        let addresses = sqlx::query_as(
+            "SELECT * FROM instance_subnet_addresses WHERE instance_subnet_id = ANY($1)",
         )
+        .bind(instance_subnet_ids)
+        .fetch_all(&mut *txn)
+        .await?;
+
+        let instance_segment_ids = instance_subnets
+            .iter()
+            .map(|i| i.network_segment_id)
+            .collect::<Vec<uuid::Uuid>>();
+
+        let network_segments = NetworkSegment::find(
+            &mut *txn,
+            UuidKeyedObjectFilter::List(&instance_segment_ids),
+        )
+        .await?;
+
+        log::info!("Network prefixes {network_segments:?}");
+
+        for mut ins in instance_subnets.iter_mut() {
+            ins.addresses = addresses.to_owned();
+            ins.network_segments = network_segments.to_owned();
+            if let Some(vfid) = ins.vf_id {
+                ins.interface_function = Some(InterfaceFunction::Virtual(VirtualFunction { vfid }));
+            } else {
+                ins.interface_function = Some(InterfaceFunction::Physical(PhysicalFunction {}))
+            }
+        }
+
+        log::info!("InstanceSubnets {instance_subnets:?}");
+
+        Ok(instance_subnets)
     }
 
     pub async fn create(
@@ -261,6 +349,10 @@ impl InstanceSubnet {
 
     pub fn vfid(self) -> Option<i32> {
         self.vf_id
+    }
+
+    pub fn id(&self) -> &uuid::Uuid {
+        &self.id
     }
 
     pub async fn get_address(
