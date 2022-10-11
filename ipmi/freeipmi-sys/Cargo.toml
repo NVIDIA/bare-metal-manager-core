@@ -10,8 +10,6 @@ description = """
 Bindings to libfreeipmi for ipmi commands to out-of-band (ipmi over lan) and inband (kcs, etc) BMCs
 """
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
 name = "freeipmi_sys"
 path = "src/lib.rs"
@@ -25,6 +23,7 @@ serde = { version = "1.0", features = ["derive"] }
 [build-dependencies]
 pkg-config = "0.3.25"
 cc = "1.0"
+ctest = "0.2"
 
 [features]
 default = ["libc"]

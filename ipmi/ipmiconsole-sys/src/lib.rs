@@ -57,10 +57,6 @@ pub enum IpmiConsoleErrorKind {
     ErrNumRange = 32,
 }
 
-//Ron: this generally appears to be mis-modelled: most of the integers are just a flat mapping
-//from the status code, but we no longer need the mapping once the error is constructed?
-//I believe that the correct model is one where unless multiple different error codes can come
-//from on "kind", all of the integers should "go away" from this type
 #[derive(thiserror::Error, Debug)]
 pub enum IpmiConsoleError {
     #[error("ipmiconsole context failed to allocate {0}")]
@@ -231,33 +227,57 @@ mod ipmi_console_constants {
     pub const _IPMI_CONSOLE_ENGINE_OUTPUT_ON_SOL_ESTABLISHED: u32 = 0x00000002;
     pub const _IPMI_CONSOLE_ENGINE_LOCK_MEMORY: u32 = 0x00000004;
 
-    pub const IPMI_CONSOLE_ENGINE_SERIAL_KEEPALIVE: u32 = 0x00000008;
+    pub const _IPMI_CONSOLE_ENGINE_SERIAL_KEEPALIVE: u32 = 0x00000008;
 
     pub const _IPMI_CONSOLE_ENGINE_SERIAL_KEEPALIVE_EMPTY: u32 = 0x00000010;
     pub const _IPMI_CONSOLE_ENGINE_DEFAULT: u32 = 0xFFFFFFFF;
 
     pub const _IPMI_CONSOLE_BEHAVIOR_ERROR_ON_SOL_INUSE: u32 = 0x00000001;
-    pub const IPMI_CONSOLE_BEHAVIOR_DEACTIVATE_ONLY: u32 = 0x00000002;
+    pub const _IPMI_CONSOLE_BEHAVIOR_DEACTIVATE_ONLY: u32 = 0x00000002;
     pub const _IPMI_CONSOLE_BEHAVIOR_DEACTIVATE_ALL_INSTANCES: u32 = 0x00000004;
     pub const _IPMI_CONSOLE_BEHAVIOR_DEFAULT: u32 = 0xFFFFFFFF;
+    pub const _IPMICONSOLE_THREAD_COUNT_MAX: u32 = 32;
 }
 
 pub mod ipmi_console {
-    use std::ffi::CString;
-    use std::os::unix::io::RawFd;
-    use std::ptr;
-
-    use errno::errno;
-    use libc::{c_int, ssize_t};
-
     use crate::{
-        ipmi_console_constants, ipmiconsole_ctx_create, ipmiconsole_ctx_destroy,
+        ipmi_console_constants::*, ipmiconsole_ctx_create, ipmiconsole_ctx_destroy,
         ipmiconsole_ctx_errnum, ipmiconsole_ctx_fd, ipmiconsole_ctx_generate_break,
         ipmiconsole_engine_init, ipmiconsole_engine_submit_block, ipmiconsole_engine_teardown,
         AuthenticationType, CipherSuite, IpmiConsoleContextType, IpmiConsoleEngineConfig,
         IpmiConsoleError, IpmiConsoleErrorKind, IpmiConsoleIpmiConfig, IpmiConsoleProtocolConfig,
         PrivilegeLevel,
     };
+    use libc::{c_int, c_uint, c_void, ssize_t};
+    use std::ffi::CString;
+    use std::os::unix::io::RawFd;
+    use std::ptr;
+
+    /// This has to be called _once_ in the app using this crate prior to creating any contexts
+    /// using IpmiConsoleContext::new()
+    pub fn ipmiconsole_threads_init(num_threads: u32) -> Result<(), IpmiConsoleError> {
+        let ret: c_int;
+        let thread_count: c_uint = num_threads;
+        if num_threads > _IPMICONSOLE_THREAD_COUNT_MAX {
+            return Err(IpmiConsoleError::InvalidArgs(
+                IpmiConsoleErrorKind::Parameters as i32,
+            ));
+        }
+        unsafe {
+            ret = ipmiconsole_engine_init(thread_count, 0);
+        }
+        if ret < 0 {
+            let err = errno::errno();
+            return Err(IpmiConsoleError::EngInit(err.into()));
+        }
+        Ok(())
+    }
+
+    pub fn ipmiconsole_threads_exit() {
+        unsafe {
+            ipmiconsole_engine_teardown(1);
+        }
+    }
 
     pub struct IpmiConsoleContext {
         hostname: String,
@@ -326,16 +346,15 @@ pub mod ipmi_console {
             };
 
             let mut eng_cfg = IpmiConsoleEngineConfig {
-                engine_flags: ipmi_console_constants::IPMI_CONSOLE_ENGINE_SERIAL_KEEPALIVE,
-                behavior_flags: ipmi_console_constants::IPMI_CONSOLE_BEHAVIOR_DEACTIVATE_ONLY,
+                engine_flags: 0,
+                behavior_flags: 0,
                 debug_flags: 0,
             };
 
             unsafe {
-                let mut ret: c_int;
-                ret = ipmiconsole_engine_init(1, 0);
+                let mut ret: c_int = ipmiconsole_engine_init(1, 0);
                 if ret < 0 {
-                    let err = errno();
+                    let err = errno::errno();
                     return Err(IpmiConsoleError::EngInit(err.into()));
                 }
 
@@ -346,7 +365,7 @@ pub mod ipmi_console {
                     &mut eng_cfg,
                 );
                 if self.lib_ctx.is_null() {
-                    let err = errno();
+                    let err = errno::errno();
                     return Err(IpmiConsoleError::ContextCreate(err.into()));
                 }
 
@@ -376,6 +395,7 @@ pub mod ipmi_console {
                     libc::close(self.fd);
                 }
                 ipmiconsole_ctx_destroy(self.lib_ctx);
+                self.lib_ctx = ptr::null_mut();
             }
             Ok(())
         }
@@ -395,7 +415,7 @@ pub mod ipmi_console {
             unsafe {
                 let ret = libc::read(self.fd, buf.as_mut_ptr() as _, buf.len());
                 if ret < 0 {
-                    let err = errno();
+                    let err = errno::errno();
                     return Err(IpmiConsoleError::ReadFd(err.into()));
                 }
                 Ok(ret)
@@ -403,7 +423,7 @@ pub mod ipmi_console {
         }
 
         /// write to sol fd from the given buffer. short writes may occur, caller needs to handle.
-        pub fn write(&mut self, buf: &mut [u8]) -> Result<ssize_t, IpmiConsoleError> {
+        pub fn write(&mut self, buf: &[u8]) -> Result<ssize_t, IpmiConsoleError> {
             if self.fd < 0 {
                 return Err(IpmiConsoleError::ContextInvalid(
                     IpmiConsoleErrorKind::ContextInvalid as i32,
@@ -415,9 +435,9 @@ pub mod ipmi_console {
                 ));
             }
             unsafe {
-                let ret = libc::write(self.fd, buf.as_mut_ptr() as _, buf.len());
+                let ret = libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len());
                 if ret < 0 {
-                    let err = errno();
+                    let err = errno::errno();
                     return Err(IpmiConsoleError::ReadFd(err.into()));
                 }
                 Ok(ret)

@@ -9,8 +9,6 @@ license-file = "LICENSE"
 description = """
 Bindings to libipmiconsole for ipmi console access"""
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
 name = "ipmiconsole_sys"
 path = "src/lib.rs"
@@ -25,6 +23,7 @@ errno = "0.2.8"
 [build-dependencies]
 pkg-config = "0.3.25"
 cc = "1.0"
+ctest = "0.2"
 
 [features]
 default = ["libc"]
