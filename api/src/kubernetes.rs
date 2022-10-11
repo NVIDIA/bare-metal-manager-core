@@ -11,10 +11,7 @@
  */
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::time::SystemTime;
 
-use chrono::DateTime;
-use itertools::Itertools;
 use kube::runtime::wait::{await_condition, Condition};
 use kube::{
     api::{Api, DeleteParams, PostParams, ResourceExt},
@@ -31,7 +28,9 @@ use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
-use crate::vpc_resources::{leaf, managed_resource, resource_group};
+use crate::vpc_resources::{
+    leaf, managed_resource, resource_group, VpcResource, VpcResourceStatus,
+};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -147,7 +146,7 @@ async fn create_resource_group_handler(
                 &current_job,
                 2,
                 format!(
-                    "ResourceGroup creation {} failed. Error: {}",
+                    "ResourceGroup creation {} failed. Error: {:?}",
                     spec.name(),
                     err
                 ),
@@ -195,7 +194,7 @@ async fn delete_resource_group_handler(
                 &current_job,
                 2,
                 format!(
-                    "ResourceGroup deletion {} failed. Error: {}",
+                    "ResourceGroup deletion {} failed. Error: {:?}",
                     spec.name(),
                     err
                 ),
@@ -244,7 +243,7 @@ async fn create_managed_resource_handler(
                 &current_job,
                 2,
                 format!(
-                    "ManagedResource creation {} failed. Error: {}",
+                    "ManagedResource creation {} failed. Error: {:?}",
                     spec.name(),
                     err
                 ),
@@ -293,7 +292,7 @@ async fn delete_managed_resource_handler(
                 &current_job,
                 2,
                 format!(
-                    "ManagedResource deletion {} failed. Error: {}",
+                    "ManagedResource deletion {} failed. Error: {:?}",
                     spec.name(),
                     err
                 ),
@@ -372,7 +371,9 @@ pub async fn vpc_reconcile_handler(
                         let waiter = await_condition(
                             api,
                             spec_name.as_str(),
-                            leaf_status_matcher(spec_name.as_str()),
+                            ConditionReadyMatcher {
+                                matched_name: spec_name.clone(),
+                            },
                         );
                         let _ =
                             tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
@@ -556,57 +557,33 @@ status:
   loopbackIP: 10.180.96.235
 */
 
-fn leaf_status_matcher(matched_leaf_name: &str) -> impl Condition<leaf::Leaf> + '_ {
-    move |obj: Option<&leaf::Leaf>| {
-        if let Some(leaf) = obj.as_ref() {
-            if let Some(name) = leaf.metadata.name.as_ref() {
-                if name == matched_leaf_name {
-                    // we have the right leaf, now we can check the condition
-                    if let Some(status) = leaf.status.as_ref() {
-                        if let Some(conditions) = status.conditions.as_ref() {
-                            let latest_condition = conditions
-                                .iter()
-                                .sorted_by_key(|condition_to_be_sorted| {
-                                    if let Some(time_stamp) =
-                                        condition_to_be_sorted.last_transition_time.as_ref()
-                                    {
-                                        if let Ok(duration) = chrono::DateTime::parse_from_rfc3339(
-                                            time_stamp.as_str(),
-                                        ) {
-                                            duration
-                                                .signed_duration_since(
-                                                    DateTime::<chrono::Utc>::from(
-                                                        SystemTime::UNIX_EPOCH,
-                                                    ),
-                                                )
-                                                .num_milliseconds()
-                                                as u64
-                                        } else {
-                                            0
-                                        }
-                                    } else {
-                                        0
-                                    }
-                                })
-                                .last();
+pub struct ConditionReadyMatcher {
+    pub matched_name: String,
+}
 
-                            // now that we have the most recent timestamp,
-                            // validate that it is "ready" and that the host_admin_IP field is populated with something.
-                            if let Some(condition) = latest_condition {
-                                if let Some(condition_status) = condition.status.as_ref() {
-                                    if condition_status.to_lowercase().as_str() != "true" {
-                                        return false;
-                                    }
-
-                                    return status.host_admin_i_ps.is_some();
-                                }
-                            }
-                        }
+impl<R> Condition<R> for ConditionReadyMatcher
+where
+    R: VpcResource,
+{
+    fn matches_object(&self, obj: Option<&R>) -> bool {
+        if let Some(vpc_resource) = obj.as_ref() {
+            if let Some(name) = vpc_resource.vpc_resource_name() {
+                if name.as_str() == self.matched_name.as_str() {
+                    if let Some(status) = vpc_resource.status() {
+                        return status.is_ready();
                     }
                 }
             }
         }
         false
+    }
+}
+
+fn _managed_resource_status_matcher(
+    matched_rg_name: &str,
+) -> impl Condition<resource_group::ResourceGroup> + '_ {
+    ConditionReadyMatcher {
+        matched_name: matched_rg_name.to_string(),
     }
 }
 
