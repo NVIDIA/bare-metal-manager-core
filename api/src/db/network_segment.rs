@@ -35,7 +35,7 @@ pub enum IpAllocationError {
 
 pub type IpAllocationResult = Result<IpAddr, IpAllocationError>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NetworkSegment {
     pub id: Uuid,
     pub name: String,

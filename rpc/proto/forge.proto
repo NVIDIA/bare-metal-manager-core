@@ -280,8 +280,14 @@ message Instance {
   google.protobuf.Timestamp started = 8;
   google.protobuf.Timestamp finished = 9;
 
-  repeated string addresses = 10;
+  repeated InstanceSubnet interfaces = 10;
 }
+
+message PhysicalFunction {}
+message VirtualFunction {
+  int32 vfid = 1;
+}
+
 
 message InstanceSubnet {
   UUID id = 1;
@@ -292,6 +298,11 @@ message InstanceSubnet {
   repeated string addresses = 6;
   VpcResourceState state = 7;
   repeated InstanceSubnetEvent events = 8;
+  repeated NetworkSegment network_segments = 9;
+   oneof interface_function {
+    PhysicalFunction pf = 10;
+    VirtualFunction  vf = 11;
+  }
 }
 
 message InstanceDeletionRequest {

@@ -22,8 +22,6 @@ use sqlx::{FromRow, Postgres, Row, Transaction};
 use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
 
-use crate::db::instance_subnet_address::InstanceSubnetAddress;
-use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 
 use super::{instance_subnet::InstanceSubnet, network_segment::NetworkSegment};
@@ -39,7 +37,7 @@ pub struct Instance {
     pub custom_ipxe: String,
     pub ssh_keys: Vec<String>,
     pub managed_resource_id: uuid::Uuid,
-    pub addresses: Vec<InstanceSubnetAddress>,
+    pub interfaces: Vec<InstanceSubnet>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +56,7 @@ pub struct NewInstance {
 pub struct DeleteInstance {
     pub instance_id: uuid::Uuid,
 }
+
 impl<'r> FromRow<'r, PgRow> for Instance {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(Instance {
@@ -70,10 +69,11 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             custom_ipxe: row.try_get("custom_ipxe")?,
             ssh_keys: Vec::new(),
             managed_resource_id: row.try_get("managed_resource_id")?,
-            addresses: Vec::new(),
+            interfaces: Vec::new(),
         })
     }
 }
+
 impl From<Instance> for rpc::Instance {
     fn from(src: Instance) -> Self {
         rpc::Instance {
@@ -95,10 +95,10 @@ impl From<Instance> for rpc::Instance {
                 seconds: t.timestamp(),
                 nanos: 0,
             }),
-            addresses: src
-                .addresses
+            interfaces: src
+                .interfaces
                 .into_iter()
-                .map(|addr| addr.address.to_string())
+                .map(|interface| interface.into())
                 .collect(),
         }
     }
@@ -163,25 +163,19 @@ impl Instance {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
     ) -> CarbideResult<Option<Instance>> {
-        let instance = if let Some(mut instance) =
+        let mut instance =
             sqlx::query_as::<_, Instance>("SELECT * from instances WHERE machine_id = $1::uuid")
                 .bind(machine_id)
                 .fetch_optional(&mut *txn)
-                .await?
-        {
-            let interface_address = InstanceSubnetAddress::find_for_instance(
-                &mut *txn,
-                UuidKeyedObjectFilter::One(instance.id().to_owned()),
-            )
-            .await?;
+                .await?;
 
-            let _ = interface_address
-                .into_iter()
-                .map(|(_, isa)| instance.addresses = isa);
+        // TODO handle more than one subnet assignment on an instance
+        // has network_segment_id
 
-            Some(instance)
-        } else {
-            None
+        if let Some(ref mut ins) = instance {
+            let instance_subnets =
+                InstanceSubnet::find_by_instance_id(&mut *txn, *ins.id()).await?;
+            ins.interfaces = instance_subnets;
         };
 
         Ok(instance)
@@ -260,12 +254,12 @@ impl NewInstance {
             sqlx::query_as(
                 "INSERT INTO instances (machine_id, user_data, custom_ipxe, ssh_keys) VALUES ($1::uuid, $2, $3, $4::text[]) RETURNING *",
             )
-            .bind(&self.machine_id)
-            .bind(&self.user_data)
-            .bind(&self.custom_ipxe)
-            .bind(&self.ssh_keys)
-            .fetch_one(&mut *txn)
-            .await?
+                .bind(&self.machine_id)
+                .bind(&self.user_data)
+                .bind(&self.custom_ipxe)
+                .bind(&self.ssh_keys)
+                .fetch_one(&mut *txn)
+                .await?
         )
     }
 }
