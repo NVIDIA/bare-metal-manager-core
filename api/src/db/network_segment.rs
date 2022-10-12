@@ -188,8 +188,9 @@ impl NetworkSegment {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         relay: IpAddr,
     ) -> CarbideResult<Option<Self>> {
+
         let mut results = sqlx::query_as(
-            r#"SELECT network_segments.* FROM network_segments INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id WHERE $1::inet <<= network_prefixes.prefix"#,
+            r#"SELECT network_segments.* FROM network_segments INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id WHERE network_segments.deleted is NULL AND $1::inet <<= network_prefixes.prefix"#,
         )
             .bind(IpNetwork::from(relay))
             .fetch_all(&mut *txn)
@@ -200,6 +201,7 @@ impl NetworkSegment {
             1 => {
                 let mut segment: NetworkSegment = results.remove(0);
 
+                // NOTE(jdg): results shouldn't include any deleted segments, so we can ignore checks against deleted segments in prefixes for the following section
                 segment.prefixes =
                     sqlx::query_as(r#"SELECT * FROM network_prefixes WHERE segment_id=$1::uuid"#)
                         .bind(segment.id())
@@ -421,6 +423,7 @@ impl NetworkSegment {
             .fetch_one(&mut *txn)
             .await?),
         }
+
     }
 
     pub async fn update(
