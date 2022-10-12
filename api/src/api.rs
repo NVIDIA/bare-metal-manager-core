@@ -483,9 +483,6 @@ impl Forge for Api {
             _ => return Err(Status::not_found("network segment not found")),
         };
 
-        // NOTE(jdg): We don't have to enforce the NULL subdomain and VPC entry here because
-        // we're leaving that up to the object call and checking in the db layer instead
-
         let prefixes =
             NetworkPrefix::find_by_segment(&mut txn, UuidKeyedObjectFilter::One(*segment.id()))
                 .await?;

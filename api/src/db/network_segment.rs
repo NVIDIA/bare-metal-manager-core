@@ -24,9 +24,11 @@ use uuid::Uuid;
 use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
 
-use crate::db::machine_interface::MachineInterface;
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use crate::{db::UuidKeyedObjectFilter, CarbideError, CarbideResult};
+use crate::db::domain::Domain;
+use crate::db::machine_interface::MachineInterface;
+use crate::db::vpc::Vpc;
 
 #[derive(Debug)]
 pub enum IpAllocationError {
@@ -386,44 +388,46 @@ impl NetworkSegment {
         Ok(addresses)
     }
 
-    pub async fn is_ok_to_delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), String> {
-        if self.vpc_id.is_some() || self.subdomain_id.is_some() {
-            return Err(
-                "NetworkSegment can not be deleted with associated VPC or SubDomain".to_string(),
-            );
-        }
-
-        let machine_interfaces = MachineInterface::find_by_segment_id(txn, &self.id).await;
-
-        match machine_interfaces {
-            Ok(mis) => {
-                if !mis.is_empty() {
-                    Err(
-                        "NetworkSegment can't be deleted with attached MachineInterface(s)"
-                            .to_string(),
-                    )
-                } else {
-                    Ok(())
-                }
-            }
-            Err(err) => Err(err.to_string()),
-        }
-    }
-
     pub async fn delete(
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-        match self.is_ok_to_delete(txn).await {
-            Err(msg) => CarbideResult::Err(CarbideError::NetworkSegmentDelete(msg)),
-            Ok(_) => Ok(sqlx::query_as(
-                "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
-            )
-            .bind(&self.id)
-            .fetch_one(&mut *txn)
-            .await?),
+
+        if let Some(vpc_uuid) = self.vpc_id {
+            let vpc_list= Vpc::find(txn, UuidKeyedObjectFilter::One(vpc_uuid)).await?;
+            if !vpc_list.is_empty() {
+                if let Some(vpc) = vpc_list.first() {
+                    if vpc.deleted == None {
+                        return CarbideResult::Err(CarbideError::NetworkSegmentDelete("Network Segment can't be deleted with associated VPC".to_string()));
+                    };
+                }
+            }
+        };
+
+        if let Some(subdomain_uuid) = self.subdomain_id() {
+            let domain_list = Domain::find(txn, UuidKeyedObjectFilter::One(*subdomain_uuid)).await?;
+            if !domain_list.is_empty(){
+                if let Some(dom) = domain_list.first() {
+                    if dom.deleted == None {
+                        return CarbideResult::Err(CarbideError::NetworkSegmentDelete("Network Segment can't be deleted with associated subdomain".to_string()));
+                    }
+                }
+            }
         }
 
+        let machine_interfaces = MachineInterface::find_by_segment_id(txn, self.id()).await;
+        if let Ok(machine_interfaces) = machine_interfaces {
+            if !machine_interfaces.is_empty() {
+                return CarbideResult::Err(CarbideError::NetworkSegmentDelete("Network Segment can't be deleted with associated MachineInterface".to_string()));
+            }
+        }
+
+        Ok(sqlx::query_as(
+            "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
+        )
+        .bind(&self.id)
+        .fetch_one(&mut *txn)
+        .await?)
     }
 
     pub async fn update(
