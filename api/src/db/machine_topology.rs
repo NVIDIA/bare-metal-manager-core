@@ -262,8 +262,7 @@ impl MachineTopology {
         Ok(topologies)
     }
 
-    #[allow(dead_code)]
-    pub fn topology(&self) -> &serde_json::Value {
+    pub fn topology(&self) -> &Value {
         &self.topology
     }
 
