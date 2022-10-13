@@ -53,6 +53,7 @@ use carbide::{
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
         UuidKeyedObjectFilter,
     },
+    machine_state_controller::{MachineStateController, NoopIterationHandler},
     CarbideError,
 };
 
@@ -1253,7 +1254,7 @@ impl Api {
         let database_connection = sqlx::Pool::connect(&daemon_config.datastore).await?;
         let conn_clone = database_connection.clone();
         let api_service = Api {
-            database_connection,
+            database_connection: database_connection.clone(),
             dhcp_discovery_cache: Mutex::new(LruCache::new(
                 std::num::NonZeroUsize::new(1000).unwrap(),
             )),
@@ -1291,6 +1292,12 @@ impl Api {
         let _kube_handle =
             bgkubernetes_handler(daemon_config.datastore.to_owned(), daemon_config.kubernetes)
                 .await?;
+
+        let _state_controller_handle = MachineStateController::builder()
+            .database(database_connection)
+            .iteration_handler(Box::new(NoopIterationHandler::default()))
+            .build()
+            .expect("Unable to build MachineStateController");
 
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
