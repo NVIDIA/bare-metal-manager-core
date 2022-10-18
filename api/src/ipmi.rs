@@ -349,18 +349,24 @@ impl MachinePowerRequest {
         .await
     }
 
+    pub async fn set_custom_pxe_on_next_boot(
+        &self,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> CarbideResult<()> {
+        Instance::use_custom_ipxe_on_next_boot(
+            self.machine_id,
+            self.boot_with_custom_ipxe,
+            &mut *txn,
+        )
+        .await
+    }
+
     pub async fn invoke_power_command(&self, pool: sqlx::PgPool) -> CarbideResult<uuid::Uuid> {
         let mut txn = pool.begin().await.map_err(CarbideError::from)?;
         let rpc::BmcMetaDataResponse { ip, user, password } =
             self.get_bmc_meta_data(&mut txn).await?;
-
-        Instance::use_custom_ipxe_on_next_boot(
-            self.machine_id,
-            self.boot_with_custom_ipxe,
-            &mut txn,
-        )
-        .await?;
         txn.commit().await.map_err(CarbideError::from)?;
+
         let ipmi_command = IpmiCommand::new(ip, user, password);
 
         let task_id = match self.operation {
