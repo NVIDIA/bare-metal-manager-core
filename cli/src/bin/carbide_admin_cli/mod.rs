@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 pub mod cfg;
+pub mod instance;
 pub mod machine;
 mod rpc;
 
@@ -18,10 +19,13 @@ use ::rpc::forge as forgerpc;
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideCliError {
     #[error("Unable to connect to carbide API: {0}")]
-    CarbideApiConnectFailed(String),
+    ApiConnectFailed(String),
 
     #[error("Error while writing into string: {0}")]
-    CarbideCliStringWriteError(#[from] std::fmt::Error),
+    StringWriteError(#[from] std::fmt::Error),
+
+    #[error("Generic Error: {0}")]
+    GenericError(String),
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;

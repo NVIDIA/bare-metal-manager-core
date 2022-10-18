@@ -16,14 +16,14 @@ use super::{CarbideCliError, CarbideCliResult};
 pub async fn get_machine(id: String, server: String) -> CarbideCliResult<rpc::Machine> {
     let mut client = rpc::forge_client::ForgeClient::connect(server)
         .await
-        .map_err(|x| CarbideCliError::CarbideApiConnectFailed(x.to_string()))?;
+        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
 
     let request = tonic::Request::new(rpc::Uuid { value: id });
     let machine_details = client
         .get_machine(request)
         .await
         .map(|response| response.into_inner())
-        .map_err(|x| CarbideCliError::CarbideApiConnectFailed(x.to_string()))?;
+        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
 
     Ok(machine_details)
 }
@@ -31,7 +31,7 @@ pub async fn get_machine(id: String, server: String) -> CarbideCliResult<rpc::Ma
 pub async fn get_all_machines(server: String) -> CarbideCliResult<rpc::MachineList> {
     let mut client = rpc::forge_client::ForgeClient::connect(server)
         .await
-        .map_err(|x| CarbideCliError::CarbideApiConnectFailed(x.to_string()))?;
+        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
 
     let request = tonic::Request::new(rpc::MachineSearchQuery {
         id: None,
@@ -41,7 +41,45 @@ pub async fn get_all_machines(server: String) -> CarbideCliResult<rpc::MachineLi
         .find_machines(request)
         .await
         .map(|response| response.into_inner())
-        .map_err(|x| CarbideCliError::CarbideApiConnectFailed(x.to_string()))?;
+        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
 
     Ok(machine_details)
+}
+
+pub async fn get_instances(
+    server: String,
+    id: Option<String>,
+) -> CarbideCliResult<rpc::InstanceList> {
+    let mut client = rpc::forge_client::ForgeClient::connect(server)
+        .await
+        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+
+    let request = tonic::Request::new(rpc::InstanceSearchQuery {
+        id: id.map(|x| rpc::Uuid { value: x }),
+    });
+    let instance_details = client
+        .find_instances(request)
+        .await
+        .map(|response| response.into_inner())
+        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+
+    Ok(instance_details)
+}
+
+pub async fn get_instances_by_machine_id(
+    server: String,
+    id: String,
+) -> CarbideCliResult<rpc::InstanceList> {
+    let mut client = rpc::forge_client::ForgeClient::connect(server)
+        .await
+        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+
+    let request = tonic::Request::new(rpc::Uuid { value: id });
+    let instance_details = client
+        .find_instance_by_machine_id(request)
+        .await
+        .map(|response| response.into_inner())
+        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+
+    Ok(instance_details)
 }

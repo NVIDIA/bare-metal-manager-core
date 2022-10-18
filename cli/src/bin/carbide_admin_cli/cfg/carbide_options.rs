@@ -59,7 +59,7 @@ pub struct ShowMachine {
 
 #[derive(Parser, Debug)]
 pub enum Instance {
-    #[clap(about = "Display Machine information")]
+    #[clap(about = "Display Instance information")]
     Show(ShowInstance),
 }
 
@@ -67,13 +67,19 @@ pub enum Instance {
 #[clap(group(
         ArgGroup::new("show_instance")
         .required(true)
-        .args(&["all", "uuid"])))]
+        .args(&["all", "uuid", "machineid"])))]
 pub struct ShowInstance {
     #[clap(short, long, multiple_values(false), action)]
-    all: bool,
+    pub all: bool,
 
     #[clap(short, long, multiple_values(false))]
-    uuid: Option<String>,
+    pub uuid: Option<String>,
+
+    #[clap(short, long, multiple_values(false))]
+    pub machineid: Option<String>,
+
+    #[clap(short, long, multiple_values(false), action)]
+    pub extrainfo: bool,
 }
 
 impl CarbideOptions {

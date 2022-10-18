@@ -878,6 +878,45 @@ impl Forge for Api {
         Ok(Response::new(rpc::InstanceDeletionResult {}))
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn find_instances(
+        &self,
+        request: Request<rpc::InstanceSearchQuery>,
+    ) -> Result<Response<rpc::InstanceList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::InstanceSearchQuery { id, .. } = request.into_inner();
+        let instances = match id {
+            Some(id) => {
+                let id = id;
+                let uuid = match uuid::Uuid::try_from(id) {
+                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                    Err(err) => {
+                        return Err(Status::invalid_argument(format!(
+                            "Invalid UUID supplied: {}",
+                            err
+                        )));
+                    }
+                };
+                Instance::find(&mut txn, uuid).await
+            }
+            None => Instance::find(&mut txn, UuidKeyedObjectFilter::All).await,
+        };
+
+        let result = instances
+            .map(|instance| rpc::InstanceList {
+                instances: instance.into_iter().map(rpc::Instance::from).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
+    }
+
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn invoke_instance_power(
         &self,
