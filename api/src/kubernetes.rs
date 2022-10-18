@@ -78,7 +78,7 @@ impl VpcResourceActions {
 
         vpc_reconcile_handler
             .builder()
-            .set_retry_backoff(std::time::Duration::from_secs(60))
+            .set_retry_backoff(std::time::Duration::from_secs(5))
             .set_channel_name("vpc_reconcile_handler")
             .set_json(&json)?
             .spawn(pool)
@@ -104,6 +104,7 @@ async fn _leaf_resource_status(spec: leaf::Leaf) -> CarbideResult<leaf::LeafStat
 }
 
 async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, state: TaskState) {
+    log::info!("Current status: {}, checkpoint: {}", msg, checkpoint);
     match Status::update(
         current_job.pool(),
         current_job.id(),
@@ -770,8 +771,9 @@ pub async fn delete_managed_resource(
         managed_resource::ManagedResource::new(&managed_resource_name, managed_resource_spec);
 
     log::info!(
-        "DeleteManagedResource sent to kubernetes with data: {:?}",
-        managed_resource
+        "DeleteManagedResource sent to kubernetes with data: {:?}, machine_id: {}",
+        managed_resource,
+        machine_id
     );
 
     let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
@@ -867,6 +869,7 @@ pub async fn power_reset_machine(
     machine_id: uuid::Uuid,
     pool: PgPool,
 ) -> CarbideResult<uuid::Uuid> {
+    log::info!("Sending power reset command for machine: {}", machine_id);
     let mpr = MachinePowerRequest::new(machine_id, Operation::Reset, true);
     mpr.invoke_power_command(pool).await
 }
