@@ -940,13 +940,17 @@ impl Forge for Api {
 
         let instance =
             Instance::find_by_machine_id(&mut txn, machine_power_request.machine_id).await?;
-        txn.commit().await.map_err(CarbideError::from)?;
         if instance.is_none() {
             return Err(Status::invalid_argument(format!(
                 "Supplied invalid UUID: {}",
                 machine_power_request.machine_id
             )));
         }
+
+        machine_power_request
+            .set_custom_pxe_on_next_boot(&mut txn)
+            .await?;
+        txn.commit().await.map_err(CarbideError::from)?;
 
         let _ = machine_power_request
             .invoke_power_command(self.database_connection.clone())
