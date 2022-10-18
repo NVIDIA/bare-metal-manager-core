@@ -21,7 +21,7 @@ fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,
     extrainfo: bool,
 ) -> CarbideCliResult<String> {
-    let width = 15;
+    let width = 25;
     let mut lines = String::new();
 
     let mut data = vec![
@@ -49,6 +49,10 @@ fn convert_instance_to_nice_format(
         (
             "FINISHED",
             instance.finished.clone().unwrap_or_default().to_string(),
+        ),
+        (
+            "CUSTOM PXE ON NEXT BOOT",
+            instance.use_custom_pxe_on_boot.to_string(),
         ),
     ];
 
