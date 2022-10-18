@@ -33,6 +33,7 @@ service Forge {
   // Manage instances on machines
   rpc CreateInstance(Instance) returns (Instance);
   rpc UpdateInstance(Instance) returns (Instance);
+  rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
   rpc FindInstanceByMachineID(UUID) returns (InstanceList);
   rpc DeleteInstance(InstanceDeletionRequest) returns (InstanceDeletionResult);
 
@@ -262,6 +263,10 @@ message InstanceTypeDeletion {
 message InstancePowerResult {}
 message InstanceTypeDeletionResult {}
 
+message InstanceSearchQuery {
+  optional UUID id = 1;
+}
+
 message InstanceList {
   repeated Instance instances = 1;
 }
@@ -281,6 +286,7 @@ message Instance {
   google.protobuf.Timestamp finished = 9;
 
   repeated InstanceSubnet interfaces = 10;
+  UUID managed_resource_id = 12;
 }
 
 message PhysicalFunction {}
@@ -312,10 +318,6 @@ message InstanceDeletionRequest {
 message InstanceDeletionResult {
 }
 
-message MachineList {
-  repeated Machine machines = 1;
-}
-
 message MachineSearchQuery {
   optional UUID id = 1;
   optional string fqdn = 2;
@@ -323,6 +325,10 @@ message MachineSearchQuery {
 
 message InterfaceList {
   repeated MachineInterface interfaces = 1;
+}
+
+message MachineList {
+  repeated Machine machines = 1; 
 }
 
 message InterfaceSearchQuery {

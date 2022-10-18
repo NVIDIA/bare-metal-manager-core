@@ -14,6 +14,7 @@ use std::{
     net::IpAddr,
 };
 
+use super::UuidKeyedObjectFilter;
 use chrono::prelude::*;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
@@ -100,6 +101,7 @@ impl From<Instance> for rpc::Instance {
                 .into_iter()
                 .map(|interface| interface.into())
                 .collect(),
+            managed_resource_id: Some(src.managed_resource_id.into()),
         }
     }
 }
@@ -143,20 +145,44 @@ impl TryFrom<rpc::InstanceDeletionRequest> for DeleteInstance {
 }
 
 impl Instance {
-    pub fn id(&self) -> &uuid::Uuid {
-        &self.id
+    pub async fn find(
+        txn: &mut Transaction<'_, Postgres>,
+        filter: UuidKeyedObjectFilter<'_>,
+    ) -> CarbideResult<Vec<Instance>> {
+        let base_query = "SELECT * FROM instances m {where} GROUP BY m.id".to_owned();
+
+        let mut all_instances: Vec<Instance> = match filter {
+            UuidKeyedObjectFilter::All => {
+                sqlx::query_as::<_, Instance>(&base_query.replace("{where}", ""))
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+            UuidKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as::<_, Instance>(&base_query.replace("{where}", "WHERE m.id=$1"))
+                    .bind(uuid)
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+            UuidKeyedObjectFilter::List(list) => {
+                sqlx::query_as::<_, Instance>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
+                    .bind(list)
+                    .fetch_all(&mut *txn)
+                    .await?
+            }
+        };
+
+        for ins in all_instances.iter_mut() {
+            let instance_subnets = InstanceSubnet::find_by_instance_id(&mut *txn, ins.id)
+                .await
+                .unwrap_or_default();
+            ins.interfaces = instance_subnets;
+        }
+
+        Ok(all_instances)
     }
 
-    pub async fn find_by_id(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
-    ) -> CarbideResult<Instance> {
-        Ok(
-            sqlx::query_as("SELECT * from instances WHERE id = $1::uuid")
-                .bind(instance_id)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+    pub fn id(&self) -> &uuid::Uuid {
+        &self.id
     }
 
     pub async fn find_by_machine_id(
@@ -269,9 +295,15 @@ impl DeleteInstance {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Instance> {
-        Instance::find_by_id(&mut *txn, self.instance_id)
+        if Instance::find(&mut *txn, UuidKeyedObjectFilter::One(self.instance_id))
             .await
-            .map_err(|_| CarbideError::NotFoundError(self.instance_id))?;
+            .map_err(|_| CarbideError::NotFoundError(self.instance_id))?
+            .is_empty()
+        {
+            return Err(CarbideError::FindOneReturnedNoResultsError(
+                self.instance_id,
+            ));
+        }
 
         InstanceSubnet::delete_by_instance_id(&mut *txn, self.instance_id).await?;
 

@@ -11,7 +11,7 @@
  */
 mod carbide_admin_cli;
 
-use carbide_admin_cli::cfg::carbide_options::{CarbideCommand, CarbideOptions, Machine};
+use carbide_admin_cli::cfg::carbide_options::{CarbideCommand, CarbideOptions, Instance, Machine};
 use log::LevelFilter;
 use serde::Deserialize;
 
@@ -90,9 +90,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 carbide_admin_cli::machine::handle_show(machine, config.json, carbide_api).await?
             }
         },
-        CarbideCommand::Instance(_instance) => {
-            todo!();
-        }
+        CarbideCommand::Instance(instance) => match instance {
+            Instance::Show(instance) => {
+                carbide_admin_cli::instance::handle_show(instance, config.json, carbide_api).await?
+            }
+        },
     }
 
     Ok(())
