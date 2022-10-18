@@ -63,6 +63,9 @@ pub enum CarbideError {
     #[error("Uuid was not found: {0}")]
     NotFoundError(uuid::Uuid),
 
+    #[error("Argument is missing in input: {0}")]
+    MissingArgument(&'static str),
+
     #[error("Database Query Error: {0}")]
     DatabaseError(sqlx::Error),
 
@@ -141,11 +144,17 @@ pub enum CarbideError {
     #[error("Tokio Timeout Error - {0}")]
     TokioTimeoutError(#[from] tokio::time::error::Elapsed),
 
+    #[error("Tokio Task Join Error {0}")]
+    TokioJoinError(#[from] tokio::task::JoinError),
+
     #[error("Kube Runtime Wait Error - {0}")]
     KubeWaitError(#[from] kube::runtime::wait::Error),
 
     #[error("Multiple IP assigned by DHCP - {0}")]
     DHCPMultipleIPAssigned(String),
+
+    #[error("Invalid value received in Enum - {0}")]
+    InvalidValueInEnum(String),
 }
 
 impl From<CarbideError> for tonic::Status {

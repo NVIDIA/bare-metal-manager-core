@@ -85,7 +85,7 @@ pub async fn boot(contents: Machine, config: RuntimeConfig) -> Template {
     let instructions = match contents.architecture {
         Some(arch) => match contents.machine {
             None => boot_into_discovery(arch, contents.interface, config),
-            Some(m) => determine_boot_from_state(m, contents.interface, config).await,
+            Some(m) => determine_boot_from_state(m, contents.interface, config, arch).await,
         },
         None => r#"
 echo Architecture was not specified ||
@@ -104,10 +104,15 @@ async fn determine_boot_from_state(
     machine: rpc::Machine,
     interface: rpc::MachineInterface,
     config: RuntimeConfig,
+    arch: rpc::MachineArchitecture,
 ) -> String {
     match machine.state.as_str() {
-        // The DPU needs an error code to force boot into the OS
-        "ready" => "exit 1".to_string(),
+        "ready" => match arch {
+            // The DPU needs an error code to force boot into the OS
+            rpc::MachineArchitecture::Arm => "exit 1".to_string(),
+            // X86 does not install OS in disk. It boots fresh everytime with carbide.efi.
+            rpc::MachineArchitecture::X86 => boot_into_discovery(arch, interface, config),
+        },
         "reset" => boot_into_discovery(rpc::MachineArchitecture::X86, interface, config),
         "assigned" => boot_tenant_config(machine, config).await,
         // any unrecognized state will cause ipxe to stop working with this message
@@ -129,9 +134,9 @@ async fn boot_tenant_config(machine: rpc::Machine, config: RuntimeConfig) -> Str
         None => return "Machine ID is invalid".to_string(),
     };
 
-    match RpcContext::get_instance(machine_id, config.api_url.clone()).await {
-        Ok(instance) => instance.custom_ipxe,
-        Err(err) => {
+    RpcContext::get_pxe_instructions(machine_id, config.api_url.clone())
+        .await
+        .unwrap_or_else(|err| {
             eprintln!("{}", err);
             format!(
                 r#"
@@ -140,8 +145,7 @@ exit 101 ||
 "#,
                 err
             )
-        }
-    }
+        })
 }
 
 fn boot_into_discovery(

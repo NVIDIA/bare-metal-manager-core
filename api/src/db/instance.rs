@@ -38,6 +38,7 @@ pub struct Instance {
     pub custom_ipxe: String,
     pub ssh_keys: Vec<String>,
     pub managed_resource_id: uuid::Uuid,
+    pub use_custom_pxe_on_boot: bool,
     pub interfaces: Vec<InstanceSubnet>,
 }
 
@@ -70,6 +71,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             custom_ipxe: row.try_get("custom_ipxe")?,
             ssh_keys: Vec::new(),
             managed_resource_id: row.try_get("managed_resource_id")?,
+            use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
             interfaces: Vec::new(),
         })
     }
@@ -101,6 +103,7 @@ impl From<Instance> for rpc::Instance {
                 .into_iter()
                 .map(|interface| interface.into())
                 .collect(),
+            use_custom_pxe_on_boot: src.use_custom_pxe_on_boot,
             managed_resource_id: Some(src.managed_resource_id.into()),
         }
     }
@@ -216,7 +219,8 @@ impl Instance {
                                     i.requested as requested, i.started as started,
                                     i.finished as finished, i,user_data as user_data,
                                     i.custom_ipxe as custom_ipxe, i.ssh_keys as ssh_keys,
-                                    i.managed_resource_id as managed_resource_id FROM instances i 
+                                    i.managed_resource_id as managed_resource_id, i.use_custom_pxe_on_boot as use_custom_pxe_on_boot 
+                                    FROM instances i 
                                       INNER JOIN instance_subnets s ON i.id = s.instance_id
                                       INNER JOIN machine_interfaces ms ON ms.id = s.machine_interface_id
                                       WHERE
@@ -269,6 +273,23 @@ impl Instance {
         log::info!("IP assigned to {} is {}.", self.id(), address);
         Ok(address)
     }
+
+    pub async fn use_custom_ipxe_on_next_boot(
+        machine_id: uuid::Uuid,
+        boot_with_custom_ipxe: bool,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<()> {
+        let query =
+            "UPDATE instances SET use_custom_pxe_on_boot=$1::bool WHERE machine_id=$2::uuid RETURNING machine_id";
+        // Fetch one to make sure atleast one row is updated.
+        let _: (uuid::Uuid,) = sqlx::query_as(query)
+            .bind(boot_with_custom_ipxe)
+            .bind(machine_id)
+            .fetch_one(&mut *txn)
+            .await?;
+
+        Ok(())
+    }
 }
 
 impl NewInstance {
@@ -278,7 +299,7 @@ impl NewInstance {
     ) -> CarbideResult<Instance> {
         Ok(
             sqlx::query_as(
-                "INSERT INTO instances (machine_id, user_data, custom_ipxe, ssh_keys) VALUES ($1::uuid, $2, $3, $4::text[]) RETURNING *",
+                "INSERT INTO instances (machine_id, user_data, custom_ipxe, ssh_keys, use_custom_pxe_on_boot) VALUES ($1::uuid, $2, $3, $4::text[], true) RETURNING *",
             )
                 .bind(&self.machine_id)
                 .bind(&self.user_data)

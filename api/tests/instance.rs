@@ -79,15 +79,21 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    assert_eq!(
-        Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac)
-            .await
-            .unwrap()
-            .unwrap()
-            .machine_id,
-        *machine.id()
-    );
+    let fetched_instance = Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fetched_instance.machine_id, *machine.id());
 
+    assert!(fetched_instance.use_custom_pxe_on_boot);
+
+    let _ = Instance::use_custom_ipxe_on_next_boot(*machine.id(), false, &mut txn).await;
+    let fetched_instance = Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(!fetched_instance.use_custom_pxe_on_boot);
     txn.commit().await.unwrap();
 
     let mut txn = pool
