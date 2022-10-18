@@ -53,7 +53,9 @@ use carbide::{
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
         UuidKeyedObjectFilter,
     },
-    machine_state_controller::{MachineStateController, NoopIterationHandler},
+    machine_state_controller::{
+        controller::MachineStateController, snapshot_loader::DbMachineStateSnapshotLoader,
+    },
     CarbideError,
 };
 
@@ -1396,7 +1398,7 @@ impl Api {
 
         let _state_controller_handle = MachineStateController::builder()
             .database(database_connection)
-            .iteration_handler(Box::new(NoopIterationHandler::default()))
+            .snapshot_loader(Box::new(DbMachineStateSnapshotLoader::default()))
             .build()
             .expect("Unable to build MachineStateController");
 

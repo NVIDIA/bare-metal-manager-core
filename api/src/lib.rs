@@ -22,6 +22,7 @@ mod human_hash;
 pub mod ipmi;
 pub mod kubernetes;
 pub mod machine_state_controller;
+pub mod model;
 pub mod vpc_resources;
 
 /// Special user-defined code for PostgreSQL level state transition violation
