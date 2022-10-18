@@ -12,14 +12,14 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use kube::runtime::wait::{await_condition, Condition};
+use kube::runtime::wait::{await_condition, conditions, Condition};
 use kube::{
     api::{Api, DeleteParams, PostParams, ResourceExt},
     Client,
 };
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
-use sqlx;
+use sqlx::{self, PgPool};
 use sqlx::{Acquire, PgConnection, Postgres};
 use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
@@ -28,10 +28,23 @@ use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
+use crate::ipmi::{MachinePowerRequest, Operation};
 use crate::vpc_resources::{
     leaf, managed_resource, resource_group, VpcResource, VpcResourceStatus,
 };
 use crate::{CarbideError, CarbideResult};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ManagedResourceData {
+    machine_id: uuid::Uuid,
+    mr: managed_resource::ManagedResource,
+}
+
+impl ManagedResourceData {
+    pub fn new(machine_id: uuid::Uuid, mr: managed_resource::ManagedResource) -> Self {
+        ManagedResourceData { machine_id, mr }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum VpcResourceActions {
@@ -41,9 +54,9 @@ pub enum VpcResourceActions {
     CreateResourceGroup(resource_group::ResourceGroup),
     UpdateResourceGroup(resource_group::ResourceGroup),
     DeleteResourceGroup(resource_group::ResourceGroup),
-    CreateManagedResource(managed_resource::ManagedResource),
-    UpdateManagedResource(managed_resource::ManagedResource),
-    DeleteManagedResource(managed_resource::ManagedResource),
+    CreateManagedResource(ManagedResourceData),
+    UpdateManagedResource(ManagedResourceData),
+    DeleteManagedResource(ManagedResourceData),
 }
 
 #[derive(Debug)]
@@ -208,9 +221,10 @@ async fn delete_resource_group_handler(
 
 async fn create_managed_resource_handler(
     mut current_job: CurrentJob,
-    spec: managed_resource::ManagedResource,
+    data: ManagedResourceData,
     client: Client,
 ) -> CarbideResult<()> {
+    let spec = data.mr;
     let spec_name = spec.name().to_string();
     log::info!("Creating resource_group with name {}.", spec_name);
 
@@ -223,7 +237,7 @@ async fn create_managed_resource_handler(
     .await;
 
     let resource: Api<managed_resource::ManagedResource> =
-        Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+        Api::namespaced(client.clone(), FORGE_KUBE_NAMESPACE);
     let result = resource.create(&PostParams::default(), &spec).await;
 
     match result {
@@ -232,6 +246,36 @@ async fn create_managed_resource_handler(
                 &current_job,
                 1,
                 format!("ManagedResource creation {} is successful.", spec.name()),
+                TaskState::Ongoing,
+            )
+            .await;
+            let waiter = await_condition(
+                resource,
+                spec_name.as_str(),
+                ConditionReadyMatcher {
+                    matched_name: spec_name.clone(),
+                },
+            );
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
+                .await
+                .map(|result| result.map_err(CarbideError::from))?;
+
+            update_status(
+                &current_job,
+                2,
+                format!("ManagedResource created {} on vpc.", spec.name()),
+                TaskState::Ongoing,
+            )
+            .await;
+
+            let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+            update_status(
+                &current_job,
+                3,
+                format!(
+                    "Machine reset task spawned for machine_id {} with task: {}",
+                    data.machine_id, task_id
+                ),
                 TaskState::Finished,
             )
             .await;
@@ -241,7 +285,7 @@ async fn create_managed_resource_handler(
         Err(err) => {
             update_status(
                 &current_job,
-                2,
+                4,
                 format!(
                     "ManagedResource creation {} failed. Error: {:?}",
                     spec.name(),
@@ -257,9 +301,10 @@ async fn create_managed_resource_handler(
 
 async fn delete_managed_resource_handler(
     mut current_job: CurrentJob,
-    spec: managed_resource::ManagedResource,
+    data: ManagedResourceData,
     client: Client,
 ) -> CarbideResult<()> {
+    let spec = data.mr;
     let spec_name = spec.name().to_string();
     log::info!("Deleting resource_group with name {}.", spec_name);
 
@@ -281,6 +326,35 @@ async fn delete_managed_resource_handler(
                 &current_job,
                 1,
                 format!("ManagedResource deletion {} is successful.", spec.name()),
+                TaskState::Ongoing,
+            )
+            .await;
+            let waiter = await_condition(
+                resource,
+                spec_name.as_str(),
+                conditions::is_deleted(spec_name.as_str()),
+            );
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
+                .await
+                .map(|result| result.map_err(CarbideError::from))?;
+            update_status(
+                &current_job,
+                2,
+                format!(
+                    "ManagedResource deletion {} successful at vpc.",
+                    spec.name()
+                ),
+                TaskState::Ongoing,
+            )
+            .await;
+            let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+            update_status(
+                &current_job,
+                3,
+                format!(
+                    "Machine reset task spawned for machine_id {}, task: {}",
+                    data.machine_id, task_id
+                ),
                 TaskState::Finished,
             )
             .await;
@@ -290,7 +364,7 @@ async fn delete_managed_resource_handler(
         Err(err) => {
             update_status(
                 &current_job,
-                2,
+                5,
                 format!(
                     "ManagedResource deletion {} failed. Error: {:?}",
                     spec.name(),
@@ -619,6 +693,7 @@ pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideRes
 
 pub async fn create_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
+    machine_id: uuid::Uuid,
     segment_id: uuid::Uuid,
     host_mac_address: Option<MacAddress>,
     managed_resource_name: String,
@@ -663,15 +738,19 @@ pub async fn create_managed_resource(
     );
 
     let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
-    VpcResourceActions::CreateManagedResource(managed_resource)
-        .reconcile(db_conn)
-        .await?;
+    VpcResourceActions::CreateManagedResource(ManagedResourceData::new(
+        machine_id,
+        managed_resource,
+    ))
+    .reconcile(db_conn)
+    .await?;
 
     Ok(())
 }
 
 pub async fn delete_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
+    machine_id: uuid::Uuid,
     managed_resource_name: String,
 ) -> CarbideResult<()> {
     // find_by_segmentcan return max two prefixes, one for ipv4 and another for ipv6
@@ -696,9 +775,12 @@ pub async fn delete_managed_resource(
     );
 
     let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
-    VpcResourceActions::DeleteManagedResource(managed_resource)
-        .reconcile(db_conn)
-        .await?;
+    VpcResourceActions::DeleteManagedResource(ManagedResourceData::new(
+        machine_id,
+        managed_resource,
+    ))
+    .reconcile(db_conn)
+    .await?;
 
     Ok(())
 }
@@ -777,4 +859,14 @@ pub async fn delete_resource_group(
         .await?;
 
     Ok(())
+}
+
+// This function will create a background task under IPMI handler to reset machine.
+// It will not reset machine immediately.
+pub async fn power_reset_machine(
+    machine_id: uuid::Uuid,
+    pool: PgPool,
+) -> CarbideResult<uuid::Uuid> {
+    let mpr = MachinePowerRequest::new(machine_id, Operation::Reset, true);
+    mpr.invoke_power_command(pool).await
 }

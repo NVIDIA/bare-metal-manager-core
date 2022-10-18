@@ -127,6 +127,35 @@ impl VpcResourceCondition for resource_group::ResourceGroupStatusConditions {
     }
 }
 
+impl VpcResource for managed_resource::ManagedResource {
+    type Status = managed_resource::ManagedResourceStatus;
+    fn status(&self) -> Option<&Self::Status> {
+        self.status.as_ref()
+    }
+    fn metadata(&self) -> &ObjectMeta {
+        &self.metadata
+    }
+}
+
+impl VpcResourceStatus for managed_resource::ManagedResourceStatus {
+    fn is_ready(&self) -> bool {
+        if let Some(conditions) = self.conditions.as_ref() {
+            if let Some(condition) = latest_condition(conditions) {
+                if let Some(condition_status) = condition.status.as_ref() {
+                    return condition_status.to_lowercase().as_str() == "true";
+                }
+            }
+        }
+        false
+    }
+}
+
+impl VpcResourceCondition for managed_resource::ManagedResourceStatusConditions {
+    fn timestamp(&self) -> Option<&str> {
+        self.last_transition_time.as_deref()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

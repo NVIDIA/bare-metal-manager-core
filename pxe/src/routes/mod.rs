@@ -17,6 +17,23 @@ pub mod ipxe;
 pub struct RpcContext;
 
 impl RpcContext {
+    async fn get_pxe_instructions(machine_id: rpc::Uuid, url: String) -> Result<String, String> {
+        let mut client = rpc::forge_client::ForgeClient::connect(url)
+            .await
+            .map_err(|err| err.to_string())?;
+        let request = tonic::Request::new(machine_id.clone());
+        client
+            .get_pxe_instructions(request)
+            .await
+            .map(|response| response.into_inner().pxe_script)
+            .map_err(|error| {
+                format!(
+                    "Error in updating build needed flag for instance for machine {:?}; Error: {}.",
+                    machine_id, error
+                )
+            })
+    }
+
     async fn get_instance(machine_id: rpc::Uuid, url: String) -> Result<rpc::Instance, String> {
         match rpc::forge_client::ForgeClient::connect(url).await {
             Ok(mut client) => {
@@ -33,10 +50,9 @@ impl RpcContext {
                         )
                     })?;
 
-                optional_instance.ok_or(format!(
-                    "No instance found for machine {} via Carbide",
-                    machine_id
-                ))
+                optional_instance.ok_or_else(|| {
+                    format!("No instance found for machine {} via Carbide", machine_id)
+                })
             }
             Err(err) => Err(format!("unable to connect to Carbide API: {:?}", err)),
         }

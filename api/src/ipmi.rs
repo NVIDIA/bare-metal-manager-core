@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use ::rpc::forge as rpc;
+use ::rpc::forge::instance_power_request::Operation as rpcOperation;
 use std::fmt::Debug;
 use std::time::Duration;
 
@@ -22,6 +24,8 @@ use freeipmi_sys::{self, IpmiChassisControl};
 use once_cell::sync::OnceCell;
 
 use crate::bg::{CurrentState, Status, TaskState};
+use crate::db::instance::Instance;
+use crate::db::ipmi::{BmcMetaDataRequest, UserRoles};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -75,49 +79,66 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             IpmiPrivilegeLevel,
         };
 
-        let interface = IpmiDevice::Lan2_0;
-        let cipher = IpmiCipherSuite::HmacSha256AesCbc128;
-        let auth = IpmiAuthenticationType::Md5;
-        let mode = IpmiPrivilegeLevel::Admin;
-        let result: CarbideResult<String>;
+        log::info!("IPMI command: {:?}", cmd);
 
-        let mut ctx = IpmiContext::new(
-            cmd.host,
-            cmd.user,
-            cmd.password,
-            Option::from(interface),
-            Option::from(cipher),
-            Option::from(mode),
-            Option::from(auth),
-        );
+        tokio::task::spawn_blocking(move || {
+            let interface = IpmiDevice::Lan2_0;
+            let cipher = IpmiCipherSuite::HmacSha256AesCbc128;
+            let auth = IpmiAuthenticationType::Md5;
+            let mode = IpmiPrivilegeLevel::Admin;
+            let result: CarbideResult<String>;
 
-        if ctx.connect().is_ok() {
-            result = match cmd.action.unwrap() {
-                IpmiTask::PowerControl(task) => match ctx.power_control(task) {
-                    Ok(()) => Ok("Success".to_string()),
-                    Err(e) => {
-                        let error_msg = format!("Failed to run power control command {}", e);
-                        Err(CarbideError::GenericError(error_msg))
-                    }
-                },
-                IpmiTask::Status => match ctx.chassis_status() {
-                    Ok(status) => Ok(status
-                        .iter()
-                        .map(|x| format!("{}", x))
-                        .collect::<Vec<String>>()
-                        .join("\n")),
-                    Err(e) => {
-                        let error_msg = format!("Failed to run status command {}", e);
-                        Err(CarbideError::GenericError(error_msg))
-                    }
-                },
-            };
-            let _ = ctx.disconnect();
-        } else {
-            result = Err(CarbideError::GenericError("Failed to connect".to_string()))
-        }
-        ctx.destroy();
-        result
+            let mut ctx = IpmiContext::new(
+                cmd.host,
+                cmd.user,
+                cmd.password,
+                Option::from(interface),
+                Option::from(cipher),
+                Option::from(mode),
+                Option::from(auth),
+            );
+
+            match ctx.connect() {
+                Ok(_) => {
+                    log::info!("Missing implementation yet for bootdev pxe.");
+
+                    result = match cmd.action.unwrap() {
+                        IpmiTask::PowerControl(task) => match ctx.power_control(task) {
+                            Ok(()) => Ok("Success".to_string()),
+                            Err(e) => {
+                                let error_msg =
+                                    format!("Failed to run power control command {}", e);
+                                Err(CarbideError::GenericError(error_msg))
+                            }
+                        },
+                        IpmiTask::Status => match ctx.chassis_status() {
+                            Ok(status) => Ok(status
+                                .iter()
+                                .map(|x| format!("{}", x))
+                                .collect::<Vec<String>>()
+                                .join("\n")),
+                            Err(e) => {
+                                let error_msg = format!("Failed to run status command {}", e);
+                                Err(CarbideError::GenericError(error_msg))
+                            }
+                        },
+                    };
+                    let _ = ctx.disconnect();
+                }
+
+                Err(a) => {
+                    log::error!("IPMI context error: {:?}", a);
+                    result = Err(CarbideError::GenericError(format!(
+                        "Failed to connect: {}",
+                        a
+                    )));
+                }
+            }
+            ctx.destroy();
+            result
+        })
+        .await
+        .map_err(CarbideError::TokioJoinError)?
     }
 }
 
@@ -209,6 +230,7 @@ impl IpmiCommand {
             action: None,
         }
     }
+
     pub async fn power_up(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
         self.update_action(IpmiChassisControl::PowerUp)
             .launch_command(pool.clone())
@@ -263,6 +285,96 @@ where
         .run()
         .await
         .map_err(CarbideError::from)
+}
+
+#[derive(Debug)]
+pub enum Operation {
+    Reset = 0,
+}
+
+impl TryFrom<i32> for Operation {
+    type Error = CarbideError;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Ok(match value {
+            x if x == rpcOperation::PowerReset as i32 => Operation::Reset,
+            x => {
+                return Err(CarbideError::InvalidValueInEnum(format!(
+                    "Unknown Operation {}.",
+                    x
+                )));
+            }
+        })
+    }
+}
+
+pub struct MachinePowerRequest {
+    pub machine_id: uuid::Uuid,
+    operation: Operation,
+    boot_with_custom_ipxe: bool,
+}
+
+impl TryFrom<rpc::InstancePowerRequest> for MachinePowerRequest {
+    type Error = CarbideError;
+    fn try_from(ipr: rpc::InstancePowerRequest) -> Result<Self, Self::Error> {
+        let machine_id = ipr
+            .machine_id
+            .ok_or(CarbideError::MissingArgument("UUID is missing."))?;
+
+        Ok(MachinePowerRequest {
+            machine_id: uuid::Uuid::try_from(machine_id)?,
+            operation: Operation::try_from(ipr.operation)?,
+            boot_with_custom_ipxe: ipr.boot_with_custom_ipxe,
+        })
+    }
+}
+
+impl MachinePowerRequest {
+    pub fn new(machine_id: uuid::Uuid, operation: Operation, boot_with_custom_ipxe: bool) -> Self {
+        MachinePowerRequest {
+            machine_id,
+            operation,
+            boot_with_custom_ipxe,
+        }
+    }
+
+    async fn get_bmc_meta_data(
+        &self,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> CarbideResult<rpc::BmcMetaDataResponse> {
+        BmcMetaDataRequest {
+            machine_id: self.machine_id,
+            role: UserRoles::Administrator,
+        }
+        .get_bmc_meta_data(&mut *txn)
+        .await
+    }
+
+    pub async fn invoke_power_command(&self, pool: sqlx::PgPool) -> CarbideResult<uuid::Uuid> {
+        let mut txn = pool.begin().await.map_err(CarbideError::from)?;
+        let rpc::BmcMetaDataResponse { ip, user, password } =
+            self.get_bmc_meta_data(&mut txn).await?;
+
+        Instance::use_custom_ipxe_on_next_boot(
+            self.machine_id,
+            self.boot_with_custom_ipxe,
+            &mut txn,
+        )
+        .await?;
+        txn.commit().await.map_err(CarbideError::from)?;
+        let ipmi_command = IpmiCommand::new(ip, user, password);
+
+        let task_id = match self.operation {
+            Operation::Reset => ipmi_command.power_reset(&pool).await?,
+        };
+
+        log::info!(
+            "Started power operation {:?} with task_id: {} for machine_id {}",
+            self.operation,
+            task_id,
+            self.machine_id
+        );
+        Ok(task_id)
+    }
 }
 
 #[cfg(test)]

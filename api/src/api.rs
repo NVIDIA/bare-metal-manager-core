@@ -57,6 +57,8 @@ use carbide::{
     CarbideError,
 };
 
+use carbide::ipmi::MachinePowerRequest;
+
 use crate::auth;
 use crate::cfg;
 use crate::dhcp_discover::RecordCacheEntry;
@@ -805,6 +807,7 @@ impl Forge for Api {
 
             create_managed_resource(
                 &mut txn,
+                instance_details.machine_id,
                 instance.segment_id,
                 Some(machine_interface.mac_address),
                 instance_details.managed_resource_id.to_string(),
@@ -815,7 +818,7 @@ impl Forge for Api {
 
         let response = Ok(response.map(rpc::Instance::from).map(Response::new)?);
 
-        // TODO(baz): reboot the machine
+        // Machine will be rebooted once managed resource creation is successful.
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -870,10 +873,15 @@ impl Forge for Api {
             }
         };
 
-        delete_managed_resource(&mut txn, instance.managed_resource_id.to_string()).await?;
+        delete_managed_resource(
+            &mut txn,
+            instance.machine_id,
+            instance.managed_resource_id.to_string(),
+        )
+        .await?;
         txn.commit().await.map_err(CarbideError::from)?;
 
-        // TODO: Reboot machine
+        // Machine will be rebooted once managed resource deletion successful.
 
         Ok(Response::new(rpc::InstanceDeletionResult {}))
     }
@@ -917,12 +925,34 @@ impl Forge for Api {
         Ok(result)
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn invoke_instance_power(
         &self,
-        _request: Request<rpc::InstancePowerRequest>,
+        request: Request<rpc::InstancePowerRequest>,
     ) -> Result<Response<rpc::InstancePowerResult>, Status> {
-        todo!()
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let machine_power_request = MachinePowerRequest::try_from(request.into_inner())?;
+
+        let instance =
+            Instance::find_by_machine_id(&mut txn, machine_power_request.machine_id).await?;
+        txn.commit().await.map_err(CarbideError::from)?;
+        if instance.is_none() {
+            return Err(Status::invalid_argument(format!(
+                "Supplied invalid UUID: {}",
+                machine_power_request.machine_id
+            )));
+        }
+
+        let _ = machine_power_request
+            .invoke_power_command(self.database_connection.clone())
+            .await?;
+
+        Ok(Response::new(rpc::InstancePowerResult {}))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -1277,8 +1307,36 @@ impl Forge for Api {
     ) -> Result<Response<rpc::SecurityGroupBindList>, Status> {
         todo!()
     }
-}
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn get_pxe_instructions(
+        &self,
+        request: Request<rpc::Uuid>,
+    ) -> Result<Response<rpc::PxeInstructions>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let machine_id = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+
+        let instance = Instance::find_by_machine_id(&mut txn, machine_id)
+            .await?
+            .ok_or(CarbideError::FindOneReturnedNoResultsError(machine_id))?;
+
+        let pxe_script = if instance.use_custom_pxe_on_boot {
+            Instance::use_custom_ipxe_on_next_boot(machine_id, false, &mut txn).await?;
+            instance.custom_ipxe
+        } else {
+            "exit 0".to_string()
+        };
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        Ok(Response::new(rpc::PxeInstructions { pxe_script }))
+    }
+}
 async fn update_external_config() {
     let dhcp_server =
         env::var("CARBIDE_DHCP_SERVER").expect("Env variable CARBIDE_DHCP_SERVER is not defined.");

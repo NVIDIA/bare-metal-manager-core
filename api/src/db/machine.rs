@@ -227,7 +227,7 @@ impl Machine {
                             .await?;
                     }
                     rest => {
-                        log::warn!(
+                        log::info!(
                             "Discover call received in Invalid {} state for machine: {}",
                             rest,
                             machine.id()

@@ -3,7 +3,6 @@ syntax = "proto3";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
-
 import "machine_discovery.proto";
 import "security_group.proto";
 
@@ -36,7 +35,7 @@ service Forge {
   rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
   rpc FindInstanceByMachineID(UUID) returns (InstanceList);
   rpc DeleteInstance(InstanceDeletionRequest) returns (InstanceDeletionResult);
-
+  
   rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
 //  rpc LookupPTRRecord(DnsRequest) returns (DnsReply);
 
@@ -93,6 +92,8 @@ service Forge {
   rpc ListSecurityGroupPolicies(SecurityGroupPolicyQuery) returns(SecurityGroupPolicyList);
   // List all or one security group binds.
   rpc ListSecurityGroupBinds(SecurityGroupBindQuery) returns(SecurityGroupBindList);
+
+  rpc GetPxeInstructions(UUID) returns (PxeInstructions);
 }
 
 message DNSMessage {
@@ -237,11 +238,11 @@ enum InstanceTypeCapabilities {
 
 message InstancePowerRequest {
   UUID machine_id = 1;
-  enum operation {
-    POWER_OFF = 0;
-    POWER_ON = 1;
-    POWER_RESET = 2;
+  enum Operation {
+    POWER_RESET = 0;
   }
+  Operation operation = 2;
+  bool boot_with_custom_ipxe = 3;
 }
 
 message InstanceType {
@@ -260,7 +261,9 @@ message InstanceTypeDeletion {
   UUID id = 1;
 }
 
-message InstancePowerResult {}
+message InstancePowerResult {
+}
+
 message InstanceTypeDeletionResult {}
 
 message InstanceSearchQuery {
@@ -286,6 +289,7 @@ message Instance {
   google.protobuf.Timestamp finished = 9;
 
   repeated InstanceSubnet interfaces = 10;
+  bool use_custom_pxe_on_boot = 11;
   UUID managed_resource_id = 12;
 }
 
@@ -570,4 +574,8 @@ enum VpcResourceAction {
   VPC_FAIL = 4;
   VPC_SUCCESS = 5;
   VPC_RECOMMISSION = 6;
+}
+
+message PxeInstructions {
+    string pxe_script = 1;
 }
