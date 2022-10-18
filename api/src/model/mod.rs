@@ -10,6 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod controller;
-pub mod snapshot_loader;
-pub mod state_handler;
+//! Describes the Forge site controller internal data model
+//!
+//! The model described here is used in both internal decision logic and might
+//! be stored in database fields.
+//! Data inside this module therefore needs to be backward compatible with previous
+//! versions of Forge that are deployed.
+//!
+//! The module should only contain data definitions and associated helper functions,
+//! but no actual business logic.
+
+pub mod machine;

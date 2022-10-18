@@ -16,6 +16,7 @@ use std::convert::From;
 use std::net::IpAddr;
 
 use chrono::prelude::*;
+use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use rust_fsm::StateMachine;
@@ -94,6 +95,15 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             interfaces: Vec::new(),
             discovery_data: None,
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, FromRow)]
+pub struct MachineId(uuid::Uuid);
+
+impl From<MachineId> for uuid::Uuid {
+    fn from(id: MachineId) -> Self {
+        id.0
     }
 }
 
@@ -388,6 +398,34 @@ impl Machine {
         log::info!("Event ID is {}", id.0);
 
         Ok(true)
+    }
+
+    /// Retrieves the IDs of all active Machines - which are machines that are not in
+    /// the final state.
+    ///
+    /// * `txn` - A reference to a currently open database transaction
+    ///
+    pub async fn list_active_machine_ids(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
+        // TODO: Since the state is not directly part of the database and might move,
+        // we currently assume all machines as active
+
+        // TODO 2: This method returns a `sqlx::Error` instead of the `CarbideError` most
+        // other methods return. The challenge with `CarbideError` is that if we would
+        // use this function in another subcomponent of the project, it would also be forced
+        // to use `CarbideError`, which gives callers not an option to have a finer grained
+        // error type.
+
+        let mut results = Vec::new();
+        let mut machine_id_stream =
+            sqlx::query_as::<_, MachineId>("SELECT id FROM machines").fetch(txn);
+        while let Some(maybe_id) = machine_id_stream.next().await {
+            let id = maybe_id?;
+            results.push(id.into());
+        }
+
+        Ok(results)
     }
 
     /// Find machines given a set of criteria, right now just returns all machines because there's

@@ -1,0 +1,36 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use serde::{Deserialize, Serialize};
+
+/// Represents the current state of `Machine`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineStateSnapshot {
+    /// Machine ID
+    pub id: uuid::Uuid,
+    /// Machine configuration. This represents the desired state of the Machine
+    /// The machine might not yet be in that state, but work would be underway
+    /// to get the Machine into this state
+    pub config: MachineConfig,
+    /// Desired state of the machine
+    pub current: CurrentMachineState,
+}
+
+/// Represents the current state of `Machine`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CurrentMachineState {}
+
+/// Machine configuration. This represents the desired state of the Machine
+    /// The machine might not yet be in that state, but work would be underway
+    /// to get the Machine into this state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineConfig {}
