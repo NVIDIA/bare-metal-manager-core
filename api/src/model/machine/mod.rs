@@ -30,7 +30,7 @@ pub struct MachineStateSnapshot {
 pub struct CurrentMachineState {}
 
 /// Machine configuration. This represents the desired state of the Machine
-    /// The machine might not yet be in that state, but work would be underway
-    /// to get the Machine into this state
+/// The machine might not yet be in that state, but work would be underway
+/// to get the Machine into this state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineConfig {}

@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::process::Command;
+use std::time::Instant;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
@@ -85,13 +86,13 @@ const USERS: [UsersList; 3] = [
 
 #[derive(Debug)]
 struct IpmiInfo {
-    _user: String,
-    _role: IpmitoolRoles,
+    user: String,
+    role: IpmitoolRoles,
     password: String,
 }
 
 impl IpmiInfo {
-    fn _convert(
+    fn convert(
         value: Vec<IpmiInfo>,
         uuid: &str,
         ip: String,
@@ -109,9 +110,9 @@ impl IpmiInfo {
 
         for v in value {
             bmc_meta_data.data.push(rpc::bmc_meta_data::DataItem {
-                user: v._user.clone(),
+                user: v.user.clone(),
                 password: v.password.clone(),
-                role: v._role._convert()? as i32,
+                role: v.role._convert()? as i32,
             });
         }
 
@@ -320,8 +321,8 @@ fn set_ipmi_creds() -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
         set_ipmi_props(&id, user_info.role)?;
 
         user_lists.push(IpmiInfo {
-            _user: user_name.clone(),
-            _role: user_info.role,
+            user: user_name.clone(),
+            role: user_info.role,
             password,
         })
     }
@@ -329,16 +330,15 @@ fn set_ipmi_creds() -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
     Ok((user_lists, ip))
 }
 
-pub async fn _update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResult<()> {
-    if IN_QEMU_VM.read().unwrap().in_qemu {
+pub async fn update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResult<()> {
+    if IN_QEMU_VM.read().await.in_qemu {
         return Ok(());
     }
 
-    // Wait until ipmi device is ready.
-    _wait_until_ipmi_is_ready().await?;
+    wait_until_ipmi_is_ready().await?;
 
     let (ipmi_info, ip) = set_ipmi_creds()?;
-    let bmc_metadata: rpc::BmcMetaData = IpmiInfo::_convert(ipmi_info, uuid, ip)?;
+    let bmc_metadata: rpc::BmcMetaData = IpmiInfo::convert(ipmi_info, uuid, ip)?;
 
     let mut client = rpc::forge_client::ForgeClient::connect(listen).await?;
     let request = tonic::Request::new(bmc_metadata);
@@ -347,21 +347,25 @@ pub async fn _update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResu
     Ok(())
 }
 
-// This is blocking function.
-async fn _wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
-    const RETRY_TIME: Duration = Duration::from_secs(30);
+async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
+    let now = Instant::now();
     const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 6);
-    const MAX_TIMEOUT_COUNT: u64 = MAX_TIMEOUT.as_secs() / RETRY_TIME.as_secs();
+    const RETRY_TIME: Duration = Duration::from_secs(5);
 
-    for _ in 0..MAX_TIMEOUT_COUNT {
+    while now.elapsed() <= MAX_TIMEOUT {
         if Cmd::default().args(vec!["lan", "print"]).output().is_ok() {
+            log::info!("ipmitool ready after {} seconds", now.elapsed().as_secs());
             return Ok(());
         } else {
+            log::debug!(
+                "still waiting for ipmitool after {} seconds",
+                now.elapsed().as_secs()
+            );
             sleep(RETRY_TIME).await;
         }
     }
 
-    // Reached here, means MAX_TIMEOUT passed and yet ipmitool command is failing.
+    // Reached here, means MAX_TIMEOUT passed and yet ipmitool command is still failing.
     Err(CarbideClientError::GenericError(format!(
         "Max timout ({} seconds) is elapsed and still ipmitool is failed.",
         MAX_TIMEOUT.as_secs(),

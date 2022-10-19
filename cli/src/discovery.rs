@@ -364,9 +364,9 @@ impl Discovery {
         let mut client = rpc::forge_client::ForgeClient::connect(api.clone()).await?;
         let request = tonic::Request::new(info);
         client.discover_machine(request).await?;
-        //if let Err(x) = ipmi::update_ipmi_creds(listen, uuid).await {
-        //    log::error!("Error while setting up IPMI. {}", x.to_string());
-        //}
+        if let Err(x) = crate::ipmi::update_ipmi_creds(api, uuid).await {
+            log::error!("Error while setting up IPMI. {}", x.to_string());
+        }
 
         Ok(())
     }

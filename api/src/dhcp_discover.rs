@@ -16,8 +16,10 @@ use std::time::{Duration, Instant};
 
 use ipnetwork::Ipv4Network;
 use kube::{api::Api as KubeApi, Client};
+use lru::LruCache;
 use mac_address::MacAddress;
 use sqlx::Acquire;
+use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 pub use ::rpc::forge as rpc;
@@ -34,8 +36,6 @@ use carbide::{
     CarbideError,
 };
 
-use crate::api::Api;
-
 #[derive(Debug, Clone)]
 pub struct RecordCacheEntry {
     pub record: rpc::DhcpRecord,
@@ -44,11 +44,11 @@ pub struct RecordCacheEntry {
 }
 
 pub async fn discover_dhcp(
-    api: &Api,
+    database_connection: &sqlx::PgPool,
+    dhcp_discovery_cache: &Mutex<LruCache<MacAddress, RecordCacheEntry>>,
     request: Request<rpc::DhcpDiscovery>,
 ) -> Result<Response<rpc::DhcpRecord>, Status> {
-    let mut txn = api
-        .database_connection
+    let mut txn = database_connection
         .begin()
         .await
         .map_err(CarbideError::from)?;
@@ -73,7 +73,7 @@ pub async fn discover_dhcp(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
     {
-        let mut dhcp_discovery_cache = api.dhcp_discovery_cache.lock().await;
+        let mut dhcp_discovery_cache = dhcp_discovery_cache.lock().await;
         if let Some(cache_entry) = dhcp_discovery_cache.get(&parsed_mac) {
             if cache_entry.timestamp.elapsed() < Duration::from_secs(60)
                 && cache_entry.link_address == parsed_relay
@@ -109,7 +109,7 @@ pub async fn discover_dhcp(
         txn.commit().await.map_err(CarbideError::from)?;
         let record_clone = record.clone();
 
-        api.dhcp_discovery_cache.lock().await.put(
+        dhcp_discovery_cache.lock().await.put(
             parsed_mac,
             RecordCacheEntry {
                 record: record_clone,
@@ -173,8 +173,7 @@ pub async fn discover_dhcp(
 
     txn.commit().await.map_err(CarbideError::from)?;
 
-    let mut txn = api
-        .database_connection
+    let mut txn = database_connection
         .begin()
         .await
         .map_err(CarbideError::from)?;
@@ -253,7 +252,7 @@ pub async fn discover_dhcp(
                 }
             }
             let record_clone = record.clone();
-            api.dhcp_discovery_cache.lock().await.put(
+            dhcp_discovery_cache.lock().await.put(
                 parsed_mac,
                 RecordCacheEntry {
                     record: record_clone,

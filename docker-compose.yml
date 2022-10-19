@@ -66,6 +66,8 @@ services:
       - 1079:1079
     environment:
       - CARBIDE_DHCP_SERVER="172.20.0.12"
+      - VAULT_TOKEN=notforprodtoken
+      - VAULT_ADDR=http://vault:8200
 
   carbide-pxe:
     depends_on:

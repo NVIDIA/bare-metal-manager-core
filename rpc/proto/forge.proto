@@ -35,7 +35,7 @@ service Forge {
   rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
   rpc FindInstanceByMachineID(UUID) returns (InstanceList);
   rpc DeleteInstance(InstanceDeletionRequest) returns (InstanceDeletionResult);
-  
+
   rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
 //  rpc LookupPTRRecord(DnsRequest) returns (DnsReply);
 
@@ -74,7 +74,7 @@ service Forge {
 
   // Auth Requests
   rpc ValidateUserSSHKey(SSHKeyValidationRequest) returns (SSHKeyValidationResponse);
-  
+
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataRequest) returns (BMCMetaDataResponse);
   rpc UpdateBMCMetaData(BMCMetaData) returns (BMCStatus);
@@ -332,7 +332,7 @@ message InterfaceList {
 }
 
 message MachineList {
-  repeated Machine machines = 1; 
+  repeated Machine machines = 1;
 }
 
 message InterfaceSearchQuery {
@@ -515,7 +515,7 @@ message BMCMetaData {
         UserRoles role = 3;
         string password = 4;
     }
-    
+
     UUID machine_id = 1;
     string ip = 2;
     repeated DataItem data = 3;
