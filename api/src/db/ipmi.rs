@@ -10,17 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 use std::convert::TryFrom;
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use ::rpc::forge as rpc;
 
+use crate::vault::{self, CredentialProvider, Credentials};
 use crate::{CarbideError, CarbideResult};
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "user_roles")]
 #[sqlx(rename_all = "lowercase")]
 pub enum UserRoles {
@@ -30,6 +33,19 @@ pub enum UserRoles {
     Noaccess,
 }
 
+impl Display for UserRoles {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            UserRoles::User => "user",
+            UserRoles::Administrator => "administrator",
+            UserRoles::Operator => "operator",
+            UserRoles::Noaccess => "noaccess",
+        };
+
+        write!(f, "{}", string)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BmcMetaDataRequest {
     pub machine_id: Uuid,
@@ -37,13 +53,11 @@ pub struct BmcMetaDataRequest {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
-struct MachineConsoleMetadata {
+struct MachineHostInformation {
     address: String,
-    username: String,
-    password: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BmcMetadataItem {
     pub username: String,
     pub password: String,
@@ -117,29 +131,38 @@ impl TryFrom<rpc::BmcMetaDataRequest> for BmcMetaDataRequest {
 }
 
 impl BmcMetaDataRequest {
-    pub async fn get_bmc_meta_data(
+    pub async fn get_bmc_meta_data<C>(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<rpc::BmcMetaDataResponse> {
-        let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address, 
-            machine_console_metadata.username as username, machine_console_metadata.password as password 
-            FROM machine_topologies 
-            INNER JOIN machine_console_metadata 
-                ON machine_console_metadata.machine_id=machine_topologies.machine_id
-            WHERE machine_console_metadata.role=$1 
-                AND machine_topologies.machine_id=$2"#;
-        let host = sqlx::query_as::<_, MachineConsoleMetadata>(query)
-            .bind(&self.role)
+        credential_provider: &C,
+    ) -> CarbideResult<rpc::BmcMetaDataResponse>
+    where
+        C: CredentialProvider + ?Sized,
+    {
+        let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address
+            FROM machine_topologies WHERE machine_id=$1"#;
+        let host = sqlx::query_as::<_, MachineHostInformation>(query)
             .bind(&self.machine_id)
             .fetch_one(txn)
             .await
             .map_err(CarbideError::from)?;
 
-        // Return first response with same role.
+        let path = vault::get_bmc_credentials_path(&self.machine_id, self.role);
+        let credentials = credential_provider
+            .get_credentials(path.as_str())
+            .await
+            .map_err(|err| {
+                CarbideError::GenericError(format!("Error getting credentials for BMC: {:?}", err))
+            })?;
+
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
         Ok(rpc::BmcMetaDataResponse {
             ip: host.address,
-            user: host.username,
-            password: host.password,
+            user: username,
+            password,
         })
     }
 }
@@ -178,28 +201,29 @@ impl TryFrom<rpc::BmcMetaData> for BmcMetaData {
 }
 
 impl BmcMetaData {
-    async fn insert_into_bmc_metadata(
+    async fn insert_into_credentials_store(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        credential_provider: &impl CredentialProvider,
     ) -> CarbideResult<()> {
-        let query = r#"INSERT INTO machine_console_metadata as mt(machine_id, username, role, password)
-                       VALUES ($1, $2, $3, $4)
-                       ON CONFLICT ON CONSTRAINT machine_console_metadata_machine_id_username_role_key
-                       DO UPDATE
-                            SET username=$2, role=$3, password=$4
-                            WHERE mt.machine_id=$1
-                       RETURNING mt.machine_id"#;
-
-        for data in &self.data {
-            let _: (Uuid,) = sqlx::query_as(query)
-                .bind(&self.machine_id)
-                .bind(&data.username)
-                .bind(&data.role)
-                .bind(&data.password)
-                .fetch_one(&mut *txn)
+        for data in self.data.iter() {
+            let path = vault::get_bmc_credentials_path(&self.machine_id, data.role);
+            credential_provider
+                .set_credentials(
+                    path.as_str(),
+                    Credentials::UsernamePassword {
+                        username: data.username.clone(),
+                        password: data.password.clone(),
+                    },
+                )
                 .await
-                .map_err(CarbideError::from)?;
+                .map_err(|err| {
+                    CarbideError::GenericError(format!(
+                        "Error setting credential for BMC: {:?}",
+                        err
+                    ))
+                })?;
         }
+
         Ok(())
     }
 
@@ -226,9 +250,11 @@ impl BmcMetaData {
     pub async fn update_bmc_meta_data(
         &self,
         txn: &mut Transaction<'_, Postgres>,
+        credential_provider: &impl CredentialProvider,
     ) -> CarbideResult<rpc::BmcStatus> {
         self.update_ipmi_ip_into_topologies(txn).await?;
-        self.insert_into_bmc_metadata(txn).await?;
+        self.insert_into_credentials_store(credential_provider)
+            .await?;
         Ok(rpc::BmcStatus {})
     }
 }

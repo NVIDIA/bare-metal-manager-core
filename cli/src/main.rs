@@ -19,6 +19,7 @@ mod cfg;
 mod deprovision;
 mod discovery;
 mod done;
+mod ipmi;
 
 struct DevEnv {
     in_qemu: bool,

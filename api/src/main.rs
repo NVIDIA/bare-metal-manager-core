@@ -9,9 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use cfg::{Command, Options};
+use std::env;
+use std::sync::Arc;
+use std::time::Duration;
+
 use sqlx::PgPool;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
+use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
+
+use cfg::{Command, Options};
 
 mod api;
 mod auth;
@@ -54,7 +60,21 @@ async fn main() -> Result<(), color_eyre::Report> {
             let pool = PgPool::connect(&m.datastore[..]).await?;
             carbide::db::migrations::migrate(&pool).await?;
         }
-        Command::Run(ref config) => api::Api::run(config).await?,
+        Command::Run(ref config) => {
+            let vault_token = env::var("VAULT_TOKEN")?;
+            let vault_addr = env::var("VAULT_ADDR")?;
+
+            let mut vault_client_settings = VaultClientSettingsBuilder::default()
+                .address(vault_addr)
+                .token(vault_token)
+                .build()?;
+            vault_client_settings.timeout = Some(Duration::from_secs(60));
+
+            let vault_client = VaultClient::new(vault_client_settings)?;
+
+            let vault_client = Arc::new(vault_client);
+            api::Api::run(config, vault_client).await?
+        }
     }
     Ok(())
 }

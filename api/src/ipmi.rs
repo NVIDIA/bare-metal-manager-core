@@ -26,6 +26,7 @@ use once_cell::sync::OnceCell;
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::instance::Instance;
 use crate::db::ipmi::{BmcMetaDataRequest, UserRoles};
+use crate::vault::CredentialProvider;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -337,15 +338,19 @@ impl MachinePowerRequest {
         }
     }
 
-    async fn get_bmc_meta_data(
+    async fn get_bmc_meta_data<C>(
         &self,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> CarbideResult<rpc::BmcMetaDataResponse> {
+        credential_provider: &C,
+    ) -> CarbideResult<rpc::BmcMetaDataResponse>
+    where
+        C: CredentialProvider + ?Sized,
+    {
         BmcMetaDataRequest {
             machine_id: self.machine_id,
             role: UserRoles::Administrator,
         }
-        .get_bmc_meta_data(&mut *txn)
+        .get_bmc_meta_data(&mut *txn, credential_provider)
         .await
     }
 
@@ -361,10 +366,17 @@ impl MachinePowerRequest {
         .await
     }
 
-    pub async fn invoke_power_command(&self, pool: sqlx::PgPool) -> CarbideResult<uuid::Uuid> {
+    pub async fn invoke_power_command<C>(
+        &self,
+        pool: sqlx::PgPool,
+        vault_client: &C,
+    ) -> CarbideResult<Uuid>
+    where
+        C: CredentialProvider + ?Sized,
+    {
         let mut txn = pool.begin().await.map_err(CarbideError::from)?;
         let rpc::BmcMetaDataResponse { ip, user, password } =
-            self.get_bmc_meta_data(&mut txn).await?;
+            self.get_bmc_meta_data(&mut txn, vault_client).await?;
         txn.commit().await.map_err(CarbideError::from)?;
 
         let ipmi_command = IpmiCommand::new(ip, user, password);

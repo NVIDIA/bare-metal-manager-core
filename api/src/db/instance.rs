@@ -219,8 +219,8 @@ impl Instance {
                                     i.requested as requested, i.started as started,
                                     i.finished as finished, i,user_data as user_data,
                                     i.custom_ipxe as custom_ipxe, i.ssh_keys as ssh_keys,
-                                    i.managed_resource_id as managed_resource_id, i.use_custom_pxe_on_boot as use_custom_pxe_on_boot 
-                                    FROM instances i 
+                                    i.managed_resource_id as managed_resource_id, i.use_custom_pxe_on_boot as use_custom_pxe_on_boot
+                                    FROM instances i
                                       INNER JOIN instance_subnets s ON i.id = s.instance_id
                                       INNER JOIN machine_interfaces ms ON ms.id = s.machine_interface_id
                                       WHERE

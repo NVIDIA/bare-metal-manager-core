@@ -24,11 +24,11 @@ use uuid::Uuid;
 use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
 
-use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use crate::{db::UuidKeyedObjectFilter, CarbideError, CarbideResult};
 use crate::db::domain::Domain;
 use crate::db::machine_interface::MachineInterface;
+use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use crate::db::vpc::Vpc;
+use crate::{db::UuidKeyedObjectFilter, CarbideError, CarbideResult};
 
 #[derive(Debug)]
 pub enum IpAllocationError {
@@ -190,7 +190,6 @@ impl NetworkSegment {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         relay: IpAddr,
     ) -> CarbideResult<Option<Self>> {
-
         let mut results = sqlx::query_as(
             r#"SELECT network_segments.* FROM network_segments INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id WHERE network_segments.deleted is NULL AND $1::inet <<= network_prefixes.prefix"#,
         )
@@ -392,24 +391,29 @@ impl NetworkSegment {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-
         if let Some(vpc_uuid) = self.vpc_id {
-            let vpc_list= Vpc::find(txn, UuidKeyedObjectFilter::One(vpc_uuid)).await?;
+            let vpc_list = Vpc::find(txn, UuidKeyedObjectFilter::One(vpc_uuid)).await?;
             if !vpc_list.is_empty() {
                 if let Some(vpc) = vpc_list.first() {
                     if vpc.deleted == None {
-                        return CarbideResult::Err(CarbideError::NetworkSegmentDelete("Network Segment can't be deleted with associated VPC".to_string()));
+                        return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
+                            "Network Segment can't be deleted with associated VPC".to_string(),
+                        ));
                     };
                 }
             }
         };
 
         if let Some(subdomain_uuid) = self.subdomain_id() {
-            let domain_list = Domain::find(txn, UuidKeyedObjectFilter::One(*subdomain_uuid)).await?;
-            if !domain_list.is_empty(){
+            let domain_list =
+                Domain::find(txn, UuidKeyedObjectFilter::One(*subdomain_uuid)).await?;
+            if !domain_list.is_empty() {
                 if let Some(dom) = domain_list.first() {
                     if dom.deleted == None {
-                        return CarbideResult::Err(CarbideError::NetworkSegmentDelete("Network Segment can't be deleted with associated subdomain".to_string()));
+                        return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
+                            "Network Segment can't be deleted with associated subdomain"
+                                .to_string(),
+                        ));
                     }
                 }
             }
@@ -418,7 +422,9 @@ impl NetworkSegment {
         let machine_interfaces = MachineInterface::find_by_segment_id(txn, self.id()).await;
         if let Ok(machine_interfaces) = machine_interfaces {
             if !machine_interfaces.is_empty() {
-                return CarbideResult::Err(CarbideError::NetworkSegmentDelete("Network Segment can't be deleted with associated MachineInterface".to_string()));
+                return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
+                    "Network Segment can't be deleted with associated MachineInterface".to_string(),
+                ));
             }
         }
 

@@ -11,6 +11,7 @@
  */
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use kube::runtime::wait::{await_condition, conditions, Condition};
 use kube::{
@@ -29,6 +30,7 @@ use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipmi::{MachinePowerRequest, Operation};
+use crate::vault::CredentialProvider;
 use crate::vpc_resources::{
     leaf, managed_resource, resource_group, VpcResource, VpcResourceStatus,
 };
@@ -220,11 +222,15 @@ async fn delete_resource_group_handler(
     }
 }
 
-async fn create_managed_resource_handler(
+async fn create_managed_resource_handler<C>(
     mut current_job: CurrentJob,
     data: ManagedResourceData,
     client: Client,
-) -> CarbideResult<()> {
+    credential_provider: &C,
+) -> CarbideResult<()>
+where
+    C: CredentialProvider + ?Sized,
+{
     let spec = data.mr;
     let spec_name = spec.name().to_string();
     log::info!("Creating resource_group with name {}.", spec_name);
@@ -269,7 +275,12 @@ async fn create_managed_resource_handler(
             )
             .await;
 
-            let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+            let task_id = power_reset_machine(
+                data.machine_id,
+                current_job.pool().clone(),
+                credential_provider,
+            )
+            .await?;
             update_status(
                 &current_job,
                 3,
@@ -300,11 +311,15 @@ async fn create_managed_resource_handler(
     }
 }
 
-async fn delete_managed_resource_handler(
+async fn delete_managed_resource_handler<C>(
     mut current_job: CurrentJob,
     data: ManagedResourceData,
     client: Client,
-) -> CarbideResult<()> {
+    credential_provider: &C,
+) -> CarbideResult<()>
+where
+    C: CredentialProvider + ?Sized,
+{
     let spec = data.mr;
     let spec_name = spec.name().to_string();
     log::info!("Deleting resource_group with name {}.", spec_name);
@@ -348,7 +363,12 @@ async fn delete_managed_resource_handler(
                 TaskState::Ongoing,
             )
             .await;
-            let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+            let task_id = power_reset_machine(
+                data.machine_id,
+                current_job.pool().clone(),
+                credential_provider,
+            )
+            .await?;
             update_status(
                 &current_job,
                 3,
@@ -384,6 +404,7 @@ pub async fn vpc_reconcile_handler(
     mut current_job: CurrentJob,
     url: String,
     kube_enabled: bool,
+    credential_provider: Arc<dyn CredentialProvider>,
 ) -> CarbideResult<()> {
     log::debug!("Kubernetes integration is: {}", kube_enabled);
 
@@ -585,13 +606,25 @@ pub async fn vpc_reconcile_handler(
                 delete_resource_group_handler(current_job, spec, client).await?;
             }
             VpcResourceActions::CreateManagedResource(spec) => {
-                create_managed_resource_handler(current_job, spec, client).await?;
+                create_managed_resource_handler(
+                    current_job,
+                    spec,
+                    client,
+                    credential_provider.as_ref(),
+                )
+                .await?;
             }
             VpcResourceActions::UpdateManagedResource(_spec) => {
                 todo!()
             }
             VpcResourceActions::DeleteManagedResource(spec) => {
-                delete_managed_resource_handler(current_job, spec, client).await?;
+                delete_managed_resource_handler(
+                    current_job,
+                    spec,
+                    client,
+                    credential_provider.as_ref(),
+                )
+                .await?;
             }
         }
     }
@@ -662,12 +695,17 @@ fn _managed_resource_status_matcher(
     }
 }
 
-pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideResult<OwnedHandle> {
+pub async fn bgkubernetes_handler(
+    url: String,
+    kube_enabled: bool,
+    credential_provider: Arc<dyn CredentialProvider>,
+) -> CarbideResult<OwnedHandle> {
     log::info!("Starting Kubernetes handler.");
     let mut registry = JobRegistry::new(&[vpc_reconcile_handler]);
 
     registry.set_context(url.clone());
     registry.set_context(kube_enabled);
+    registry.set_context(credential_provider);
 
     //let new_pool = pool;
     let new_pool = Db::new(url.clone().as_ref()).await?.0;
@@ -865,11 +903,15 @@ pub async fn delete_resource_group(
 
 // This function will create a background task under IPMI handler to reset machine.
 // It will not reset machine immediately.
-pub async fn power_reset_machine(
-    machine_id: uuid::Uuid,
+pub async fn power_reset_machine<C>(
+    machine_id: Uuid,
     pool: PgPool,
-) -> CarbideResult<uuid::Uuid> {
+    credential_provider: &C,
+) -> CarbideResult<Uuid>
+where
+    C: CredentialProvider + ?Sized,
+{
     log::info!("Sending power reset command for machine: {}", machine_id);
     let mpr = MachinePowerRequest::new(machine_id, Operation::Reset, true);
-    mpr.invoke_power_command(pool).await
+    mpr.invoke_power_command(pool, credential_provider).await
 }

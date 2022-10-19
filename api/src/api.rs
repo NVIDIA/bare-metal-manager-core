@@ -11,6 +11,7 @@
  */
 use std::convert::TryFrom;
 use std::env;
+use std::sync::Arc;
 
 use color_eyre::Report;
 use lru::LruCache;
@@ -30,11 +31,13 @@ use auth::CarbideAuth;
 use carbide::db::instance::Instance;
 use carbide::db::instance_subnet::InstanceSubnet;
 use carbide::db::network_prefix::NetworkPrefix;
+use carbide::ipmi::MachinePowerRequest;
 use carbide::ipmi::{ipmi_handler, RealIpmiCommandHandler};
 use carbide::kubernetes::{
     bgkubernetes_handler, create_managed_resource, create_resource_group, delete_managed_resource,
     delete_resource_group,
 };
+use carbide::vault::CredentialProvider;
 use carbide::{
     db::{
         auth::SshKeyValidationRequest,
@@ -59,8 +62,6 @@ use carbide::{
     CarbideError,
 };
 
-use carbide::ipmi::MachinePowerRequest;
-
 use crate::auth;
 use crate::cfg;
 use crate::dhcp_discover::RecordCacheEntry;
@@ -73,442 +74,17 @@ pub struct ExternalConfig {
 pub static CONFIG: Lazy<RwLock<ExternalConfig>> =
     Lazy::new(|| RwLock::new(ExternalConfig { dhcp_server: None }));
 
-#[derive(Debug)]
-pub struct Api {
+pub struct Api<C: CredentialProvider> {
     pub(crate) database_connection: sqlx::PgPool,
+    pub(crate) credential_provider: Arc<C>,
     pub(crate) dhcp_discovery_cache: Mutex<LruCache<MacAddress, RecordCacheEntry>>,
 }
 
 #[tonic::async_trait]
-impl Forge for Api {
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn lookup_record(
-        &self,
-        request: Request<rpc::dns_message::DnsQuestion>,
-    ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc::dns_message::DnsQuestion {
-            q_name,
-            q_type,
-            q_class,
-        } = request.into_inner();
-
-        let question = match q_name.clone() {
-            Some(q_name) => DnsQuestion {
-                query_name: Some(q_name),
-                query_type: q_type,
-                query_class: q_class,
-            },
-            None => {
-                return Err(Status::invalid_argument(
-                    "A valid q_name, q_type and q_class are required",
-                ));
-            }
-        };
-
-        let results = DnsQuestion::find_record(&mut txn, question)
-            .await
-            .map(|dnsrr| rpc::dns_message::DnsResponse {
-                rcode: dnsrr.response_code,
-                rrs: dnsrr
-                    .resource_records
-                    .into_iter()
-                    .map(|r| r.into())
-                    .collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        Ok(results)
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn network_segments_for_vpc(
-        &self,
-        request: Request<rpc::VpcSearchQuery>,
-    ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc::VpcSearchQuery { id, .. } = request.into_inner();
-
-        let _uuid = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Did not supply a valid VPC_ID UUID: {}",
-                        err
-                    )));
-                }
-            },
-            None => {
-                return Err(Status::invalid_argument("A VPC_ID UUID is required"));
-            }
-        };
-
-        let results = NetworkSegment::for_vpc(&mut txn, _uuid)
-            .await
-            .map(|network_segment| rpc::NetworkSegmentList {
-                network_segments: network_segment
-                    .into_iter()
-                    .map(rpc::NetworkSegment::from)
-                    .collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        Ok(results)
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn find_vpcs(
-        &self,
-        request: Request<rpc::VpcSearchQuery>,
-    ) -> Result<Response<rpc::VpcList>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
-
-        let vpcs = match (id, name) {
-            (Some(id), _) => {
-                let id = id;
-                let uuid = match uuid::Uuid::try_from(id) {
-                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                    Err(err) => {
-                        return Err(Status::invalid_argument(format!(
-                            "Supplied invalid UUID: {}",
-                            err
-                        )));
-                    }
-                };
-                Vpc::find(&mut txn, uuid).await
-            }
-            (None, Some(name)) => Vpc::find_by_name(&mut txn, name).await,
-            (None, None) => Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await,
-        };
-
-        let result = vpcs
-            .map(|vpc| rpc::VpcList {
-                vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        Ok(result)
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn find_interfaces(
-        &self,
-        request: Request<rpc::InterfaceSearchQuery>,
-    ) -> Result<Response<rpc::InterfaceList>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc::InterfaceSearchQuery { id, .. } = request.into_inner();
-
-        let response = match id {
-            Some(id) if id.value.chars().count() > 0 => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => Ok(rpc::InterfaceList {
-                    interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
-                }),
-                Err(_) => Err(CarbideError::GenericError(
-                    "Could not marshall an ID from the request".to_string(),
-                )
-                .into()),
-            },
-            _ => Err(
-                CarbideError::GenericError("Could not find an ID in the request".to_string())
-                    .into(),
-            ),
-        };
-
-        response.map(Response::new)
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn find_machines(
-        &self,
-        request: Request<rpc::MachineSearchQuery>,
-    ) -> Result<Response<rpc::MachineList>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc::MachineSearchQuery { id, fqdn, .. } = request.into_inner();
-        let machines = match (id, fqdn) {
-            (Some(id), _) => {
-                let id = id;
-                let uuid = match uuid::Uuid::try_from(id) {
-                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                    Err(err) => {
-                        return Err(Status::invalid_argument(format!(
-                            "Invalid UUID supplied: {}",
-                            err
-                        )));
-                    }
-                };
-                Machine::find(&mut txn, uuid).await
-            }
-            (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, fqdn).await,
-            (None, None) => Machine::find(&mut txn, UuidKeyedObjectFilter::All).await,
-        };
-
-        let result = machines
-            .map(|machine| rpc::MachineList {
-                machines: machine.into_iter().map(rpc::Machine::from).collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        Ok(result)
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn discover_dhcp(
-        &self,
-        request: Request<rpc::DhcpDiscovery>,
-    ) -> Result<Response<rpc::DhcpRecord>, Status> {
-        crate::dhcp_discover::discover_dhcp(self, request).await
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn done(&self, request: Request<rpc::Uuid>) -> Result<Response<rpc::Machine>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
-
-        let interface = MachineInterface::find_one(&mut txn, uuid).await?;
-
-        let maybe_machine = match interface.machine_id {
-            Some(machine_id) => Machine::find_one(&mut txn, machine_id).await?,
-            None => {
-                return Err(Status::invalid_argument(format!(
-                    "Machine interface has no machine id UUID: {}",
-                    uuid
-                )));
-            }
-        };
-
-        let response = match maybe_machine {
-            None => Err(CarbideError::NotFoundError(uuid).into()),
-            Some(machine) => Ok(rpc::Machine::from(machine)),
-        }
-        .map(Response::new);
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn discover_machine(
-        &self,
-        request: Request<rpc::MachineDiscoveryInfo>,
-    ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
-        let di = request.into_inner();
-
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let interface_id = match &di.machine_id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Did not supply a valid discovery machine id UUID: {}",
-                        err
-                    )));
-                }
-            },
-            None => {
-                return Err(Status::invalid_argument("An interface UUID is required"));
-            }
-        };
-
-        let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
-
-        let machine = Machine::create(&mut txn, interface)
-            .await
-            .map(rpc::Machine::from)?;
-
-        let uuid = match &machine.id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Created machine did not return an proper UUID : {}",
-                        err
-                    )));
-                }
-            },
-            None => {
-                return Err(Status::invalid_argument(
-                    "No ID was associated with the machine",
-                ));
-            }
-        };
-
-        MachineTopology::create(&mut txn, &uuid, &di).await?;
-
-        let response = Ok(Response::new(rpc::MachineDiscoveryResult {}));
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn find_network_segments(
-        &self,
-        request: Request<rpc::NetworkSegmentQuery>,
-    ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
-        log::debug!("Fetching database transaction");
-
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc::NetworkSegmentQuery { id, .. } = request.into_inner();
-
-        let uuid_filter = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
-                }
-            },
-            None => UuidKeyedObjectFilter::All,
-        };
-
-        let result = NetworkSegment::find(&mut txn, uuid_filter)
-            .await
-            .map(|network| rpc::NetworkSegmentList {
-                network_segments: network.into_iter().map(rpc::NetworkSegment::from).collect(),
-            })
-            .map(rpc::NetworkSegmentList::from)
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        Ok(result)
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn create_network_segment(
-        &self,
-        request: Request<rpc::NetworkSegment>,
-    ) -> Result<Response<rpc::NetworkSegment>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let response = NewNetworkSegment::try_from(request.into_inner())?
-            .persist(&mut txn)
-            .await;
-
-        let dhcp_server = CONFIG.read().await.dhcp_server.clone();
-        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
-
-        if let Ok(segment) = response.as_ref() {
-            for prefix in &segment.prefixes {
-                create_resource_group(prefix, db_conn, dhcp_server.clone()).await?;
-            }
-        }
-
-        let response = Ok(response.map(rpc::NetworkSegment::from).map(Response::new)?);
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn delete_network_segment(
-        &self,
-        request: Request<rpc::NetworkSegmentDeletion>,
-    ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc::NetworkSegmentDeletion { id, .. } = request.into_inner();
-
-        let uuid = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
-                }
-            },
-            None => {
-                return Err(Status::invalid_argument("No UUID provided".to_string()));
-            }
-        };
-
-        let mut segments = NetworkSegment::find(&mut txn, uuid).await?;
-
-        let segment = match segments.len() {
-            1 => segments.remove(0),
-            _ => return Err(Status::not_found("network segment not found")),
-        };
-
-        let prefixes =
-            NetworkPrefix::find_by_segment(&mut txn, UuidKeyedObjectFilter::One(*segment.id()))
-                .await?;
-
-        let response = Ok(segment
-            .delete(&mut txn)
-            .await
-            .map(|_| rpc::NetworkSegmentDeletionResult {})
-            .map(Response::new)?);
-
-        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
-
-        for prefix in &prefixes {
-            delete_resource_group(prefix, db_conn).await?;
-        }
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
-    }
-
+impl<C> Forge for Api<C>
+where
+    C: CredentialProvider + 'static,
+{
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_domain(
         &self,
@@ -528,46 +104,6 @@ impl Forge for Api {
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn find_domain(
-        &self,
-        request: Request<rpc::DomainSearchQuery>,
-    ) -> Result<Response<rpc::DomainList>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
-        let domains = match (id, name) {
-            (Some(id), _) => {
-                let id = id;
-                let uuid = match uuid::Uuid::try_from(id) {
-                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                    Err(err) => {
-                        return Err(Status::invalid_argument(format!(
-                            "Invalid UUID supplied: {}",
-                            err
-                        )));
-                    }
-                };
-                Domain::find(&mut txn, uuid).await
-            }
-            (None, Some(name)) => Domain::find_by_name(&mut txn, name).await,
-            (None, None) => Domain::find(&mut txn, UuidKeyedObjectFilter::All).await,
-        };
-
-        let result = domains
-            .map(|domain| rpc::DomainList {
-                domains: domain.into_iter().map(rpc::Domain::from).collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        Ok(result)
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -678,6 +214,46 @@ impl Forge for Api {
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn find_domain(
+        &self,
+        request: Request<rpc::DomainSearchQuery>,
+    ) -> Result<Response<rpc::DomainList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
+        let domains = match (id, name) {
+            (Some(id), _) => {
+                let id = id;
+                let uuid = match uuid::Uuid::try_from(id) {
+                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                    Err(err) => {
+                        return Err(Status::invalid_argument(format!(
+                            "Invalid UUID supplied: {}",
+                            err
+                        )));
+                    }
+                };
+                Domain::find(&mut txn, uuid).await
+            }
+            (None, Some(name)) => Domain::find_by_name(&mut txn, name).await,
+            (None, None) => Domain::find(&mut txn, UuidKeyedObjectFilter::All).await,
+        };
+
+        let result = domains
+            .map(|domain| rpc::DomainList {
+                domains: domain.into_iter().map(rpc::Domain::from).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_vpc(&self, request: Request<rpc::Vpc>) -> Result<Response<rpc::Vpc>, Status> {
         let mut txn = self
             .database_connection
@@ -737,12 +313,221 @@ impl Forge for Api {
         response
     }
 
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn find_vpcs(
+        &self,
+        request: Request<rpc::VpcSearchQuery>,
+    ) -> Result<Response<rpc::VpcList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
+
+        let vpcs = match (id, name) {
+            (Some(id), _) => {
+                let id = id;
+                let uuid = match uuid::Uuid::try_from(id) {
+                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                    Err(err) => {
+                        return Err(Status::invalid_argument(format!(
+                            "Supplied invalid UUID: {}",
+                            err
+                        )));
+                    }
+                };
+                Vpc::find(&mut txn, uuid).await
+            }
+            (None, Some(name)) => Vpc::find_by_name(&mut txn, name).await,
+            (None, None) => Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await,
+        };
+
+        let result = vpcs
+            .map(|vpc| rpc::VpcList {
+                vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn find_network_segments(
+        &self,
+        request: Request<rpc::NetworkSegmentQuery>,
+    ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+        log::debug!("Fetching database transaction");
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::NetworkSegmentQuery { id, .. } = request.into_inner();
+
+        let uuid_filter = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => UuidKeyedObjectFilter::All,
+        };
+
+        let result = NetworkSegment::find(&mut txn, uuid_filter)
+            .await
+            .map(|network| rpc::NetworkSegmentList {
+                network_segments: network.into_iter().map(rpc::NetworkSegment::from).collect(),
+            })
+            .map(rpc::NetworkSegmentList::from)
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn create_network_segment(
+        &self,
+        request: Request<rpc::NetworkSegment>,
+    ) -> Result<Response<rpc::NetworkSegment>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = NewNetworkSegment::try_from(request.into_inner())?
+            .persist(&mut txn)
+            .await;
+
+        let dhcp_server = CONFIG.read().await.dhcp_server.clone();
+        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+
+        if let Ok(segment) = response.as_ref() {
+            for prefix in &segment.prefixes {
+                create_resource_group(prefix, db_conn, dhcp_server.clone()).await?;
+            }
+        }
+
+        let response = Ok(response.map(rpc::NetworkSegment::from).map(Response::new)?);
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn update_network_segment(
         &self,
         _request: Request<rpc::NetworkSegment>,
     ) -> Result<Response<rpc::NetworkSegment>, Status> {
         todo!()
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn delete_network_segment(
+        &self,
+        request: Request<rpc::NetworkSegmentDeletion>,
+    ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::NetworkSegmentDeletion { id, .. } = request.into_inner();
+
+        let uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("No UUID provided".to_string()));
+            }
+        };
+
+        let mut segments = NetworkSegment::find(&mut txn, uuid).await?;
+
+        let segment = match segments.len() {
+            1 => segments.remove(0),
+            _ => return Err(Status::not_found("network segment not found")),
+        };
+
+        let prefixes =
+            NetworkPrefix::find_by_segment(&mut txn, UuidKeyedObjectFilter::One(*segment.id()))
+                .await?;
+
+        let response = Ok(segment
+            .delete(&mut txn)
+            .await
+            .map(|_| rpc::NetworkSegmentDeletionResult {})
+            .map(Response::new)?);
+
+        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+
+        for prefix in &prefixes {
+            delete_resource_group(prefix, db_conn).await?;
+        }
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn network_segments_for_vpc(
+        &self,
+        request: Request<rpc::VpcSearchQuery>,
+    ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::VpcSearchQuery { id, .. } = request.into_inner();
+
+        let _uuid = match id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Did not supply a valid VPC_ID UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("A VPC_ID UUID is required"));
+            }
+        };
+
+        let results = NetworkSegment::for_vpc(&mut txn, _uuid)
+            .await
+            .map(|network_segment| rpc::NetworkSegmentList {
+                network_segments: network_segment
+                    .into_iter()
+                    .map(rpc::NetworkSegment::from)
+                    .collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(results)
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -836,6 +621,74 @@ impl Forge for Api {
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn find_instances(
+        &self,
+        request: Request<rpc::InstanceSearchQuery>,
+    ) -> Result<Response<rpc::InstanceList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::InstanceSearchQuery { id, .. } = request.into_inner();
+        let instances = match id {
+            Some(id) => {
+                let id = id;
+                let uuid = match uuid::Uuid::try_from(id) {
+                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                    Err(err) => {
+                        return Err(Status::invalid_argument(format!(
+                            "Invalid UUID supplied: {}",
+                            err
+                        )));
+                    }
+                };
+                Instance::find(&mut txn, uuid).await
+            }
+            None => Instance::find(&mut txn, UuidKeyedObjectFilter::All).await,
+        };
+
+        let result = instances
+            .map(|instance| InstanceList {
+                instances: instance.into_iter().map(rpc::Instance::from).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn find_instance_by_machine_id(
+        &self,
+        request: Request<rpc::Uuid>,
+    ) -> Result<Response<InstanceList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+
+        let response = Instance::find_by_machine_id(&mut txn, uuid)
+            .await
+            .map(|optional_instance| {
+                optional_instance
+                    .map(|instance| InstanceList {
+                        instances: vec![rpc::Instance::from(instance)],
+                    })
+                    .unwrap_or_default()
+            })
+            .map(Response::new)?;
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        Ok(response)
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_instance(
         &self,
         request: Request<rpc::InstanceDeletionRequest>,
@@ -889,42 +742,49 @@ impl Forge for Api {
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn find_instances(
+    async fn lookup_record(
         &self,
-        request: Request<rpc::InstanceSearchQuery>,
-    ) -> Result<Response<rpc::InstanceList>, Status> {
+        request: Request<rpc::dns_message::DnsQuestion>,
+    ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::InstanceSearchQuery { id, .. } = request.into_inner();
-        let instances = match id {
-            Some(id) => {
-                let id = id;
-                let uuid = match uuid::Uuid::try_from(id) {
-                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                    Err(err) => {
-                        return Err(Status::invalid_argument(format!(
-                            "Invalid UUID supplied: {}",
-                            err
-                        )));
-                    }
-                };
-                Instance::find(&mut txn, uuid).await
+        let rpc::dns_message::DnsQuestion {
+            q_name,
+            q_type,
+            q_class,
+        } = request.into_inner();
+
+        let question = match q_name.clone() {
+            Some(q_name) => DnsQuestion {
+                query_name: Some(q_name),
+                query_type: q_type,
+                query_class: q_class,
+            },
+            None => {
+                return Err(Status::invalid_argument(
+                    "A valid q_name, q_type and q_class are required",
+                ));
             }
-            None => Instance::find(&mut txn, UuidKeyedObjectFilter::All).await,
         };
 
-        let result = instances
-            .map(|instance| rpc::InstanceList {
-                instances: instance.into_iter().map(rpc::Instance::from).collect(),
+        let results = DnsQuestion::find_record(&mut txn, question)
+            .await
+            .map(|dnsrr| rpc::dns_message::DnsResponse {
+                rcode: dnsrr.response_code,
+                rrs: dnsrr
+                    .resource_records
+                    .into_iter()
+                    .map(|r| r.into())
+                    .collect(),
             })
             .map(Response::new)
             .map_err(CarbideError::from)?;
 
-        Ok(result)
+        Ok(results)
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -955,10 +815,119 @@ impl Forge for Api {
         txn.commit().await.map_err(CarbideError::from)?;
 
         let _ = machine_power_request
-            .invoke_power_command(self.database_connection.clone())
+            .invoke_power_command(
+                self.database_connection.clone(),
+                self.credential_provider.as_ref(),
+            )
             .await?;
 
         Ok(Response::new(rpc::InstancePowerResult {}))
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn discover_machine(
+        &self,
+        request: Request<rpc::MachineDiscoveryInfo>,
+    ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
+        let di = request.into_inner();
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let interface_id = match &di.machine_id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Did not supply a valid discovery machine id UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("An interface UUID is required"));
+            }
+        };
+
+        let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
+
+        let machine = Machine::create(&mut txn, interface)
+            .await
+            .map(rpc::Machine::from)?;
+
+        let uuid = match &machine.id {
+            Some(id) => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Created machine did not return an proper UUID : {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument(
+                    "No ID was associated with the machine",
+                ));
+            }
+        };
+
+        MachineTopology::create(&mut txn, &uuid, &di).await?;
+
+        let response = Ok(Response::new(rpc::MachineDiscoveryResult {}));
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn done(&self, request: Request<rpc::Uuid>) -> Result<Response<rpc::Machine>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+
+        let interface = MachineInterface::find_one(&mut txn, uuid).await?;
+
+        let maybe_machine = match interface.machine_id {
+            Some(machine_id) => Machine::find_one(&mut txn, machine_id).await?,
+            None => {
+                return Err(Status::invalid_argument(format!(
+                    "Machine interface has no machine id UUID: {}",
+                    uuid
+                )));
+            }
+        };
+
+        let response = match maybe_machine {
+            None => Err(CarbideError::NotFoundError(uuid).into()),
+            Some(machine) => Ok(rpc::Machine::from(machine)),
+        }
+        .map(Response::new);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn discover_dhcp(
+        &self,
+        request: Request<rpc::DhcpDiscovery>,
+    ) -> Result<Response<rpc::DhcpRecord>, Status> {
+        crate::dhcp_discover::discover_dhcp(
+            &self.database_connection,
+            &self.dhcp_discovery_cache,
+            request,
+        )
+        .await
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -983,6 +952,78 @@ impl Forge for Api {
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn find_machines(
+        &self,
+        request: Request<rpc::MachineSearchQuery>,
+    ) -> Result<Response<rpc::MachineList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::MachineSearchQuery { id, fqdn, .. } = request.into_inner();
+        let machines = match (id, fqdn) {
+            (Some(id), _) => {
+                let id = id;
+                let uuid = match uuid::Uuid::try_from(id) {
+                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                    Err(err) => {
+                        return Err(Status::invalid_argument(format!(
+                            "Invalid UUID supplied: {}",
+                            err
+                        )));
+                    }
+                };
+                Machine::find(&mut txn, uuid).await
+            }
+            (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, fqdn).await,
+            (None, None) => Machine::find(&mut txn, UuidKeyedObjectFilter::All).await,
+        };
+
+        let result = machines
+            .map(|machine| rpc::MachineList {
+                machines: machine.into_iter().map(rpc::Machine::from).collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn find_interfaces(
+        &self,
+        request: Request<rpc::InterfaceSearchQuery>,
+    ) -> Result<Response<rpc::InterfaceList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc::InterfaceSearchQuery { id, .. } = request.into_inner();
+
+        let response = match id {
+            Some(id) if id.value.chars().count() > 0 => match uuid::Uuid::try_from(id) {
+                Ok(uuid) => Ok(rpc::InterfaceList {
+                    interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
+                }),
+                Err(_) => Err(CarbideError::GenericError(
+                    "Could not marshall an ID from the request".to_string(),
+                )
+                .into()),
+            },
+            _ => Err(
+                CarbideError::GenericError("Could not find an ID in the request".to_string())
+                    .into(),
+            ),
+        };
+
+        response.map(Response::new)
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -1052,35 +1093,6 @@ impl Forge for Api {
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn find_instance_by_machine_id(
-        &self,
-        request: Request<rpc::Uuid>,
-    ) -> Result<Response<InstanceList>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
-
-        let response = Instance::find_by_machine_id(&mut txn, uuid)
-            .await
-            .map(|optional_instance| {
-                optional_instance
-                    .map(|instance| InstanceList {
-                        instances: vec![rpc::Instance::from(instance)],
-                    })
-                    .unwrap_or_default()
-            })
-            .map(Response::new)?;
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        Ok(response)
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_tag(
         &self,
         request: Request<rpc::TagCreate>,
@@ -1114,27 +1126,6 @@ impl Forge for Api {
 
         let response = Ok(TagDelete::try_from(request.into_inner())?
             .delete(&mut txn)
-            .await
-            .map(Response::new)?);
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn set_tags(
-        &self,
-        request: Request<rpc::TagsList>,
-    ) -> Result<Response<rpc::TagResult>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let response = Ok(TagsList::try_from(request.into_inner())?
-            .assign(&mut txn)
             .await
             .map(Response::new)?);
 
@@ -1204,6 +1195,27 @@ impl Forge for Api {
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn set_tags(
+        &self,
+        request: Request<rpc::TagsList>,
+    ) -> Result<Response<rpc::TagResult>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let response = Ok(TagsList::try_from(request.into_inner())?
+            .assign(&mut txn)
+            .await
+            .map(Response::new)?);
+
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        response
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn validate_user_ssh_key(
         &self,
         request: Request<rpc::SshKeyValidationRequest>,
@@ -1236,7 +1248,7 @@ impl Forge for Api {
             .map_err(CarbideError::from)?;
 
         let response = Ok(BmcMetaDataRequest::try_from(request.into_inner())?
-            .get_bmc_meta_data(&mut txn)
+            .get_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
             .await
             .map(Response::new)?);
 
@@ -1257,7 +1269,7 @@ impl Forge for Api {
             .map_err(CarbideError::from)?;
 
         let response = Ok(BmcMetaData::try_from(request.into_inner())?
-            .update_bmc_meta_data(&mut txn)
+            .update_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
             .await
             .map(Response::new)?);
 
@@ -1349,15 +1361,23 @@ async fn update_external_config() {
     CONFIG.write().await.dhcp_server = Some(dhcp_server);
 }
 
-impl Api {
+impl<C> Api<C>
+where
+    C: CredentialProvider + 'static,
+{
     #[tracing::instrument(skip_all)]
-    pub async fn run(daemon_config: &cfg::Daemon) -> Result<(), Report> {
+    pub async fn run(
+        daemon_config: &cfg::Daemon,
+        credential_provider: Arc<C>,
+    ) -> Result<(), Report> {
         log::info!("Starting API server on {:?}", daemon_config.listen[0]);
 
         let database_connection = sqlx::Pool::connect(&daemon_config.datastore).await?;
         let conn_clone = database_connection.clone();
+
         let api_service = Api {
             database_connection: database_connection.clone(),
+            credential_provider: credential_provider.clone(),
             dhcp_discovery_cache: Mutex::new(LruCache::new(
                 std::num::NonZeroUsize::new(1000).unwrap(),
             )),
@@ -1392,9 +1412,12 @@ impl Api {
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
         let _handle = ipmi_handler(conn_clone, RealIpmiCommandHandler {}).await?;
 
-        let _kube_handle =
-            bgkubernetes_handler(daemon_config.datastore.to_owned(), daemon_config.kubernetes)
-                .await?;
+        let _kube_handle = bgkubernetes_handler(
+            daemon_config.datastore.to_owned(),
+            daemon_config.kubernetes,
+            credential_provider,
+        )
+        .await?;
 
         let _state_controller_handle = MachineStateController::builder()
             .database(database_connection)
