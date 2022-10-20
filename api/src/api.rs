@@ -815,10 +815,7 @@ where
         txn.commit().await.map_err(CarbideError::from)?;
 
         let _ = machine_power_request
-            .invoke_power_command(
-                self.database_connection.clone(),
-                self.credential_provider.as_ref(),
-            )
+            .invoke_power_command(self.database_connection.clone())
             .await?;
 
         Ok(Response::new(rpc::InstancePowerResult {}))
@@ -1410,14 +1407,16 @@ where
             .build()?;
 
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
-        let _handle = ipmi_handler(conn_clone, RealIpmiCommandHandler {}).await?;
-
-        let _kube_handle = bgkubernetes_handler(
-            daemon_config.datastore.to_owned(),
-            daemon_config.kubernetes,
-            credential_provider,
+        let _handle = ipmi_handler(
+            conn_clone,
+            RealIpmiCommandHandler {},
+            credential_provider.clone(),
         )
         .await?;
+
+        let _kube_handle =
+            bgkubernetes_handler(daemon_config.datastore.to_owned(), daemon_config.kubernetes)
+                .await?;
 
         let _state_controller_handle = MachineStateController::builder()
             .database(database_connection)

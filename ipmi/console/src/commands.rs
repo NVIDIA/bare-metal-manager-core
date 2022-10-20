@@ -243,21 +243,15 @@ fn validate_host_info(server_info: &ServerInfo) -> Result<(), Error> {
         ));
     }
 
-    let ipmi_info = server_info.host_info.clone().unwrap().ipmi_info;
-
-    if ipmi_info.is_none() {
-        return Err(Error::new(
-            ErrorKind::Other,
-            "IPMI info is not available. Contact administrator for updating IPMI details.",
-        ));
-    }
-
     Ok(())
 }
 
 async fn call_ipmi_api(ipmi_info: IpmiInfo, data: String, pool: PgPool) -> CarbideResult<Uuid> {
-    let ipmi_command =
-        ipmi::IpmiCommand::new(ipmi_info.ip.to_string(), ipmi_info.user, ipmi_info.password);
+    let ipmi_command = ipmi::IpmiCommand::new(
+        ipmi_info.ip.to_string(),
+        ipmi_info.machine_id,
+        ipmi_info.user_role.into(),
+    );
 
     match data.trim() {
         "up" => ipmi_command.power_up(&pool).await,
@@ -275,7 +269,7 @@ async fn handle_power_command(
     data: String,
 ) -> ServerInfo {
     let task_state = server_info.task_state.clone();
-    let ipmi_info = server_info.host_info.clone().unwrap().ipmi_info.unwrap();
+    let ipmi_info = server_info.host_info.clone().unwrap().ipmi_info;
     let pool = server_info.pool.clone();
     let clients = server_info.clients.clone();
     let prompt = server_info.get_prompt();

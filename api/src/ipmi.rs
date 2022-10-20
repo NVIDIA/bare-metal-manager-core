@@ -12,6 +12,7 @@
 use ::rpc::forge as rpc;
 use ::rpc::forge::instance_power_request::Operation as rpcOperation;
 use std::fmt::Debug;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -21,26 +22,25 @@ use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
 use freeipmi_sys::{self, IpmiChassisControl};
-use once_cell::sync::OnceCell;
 
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::instance::Instance;
 use crate::db::ipmi::{BmcMetaDataRequest, UserRoles};
-use crate::vault::CredentialProvider;
+use crate::vault::{CredentialKey, CredentialProvider, Credentials};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-enum IpmiTask {
+pub enum IpmiTask {
     Status,
     PowerControl(IpmiChassisControl),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct IpmiCommand {
-    host: String,
-    user: String,
-    password: String,
-    action: Option<IpmiTask>,
+    pub host: String,
+    pub machine_id: Uuid,
+    pub user_role: UserRoles,
+    pub action: Option<IpmiTask>,
 }
 
 async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, state: TaskState) {
@@ -62,11 +62,31 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
     }
 }
 
-pub static IPMI_COMMAND_HANDLER: OnceCell<Box<dyn IpmiCommandHandler>> = OnceCell::new();
+// Clone shenanigans to make the damn sqlxmq framework happy with this.
+// almost wholesale stolen from https://stackoverflow.com/questions/50017987/cant-clone-vecboxtrait-because-trait-cannot-be-made-into-an-object
+pub trait IpmiCommandHandlerClone {
+    fn clone_box(&self) -> Box<dyn IpmiCommandHandler>;
+}
+
+impl<T: 'static + IpmiCommandHandler + Clone> IpmiCommandHandlerClone for T {
+    fn clone_box(&self) -> Box<dyn IpmiCommandHandler> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn IpmiCommandHandler> {
+    fn clone(&self) -> Box<dyn IpmiCommandHandler> {
+        self.clone_box()
+    }
+}
 
 #[async_trait]
-pub trait IpmiCommandHandler: Send + Sync + 'static + Debug {
-    async fn handle_ipmi_command(&self, cmd: IpmiCommand) -> CarbideResult<String>;
+pub trait IpmiCommandHandler: Send + Sync + 'static + Debug + IpmiCommandHandlerClone {
+    async fn handle_ipmi_command(
+        &self,
+        cmd: IpmiCommand,
+        credential_provider: Arc<dyn CredentialProvider>,
+    ) -> CarbideResult<String>;
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -74,13 +94,30 @@ pub struct RealIpmiCommandHandler {}
 
 #[async_trait]
 impl IpmiCommandHandler for RealIpmiCommandHandler {
-    async fn handle_ipmi_command(&self, cmd: IpmiCommand) -> CarbideResult<String> {
+    async fn handle_ipmi_command(
+        &self,
+        cmd: IpmiCommand,
+        credential_provider: Arc<dyn CredentialProvider>,
+    ) -> CarbideResult<String> {
         use freeipmi_sys::{
             ipmi::IpmiContext, IpmiAuthenticationType, IpmiCipherSuite, IpmiDevice,
             IpmiPrivilegeLevel,
         };
 
         log::info!("IPMI command: {:?}", cmd);
+        let credentials = credential_provider
+            .get_credentials(CredentialKey::Bmc {
+                machine_id: cmd.machine_id,
+                role: cmd.user_role,
+            })
+            .await
+            .map_err(|err| {
+                CarbideError::GenericError(format!("Error getting credentials for BMC: {:?}", err))
+            })?;
+
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
 
         tokio::task::spawn_blocking(move || {
             let interface = IpmiDevice::Lan2_0;
@@ -91,8 +128,8 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
 
             let mut ctx = IpmiContext::new(
                 cmd.host,
-                cmd.user,
-                cmd.password,
+                username,
+                password,
                 Option::from(interface),
                 Option::from(cipher),
                 Option::from(mode),
@@ -143,8 +180,24 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
     }
 }
 
+// It took me three hours to realize the reason
+// the test was hanging was because you're only allowed to specify one argument to the handler fn.
+// or it can't find it in the database.
+// If you try to specify these as independent arguments to the handler, the test hangs.  Forever.
+// Hilariously, you can specify another string argument if you want, so that's fun.
+#[derive(Clone)]
+pub struct IpmiCommandHandlerArguments {
+    credential_provider: Arc<dyn CredentialProvider>,
+    ipmi_command_handler: Box<dyn IpmiCommandHandler>,
+}
+
 #[job(channel_name = "ipmi_handler")]
-async fn command_handler(mut current_job: CurrentJob) -> CarbideResult<()> {
+async fn command_handler(
+    mut current_job: CurrentJob,
+    hack: IpmiCommandHandlerArguments,
+) -> CarbideResult<()> {
+    let credential_provider = hack.credential_provider;
+    let ipmi_command_handler = hack.ipmi_command_handler;
     update_status(&current_job, 1, "Started".to_string(), TaskState::Started).await;
 
     let data: Option<String> = current_job.json()?;
@@ -163,10 +216,8 @@ async fn command_handler(mut current_job: CurrentJob) -> CarbideResult<()> {
         ));
     }
 
-    let result = IPMI_COMMAND_HANDLER
-        .get()
-        .expect("no ipmi command handler set")
-        .handle_ipmi_command(cmd)
+    let result = ipmi_command_handler
+        .handle_ipmi_command(cmd, credential_provider.clone())
         .await;
     match result {
         Ok(s) => {
@@ -199,9 +250,9 @@ impl IpmiCommand {
     }
 
     async fn launch_command(&self, pool: sqlx::PgPool) -> CarbideResult<Uuid> {
-        if self.host.is_empty() || self.user.is_empty() || self.password.is_empty() {
+        if self.host.is_empty() {
             return Err(CarbideError::GenericError(
-                "Hostname or Username or Password not specified for lan connection".to_string(),
+                "Hostname not specified for lan connection".to_string(),
             ));
         }
         let json = serde_json::to_string(self)?;
@@ -223,11 +274,11 @@ impl IpmiCommand {
 }
 
 impl IpmiCommand {
-    pub fn new(host: String, user: String, password: String) -> Self {
+    pub fn new(host: String, machine_id: Uuid, user_role: UserRoles) -> Self {
         IpmiCommand {
             host,
-            user,
-            password,
+            machine_id,
+            user_role,
             action: None,
         }
     }
@@ -265,17 +316,18 @@ impl IpmiCommand {
 pub async fn ipmi_handler<H>(
     pool: sqlx::PgPool,
     ipmi_command_handler: H,
+    credential_provider: Arc<dyn CredentialProvider>,
 ) -> CarbideResult<OwnedHandle>
 where
-    H: IpmiCommandHandler,
+    H: IpmiCommandHandler + Clone,
 {
     log::info!("Starting IPMI handler.");
-    let registry = JobRegistry::new(&[command_handler]);
+    let mut registry = JobRegistry::new(&[command_handler]);
+    registry.set_context(IpmiCommandHandlerArguments {
+        credential_provider,
+        ipmi_command_handler: Box::new(ipmi_command_handler),
+    });
     let new_pool = pool.clone();
-
-    IPMI_COMMAND_HANDLER
-        .set(Box::new(ipmi_command_handler))
-        .expect("cannot set IPMI_COMMAND_HANDLER multiple times");
 
     // This function returns an OwnedHandle.
     // If the OwnedHandle is dropped, it will stop main event loop also.
@@ -338,22 +390,6 @@ impl MachinePowerRequest {
         }
     }
 
-    async fn get_bmc_meta_data<C>(
-        &self,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        credential_provider: &C,
-    ) -> CarbideResult<rpc::BmcMetaDataResponse>
-    where
-        C: CredentialProvider + ?Sized,
-    {
-        BmcMetaDataRequest {
-            machine_id: self.machine_id,
-            role: UserRoles::Administrator,
-        }
-        .get_bmc_meta_data(&mut *txn, credential_provider)
-        .await
-    }
-
     pub async fn set_custom_pxe_on_next_boot(
         &self,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -366,20 +402,20 @@ impl MachinePowerRequest {
         .await
     }
 
-    pub async fn invoke_power_command<C>(
-        &self,
-        pool: sqlx::PgPool,
-        vault_client: &C,
-    ) -> CarbideResult<Uuid>
-    where
-        C: CredentialProvider + ?Sized,
-    {
+    pub async fn invoke_power_command(&self, pool: sqlx::PgPool) -> CarbideResult<Uuid> {
         let mut txn = pool.begin().await.map_err(CarbideError::from)?;
-        let rpc::BmcMetaDataResponse { ip, user, password } =
-            self.get_bmc_meta_data(&mut txn, vault_client).await?;
+
+        let role = UserRoles::Administrator;
+        let ip = BmcMetaDataRequest {
+            machine_id: self.machine_id,
+            role,
+        }
+        .get_bmc_host_ip(&mut txn)
+        .await?;
+
         txn.commit().await.map_err(CarbideError::from)?;
 
-        let ipmi_command = IpmiCommand::new(ip, user, password);
+        let ipmi_command = IpmiCommand::new(ip, self.machine_id, role);
 
         let task_id = match self.operation {
             Operation::Reset => ipmi_command.power_reset(&pool).await?,
@@ -392,90 +428,5 @@ impl MachinePowerRequest {
             self.machine_id
         );
         Ok(task_id)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use tokio::time;
-
-    use super::*;
-
-    const TEMP_DB_NAME: &str = "ipmihandler_test";
-
-    #[derive(Copy, Clone, Debug)]
-    pub struct TestIpmiCommandHandler {}
-
-    #[async_trait]
-    impl IpmiCommandHandler for TestIpmiCommandHandler {
-        async fn handle_ipmi_command(&self, cmd: IpmiCommand) -> CarbideResult<String> {
-            match cmd.action.unwrap() {
-                IpmiTask::PowerControl(_task) => Ok("Power Control".to_string()),
-                IpmiTask::Status => Ok("Status".to_string()),
-            }
-        }
-    }
-
-    fn get_base_uri() -> String {
-        if std::env::var("TESTDB_HOST").is_ok()
-            && std::env::var("TESTDB_USER").is_ok()
-            && std::env::var("TESTDB_PASSWORD").is_ok()
-        {
-            format!(
-                "postgres://{0}:{1}@{2}",
-                std::env::var("TESTDB_USER").unwrap(),
-                std::env::var("TESTDB_PASSWORD").unwrap(),
-                std::env::var("TESTDB_HOST").unwrap(),
-            )
-        } else {
-            "postgres://%2Fvar%2Frun%2Fpostgresql".to_string()
-        }
-    }
-
-    async fn get_database_connection() -> Result<sqlx::PgPool, sqlx::Error> {
-        let base_uri = get_base_uri();
-        let full_uri_template = [base_uri.clone(), "/template1".to_string()].concat();
-
-        let template_pool = sqlx::PgPool::connect(&full_uri_template).await?;
-        let pool = template_pool.clone();
-        let _x = sqlx::query(format!("DROP DATABASE {0}", TEMP_DB_NAME).as_str())
-            .execute(&(pool.clone()))
-            .await;
-        sqlx::query(format!("CREATE DATABASE {0} TEMPLATE template0", TEMP_DB_NAME).as_str())
-            .execute(&pool)
-            .await
-            .unwrap_or_else(|x| panic!("Database creation failed: {} - {}.", x, base_uri));
-
-        let full_uri_db = [base_uri, "/".to_string(), TEMP_DB_NAME.to_string()].concat();
-
-        let real_pool = sqlx::PgPool::connect(&full_uri_db).await?;
-
-        sqlx::migrate!().run(&(real_pool.clone())).await.unwrap();
-
-        Ok(real_pool)
-    }
-
-    #[tokio::test]
-    async fn test_ipmi() {
-        let pool = get_database_connection().await.unwrap();
-        let _handle = ipmi_handler(pool.clone(), TestIpmiCommandHandler {}).await;
-        let job = IpmiCommand::new(
-            "127.0.0.1".to_string(),
-            "test".to_string(),
-            "password".to_string(),
-        );
-        // use job.clone() if want to reuse job again.
-        let job_id = job.power_up(&pool).await.unwrap();
-
-        loop {
-            if Status::is_finished(&pool, job_id).await.unwrap() {
-                break;
-            }
-            time::sleep(time::Duration::from_millis(1000)).await;
-        }
-
-        let fs = Status::poll(&pool, job_id).await.unwrap();
-        assert_eq!(fs.state, TaskState::Finished);
-        assert_eq!(fs.msg.trim(), "Power Control");
     }
 }
