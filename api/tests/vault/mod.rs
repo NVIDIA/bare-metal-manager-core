@@ -1,0 +1,42 @@
+use std::collections::HashMap;
+
+use async_trait::async_trait;
+use tokio::sync::Mutex;
+
+use carbide::vault::{CredentialKey, CredentialProvider, Credentials};
+
+#[derive(Debug, Default)]
+pub struct TestCredentialProvider {
+    credentials: Mutex<HashMap<String, Credentials>>,
+}
+
+impl TestCredentialProvider {
+    pub fn new() -> Self {
+        Self {
+            credentials: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl CredentialProvider for TestCredentialProvider {
+    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, anyhow::Error> {
+        let credentials = self.credentials.lock().await;
+        let cred = credentials
+            .get(key.to_key_str().as_str())
+            .ok_or_else(|| anyhow::anyhow!("missing key in test credentials provider"))?;
+
+        Ok(cred.clone())
+    }
+
+    async fn set_credentials(
+        &self,
+        key: CredentialKey,
+        credentials: Credentials,
+    ) -> Result<(), anyhow::Error> {
+        let mut data = self.credentials.lock().await;
+        let _ = data.insert(key.to_key_str(), credentials);
+
+        Ok(())
+    }
+}

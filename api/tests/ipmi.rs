@@ -9,15 +9,23 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use log::LevelFilter;
 use sqlx::PgPool;
-use std::collections::HashMap;
-use tokio::sync::Mutex;
+use tokio::time;
 use uuid::Uuid;
 
+use carbide::bg::{Status, TaskState};
 use carbide::db::ipmi::{BmcMetaData, BmcMetaDataRequest, BmcMetadataItem, UserRoles};
-use carbide::vault::{CredentialProvider, Credentials};
+use carbide::ipmi::{ipmi_handler, IpmiCommand, IpmiCommandHandler, IpmiTask};
+use carbide::vault::CredentialProvider;
+use carbide::CarbideResult;
+
+use crate::vault::TestCredentialProvider;
+
+mod vault;
 
 const DATA: [(UserRoles, &str, &str); 3] = [
     (UserRoles::Administrator, "forge_admin", "randompassword"),
@@ -30,42 +38,6 @@ fn setup() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Debug)
         .init();
-}
-
-#[derive(Debug)]
-struct TestCredentialProvider {
-    credentials: Mutex<HashMap<String, Credentials>>,
-}
-
-impl TestCredentialProvider {
-    pub fn new() -> Self {
-        Self {
-            credentials: Mutex::new(HashMap::new()),
-        }
-    }
-}
-
-#[async_trait]
-impl CredentialProvider for TestCredentialProvider {
-    async fn get_credentials(&self, key: &str) -> Result<Credentials, anyhow::Error> {
-        let credentials = self.credentials.lock().await;
-        let cred = credentials
-            .get(key)
-            .ok_or_else(|| anyhow::anyhow!("missing key in test credentials provider"))?;
-
-        Ok(cred.clone())
-    }
-
-    async fn set_credentials(
-        &self,
-        key: &str,
-        credentials: Credentials,
-    ) -> Result<(), anyhow::Error> {
-        let mut data = self.credentials.lock().await;
-        let _ = data.insert(key.to_string(), credentials);
-
-        Ok(())
-    }
 }
 
 #[sqlx::test(fixtures(
@@ -114,4 +86,48 @@ async fn test_ipmi_cred(pool: PgPool) {
         assert_eq!(response.user, d.1.to_string());
         assert_eq!(response.password, d.2.to_string());
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct TestIpmiCommandHandler {}
+
+#[async_trait]
+impl IpmiCommandHandler for TestIpmiCommandHandler {
+    async fn handle_ipmi_command(
+        &self,
+        cmd: IpmiCommand,
+        _credential_provider: Arc<dyn CredentialProvider>,
+    ) -> CarbideResult<String> {
+        match cmd.action.unwrap() {
+            IpmiTask::PowerControl(_task) => Ok("Power Control".to_string()),
+            IpmiTask::Status => Ok("Status".to_string()),
+        }
+    }
+}
+
+#[sqlx::test]
+async fn test_ipmi(pool: PgPool) {
+    let credential_provider = Arc::new(TestCredentialProvider::new());
+    let _handle = ipmi_handler(pool.clone(), TestIpmiCommandHandler {}, credential_provider).await;
+    let job = IpmiCommand::new(
+        "127.0.0.1".to_string(),
+        "deadbeef-dead-beef-dead-beefdeadbeef"
+            .to_string()
+            .parse()
+            .unwrap(),
+        UserRoles::Administrator,
+    );
+
+    let job_id = job.power_up(&pool).await.unwrap();
+
+    loop {
+        if Status::is_finished(&pool, job_id).await.unwrap() {
+            break;
+        }
+        time::sleep(time::Duration::from_millis(1000)).await;
+    }
+
+    let fs = Status::poll(&pool, job_id).await.unwrap();
+    assert_eq!(fs.state, TaskState::Finished);
+    assert_eq!(fs.msg.trim(), "Power Control");
 }

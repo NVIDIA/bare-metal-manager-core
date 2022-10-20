@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use ::rpc::forge as rpc;
 
-use crate::vault::{self, CredentialProvider, Credentials};
+use crate::vault::{CredentialKey, CredentialProvider, Credentials};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
@@ -139,17 +139,13 @@ impl BmcMetaDataRequest {
     where
         C: CredentialProvider + ?Sized,
     {
-        let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address
-            FROM machine_topologies WHERE machine_id=$1"#;
-        let host = sqlx::query_as::<_, MachineHostInformation>(query)
-            .bind(&self.machine_id)
-            .fetch_one(txn)
-            .await
-            .map_err(CarbideError::from)?;
+        let address = self.get_bmc_host_ip(txn).await?;
 
-        let path = vault::get_bmc_credentials_path(&self.machine_id, self.role);
         let credentials = credential_provider
-            .get_credentials(path.as_str())
+            .get_credentials(CredentialKey::Bmc {
+                machine_id: self.machine_id,
+                role: self.role,
+            })
             .await
             .map_err(|err| {
                 CarbideError::GenericError(format!("Error getting credentials for BMC: {:?}", err))
@@ -160,10 +156,24 @@ impl BmcMetaDataRequest {
         };
 
         Ok(rpc::BmcMetaDataResponse {
-            ip: host.address,
+            ip: address,
             user: username,
             password,
         })
+    }
+
+    pub async fn get_bmc_host_ip(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<String> {
+        let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address
+            FROM machine_topologies WHERE machine_id=$1"#;
+        sqlx::query_as::<_, MachineHostInformation>(query)
+            .bind(&self.machine_id)
+            .fetch_one(txn)
+            .await
+            .map_err(CarbideError::from)
+            .map(|machine_host_information| machine_host_information.address)
     }
 }
 
@@ -206,10 +216,12 @@ impl BmcMetaData {
         credential_provider: &impl CredentialProvider,
     ) -> CarbideResult<()> {
         for data in self.data.iter() {
-            let path = vault::get_bmc_credentials_path(&self.machine_id, data.role);
             credential_provider
                 .set_credentials(
-                    path.as_str(),
+                    CredentialKey::Bmc {
+                        machine_id: self.machine_id,
+                        role: data.role,
+                    },
                     Credentials::UsernamePassword {
                         username: data.username.clone(),
                         password: data.password.clone(),

@@ -18,9 +18,9 @@ use tonic::async_trait;
 use uuid::Uuid;
 
 use ::rpc::forge as rpc;
+use ::rpc::forge::BmcMetaDataResponse;
 use console::ConsoleError;
 
-use crate::ipmi::IpmiInfo;
 use crate::ConsoleContext;
 
 use self::rpc::BmcMetaDataRequest;
@@ -118,7 +118,7 @@ pub async fn get_bmc_metadata(
     machine_id: Uuid,
     role: UserRoles,
     api_endpoint: String,
-) -> Result<IpmiInfo, ConsoleError> {
+) -> Result<BmcMetaDataResponse, ConsoleError> {
     let response = match rpc::forge_client::ForgeClient::connect(api_endpoint).await {
         Ok(mut client) => {
             let request = tonic::Request::new(BmcMetaDataRequest {
@@ -137,9 +137,5 @@ pub async fn get_bmc_metadata(
     };
 
     let response = response?;
-    Ok(IpmiInfo {
-        ip: response.ip.parse()?,
-        user: response.user,
-        password: response.password,
-    })
+    Ok(response)
 }
