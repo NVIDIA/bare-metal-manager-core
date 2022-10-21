@@ -23,6 +23,7 @@
 - [Local Development](development.md)
   - [Docker](docker/development.md)
   - [Kubernetes](kubernetes/development.md)
+  - [Running a PXE Client in a VM](development/vm_pxe_client.md)
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
 - [Data Model]()
 - [DPU/Bluefield](dpu-operations.md)

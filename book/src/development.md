@@ -88,6 +88,10 @@ For a list env vars we predefine look at
 
     Debian - ```sudo apt-get install -y liblzma-dev```
 
+17. Install `swtpm` and `swtpm-tools` from system package manager
+
+    Debian - ```sudo apt-get install -y swtpm swtpm-tools```
+
 ## IDE
 
 Recommended IDE for Rust development in the Carbide project is CLion, IntelliJ works as well but includes a lot of extra components that you don't need.  There are plenty 
