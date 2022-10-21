@@ -16,23 +16,23 @@ OutputSplitKernel=carbide-preexec-x86_64.kernel
 WithNetwork=yes
 BasePackages=true
 Packages=
-     telnet
+     build-essential
      iputils-ping
      libudev-dev
-     openssh-server
-     net-tools
-     vim-nox
-     nvme-cli
-     memtester
-
-     build-essential 
      linux-headers-generic
+     lshw
+     memtester
+     nasm
+     net-tools
+     nvme-cli
+     openssh-server
      python3 
      python3-setuptools
      python3-pip
-     nasm
-     wget
-     lshw
      smartmontools
+     telnet
+     tpm2-tools
+     vim-nox
+     wget
 
 Password=password
