@@ -13,7 +13,7 @@ sudo apt install mkosi debootstrap
 
 Run
 ```
-cd $CARBIDE_ROOT_DIR/pxe && && cargo make build-boot-artifacts-x86_64
+cd $CARBIDE_ROOT_DIR/pxe && cargo make build-boot-artifacts-x86_64
 ```
 or
 ```
