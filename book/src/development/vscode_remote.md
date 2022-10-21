@@ -120,6 +120,16 @@ server inside the development container:
 
 With those steps completed, running `cargo test` should succeed.
 
+If you also want to run or debug unit-test from within Visual Studio code
+using the inline buttons "**Run Test**" and "**Debug**" that Rust-Analyzer
+adds, you have to add the following configuration to the Visual Studio Code
+json config file:
+```json
+"rust-analyzer.runnableEnv": {
+    "DATABASE_URL": "postgresql://%2Fvar%2Frun%2Fpostgresql"
+}
+```
+
 ### Gotchas
 
 - If you work as `root` inside the dev container, editing files might make them
