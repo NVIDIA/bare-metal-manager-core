@@ -13,6 +13,7 @@ OutputSplitRoot=carbide-preexec-x86_64.rootfs
 OutputSplitKernel=carbide-preexec-x86_64.kernel
 
 [Content]
+WithNetwork=yes
 BasePackages=true
 Packages=
      telnet
@@ -23,4 +24,15 @@ Packages=
      vim-nox
      nvme-cli
      memtester
+
+     build-essential 
+     linux-headers-generic
+     python3 
+     python3-setuptools
+     python3-pip
+     nasm
+     wget
+     lshw
+     smartmontools
+
 Password=password

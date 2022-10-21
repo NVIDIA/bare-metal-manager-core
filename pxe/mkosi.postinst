@@ -1,0 +1,59 @@
+#!/bin/bash
+
+if [ "$1" != "final" ]; then
+exit 0
+fi
+set -e
+set -u
+set -x
+
+tmpdir=/tmp/tmpins
+mkdir -p $tmpdir
+cd $tmpdir
+softdir=/distr
+
+set >/home/set.$1
+ls -l /boot
+
+kernver=$(ls -1 /boot/vmlinuz-* | sed "s/.*vmlinuz-//g;tg;d;:g;q;")
+
+#hdrpkg="linux-headers-$kernver"
+hdrpkg=linux-headers-generic
+
+#apt install -y $hdrpkg
+
+#pip3 install setuptools
+
+cd $tmpdir
+#chipsecsrcfile=$softdir/chipsec.tar.gz
+chipsecsrcfile=$tmpdir/distr_chipsec.tar.gz
+wget -O ${chipsecsrcfile} https://github.com/chipsec/chipsec/archive/refs/tags/1.9.0.tar.gz
+
+shahash="098c292ee6a791508d3891d787d18111b2bda2cfcc34055fccdca794ec1656c8"
+echo -n "${shahash} ${chipsecsrcfile}" | sha256sum -c - --status
+
+if [ "$?" != "0" ]; then
+echo $shahash is wrong hash for ${chipsecsrcfile}>>/FAILED
+exit 1
+fi
+
+tar xf ${chipsecsrcfile}
+cd chipsec*
+cd drivers/linux
+sed -i "s/^KVERS.*/KVERS\t= \"$kernver\"/g" Makefile
+
+
+make
+#make install
+
+mkdir -p /lib/modules/$kernver/extra
+cp chipsec.ko /lib/modules/$kernver/extra
+
+cd -
+python3 setup.py install
+
+rm -f $chipsecsrcfile
+apt purge -y $hdrpkg nasm g++-10 gcc-10 gcc g++ gcc-9
+rm -r -f $tmpdir
+
+
