@@ -17,5 +17,15 @@
       "doca_container_configs_1.4.0.zip": "2f4007a7e79ce10917674ac0cc1becf88b9bb3289238a5e324077a83c20f569c"
     }
   },
+  "forge-boot-artifact-x86-64": {
+    "url": "https://urm.nvidia.com/artifactory/swngc-ngcc-generic-local/nvmetal/boot-artifacts/x86_64/forge-boot-artifacts-46757336.tar.gz",
+    "architecture": "X86_64",
+    "checksums": {
+      "carbide.root": "2e4d5126836afd0a98d610edd472be1ab16c60e7869c76b7f7d7eea11ccc5f37",
+      "carbide.efi": "d75a1ab4a6711bb05074cb93b3519141167c95259173df6ce1d7af28ee2ccf5f",
+      "ipxe.efi": "1168d34e45df39bf24a61d5dc009555012df60a64c01cd60ac407d2db102227b",
+      "ipxe.kpxe": "f88e4a419cadb2886400a0a6f163749dc1b1a1e54d53a9100cc9cee2ee05147f"
+    }
+  },
   "__TODO": "we also need to add the x86 files to this scheme somehow?  For now I'm ignoring that."
 }
