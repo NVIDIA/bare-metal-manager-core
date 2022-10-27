@@ -209,18 +209,9 @@ build-push-helm:
     - yq -i '.carbide-db-migrations.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
     - sed -i 's|quay.io/nvidia/nvmetal-carbide:latest|{{ index .Values "carbide-db-migrations" "image" "repository" }}:{{ index .Values "carbide-db-migrations" "image" "tag" }}|g' $CI_PROJECT_NAME/templates/carbide-db-migrations.yaml
     - |
-      NAMESPACE=forge-system  yq -i '.NameSpace = env(NAMESPACE)' $CI_PROJECT_NAME/values.yaml
       sed -i '/^spec:/a \ \ imagePullSecrets:\n \ \- name: imagepullsecret' $CI_PROJECT_NAME/templates/postgres.yaml
-      sed -i '/^metadata:/a \ \ namespace: {{ .Values.NameSpace }}' $CI_PROJECT_NAME/templates/*
       sed -i 's/carbide-postgres-pguser-carbide-postgres/{{ .Release.Name }}-postgres-pguser-{{ .Release.Name }}-postgres/g' $CI_PROJECT_NAME/templates/*
       sed -i 's/secretName: forge-provisioner-cert/secretName: {{ include "carbide.fullname" . }}-forge-provisioner-cert/g' $CI_PROJECT_NAME/templates/*
-      sed -i 's/{{ .Release.Namespace }}/{{ .Values.NameSpace }}/g' $CI_PROJECT_NAME/templates/*
-      cat << EOF > $CI_PROJECT_NAME/templates/namespace.yaml
-      apiVersion: v1
-      kind: Namespace
-      metadata:
-        name: {{ .Values.NameSpace }}
-      EOF
       helm package $CI_PROJECT_NAME/
 
 deploy_dev1:
