@@ -12,11 +12,15 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::hardware_info::HardwareInfo;
+
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineStateSnapshot {
     /// Machine ID
-    pub id: uuid::Uuid,
+    pub machine_id: uuid::Uuid,
+    /// Hardware Information that was discovered about this Machine
+    pub hardware_info: HardwareInfo,
     /// Machine configuration. This represents the desired state of the Machine
     /// The machine might not yet be in that state, but work would be underway
     /// to get the Machine into this state

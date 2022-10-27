@@ -12,6 +12,7 @@
 use std::net::IpAddr;
 
 use mac_address::MacAddress;
+use model::RpcDataConversionError;
 use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
 use tonic::Status;
@@ -157,6 +158,9 @@ pub enum CarbideError {
 
     #[error("Invalid value received in Enum - {0}")]
     InvalidValueInEnum(String),
+
+    #[error("Can not convert between RPC data model and internal data model - {0}")]
+    RpcDataConversionError(#[from] RpcDataConversionError),
 }
 
 impl From<CarbideError> for tonic::Status {

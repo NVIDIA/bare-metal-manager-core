@@ -19,6 +19,7 @@ use std::{
 };
 
 use carbide::{
+    db::machine_topology::MachineTopology,
     machine_state_controller::{
         controller::MachineStateController,
         snapshot_loader::DbMachineStateSnapshotLoader,
@@ -26,7 +27,7 @@ use carbide::{
             MachineStateHandler, MachineStateHandlerContext, MachineStateHandlerError,
         },
     },
-    model::machine::MachineStateSnapshot,
+    model::{hardware_info::HardwareInfo, machine::MachineStateSnapshot},
 };
 
 #[derive(Debug, Default, Clone)]
@@ -46,7 +47,7 @@ impl MachineStateHandler for TestMachineStateHandler {
         _ctx: &mut MachineStateHandlerContext,
     ) -> Result<(), MachineStateHandlerError> {
         self.count.fetch_add(1, Ordering::SeqCst);
-        let id = state.id.to_string();
+        let id = state.machine_id.to_string();
         let start_digit = id.as_bytes()[0];
         let idx = start_digit - b'0';
         self.start_digit_count[idx as usize].fetch_add(1, Ordering::SeqCst);
@@ -74,6 +75,17 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
         .execute(&mut txn)
         .await
         .unwrap();
+
+        let hw_info = HardwareInfo {
+            network_interfaces: vec![],
+            cpus: vec![],
+            block_devices: vec![],
+            machine_type: "x86_64".to_string(),
+        };
+
+        MachineTopology::create(&mut txn, &uuid::Uuid::try_from(*id).unwrap(), &hw_info)
+            .await
+            .unwrap();
     }
     txn.commit().await.unwrap();
 
