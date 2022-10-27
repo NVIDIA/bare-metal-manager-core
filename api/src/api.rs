@@ -13,6 +13,7 @@ use std::convert::TryFrom;
 use std::env;
 use std::sync::Arc;
 
+use carbide::model::hardware_info::HardwareInfo;
 use color_eyre::Report;
 use lru::LruCache;
 use mac_address::MacAddress;
@@ -872,7 +873,15 @@ where
             }
         };
 
-        MachineTopology::create(&mut txn, &uuid, &di).await?;
+        let discovery_data = di
+            .discovery_data
+            .map(|data| match data {
+                rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
+            })
+            .ok_or_else(|| Status::invalid_argument("Discovery data is not populated"))?;
+
+        let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
+        MachineTopology::create(&mut txn, &uuid, &hardware_info).await?;
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {}));
 

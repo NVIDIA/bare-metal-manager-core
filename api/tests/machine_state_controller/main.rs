@@ -12,6 +12,7 @@
 use log::LevelFilter;
 
 mod machine_state_controller;
+mod snapshot_loader;
 
 #[ctor::ctor]
 fn setup() {

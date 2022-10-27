@@ -9,35 +9,40 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
 
 use carbide::{
     db::{
         machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
+    machine_state_controller::snapshot_loader::{
+        DbMachineStateSnapshotLoader, MachineStateSnapshotLoader,
+    },
     model::hardware_info::{BlockDevice, Cpu, HardwareInfo, NetworkInterface, PciDeviceProperties},
+    CarbideResult,
 };
 use mac_address::MacAddress;
-
-#[ctor::ctor]
-fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Warn)
-        .init();
-}
+use sqlx::Executor;
 
 const FIXTURE_CREATED_NETWORK_SEGMENT_ID: uuid::Uuid =
     uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe8");
 
 const FIXTURE_CREATED_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    // We can't use the fixture created Machine here, since it already has a topology attached
-    // therefore we create a new one
+const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
+#[sqlx::test]
+async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
     let mut txn = pool.begin().await?;
+
+    // Workaround to make the fixtures work from a different directory
+    for fixture in &["create_domain", "create_vpc", "create_network_segment"] {
+        let content = std::fs::read(format!("{}/{}.sql", FIXTURE_DIR, fixture)).unwrap();
+        let content = String::from_utf8(content).unwrap();
+        txn.execute(content.as_str())
+            .await
+            .unwrap_or_else(|e| panic!("failed to apply test fixture {:?}: {:?}", fixture, e));
+    }
 
     let segment = NetworkSegment::find(
         &mut txn,
@@ -105,59 +110,18 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     };
 
     MachineTopology::create(&mut txn, machine.id(), &hardware_info).await?;
-
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
 
-    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[*machine.id()])
+    let snapshot_loader = DbMachineStateSnapshotLoader::default();
+    let snapshot = snapshot_loader
+        .load_machine_snapshot(&mut txn, *machine.id())
         .await
         .unwrap();
-    assert_eq!(topos.len(), 1);
-    let topo = topos.get(machine.id()).unwrap();
-    assert_eq!(topo.len(), 1);
 
-    let returned_hw_info = topo[0].topology().discovery_data.info.clone();
-    assert_eq!(returned_hw_info, hardware_info);
-
-    // Hardware info is available on the machine
-    let machine2 = Machine::find_one(&mut txn, *machine.id())
-        .await
-        .unwrap()
-        .unwrap();
-
-    let rpc_machine = rpc::Machine::try_from(machine2).unwrap();
-    let discovery_info = rpc_machine.discovery_info.unwrap();
-    let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
-
-    assert_eq!(retrieved_hw_info, hardware_info);
-
-    txn.commit().await?;
-
-    // Updating a machine topology won't have any impact
-    let mut txn = pool.begin().await?;
-
-    let mut new_info = hardware_info.clone();
-    new_info.cpus[0].model = "SnailSpeedCpu".to_string();
-
-    assert!(
-        MachineTopology::create(&mut txn, machine.id(), &hardware_info)
-            .await?
-            .is_none()
-    );
-
-    let machine2 = Machine::find_one(&mut txn, *machine.id())
-        .await
-        .unwrap()
-        .unwrap();
-
-    let rpc_machine = rpc::Machine::try_from(machine2).unwrap();
-    let discovery_info = rpc_machine.discovery_info.unwrap();
-    let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
-
-    assert_eq!(retrieved_hw_info, hardware_info);
-
-    txn.commit().await?;
+    assert_eq!(snapshot.machine_id, *machine.id());
+    assert_eq!(snapshot.hardware_info, hardware_info);
 
     Ok(())
 }

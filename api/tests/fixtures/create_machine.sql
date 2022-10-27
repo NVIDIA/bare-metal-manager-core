@@ -9,4 +9,6 @@ INSERT INTO machine_interfaces (id, segment_id, machine_id, mac_address, hostnam
 	't');
 
 INSERT INTO machine_interface_addresses (interface_id, address) VALUES ('ad871735-efaa-406e-a83e-9ff63b1bc145', '192.0.2.3');
-INSERT INTO machine_topologies (machine_id, topology) VALUES ('52dfecb4-8070-4f4b-ba95-f66d0f51fd98', '{}');
+INSERT INTO machine_topologies (machine_id, topology) VALUES (
+	'52dfecb4-8070-4f4b-ba95-f66d0f51fd98',
+	'{"machine_id": "52dfecb4-8070-4f4b-ba95-f66d0f51fd98", "discovery_data": {"Info": {"cpus": [{"core": 0, "node": 0, "model": "Intel(R) Core(TM) i9-10920X CPU @ 3.50GHz", "number": 0, "socket": 0, "vendor": "GenuineIntel", "frequency": "3503.998"}], "machine_type": "x86_64", "block_devices": [{"model": "QEMU_DVD-ROM", "serial": "QM00003", "revision": "2.5+"}, {"model": "NO_MODEL", "serial": "NO_SERIAL", "revision": "NO_REVISION"}], "network_interfaces": [{"mac_address": "52:54:00:12:34:56", "pci_properties": {"path": "/devices/pci0000:00/0000:00:04.0/virtio1/net/ens4", "device": "0x1000", "vendor": "0x1af4", "numa_node": 2147483647, "description": "Virtio network device"}}]}}}');

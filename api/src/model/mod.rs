@@ -20,4 +20,22 @@
 //! The module should only contain data definitions and associated helper functions,
 //! but no actual business logic.
 
+pub mod hardware_info;
 pub mod machine;
+
+/// Enumerates errors that can occur when converting from the RPC data format
+/// into the internal data model
+#[derive(Debug, thiserror::Error)]
+pub enum RpcDataConversionError {
+    // Note that this at the moment defines no error because currently our internal
+    // data model and RPC model match. However this might not be the case in the future.
+}
+
+/// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`
+/// into a `Vec<R>`.
+pub fn try_convert_vec<T, R, E>(source: Vec<T>) -> Result<Vec<R>, E>
+where
+    R: TryFrom<T, Error = E>,
+{
+    source.into_iter().map(R::try_from).collect()
+}

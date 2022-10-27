@@ -10,7 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::sync::Arc;
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use crate::{
     machine_state_controller::snapshot_loader::{
@@ -66,10 +69,22 @@ pub struct NoopMachineStateHandler {}
 impl MachineStateHandler for NoopMachineStateHandler {
     async fn handle_machine_state(
         &self,
-        _state: &mut MachineStateSnapshot,
+        state: &mut MachineStateSnapshot,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut MachineStateHandlerContext,
     ) -> Result<(), MachineStateHandlerError> {
+        // This block is just here to get some debug output on the cluster and see whether
+        // the controller gets the right data. We will remove it later on.
+        let mut guard = LAST_LOG_TIME.lock().unwrap();
+        if guard.elapsed() >= Duration::from_secs(30) {
+            tracing::info!("MachineStateHandler is acting on machine: {:?}", state);
+            *guard = Instant::now();
+        }
+        drop(guard);
+
         Ok(())
     }
 }
+
+static LAST_LOG_TIME: once_cell::sync::Lazy<Mutex<Instant>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(Instant::now()));
