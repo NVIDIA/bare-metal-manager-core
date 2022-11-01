@@ -28,9 +28,9 @@ use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
 pub use crate::protos::forge::{
-    self, machine_discovery_info::DiscoveryData, Domain, Instance, InstanceList, InstanceSubnet,
-    Machine, MachineAction, MachineDiscoveryInfo, MachineEvent, MachineInterface, MachineList,
-    Uuid,
+    self, machine_credentials_update_request::CredentialPurpose,
+    machine_discovery_info::DiscoveryData, Domain, Instance, InstanceList, InstanceSubnet, Machine,
+    MachineAction, MachineDiscoveryInfo, MachineEvent, MachineInterface, MachineList, Uuid,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, NetworkInterface, PciDeviceProperties,
@@ -48,6 +48,21 @@ pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
         .encode(&mut expected)
         .expect("encode reflection service file descriptor");
     expected
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DiscriminantError(i32);
+
+impl TryFrom<i32> for CredentialPurpose {
+    type Error = DiscriminantError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            x if x == Self::Hbn as i32 => Ok(Self::Hbn),
+            x if x == Self::LoginUser as i32 => Ok(Self::LoginUser),
+            _ => Err(DiscriminantError(value)),
+        }
+    }
 }
 
 impl TryFrom<i32> for MachineAction {

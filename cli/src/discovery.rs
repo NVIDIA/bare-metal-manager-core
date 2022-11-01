@@ -358,14 +358,20 @@ pub fn get_machine_details(
 }
 
 impl Discovery {
-    pub async fn run(api: String, uuid: &str) -> CarbideClientResult<()> {
+    pub async fn run(forge_api: String, uuid: &str) -> CarbideClientResult<()> {
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
         let info = get_machine_details(&context, uuid)?;
-        let mut client = rpc::forge_client::ForgeClient::connect(api.clone()).await?;
+        let mut client = rpc::forge_client::ForgeClient::connect(forge_api.clone()).await?;
         let request = tonic::Request::new(info);
-        client.discover_machine(request).await?;
-        if let Err(x) = crate::ipmi::update_ipmi_creds(api, uuid).await {
-            log::error!("Error while setting up IPMI. {}", x.to_string());
+        client.discover_machine(request).await.map_err(|err| {
+            log::error!("Error while discovering machine. {}", err.to_string());
+            err
+        })?;
+        if let Err(err) = crate::users::create_users(forge_api.clone(), uuid).await {
+            log::error!("Error while setting up users. {}", err.to_string());
+        }
+        if let Err(err) = crate::ipmi::update_ipmi_creds(forge_api, uuid).await {
+            log::error!("Error while setting up IPMI. {}", err.to_string());
         }
 
         Ok(())

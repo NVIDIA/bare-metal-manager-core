@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use tokio::sync::Mutex;
-
-use carbide::vault::{CredentialKey, CredentialProvider, Credentials};
 
 #[derive(Debug, Default)]
 pub struct TestCredentialProvider {

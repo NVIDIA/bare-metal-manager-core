@@ -13,7 +13,6 @@ use std::convert::TryFrom;
 use std::env;
 use std::sync::Arc;
 
-use carbide::model::hardware_info::HardwareInfo;
 use color_eyre::Report;
 use lru::LruCache;
 use mac_address::MacAddress;
@@ -27,8 +26,10 @@ use tower::ServiceBuilder;
 
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::InstanceList;
+use ::rpc::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
 use ::rpc::MachineStateMachineInput;
 use auth::CarbideAuth;
+use carbide::credentials::UpdateCredentials;
 use carbide::db::instance::Instance;
 use carbide::db::instance_subnet::InstanceSubnet;
 use carbide::db::network_prefix::NetworkPrefix;
@@ -38,7 +39,7 @@ use carbide::kubernetes::{
     bgkubernetes_handler, create_managed_resource, create_resource_group, delete_managed_resource,
     delete_resource_group,
 };
-use carbide::vault::CredentialProvider;
+use carbide::model::hardware_info::HardwareInfo;
 use carbide::{
     db::{
         auth::SshKeyValidationRequest,
@@ -46,7 +47,7 @@ use carbide::{
         domain::NewDomain,
         instance::{DeleteInstance, NewInstance},
         instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
-        ipmi::{BmcMetaData, BmcMetaDataRequest},
+        ipmi::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         machine::Machine,
         machine_interface::MachineInterface,
         machine_state::MachineState,
@@ -62,6 +63,7 @@ use carbide::{
     },
     CarbideError,
 };
+use forge_credentials::CredentialProvider;
 
 use crate::auth;
 use crate::cfg;
@@ -1245,15 +1247,15 @@ where
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn get_bmc_meta_data(
         &self,
-        request: Request<rpc::BmcMetaDataRequest>,
-    ) -> Result<Response<rpc::BmcMetaDataResponse>, Status> {
+        request: Request<rpc::BmcMetaDataGetRequest>,
+    ) -> Result<Response<rpc::BmcMetaDataGetResponse>, Status> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(BmcMetaDataRequest::try_from(request.into_inner())?
+        let response = Ok(BmcMetaDataGetRequest::try_from(request.into_inner())?
             .get_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
             .await
             .map(Response::new)?);
@@ -1266,15 +1268,15 @@ where
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_bmc_meta_data(
         &self,
-        request: Request<rpc::BmcMetaData>,
-    ) -> Result<Response<rpc::BmcStatus>, Status> {
+        request: Request<rpc::BmcMetaDataUpdateRequest>,
+    ) -> Result<Response<rpc::BmcMetaDataUpdateResponse>, Status> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(BmcMetaData::try_from(request.into_inner())?
+        let response = Ok(BmcMetaDataUpdateRequest::try_from(request.into_inner())?
             .update_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
             .await
             .map(Response::new)?);
@@ -1282,6 +1284,17 @@ where
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn update_machine_credentials(
+        &self,
+        request: Request<MachineCredentialsUpdateRequest>,
+    ) -> Result<Response<MachineCredentialsUpdateResponse>, Status> {
+        Ok(UpdateCredentials::try_from(request.into_inner())?
+            .update(self.credential_provider.as_ref())
+            .await
+            .map(Response::new)?)
     }
 
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]

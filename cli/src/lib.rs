@@ -32,6 +32,12 @@ pub enum CarbideClientError {
     #[error("Regex error {0}")]
     RegexError(#[from] regex::Error),
 
+    #[error("Pwhash error {0}")]
+    PwHash(#[from] pwhash::error::Error),
+
+    #[error("StdIo error {0}")]
+    StdIo(#[from] std::io::Error),
+
     #[error("String conversion failed from [u8] {0}")]
     FromUtf8Error(#[from] FromUtf8Error),
 }

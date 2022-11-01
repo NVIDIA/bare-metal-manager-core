@@ -10,27 +10,27 @@ name = "carbide-cli"
 path = "src/main.rs"
 
 [dependencies]
-# protobufs/rpc interface
-rpc = { path = "../rpc" }
-tonic = "0.8.0"
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-libc = "0.2"
-rlimit = "0.6.2"
-
-log = "*"
-once_cell = "*"
-tokio = { workspace = true }
-thiserror = "1.0"
-procfs = "*"
-libudev = "*"
-color-eyre = "0.5.11"
-pretty_env_logger = "*"
-uuid = "1.0"
-uname = "0.1.1"
-
-# cli
 clap = { version = "~3", features = ["derive", "env"] }
-regex = "1.6.0"
-rand = "0.8.5"
+color-eyre = "0.6"
+libc = "0.2"
+libudev = "0.3"
+log = "0.4"
+once_cell = "1.15"
+pretty_env_logger = "0.4"
 prettytable-rs = "^0.9"
+procfs = "0.14"
+pwhash = "1.0.0"
+rand = "0.8"
+regex = "1.6"
+rlimit = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { workspace = true }
+tonic = "0.8"
+uname = "0.1"
+uuid = "1.0"
+
+# local crate depenendencies
+rpc = { path = "../rpc" }
+forge_credentials = { path = "../forge_credentials" }

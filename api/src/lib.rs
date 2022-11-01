@@ -18,13 +18,13 @@ use sqlx::postgres::PgDatabaseError;
 use tonic::Status;
 
 pub mod bg;
+pub mod credentials;
 pub mod db;
 mod human_hash;
 pub mod ipmi;
 pub mod kubernetes;
 pub mod machine_state_controller;
 pub mod model;
-pub mod vault;
 pub mod vpc_resources;
 
 /// Special user-defined code for PostgreSQL level state transition violation

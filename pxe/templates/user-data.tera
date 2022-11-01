@@ -9,6 +9,7 @@ timezone: "Etc/UTC"
 fqdn: {{ hostname }}
 manage_etc_hosts: true
 users:
+    # existing user left alone for now until forge user becomes used, then we can remove this entirely.
   - name: ubuntu
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL

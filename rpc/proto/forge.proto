@@ -76,8 +76,11 @@ service Forge {
   rpc ValidateUserSSHKey(SSHKeyValidationRequest) returns (SSHKeyValidationResponse);
 
   // IPMI handling
-  rpc GetBMCMetaData(BMCMetaDataRequest) returns (BMCMetaDataResponse);
-  rpc UpdateBMCMetaData(BMCMetaData) returns (BMCStatus);
+  rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
+  rpc UpdateBMCMetaData(BMCMetaDataUpdateRequest) returns (BMCMetaDataUpdateResponse);
+
+  // User Credential handling.
+  rpc UpdateMachineCredentials(MachineCredentialsUpdateRequest) returns (MachineCredentialsUpdateResponse);
 
   // SecurityGroup
   // Create or update a security group in its entirety.
@@ -497,19 +500,19 @@ enum BMCRequestType {
     REDFISH = 1;
 }
 
-message BMCMetaDataRequest {
+message BMCMetaDataGetRequest {
     UUID machine_id = 1;
     UserRoles role = 2;
     BMCRequestType request_type = 3;
 }
 
-message BMCMetaDataResponse {
+message BMCMetaDataGetResponse {
     string ip = 1;
     string user = 2;
     string password = 3;
 }
 
-message BMCMetaData {
+message BMCMetaDataUpdateRequest {
     message DataItem {
         string user = 2;
         UserRoles role = 3;
@@ -522,7 +525,24 @@ message BMCMetaData {
     BMCRequestType request_type = 4;
 }
 
-message BMCStatus {}
+message BMCMetaDataUpdateResponse {}
+
+message MachineCredentialsUpdateRequest {
+   enum CredentialPurpose {
+      HBN = 0;
+      LOGIN_USER = 1;
+   }
+    message Credentials {
+        string user = 1;
+        string password = 2;
+        CredentialPurpose credential_purpose = 3;
+    }
+
+    UUID machine_id = 4;
+    repeated Credentials credentials = 5;
+}
+
+message MachineCredentialsUpdateResponse {}
 
 message MachineDiscoveryInfo {
   UUID machine_id = 1;
