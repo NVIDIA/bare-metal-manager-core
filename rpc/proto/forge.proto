@@ -8,8 +8,6 @@ import "security_group.proto";
 
 package forge;
 
-//import "machine_discovery.proto";
-
 service Forge {
   // Domain
   rpc CreateDomain(Domain) returns (Domain);
@@ -17,16 +15,16 @@ service Forge {
   rpc DeleteDomain(DomainDeletion) returns (DomainDeletionResult);
   rpc FindDomain(DomainSearchQuery) returns (DomainList);
   // VPC
-  rpc CreateVpc(Vpc) returns (Vpc);
-  rpc UpdateVpc(Vpc) returns (Vpc);
-  rpc DeleteVpc(VpcDeletion) returns (VpcDeletionResult);
+  rpc CreateVpc(VpcCreationRequest) returns (Vpc);
+  rpc UpdateVpc(VpcUpdateRequest) returns (VpcUpdateResult);
+  rpc DeleteVpc(VpcDeletionRequest) returns (VpcDeletionResult);
   rpc FindVpcs(VpcSearchQuery) returns (VpcList);
 
   // Segments - i.e. Overlay Networks
   rpc FindNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
-  rpc CreateNetworkSegment(NetworkSegment) returns (NetworkSegment);
-  rpc UpdateNetworkSegment(NetworkSegment) returns (NetworkSegment);
-  rpc DeleteNetworkSegment(NetworkSegmentDeletion) returns (NetworkSegmentDeletionResult);
+  rpc CreateNetworkSegment(NetworkSegmentCreationRequest) returns (NetworkSegment);
+  rpc UpdateNetworkSegment(NetworkSegmentUpdateRequest) returns (NetworkSegmentUpdateResult);
+  rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
 
   // Manage instances on machines
@@ -179,12 +177,42 @@ message Vpc {
   string name = 2;
   string organization = 3;
 
+  string version = 99;
+
+  // Not sure if we actually still need those
   google.protobuf.Timestamp created = 4;
   google.protobuf.Timestamp updated = 5;
   google.protobuf.Timestamp deleted = 6;
 }
 
-message VpcDeletion {
+message VpcCreationRequest {
+  string name = 2;
+  string organization = 3;
+}
+
+message VpcUpdateRequest {
+  UUID id = 1;
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current version on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // CR question: To avoid the duplication between VpcUpdateRequest and
+  // VpcCreationRequest and Vpc - we could move all user configurable fields into
+  // a `message VpcConfig/VpcSettings`. Hwoever I don't feel like this would add
+  // a lot for primitive types like Vpc.
+
+  string name = 3;
+  string organization = 4;
+}
+
+message VpcUpdateResult {
+  // TODO: Should we also return the current state as a field here?
+  // Probably won't hurt
+}
+
+message VpcDeletionRequest {
   UUID id = 1;
 }
 
@@ -206,9 +234,60 @@ message NetworkSegment {
 
   repeated NetworkPrefix prefixes = 6;
 
+  string version = 99;
+
+  // Not sure if we actually still need those
   google.protobuf.Timestamp created = 11;
   google.protobuf.Timestamp updated = 12;
   google.protobuf.Timestamp deleted = 13;
+}
+
+message NetworkSegmentCreationRequest {
+  UUID vpc_id = 2;
+
+  string name = 3;
+
+  optional UUID subdomain_id = 4;
+  optional int32 mtu = 5;
+
+  repeated NetworkPrefix prefixes = 6;
+}
+
+// A request to update the configuration of a network segment
+// The `NetworkSegment` will be updated and make use of all the configurations
+// specified here. If clients want to retain some particular configurations,
+// they should fetch the original state of the `NetworkSegment`, and apply the
+// changes they want to make based on that.
+// Fetching the original configuration will yield a `version` string to the client.
+// The client can pass the version back to the server to allow the server to check
+// if any concurrent modification changed the object in between the client examining
+// it and the update being executed.
+message NetworkSegmentUpdateRequest {
+  UUID id = 1;
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current version on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  string name = 3;
+  int32 mtu = 5;
+}
+
+message NetworkSegmentUpdateResult {
+  // TODO: Should we also return the current state as a field here?
+  // Probably won't hurt
+}
+
+message NetworkSegmentDeletionRequest {
+  UUID id = 1;
+}
+
+message NetworkSegmentDeletionResult {
+}
+
+message NetworkSegmentQuery {
+  UUID id = 1;
 }
 
 message NetworkPrefix {
@@ -220,19 +299,8 @@ message NetworkPrefix {
   repeated NetworkPrefixEvent events = 6;
 }
 
-message NetworkSegmentDeletion {
-  UUID id = 1;
-}
-
-message NetworkSegmentQuery {
-  UUID id = 1;
-}
-
 message MachineState {
   string state = 1;
-}
-
-message NetworkSegmentDeletionResult {
 }
 
 enum InstanceTypeCapabilities {

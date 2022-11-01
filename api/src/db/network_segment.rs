@@ -28,6 +28,7 @@ use crate::db::domain::Domain;
 use crate::db::machine_interface::MachineInterface;
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use crate::db::vpc::Vpc;
+use crate::model::config_version::ConfigVersion;
 use crate::{db::UuidKeyedObjectFilter, CarbideError, CarbideResult};
 
 #[derive(Debug)]
@@ -40,6 +41,7 @@ pub type IpAllocationResult = Result<IpAddr, IpAllocationError>;
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
     pub id: Uuid,
+    pub version: ConfigVersion,
     pub name: String,
     pub subdomain_id: Option<Uuid>,
     pub vpc_id: Option<Uuid>,
@@ -65,8 +67,14 @@ pub struct NewNetworkSegment {
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for NetworkSegment {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let config_version_str: &str = row.try_get("version")?;
+        let version = config_version_str
+            .parse()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
         Ok(NetworkSegment {
             id: row.try_get("id")?,
+            version,
             name: row.try_get("name")?,
             subdomain_id: row.try_get("subdomain_id")?,
             vpc_id: row.try_get("vpc_id")?,
@@ -79,22 +87,16 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
     }
 }
 
-/// Marshal from Rust NewNetworkSegment to ProtoBuf NetworkSegment.
+/// Converts from Protobuf NetworkSegmentCreationRequest into NewNetworkSegment
 ///
 /// subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
 /// Use try_from in order to return a Result where Result is an error if the conversion
 /// from String -> UUID fails
 ///
-impl TryFrom<rpc::NetworkSegment> for NewNetworkSegment {
+impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::NetworkSegment) -> Result<Self, Self::Error> {
-        if let Some(_id) = value.id {
-            return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
-                "Network Segment",
-            )));
-        }
-
+    fn try_from(value: rpc::NetworkSegmentCreationRequest) -> Result<Self, Self::Error> {
         Ok(NewNetworkSegment {
             name: value.name,
             subdomain_id: match value.subdomain_id {
@@ -124,6 +126,7 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
     fn from(src: NetworkSegment) -> Self {
         rpc::NetworkSegment {
             id: Some(src.id.into()),
+            version: src.version.to_version_string(),
             name: src.name,
             subdomain_id: src.subdomain_id.map(rpc::Uuid::from),
             mtu: Some(src.mtu),
@@ -158,11 +161,15 @@ impl NewNetworkSegment {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-        let mut segment: NetworkSegment = sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, vpc_id, mtu) VALUES ($1, $2, $3, $4) RETURNING *")
+        let version = ConfigVersion::initial();
+        let version_string = version.to_version_string();
+
+        let mut segment: NetworkSegment = sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, vpc_id, mtu, version) VALUES ($1, $2, $3, $4, $5) RETURNING *")
             .bind(&self.name)
             .bind(&self.subdomain_id)
             .bind(self.vpc_id)
             .bind(self.mtu)
+            .bind(&version_string)
             .fetch_one(&mut *txn).await?;
 
         segment.prefixes = NetworkPrefix::create_for(txn, &segment.id, &self.prefixes).await?;

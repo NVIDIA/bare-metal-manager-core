@@ -257,7 +257,10 @@ where
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn create_vpc(&self, request: Request<rpc::Vpc>) -> Result<Response<rpc::Vpc>, Status> {
+    async fn create_vpc(
+        &self,
+        request: Request<rpc::VpcCreationRequest>,
+    ) -> Result<Response<rpc::Vpc>, Status> {
         let mut txn = self
             .database_connection
             .begin()
@@ -276,28 +279,29 @@ where
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn update_vpc(&self, request: Request<rpc::Vpc>) -> Result<Response<rpc::Vpc>, Status> {
+    async fn update_vpc(
+        &self,
+        request: Request<rpc::VpcUpdateRequest>,
+    ) -> Result<Response<rpc::VpcUpdateResult>, Status> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(CarbideError::from)?;
 
-        let response = Ok(UpdateVpc::try_from(request.into_inner())?
+        UpdateVpc::try_from(request.into_inner())?
             .update(&mut txn)
-            .await
-            .map(rpc::Vpc::from)
-            .map(Response::new)?);
+            .await?;
 
         txn.commit().await.map_err(CarbideError::from)?;
 
-        response
+        Ok(Response::new(rpc::VpcUpdateResult {}))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_vpc(
         &self,
-        request: Request<rpc::VpcDeletion>,
+        request: Request<rpc::VpcDeletionRequest>,
     ) -> Result<Response<rpc::VpcDeletionResult>, Status> {
         let mut txn = self
             .database_connection
@@ -400,7 +404,7 @@ where
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_network_segment(
         &self,
-        request: Request<rpc::NetworkSegment>,
+        request: Request<rpc::NetworkSegmentCreationRequest>,
     ) -> Result<Response<rpc::NetworkSegment>, Status> {
         let mut txn = self
             .database_connection
@@ -430,15 +434,15 @@ where
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn update_network_segment(
         &self,
-        _request: Request<rpc::NetworkSegment>,
-    ) -> Result<Response<rpc::NetworkSegment>, Status> {
+        _request: Request<rpc::NetworkSegmentUpdateRequest>,
+    ) -> Result<Response<rpc::NetworkSegmentUpdateResult>, Status> {
         todo!()
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_network_segment(
         &self,
-        request: Request<rpc::NetworkSegmentDeletion>,
+        request: Request<rpc::NetworkSegmentDeletionRequest>,
     ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
         let mut txn = self
             .database_connection
@@ -446,7 +450,7 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let rpc::NetworkSegmentDeletion { id, .. } = request.into_inner();
+        let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 
         let uuid = match id {
             Some(id) => match uuid::Uuid::try_from(id) {
