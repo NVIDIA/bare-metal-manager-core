@@ -12,7 +12,10 @@
 use std::net::IpAddr;
 
 use mac_address::MacAddress;
-use model::RpcDataConversionError;
+use model::{
+    config_version::{ConfigVersion, ParseConfigVersionError},
+    RpcDataConversionError,
+};
 use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
 use tonic::Status;
@@ -161,6 +164,15 @@ pub enum CarbideError {
 
     #[error("Can not convert between RPC data model and internal data model - {0}")]
     RpcDataConversionError(#[from] RpcDataConversionError),
+
+    #[error("Invalid configuration version - {0}")]
+    InvalidConfigurationVersion(#[from] ParseConfigVersionError),
+
+    // TODO: Or VersionMismatchError? Or ObjectNotFoundOrModifiedError?
+    #[error(
+        "An object of type {0} was intended to be modified did not have the expected version {1}"
+    )]
+    ConcurrentModificationError(&'static str, ConfigVersion),
 }
 
 impl From<CarbideError> for tonic::Status {

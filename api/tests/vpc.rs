@@ -1,3 +1,4 @@
+use carbide::CarbideError;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -27,21 +28,24 @@ fn setup() {
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    NewVpc {
+    let forge_vpc = NewVpc {
         name: "Forge".to_string(),
         organization: String::new(),
     }
     .persist(&mut txn)
     .await?;
+    assert_eq!(forge_vpc.version.version_nr(), 1);
 
-    let vpc = NewVpc {
+    let no_org_vpc = NewVpc {
         name: "Forge no Org".to_string(),
         organization: String::new(),
     }
     .persist(&mut txn)
     .await?;
+    assert_eq!(no_org_vpc.version.version_nr(), 1);
 
-    assert!(matches!(vpc.deleted, None));
+    assert!(matches!(no_org_vpc.deleted, None));
+    let initial_no_org_vpc_version = no_org_vpc.version;
 
     txn.commit().await?;
 
@@ -50,15 +54,60 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .await
         .expect("Unable to create transaction on database pool");
 
-    let _updated_vpc = UpdateVpc {
-        id: vpc.id,
-        name: vpc.name.to_string(),
-        organization: String::new(),
+    let updated_vpc = UpdateVpc {
+        id: no_org_vpc.id,
+        name: "new name".to_string(),
+        organization: "new org".to_string(),
+        if_version_match: None,
     }
     .update(&mut txn)
     .await?;
 
-    let vpc = DeleteVpc { id: vpc.id }.delete(&mut txn).await?;
+    assert_eq!(&updated_vpc.name, "new name");
+    assert_eq!(&updated_vpc.organization_id, "new org");
+    assert_eq!(updated_vpc.version.version_nr(), 2);
+
+    // Update on outdated version
+    let update_result = UpdateVpc {
+        id: no_org_vpc.id,
+        name: "never this name".to_string(),
+        organization: "never this org".to_string(),
+        if_version_match: Some(initial_no_org_vpc_version),
+    }
+    .update(&mut txn)
+    .await;
+    assert!(matches!(
+        update_result,
+        Err(CarbideError::ConcurrentModificationError(_, _))
+    ));
+
+    // Check that the data was indeed not touched
+    let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc.id)).await?;
+    let first = vpcs.swap_remove(0);
+    assert_eq!(&first.name, "new name");
+    assert_eq!(&first.organization_id, "new org");
+    assert_eq!(first.version.version_nr(), 2);
+
+    // Update on correct version
+    let updated_vpc = UpdateVpc {
+        id: no_org_vpc.id,
+        name: "yet another new name".to_string(),
+        organization: "yet another new org".to_string(),
+        if_version_match: Some(updated_vpc.version),
+    }
+    .update(&mut txn)
+    .await?;
+    assert_eq!(&updated_vpc.name, "yet another new name");
+    assert_eq!(&updated_vpc.organization_id, "yet another new org");
+    assert_eq!(updated_vpc.version.version_nr(), 3);
+
+    let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc.id)).await?;
+    let first = vpcs.swap_remove(0);
+    assert_eq!(&first.name, "yet another new name");
+    assert_eq!(&first.organization_id, "yet another new org");
+    assert_eq!(first.version.version_nr(), 3);
+
+    let vpc = DeleteVpc { id: no_org_vpc.id }.delete(&mut txn).await?;
 
     assert!(matches!(vpc.deleted, Some(_)));
 
@@ -67,6 +116,20 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     txn.commit().await?;
 
     assert!(vpcs.is_empty());
+
+    let mut txn = pool.begin().await?;
+    let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    assert_eq!(vpcs.len(), 1);
+    assert_eq!(vpcs[0].id, forge_vpc.id);
+
+    let vpc = DeleteVpc { id: forge_vpc.id }.delete(&mut txn).await?;
+    assert!(matches!(vpc.deleted, Some(_)));
+    txn.commit().await?;
+
+    let mut txn = pool.begin().await?;
+    let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    assert!(vpcs.is_empty());
+    txn.commit().await?;
 
     Ok(())
 }

@@ -20,6 +20,7 @@
 //! The module should only contain data definitions and associated helper functions,
 //! but no actual business logic.
 
+pub mod config_version;
 pub mod hardware_info;
 pub mod machine;
 
