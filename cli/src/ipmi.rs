@@ -96,12 +96,12 @@ impl IpmiInfo {
         value: Vec<IpmiInfo>,
         uuid: &str,
         ip: String,
-    ) -> Result<rpc::BmcMetaData, CarbideClientError> {
+    ) -> Result<rpc::BmcMetaDataUpdateRequest, CarbideClientError> {
         let machine_id: rpc::Uuid = Uuid::parse_str(uuid)
             .map(|m| m.into())
             .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
 
-        let mut bmc_meta_data = rpc::BmcMetaData {
+        let mut bmc_meta_data = rpc::BmcMetaDataUpdateRequest {
             machine_id: Some(machine_id),
             ip,
             data: Vec::new(),
@@ -109,11 +109,13 @@ impl IpmiInfo {
         };
 
         for v in value {
-            bmc_meta_data.data.push(rpc::bmc_meta_data::DataItem {
-                user: v.user.clone(),
-                password: v.password.clone(),
-                role: v.role._convert()? as i32,
-            });
+            bmc_meta_data
+                .data
+                .push(rpc::bmc_meta_data_update_request::DataItem {
+                    user: v.user.clone(),
+                    password: v.password.clone(),
+                    role: v.role._convert()? as i32,
+                });
         }
 
         Ok(bmc_meta_data)
@@ -330,7 +332,7 @@ fn set_ipmi_creds() -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
     Ok((user_lists, ip))
 }
 
-pub async fn update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResult<()> {
+pub async fn update_ipmi_creds(forge_api: String, uuid: &str) -> CarbideClientResult<()> {
     if IN_QEMU_VM.read().await.in_qemu {
         return Ok(());
     }
@@ -338,9 +340,9 @@ pub async fn update_ipmi_creds(listen: String, uuid: &str) -> CarbideClientResul
     wait_until_ipmi_is_ready().await?;
 
     let (ipmi_info, ip) = set_ipmi_creds()?;
-    let bmc_metadata: rpc::BmcMetaData = IpmiInfo::convert(ipmi_info, uuid, ip)?;
+    let bmc_metadata: rpc::BmcMetaDataUpdateRequest = IpmiInfo::convert(ipmi_info, uuid, ip)?;
 
-    let mut client = rpc::forge_client::ForgeClient::connect(listen).await?;
+    let mut client = rpc::forge_client::ForgeClient::connect(forge_api).await?;
     let request = tonic::Request::new(bmc_metadata);
     client.update_bmc_meta_data(request).await?;
 

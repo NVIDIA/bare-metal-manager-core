@@ -2,6 +2,7 @@
 
 members = [
   "api",
+  "forge_credentials",
   "cli",
   "dhcp",
   "pxe",
@@ -9,7 +10,7 @@ members = [
   "dns",
   "ipmi/freeipmi-sys",
   "ipmi/ipmiconsole-sys",
-  "ipmi/console"
+  "ipmi/console",
 ]
 
 [workspace.package]

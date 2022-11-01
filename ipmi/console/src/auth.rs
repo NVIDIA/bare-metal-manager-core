@@ -18,12 +18,12 @@ use tonic::async_trait;
 use uuid::Uuid;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge::BmcMetaDataResponse;
+use ::rpc::forge::BmcMetaDataGetResponse;
 use console::ConsoleError;
 
 use crate::ConsoleContext;
 
-use self::rpc::BmcMetaDataRequest;
+use self::rpc::BmcMetaDataGetRequest;
 use self::rpc::SshKeyValidationRequest;
 use self::rpc::UserRoles;
 
@@ -118,10 +118,10 @@ pub async fn get_bmc_metadata(
     machine_id: Uuid,
     role: UserRoles,
     api_endpoint: String,
-) -> Result<BmcMetaDataResponse, ConsoleError> {
+) -> Result<BmcMetaDataGetResponse, ConsoleError> {
     let response = match rpc::forge_client::ForgeClient::connect(api_endpoint).await {
         Ok(mut client) => {
-            let request = tonic::Request::new(BmcMetaDataRequest {
+            let request = tonic::Request::new(BmcMetaDataGetRequest {
                 machine_id: Some(machine_id.into()),
                 request_type: rpc::BmcRequestType::Ipmi as i32,
                 role: role as i32,

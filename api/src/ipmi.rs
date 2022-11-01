@@ -9,8 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::forge as rpc;
-use ::rpc::forge::instance_power_request::Operation as rpcOperation;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,12 +19,14 @@ use sqlx;
 use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
+use ::rpc::forge as rpc;
+use ::rpc::forge::instance_power_request::Operation as rpcOperation;
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use freeipmi_sys::{self, IpmiChassisControl};
 
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::instance::Instance;
-use crate::db::ipmi::{BmcMetaDataRequest, UserRoles};
-use crate::vault::{CredentialKey, CredentialProvider, Credentials};
+use crate::db::ipmi::{BmcMetaDataGetRequest, UserRoles};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -107,8 +107,8 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
         log::info!("IPMI command: {:?}", cmd);
         let credentials = credential_provider
             .get_credentials(CredentialKey::Bmc {
-                machine_id: cmd.machine_id,
-                role: cmd.user_role,
+                machine_id: cmd.machine_id.to_string(),
+                user_role: cmd.user_role.to_string(),
             })
             .await
             .map_err(|err| {
@@ -406,7 +406,7 @@ impl MachinePowerRequest {
         let mut txn = pool.begin().await.map_err(CarbideError::from)?;
 
         let role = UserRoles::Administrator;
-        let ip = BmcMetaDataRequest {
+        let ip = BmcMetaDataGetRequest {
             machine_id: self.machine_id,
             role,
         }

@@ -37,4 +37,3 @@ message PciDeviceProperties{
   sint32 numa_node = 4;
   optional string description = 5;
 }
-

@@ -18,14 +18,16 @@ use tokio::time;
 use uuid::Uuid;
 
 use carbide::bg::{Status, TaskState};
-use carbide::db::ipmi::{BmcMetaData, BmcMetaDataRequest, BmcMetadataItem, UserRoles};
+use carbide::db::ipmi::{
+    BmcMetaDataGetRequest, BmcMetaDataUpdateRequest, BmcMetadataItem, UserRoles,
+};
 use carbide::ipmi::{ipmi_handler, IpmiCommand, IpmiCommandHandler, IpmiTask};
-use carbide::vault::CredentialProvider;
 use carbide::CarbideResult;
+use forge_credentials::CredentialProvider;
 
-use crate::vault::TestCredentialProvider;
+use crate::test_credentials::TestCredentialProvider;
 
-mod vault;
+mod test_credentials;
 
 const DATA: [(UserRoles, &str, &str); 3] = [
     (UserRoles::Administrator, "forge_admin", "randompassword"),
@@ -52,7 +54,7 @@ async fn test_ipmi_cred(pool: PgPool) {
     let machine_id: Uuid = "52dfecb4-8070-4f4b-ba95-f66d0f51fd98".parse().unwrap();
 
     let credentials_provider = TestCredentialProvider::new();
-    BmcMetaData {
+    BmcMetaDataUpdateRequest {
         machine_id,
         ip: "127.0.0.2".to_string(),
         data: DATA
@@ -73,7 +75,7 @@ async fn test_ipmi_cred(pool: PgPool) {
     let mut txn = pool.begin().await.unwrap();
 
     for d in &DATA {
-        let ipmi_req = BmcMetaDataRequest {
+        let ipmi_req = BmcMetaDataGetRequest {
             machine_id,
             role: d.0,
         };

@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{fmt::Debug, fmt::Display};
+use std::{env, fmt::Debug, fmt::Display};
 
 use clap::Parser;
 use rocket::figment::Figment;
@@ -259,7 +259,7 @@ async fn main() -> Result<(), rocket::Error> {
     }
 
     let configuration_file_path =
-        std::env::var("ARTIFACT_CONFIG").unwrap_or_else(|_| "artifacts.json".to_string());
+        env::var("ARTIFACT_CONFIG").unwrap_or_else(|_| "artifacts.json".to_string());
     let artifact_configuration = ArtifactConfig::from_config_file(configuration_file_path)
         .expect("unable to parse artifact configuration file?");
     println!("Artifact config parsed: {}", &artifact_configuration);
@@ -283,7 +283,7 @@ async fn main() -> Result<(), rocket::Error> {
                         ntp_server: config.ntp_server,
                     })),
                     Err(err) => {
-                        println!("An unexpected error occurred in rocket setup: {}", err);
+                        println!("An unexpected error occurred in carbide api setup: {}", err);
                         Err(rocket)
                     }
                 }
