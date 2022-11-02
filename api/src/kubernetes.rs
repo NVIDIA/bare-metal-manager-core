@@ -12,7 +12,8 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use kube::runtime::wait::{await_condition, conditions, Condition};
+use kube::api::ListParams;
+use kube::runtime::wait::{await_condition, Condition};
 use kube::{
     api::{Api, DeleteParams, PostParams, ResourceExt},
     Client,
@@ -300,6 +301,26 @@ async fn create_managed_resource_handler(
     }
 }
 
+async fn find_leaf_with_host_interface(
+    mac: &String,
+    client: Client,
+) -> CarbideResult<Option<String>> {
+    let leaf_api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+    let leafs = leaf_api.list(&ListParams::default()).await?;
+
+    for leaf in leafs {
+        if let Some(host_interfaces) = leaf.spec.host_interfaces.as_ref() {
+            if host_interfaces.contains_key(mac) {
+                if let Some(name) = leaf.vpc_resource_name() {
+                    return Ok(Some(name.to_owned()));
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 async fn delete_managed_resource_handler(
     mut current_job: CurrentJob,
     data: ManagedResourceData,
@@ -317,9 +338,17 @@ async fn delete_managed_resource_handler(
     )
     .await;
 
-    let resource: Api<managed_resource::ManagedResource> =
-        Api::namespaced(client, FORGE_KUBE_NAMESPACE);
-    let result = resource.delete(&spec_name, &DeleteParams::default()).await;
+    let resource_api: Api<managed_resource::ManagedResource> =
+        Api::namespaced(client.clone(), FORGE_KUBE_NAMESPACE);
+    let managed_resource = resource_api.get(&spec_name).await?;
+    let mac = managed_resource
+        .spec
+        .host_interface
+        .ok_or(CarbideError::NotFoundError(data.machine_id))?;
+    let leaf_name = find_leaf_with_host_interface(&mac, client.clone()).await?;
+    let result = resource_api
+        .delete(&spec_name, &DeleteParams::default())
+        .await;
 
     match result {
         Ok(_) => {
@@ -330,24 +359,35 @@ async fn delete_managed_resource_handler(
                 TaskState::Ongoing,
             )
             .await;
-            let waiter = await_condition(
-                resource,
-                spec_name.as_str(),
-                conditions::is_deleted(spec_name.as_str()),
-            );
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
-                .await
-                .map(|result| result.map_err(CarbideError::from))?;
-            update_status(
-                &current_job,
-                2,
-                format!(
-                    "ManagedResource deletion {} successful at vpc.",
-                    spec.name()
-                ),
-                TaskState::Ongoing,
-            )
-            .await;
+
+            // In case leaf is not found (although it should never happen), machine will stuck in
+            // boot loop. This is only possible due to misconfiguration. Do not return failure
+            // as MR is already deleted.
+            // TODO: Machine should be moved to FAILED state.
+            if let Some(leaf_name) = leaf_name {
+                let api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+                let waiter = await_condition(
+                    api,
+                    spec_name.as_str(),
+                    ConditionReadyMatcher {
+                        matched_name: leaf_name.clone(),
+                    },
+                );
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
+                    .await
+                    .map(|result| result.map_err(CarbideError::from))?;
+                update_status(
+                    &current_job,
+                    2,
+                    format!(
+                        "ManagedResource deletion {} successful and hbn is configured with admin network.",
+                        spec.name()
+                    ),
+                    TaskState::Ongoing,
+                )
+                .await;
+            }
+
             let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
             update_status(
                 &current_job,
