@@ -105,7 +105,7 @@ mod tests {
         let id = row.0;
         println!("{}", id);
         let _: (Uuid,) = sqlx::query_as(
-            "INSERT INTO network_segments (id, name) VALUES ($1, 'test_network') returning id",
+            "INSERT INTO network_segments (id, name, version) VALUES ($1, 'test_network', 'V1-T1666644937952267') returning id",
         )
         .bind(id)
         .fetch_one(&pool)

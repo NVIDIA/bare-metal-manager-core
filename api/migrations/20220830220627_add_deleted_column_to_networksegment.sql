@@ -1,1 +1,0 @@
-ALTER TABLE IF EXISTS network_segments ADD COLUMN deleted timestamp with time zone;

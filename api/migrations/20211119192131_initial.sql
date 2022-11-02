@@ -6,6 +6,7 @@ CREATE TYPE machine_state AS ENUM (
 	'adopted',
 	'tested',
 	'ready',
+	'reset',
 	'assigned',
 	'broken',
 	'decommissioned',
@@ -22,7 +23,8 @@ CREATE TYPE machine_action AS ENUM (
 	'decommission',
 	'recommission',
 	'unassign',
-	'release'
+	'release',
+	'cleanup'
 );
 
 CREATE TYPE instance_type_capabilities as ENUM (
@@ -56,6 +58,9 @@ CREATE TABLE instance_types (
 CREATE TABLE vpc_resource_leafs(
     -- uuid is used for the 'name' of the leaf CRD
     id uuid DEFAULT gen_random_uuid() NOT NULL,
+
+    loopback_ip_address inet,
+
     PRIMARY KEY (id)
 );
 
@@ -89,13 +94,20 @@ CREATE TABLE machines (
 CREATE TABLE instances (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     machine_id uuid NOT NULL,
+
     requested TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     finished TIMESTAMPTZ NULL,
 
+    user_data text,
+    custom_ipxe text NOT NULL DEFAULT 'need a proper string',
+    ssh_keys text[],
+    managed_resource_id uuid DEFAULT gen_random_uuid() NOT NULL,
+	use_custom_pxe_on_boot bool NOT NULL DEFAULT false,
 
     PRIMARY KEY (id),
-    FOREIGN KEY (machine_id) REFERENCES machines(id)
+    FOREIGN KEY (machine_id) REFERENCES machines(id),
+	CONSTRAINT instances_unique_machine_id UNIQUE(machine_id)
 );
 
 CREATE TABLE machine_topologies (
@@ -133,6 +145,7 @@ CREATE TABLE domains(
 
 	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	deleted TIMESTAMPTZ,
 
 	PRIMARY KEY(id),
 
@@ -144,8 +157,9 @@ DROP TABLE IF EXISTS vpcs;
 CREATE TABLE vpcs(
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
 	name VARCHAR NOT NULL UNIQUE,
-	organization_id uuid,
+	organization_id VARCHAR,
 
+	version VARCHAR(64) NOT NULL,
 	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	deleted TIMESTAMPTZ,
@@ -170,8 +184,10 @@ CREATE TABLE network_segments(
 
 	mtu INTEGER NOT NULL DEFAULT 1500 CHECK(mtu >= 576 AND mtu <= 9000),
 
+	version VARCHAR(64) NOT NULL,
 	created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	deleted TIMESTAMPTZ,
 
 	-- An admin network is not a vxlan but still needs to be sent to froge-vpc
 	-- Forge-vpc has a reserved ResourceGroup name used for 'admin' network
@@ -205,7 +221,9 @@ CREATE TABLE network_prefixes(
 	CONSTRAINT no_gateway_on_ipv6 CHECK ((family(prefix) = 6 AND gateway IS NULL) OR family(prefix) = 4),
 
 	-- Make sure the gateway is actually on the network
-	CONSTRAINT gateway_within_network CHECK (gateway << prefix)
+	CONSTRAINT gateway_within_network CHECK (gateway << prefix),
+
+	EXCLUDE USING gist (prefix inet_ops WITH &&)
 );
 
 -- Make sure there''s at most one IPv4 prefix or one IPv6 prefix on a network segment
@@ -258,6 +276,20 @@ CREATE TABLE machine_interface_addresses(
 	UNIQUE (interface_id, address)
 );
 
+DROP VIEW IF EXISTS dpu_machines;
+CREATE OR REPLACE VIEW dpu_machines AS (
+    SELECT machines.id as machine_id,
+    machines.vpc_leaf_id as vpc_leaf_id,
+    machine_interfaces.id as machine_interfaces_id,
+    machine_interfaces.mac_address as mac_address,
+    machine_interface_addresses.address as address,
+    machine_interfaces.hostname as hostname
+    FROM machine_interfaces
+    LEFT JOIN machines on machine_interfaces.machine_id=machines.id
+    INNER JOIN machine_interface_addresses on machine_interface_addresses.interface_id=machine_interfaces.id
+    WHERE machine_interfaces.attached_dpu_machine_id IS NOT NULL
+);
+
 CREATE TABLE tags(
 	id uuid DEFAULT gen_random_uuid() NOT NULL,
     slug VARCHAR(50) NOT NULL,
@@ -308,7 +340,14 @@ CREATE OR REPLACE VIEW machine_dhcp_records AS (
 	WHERE address << prefix
 );
 
+CREATE TABLE dhcp_entries
+(
+    machine_interface_id uuid NOT NULL,
+    vendor_string VARCHAR NOT NULL,
 
+    PRIMARY KEY(machine_interface_id, vendor_string),
+    FOREIGN KEY(machine_interface_id) REFERENCES machine_interfaces(id)
+);
 
 DROP VIEW IF EXISTS dns_records;
 CREATE OR REPLACE VIEW dns_records AS (
@@ -350,6 +389,14 @@ CREATE TABLE instance_subnets(
 -- only one null vfid (pf) per (instance_id, machine_interface_id)
 CREATE UNIQUE INDEX idx_one_null_vfid ON instance_subnets (vfid, instance_id, machine_interface_id) WHERE vfid = NULL;
 
+-- instance subnets and instance_subnet_addresses = ManagedResource in forge-fpc
+CREATE TABLE IF NOT EXISTS instance_subnet_events(
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  instance_subnet_id uuid NOT NULL,
+  action vpc_resource_action NOT NULL,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (instance_subnet_id) REFERENCES instance_subnets(id)
+);
 
 CREATE TABLE instance_subnet_addresses(
   id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -365,6 +412,31 @@ CREATE TABLE instance_subnet_addresses(
   -- ADD constraint to verify address belongs in the instance_subnet
   -- e.g. we do not allow address 191.168.1.5/24 into instance_subnet 192.168.250.0/24
 
+);
+
+DROP VIEW IF EXISTS instance_dhcp_records;
+CREATE OR REPLACE VIEW instance_dhcp_records AS (
+   SELECT
+   machines.id as machine_id,
+   machine_interfaces.id as machine_interface_id,
+   network_segments.id as segment_id,
+   network_segments.subdomain_id as subdomain_id,
+   CONCAT(machine_interfaces.hostname,'.', domains.name) as fqdn,
+   machine_interfaces.mac_address as mac_address,
+   instance_subnet_addresses.address as address,
+   network_segments.mtu as mtu,
+   network_prefixes.prefix as prefix,
+   instance_subnets.vfid as vfid,
+   network_prefixes.gateway as gateway
+   FROM machine_interfaces
+   LEFT JOIN machines ON machine_interfaces.machine_id=machines.id
+   INNER JOIN domains on domains.id = machine_interfaces.domain_id
+   INNER JOIN instances ON instances.machine_id = machines.id
+   INNER JOIN instance_subnets ON instance_subnets.instance_id = instances.id
+   INNER JOIN network_segments ON network_segments.id=instance_subnets.network_segment_id
+   INNER JOIN network_prefixes ON network_prefixes.segment_id=network_segments.id
+   INNER JOIN instance_subnet_addresses ON instance_subnet_addresses.instance_subnet_id = instance_subnets.id
+   WHERE address << prefix
 );
 
 CREATE TYPE user_roles AS ENUM (
@@ -392,5 +464,10 @@ CREATE table machine_console_metadata (
     password VARCHAR(16) NOT NULL,
     bmctype console_type NOT NULL DEFAULT 'ipmi',
 
-    UNIQUE (machine_id, username, role)
+    UNIQUE (machine_id, username, role),
+	FOREIGN KEY(machine_id) REFERENCES machines(id)
+);
+
+CREATE TABLE machine_state_controller_lock(
+    id uuid DEFAULT gen_random_uuid() NOT NULL
 );
