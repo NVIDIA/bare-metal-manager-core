@@ -18,7 +18,7 @@ use carbide::{
     machine_state_controller::snapshot_loader::{
         DbMachineStateSnapshotLoader, MachineStateSnapshotLoader,
     },
-    model::hardware_info::{BlockDevice, Cpu, HardwareInfo, NetworkInterface, PciDeviceProperties},
+    model::hardware_info::{NvmeDevice, DmiDevice, BlockDevice, Cpu, HardwareInfo, NetworkInterface, PciDeviceProperties},
     CarbideResult,
 };
 use mac_address::MacAddress;
@@ -106,6 +106,16 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
                 numa_node: 2147483647,
                 vendor: "0x1af4".to_string(),
             }),
+        }],
+        nvme_devices: vec![ NvmeDevice {
+			model: "test_nvme_model".to_string(),
+			firmware_rev: "test_nvme_firmware_rev.1.0".to_string(),
+			
+        }],
+        dmi_devices: vec![ DmiDevice {
+			board_name: "test_dmi_model".to_string(),
+			board_version: "test_board_version.1.0".to_string(),
+			bios_version: "test_bios_version.1.0".to_string(),
         }],
     };
 

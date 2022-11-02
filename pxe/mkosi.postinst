@@ -52,6 +52,14 @@ cp chipsec.ko /lib/modules/$kernver/extra
 cd -
 python3 setup.py install
 
+cat >/usr/sbin/chipsec_load_module.sh <<EOF
+#!/bin/bash
+insmode /lib/modules/$kernver/extra/chipsec.ko
+exit \$?
+
+EOF
+chmod +x /usr/sbin/chipsec_load_module.sh
+
 rm -f $chipsecsrcfile
 apt purge -y $hdrpkg nasm g++-10 gcc-10 gcc g++ gcc-9
 rm -r -f $tmpdir

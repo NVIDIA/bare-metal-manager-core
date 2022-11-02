@@ -67,6 +67,28 @@ fn convert_property_to_string<'a>(
     };
 }
 
+fn convert_sysattr_to_string<'a>(
+    name: &'a str,
+    default_value: &'a str,
+    device: &'a Device,
+) -> CarbideClientResult<&'a str> {
+    return match device.attribute_value(name) {
+        None => match default_value.len() {
+            0 => Err(CarbideClientError::GenericError(format!(
+                "Could not find attribute {}",
+                name
+            ))),
+            _ => Ok(default_value),
+        },
+        Some(p) => p.to_str().ok_or_else(|| {
+            CarbideClientError::GenericError(format!(
+                "Could not transform os string to string for attribute {}",
+                name
+            ))
+        }),
+    };
+}
+
 // NUMA_NODE is not exposed in libudev but the full path to a device is.
 // We have to convert from String -> i32 which is full of cases where conversion
 // can fail. Rather than cause the client to error out during discovery, we use the
@@ -335,9 +357,91 @@ pub fn get_machine_details(
         }
     }
 
+    // Nvme
+    let mut enumerator = libudev::Enumerator::new(context)
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+    enumerator
+        .match_subsystem("nvme")
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+    let devices = enumerator
+        .scan_devices()
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+
+    let mut nvmes: Vec<rpc_discovery::NvmeDevice> = Vec::new();
+
+    for device in devices {
+        log::debug!("{:?}", device.syspath());
+        for p in device.properties() {
+            log::debug!("{:?} - {:?}", p.name(), p.value());
+        }
+
+        if device
+            .property_value("DEVPATH")
+            .map(|v| v.to_str())
+            .ok_or_else(|| {
+                CarbideClientError::GenericError("Could not decode DEVPATH".to_string())
+            })?
+            .filter(|v| !v.contains("virtual"))
+            .is_some()
+        {
+            nvmes.push(rpc_discovery::NvmeDevice {
+                model: convert_sysattr_to_string("model", "NO_MODEL", &device)?.to_string(),
+                firmware_rev: convert_sysattr_to_string("firmware_rev", "NO_REVISION", &device)?
+                    .to_string(),
+            });
+        }
+    }
+
+    // Dmi
+    let mut enumerator = libudev::Enumerator::new(context)
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+    enumerator
+        .match_subsystem("dmi")
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+    let devices = enumerator
+        .scan_devices()
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+
+    let mut dmis: Vec<rpc_discovery::DmiDevice> = Vec::new();
+
+    for device in devices {
+        log::debug!("{:?}", device.syspath());
+        for p in device.properties() {
+            log::debug!("{:?} - {:?}", p.name(), p.value());
+        }
+
+        if device
+            .property_value("DEVPATH")
+            .map(|v| v.to_str())
+            .ok_or_else(|| {
+                CarbideClientError::GenericError("Could not decode DEVPATH".to_string())
+            })?
+            .is_some()
+        {
+            dmis.push(rpc_discovery::DmiDevice {
+                board_name: convert_sysattr_to_string("board_name", "NO_BOARD_NAME", &device)?
+                    .to_string(),
+                board_version: convert_sysattr_to_string(
+                    "board_version",
+                    "NO_BOARD_VERSION",
+                    &device,
+                )?
+                .to_string(),
+                bios_version: convert_sysattr_to_string(
+                    "bios_version",
+                    "NO_BIOS_VERSION",
+                    &device,
+                )?
+                .to_string(),
+            });
+        }
+    }
+
     log::debug!("Disks sent to carbide - {:?}", disks);
     log::debug!("CPUs sent to carbide - {:?}", cpus);
     log::debug!("NICS sent to carbide - {:?}", nics);
+    log::debug!("NVMES sent to carbide - {:?}", nvmes);
+    log::debug!("DMIS sent to carbide - {:?}", dmis);
     log::debug!("Machine Type sent to carbide - {}", info.machine.as_str());
 
     let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
@@ -351,6 +455,8 @@ pub fn get_machine_details(
                 network_interfaces: nics,
                 cpus,
                 block_devices: disks,
+                nvme_devices: nvmes,
+                dmi_devices: dmis,
                 machine_type: info.machine.as_str().to_owned(),
             },
         )),
@@ -358,19 +464,19 @@ pub fn get_machine_details(
 }
 
 impl Discovery {
-    pub async fn run(forge_api: String, uuid: &str) -> CarbideClientResult<()> {
+    pub async fn run(forge_api: &str, uuid: &str) -> CarbideClientResult<()> {
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
         let info = get_machine_details(&context, uuid)?;
-        let mut client = rpc::forge_client::ForgeClient::connect(forge_api.clone()).await?;
+        let mut client = rpc::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
         let request = tonic::Request::new(info);
         client.discover_machine(request).await.map_err(|err| {
             log::error!("Error while discovering machine. {}", err.to_string());
             err
         })?;
-        if let Err(err) = crate::users::create_users(forge_api.clone(), uuid).await {
+        if let Err(err) = crate::users::create_users(forge_api.to_string(), uuid).await {
             log::error!("Error while setting up users. {}", err.to_string());
         }
-        if let Err(err) = crate::ipmi::update_ipmi_creds(forge_api, uuid).await {
+        if let Err(err) = crate::ipmi::update_ipmi_creds(forge_api.to_string(), uuid).await {
             log::error!("Error while setting up IPMI. {}", err.to_string());
         }
 

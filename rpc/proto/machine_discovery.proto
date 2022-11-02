@@ -8,7 +8,10 @@ message DiscoveryInfo {
   repeated Cpu cpus = 2;
   repeated BlockDevice block_devices = 3;
   string machine_type = 4;
+  repeated NvmeDevice nvme_devices = 5;
+  repeated DmiDevice dmi_devices = 6;
 }
+
 message NetworkInterface {
   string mac_address = 1;
   PciDeviceProperties pci_properties = 2;
@@ -28,6 +31,17 @@ message BlockDevice {
   string model = 1;
   string revision = 2;
   string serial = 3;
+}
+
+message NvmeDevice {
+  string model = 1;
+  string firmware_rev = 2;
+}
+
+message DmiDevice {
+  string board_name = 1;
+  string board_version = 2;
+  string bios_version = 3;
 }
 
 message PciDeviceProperties{

@@ -80,6 +80,8 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             network_interfaces: vec![],
             cpus: vec![],
             block_devices: vec![],
+            nvme_devices: vec![],
+            dmi_devices: vec![],
             machine_type: "x86_64".to_string(),
         };
 

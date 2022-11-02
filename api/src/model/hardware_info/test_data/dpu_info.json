@@ -74,6 +74,19 @@
         }
     ],
     "machine_type": "aarch64",
+    "nvme_devices": [
+        {
+            "model": "NO_MODEL",
+            "firmware_rev": "NO_FIRMWARE_REV"
+        }
+    ],
+    "dmi_devices": [
+        {
+            "board_name": "NO_BOARD_NAME",
+            "board_version": "NO_BOARD_VERSION",
+            "bios_version": "NO_BIOS_VERSION"
+        }
+    ],
     "block_devices": [
         {
             "model": "NO_MODEL",
