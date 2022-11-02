@@ -30,13 +30,18 @@
 - [iPXE](ipxe/development.md)
 
 # Environments
+
 - [Labs](labs.md)
   - [Dev1(SJC4)](labs/dev1.md)
   - [Dev2(RENO)](labs/dev2.md)
+  - [Dev2 New DPUs(RENO)](labs/dev2_newdpus.md)
+  - [Integration(RENO)](labs/integration.md)
 - [Production](production.md)
 
 # Glossary
+
 - [Glossary](glossary.md)
 
 # Archives
+
 - [Legacy development environment](archives/legacy-development.md)
