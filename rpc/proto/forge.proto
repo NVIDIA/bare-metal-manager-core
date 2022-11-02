@@ -46,6 +46,7 @@ service Forge {
 
   // PRIVILEGED: Creates a new machine from nothing
   rpc DiscoverMachine(MachineDiscoveryInfo) returns (MachineDiscoveryResult);
+  rpc CleanupMachineCompleted(MachineCleanupInfo) returns (MachineCleanupResult);
   rpc Done(UUID) returns (Machine);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
 
@@ -619,7 +620,32 @@ message MachineDiscoveryInfo {
   }
 }
 
+message MachineCleanupInfo {
+	enum CleanupResult {
+		OK = 0;
+		ERROR = 1;
+	}
+	message CleanupStepResult {
+		CleanupResult result = 1;
+		// If the result was an error, this can contain the associate error message 
+		string message = 2;
+	}
+
+	UUID machine_id = 1;
+
+	// NVMe Cleanup Result
+	CleanupStepResult nvme = 2;
+	// RAM cleanup result
+	CleanupStepResult ram = 3;
+
+	CleanupResult result = 11;
+}
+
 message MachineDiscoveryResult {
+  // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
+}
+
+message MachineCleanupResult {
   // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
 }
 

@@ -897,6 +897,17 @@ where
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn cleanup_machine_completed(
+        &self,
+        request: Request<rpc::MachineCleanupInfo>,
+    ) -> Result<Response<rpc::MachineCleanupResult>, Status> {
+        let response = Ok(Response::new(rpc::MachineCleanupResult {}));
+        log::info!("MachineCleanupInfo {:?}", request);
+
+        response
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn done(&self, request: Request<rpc::Uuid>) -> Result<Response<rpc::Machine>, Status> {
         let mut txn = self
             .database_connection

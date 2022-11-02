@@ -16,7 +16,7 @@ use carbide::{
         machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
-    model::hardware_info::{BlockDevice, Cpu, HardwareInfo, NetworkInterface, PciDeviceProperties},
+    model::hardware_info::{NvmeDevice, DmiDevice, BlockDevice, Cpu, HardwareInfo, NetworkInterface, PciDeviceProperties},
 };
 use mac_address::MacAddress;
 
@@ -101,6 +101,16 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 numa_node: 2147483647,
                 vendor: "0x1af4".to_string(),
             }),
+        }],
+        nvme_devices: vec![ NvmeDevice {
+			model: "test_nvme_model".to_string(),
+			firmware_rev: "test_nvme_firmware_rev.1.0".to_string(),
+			
+        }],
+        dmi_devices: vec![ DmiDevice {
+			board_name: "test_dmi_model".to_string(),
+			board_version: "test_board_version.1.0".to_string(),
+			bios_version: "test_bios_version.1.0".to_string(),
         }],
     };
 

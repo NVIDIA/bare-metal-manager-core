@@ -15,7 +15,8 @@ use rlimit::Resource;
 use std::fs;
 
 use crate::deprovision::cmdrun;
-use cli::CarbideClientResult;
+use ::rpc::forge as rpc;
+use cli::{CarbideClientError, CarbideClientResult};
 
 /*
 
@@ -181,28 +182,70 @@ fn cleanup_ram() -> Result<(), String> {
 
     Ok(())
 }
+fn get_cleanup(uuid: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
+    let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
+        .map(|m| m.into())
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+
+    let mut cleanup_result = rpc::MachineCleanupInfo {
+        machine_id: Some(rpc_uuid),
+        nvme: None,
+        ram: None,
+        result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+    };
+
+    //do nvme cleanup only if stdin is /dev/null. This is because we afraid to cleanum someone's nvme drive.
+    let stdin_link = match fs::read_link("/proc/self/fd/0") {
+        Ok(o) => o.to_string_lossy().to_string(),
+        Err(_) => "None".to_string(),
+    };
+
+    if stdin_link == "/dev/null" {
+        match all_nvme_cleanup() {
+            Ok(_) => {
+                cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                    result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+                    message: "OK".to_string(),
+                });
+            }
+            Err(e) => {
+                println!("{}", e);
+                cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                    result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+                    message: e,
+                });
+                cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+            }
+        }
+    } else {
+        println!("stdin == {}. Skip nvme cleanup.", stdin_link);
+    }
+    match cleanup_ram() {
+        Ok(_) => {
+            cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+                message: "OK".to_string(),
+            });
+        }
+        Err(e) => {
+            println!("{}", e);
+            cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+                message: e,
+            });
+            cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+        }
+    }
+    Ok(cleanup_result)
+}
 
 pub struct Deprovision {}
 impl Deprovision {
-    pub async fn run(_listen: String, _uuid: &str) -> CarbideClientResult<()> {
-        //do nvme cleanup only if stdin is /dev/null. This is because we afraid to cleanum someone's nvme drive.
-        let stdin_link = match fs::read_link("/proc/self/fd/0") {
-            Ok(o) => o.to_string_lossy().to_string(),
-            Err(_) => "None".to_string(),
-        };
-
-        if stdin_link == "/dev/null" {
-            match all_nvme_cleanup() {
-                Ok(_) => (),
-                Err(e) => println!("{}", e),
-            }
-        } else {
-            println!("stdin == {}. Skip nvme cleanup.", stdin_link);
-        }
-        match cleanup_ram() {
-            Ok(_) => (),
-            Err(e) => println!("{}", e),
-        }
+    pub async fn run(api: &str, uuid: &str) -> CarbideClientResult<()> {
+        let info = get_cleanup(uuid)?;
+        let mut client = rpc::forge_client::ForgeClient::connect(api.to_string()).await?;
+        let request = tonic::Request::new(info);
+        client.cleanup_machine_completed(request).await?;
         Ok(())
     }
 }

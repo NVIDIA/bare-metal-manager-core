@@ -30,10 +30,11 @@ use serde::{Serialize, Serializer};
 pub use crate::protos::forge::{
     self, machine_credentials_update_request::CredentialPurpose,
     machine_discovery_info::DiscoveryData, Domain, Instance, InstanceList, InstanceSubnet, Machine,
-    MachineAction, MachineDiscoveryInfo, MachineEvent, MachineInterface, MachineList, Uuid,
+    MachineAction, MachineDiscoveryInfo, MachineEvent, MachineInterface, MachineList, Uuid, MachineCleanupInfo,
 };
 pub use crate::protos::machine_discovery::{
-    self, BlockDevice, Cpu, DiscoveryInfo, NetworkInterface, PciDeviceProperties,
+    self, BlockDevice, Cpu, DiscoveryInfo, DmiDevice, NetworkInterface, NvmeDevice,
+    PciDeviceProperties,
 };
 
 pub mod protos;
@@ -116,11 +117,13 @@ impl Serialize for DiscoveryInfo {
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("DiscoveryInfo", 4)?;
+        let mut state = serializer.serialize_struct("DiscoveryInfo", 6)?;
         state.serialize_field("network_interfaces", &self.network_interfaces)?;
         state.serialize_field("cpus", &self.cpus)?;
         state.serialize_field("block_devices", &self.block_devices)?;
         state.serialize_field("machine_type", &self.machine_type)?;
+        state.serialize_field("nvme_devices", &self.nvme_devices)?;
+        state.serialize_field("dmi_devices", &self.dmi_devices)?;
         state.end()
     }
 }
@@ -162,6 +165,30 @@ impl Serialize for BlockDevice {
         state.serialize_field("serial", &self.serial)?;
         state.serialize_field("model", &self.model)?;
         state.serialize_field("revision", &self.revision)?;
+        state.end()
+    }
+}
+
+impl Serialize for NvmeDevice {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("nvme_device", 2)?;
+        state.serialize_field("model", &self.model)?;
+        state.serialize_field("firmware_rev", &self.firmware_rev)?;
+        state.end()
+    }
+}
+impl Serialize for DmiDevice {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("dmi_device", 3)?;
+        state.serialize_field("board_name", &self.board_name)?;
+        state.serialize_field("board_version", &self.board_version)?;
+        state.serialize_field("bios_version", &self.bios_version)?;
         state.end()
     }
 }
@@ -386,7 +413,7 @@ state_machine! {
 #[cfg(test)]
 mod test {
     use crate::{
-        BlockDevice, Cpu, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, NetworkInterface,
+        NvmeDevice, DmiDevice, BlockDevice, Cpu, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, NetworkInterface,
         PciDeviceProperties,
     };
 
@@ -407,6 +434,20 @@ mod test {
             model: "model".to_string(),
             revision: "revision".to_string(),
             serial: "serial".to_string(),
+        }
+    }
+    fn create_test_nvme_device() -> NvmeDevice {
+        NvmeDevice {
+            model: "model".to_string(),
+            firmware_rev: "firmware_rev".to_string(),
+        }
+    }
+
+    fn create_test_dmi_device() -> DmiDevice {
+        DmiDevice {
+            board_name: "board_name".to_string(),
+            board_version: "board_version".to_string(),
+            bios_version: "bios_version".to_string(),
         }
     }
 
@@ -432,6 +473,8 @@ mod test {
             network_interfaces: vec![create_test_network_interface()],
             cpus: vec![create_test_cpu()],
             block_devices: vec![create_test_block_device()],
+            dmi_devices: vec![create_test_dmi_device()],
+            nvme_devices: vec![create_test_nvme_device()],
             machine_type: "machine_type".to_string(),
         }
     }

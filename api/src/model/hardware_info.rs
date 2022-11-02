@@ -27,6 +27,10 @@ pub struct HardwareInfo {
     #[serde(default)]
     pub block_devices: Vec<BlockDevice>,
     pub machine_type: String,
+    #[serde(default)]
+    pub nvme_devices: Vec<NvmeDevice>,
+    #[serde(default)]
+    pub dmi_devices: Vec<DmiDevice>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +66,19 @@ pub struct BlockDevice {
     pub revision: String,
     #[serde(default)]
     pub serial: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NvmeDevice {
+    pub model: String,
+    pub firmware_rev: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DmiDevice {
+    pub board_name: String,
+    pub board_version: String,
+    pub bios_version: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,6 +158,52 @@ impl TryFrom<BlockDevice> for rpc::machine_discovery::BlockDevice {
     }
 }
 
+impl TryFrom<rpc::machine_discovery::NvmeDevice> for NvmeDevice {
+    type Error = RpcDataConversionError;
+
+    fn try_from(dev: rpc::machine_discovery::NvmeDevice) -> Result<Self, Self::Error> {
+        Ok(Self {
+            model: dev.model,
+            firmware_rev: dev.firmware_rev,
+        })
+    }
+}
+
+impl TryFrom<NvmeDevice> for rpc::machine_discovery::NvmeDevice {
+    type Error = RpcDataConversionError;
+
+    fn try_from(dev: NvmeDevice) -> Result<Self, Self::Error> {
+        Ok(Self {
+            model: dev.model,
+            firmware_rev: dev.firmware_rev,
+        })
+    }
+}
+
+impl TryFrom<rpc::machine_discovery::DmiDevice> for DmiDevice {
+    type Error = RpcDataConversionError;
+
+    fn try_from(dev: rpc::machine_discovery::DmiDevice) -> Result<Self, Self::Error> {
+        Ok(Self {
+            board_name: dev.board_name,
+            board_version: dev.board_version,
+            bios_version: dev.bios_version,
+        })
+    }
+}
+
+impl TryFrom<DmiDevice> for rpc::machine_discovery::DmiDevice {
+    type Error = RpcDataConversionError;
+
+    fn try_from(dev: DmiDevice) -> Result<Self, Self::Error> {
+        Ok(Self {
+            board_name: dev.board_name,
+            board_version: dev.board_version,
+            bios_version: dev.bios_version,
+        })
+    }
+}
+
 impl TryFrom<rpc::machine_discovery::NetworkInterface> for NetworkInterface {
     type Error = RpcDataConversionError;
 
@@ -215,6 +278,8 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             cpus: try_convert_vec(info.cpus)?,
             block_devices: try_convert_vec(info.block_devices)?,
             machine_type: info.machine_type,
+            nvme_devices: try_convert_vec(info.nvme_devices)?,
+            dmi_devices: try_convert_vec(info.dmi_devices)?,
         })
     }
 }
@@ -228,6 +293,8 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
             cpus: try_convert_vec(info.cpus)?,
             block_devices: try_convert_vec(info.block_devices)?,
             machine_type: info.machine_type,
+            nvme_devices: try_convert_vec(info.nvme_devices)?,
+            dmi_devices: try_convert_vec(info.dmi_devices)?,
         })
     }
 }
