@@ -1,9 +1,0 @@
--- Add migration script here
-ALTER TABLE IF EXISTS vpcs
-    ADD COLUMN version VARCHAR(64) NOT NULL
-    DEFAULT ('V1-T1666644937952267')
-;
-ALTER TABLE IF EXISTS network_segments
-    ADD COLUMN version VARCHAR(64) NOT NULL
-    DEFAULT ('V1-T1666644937952267')
-;
