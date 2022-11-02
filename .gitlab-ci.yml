@@ -41,6 +41,14 @@ include:
     file:
       - defaults.gitlab-ci.yml
 
+build:
+  rules:
+    - when: never
+
+produce-binary-artifacts:
+  rules:
+    - when: never
+
 build-container:
   variables:
     DOCKER_FILE_LOCATION: $CI_PROJECT_DIR/dev/docker
