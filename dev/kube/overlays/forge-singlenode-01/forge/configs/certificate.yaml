@@ -1,0 +1,37 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: forge-provisioner-cert
+  namespace: forge-system
+spec:
+  dnsNames:
+  - carbide-api.forge-system.svc
+  - carbide-api.forge-system.svc.cluster.local
+  isCA: true
+  issuerRef:
+    kind: Issuer
+    name: forge-selfsigned-issuer
+  secretName: forge-provisioner-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: forge-serving-cert
+  namespace: forge-system
+spec:
+  dnsNames:
+  - forge-webhook-service.forge-system.svc
+  - forge-webhook-service.forge-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: forge-selfsigned-issuer
+  secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: forge-selfsigned-issuer
+  namespace: forge-system
+spec:
+  selfSigned: {}
