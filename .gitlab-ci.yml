@@ -243,6 +243,14 @@ deploy_qa:
   tags:
     - corp
 
+deploy_forge_singlenode_01:
+  extends: .deploy_kustomize
+  environment:
+    name: forge-singlenode-01
+    deployment_tier: testing
+  tags:
+    - corp
+
 deploy_nbu:
   extends: .deploy_kustomize
   environment:
