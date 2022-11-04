@@ -21,6 +21,8 @@ use ::rpc::forge as rpc;
 use ::rpc::machine_discovery as rpc_discovery;
 use cli::{CarbideClientError, CarbideClientResult};
 
+mod tpm;
+
 pub struct Discovery {}
 
 fn convert_udev_to_mac(udev: String) -> CarbideClientResult<String> {
@@ -437,12 +439,23 @@ pub fn get_machine_details(
         }
     }
 
+    let tpm_ek_certificate = match tpm::get_ek_certificate() {
+        Ok(cert) => Some(base64::encode(cert)),
+        Err(e) => {
+            log::error!("Could not read TPM EK certificate: {:?}", e);
+            None
+        }
+    };
+
     log::debug!("Disks sent to carbide - {:?}", disks);
     log::debug!("CPUs sent to carbide - {:?}", cpus);
     log::debug!("NICS sent to carbide - {:?}", nics);
     log::debug!("NVMES sent to carbide - {:?}", nvmes);
     log::debug!("DMIS sent to carbide - {:?}", dmis);
     log::debug!("Machine Type sent to carbide - {}", info.machine.as_str());
+    if let Some(cert) = tpm_ek_certificate.as_ref() {
+        log::debug!("TPM EK certificate (base64): {}", cert);
+    }
 
     let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
         .map(|m| m.into())
@@ -458,6 +471,7 @@ pub fn get_machine_details(
                 nvme_devices: nvmes,
                 dmi_devices: dmis,
                 machine_type: info.machine.as_str().to_owned(),
+                tpm_ek_certificate,
             },
         )),
     })

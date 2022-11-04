@@ -83,6 +83,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             nvme_devices: vec![],
             dmi_devices: vec![],
             machine_type: "x86_64".to_string(),
+            tpm_ek_certificate: None,
         };
 
         MachineTopology::create(&mut txn, &uuid::Uuid::try_from(*id).unwrap(), &hw_info)

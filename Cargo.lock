@@ -525,6 +525,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64",
  "chrono",
  "clap",
  "color-eyre 0.5.11",
@@ -755,6 +756,7 @@ dependencies = [
 name = "cli"
 version = "0.0.1"
 dependencies = [
+ "base64",
  "clap",
  "color-eyre 0.6.2",
  "forge_credentials",
