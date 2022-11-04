@@ -10,6 +10,7 @@ name = "carbide-cli"
 path = "src/main.rs"
 
 [dependencies]
+base64 = "0.13"
 clap = { version = "~3", features = ["derive", "env"] }
 color-eyre = "0.6"
 libc = "0.2"

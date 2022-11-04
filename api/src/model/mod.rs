@@ -28,8 +28,8 @@ pub mod machine;
 /// into the internal data model
 #[derive(Debug, thiserror::Error)]
 pub enum RpcDataConversionError {
-    // Note that this at the moment defines no error because currently our internal
-    // data model and RPC model match. However this might not be the case in the future.
+    #[error("Field {0} is not valid base64")]
+    InvalidBase64Data(&'static str),
 }
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`

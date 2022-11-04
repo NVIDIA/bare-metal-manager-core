@@ -31,6 +31,7 @@ pub struct HardwareInfo {
     pub nvme_devices: Vec<NvmeDevice>,
     #[serde(default)]
     pub dmi_devices: Vec<DmiDevice>,
+    pub tpm_ek_certificate: Option<TpmEkCertificate>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +94,50 @@ pub struct PciDeviceProperties {
     pub numa_node: i32,
     #[serde(default)]
     pub description: Option<String>,
+}
+
+/// TPM endorsement key certificate
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TpmEkCertificate(Vec<u8>);
+
+impl From<Vec<u8>> for TpmEkCertificate {
+    fn from(cert: Vec<u8>) -> Self {
+        Self(cert)
+    }
+}
+
+impl TpmEkCertificate {
+    /// Returns the binary content of the certificate
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
+    /// Converts the certifcate into a byte array
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+impl Serialize for TpmEkCertificate {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&base64::encode(self.as_bytes()))
+    }
+}
+
+impl<'de> Deserialize<'de> for TpmEkCertificate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let str_value = String::deserialize(deserializer)?;
+        let bytes = base64::decode(&str_value).map_err(|err| Error::custom(err.to_string()))?;
+        Ok(Self(bytes))
+    }
 }
 
 // These defines conversions functions from the RPC data model into the internal
@@ -273,6 +318,14 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
     type Error = RpcDataConversionError;
 
     fn try_from(info: rpc::machine_discovery::DiscoveryInfo) -> Result<Self, Self::Error> {
+        let tpm_ek_certificate = info
+            .tpm_ek_certificate
+            .map(|base64| {
+                base64::decode(base64)
+                    .map_err(|_| RpcDataConversionError::InvalidBase64Data("tpm_ek_certificate"))
+            })
+            .transpose()?;
+
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
             cpus: try_convert_vec(info.cpus)?,
@@ -280,6 +333,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             machine_type: info.machine_type,
             nvme_devices: try_convert_vec(info.nvme_devices)?,
             dmi_devices: try_convert_vec(info.dmi_devices)?,
+            tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
         })
     }
 }
@@ -295,6 +349,9 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
             machine_type: info.machine_type,
             nvme_devices: try_convert_vec(info.nvme_devices)?,
             dmi_devices: try_convert_vec(info.dmi_devices)?,
+            tpm_ek_certificate: info
+                .tpm_ek_certificate
+                .map(|cert| base64::encode(cert.into_bytes())),
         })
     }
 }
@@ -486,5 +543,49 @@ mod tests {
         let data = std::fs::read(path).unwrap();
         let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
         assert!(info.is_dpu());
+    }
+
+    #[test]
+    fn serialize_tpm_ek_certificate() {
+        let cert_data = b"This is not really a certificate".to_vec();
+        let cert = TpmEkCertificate::from(cert_data.clone());
+
+        let serialized = serde_json::to_string(&cert).unwrap();
+        assert_eq!(serialized, format!("\"{}\"", base64::encode(&cert_data)));
+
+        // Test also how that the certificate looks right within a Json structure
+        #[derive(Serialize)]
+        struct OptionalCert {
+            cert: Option<TpmEkCertificate>,
+        }
+
+        let serialized = serde_json::to_string(&OptionalCert { cert: Some(cert) }).unwrap();
+        assert_eq!(
+            serialized,
+            format!("{{\"cert\":\"{}\"}}", base64::encode(&cert_data))
+        );
+    }
+
+    #[test]
+    fn deserialize_tpm_ek_certificate() {
+        let cert_data = b"This is not really a certificate".to_vec();
+        let encoded = base64::encode(&cert_data);
+
+        let json = format!("\"{}\"", encoded);
+        let deserialized: TpmEkCertificate = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.as_bytes(), &cert_data);
+
+        // Test also how that the certificate looks right within a Json structure
+        #[derive(Deserialize)]
+        struct OptionalCert {
+            cert: Option<TpmEkCertificate>,
+        }
+
+        let json = format!("{{\"cert\":\"{}\"}}", encoded);
+        let deserialized: OptionalCert = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            deserialized.cert.as_ref().map(|cert| cert.as_bytes()),
+            Some(cert_data.as_slice())
+        );
     }
 }
