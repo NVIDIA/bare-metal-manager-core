@@ -64,12 +64,12 @@ async fn main() -> Result<(), color_eyre::Report> {
             let vault_token = env::var("VAULT_TOKEN")?;
             let vault_addr = env::var("VAULT_ADDR")?;
 
-            let mut vault_client_settings = VaultClientSettingsBuilder::default()
+            let vault_client_settings = VaultClientSettingsBuilder::default()
                 .address(vault_addr)
                 .token(vault_token)
+                .timeout(Some(Duration::from_secs(60)))
+                .verify(false) //TODO: remove me when we are starting to validate certs
                 .build()?;
-            vault_client_settings.timeout = Some(Duration::from_secs(60));
-
             let vault_client = VaultClient::new(vault_client_settings)?;
 
             let vault_client = Arc::new(vault_client);
