@@ -4,7 +4,7 @@
 software in the control plane in order to make requests to a working Carbide
 installation.
 
-The docker-compose configuration starts an environment that looks generally 
+The docker-compose configuration starts an environment that looks generally
 like this:
 
 
@@ -73,7 +73,19 @@ cargo make runtime-container
 
 ## docker-compose workflow
 
-When you shutdowb your docker compose environment use the `-v` flag to remove all 
+### First time run ONLY ###
+
+* We depend on a mounted CARGO_HOME directory to speed up dependency downloads after the first run.
+You should execute the following stanza prior to bringing up docker-compose for the first time.
+
+```
+mkdir $HOME/docker_cargo_home
+rustup target add x86_64-unknown-linux-musl
+CARGO_HOME=$HOME/docker_cargo_home cargo install cargo-watch --target x86_64-unknown-linux-musl
+```
+
+### Run this every time you bring compose up ###
+* When you shut down your docker compose environment use the `-v` flag to remove all
 volumes.  Failing to do this and then attempting to run tests will result in
 errors.
 
