@@ -17,9 +17,21 @@ services:
     networks:
       carbide:
         ipv4_address: 172.20.0.11
-    image: alpine:latest
-    command: >
-      sh -c "/sbin/apk add dhcp-helper && /usr/sbin/dhcp-helper -s carbide-dhcp -i eth0 -n -d"
+    image: carbide-runtime:latest
+    command:
+      - sh
+      - -c
+      - |
+        apt-get update
+        apt-get install libnl-3-dev libnl-route-3-dev libnl-genl-3-dev libjansson-dev libev-dev git -y
+        git clone https://github.com/westermo/dhcp-helper.git
+        cd dhcp-helper
+        autoreconf -i
+        ./configure
+        make
+        make install
+        echo { \"option82\": { }, \"server\": [ { \"address\": \"172.20.0.12\" }], \"group\": [ { \"giaddr\": \"172.20.0.11\" } ] } > /etc/dhcphelper.json
+        /usr/local/bin/dhcp-helper
   carbide-dhcp:
     depends_on:
       - terraform

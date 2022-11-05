@@ -478,6 +478,7 @@ message DhcpDiscovery {
   string relay_address = 2;
   optional string vendor_string = 3;
   optional string link_address = 4;
+  optional string circuit_id = 5;
 }
 
 message DhcpRecord {

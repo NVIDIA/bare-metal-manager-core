@@ -1,4 +1,5 @@
 #include "callouts.h"
+#include "carbide_rust.h"
 
 isc::log::Logger logger("kea-carbide-callouts");
 
@@ -40,16 +41,16 @@ void CDHCPOptionsHandler<Option>::resetOption(boost::any param) {
 }
 
 Option4AddrLst::AddressContainer getAddresses(std::string ips) {
-    std::stringstream ss(ips);
-    std::vector<isc::asiolink::IOAddress> out;
-    char delim = ',';
- 
-    std::string s;
-    while (std::getline(ss, s, delim)) {
-        out.push_back(isc::asiolink::IOAddress(s));
-    }
+  std::stringstream ss(ips);
+  std::vector<isc::asiolink::IOAddress> out;
+  char delim = ',';
 
-    return out;
+  std::string s;
+  while (std::getline(ss, s, delim)) {
+    out.push_back(isc::asiolink::IOAddress(s));
+  }
+
+  return out;
 }
 
 void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
@@ -104,10 +105,11 @@ void update_option(CalloutHandle &handle, Pkt4Ptr response4_ptr,
   }
 }
 
-DiscoveryBuilderResult update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
-                                 boost::shared_ptr<OptionCustom> option_val) {
+DiscoveryBuilderResult update_discovery_parameters_option82(
+    DiscoveryBuilderFFI *discovery, int option,
+    boost::shared_ptr<OptionCustom> option_val) {
   switch (option) {
-  case DHO_DHCP_AGENT_OPTIONS:
+  case RAI_OPTION_LINK_SELECTION: {
     OptionPtr link_select = option_val->getOption(RAI_OPTION_LINK_SELECTION);
     if (link_select) {
       OptionBuffer link_select_buf = link_select->getData();
@@ -121,22 +123,67 @@ DiscoveryBuilderResult update_discovery_parameters(DiscoveryBuilderFFI *discover
     }
     break;
   }
-
-  return DiscoveryBuilderResult::Success;
-}
-
-DiscoveryBuilderResult update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
-                                 boost::shared_ptr<OptionString> option_val) {
-  switch (option) {
-  case DHO_VENDOR_CLASS_IDENTIFIER:
-    return discovery_set_vendor_class(discovery, option_val->getValue().c_str());
+  case RAI_OPTION_AGENT_CIRCUIT_ID: {
+    OptionPtr circuit_id_opt =
+        option_val->getOption(RAI_OPTION_AGENT_CIRCUIT_ID);
+    if (circuit_id_opt) {
+      OptionBuffer circuit_id = circuit_id_opt->getData();
+      std::string circuit_value(circuit_id.begin(), circuit_id.end());
+      LOG_INFO(logger, "LOG_CARBIDE_PKT4_RECEIVE: CIRCUIT ID [%1] in packet")
+          .arg(circuit_value);
+      return discovery_set_circuit_id(discovery, circuit_value.c_str());
+    }
+    break;
+  }
   }
 
   return DiscoveryBuilderResult::Success;
 }
 
-DiscoveryBuilderResult update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
-                                 boost::shared_ptr<OptionUint16> option_val) {
+DiscoveryBuilderResult
+update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
+                            boost::shared_ptr<OptionCustom> option_val) {
+
+  DiscoveryBuilderResult ret_val;
+  switch (option) {
+  case DHO_DHCP_AGENT_OPTIONS:
+    ret_val = update_discovery_parameters_option82(
+        discovery, RAI_OPTION_LINK_SELECTION, option_val);
+    if (ret_val != DiscoveryBuilderResult::Success) {
+      LOG_ERROR(
+          logger,
+          "LOG_CARBIDE_PKT4_RECEIVE: Failed in handling link select address.");
+      return ret_val;
+    }
+
+    ret_val = update_discovery_parameters_option82(
+        discovery, RAI_OPTION_AGENT_CIRCUIT_ID, option_val);
+    if (ret_val != DiscoveryBuilderResult::Success) {
+      LOG_ERROR(logger,
+                "LOG_CARBIDE_PKT4_RECEIVE: Failed in handling circuit_id.");
+      return ret_val;
+    }
+    break;
+  }
+
+  return DiscoveryBuilderResult::Success;
+}
+
+DiscoveryBuilderResult
+update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
+                            boost::shared_ptr<OptionString> option_val) {
+  switch (option) {
+  case DHO_VENDOR_CLASS_IDENTIFIER:
+    return discovery_set_vendor_class(discovery,
+                                      option_val->getValue().c_str());
+  }
+
+  return DiscoveryBuilderResult::Success;
+}
+
+DiscoveryBuilderResult
+update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
+                            boost::shared_ptr<OptionUint16> option_val) {
   switch (option) {
   case DHO_SYSTEM:
     return discovery_set_client_system(discovery, option_val->getValue());
@@ -146,8 +193,9 @@ DiscoveryBuilderResult update_discovery_parameters(DiscoveryBuilderFFI *discover
 }
 
 template <typename T>
-DiscoveryBuilderResult update_discovery_parameters(Pkt4Ptr query4_ptr,
-                                 DiscoveryBuilderFFI *discovery, int option) {
+DiscoveryBuilderResult
+update_discovery_parameters(Pkt4Ptr query4_ptr, DiscoveryBuilderFFI *discovery,
+                            int option) {
   boost::shared_ptr<T> option_val =
       boost::dynamic_pointer_cast<T>(query4_ptr->getOption(option));
   if (option_val) {
@@ -173,8 +221,7 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr,
   // DNS servers
   char *machine_nameservers = machine_get_nameservers(machine);
   std::string nameservers(machine_nameservers);
-  update_option<Option>(handle, response4_ptr, DHO_NAME_SERVERS,
-                        nameservers);
+  update_option<Option>(handle, response4_ptr, DHO_NAME_SERVERS, nameservers);
   update_option<Option>(handle, response4_ptr, DHO_DOMAIN_NAME_SERVERS,
                         nameservers);
   machine_free_nameservers(machine_nameservers);
@@ -251,16 +298,17 @@ int pkt4_receive(CalloutHandle &handle) {
   // Initialize a discovery builder object
   // Since the object needs to be freed using a Rust function, we wrap it in
   // a unique_ptr with a custom deleter
-  std::unique_ptr<DiscoveryBuilderFFI, void(*)(DiscoveryBuilderFFI*)> discovery(
-    discovery_builder_allocate(), discovery_builder_free);
+  std::unique_ptr<DiscoveryBuilderFFI, void (*)(DiscoveryBuilderFFI *)>
+      discovery(discovery_builder_allocate(), discovery_builder_free);
 
   /*
    * Extract the DHO_DHCP_AGENT_OPTIONS (82) from request and check if Suboption
-   * 5 i.e. RAI_OPTION_LINK_SELECTION is present or not. Checkout RFC 3527 for
-   * more details.
+   * 5: RAI_OPTION_LINK_SELECTION (RFC3527) and 1: RAI_OPTION_AGENT_CIRCUIT_ID
+   * (RFC3527) are present or not.
    */
-  DiscoveryBuilderResult builder_result = update_discovery_parameters<OptionCustom>(query4_ptr, discovery.get(),
-                                            DHO_DHCP_AGENT_OPTIONS);
+  DiscoveryBuilderResult builder_result =
+      update_discovery_parameters<OptionCustom>(query4_ptr, discovery.get(),
+                                                DHO_DHCP_AGENT_OPTIONS);
   /*
    * Extract the vendor class, which has some interesting bits
    * like HTTPClient / PXEClient
@@ -269,8 +317,8 @@ int pkt4_receive(CalloutHandle &handle) {
    * at all so maybe we can build a type around it.
    */
   if (builder_result == DiscoveryBuilderResult::Success) {
-    builder_result = update_discovery_parameters<OptionString>(query4_ptr, discovery.get(),
-                                              DHO_VENDOR_CLASS_IDENTIFIER);
+    builder_result = update_discovery_parameters<OptionString>(
+        query4_ptr, discovery.get(), DHO_VENDOR_CLASS_IDENTIFIER);
   }
 
   /*
@@ -279,7 +327,8 @@ int pkt4_receive(CalloutHandle &handle) {
    * in order to figure out which filname to give back
    */
   if (builder_result == DiscoveryBuilderResult::Success) {
-    builder_result = update_discovery_parameters<OptionUint16>(query4_ptr, discovery.get(), DHO_SYSTEM);
+    builder_result = update_discovery_parameters<OptionUint16>(
+        query4_ptr, discovery.get(), DHO_SYSTEM);
   }
 
   /*
@@ -287,26 +336,30 @@ int pkt4_receive(CalloutHandle &handle) {
    * address and relay address
    */
   if (builder_result == DiscoveryBuilderResult::Success) {
-    builder_result = discovery_set_relay(discovery.get(), query4_ptr->getGiaddr().toUint32());
+    builder_result = discovery_set_relay(discovery.get(),
+                                         query4_ptr->getGiaddr().toUint32());
   }
 
   if (builder_result == DiscoveryBuilderResult::Success) {
     auto mac = query4_ptr->getHWAddr()->hwaddr_;
-    builder_result = discovery_set_mac_address(discovery.get(), mac.data(), mac.size());
+    builder_result =
+        discovery_set_mac_address(discovery.get(), mac.data(), mac.size());
   }
 
-  Machine* machine = nullptr;
+  Machine *machine = nullptr;
   if (builder_result == DiscoveryBuilderResult::Success) {
     /*
-    * We've been building up a object for the dhcp client options
-    * we care about, so now we call the function to turn that
-    * object into a dhcp machine object from the carbide API.
-    */
+     * We've been building up a object for the dhcp client options
+     * we care about, so now we call the function to turn that
+     * object into a dhcp machine object from the carbide API.
+     */
     builder_result = discovery_fetch_machine(discovery.get(), &machine);
   }
 
   if (builder_result != DiscoveryBuilderResult::Success || machine == nullptr) {
-    LOG_ERROR(logger, "LOG_CARBIDE_PKT4_RECV: Error while executing machine discovery in discovery_fetch_machine: %1, machine_ptr=%2")
+    LOG_ERROR(logger,
+              "LOG_CARBIDE_PKT4_RECV: Error while executing machine discovery "
+              "in discovery_fetch_machine: %1, machine_ptr=%2")
         .arg(discovery_builder_result_as_str(builder_result))
         .arg(machine);
     handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
@@ -315,7 +368,7 @@ int pkt4_receive(CalloutHandle &handle) {
 
   // On success, we set the pointer to the machine in the request context to
   // be retrieved later
-  boost::shared_ptr<Machine> machinePtr(machine, [](Machine* ptr) {
+  boost::shared_ptr<Machine> machinePtr(machine, [](Machine *ptr) {
     // Tell rust code to free the memory, since memory allocated in Rust can't
     // be freed with a native `delete` or `free`.
     // By wrapping this in the `shared_ptr`, we make sure KEA always releases

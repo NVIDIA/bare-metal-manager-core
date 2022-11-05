@@ -29,6 +29,7 @@ pub enum DiscoveryBuilderResult {
     InvalidMachinePointer = 4,
     BuilderError = 5,
     FetchMachineError = 6,
+    InvalidCircuitId = 7,
 }
 
 #[no_mangle]
@@ -46,6 +47,7 @@ pub extern "C" fn discovery_builder_result_as_str(result: DiscoveryBuilderResult
             DiscoveryBuilderResult::InvalidMachinePointer => "InvalidMachinePointer\0",
             DiscoveryBuilderResult::BuilderError => "BuilderError\0",
             DiscoveryBuilderResult::FetchMachineError => "FetchMachineError\0",
+            DiscoveryBuilderResult::InvalidCircuitId => "InvalidCircuitId\0",
         }
         .as_bytes(),
     )
@@ -66,6 +68,9 @@ pub struct Discovery {
 
     #[builder(setter(into, strip_option), default)]
     pub(crate) link_select_address: Option<Ipv4Addr>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub(crate) circuit_id: Option<String>,
 }
 
 #[repr(C)]
@@ -157,6 +162,32 @@ pub unsafe extern "C" fn discovery_set_link_select(
 ) -> DiscoveryBuilderResult {
     marshal_discovery_ffi(ctx, |builder| {
         builder.link_select_address(Ipv4Addr::from(link_select.to_be_bytes()));
+        DiscoveryBuilderResult::Success
+    })
+}
+
+/// Fill the `circuit id (vlanid)` portion of the Discovery object with an String
+///
+/// # Safety
+///
+/// This function is only safe to be called on a `ctx` which is either a null pointer
+/// or a valid `DiscoveryBuilderFFI` object.
+///
+#[no_mangle]
+pub unsafe extern "C" fn discovery_set_circuit_id(
+    ctx: *mut DiscoveryBuilderFFI,
+    circuit_id: *const libc::c_char,
+) -> DiscoveryBuilderResult {
+    let circuit_id = match CStr::from_ptr(circuit_id).to_str() {
+        Ok(string) => string.to_owned(),
+        Err(error) => {
+            log::error!("Invalid UTF-8 byte string for circuit_id: {}", error);
+            return DiscoveryBuilderResult::InvalidCircuitId;
+        }
+    };
+
+    marshal_discovery_ffi(ctx, |builder| {
+        builder.circuit_id(circuit_id);
         DiscoveryBuilderResult::Success
     })
 }
