@@ -58,6 +58,7 @@ pub async fn discover_dhcp(
         relay_address,
         link_address,
         vendor_string,
+        circuit_id,
         ..
     } = request.into_inner();
 
@@ -69,6 +70,8 @@ pub async fn discover_dhcp(
         .parse()
         .map_err(CarbideError::from)?;
 
+    // This log will be removed in next version.
+    log::info!("Circuit id received in packet {:?}", circuit_id);
     let parsed_mac: MacAddress = mac_address
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
