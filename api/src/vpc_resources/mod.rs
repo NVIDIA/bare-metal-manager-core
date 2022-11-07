@@ -113,7 +113,13 @@ impl VpcResourceStatus for resource_group::ResourceGroupStatus {
         if let Some(conditions) = self.conditions.as_ref() {
             if let Some(condition) = latest_condition(conditions) {
                 if let Some(condition_status) = condition.status.as_ref() {
-                    return condition_status.to_lowercase().as_str() == "true";
+                    if condition_status.to_lowercase().as_str() != "true" {
+                        return false;
+                    }
+
+                    if let Some(fabric_network_conf) = self.fabric_network_configuration.as_ref() {
+                        return fabric_network_conf.vlan_id.is_some();
+                    }
                 }
             }
         }

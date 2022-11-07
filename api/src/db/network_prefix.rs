@@ -34,6 +34,7 @@ pub struct NetworkPrefix {
     pub prefix: IpNetwork,
     pub gateway: Option<IpNetwork>,
     pub num_reserved: i32,
+    pub vlan_id: Option<i32>,
     state: VpcResourceState,
     events: Vec<NetworkPrefixEvent>,
 }
@@ -53,6 +54,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
             prefix: row.try_get("prefix")?,
             gateway: row.try_get("gateway")?,
             num_reserved: row.try_get("num_reserved")?,
+            vlan_id: row.try_get("vlan_id")?,
             state: VpcResourceState::Init,
             events: Vec::new(),
         })
@@ -259,5 +261,21 @@ impl NetworkPrefix {
         inner_transaction.commit().await?;
 
         Ok(inserted_prefixes)
+    }
+
+    pub async fn update_vlan_id(
+        txn: &mut Transaction<'_, Postgres>,
+        segment_id: uuid::Uuid,
+        vlan_id: i32,
+    ) -> CarbideResult<()> {
+        let _: (uuid::Uuid,) = sqlx::query_as(
+            "UPDATE network_prefixes set vlan_id=$1 WHERE id=$2 RETURNING segment_id",
+        )
+        .bind(vlan_id)
+        .bind(segment_id)
+        .fetch_one(&mut *txn)
+        .await?;
+
+        Ok(())
     }
 }
