@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::fmt::Display;
 
 use rocket::{get, routes, Route};
 use rocket_dyn_templates::Template;
 
 use ::rpc::forge as rpc;
 
-use crate::machine_architecture::MachineArchitecture;
 use crate::routes::RpcContext;
 use crate::{Machine, RuntimeConfig};
 
@@ -80,29 +80,71 @@ pub async fn whoami(machine: Machine) -> Template {
     Template::render("whoami", &machine)
 }
 
+fn generate_error_template<D1, D2>(error_str: D1, error_code: D2) -> Template
+where
+    D1: Display,
+    D2: Display,
+{
+    let err = format!(
+        r#"
+echo {error_str} ||
+exit {error_code} ||
+"#,
+    );
+    let mut context = HashMap::new();
+    context.insert("error".to_string(), err);
+    Template::render("error", &context)
+}
+
+pub enum PxeErrorCode {
+    InterfaceNotFound = 103,
+    CouldNotDecodeUUID = 104,
+    ArchitectureNotFound = 105,
+}
+
 #[get("/boot")]
-pub async fn boot(contents: Machine, config: RuntimeConfig) -> Template {
-    let instructions = match contents.architecture {
-        Some(arch) => match contents.machine {
-            None => boot_into_discovery(arch, contents.interface, config),
-            Some(m) => determine_boot_from_state(m, contents.interface, config, arch).await,
-        },
-        None => r#"
-echo Architecture was not specified ||
-exit 102 ||
-"#
-        .to_string(),
-    };
+pub async fn boot(contents: Machine, config: RuntimeConfig) -> Result<Template, Template> {
+    let machine_interface_id = contents
+        .interface
+        .id
+        .ok_or_else(|| {
+            generate_error_template(
+                "Interface not found".to_string(),
+                PxeErrorCode::InterfaceNotFound as isize,
+            )
+        })
+        .and_then(|uuid| {
+            uuid::Uuid::try_from(uuid).map_err(|err| {
+                generate_error_template(
+                    format!("Could not decode uuid: {err}"),
+                    PxeErrorCode::CouldNotDecodeUUID as isize,
+                )
+            })
+        })?;
+    let arch = contents.architecture.ok_or_else(|| {
+        generate_error_template(
+            "Architecture not found".to_string(),
+            PxeErrorCode::ArchitectureNotFound as isize,
+        )
+    })?;
 
     let mut context = HashMap::new();
-    context.insert("ipxe", instructions);
+    context.insert("interface_id".to_string(), machine_interface_id.to_string());
+    context.insert("pxe_url".to_string(), config.pxe_url.clone());
 
-    Template::render("pxe", &context)
+    let instructions = match contents.machine {
+        None => boot_into_discovery(arch, machine_interface_id, config),
+        Some(m) => determine_boot_from_state(m, machine_interface_id, config, arch).await,
+    };
+
+    context.insert("ipxe".to_string(), instructions);
+
+    Ok(Template::render("pxe", &context))
 }
 
 async fn determine_boot_from_state(
     machine: rpc::Machine,
-    interface: rpc::MachineInterface,
+    machine_interface_id: uuid::Uuid,
     config: RuntimeConfig,
     arch: rpc::MachineArchitecture,
 ) -> String {
@@ -111,9 +153,11 @@ async fn determine_boot_from_state(
             // The DPU needs an error code to force boot into the OS
             rpc::MachineArchitecture::Arm => "exit 1".to_string(),
             // X86 does not install OS in disk. It boots fresh everytime with carbide.efi.
-            rpc::MachineArchitecture::X86 => boot_into_discovery(arch, interface, config),
+            rpc::MachineArchitecture::X86 => {
+                boot_into_discovery(arch, machine_interface_id, config)
+            }
         },
-        "reset" => boot_into_discovery(rpc::MachineArchitecture::X86, interface, config),
+        "reset" => boot_into_discovery(rpc::MachineArchitecture::X86, machine_interface_id, config),
         "assigned" => boot_tenant_config(machine, config).await,
         // any unrecognized state will cause ipxe to stop working with this message
         invalid_status => format!(
@@ -150,26 +194,22 @@ exit 101 ||
 
 fn boot_into_discovery(
     arch: rpc::MachineArchitecture,
-    interface: rpc::MachineInterface,
+    machine_interface_id: uuid::Uuid,
     config: RuntimeConfig,
 ) -> String {
-    let uuid = interface.id.unwrap();
-    let build_arch = MachineArchitecture::from(arch);
-
     match arch {
         rpc::MachineArchitecture::Arm => {
             String::from(
                 InstructionGenerator::Arm {
-                    kernel: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.efi", pxe_url = config.pxe_url),
-                    command_line: format!("console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data?buildarch={build_arch} pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, build_arch = build_arch, api_url = config.api_url),
-                    initrd: format!("{pxe_url}/public/blobs/internal/aarch64/carbide.root", pxe_url = config.pxe_url),
+                    kernel: "${base-url}/internal/aarch64/carbide.efi".to_string(),
+                    command_line: format!("console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=discovery bfnet=oob_net0:dhcp bfks={{ cloudinit-url }} machine_id={uuid} server_uri={api_url} ", uuid = machine_interface_id, api_url = config.api_url),
+                    initrd: "${base-url}/internal/aarch64/carbide.root".to_string(),
             })
         }
         rpc::MachineArchitecture::X86 => {
             String::from( InstructionGenerator::X86 {
-                    kernel: format!("{pxe_url}/public/blobs/internal/x86_64/carbide.efi", pxe_url = config.pxe_url),
-                    command_line: format!("root=live:{pxe_url}/public/blobs/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp cli_cmd=discovery machine_id={uuid} bfnet=oob_net0:dhcp bfks={pxe_url}/api/v0/cloud-init/{uuid}/user-data?buildarch={build_arch} pxe_uri={pxe_url} server_uri={api_url} ", pxe_url = config.pxe_url, uuid = uuid, build_arch = build_arch, api_url = config.api_url),
-
+                    kernel: "${base-url}/internal/x86_64/carbide.efi".to_string(),
+                    command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp cli_cmd=discovery machine_id={uuid} server_uri={api_url} ", uuid = machine_interface_id, api_url = config.api_url),
             })
         }
     }
