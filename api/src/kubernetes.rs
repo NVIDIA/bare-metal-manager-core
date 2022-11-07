@@ -148,8 +148,49 @@ async fn create_resource_group_handler(
         Ok(_) => {
             update_status(
                 &current_job,
-                1,
-                format!("ResourceGroup creation {} is successful.", spec.name()),
+                2,
+                format!("ResourceGroup created {} on vpc.", spec.name()),
+                TaskState::Ongoing,
+            )
+            .await;
+            let waiter = await_condition(
+                resource.clone(),
+                spec_name.as_str(),
+                ConditionReadyMatcher {
+                    matched_name: spec_name.clone(),
+                },
+            );
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
+                .await
+                .map(|result| result.map_err(CarbideError::from))?;
+
+            update_status(
+                &current_job,
+                3,
+                format!("ResourceGroup updated {} on vpc.", spec.name()),
+                TaskState::Ongoing,
+            )
+            .await;
+            let new_rg = resource.get_status(&spec.name()).await?;
+            if let Some(status) = new_rg.status.as_ref() {
+                if let Some(network_fabric) = status.fabric_network_configuration.as_ref() {
+                    if let Some(vlanid) = network_fabric.vlan_id {
+                        let mut txn = current_job.pool().begin().await?;
+                        NetworkPrefix::update_vlan_id(
+                            &mut txn,
+                            Uuid::try_from(spec_name.as_str())?,
+                            vlanid,
+                        )
+                        .await?;
+                        txn.commit().await?;
+                    }
+                }
+            }
+
+            update_status(
+                &current_job,
+                4,
+                format!("ResourceGroup created {} and vlanid updated.", spec.name()),
                 TaskState::Finished,
             )
             .await;
@@ -159,7 +200,7 @@ async fn create_resource_group_handler(
         Err(err) => {
             update_status(
                 &current_job,
-                2,
+                5,
                 format!(
                     "ResourceGroup creation {} failed. Error: {:?}",
                     spec.name(),
@@ -252,7 +293,7 @@ async fn create_managed_resource_handler(
             )
             .await;
             let waiter = await_condition(
-                resource,
+                resource.clone(),
                 spec_name.as_str(),
                 ConditionReadyMatcher {
                     matched_name: spec_name.clone(),

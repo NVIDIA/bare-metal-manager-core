@@ -85,6 +85,17 @@ async fn test_create_segment_with_domain(
 
     txn.commit().await?;
 
+    let mut txn = pool.begin().await?;
+    let new_prefix = NetworkPrefix::find(&mut txn, segment.prefixes[0].id).await;
+    NetworkPrefix::update_vlan_id(&mut txn, new_prefix.unwrap().id, 123)
+        .await
+        .unwrap();
+    txn.commit().await?;
+
+    let mut txn = pool.begin().await?;
+    let new_prefix = NetworkPrefix::find(&mut txn, segment.prefixes[0].id).await;
+    assert_eq!(new_prefix.unwrap().vlan_id.unwrap(), 123);
+
     let _next_ipv4: IpAddr = "192.0.2.2".parse()?;
     let _next_ipv6: IpAddr = "2001:db8:f::64".parse()?;
 
