@@ -28,6 +28,10 @@ spec:
               value: "/opt/carbide/pxe/templates/"
             - name: ROCKET_ENV
               value: development
+            - name: ARTIFACT_AUTHORIZATION_USER
+              valueFrom: { secretKeyRef: { name: artifacts-creds, key: ARTIFACT_USER } }
+            - name: ARTIFACT_AUTHORIZATION_TOKEN
+              valueFrom: { secretKeyRef: { name: artifacts-creds, key: ARTIFACT_TOKEN } }
           command: ["/opt/carbide/carbide"]
           args:
             - "-s"

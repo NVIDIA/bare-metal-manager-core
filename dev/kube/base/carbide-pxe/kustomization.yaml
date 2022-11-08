@@ -11,3 +11,10 @@ configMapGenerator:
     files:
     - Rocket.toml=rocket.toml
     - artifacts.json=artifacts.json
+secretGenerator:
+- name: artifacts-creds
+  options:
+    disableNameSuffixHash: true
+  literals:
+  - ARTIFACT_USER=arty_svcngcc_rw
+  - ARTIFACT_TOKEN=fakesecret

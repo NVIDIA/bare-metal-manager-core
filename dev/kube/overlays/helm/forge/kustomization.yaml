@@ -54,4 +54,3 @@ configMapGenerator:
     behavior: merge
     files:
       - Rocket.toml=configs/rocket.toml
-      - artifacts.json=configs/artifacts.json
