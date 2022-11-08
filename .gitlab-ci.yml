@@ -280,6 +280,7 @@ deploy_fleet_command_site_0:
     HELM_VER: ${HELM_VERSION}
     DEPLOYMENT_NAME: carbide
     LOCATION: site-0
+    TARGET_NAMESPACE: forge-system
   environment:
     name: fleet_command
     deployment_tier: testing
