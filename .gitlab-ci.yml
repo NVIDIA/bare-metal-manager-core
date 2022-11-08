@@ -299,8 +299,3 @@ deploy_fleet_command_site_0:
     deployment_tier: testing
   tags:
     - corp
-  rules:
-    - if: $CI_DEFAULT_BRANCH == $CI_COMMIT_REF_NAME
-    - if: $CI_COMMIT_TAG
-    - if: $CI_PIPELINE_SOURCE == "web"
-    - if: $CI_COMMIT_MESSAGE =~ /.*testpipeline.*/
