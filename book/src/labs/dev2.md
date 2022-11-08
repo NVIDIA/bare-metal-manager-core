@@ -11,8 +11,9 @@ Credentials
 - DPU BMC: `root:M/uz{HKh@fz6S-%8`
 
 Details
-- reno: https://docs.google.com/spreadsheets/d/172XpZFYMAo_Ph98FMflqztnBE5fILUIeWe9b20R2cQE/edit#gid=0
-- new reno: https://docs.google.com/spreadsheets/d/1m1dsTVujwnTcYZ-BCocaplzsm8Os92P1zvmyAoMRg0U/edit#gid=0
+- reno orig: https://docs.google.com/spreadsheets/d/172XpZFYMAo_Ph98FMflqztnBE5fILUIeWe9b20R2cQE/edit#gid=0
+- reno v2: https://docs.google.com/spreadsheets/d/1fmg6qTsrkhVDSE_UOXNoTmmEgM0Qq0imG5cOS2ZRVk4/edit#gid=701174353 
+- dell dpu info: https://docs.google.com/spreadsheets/d/1m1dsTVujwnTcYZ-BCocaplzsm8Os92P1zvmyAoMRg0U/edit#gid=0
 - B17 - https://netbox.nvidia.com/dcim/racks/9953/
 - B18 - https://netbox.nvidia.com/dcim/racks/9954/
 - B19 - https://netbox.nvidia.com/dcim/racks/9955/
