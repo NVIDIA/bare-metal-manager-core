@@ -11,11 +11,41 @@
  */
 
 use std::{
+    ops::{Deref, DerefMut},
     str::FromStr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use chrono::{DateTime, NaiveDateTime, Utc};
+
+/// A configuration that is accompanied by a version field
+pub struct Versioned<T> {
+    /// The configuration that is versioned
+    pub config: T,
+    /// The version of the configuration
+    pub version: ConfigVersion,
+}
+
+impl<T> Versioned<T> {
+    /// Creates a new a `Versioned` wrapper around the configuration
+    pub fn new(config: T, version: ConfigVersion) -> Self {
+        Self { config, version }
+    }
+}
+
+impl<T> Deref for Versioned<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.config
+    }
+}
+
+impl<T> DerefMut for Versioned<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.config
+    }
+}
 
 /// The version of any configuration that is applied in the Forge system
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
