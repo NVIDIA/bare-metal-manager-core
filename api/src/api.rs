@@ -436,7 +436,7 @@ where
         &self,
         _request: Request<rpc::NetworkSegmentUpdateRequest>,
     ) -> Result<Response<rpc::NetworkSegmentUpdateResult>, Status> {
-        todo!()
+        return Err(Status::unimplemented("not implemented"));
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -624,7 +624,7 @@ where
         &self,
         _request: Request<rpc::Instance>,
     ) -> Result<Response<rpc::Instance>, Status> {
-        todo!()
+        return Err(Status::unimplemented("not implemented"));
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -1317,7 +1317,7 @@ where
         &self,
         _request: Request<rpc::SecurityGroupPolicy>,
     ) -> Result<Response<rpc::SecurityGroupPolicy>, Status> {
-        todo!()
+        return Err(Status::unimplemented("not implemented"));
     }
 
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
@@ -1325,7 +1325,7 @@ where
         &self,
         _request: Request<rpc::SecurityGroupPolicyDeletion>,
     ) -> Result<Response<()>, Status> {
-        todo!()
+        return Err(Status::unimplemented("not implemented"));
     }
 
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
@@ -1333,7 +1333,7 @@ where
         &self,
         _request: Request<rpc::SecurityGroupBind>,
     ) -> Result<Response<()>, Status> {
-        todo!()
+        return Err(Status::unimplemented("not implemented"));
     }
 
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
@@ -1341,7 +1341,7 @@ where
         &self,
         _request: Request<rpc::SecurityGroupBind>,
     ) -> Result<Response<()>, Status> {
-        todo!()
+        return Err(Status::unimplemented("not implemented"));
     }
 
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
@@ -1349,7 +1349,7 @@ where
         &self,
         _request: Request<rpc::SecurityGroupPolicyQuery>,
     ) -> Result<Response<rpc::SecurityGroupPolicyList>, Status> {
-        todo!()
+        return Err(Status::unimplemented("not implemented"));
     }
 
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
@@ -1357,7 +1357,7 @@ where
         &self,
         _request: Request<rpc::SecurityGroupBindQuery>,
     ) -> Result<Response<rpc::SecurityGroupBindList>, Status> {
-        todo!()
+        return Err(Status::unimplemented("not implemented"));
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]

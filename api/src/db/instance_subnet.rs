@@ -215,13 +215,6 @@ impl InstanceSubnet {
         .await?)
     }
 
-    pub async fn addresses_for_machine_id(
-        _txn: &mut Transaction<'_, Postgres>,
-        _machine_id: uuid::Uuid,
-    ) -> CarbideResult<Vec<InstanceSubnetAddress>> {
-        todo!();
-    }
-
     pub async fn find_by_id(
         txn: &mut Transaction<'_, Postgres>,
         instance_subnet_id: uuid::Uuid,

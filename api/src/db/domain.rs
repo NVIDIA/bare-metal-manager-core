@@ -49,11 +49,6 @@ pub struct NewDomain {
     pub name: String,
 }
 
-pub struct UpdateDomain {
-    pub name: String,
-    pub updated: DateTime<Utc>,
-}
-
 // Marshal Domain object into Protobuf
 impl From<Domain> for rpc::Domain {
     fn from(src: Domain) -> Self {
@@ -121,12 +116,6 @@ impl NewDomain {
                 }
                 _ => CarbideError::from(err),
             })
-    }
-}
-
-impl UpdateDomain {
-    pub async fn persist(&self, _txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Domain> {
-        todo!()
     }
 }
 
