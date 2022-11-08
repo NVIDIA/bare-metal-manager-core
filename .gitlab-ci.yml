@@ -285,10 +285,12 @@ deploy_dogfood:
 
 deploy_fleet_command_site_0:
   extends: .deploy_fleet_command
+  before_script:
+    - export HELM_VER="${HELM_VERSION:1}"
   variables:
     APP_NAME: carbide
     HELM_CHART_NAME: carbide
-    HELM_VER: ${HELM_VERSION:1}
+    HELM_VER: ${HELM_VER}
     DEPLOYMENT_NAME: carbide
     LOCATION: site-0
     TARGET_NAMESPACE: forge-system
@@ -297,3 +299,8 @@ deploy_fleet_command_site_0:
     deployment_tier: testing
   tags:
     - corp
+  rules:
+    - if: $CI_DEFAULT_BRANCH == $CI_COMMIT_REF_NAME
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_COMMIT_MESSAGE =~ /.*testpipeline.*/
