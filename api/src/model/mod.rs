@@ -22,6 +22,7 @@
 
 pub mod config_version;
 pub mod hardware_info;
+pub mod instance;
 pub mod machine;
 
 /// Enumerates errors that can occur when converting from the RPC data format

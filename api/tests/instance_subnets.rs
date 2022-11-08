@@ -23,6 +23,7 @@ use carbide::db::network_prefix::NewNetworkPrefix;
 use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
 use carbide::db::vpc::NewVpc;
 use carbide::db::vpc_resource_state::VpcResourceState;
+use carbide::model::instance::config::network::InstanceNetworkConfig;
 
 #[ctor::ctor]
 fn setup() {
@@ -100,6 +101,7 @@ async fn new_instance_subnet_matches_machine_interface(pool: sqlx::PgPool) {
         user_data: Some("".to_string()),
         custom_ipxe: "".to_string(),
         ssh_keys: vec![],
+        network_config: InstanceNetworkConfig::for_segment_id(*new_segment.id()),
     }
     .persist(&mut txn2)
     .await
@@ -191,6 +193,7 @@ async fn new_instance_in_init_state(pool: sqlx::PgPool) {
         user_data: Some("".to_string()),
         custom_ipxe: "".to_string(),
         ssh_keys: vec![],
+        network_config: InstanceNetworkConfig::for_segment_id(*new_segment.id()),
     }
     .persist(&mut txn2)
     .await
@@ -284,6 +287,7 @@ async fn instance_subnet_state_machine_advance(pool: sqlx::PgPool) {
         user_data: Some("".to_string()),
         custom_ipxe: "".to_string(),
         ssh_keys: vec![],
+        network_config: InstanceNetworkConfig::for_segment_id(*new_segment.id()),
     }
     .persist(&mut txn2)
     .await

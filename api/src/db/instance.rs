@@ -9,6 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
+pub mod config;
+
 use std::{
     convert::{TryFrom, TryInto},
     net::IpAddr,
@@ -23,7 +26,10 @@ use sqlx::{FromRow, Postgres, Row, Transaction};
 use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
 
-use crate::{CarbideError, CarbideResult};
+use crate::{
+    model::{config_version::ConfigVersion, instance::config::network::InstanceNetworkConfig},
+    CarbideError, CarbideResult,
+};
 
 use super::{instance_subnet::InstanceSubnet, network_segment::NetworkSegment};
 
@@ -53,6 +59,7 @@ pub struct NewInstance {
     pub user_data: Option<String>,
     pub custom_ipxe: String,
     pub ssh_keys: Vec<String>,
+    pub network_config: InstanceNetworkConfig,
 }
 
 pub struct DeleteInstance {
@@ -118,18 +125,29 @@ impl TryFrom<rpc::Instance> for NewInstance {
                 "Instance",
             )));
         }
+
+        let segment_id = value
+            .segment_id
+            .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
+            .try_into()?;
+
+        // TODO: Should we actually move IP allocation before this, so we can
+        // store it as part of our internal `Config`?
+        // Downside is we might leak the IP if we don't actual persist the result
+        // But maybe it isn't actually allocated so far if both things happen
+        // within the same transaction.
+        let network_config = InstanceNetworkConfig::for_segment_id(segment_id);
+
         Ok(NewInstance {
             machine_id: value
                 .machine_id
                 .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
-            segment_id: value
-                .segment_id
-                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
-                .try_into()?,
+            segment_id,
             user_data: value.user_data,
             custom_ipxe: value.custom_ipxe,
             ssh_keys: value.ssh_keys,
+            network_config,
         })
     }
 }
@@ -297,14 +315,20 @@ impl NewInstance {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Instance> {
+        let network_version = ConfigVersion::initial();
+        let network_version_string = network_version.to_version_string();
+
         Ok(
-            sqlx::query_as(
-                "INSERT INTO instances (machine_id, user_data, custom_ipxe, ssh_keys, use_custom_pxe_on_boot) VALUES ($1::uuid, $2, $3, $4::text[], true) RETURNING *",
+            sqlx::query_as(concat!(
+                "INSERT INTO instances (machine_id, user_data, custom_ipxe, ssh_keys, use_custom_pxe_on_boot, network_config, network_config_version) ",
+                "VALUES ($1::uuid, $2, $3, $4::text[], true, $5::json, $6) RETURNING *"),
             )
                 .bind(&self.machine_id)
                 .bind(&self.user_data)
                 .bind(&self.custom_ipxe)
                 .bind(&self.ssh_keys)
+                .bind(sqlx::types::Json(&self.network_config))
+                .bind(&network_version_string)
                 .fetch_one(&mut *txn)
                 .await?
         )
