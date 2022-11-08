@@ -26,7 +26,6 @@ variables:
   BUILD_CONTAINER_IMAGE_NAME_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v0.0.1-206-gf23904ca"
   BINARY_FILES: "binaries/carbide-api binaries/carbide-dns binaries/carbide"
 
-
 stages:
   - lint
   - build
