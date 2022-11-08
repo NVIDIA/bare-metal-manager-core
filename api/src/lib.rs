@@ -173,6 +173,9 @@ pub enum CarbideError {
         "An object of type {0} was intended to be modified did not have the expected version {1}"
     )]
     ConcurrentModificationError(&'static str, ConfigVersion),
+
+    #[error("The function is not implemented")]
+    NotImplemented,
 }
 
 impl From<CarbideError> for tonic::Status {

@@ -660,7 +660,7 @@ pub async fn vpc_reconcile_handler(
                 create_resource_group_handler(current_job, spec, client).await?;
             }
             VpcResourceActions::UpdateResourceGroup(_spec) => {
-                todo!()
+                return Err(CarbideError::NotImplemented);
             }
             VpcResourceActions::DeleteResourceGroup(spec) => {
                 delete_resource_group_handler(current_job, spec, client).await?;
@@ -669,7 +669,7 @@ pub async fn vpc_reconcile_handler(
                 create_managed_resource_handler(current_job, spec, client).await?;
             }
             VpcResourceActions::UpdateManagedResource(_spec) => {
-                todo!()
+                return Err(CarbideError::NotImplemented);
             }
             VpcResourceActions::DeleteManagedResource(spec) => {
                 delete_managed_resource_handler(current_job, spec, client).await?;
