@@ -49,6 +49,8 @@ build:
 
 produce-binary-artifacts:
   needs: [build-cargo]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
 
 build-container:
   variables:
