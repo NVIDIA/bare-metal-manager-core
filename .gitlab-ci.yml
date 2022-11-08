@@ -288,7 +288,7 @@ deploy_fleet_command_site_0:
   variables:
     APP_NAME: carbide
     HELM_CHART_NAME: carbide
-    HELM_VER: ${HELM_VERSION}
+    HELM_VER: ${HELM_VERSION:1}
     DEPLOYMENT_NAME: carbide
     LOCATION: site-0
     TARGET_NAMESPACE: forge-system
