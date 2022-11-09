@@ -15,6 +15,63 @@ use tower_http::auth::AuthorizeRequest;
 
 pub use jwt::{Algorithm, DecodingKey, KeySpec};
 
+// Principal: something like an account, service, address, or other
+// identity that we can treat as the "subject" in a subject-action-object
+// construction.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub enum Principal {
+    CertificateIdentity(String),
+    // JWT(Claims),
+    // ClientAddress(IPAddr),
+
+    // Anonymous is more like the absence of any principal, but it's convenient
+    // to be able to represent it explicitly.
+    Anonymous,
+}
+
+impl Principal {
+    pub fn as_identifier(&self) -> String {
+        match self {
+            Principal::CertificateIdentity(identity) => format!("certificate-identity/{identity}"),
+            Principal::Anonymous => "anonymous".into(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug)]
+pub enum Action {
+    Create,
+    Read,
+    Update,
+    Delete,
+}
+
+impl Action {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Action::Create => "create",
+            Action::Read => "read",
+            Action::Update => "update",
+            Action::Delete => "delete",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Object {
+    Instance,
+}
+
+impl Object {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Object::Instance => "instance",
+        }
+    }
+}
+
 // This is intended to be hooked into tower-http's
 // RequireAuthorizationLayer::custom() middleware layer.
 #[derive(Clone)]
