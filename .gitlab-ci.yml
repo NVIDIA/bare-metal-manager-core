@@ -42,6 +42,14 @@ include:
     file:
       - defaults.gitlab-ci.yml
 
+nightly_tests:
+  stage: e2e-test
+  needs: [build-push-kustomize]
+  rules:
+    - if: $CI_DEFAULT_BRANCH == $CI_COMMIT_REF_NAME && $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - echo "Nothing to run at this moment"
+
 build:
   rules:
     - when: never
@@ -50,6 +58,7 @@ produce-binary-artifacts:
   needs: [build-cargo]
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_PIPELINE_SOURCE == "schedule"
 
 build-container:
   variables:
@@ -102,6 +111,7 @@ build-cargo:
     - cp target/debug/carbide-admin-cli binaries    
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_PIPELINE_SOURCE == "schedule"
   artifacts:
     paths:
       - binaries
