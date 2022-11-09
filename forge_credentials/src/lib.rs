@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use vaultrs::client::VaultClient;
 use vaultrs::kv2;
 
-const VAULT_MOUNT: &str = "secret";
+const VAULT_MOUNT: &str = "secrets";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Credentials {
