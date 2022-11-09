@@ -45,7 +45,7 @@ impl CredentialProvider for ForgeVaultClient {
         )
         .await
         .map_err(|err| {
-            log::error!("Error getting credentials. Error: {err}");
+            log::error!("Error getting credentials. Error: {err:?}");
             err
         })?;
 
@@ -65,7 +65,7 @@ impl CredentialProvider for ForgeVaultClient {
         )
         .await
         .map_err(|err| {
-            log::error!("Error setting credentials. Error: {err}");
+            log::error!("Error setting credentials. Error: {err:?}");
             err
         })?;
 
