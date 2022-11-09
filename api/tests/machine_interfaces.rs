@@ -1,3 +1,4 @@
+use carbide::db::dpu_machine::DpuMachine;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -18,6 +19,7 @@ use std::str::FromStr;
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::machine::Machine;
 use carbide::db::machine_interface::MachineInterface;
+use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
 use carbide::CarbideError;
 
 const FIXTURE_NETWORK_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
@@ -134,5 +136,55 @@ async fn many_non_primary_interfaces_per_machine(
 
     assert!(should_be_ok_interface.is_ok());
 
+    Ok(())
+}
+
+const DPU_MACHINE_INT_ID: uuid::Uuid = uuid::uuid!("ad871735-efaa-406e-a83e-9ff63b1bc145");
+const DPU_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
+const HOST_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd99");
+
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_network_segment",
+    "create_machine"
+))]
+async fn test_find_machine_by_loopback(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let machine_interface = VpcResourceLeaf::find_associated_dpu_machine_interface(
+        &mut txn,
+        "192.168.0.1".parse().unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(machine_interface.id, DPU_MACHINE_INT_ID);
+    Ok(())
+}
+
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_network_segment",
+    "create_machine"
+))]
+async fn test_dpu_machine_test(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let machine =
+        DpuMachine::find_by_machine_id(&mut txn, &DPU_MACHINE_ID)
+            .await
+            .unwrap();
+
+    assert_eq!(
+        machine._machine_interface_id(),
+        &DPU_MACHINE_INT_ID
+    );
+    let machine =
+        DpuMachine::find_by_machine_id(&mut txn, &HOST_MACHINE_ID)
+            .await;
+
+    assert!(machine.is_err());
     Ok(())
 }
