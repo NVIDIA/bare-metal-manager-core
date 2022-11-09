@@ -77,6 +77,32 @@ pub trait PrincipalExtractor {
     fn principals(&self) -> Vec<Principal>;
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct Authorization {
+    principal: Principal,
+    action: Action,
+    object: Object,
+}
+
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum AuthorizationError {
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+}
+
+// A PolicyEngine is anything that can enforce whether a request is allowed.
+pub trait PolicyEngine {
+    fn authorize(
+        &self,
+        principals: &[Principal],
+        action: Action,
+        object: Object,
+    ) -> Result<Authorization, AuthorizationError>;
+}
+
+pub type PolicyEngineObject = (dyn PolicyEngine + Send + Sync);
+
 // This is intended to be hooked into tower-http's
 // RequireAuthorizationLayer::custom() middleware layer.
 #[derive(Clone)]
