@@ -72,6 +72,11 @@ impl Object {
     }
 }
 
+pub trait PrincipalExtractor {
+    // Extract all useful principals from a request.
+    fn principals(&self) -> Vec<Principal>;
+}
+
 // This is intended to be hooked into tower-http's
 // RequireAuthorizationLayer::custom() middleware layer.
 #[derive(Clone)]
