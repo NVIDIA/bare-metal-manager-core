@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 use vaultrs::client::VaultClient;
 use vaultrs::kv2;
 
-const VAULT_MOUNT: &str = "secrets";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Credentials {
     UsernamePassword { username: String, password: String },
@@ -23,30 +21,29 @@ pub trait CredentialProvider: Send + Sync {
     ) -> Result<(), anyhow::Error>;
 }
 
-#[async_trait]
-impl CredentialProvider for VaultClient {
-    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, anyhow::Error> {
-        let credentials = kv2::read(self, VAULT_MOUNT, key.to_key_str().as_str()).await?;
+pub struct ForgeVaultClient {
+    vault_client: VaultClient,
+    vault_mount_location: String,
+}
 
-        Ok(credentials)
-    }
-
-    async fn set_credentials(
-        &self,
-        key: CredentialKey,
-        credentials: Credentials,
-    ) -> Result<(), anyhow::Error> {
-        let _secret_version_metadata =
-            kv2::set(self, VAULT_MOUNT, key.to_key_str().as_str(), &credentials).await?;
-
-        Ok(())
+impl ForgeVaultClient {
+    pub fn new(vault_client: VaultClient, vault_mount_location: String) -> Self {
+        Self {
+            vault_client,
+            vault_mount_location,
+        }
     }
 }
 
 #[async_trait]
-impl CredentialProvider for &rocket::State<VaultClient> {
+impl CredentialProvider for ForgeVaultClient {
     async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, anyhow::Error> {
-        let credentials = kv2::read(self.inner(), VAULT_MOUNT, key.to_key_str().as_str()).await?;
+        let credentials = kv2::read(
+            &self.vault_client,
+            &self.vault_mount_location,
+            key.to_key_str().as_str(),
+        )
+        .await?;
 
         Ok(credentials)
     }
@@ -57,8 +54,8 @@ impl CredentialProvider for &rocket::State<VaultClient> {
         credentials: Credentials,
     ) -> Result<(), anyhow::Error> {
         let _secret_version_metadata = kv2::set(
-            self.inner(),
-            VAULT_MOUNT,
+            &self.vault_client,
+            &self.vault_mount_location,
             key.to_key_str().as_str(),
             &credentials,
         )

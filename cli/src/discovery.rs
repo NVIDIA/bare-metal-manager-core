@@ -494,6 +494,8 @@ impl Discovery {
             log::error!("Error while setting up IPMI. {}", err.to_string());
         }
 
+        log::info!("successfully discovered machine {uuid}");
+
         Ok(())
     }
 }

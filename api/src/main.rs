@@ -18,6 +18,7 @@ use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
 use cfg::{Command, Options};
+use forge_credentials::ForgeVaultClient;
 
 mod api;
 mod auth;
@@ -63,6 +64,7 @@ async fn main() -> Result<(), color_eyre::Report> {
         Command::Run(ref config) => {
             let vault_token = env::var("VAULT_TOKEN")?;
             let vault_addr = env::var("VAULT_ADDR")?;
+            let vault_mount_location = env::var("VAULT_MOUNT_LOCATION")?;
 
             let vault_client_settings = VaultClientSettingsBuilder::default()
                 .address(vault_addr)
@@ -71,9 +73,9 @@ async fn main() -> Result<(), color_eyre::Report> {
                 .verify(false) //TODO: remove me when we are starting to validate certs
                 .build()?;
             let vault_client = VaultClient::new(vault_client_settings)?;
-
-            let vault_client = Arc::new(vault_client);
-            api::Api::run(config, vault_client).await?
+            let forge_vault_client = ForgeVaultClient::new(vault_client, vault_mount_location);
+            let forge_vault_client = Arc::new(forge_vault_client);
+            api::Api::run(config, forge_vault_client).await?
         }
     }
     Ok(())

@@ -1502,7 +1502,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "rocket",
  "serde",
  "uuid 1.1.2",
  "vaultrs",

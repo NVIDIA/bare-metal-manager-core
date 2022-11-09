@@ -24,7 +24,6 @@ use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
-use tower::ServiceBuilder;
 
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::InstanceList;
@@ -1361,11 +1360,7 @@ where
 
         update_external_config().await;
 
-        let auth_layer = ServiceBuilder::new()
-            .layer(tower_http::auth::RequireAuthorizationLayer::custom(
-                authenticator,
-            ))
-            .into_inner();
+        let auth_layer = tower_http::auth::RequireAuthorizationLayer::custom(authenticator);
 
         let reflection_service = Builder::configure()
             .register_encoded_file_descriptor_set(::rpc::REFLECTION_SERVICE_DESCRIPTOR)
