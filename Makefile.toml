@@ -19,7 +19,14 @@ command = "find"
 args = ["public"]
 dependencies = [
 	"book-compile",
+#	"generate-database-schema",  # - needs build image changes.  Will update later.
 ]
+
+[tasks.generate-database-schema]
+workspace = false
+command = "mermerd"
+args = ['-c', 'postgres://localhost', '-s', 'public', '--useAllTables', '--showAllConstraints', '--encloseWithMermaidBackticks', '-o', 'book/src/development/schema.md']
+
 
 [tasks.build-carbide-cli-ci]
 category = "Build"
