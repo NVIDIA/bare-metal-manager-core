@@ -43,7 +43,11 @@ impl CredentialProvider for ForgeVaultClient {
             &self.vault_mount_location,
             key.to_key_str().as_str(),
         )
-        .await?;
+        .await
+        .map_err(|err| {
+            log::error!("Error getting credentials. Error: {err}");
+            err
+        })?;
 
         Ok(credentials)
     }
@@ -59,7 +63,11 @@ impl CredentialProvider for ForgeVaultClient {
             key.to_key_str().as_str(),
             &credentials,
         )
-        .await?;
+        .await
+        .map_err(|err| {
+            log::error!("Error setting credentials. Error: {err}");
+            err
+        })?;
 
         Ok(())
     }

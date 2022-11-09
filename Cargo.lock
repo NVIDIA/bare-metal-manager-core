@@ -1502,6 +1502,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "log 0.4.17",
  "serde",
  "uuid 1.1.2",
  "vaultrs",
