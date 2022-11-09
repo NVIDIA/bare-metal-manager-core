@@ -25,7 +25,7 @@
   - [Kubernetes](kubernetes/development.md)
   - [Running a PXE Client in a VM](development/vm_pxe_client.md)
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
-- [Data Model]()
+- [Data Model](development/schema.md)
 - [DPU/Bluefield](dpu-operations.md)
 - [iPXE](ipxe/development.md)
 
