@@ -11,6 +11,7 @@
  */
 use std::str::FromStr;
 
+use carbide::model::instance::config::tenant::TenantConfig;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
@@ -97,11 +98,13 @@ async fn new_instance_subnet_matches_machine_interface(pool: sqlx::PgPool) {
 
     let new_instance = NewInstance {
         machine_id: new_machine.id().to_owned(),
-        segment_id: *new_segment.id(),
-        user_data: Some("".to_string()),
-        custom_ipxe: "".to_string(),
+        tenant_config: &TenantConfig {
+            user_data: Some("".to_string()),
+            tenant_id: "Tenant1".to_string(),
+            custom_ipxe: "".to_string(),
+        },
         ssh_keys: vec![],
-        network_config: InstanceNetworkConfig::for_segment_id(*new_segment.id()),
+        network_config: &InstanceNetworkConfig::for_segment_id(*new_segment.id()),
     }
     .persist(&mut txn2)
     .await
@@ -189,11 +192,13 @@ async fn new_instance_in_init_state(pool: sqlx::PgPool) {
 
     let new_instance = NewInstance {
         machine_id: new_machine.id().to_owned(),
-        segment_id: *new_segment.id(),
-        user_data: Some("".to_string()),
-        custom_ipxe: "".to_string(),
+        tenant_config: &TenantConfig {
+            user_data: Some("".to_string()),
+            tenant_id: "Tenant1".to_string(),
+            custom_ipxe: "".to_string(),
+        },
         ssh_keys: vec![],
-        network_config: InstanceNetworkConfig::for_segment_id(*new_segment.id()),
+        network_config: &InstanceNetworkConfig::for_segment_id(*new_segment.id()),
     }
     .persist(&mut txn2)
     .await
@@ -283,11 +288,13 @@ async fn instance_subnet_state_machine_advance(pool: sqlx::PgPool) {
 
     let new_instance = NewInstance {
         machine_id: new_machine.id().to_owned(),
-        segment_id: *new_segment.id(),
-        user_data: Some("".to_string()),
-        custom_ipxe: "".to_string(),
+        tenant_config: &TenantConfig {
+            user_data: Some("".to_string()),
+            tenant_id: "Tenant1".to_string(),
+            custom_ipxe: "".to_string(),
+        },
         ssh_keys: vec![],
-        network_config: InstanceNetworkConfig::for_segment_id(*new_segment.id()),
+        network_config: &InstanceNetworkConfig::for_segment_id(*new_segment.id()),
     }
     .persist(&mut txn2)
     .await

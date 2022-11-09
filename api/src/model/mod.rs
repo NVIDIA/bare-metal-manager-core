@@ -41,3 +41,19 @@ where
 {
     source.into_iter().map(R::try_from).collect()
 }
+
+/// Error that is returned when we validate various configurations that are obtained
+/// from Forge users.
+#[derive(Debug, thiserror::Error, Clone)]
+pub enum ConfigValidationError {
+    /// A configuration value is invalid
+    #[error("Invalid value: {0}")]
+    InvalidValue(String),
+}
+
+impl ConfigValidationError {
+    /// Creates a [ConfigValidationError::InvalidValue] variant
+    pub fn invalid_value<T: Into<String>>(value: T) -> Self {
+        Self::InvalidValue(value.into())
+    }
+}

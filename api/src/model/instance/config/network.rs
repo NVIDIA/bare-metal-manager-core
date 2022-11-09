@@ -13,6 +13,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::model::ConfigValidationError;
+
 /// Uniquely identifies an interface on the instance
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -50,6 +52,63 @@ impl InstanceNetworkConfig {
             }],
         }
     }
+
+    /// Validates the network configuration
+    pub fn validate(&self) -> Result<(), ConfigValidationError> {
+        if self.interfaces.is_empty() {
+            return Err(ConfigValidationError::invalid_value(
+                "InstanceNetworkConfig.interfaces is empty",
+            ));
+        }
+
+        // We need 1 physical interface, virtual interfaces must start at VFID 1,
+        // and IDs must not be duplicated
+        let mut used_ids = [false; 32];
+        for (idx, iface) in self.interfaces.iter().enumerate() {
+            let id = match iface.function_id {
+                InterfaceFunctionId::PhysicalFunctionId {} => 0,
+                InterfaceFunctionId::VirtualFunctionId { id } => {
+                    let id = id as usize;
+                    if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&id) {
+                        return Err(ConfigValidationError::invalid_value(format!(
+                            "Invalid interface function ID {} for network interface at index {}",
+                            id, idx
+                        )));
+                    }
+                    id
+                }
+            };
+
+            if used_ids[id] {
+                return Err(ConfigValidationError::invalid_value(format!(
+                    "Interface function ID {} for network interface at index {} is already used",
+                    id, idx
+                )));
+            }
+            used_ids[id] = true;
+
+            // Note: We can't validate the network segment ID here
+        }
+
+        // Check that there IDs are consecutively assigned and the physical
+        // function existss
+        for (id, is_used) in used_ids.iter().enumerate().take(self.interfaces.len()) {
+            if !is_used {
+                if id == 0 {
+                    return Err(ConfigValidationError::invalid_value(
+                        "Missing Physical Function",
+                    ));
+                }
+
+                return Err(ConfigValidationError::invalid_value(format!(
+                    "Missing Virtual function with ID {}",
+                    id,
+                )));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// The configuration that a customer desires for an instances network interface
@@ -61,6 +120,11 @@ pub struct InstanceInterfaceConfig {
     pub network_segment_id: Uuid,
     // TODO: Security group
 }
+
+/// Minimum valid value (inclusive) for a virtual function ID
+pub const INTERFACE_VFID_MIN: usize = 1;
+/// Maximum valid value (inclusive) for a virtual function ID
+pub const INTERFACE_VFID_MAX: usize = 16;
 
 #[cfg(test)]
 mod tests {
@@ -100,5 +164,61 @@ mod tests {
             serde_json::from_str::<InstanceInterfaceConfig>(&serialized).unwrap(),
             interface
         );
+    }
+
+    /// Creats a valid instance network configuration using the maximum
+    /// amount of interface
+    fn create_valid_network_config() -> InstanceNetworkConfig {
+        let base_segment_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c0000");
+
+        let interfaces: Vec<InstanceInterfaceConfig> = (0..=INTERFACE_VFID_MAX)
+            .map(|idx| {
+                let function_id = if idx == 0 {
+                    InterfaceFunctionId::PhysicalFunctionId {}
+                } else {
+                    InterfaceFunctionId::VirtualFunctionId { id: idx as u8 }
+                };
+
+                let network_segment_id = Uuid::from_u128(base_segment_id.as_u128() + idx as u128);
+                InstanceInterfaceConfig {
+                    function_id,
+                    network_segment_id,
+                }
+            })
+            .collect();
+
+        InstanceNetworkConfig { interfaces }
+    }
+
+    #[test]
+    fn validate_network_config() {
+        create_valid_network_config().validate().unwrap();
+
+        // Duplicate virtual function
+        let mut config = create_valid_network_config();
+        config.interfaces[2].function_id = InterfaceFunctionId::VirtualFunctionId { id: 1 };
+        assert!(config.validate().is_err());
+
+        // Out of bounds virtual function
+        let mut config = create_valid_network_config();
+        config.interfaces[2].function_id = InterfaceFunctionId::VirtualFunctionId { id: 17 };
+        assert!(config.validate().is_err());
+
+        // No physical function
+        let mut config = create_valid_network_config();
+        config.interfaces.swap_remove(0);
+        assert!(config.validate().is_err());
+
+        // Missing virtual functions (except the last)
+        for idx in 1..INTERFACE_VFID_MAX {
+            let mut config = create_valid_network_config();
+            config.interfaces.swap_remove(idx);
+            assert!(config.validate().is_err());
+        }
+
+        // The last virtual function is ok to be missing
+        let mut config = create_valid_network_config();
+        config.interfaces.swap_remove(INTERFACE_VFID_MAX);
+        config.validate().unwrap();
     }
 }
