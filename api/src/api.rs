@@ -13,6 +13,8 @@ use std::convert::TryFrom;
 use std::env;
 use std::sync::Arc;
 
+use carbide::instance::allocate_instance;
+use carbide::instance::InstanceAllocationRequest;
 use color_eyre::Report;
 use lru::LruCache;
 use mac_address::MacAddress;
@@ -31,13 +33,11 @@ use ::rpc::MachineStateMachineInput;
 use auth::CarbideAuth;
 use carbide::credentials::UpdateCredentials;
 use carbide::db::instance::Instance;
-use carbide::db::instance_subnet::InstanceSubnet;
 use carbide::db::network_prefix::NetworkPrefix;
 use carbide::ipmi::MachinePowerRequest;
 use carbide::ipmi::{ipmi_handler, RealIpmiCommandHandler};
 use carbide::kubernetes::{
-    bgkubernetes_handler, create_managed_resource, create_resource_group, delete_managed_resource,
-    delete_resource_group,
+    bgkubernetes_handler, create_resource_group, delete_managed_resource, delete_resource_group,
 };
 use carbide::model::hardware_info::HardwareInfo;
 use carbide::{
@@ -45,7 +45,7 @@ use carbide::{
         auth::SshKeyValidationRequest,
         domain::Domain,
         domain::NewDomain,
-        instance::{DeleteInstance, NewInstance},
+        instance::DeleteInstance,
         instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
         ipmi::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         machine::Machine,
@@ -542,81 +542,9 @@ where
         &self,
         request: Request<rpc::Instance>,
     ) -> Result<Response<rpc::Instance>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let instance = NewInstance::try_from(request.into_inner())?;
-        let machine_id = &instance.machine_id.clone();
-        // check the state of the machine
-        let machine = match Machine::find_one(&mut txn, *machine_id).await? {
-            None => {
-                return Err(Status::invalid_argument(format!(
-                    "Supplied invalid UUID: {}",
-                    machine_id
-                )));
-            }
-            Some(m) => m,
-        };
-
-        // A new instance can be created only in Ready state.
-        match machine.current_state(&mut txn).await? {
-            MachineState::Ready => {
-                // Blindly march forward to ready
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Assign)
-                    .await?;
-            }
-            rest => {
-                return Err(Status::invalid_argument(format!(
-                    "Could not create instance given machine state {:?}",
-                    rest
-                )));
-            }
-        }
-
-        let response = instance.persist(&mut txn).await;
-
-        if let Ok(instance_details) = response.as_ref() {
-            let machine_interface = MachineInterface::get_machine_interface_primary(
-                instance_details.machine_id,
-                &mut txn,
-            )
-            .await?;
-
-            let subnet = InstanceSubnet::create(
-                &mut txn,
-                &machine_interface,
-                instance.segment_id,
-                *instance_details.id(),
-                None,
-            )
-            .await?;
-
-            let ip_addr = instance_details
-                .assign_address(&mut txn, subnet, instance.segment_id)
-                .await?;
-
-            create_managed_resource(
-                &mut txn,
-                instance_details.machine_id,
-                instance.segment_id,
-                Some(machine_interface.mac_address),
-                instance_details.managed_resource_id.to_string(),
-                Some(ip_addr.to_string()),
-            )
-            .await?;
-        }
-
-        let response = Ok(response.map(rpc::Instance::from).map(Response::new)?);
-
-        // Machine will be rebooted once managed resource creation is successful.
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
+        let request = InstanceAllocationRequest::try_from(request.into_inner())?;
+        let instance = allocate_instance(request, &self.database_connection).await?;
+        Ok(Response::new(rpc::Instance::from(instance)))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]

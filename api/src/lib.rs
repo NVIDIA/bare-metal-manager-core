@@ -14,7 +14,7 @@ use std::net::IpAddr;
 use mac_address::MacAddress;
 use model::{
     config_version::{ConfigVersion, ParseConfigVersionError},
-    RpcDataConversionError,
+    ConfigValidationError, RpcDataConversionError,
 };
 use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
@@ -24,6 +24,7 @@ pub mod bg;
 pub mod credentials;
 pub mod db;
 mod human_hash;
+pub mod instance;
 pub mod ipmi;
 pub mod kubernetes;
 pub mod machine_state_controller;
@@ -71,6 +72,9 @@ pub enum CarbideError {
 
     #[error("Argument is missing in input: {0}")]
     MissingArgument(&'static str),
+
+    #[error("Arguemnt is invalid: {0}")]
+    InvalidArgument(String),
 
     #[error("Database Query Error: {0}")]
     DatabaseError(sqlx::Error),
@@ -176,11 +180,24 @@ pub enum CarbideError {
 
     #[error("The function is not implemented")]
     NotImplemented,
+
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(#[from] ConfigValidationError),
 }
 
 impl From<CarbideError> for tonic::Status {
     fn from(from: CarbideError) -> Self {
-        Status::internal(from.to_string())
+        // TODO: There's many more mapped to `Status::internal` which are likely
+        // user errors instead
+        match from {
+            CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
+            CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
+            CarbideError::MissingArgument(msg) => Status::invalid_argument(msg),
+            error @ CarbideError::ConcurrentModificationError(_, _) => {
+                Status::failed_precondition(error.to_string())
+            }
+            other => Status::internal(other.to_string()),
+        }
     }
 }
 

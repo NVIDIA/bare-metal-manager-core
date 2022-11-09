@@ -27,7 +27,10 @@ use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
 
 use crate::{
-    model::{config_version::ConfigVersion, instance::config::network::InstanceNetworkConfig},
+    model::{
+        config_version::ConfigVersion,
+        instance::config::{network::InstanceNetworkConfig, tenant::TenantConfig},
+    },
     CarbideError, CarbideResult,
 };
 
@@ -53,13 +56,11 @@ pub struct InstanceList {
     pub instances: Vec<Instance>,
 }
 
-pub struct NewInstance {
+pub struct NewInstance<'a> {
     pub machine_id: uuid::Uuid,
-    pub segment_id: uuid::Uuid,
-    pub user_data: Option<String>,
-    pub custom_ipxe: String,
+    pub tenant_config: &'a TenantConfig,
     pub ssh_keys: Vec<String>,
-    pub network_config: InstanceNetworkConfig,
+    pub network_config: &'a InstanceNetworkConfig,
 }
 
 pub struct DeleteInstance {
@@ -113,42 +114,6 @@ impl From<Instance> for rpc::Instance {
             use_custom_pxe_on_boot: src.use_custom_pxe_on_boot,
             managed_resource_id: Some(src.managed_resource_id.into()),
         }
-    }
-}
-
-impl TryFrom<rpc::Instance> for NewInstance {
-    type Error = CarbideError;
-
-    fn try_from(value: rpc::Instance) -> Result<Self, Self::Error> {
-        if value.id.is_some() {
-            return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
-                "Instance",
-            )));
-        }
-
-        let segment_id = value
-            .segment_id
-            .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
-            .try_into()?;
-
-        // TODO: Should we actually move IP allocation before this, so we can
-        // store it as part of our internal `Config`?
-        // Downside is we might leak the IP if we don't actual persist the result
-        // But maybe it isn't actually allocated so far if both things happen
-        // within the same transaction.
-        let network_config = InstanceNetworkConfig::for_segment_id(segment_id);
-
-        Ok(NewInstance {
-            machine_id: value
-                .machine_id
-                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
-                .try_into()?,
-            segment_id,
-            user_data: value.user_data,
-            custom_ipxe: value.custom_ipxe,
-            ssh_keys: value.ssh_keys,
-            network_config,
-        })
     }
 }
 
@@ -310,7 +275,7 @@ impl Instance {
     }
 }
 
-impl NewInstance {
+impl<'a> NewInstance<'a> {
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
@@ -318,14 +283,16 @@ impl NewInstance {
         let network_version = ConfigVersion::initial();
         let network_version_string = network_version.to_version_string();
 
+        // TODO: We don't persist `TenantConfig.tenant_id` yet
+
         Ok(
             sqlx::query_as(concat!(
                 "INSERT INTO instances (machine_id, user_data, custom_ipxe, ssh_keys, use_custom_pxe_on_boot, network_config, network_config_version) ",
                 "VALUES ($1::uuid, $2, $3, $4::text[], true, $5::json, $6) RETURNING *"),
             )
                 .bind(&self.machine_id)
-                .bind(&self.user_data)
-                .bind(&self.custom_ipxe)
+                .bind(&self.tenant_config.user_data)
+                .bind(&self.tenant_config.custom_ipxe)
                 .bind(&self.ssh_keys)
                 .bind(sqlx::types::Json(&self.network_config))
                 .bind(&network_version_string)

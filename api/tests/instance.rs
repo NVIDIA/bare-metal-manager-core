@@ -19,7 +19,7 @@ use carbide::{
         machine::Machine,
         machine_interface::MachineInterface,
     },
-    model::instance::config::network::InstanceNetworkConfig,
+    model::instance::config::{network::InstanceNetworkConfig, tenant::TenantConfig},
 };
 
 use ::rpc::MachineStateMachineInput;
@@ -156,11 +156,13 @@ async fn create_instance(pool: sqlx::PgPool) -> Instance {
 
     let instance = NewInstance {
         machine_id: "52dfecb4-8070-4f4b-ba95-f66d0f51fd98".parse().unwrap(),
-        segment_id: FIXTURE_NETWORK_SEGMENT_ID,
-        user_data: Some("SomeRandomData".to_string()),
-        custom_ipxe: "SomeRandomiPxe".to_string(),
+        tenant_config: &TenantConfig {
+            user_data: Some("SomeRandomData".to_string()),
+            custom_ipxe: "SomeRandomiPxe".to_string(),
+            tenant_id: "Tenant1".to_string(),
+        },
         ssh_keys: vec!["mykey1".to_owned()],
-        network_config: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
+        network_config: &InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
     }
     .persist(&mut txn)
     .await

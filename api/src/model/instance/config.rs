@@ -15,8 +15,10 @@ pub mod tenant;
 
 use serde::{Deserialize, Serialize};
 
-use self::network::InstanceNetworkConfig;
-use self::tenant::TenantConfig;
+use crate::model::{
+    instance::config::{network::InstanceNetworkConfig, tenant::TenantConfig},
+    ConfigValidationError,
+};
 
 /// Instance configuration
 ///
@@ -30,9 +32,20 @@ pub struct InstanceConfig {
     /// a tenant. On assignment, the config changes once. Due to the one-time
     /// change no version field is required.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    tenant: Option<TenantConfig>,
+    pub tenant: Option<TenantConfig>,
 
-    /// Configures instance networking configurations
+    /// Configures instance networking
     #[serde(default)]
-    network: InstanceNetworkConfig,
+    pub network: InstanceNetworkConfig,
+}
+
+impl InstanceConfig {
+    /// Validates the instances configuration
+    pub fn validate(&self) -> Result<(), ConfigValidationError> {
+        if let Some(tenant) = self.tenant.as_ref() {
+            tenant.validate()?;
+        }
+
+        self.network.validate()
+    }
 }
