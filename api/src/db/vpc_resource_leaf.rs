@@ -24,6 +24,8 @@ use crate::db::vpc_resource_leaf_event::VpcResourceLeafEvent;
 use crate::db::vpc_resource_state::VpcResourceState;
 use crate::{CarbideError, CarbideResult};
 
+use super::machine_interface::MachineInterface;
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct VpcResourceLeaf {
     id: uuid::Uuid,
@@ -156,6 +158,21 @@ impl VpcResourceLeaf {
     /// Returns IP Address
     pub fn loopback_ip_address(&self) -> &Option<IpAddr> {
         &self.loopback_ip_address
+    }
+
+    pub async fn find_associated_dpu_machine_interface(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        ip_address: IpAddr,
+    ) -> CarbideResult<MachineInterface> {
+        Ok(sqlx::query_as(
+            r#"SELECT machine_interfaces.* from machine_interfaces 
+            INNER JOIN machines ON machines.id = machine_interfaces.machine_id 
+            INNER JOIN vpc_resource_leafs ON vpc_resource_leafs.id = machines.vpc_leaf_id 
+            WHERE vpc_resource_leafs.loopback_ip_address = $1"#,
+        )
+        .bind(ip_address)
+        .fetch_one(&mut *txn)
+        .await?)
     }
 }
 

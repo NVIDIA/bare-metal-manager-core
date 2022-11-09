@@ -63,7 +63,7 @@ impl DpuMachine {
     }
 
     pub fn _machine_interface_id(&self) -> &Uuid {
-        &self._machine_id
+        &self._machine_interface_id
     }
 
     pub fn _mac_address(&self) -> &MacAddress {

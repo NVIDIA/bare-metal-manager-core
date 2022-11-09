@@ -113,11 +113,13 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         new_hostname: &str,
     ) -> CarbideResult<&MachineInterface> {
-        let (hostname,) =
-            sqlx::query_as("UPDATE machine_interfaces SET hostname=$1 RETURNING hostname")
-                .bind(new_hostname)
-                .fetch_one(txn)
-                .await?;
+        let (hostname,) = sqlx::query_as(
+            "UPDATE machine_interfaces SET hostname=$1 WHERE id=$2 RETURNING hostname",
+        )
+        .bind(new_hostname)
+        .bind(self.id())
+        .fetch_one(txn)
+        .await?;
 
         self.hostname = hostname;
 

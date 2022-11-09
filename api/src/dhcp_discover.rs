@@ -125,7 +125,7 @@ pub async fn discover_dhcp(
     }
 
     let newly_created_interface;
-    let machine_interface = match &existing_machines.len() {
+    let mut machine_interface = match &existing_machines.len() {
         0 => {
             newly_created_interface = true;
             log::info!("No existing machine with mac address {} using network with relay: {}, creating one.", parsed_mac, parsed_relay);
@@ -240,6 +240,13 @@ pub async fn discover_dhcp(
 
                     VpcResourceActions::UpdateLeaf(leaf)
                         .reconcile(db_conn)
+                        .await?;
+
+                    let dpu_machine_interface =
+                        VpcResourceLeaf::find_associated_dpu_machine_interface(&mut txn, relay_ip)
+                            .await?;
+                    machine_interface
+                        .associate_interface_with_dpu_machine(&mut txn, dpu_machine_interface.id())
                         .await?;
                     //spec:
                     //  control:
