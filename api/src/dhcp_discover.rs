@@ -235,9 +235,18 @@ pub async fn discover_dhcp(
                     let dpu_machine_interface =
                         VpcResourceLeaf::find_associated_dpu_machine_interface(&mut txn, relay_ip)
                             .await?;
-                    machine_interface
-                        .associate_interface_with_dpu_machine(&mut txn, dpu_machine_interface.id())
-                        .await?;
+
+                    if let Some(machine_id) = dpu_machine_interface.machine_id {
+                        machine_interface
+                            .associate_interface_with_dpu_machine(&mut txn, &machine_id)
+                            .await?;
+                    } else {
+                        log::error!(
+                            "Could not associate dpu with x86: {}, {}",
+                            dpu_machine_interface.id(),
+                            relay_address
+                        )
+                    }
                     //spec:
                     //  control:
                     //    managementIP: 10.180.221.200
