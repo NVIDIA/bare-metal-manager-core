@@ -17,13 +17,13 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
-use crate::db::constants::ADMIN_DPU_NETWORK_INTERFACE;
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::machine::Machine;
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
 use crate::kubernetes::VpcResourceActions;
 use crate::model::hardware_info::HardwareInfo;
-use crate::vpc_resources::leaf;
+use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
+use crate::vpc_resources::{host_interfaces, leaf};
 use crate::CarbideResult;
 
 #[derive(Debug, Deserialize)]
@@ -159,10 +159,10 @@ impl MachineTopology {
                             vendor: Some("DPU".to_string()),
                         }),
                         host_admin_i_ps: Some(BTreeMap::from([(
-                            ADMIN_DPU_NETWORK_INTERFACE.to_string(),
+                            DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
                             "".to_string(),
                         )])),
-                        host_interfaces: None,
+                        host_interfaces: Some(host_interfaces(dpu.machine_id())),
                     },
                 );
 

@@ -11,9 +11,16 @@
  */
 use std::time::SystemTime;
 
+use crate::model::instance::config::network::{
+    InterfaceFunctionId, INTERFACE_VFID_MAX, INTERFACE_VFID_MIN,
+};
+use crate::model::machine::{
+    DPU_PHYSICAL_NETWORK_INTERFACE, DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER,
+};
 use chrono::DateTime;
 use itertools::Itertools;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use std::collections::BTreeMap;
 
 pub mod configuration_resource_pool;
 pub mod leaf;
@@ -162,12 +169,107 @@ impl VpcResourceCondition for managed_resource::ManagedResourceStatusConditions 
     }
 }
 
+pub struct BlueFieldInterface(InterfaceFunctionId);
+
+impl BlueFieldInterface {
+    pub fn new(interface: InterfaceFunctionId) -> Self {
+        BlueFieldInterface(interface)
+    }
+
+    pub fn leaf_interface_id(&self, machine_id: &uuid::Uuid) -> String {
+        let if_prefix = match self.0 {
+            InterfaceFunctionId::PhysicalFunctionId {} => "pf".to_owned(),
+            InterfaceFunctionId::VirtualFunctionId { id } => format!("vf/{}", id),
+        };
+        format!("forge-{}/{}", machine_id, if_prefix)
+    }
+
+    pub fn interface_name(&self) -> String {
+        match self.0 {
+            InterfaceFunctionId::PhysicalFunctionId {} => {
+                DPU_PHYSICAL_NETWORK_INTERFACE.to_string()
+            }
+            InterfaceFunctionId::VirtualFunctionId { id } => {
+                format!("{}{}", DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER, id - 1)
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct BlueFieldInterfaceMap {
+    interfaces: BTreeMap<String, String>,
+}
+
+impl BlueFieldInterfaceMap {
+    pub fn new() -> Self {
+        BlueFieldInterfaceMap::default()
+    }
+
+    pub fn update_interface_map(
+        &mut self,
+        interface: InterfaceFunctionId,
+        dpu_machine_id: &uuid::Uuid,
+    ) {
+        let bluefield_interface = BlueFieldInterface::new(interface);
+        self.interfaces.insert(
+            bluefield_interface.leaf_interface_id(dpu_machine_id),
+            bluefield_interface.interface_name(),
+        );
+    }
+}
+
+pub fn host_interfaces(dpu_machine_id: &uuid::Uuid) -> BTreeMap<String, String> {
+    //Virtual interfaces start from 1 to 16. To make deriving interface name simple, 0 will be
+    //used for physical interface.
+    let mut interface_map = BlueFieldInterfaceMap::new();
+
+    //PF Interface entry
+    interface_map.update_interface_map(InterfaceFunctionId::PhysicalFunctionId {}, dpu_machine_id);
+
+    //VF Interface entries
+    (INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).for_each(|id| {
+        interface_map.update_interface_map(
+            InterfaceFunctionId::VirtualFunctionId { id: id as u8 },
+            dpu_machine_id,
+        );
+    });
+
+    interface_map.interfaces
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const BASE_TIME: &str = "2022-09-29T16:40:49Z";
     const NEW_TIME: &str = "2022-09-29T18:40:49Z";
+    const DPU_MACHINE_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
+
+    #[test]
+    fn test_leaf_interface_id() {
+        let physical_interface =
+            BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {});
+        assert_eq!(
+            "forge-60cef902-9779-4666-8362-c9bb4b37184f/pf".to_owned(),
+            physical_interface.leaf_interface_id(&tests::DPU_MACHINE_ID,)
+        );
+
+        (INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).for_each(|id| {
+            let expected_name = format!("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/{}", id);
+            let virtual_interface =
+                BlueFieldInterface::new(InterfaceFunctionId::VirtualFunctionId { id: id as u8 });
+            assert_eq!(
+                expected_name,
+                virtual_interface.leaf_interface_id(&tests::DPU_MACHINE_ID,)
+            );
+            let expected_vf_interface_name = format!("pf0vf{}", id - 1);
+            assert_eq!(
+                expected_vf_interface_name,
+                virtual_interface.interface_name()
+            );
+        });
+    }
 
     #[test]
     fn latest_condition_time_is_newest_timestamp() {

@@ -18,7 +18,6 @@ use kube::{
     api::{Api, DeleteParams, PostParams, ResourceExt},
     Client,
 };
-use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::{self, PgPool};
 use sqlx::{Acquire, PgConnection, Postgres};
@@ -30,8 +29,9 @@ use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipmi::{MachinePowerRequest, Operation};
+use crate::model::instance::config::network::InterfaceFunctionId;
 use crate::vpc_resources::{
-    leaf, managed_resource, resource_group, VpcResource, VpcResourceStatus,
+    leaf, managed_resource, resource_group, BlueFieldInterface, VpcResource, VpcResourceStatus,
 };
 use crate::{CarbideError, CarbideResult};
 
@@ -777,7 +777,7 @@ pub async fn create_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     machine_id: uuid::Uuid,
     segment_id: uuid::Uuid,
-    host_mac_address: Option<MacAddress>,
+    dpu_machine_id: uuid::Uuid,
     managed_resource_name: String,
     host_interface_ip: Option<String>,
 ) -> CarbideResult<()> {
@@ -798,7 +798,11 @@ pub async fn create_managed_resource(
         ))
     })?;
 
-    let host_interface = host_mac_address.map(|mac| mac.to_string().replace(':', "-"));
+    // This only handles PF for now.
+    let host_interface = Some(
+        BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {})
+            .leaf_interface_id(&dpu_machine_id),
+    );
 
     let managed_resource_spec = managed_resource::ManagedResourceSpec {
         state: None,

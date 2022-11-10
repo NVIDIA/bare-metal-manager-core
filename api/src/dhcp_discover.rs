@@ -27,11 +27,12 @@ use carbide::db::constants::FORGE_KUBE_NAMESPACE;
 use carbide::db::instance::Instance;
 use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
 use carbide::kubernetes::VpcResourceActions;
+use carbide::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
 use carbide::vpc_resources::leaf;
 use carbide::{
     db::{
-        constants::ADMIN_DPU_NETWORK_INTERFACE, dhcp_entry::DhcpEntry, dhcp_record::DhcpRecord,
-        machine::Machine, machine_interface::MachineInterface, network_segment::NetworkSegment,
+        dhcp_entry::DhcpEntry, dhcp_record::DhcpRecord, machine::Machine,
+        machine_interface::MachineInterface, network_segment::NetworkSegment,
     },
     CarbideError,
 };
@@ -219,22 +220,11 @@ pub async fn discover_dhcp(
                     let host_admin_ip_address_string = host_admin_ip_network.ip().to_string();
 
                     let new_host_admin_ips_map = BTreeMap::from([(
-                        ADMIN_DPU_NETWORK_INTERFACE.to_string(),
+                        DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
                         host_admin_ip_address_string,
                     )]);
 
-                    // TODO Need to handle VF as well, this assumes PF
-                    // Note that key in this map needs to be consistent with the host identifier in the Leaf spec
-                    // Since we place a hyphenated mac address there as identifier - we need it here too.
-                    let new_host_interfaces_map = BTreeMap::from([(
-                        parsed_mac.to_string().replace(':', "-"),
-                        ADMIN_DPU_NETWORK_INTERFACE.to_string(),
-                    )]);
-
-                    log::info!("Using: {new_host_interfaces_map:?} for host_interfaces mapping");
-
                     leaf.spec.host_admin_i_ps = Some(new_host_admin_ips_map);
-                    leaf.spec.host_interfaces = Some(new_host_interfaces_map);
 
                     let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
 

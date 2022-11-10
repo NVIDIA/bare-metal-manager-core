@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::hardware_info::HardwareInfo;
 
+pub const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
+pub const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
+
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineStateSnapshot {

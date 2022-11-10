@@ -25,16 +25,11 @@ use crate::CarbideResult;
 ///
 #[derive(Debug)]
 pub struct DpuMachine {
-    _machine_id: uuid::Uuid,
-
+    machine_id: uuid::Uuid,
     _vpc_leaf_id: uuid::Uuid,
-
     _machine_interface_id: uuid::Uuid,
-
     _mac_address: MacAddress,
-
     address: IpNetwork,
-
     _hostname: String,
 }
 
@@ -43,7 +38,7 @@ pub struct DpuMachine {
 impl<'r> FromRow<'r, PgRow> for DpuMachine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(DpuMachine {
-            _machine_id: row.try_get("machine_id")?,
+            machine_id: row.try_get("machine_id")?,
             _vpc_leaf_id: row.try_get("vpc_leaf_id")?,
             _machine_interface_id: row.try_get("machine_interfaces_id")?,
             _mac_address: row.try_get("mac_address")?,
@@ -58,8 +53,8 @@ impl DpuMachine {
         &self._vpc_leaf_id
     }
 
-    pub fn _machine_id(&self) -> &Uuid {
-        &self._machine_id
+    pub fn machine_id(&self) -> &Uuid {
+        &self.machine_id
     }
 
     pub fn _machine_interface_id(&self) -> &Uuid {
