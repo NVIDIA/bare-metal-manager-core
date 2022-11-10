@@ -182,13 +182,17 @@ pub async fn allocate_instance(
         }
     }
 
+    let dpu_machine_id = machine_interface
+        .attached_dpu_machine_id()
+        .ok_or_else(|| CarbideError::MissingArgument("DPU ID"))?;
+
     // TODO: This needs to be updated to take the information about all interfaces
     // Maybe use `InstanceNetworkConfig` and a Map from vfid to IPs as parameter?
     create_managed_resource(
         &mut txn,
         request.machine_id,
         first_segment_id,
-        Some(machine_interface.mac_address),
+        dpu_machine_id,
         instance.managed_resource_id.to_string(),
         Some(first_ip.expect("At least one IP is assigned").to_string()),
     )
