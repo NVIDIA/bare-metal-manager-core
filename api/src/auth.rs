@@ -77,6 +77,14 @@ pub trait PrincipalExtractor {
     fn principals(&self) -> Vec<Principal>;
 }
 
+impl<T> PrincipalExtractor for tonic::Request<T> {
+    fn principals(&self) -> Vec<Principal> {
+        let _certs = self.peer_certs();
+        // TODO: extract 1 or more Principal::CertIdentity from certs
+        Vec::default()
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Authorization {
