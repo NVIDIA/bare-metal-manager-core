@@ -103,6 +103,10 @@ pub trait PolicyEngine {
 
 pub type PolicyEngineObject = (dyn PolicyEngine + Send + Sync);
 
+mod casbin_engine;
+
+pub use casbin_engine::CasbinEngine;
+
 // This is intended to be hooked into tower-http's
 // RequireAuthorizationLayer::custom() middleware layer.
 #[derive(Clone)]
