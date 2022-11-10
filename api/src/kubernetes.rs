@@ -532,7 +532,7 @@ pub async fn vpc_reconcile_handler(
                             },
                         );
                         let _ =
-                            tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
+                            tokio::time::timeout(std::time::Duration::from_secs(60 * 10), waiter)
                                 .await
                                 .map(|result| result.map_err(CarbideError::from))?;
                         let newly_created_leaf = leafs.get_status(&spec.name()).await?;
