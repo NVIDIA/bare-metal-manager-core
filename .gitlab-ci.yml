@@ -44,6 +44,8 @@ include:
 
 nightly_tests:
   stage: e2e-test
+  image: 
+    name: $TOOLS_IMAGE_REPO
   needs: [build-push-kustomize]
   rules:
     - if: $CI_DEFAULT_BRANCH == $CI_COMMIT_REF_NAME && $CI_PIPELINE_SOURCE == "schedule"
