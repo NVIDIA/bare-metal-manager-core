@@ -53,7 +53,7 @@ impl fmt::Display for IpmitoolRoles {
 }
 
 impl IpmitoolRoles {
-    fn _convert(&self) -> Result<rpc::UserRoles, CarbideClientError> {
+    fn convert(&self) -> Result<rpc::UserRoles, CarbideClientError> {
         match self {
             IpmitoolRoles::User => Ok(rpc::UserRoles::User),
             IpmitoolRoles::Administrator => Ok(rpc::UserRoles::Administrator),
@@ -116,7 +116,7 @@ impl IpmiInfo {
                 .push(rpc::bmc_meta_data_update_request::DataItem {
                     user: v.user.clone(),
                     password: v.password.clone(),
-                    role: v.role._convert()? as i32,
+                    role: v.role.convert()? as i32,
                 });
         }
 
