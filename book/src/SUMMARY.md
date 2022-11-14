@@ -32,6 +32,7 @@
 # Environments
 
 - [Labs](labs.md)
+  - [Ansible Host Files](labs/ansible_host_files.md)
   - [Dev1(SJC4)](labs/dev1.md)
   - [Dev2(RENO)](labs/dev2.md)
   - [Dev2 New DPUs(RENO)](labs/dev2_newdpus.md)
