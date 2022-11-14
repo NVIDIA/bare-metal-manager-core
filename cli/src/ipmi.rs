@@ -365,7 +365,7 @@ pub async fn update_ipmi_creds(forge_api: String, uuid: &str) -> CarbideClientRe
 
 async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
     let now = Instant::now();
-    const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 6);
+    const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 12);
     const RETRY_TIME: Duration = Duration::from_secs(5);
 
     while now.elapsed() <= MAX_TIMEOUT {
