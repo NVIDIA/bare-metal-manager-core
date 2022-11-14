@@ -760,6 +760,7 @@ dependencies = [
  "clap",
  "color-eyre 0.6.2",
  "forge_credentials",
+ "humanbool",
  "libc",
  "libudev",
  "log 0.4.17",
@@ -1912,6 +1913,12 @@ name = "httpdate"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
+
+[[package]]
+name = "humanbool"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afdd23c6d1591b974f0113923f4be6a62026263b8efc3d6f0d188a211a24daba"
 
 [[package]]
 name = "humansize"

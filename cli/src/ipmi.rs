@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::OsStr;
 use std::fmt;
 use std::process::Command;
@@ -205,37 +205,64 @@ fn get_user_list(test_list: Option<&str>) -> CarbideClientResult<String> {
     }
 }
 
-fn fetch_ipmi_users_and_free_ids(
-    test_list: Option<&str>,
-) -> CarbideClientResult<(Vec<String>, HashMap<String, String>)> {
-    let output = get_user_list(test_list)?;
+#[derive(Clone, Debug, PartialEq)]
+struct IpmiUserRecord {
+    pub id: String,
+    pub name: String,
+    pub _callin: bool,
+    pub _link_auth: bool,
+    pub _ipmi_msg: bool,
+    pub _privilege_level: String,
+}
 
-    let mut free_ids = output
-        .lines()
-        .map(|x| x.split(',').collect::<Vec<&str>>())
-        .filter(|x| x[1].to_string().is_empty())
-        .map(|x| x[0].to_string())
-        .collect::<Vec<String>>();
+impl IpmiUserRecord {
+    pub fn from_row(row: Vec<&str>) -> Self {
+        assert_eq!(row.len(), 6);
 
-    // some machines do not allow us to use ID #1 if it is empty.
-    if let Some(first) = free_ids.first() {
-        if first.as_str() == "1" {
-            free_ids.remove(0);
+        let id = row[0].to_string();
+        let name = row[1].to_string();
+        let callin = humanbool::parse(row[2]).unwrap_or_default();
+        let link_auth = humanbool::parse(row[3]).unwrap_or_default();
+        let ipmi_msg = humanbool::parse(row[4]).unwrap_or_default();
+        let privilege_level = row[5].to_string();
+
+        Self {
+            id,
+            name,
+            _callin: callin,
+            _link_auth: link_auth,
+            _ipmi_msg: ipmi_msg,
+            _privilege_level: privilege_level,
         }
     }
 
-    // username: user_id mapping
-    let user_to_id: HashMap<String, String> = output
-        .lines()
-        .map(|x| x.split(',').collect::<Vec<&str>>())
-        .filter(|x| !x[1].to_string().is_empty())
-        .map(|x| (x[1].to_string(), x[0].to_string()))
-        .collect();
-
-    Ok((free_ids, user_to_id))
+    pub fn is_free(&self) -> bool {
+        self.name.is_empty()
+    }
 }
 
-fn create_ipmi_user(id: &String, user: &String) -> CarbideClientResult<()> {
+fn fetch_ipmi_users_and_free_ids(
+    test_list: Option<&str>,
+) -> CarbideClientResult<(VecDeque<IpmiUserRecord>, HashMap<String, IpmiUserRecord>)> {
+    let output = get_user_list(test_list)?;
+
+    let (free_users, existing_users): (VecDeque<IpmiUserRecord>, VecDeque<IpmiUserRecord>) = output
+        .lines()
+        .map(|x| x.split(',').collect::<Vec<&str>>())
+        .map(IpmiUserRecord::from_row)
+        // some machines do not allow user with ID "1" to be used, so we don't report it as free OR existing in this case.
+        .filter(|user| !(user.is_free() && user.id.as_str() == "1"))
+        .partition(|user| user.is_free());
+
+    let existing_users = existing_users
+        .into_iter()
+        .map(|user| (user.name.clone(), user))
+        .collect::<HashMap<String, IpmiUserRecord>>();
+
+    Ok((free_users, existing_users))
+}
+
+fn create_ipmi_user(id: &str, user: &str) -> CarbideClientResult<()> {
     let _ = Cmd::default()
         .args(vec!["user", "set", "name", id, user])
         .output()?;
@@ -303,41 +330,47 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
 
 fn set_ipmi_creds(test_list: Option<&str>) -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
     let ip = fetch_ipmi_ip()?;
-    let (free_ids, user_to_id) = fetch_ipmi_users_and_free_ids(test_list)?;
+    let (mut free_users, existing_users) = fetch_ipmi_users_and_free_ids(test_list)?;
+
+    // first, we create users, if we need to.
+    let mut user_records = vec![];
+
+    for user_info in USERS.iter() {
+        user_records.push((
+            user_info,
+            if let Some(existing_user) = existing_users.get(&user_info.user.to_string()) {
+                // User already exists.
+                // Get Id
+                log::info!(
+                    "User {} already exists. Only setting password and privileges.",
+                    existing_user.name
+                );
+                existing_user.clone()
+            } else {
+                // Create user and get id.
+                if let Some(free_user) = free_users.pop_front() {
+                    log::info!("Creating user {}", user_info.user);
+                    create_ipmi_user(free_user.id.as_str(), user_info.user)?;
+                    free_user
+                } else {
+                    return Err(CarbideClientError::GenericError(format!(
+                        "Insufficient free ids to create user. Failed for user: {}",
+                        user_info.user
+                    )));
+                }
+            },
+        ));
+    }
+
     let mut user_lists: Vec<IpmiInfo> = Vec::new();
 
-    for (pos, user_info) in USERS.iter().enumerate() {
-        let user_name = user_info.user.to_string();
-        let id = if let Some(user_id) = user_to_id.get(&user_name) {
-            // User already exists.
-            // Get Id
-            log::info!(
-                "User {} already exists. Only setting password and privileges.",
-                user_name
-            );
-            user_id.clone()
-        } else {
-            // Create user and get id.
-            if pos >= free_ids.len() {
-                return Err(CarbideClientError::GenericError(format!(
-                    "Not sufficient free ids to create user. Failed at pos: {} for user: {}",
-                    pos, user_name
-                )));
-            }
-            log::info!("Creating user {}", user_name);
-            let free_id = free_ids[pos].clone();
-            create_ipmi_user(&free_id, &user_name)?;
-            free_id
-        };
-
-        //TODO: fix this
-        std::thread::sleep(Duration::from_secs(5));
-
-        let password = set_ipmi_password(&id)?;
-        set_ipmi_props(&id, user_info.role)?;
+    // once we have the users, we set their passwords.
+    for (user_info, user_record) in user_records.iter() {
+        let password = set_ipmi_password(&user_record.id)?;
+        set_ipmi_props(&user_record.id, user_info.role)?;
 
         user_lists.push(IpmiInfo {
-            user: user_name.clone(),
+            user: user_info.user.to_string(),
             role: user_info.role,
             password,
         })
@@ -410,14 +443,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_list() {
-        let (free_ids, _user_to_id) =
+        let (free_users, _existing_users) =
             fetch_ipmi_users_and_free_ids(Some("test/user_list.csv")).unwrap();
-        assert!(free_ids.contains(&"4".to_string()));
-        assert!(!free_ids.contains(&"1".to_string()));
+        assert!(free_users.iter().any(|user| user.id.as_str() == "4"));
+        assert!(!free_users.iter().any(|user| user.id.as_str() == "1"));
 
-        let (free_ids, _user_to_id) =
+        let (free_users, _existing_users) =
             fetch_ipmi_users_and_free_ids(Some("test/test_user_list_2.csv")).unwrap();
-        assert!(free_ids.contains(&"5".to_string()));
-        assert!(!free_ids.contains(&"3".to_string()));
+        assert!(free_users.iter().any(|user| user.id.as_str() == "5"));
+        assert!(!free_users.iter().any(|user| user.id.as_str() == "3"));
     }
 }
