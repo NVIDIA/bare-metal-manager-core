@@ -9,18 +9,20 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::forge as rpc;
-use cli::CarbideClientError;
-use cli::CarbideClientResult;
-use rand::Rng;
-use regex::Regex;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::process::Command;
 use std::time::Instant;
+
+use rand::Rng;
+use regex::Regex;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
+
+use ::rpc::forge as rpc;
+use cli::CarbideClientError;
+use cli::CarbideClientResult;
 
 use crate::IN_QEMU_VM;
 
@@ -191,11 +193,11 @@ fn fetch_ipmi_ip() -> CarbideClientResult<String> {
     Ok(ip[0].clone())
 }
 
-fn get_user_list() -> CarbideClientResult<String> {
+fn get_user_list(test_list: Option<&str>) -> CarbideClientResult<String> {
     log::info!("Fetching current configured users list.");
-    if cfg!(test) {
+    if let Some(test_list) = test_list {
         use std::fs;
-        Ok(fs::read_to_string("test/user_list.csv").unwrap())
+        Ok(fs::read_to_string(test_list).unwrap())
     } else {
         Cmd::default()
             .args(vec!["user", "list", "1", "-c"])
@@ -203,15 +205,24 @@ fn get_user_list() -> CarbideClientResult<String> {
     }
 }
 
-fn fetch_ipmi_users_and_free_ids() -> CarbideClientResult<(Vec<String>, HashMap<String, String>)> {
-    let output = get_user_list()?;
+fn fetch_ipmi_users_and_free_ids(
+    test_list: Option<&str>,
+) -> CarbideClientResult<(Vec<String>, HashMap<String, String>)> {
+    let output = get_user_list(test_list)?;
 
-    let free_ids = output
+    let mut free_ids = output
         .lines()
         .map(|x| x.split(',').collect::<Vec<&str>>())
         .filter(|x| x[1].to_string().is_empty())
         .map(|x| x[0].to_string())
         .collect::<Vec<String>>();
+
+    // some machines do not allow us to use ID #1 if it is empty.
+    if let Some(first) = free_ids.first() {
+        if first.as_str() == "1" {
+            free_ids.remove(0);
+        }
+    }
 
     // username: user_id mapping
     let user_to_id: HashMap<String, String> = output
@@ -290,9 +301,9 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     Ok(())
 }
 
-fn set_ipmi_creds() -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
+fn set_ipmi_creds(test_list: Option<&str>) -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
     let ip = fetch_ipmi_ip()?;
-    let (free_ids, user_to_id) = fetch_ipmi_users_and_free_ids()?;
+    let (free_ids, user_to_id) = fetch_ipmi_users_and_free_ids(test_list)?;
     let mut user_lists: Vec<IpmiInfo> = Vec::new();
 
     for (pos, user_info) in USERS.iter().enumerate() {
@@ -319,6 +330,9 @@ fn set_ipmi_creds() -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
             free_id
         };
 
+        //TODO: fix this
+        std::thread::sleep(Duration::from_secs(5));
+
         let password = set_ipmi_password(&id)?;
         set_ipmi_props(&id, user_info.role)?;
 
@@ -339,7 +353,7 @@ pub async fn update_ipmi_creds(forge_api: String, uuid: &str) -> CarbideClientRe
 
     wait_until_ipmi_is_ready().await?;
 
-    let (ipmi_info, ip) = set_ipmi_creds()?;
+    let (ipmi_info, ip) = set_ipmi_creds(None)?;
     let bmc_metadata: rpc::BmcMetaDataUpdateRequest = IpmiInfo::convert(ipmi_info, uuid, ip)?;
 
     let mut client = rpc::forge_client::ForgeClient::connect(forge_api).await?;
@@ -387,10 +401,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_ipmi_cred() {
-        let (responses, ip) = set_ipmi_creds().unwrap();
+        let (responses, ip) = set_ipmi_creds(Some("test/user_list.csv")).unwrap();
         assert_eq!(&ip, EXPECTED_IP);
         for response in responses {
             assert_eq!(response.password.len(), PASSWORD_LEN);
         }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_list() {
+        let (free_ids, _user_to_id) =
+            fetch_ipmi_users_and_free_ids(Some("test/user_list.csv")).unwrap();
+        assert!(free_ids.contains(&"4".to_string()));
+        assert!(!free_ids.contains(&"1".to_string()));
+
+        let (free_ids, _user_to_id) =
+            fetch_ipmi_users_and_free_ids(Some("test/test_user_list_2.csv")).unwrap();
+        assert!(free_ids.contains(&"5".to_string()));
+        assert!(!free_ids.contains(&"3".to_string()));
     }
 }

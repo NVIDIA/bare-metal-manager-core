@@ -1,7 +1,7 @@
-1,,true,false,false,NO ACCESS
-2,root,false,true,true,ADMINISTRATOR
-3,forge_user,true,false,false,USER
-4,,true,false,false,NO ACCESS
+1,root,false,true,true,ADMINISTRATOR
+2,forge_user,true,false,false,USER
+3,forge_operator,true,false,false,OPERATOR
+4,forge_admin,true,false,false,ADMINISTRATOR
 5,,true,false,false,NO ACCESS
 6,,true,false,false,NO ACCESS
 7,,true,false,false,NO ACCESS
