@@ -44,10 +44,10 @@ impl UpdateCredentials {
 
             let key = match credential_purpose {
                 CredentialPurpose::Hbn => CredentialKey::DpuHbn {
-                    interface_id: self.machine_id.to_string(),
+                    machine_id: self.machine_id.to_string(),
                 },
                 CredentialPurpose::LoginUser => CredentialKey::DpuSsh {
-                    interface_id: self.machine_id.to_string(),
+                    machine_id: self.machine_id.to_string(),
                 },
             };
 

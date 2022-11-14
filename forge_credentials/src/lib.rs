@@ -79,10 +79,10 @@ pub enum CredentialKey {
         machine_id: String,
     },
     DpuSsh {
-        interface_id: String,
+        machine_id: String,
     },
     DpuHbn {
-        interface_id: String,
+        machine_id: String,
     },
 }
 
@@ -95,11 +95,11 @@ impl CredentialKey {
             } => {
                 format!("machines/{machine_id}/bmc-metadata-items/{user_role}")
             }
-            CredentialKey::DpuSsh { interface_id } => {
-                format!("machines/{interface_id}/dpu-ssh")
+            CredentialKey::DpuSsh { machine_id } => {
+                format!("machines/{machine_id}/dpu-ssh")
             }
-            CredentialKey::DpuHbn { interface_id } => {
-                format!("machines/{interface_id}/dpu-hbn")
+            CredentialKey::DpuHbn { machine_id } => {
+                format!("machines/{machine_id}/dpu-hbn")
             }
         }
     }
