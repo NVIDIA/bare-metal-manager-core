@@ -483,14 +483,30 @@ impl Discovery {
         let info = get_machine_details(&context, uuid)?;
         let mut client = rpc::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
         let request = tonic::Request::new(info);
-        client.discover_machine(request).await.map_err(|err| {
-            log::error!("Error while discovering machine. {}", err.to_string());
-            err
-        })?;
-        if let Err(err) = crate::users::create_users(forge_api.to_string(), uuid).await {
+        let machine_uuid = client
+            .discover_machine(request)
+            .await
+            .map_err(|err| {
+                log::error!("Error while discovering machine. {}", err.to_string());
+                err
+            })?
+            .into_inner()
+            .machine_id
+            .ok_or_else(|| {
+                CarbideClientError::GenericError(format!(
+                    "missing machine_id from response? interface_uuid was: {uuid}"
+                ))
+            })?
+            .to_string();
+
+        if let Err(err) =
+            crate::users::create_users(forge_api.to_string(), machine_uuid.as_str()).await
+        {
             log::error!("Error while setting up users. {}", err.to_string());
         }
-        if let Err(err) = crate::ipmi::update_ipmi_creds(forge_api.to_string(), uuid).await {
+        if let Err(err) =
+            crate::ipmi::update_ipmi_creds(forge_api.to_string(), machine_uuid.as_str()).await
+        {
             log::error!("Error while setting up IPMI. {}", err.to_string());
         }
 

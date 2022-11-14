@@ -760,7 +760,7 @@ where
         &self,
         request: Request<rpc::MachineDiscoveryInfo>,
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
-        let di = request.into_inner();
+        let machine_discovery_info = request.into_inner();
 
         let mut txn = self
             .database_connection
@@ -768,7 +768,7 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let interface_id = match &di.machine_id {
+        let interface_id = match &machine_discovery_info.machine_id {
             Some(id) => match uuid::Uuid::try_from(id) {
                 Ok(uuid) => uuid,
                 Err(err) => {
@@ -806,7 +806,7 @@ where
             }
         };
 
-        let discovery_data = di
+        let discovery_data = machine_discovery_info
             .discovery_data
             .map(|data| match data {
                 rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
@@ -816,7 +816,9 @@ where
         let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
         MachineTopology::create(&mut txn, &uuid, &hardware_info).await?;
 
-        let response = Ok(Response::new(rpc::MachineDiscoveryResult {}));
+        let response = Ok(Response::new(rpc::MachineDiscoveryResult {
+            machine_id: machine.id,
+        }));
 
         txn.commit().await.map_err(CarbideError::from)?;
 

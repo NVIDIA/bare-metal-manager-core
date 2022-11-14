@@ -644,6 +644,7 @@ message MachineCleanupInfo {
 
 message MachineDiscoveryResult {
   // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
+  UUID machine_id = 1;
 }
 
 message MachineCleanupResult {
