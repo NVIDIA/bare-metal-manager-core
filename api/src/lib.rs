@@ -152,7 +152,7 @@ pub enum CarbideError {
     KubeClientError(kube::Error),
 
     #[error("Tokio Timeout Error - {0}")]
-    TokioTimeoutError(#[from] tokio::time::error::Elapsed),
+    TokioTimeoutError(String),
 
     #[error("Tokio Task Join Error {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),

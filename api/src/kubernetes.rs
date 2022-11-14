@@ -11,6 +11,7 @@
  */
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::time::Instant;
 
 use kube::api::ListParams;
 use kube::runtime::wait::{await_condition, Condition};
@@ -130,6 +131,7 @@ async fn create_resource_group_handler(
     client: Client,
 ) -> CarbideResult<()> {
     let spec_name = spec.name().to_string();
+    let start_time = Instant::now();
     log::info!("Creating resource_group with name {}.", spec_name);
 
     update_status(
@@ -149,7 +151,11 @@ async fn create_resource_group_handler(
             update_status(
                 &current_job,
                 2,
-                format!("ResourceGroup created {} on vpc.", spec.name()),
+                format!(
+                    "ResourceGroup created {} on vpc, elapsed {:?}.",
+                    spec.name(),
+                    start_time.elapsed()
+                ),
                 TaskState::Ongoing,
             )
             .await;
@@ -162,12 +168,18 @@ async fn create_resource_group_handler(
             );
             let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
                 .await
-                .map(|result| result.map_err(CarbideError::from))?;
+                .map_err(|_elapsed_error| {
+                    CarbideError::TokioTimeoutError("creating resource group".to_string())
+                })?;
 
             update_status(
                 &current_job,
                 3,
-                format!("ResourceGroup updated {} on vpc.", spec.name()),
+                format!(
+                    "ResourceGroup updated {} on vpc, elapsed {:?}.",
+                    spec.name(),
+                    start_time.elapsed()
+                ),
                 TaskState::Ongoing,
             )
             .await;
@@ -190,7 +202,11 @@ async fn create_resource_group_handler(
             update_status(
                 &current_job,
                 4,
-                format!("ResourceGroup created {} and vlanid updated.", spec.name()),
+                format!(
+                    "ResourceGroup created {} and vlan id updated, elapsed {:?}.",
+                    spec.name(),
+                    start_time.elapsed()
+                ),
                 TaskState::Finished,
             )
             .await;
@@ -202,9 +218,10 @@ async fn create_resource_group_handler(
                 &current_job,
                 5,
                 format!(
-                    "ResourceGroup creation {} failed. Error: {:?}",
+                    "ResourceGroup creation {} failed. Error: {:?}, elapsed {:?}",
                     spec.name(),
-                    err
+                    err,
+                    start_time.elapsed(),
                 ),
                 TaskState::Error(err.to_string()),
             )
@@ -220,6 +237,7 @@ async fn delete_resource_group_handler(
     client: Client,
 ) -> CarbideResult<()> {
     let spec_name = spec.name().to_string();
+    let start_time = Instant::now();
 
     update_status(
         &current_job,
@@ -238,7 +256,11 @@ async fn delete_resource_group_handler(
             update_status(
                 &current_job,
                 1,
-                format!("ResourceGroup deletion {} is successful.", spec.name()),
+                format!(
+                    "ResourceGroup deletion {} is successful, elapsed {:?}.",
+                    spec.name(),
+                    start_time.elapsed()
+                ),
                 TaskState::Finished,
             )
             .await;
@@ -250,9 +272,10 @@ async fn delete_resource_group_handler(
                 &current_job,
                 2,
                 format!(
-                    "ResourceGroup deletion {} failed. Error: {:?}",
+                    "ResourceGroup deletion {} failed. Error: {:?}, elapsed {:?}",
                     spec.name(),
-                    err
+                    err,
+                    start_time.elapsed()
                 ),
                 TaskState::Error(err.to_string()),
             )
@@ -269,6 +292,7 @@ async fn create_managed_resource_handler(
 ) -> CarbideResult<()> {
     let spec = data.mr;
     let spec_name = spec.name().to_string();
+    let start_time = Instant::now();
     log::info!("Creating resource_group with name {}.", spec_name);
 
     update_status(
@@ -288,7 +312,11 @@ async fn create_managed_resource_handler(
             update_status(
                 &current_job,
                 1,
-                format!("ManagedResource creation {} is successful.", spec.name()),
+                format!(
+                    "ManagedResource creation {} is successful after {:?}.",
+                    spec.name(),
+                    start_time.elapsed()
+                ),
                 TaskState::Ongoing,
             )
             .await;
@@ -301,12 +329,18 @@ async fn create_managed_resource_handler(
             );
             let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
                 .await
-                .map(|result| result.map_err(CarbideError::from))?;
+                .map_err(|_elapsed_error| {
+                    CarbideError::TokioTimeoutError("creating managed resource group".to_string())
+                })?;
 
             update_status(
                 &current_job,
                 2,
-                format!("ManagedResource created {} on vpc.", spec.name()),
+                format!(
+                    "ManagedResource created {} on vpc after {:?}.",
+                    spec.name(),
+                    start_time.elapsed()
+                ),
                 TaskState::Ongoing,
             )
             .await;
@@ -316,8 +350,8 @@ async fn create_managed_resource_handler(
                 &current_job,
                 3,
                 format!(
-                    "Machine reset task spawned for machine_id {} with task: {}",
-                    data.machine_id, task_id
+                    "Machine reset task spawned for machine_id {} with task: {} after duration {:?}",
+                    data.machine_id, task_id, start_time.elapsed(),
                 ),
                 TaskState::Finished,
             )
@@ -330,9 +364,10 @@ async fn create_managed_resource_handler(
                 &current_job,
                 4,
                 format!(
-                    "ManagedResource creation {} failed. Error: {:?}",
+                    "ManagedResource creation {} failed. Error: {:?} Duration: {:?}",
                     spec.name(),
-                    err
+                    err,
+                    start_time.elapsed(),
                 ),
                 TaskState::Error(err.to_string()),
             )
@@ -369,12 +404,17 @@ async fn delete_managed_resource_handler(
 ) -> CarbideResult<()> {
     let spec = data.mr;
     let spec_name = spec.name().to_string();
+    let start_time = Instant::now();
     log::info!("Deleting resource_group with name {}.", spec_name);
 
     update_status(
         &current_job,
         0,
-        format!("Deleting managed_resource with name {}", spec_name),
+        format!(
+            "Deleting managed_resource with name {} elapsed: {:?}",
+            spec_name,
+            start_time.elapsed()
+        ),
         TaskState::Ongoing,
     )
     .await;
@@ -396,7 +436,11 @@ async fn delete_managed_resource_handler(
             update_status(
                 &current_job,
                 1,
-                format!("ManagedResource deletion {} is successful.", spec.name()),
+                format!(
+                    "ManagedResource deletion {} is successful, elapsed: {:?}.",
+                    spec.name(),
+                    start_time.elapsed()
+                ),
                 TaskState::Ongoing,
             )
             .await;
@@ -416,13 +460,18 @@ async fn delete_managed_resource_handler(
                 );
                 let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
                     .await
-                    .map(|result| result.map_err(CarbideError::from))?;
+                    .map_err(|_elapsed_error| {
+                        CarbideError::TokioTimeoutError(
+                            "deleting managed resource group".to_string(),
+                        )
+                    })?;
                 update_status(
                     &current_job,
                     2,
                     format!(
-                        "ManagedResource deletion {} successful and hbn is configured with admin network.",
-                        spec.name()
+                        "ManagedResource deletion {} successful and hbn is configured with admin network, elapsed: {:?}.",
+                        spec.name(),
+                        start_time.elapsed(),
                     ),
                     TaskState::Ongoing,
                 )
@@ -434,8 +483,10 @@ async fn delete_managed_resource_handler(
                 &current_job,
                 3,
                 format!(
-                    "Machine reset task spawned for machine_id {}, task: {}",
-                    data.machine_id, task_id
+                    "Machine reset task spawned for machine_id {}, task: {}, elapsed: {:?}",
+                    data.machine_id,
+                    task_id,
+                    start_time.elapsed(),
                 ),
                 TaskState::Finished,
             )
@@ -470,6 +521,7 @@ pub async fn vpc_reconcile_handler(
 
     let state_pool = Db::new(&url).await?.0;
     let status_pool = Db::new(&url).await?.0;
+    let start_time = Instant::now();
 
     let _vpc_status_db_connection = status_pool.acquire().await?;
 
@@ -518,7 +570,10 @@ pub async fn vpc_reconcile_handler(
                         update_status(
                             &current_job,
                             2,
-                            "VPC Leaf object created, waiting for status object".to_string(),
+                            format!(
+                                "VPC Leaf object created, waiting for status object, elapsed: {:?}",
+                                start_time.elapsed()
+                            ),
                             TaskState::Ongoing,
                         )
                         .await;
@@ -534,7 +589,11 @@ pub async fn vpc_reconcile_handler(
                         let _ =
                             tokio::time::timeout(std::time::Duration::from_secs(60 * 10), waiter)
                                 .await
-                                .map(|result| result.map_err(CarbideError::from))?;
+                                .map_err(|_elapsed_error| {
+                                    CarbideError::TokioTimeoutError(
+                                        "creating vpc leaf object".to_string(),
+                                    )
+                                })?;
                         let newly_created_leaf = leafs.get_status(&spec.name()).await?;
 
                         let mut last_txn = current_job.pool().begin().await?;
@@ -544,7 +603,10 @@ pub async fn vpc_reconcile_handler(
                         update_status(
                             &current_job,
                             2,
-                            "VPC Leaf status object retrieved".to_string(),
+                            format!(
+                                "VPC Leaf status object retrieved, elapsed {:?}",
+                                start_time.elapsed()
+                            ),
                             TaskState::Ongoing,
                         )
                         .await;
@@ -570,7 +632,11 @@ pub async fn vpc_reconcile_handler(
                         update_status(
                             &current_job,
                             3,
-                            format!("{} Creation completed", new_leaf.name()),
+                            format!(
+                                "{} Creation completed, elapsed {:?}",
+                                new_leaf.name(),
+                                start_time.elapsed()
+                            ),
                             TaskState::Finished,
                         )
                         .await;
@@ -584,7 +650,10 @@ pub async fn vpc_reconcile_handler(
                         update_status(
                             &current_job,
                             6,
-                            "Unable to create resource".to_string(),
+                            format!(
+                                "Unable to create resource, elapsed: {:?}",
+                                start_time.elapsed()
+                            ),
                             TaskState::Error(error.to_string()),
                         )
                         .await;
@@ -604,7 +673,11 @@ pub async fn vpc_reconcile_handler(
                 update_status(
                     &current_job,
                     4,
-                    format!("VPC Resource {} deleted", spec.name()),
+                    format!(
+                        "VPC Resource {} deleted, elapsed {:?}",
+                        spec.name(),
+                        start_time.elapsed()
+                    ),
                     TaskState::Finished,
                 )
                 .await;
@@ -636,7 +709,11 @@ pub async fn vpc_reconcile_handler(
                         update_status(
                             &current_job,
                             3,
-                            format!("Updating leaf in VPC {:?}", updated_leaf),
+                            format!(
+                                "Updating leaf in VPC {:?}, elapsed {:?}",
+                                updated_leaf,
+                                start_time.elapsed()
+                            ),
                             TaskState::Finished,
                         )
                         .await;
@@ -649,7 +726,10 @@ pub async fn vpc_reconcile_handler(
                         update_status(
                             &current_job,
                             6,
-                            "Unable to update resource".to_string(),
+                            format!(
+                                "Unable to update resource, elapsed: {:?}",
+                                start_time.elapsed()
+                            ),
                             TaskState::Error(error.to_string()),
                         )
                         .await;
