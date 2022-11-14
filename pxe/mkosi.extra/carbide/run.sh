@@ -18,4 +18,4 @@ do
         fi
 done
 
-exec /carbide/carbide-cli --listen=$server_uri $cli_cmd --uuid=$machine_id
+exec /carbide/carbide-cli --api=$server_uri $cli_cmd --uuid=$machine_id
