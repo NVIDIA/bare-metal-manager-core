@@ -1310,7 +1310,7 @@ where
             Instance::use_custom_ipxe_on_next_boot(machine_id, false, &mut txn).await?;
             instance.custom_ipxe
         } else {
-            "exit 0".to_string()
+            "exit".to_string()
         };
 
         txn.commit().await.map_err(CarbideError::from)?;
