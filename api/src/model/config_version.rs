@@ -191,12 +191,34 @@ impl FromStr for ConfigVersion {
     }
 }
 
+impl serde::Serialize for ConfigVersion {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_version_string().serialize(s)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ConfigVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let str_value = String::deserialize(deserializer)?;
+        let version =
+            ConfigVersion::from_str(&str_value).map_err(|err| Error::custom(err.to_string()))?;
+        Ok(version)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn serialize_and_deserialize_config_version() {
+    fn serialize_and_deserialize_config_version_as_string() {
         let config_version = ConfigVersion::initial();
         let vs = config_version.to_version_string();
         let parsed: ConfigVersion = vs.parse().unwrap();
@@ -206,6 +228,20 @@ mod tests {
         assert_eq!(next.version_nr, 2);
         let vs = next.to_version_string();
         let parsed_next: ConfigVersion = vs.parse().unwrap();
+        assert_eq!(parsed_next, next);
+    }
+
+    #[test]
+    fn serialize_and_deserialize_config_version_with_serde() {
+        let config_version = ConfigVersion::initial();
+        let vs = serde_json::to_string(&config_version).unwrap();
+        let parsed: ConfigVersion = serde_json::from_str(&vs).unwrap();
+        assert_eq!(parsed, config_version);
+
+        let next = config_version.increment();
+        assert_eq!(next.version_nr, 2);
+        let vs = serde_json::to_string(&next).unwrap();
+        let parsed_next: ConfigVersion = serde_json::from_str(&vs).unwrap();
         assert_eq!(parsed_next, next);
     }
 }

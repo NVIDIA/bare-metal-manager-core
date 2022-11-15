@@ -172,18 +172,12 @@ async fn test_find_machine_by_loopback(
 async fn test_dpu_machine_test(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let machine =
-        DpuMachine::find_by_machine_id(&mut txn, &DPU_MACHINE_ID)
-            .await
-            .unwrap();
+    let machine = DpuMachine::find_by_machine_id(&mut txn, &DPU_MACHINE_ID)
+        .await
+        .unwrap();
 
-    assert_eq!(
-        machine._machine_interface_id(),
-        &DPU_MACHINE_INT_ID
-    );
-    let machine =
-        DpuMachine::find_by_machine_id(&mut txn, &HOST_MACHINE_ID)
-            .await;
+    assert_eq!(machine._machine_interface_id(), &DPU_MACHINE_INT_ID);
+    let machine = DpuMachine::find_by_machine_id(&mut txn, &HOST_MACHINE_ID).await;
 
     assert!(machine.is_err());
     Ok(())
