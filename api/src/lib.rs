@@ -20,6 +20,9 @@ use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
 use tonic::Status;
 
+#[cfg(test)]
+use ::rstest_reuse;
+
 pub mod bg;
 pub mod credentials;
 pub mod db;
