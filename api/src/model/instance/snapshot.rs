@@ -10,15 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use serde::{Deserialize, Serialize};
-
 use crate::model::instance::{config::InstanceConfig, status::InstanceStatus};
 
 /// Represents a snapshot view of an `Instance`
 ///
 /// This snapshot will be transmitted to SiteControllers users as part of
 /// `InstanceInfo`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct InstanceSnapshot {
     /// Instance ID
     pub instance_id: uuid::Uuid,
