@@ -13,6 +13,7 @@ path = "src/main.rs"
 base64 = "0.13"
 clap = { version = "~3", features = ["derive", "env"] }
 color-eyre = "0.6"
+humanbool = "1.3"
 libc = "0.2"
 libudev = "0.3"
 log = "0.4"
