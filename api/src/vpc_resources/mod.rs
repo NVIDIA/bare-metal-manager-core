@@ -196,43 +196,38 @@ impl BlueFieldInterface {
     }
 }
 
-#[derive(Default)]
-pub struct BlueFieldInterfaceMap {
+struct BlueFieldInterfaceMap {
     interfaces: BTreeMap<String, String>,
+    dpu_machine_id: uuid::Uuid,
 }
 
 impl BlueFieldInterfaceMap {
-    pub fn new() -> Self {
-        BlueFieldInterfaceMap::default()
+    fn new(dpu_machine_id: uuid::Uuid) -> Self {
+        BlueFieldInterfaceMap {
+            interfaces: BTreeMap::new(),
+            dpu_machine_id,
+        }
     }
 
-    pub fn update_interface_map(
-        &mut self,
-        interface: InterfaceFunctionId,
-        dpu_machine_id: &uuid::Uuid,
-    ) {
+    fn insert(&mut self, interface: InterfaceFunctionId) {
         let bluefield_interface = BlueFieldInterface::new(interface);
         self.interfaces.insert(
-            bluefield_interface.leaf_interface_id(dpu_machine_id),
+            bluefield_interface.leaf_interface_id(&self.dpu_machine_id),
             bluefield_interface.interface_name(),
         );
     }
 }
 
 pub fn host_interfaces(dpu_machine_id: &uuid::Uuid) -> BTreeMap<String, String> {
-    //Virtual interfaces start from 1 to 16. To make deriving interface name simple, 0 will be
-    //used for physical interface.
-    let mut interface_map = BlueFieldInterfaceMap::new();
+    //Virtual interfaces start from 1 to 16.
+    let mut interface_map = BlueFieldInterfaceMap::new(dpu_machine_id.to_owned());
 
     //PF Interface entry
-    interface_map.update_interface_map(InterfaceFunctionId::PhysicalFunctionId {}, dpu_machine_id);
+    interface_map.insert(InterfaceFunctionId::PhysicalFunctionId {});
 
     //VF Interface entries
     (INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).for_each(|id| {
-        interface_map.update_interface_map(
-            InterfaceFunctionId::VirtualFunctionId { id: id as u8 },
-            dpu_machine_id,
-        );
+        interface_map.insert(InterfaceFunctionId::VirtualFunctionId { id: id as u8 });
     });
 
     interface_map.interfaces
@@ -241,34 +236,65 @@ pub fn host_interfaces(dpu_machine_id: &uuid::Uuid) -> BTreeMap<String, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ::rstest_reuse::*;
+    use rstest::rstest;
 
     const BASE_TIME: &str = "2022-09-29T16:40:49Z";
     const NEW_TIME: &str = "2022-09-29T18:40:49Z";
     const DPU_MACHINE_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
 
+    #[template]
+    #[rstest]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/pf", "pf0hpf")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/1", "pf0vf0")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/2", "pf0vf1")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/3", "pf0vf2")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/4", "pf0vf3")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/5", "pf0vf4")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/6", "pf0vf5")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/7", "pf0vf6")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/8", "pf0vf7")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/9", "pf0vf8")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/10", "pf0vf9")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/11", "pf0vf10")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/12", "pf0vf11")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/13", "pf0vf12")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/14", "pf0vf13")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/15", "pf0vf14")]
+    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/16", "pf0vf15")]
+    fn test_params() {}
+
+    #[apply(test_params)]
+    fn test_host_interfaces(#[case] key: &str, #[case] value: &str) {
+        let x = host_interfaces(&DPU_MACHINE_ID);
+        let val = x.get(key);
+        assert!(val.is_some());
+        assert_eq!(val.unwrap(), value);
+    }
+
     #[test]
-    fn test_leaf_interface_id() {
+    fn test_leaf_interface_id_physical() {
         let physical_interface =
             BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {});
         assert_eq!(
             "forge-60cef902-9779-4666-8362-c9bb4b37184f/pf".to_owned(),
             physical_interface.leaf_interface_id(&tests::DPU_MACHINE_ID,)
         );
+    }
 
-        (INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).for_each(|id| {
-            let expected_name = format!("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/{}", id);
-            let virtual_interface =
-                BlueFieldInterface::new(InterfaceFunctionId::VirtualFunctionId { id: id as u8 });
-            assert_eq!(
-                expected_name,
-                virtual_interface.leaf_interface_id(&tests::DPU_MACHINE_ID,)
-            );
-            let expected_vf_interface_name = format!("pf0vf{}", id - 1);
-            assert_eq!(
-                expected_vf_interface_name,
-                virtual_interface.interface_name()
-            );
-        });
+    #[apply(test_params)]
+    fn test_leaf_interface_id_virtual(#[case] key: &str, #[case] value: &str) {
+        if key.ends_with("pf") {
+            return;
+        }
+        let id: i32 = key.to_owned().split('/').last().unwrap().parse().unwrap();
+        let virtual_interface =
+            BlueFieldInterface::new(InterfaceFunctionId::VirtualFunctionId { id: id as u8 });
+        assert_eq!(
+            key,
+            virtual_interface.leaf_interface_id(&tests::DPU_MACHINE_ID,)
+        );
+        assert_eq!(value, virtual_interface.interface_name());
     }
 
     #[test]

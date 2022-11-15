@@ -63,6 +63,7 @@ tonic-build = "0.8"
 
 [dev-dependencies]
 rstest = "0.13.0"
+rstest_reuse = "0.4.0"
 ctor = "0.1"
 
 [features]
