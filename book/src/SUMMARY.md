@@ -28,6 +28,7 @@
 - [Data Model](development/schema.md)
 - [DPU/Bluefield](dpu-operations.md)
 - [iPXE](ipxe/development.md)
+- [Baby Forge](babyforge.md)
 
 # Environments
 
