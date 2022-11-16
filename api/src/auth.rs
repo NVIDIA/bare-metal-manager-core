@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::path::Path;
 use std::sync::Arc;
 
 use http::{header, HeaderMap, Request, Response};
@@ -149,6 +150,28 @@ impl Authorizer {
             Arc::new(PermissiveWrapper::new(inner_engine));
         self.policy_engine = permissive_engine;
     }
+
+    pub async fn build_casbin(
+        policy_path: &Path,
+        permissive_mode: bool,
+    ) -> Result<Self, AuthorizerError> {
+        let engine = CasbinEngine::new(casbin_engine::ModelType::BasicAcl, policy_path)
+            .await
+            .map_err(|e| AuthorizerError::InitializationError(e.to_string()))?;
+        let engine_object: Arc<PolicyEngineObject> = Arc::new(engine);
+        let mut authorizer = Self::new(engine_object);
+        // TODO: config this out in release mode?
+        if permissive_mode {
+            authorizer.enable_permissive();
+        }
+        Ok(authorizer)
+    }
+}
+
+#[derive(thiserror::Error, Clone, Debug)]
+pub enum AuthorizerError {
+    #[error("Initialization error: {0}")]
+    InitializationError(String),
 }
 
 struct PermissiveWrapper {

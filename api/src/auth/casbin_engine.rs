@@ -25,7 +25,10 @@ pub struct CasbinEngine {
 }
 
 impl CasbinEngine {
-    pub async fn new(model_type: ModelType, policy_path: &Path) -> Result<Self, Box<dyn error::Error>> {
+    pub async fn new(
+        model_type: ModelType,
+        policy_path: &Path,
+    ) -> Result<Self, Box<dyn error::Error>> {
         let model = match model_type {
             ModelType::BasicAcl => build_acl_model().await,
         };
