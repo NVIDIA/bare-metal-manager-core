@@ -66,7 +66,17 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
     } else {
         for (i, interface) in machine.interfaces.into_iter().enumerate() {
             let m_type = if interface.primary_interface {
-                if interface.attached_dpu_machine_id.is_some() {
+                if interface
+                    .machine_id
+                    .clone()
+                    .map(|x| x.to_string())
+                    .unwrap_or_else(|| "unknown machine".to_owned())
+                    == interface
+                        .attached_dpu_machine_id
+                        .clone()
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| "unknown dpu".to_owned())
+                {
                     "DPU"
                 } else {
                     "X86_64"
