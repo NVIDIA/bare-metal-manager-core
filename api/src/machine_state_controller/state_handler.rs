@@ -16,9 +16,7 @@ use std::{
 };
 
 use crate::{
-    machine_state_controller::snapshot_loader::{
-        MachineStateSnapshotLoader, MachineStateSnapshotLoaderError,
-    },
+    machine_state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError},
     model::machine::MachineStateSnapshot,
 };
 
@@ -55,8 +53,8 @@ pub trait MachineStateHandler: std::fmt::Debug + Send + Sync + 'static {
 /// Error type for handling a Machine State
 #[derive(Debug, thiserror::Error)]
 pub enum MachineStateHandlerError {
-    #[error("Unable to load machine state snapshot: {0}")]
-    LoadSnapshotError(#[from] MachineStateSnapshotLoaderError),
+    #[error("Unable to load state snapshot: {0}")]
+    LoadSnapshotError(#[from] SnapshotLoaderError),
     #[error("Unable to perform database transaction: {0}")]
     TransactionError(#[from] sqlx::Error),
 }

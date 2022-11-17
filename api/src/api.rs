@@ -58,7 +58,7 @@ use carbide::{
         UuidKeyedObjectFilter,
     },
     machine_state_controller::{
-        controller::MachineStateController, snapshot_loader::DbMachineStateSnapshotLoader,
+        controller::MachineStateController, snapshot_loader::DbSnapshotLoader,
     },
     CarbideError,
 };
@@ -1382,7 +1382,7 @@ where
 
         let _state_controller_handle = MachineStateController::builder()
             .database(database_connection)
-            .snapshot_loader(Box::new(DbMachineStateSnapshotLoader::default()))
+            .snapshot_loader(Box::new(DbSnapshotLoader::default()))
             .build()
             .expect("Unable to build MachineStateController");
 

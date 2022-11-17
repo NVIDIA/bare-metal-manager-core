@@ -15,9 +15,7 @@ use carbide::{
         machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
-    machine_state_controller::snapshot_loader::{
-        DbMachineStateSnapshotLoader, MachineStateSnapshotLoader,
-    },
+    machine_state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     model::hardware_info::{
         BlockDevice, Cpu, DmiDevice, HardwareInfo, NetworkInterface, NvmeDevice,
         PciDeviceProperties,
@@ -127,7 +125,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     let mut txn = pool.begin().await?;
 
-    let snapshot_loader = DbMachineStateSnapshotLoader::default();
+    let snapshot_loader = DbSnapshotLoader::default();
     let snapshot = snapshot_loader
         .load_machine_snapshot(&mut txn, *machine.id())
         .await

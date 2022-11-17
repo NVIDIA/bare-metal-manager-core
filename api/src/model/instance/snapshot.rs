@@ -10,7 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::instance::{config::InstanceConfig, status::InstanceStatus};
+use crate::model::{
+    config_version::{ConfigVersion, Versioned},
+    instance::{
+        config::InstanceConfig,
+        status::{InstanceStatus, InstanceStatusObservations},
+    },
+};
 
 /// Represents a snapshot view of an `Instance`
 ///
@@ -27,6 +33,21 @@ pub struct InstanceSnapshot {
     /// The Instance might not yet be in that state, but work would be underway
     /// to get the Instance into this state
     pub config: InstanceConfig,
-    /// Actual status of the instance
-    pub status: InstanceStatus,
+    /// Current version of the networking configuration that is stored as part
+    /// of [InstanceConfig::network]
+    pub network_config_version: ConfigVersion,
+
+    /// Observed status of the instance
+    pub observations: InstanceStatusObservations,
+}
+
+impl InstanceSnapshot {
+    /// Derives the tenant and site-admin facing [`InstanceStatus`] from the
+    /// snapshot information about the instance
+    pub fn derive_status(&self) -> InstanceStatus {
+        InstanceStatus::from_config_and_observation(
+            Versioned::new(&self.config.network, self.network_config_version),
+            &self.observations,
+        )
+    }
 }

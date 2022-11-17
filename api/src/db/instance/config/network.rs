@@ -21,7 +21,7 @@ use crate::model::{config_version::Versioned, instance::config::network::Instanc
 pub async fn load_instance_network_config(
     txn: &mut Transaction<'_, Postgres>,
     instance_id: uuid::Uuid,
-) -> Result<Option<Versioned<InstanceNetworkConfig>>, sqlx::Error> {
+) -> Result<Versioned<InstanceNetworkConfig>, sqlx::Error> {
     impl<'r> sqlx::FromRow<'r, PgRow> for Versioned<InstanceNetworkConfig> {
         fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
             let network_config_version_str: &str = row.try_get("network_config_version")?;
@@ -40,6 +40,6 @@ pub async fn load_instance_network_config(
         "SELECT network_config, network_config_version FROM instances where id = $1::uuid",
     )
     .bind(&instance_id)
-    .fetch_optional(&mut *txn)
+    .fetch_one(&mut *txn)
     .await
 }

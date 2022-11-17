@@ -55,60 +55,65 @@ impl InstanceNetworkConfig {
 
     /// Validates the network configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
-        if self.interfaces.is_empty() {
-            return Err(ConfigValidationError::invalid_value(
-                "InstanceNetworkConfig.interfaces is empty",
-            ));
-        }
-
-        // We need 1 physical interface, virtual interfaces must start at VFID 1,
-        // and IDs must not be duplicated
-        let mut used_ids = [false; 32];
-        for (idx, iface) in self.interfaces.iter().enumerate() {
-            let id = match iface.function_id {
-                InterfaceFunctionId::PhysicalFunctionId {} => 0,
-                InterfaceFunctionId::VirtualFunctionId { id } => {
-                    let id = id as usize;
-                    if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&id) {
-                        return Err(ConfigValidationError::invalid_value(format!(
-                            "Invalid interface function ID {} for network interface at index {}",
-                            id, idx
-                        )));
-                    }
-                    id
-                }
-            };
-
-            if used_ids[id] {
-                return Err(ConfigValidationError::invalid_value(format!(
-                    "Interface function ID {} for network interface at index {} is already used",
-                    id, idx
-                )));
-            }
-            used_ids[id] = true;
-
-            // Note: We can't validate the network segment ID here
-        }
-
-        // Check that there IDs are consecutively assigned and the physical
-        // function existss
-        for (id, is_used) in used_ids.iter().enumerate().take(self.interfaces.len()) {
-            if !is_used {
-                if id == 0 {
-                    return Err(ConfigValidationError::invalid_value(
-                        "Missing Physical Function",
-                    ));
-                }
-
-                return Err(ConfigValidationError::invalid_value(format!(
-                    "Missing Virtual function with ID {}",
-                    id,
-                )));
-            }
-        }
+        validate_interface_function_ids(&self.interfaces, |iface| iface.function_id.clone())
+            .map_err(ConfigValidationError::InvalidValue)?;
 
         Ok(())
     }
+}
+
+/// Validates that any container which has elements that have InterfaceFunctionIds
+/// assigned assigned is using unique and valid FunctionIds.
+pub fn validate_interface_function_ids<T, F: Fn(&T) -> InterfaceFunctionId>(
+    container: &Vec<T>,
+    get_function_id: F,
+) -> Result<(), String> {
+    if container.is_empty() {
+        return Err("InstanceNetworkConfig.interfaces is empty".to_string());
+    }
+
+    // We need 1 physical interface, virtual interfaces must start at VFID 1,
+    // and IDs must not be duplicated
+    let mut used_ids = [false; 32];
+    for (idx, iface) in container.iter().enumerate() {
+        let id = match get_function_id(iface) {
+            InterfaceFunctionId::PhysicalFunctionId {} => 0,
+            InterfaceFunctionId::VirtualFunctionId { id } => {
+                let id = id as usize;
+                if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&id) {
+                    return Err(format!(
+                        "Invalid interface function ID {} for network interface at index {}",
+                        id, idx
+                    ));
+                }
+                id
+            }
+        };
+
+        if used_ids[id] {
+            return Err(format!(
+                "Interface function ID {} for network interface at index {} is already used",
+                id, idx
+            ));
+        }
+        used_ids[id] = true;
+
+        // Note: We can't validate the network segment ID here
+    }
+
+    // Check that there IDs are consecutively assigned and the physical
+    // function exists
+    for (id, is_used) in used_ids.iter().enumerate().take(container.len()) {
+        if !is_used {
+            if id == 0 {
+                return Err("Missing Physical Function".to_string());
+            }
+
+            return Err(format!("Missing Virtual function with ID {}", id,));
+        }
+    }
+
+    Ok(())
 }
 
 /// The configuration that a customer desires for an instances network interface
