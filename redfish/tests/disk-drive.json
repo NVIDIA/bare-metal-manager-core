@@ -1,0 +1,45 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#Systems/Members/1/SmartStorage/ArrayControllers/Members/1/DiskDrives/Members/$entity",
+    "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/16/",
+    "@odata.type": "#HpSmartStorageDiskDrive.1.2.0.HpSmartStorageDiskDrive",
+    "BlockSizeBytes": 512,
+    "CapacityGB": 4000,
+    "CapacityLogicalBlocks": 7814037168,
+    "CapacityMiB": 3815447,
+    "CarrierApplicationVersion": "0",
+    "CarrierAuthenticationStatus": "NotApplicable",
+    "CurrentTemperatureCelsius": 36,
+    "Description": "HP Smart Storage Disk Drive View",
+    "DiskDriveStatusReasons": [
+        "None"
+    ],
+    "EncryptedDrive": false,
+    "FirmwareVersion": {
+        "Current": {
+            "VersionString": "HPD2"
+        }
+    },
+    "Id": "16",
+    "InterfaceSpeedMbps": 12000,
+    "InterfaceType": "SAS",
+    "Location": "1I:1:13",
+    "LocationFormat": "ControllerPort:Box:Bay",
+    "MaximumTemperatureCelsius": 41,
+    "MediaType": "HDD",
+    "Model": "MB4000JFEPB",
+    "Name": "HpSmartStorageDiskDrive",
+    "PowerOnHours": null,
+    "RotationalSpeedRpm": 7200,
+    "SSDEnduranceUtilizationPercentage": null,
+    "SerialNumber": "Z4C04F5R0000R635P1UJ",
+    "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+    },
+    "Type": "HpSmartStorageDiskDrive.1.2.0",
+    "links": {
+        "self": {
+            "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/16/"
+        }
+    }
+}

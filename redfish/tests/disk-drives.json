@@ -1,0 +1,92 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#Systems/Members/1/SmartStorage/ArrayControllers/Members/1/DiskDrives",
+    "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/",
+    "@odata.type": "#HpSmartStorageDiskDriveCollection.HpSmartStorageDiskDriveCollection",
+    "Description": "HP Smart Storage Disk Drives View",
+    "MemberType": "HpSmartStorageDiskDrive.1",
+    "Members": [
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/16/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/17/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/18/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/19/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/20/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/21/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/22/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/23/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/24/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/25/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/26/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/27/"
+        }
+    ],
+    "Members@odata.count": 12,
+    "Name": "HpSmartStorageDiskDrives",
+    "Total": 12,
+    "Type": "Collection.1.0.0",
+    "links": {
+        "Member": [
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/16/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/17/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/18/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/19/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/20/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/21/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/22/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/23/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/24/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/25/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/26/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/27/"
+            }
+        ],
+        "self": {
+            "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/DiskDrives/"
+        }
+    }
+}
