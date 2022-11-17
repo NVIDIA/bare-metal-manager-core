@@ -29,6 +29,7 @@ dependencies = [
     "download-hbn-installer",
     "update-hbn-installer-checksum",
     {name = "build-forge-dpu-deb", path="../bluefield/Makefile.toml"},
+    "move-forge-dpu-package",
 ]
 
 [tasks.build-user-data-artifacts-aarch64-ci]
@@ -37,6 +38,7 @@ dependencies = [
     "copy-cli-to-pxe-aarch64",
     "download-hbn-installer",
     {name = "build-forge-dpu-deb", path="../bluefield/Makefile.toml"},
+    "move-forge-dpu-package",
     "package-user-data-artifacts-aarch64",
     "upload-user-data-artifacts-aarch64",
 ]
@@ -108,6 +110,17 @@ command = "tar"
 args = [ "-czvf", "${CI_PROJECT_DIR}/forge-user-data-artifacts-${CI_BUILD_ID}.tar.gz", "carbide-cli"]
 cwd = "../pxe/static/blobs/internal/x86_64"
 
+[tasks.move-forge-dpu-package]
+category = "User Data"
+description = "Move aarch64 EFI iPXE debian file"
+command = "mv"
+args = [
+    "../../../../../cli/forge-dpu_1.0-1.deb",
+    "."
+]
+cwd = "../pxe/static/blobs/internal/aarch64"
+
+
 [tasks.package-user-data-artifacts-aarch64]
 category = "User Data"
 description = "Package aarch64 EFI iPXE user data artifacts"
@@ -117,7 +130,7 @@ args = [
     "${CI_PROJECT_DIR}/forge-user-data-artifacts-${CI_BUILD_ID}.tar.gz",
     "carbide-cli",
     "doca_container_configs_1.4.0.zip",
-#    "forge-dpu_1.0-1.deb"
+    "forge-dpu_1.0-1.deb"
 ]
 cwd = "../pxe/static/blobs/internal/aarch64"
 
