@@ -1,0 +1,258 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#Managers/Members/$entity",
+    "@odata.id": "/redfish/v1/Managers/1/",
+    "@odata.type": "#Manager.1.0.0.Manager",
+    "Actions": {
+        "#Manager.Reset": {
+            "target": "/redfish/v1/Managers/1/Actions/Manager.Reset/"
+        }
+    },
+    "AvailableActions": [
+        {
+            "Action": "Reset"
+        }
+    ],
+    "CommandShell": {
+        "ConnectTypesSupported": [
+            "SSH",
+            "Oem"
+        ],
+        "Enabled": true,
+        "MaxConcurrentSessions": 9,
+        "ServiceEnabled": true
+    },
+    "Description": "Manager View",
+    "EthernetInterfaces": {
+        "@odata.id": "/redfish/v1/Managers/1/EthernetInterfaces/"
+    },
+    "Firmware": {
+        "Current": {
+            "VersionString": "iLO 4 v2.55"
+        }
+    },
+    "FirmwareVersion": "iLO 4 v2.55",
+    "GraphicalConsole": {
+        "ConnectTypesSupported": [
+            "KVMIP"
+        ],
+        "Enabled": true,
+        "MaxConcurrentSessions": 10,
+        "ServiceEnabled": true
+    },
+    "Id": "1",
+    "LogServices": {
+        "@odata.id": "/redfish/v1/Managers/1/LogServices/"
+    },
+    "ManagerType": "BMC",
+    "Name": "Manager",
+    "NetworkProtocol": {
+        "@odata.id": "/redfish/v1/Managers/1/NetworkService/"
+    },
+    "Oem": {
+        "Hp": {
+            "@odata.type": "#HpiLO.1.1.0.HpiLO",
+            "Actions": {
+                "#HpiLO.ClearRestApiState": {
+                    "target": "/redfish/v1/Managers/1/Actions/Oem/Hp/HpiLO.ClearRestApiState/"
+                },
+                "#HpiLO.ResetToFactoryDefaults": {
+                    "ResetType@Redfish.AllowableValues": [
+                        "Default"
+                    ],
+                    "target": "/redfish/v1/Managers/1/Actions/Oem/Hp/HpiLO.ResetToFactoryDefaults/"
+                },
+                "#HpiLO.iLOFunctionality": {
+                    "target": "/redfish/v1/Managers/1/Actions/Oem/Hp/HpiLO.iLOFunctionality/"
+                }
+            },
+            "AvailableActions": [
+                {
+                    "Action": "ClearRestApiState",
+                    "Capabilities": [
+                        {
+                            "AllowableValues": [
+                                "/Oem/Hp"
+                            ],
+                            "PropertyName": "Target"
+                        }
+                    ]
+                },
+                {
+                    "Action": "ResetToFactoryDefaults",
+                    "Capabilities": [
+                        {
+                            "AllowableValues": [
+                                "Default"
+                            ],
+                            "PropertyName": "ResetType"
+                        },
+                        {
+                            "AllowableValues": [
+                                "/Oem/Hp"
+                            ],
+                            "PropertyName": "Target"
+                        }
+                    ]
+                },
+                {
+                    "Action": "iLOFunctionality",
+                    "Capabilities": [
+                        {
+                            "AllowableValues": [
+                                "/Oem/Hp"
+                            ],
+                            "PropertyName": "Target"
+                        }
+                    ]
+                }
+            ],
+            "ClearRestApiStatus": "DataPresent",
+            "FederationConfig": {
+                "IPv6MulticastScope": "Site",
+                "MulticastAnnouncementInterval": 600,
+                "MulticastDiscovery": "Enabled",
+                "MulticastTimeToLive": 5,
+                "iLOFederationManagement": "Enabled"
+            },
+            "Firmware": {
+                "Current": {
+                    "Date": "Aug 16 2017",
+                    "DebugBuild": false,
+                    "MajorVersion": 2,
+                    "MinorVersion": 55,
+                    "Time": "",
+                    "VersionString": "iLO 4 v2.55"
+                }
+            },
+            "License": {
+                "LicenseKey": "xxxxx-xxxxx-xxxxx-xxxxx-MKQLH",
+                "LicenseString": "iLO Advanced",
+                "LicenseType": "Perpetual"
+            },
+            "RequiredLoginForiLORBSU": false,
+            "SerialCLISpeed": 9600,
+            "SerialCLIStatus": "EnabledAuthReq",
+            "Type": "HpiLO.1.1.0",
+            "VSPLogDownloadEnabled": false,
+            "iLOSelfTestResults": [
+                {
+                    "Notes": "",
+                    "SelfTestName": "NVRAMData",
+                    "Status": "OK"
+                },
+                {
+                    "Notes": "Controller firmware revision  2.10.00  ",
+                    "SelfTestName": "EmbeddedFlash/SDCard",
+                    "Status": "OK"
+                },
+                {
+                    "Notes": "",
+                    "SelfTestName": "EEPROM",
+                    "Status": "OK"
+                },
+                {
+                    "Notes": "",
+                    "SelfTestName": "HostRom",
+                    "Status": "OK"
+                },
+                {
+                    "Notes": "",
+                    "SelfTestName": "SupportedHost",
+                    "Status": "OK"
+                },
+                {
+                    "Notes": "Version 1.0.9",
+                    "SelfTestName": "PowerManagementController",
+                    "Status": "Informational"
+                },
+                {
+                    "Notes": "ProLiant XL420 Gen9 System Programmable Logic Device version 0x0D",
+                    "SelfTestName": "CPLDPAL0",
+                    "Status": "Informational"
+                },
+                {
+                    "Notes": "ProLiant XL420 Gen9 SAS Programmable Logic Device version 0x02",
+                    "SelfTestName": "CPLDPAL1",
+                    "Status": "Informational"
+                }
+            ],
+            "links": {
+                "ActiveHealthSystem": {
+                    "href": "/redfish/v1/Managers/1/ActiveHealthSystem/"
+                },
+                "DateTimeService": {
+                    "href": "/redfish/v1/Managers/1/DateTime/"
+                },
+                "EmbeddedMediaService": {
+                    "href": "/redfish/v1/Managers/1/EmbeddedMedia/"
+                },
+                "FederationDispatch": {
+                    "extref": "/dispatch/"
+                },
+                "FederationGroups": {
+                    "href": "/redfish/v1/Managers/1/FederationGroups/"
+                },
+                "FederationPeers": {
+                    "href": "/redfish/v1/Managers/1/FederationPeers/"
+                },
+                "LicenseService": {
+                    "href": "/redfish/v1/Managers/1/LicenseService/"
+                },
+                "SecurityService": {
+                    "href": "/redfish/v1/Managers/1/SecurityService/"
+                },
+                "UpdateService": {
+                    "href": "/redfish/v1/Managers/1/UpdateService/"
+                },
+                "VSPLogLocation": {
+                    "extref": "/sol.log.gz/"
+                }
+            }
+        }
+    },
+    "SerialConsole": {
+        "ConnectTypesSupported": [
+            "SSH",
+            "IPMI",
+            "Oem"
+        ],
+        "Enabled": true,
+        "MaxConcurrentSessions": 13,
+        "ServiceEnabled": true
+    },
+    "Status": {
+        "State": "Enabled"
+    },
+    "Type": "Manager.1.0.0",
+    "UUID": "7161e523-fbc6-5714-ae4b-5e0aca2d0cc5",
+    "VirtualMedia": {
+        "@odata.id": "/redfish/v1/Managers/1/VirtualMedia/"
+    },
+    "links": {
+        "EthernetNICs": {
+            "href": "/redfish/v1/Managers/1/EthernetInterfaces/"
+        },
+        "Logs": {
+            "href": "/redfish/v1/Managers/1/LogServices/"
+        },
+        "ManagerForChassis": [
+            {
+                "href": "/redfish/v1/Chassis/1/"
+            }
+        ],
+        "ManagerForServers": [
+            {
+                "href": "/redfish/v1/Systems/1/"
+            }
+        ],
+        "NetworkService": {
+            "href": "/redfish/v1/Managers/1/NetworkService/"
+        },
+        "VirtualMedia": {
+            "href": "/redfish/v1/Managers/1/VirtualMedia/"
+        },
+        "self": {
+            "href": "/redfish/v1/Managers/1/"
+        }
+    }
+}

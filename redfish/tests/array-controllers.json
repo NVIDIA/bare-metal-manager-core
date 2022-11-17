@@ -1,0 +1,32 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#Systems/Members/1/SmartStorage/ArrayControllers",
+    "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/",
+    "@odata.type": "#HpSmartStorageArrayControllerCollection.HpSmartStorageArrayControllerCollection",
+    "Description": "HP Smart Storage Array Controllers View",
+    "MemberType": "HpSmartStorageArrayController.1",
+    "Members": [
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/0/"
+        },
+        {
+            "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/"
+        }
+    ],
+    "Members@odata.count": 2,
+    "Name": "HpSmartStorageArrayControllers",
+    "Total": 2,
+    "Type": "Collection.1.0.0",
+    "links": {
+        "Member": [
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/0/"
+            },
+            {
+                "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/"
+            }
+        ],
+        "self": {
+            "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/"
+        }
+    }
+}
