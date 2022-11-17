@@ -12,9 +12,20 @@
 
 use std::net::IpAddr;
 
+use chrono::{DateTime, Utc};
 use mac_address::MacAddress;
+use serde::{Deserialize, Serialize};
 
-use crate::model::instance::{config::network::InterfaceFunctionId, status::SyncState};
+use crate::model::{
+    config_version::{ConfigVersion, Versioned},
+    instance::{
+        config::network::{
+            validate_interface_function_ids, InstanceNetworkConfig, InterfaceFunctionId,
+        },
+        status::SyncState,
+    },
+    SerializableMacAddress, StatusValidationError,
+};
 
 /// Status of the networking subsystem of an instance
 ///
@@ -54,6 +65,81 @@ pub struct InstanceNetworkStatus {
     pub configs_synced: SyncState,
 }
 
+impl InstanceNetworkStatus {
+    /// Derives an Instances network status from the users desired config
+    /// and status that we observed from the networking subsystem.
+    ///
+    /// This mechanism guarantees that the status we return to the user always
+    /// matches the latest `Config` set by the user. We can not directly
+    /// forwarding the last observed status without taking `Config` into account,
+    /// because the observation might have been related to a different config,
+    /// and the interfaces therefore won't match.
+    pub fn from_config_and_observation(
+        config: Versioned<&InstanceNetworkConfig>,
+        observations: Option<&InstanceNetworkStatusObservation>,
+    ) -> Self {
+        let observations = match observations {
+            Some(observations) => observations,
+            None => return Self::unsynchronized_for_config(&config),
+        };
+
+        if observations.config_version != config.version {
+            return Self::unsynchronized_for_config(&config);
+        }
+
+        let interfaces = config.interfaces.iter().map(|config| {
+            // TODO: This isn't super efficient. We could do it better if there would be a guarantee
+            // that interfaces in the observation are in the same order as in the config.
+            // But it isn't obvious at the moment whether we can achieve this while
+            // not mixing up order for users.
+            let observation = observations.interfaces.iter().find(|iface| iface.function_id == config.function_id);
+            match observation {
+                Some(observation) => InstanceInterfaceStatus {
+                    function_id: config.function_id.clone(),
+                    mac_address: observation.mac_address.map(Into::into),
+                    addresses: observation.addresses.clone(),
+                },
+                None => {
+                    tracing::error!("Could not find matching status for interface {:?}. Configs: {:?}, Obsevations: {:?}", config.function_id, config, observation);
+                    // TODO: Might also be worthwhile to return an error?
+                    // On the other hand the error is also visible via returning no IPs - and at least we don't break
+                    // all other interfaces this way
+                    InstanceInterfaceStatus {
+                        function_id: config.function_id.clone(),
+                        mac_address: None,
+                        addresses: Vec::new(),
+                    }
+                }
+            }
+        }).collect();
+
+        Self {
+            interfaces,
+            configs_synced: SyncState::Synced,
+        }
+    }
+
+    /// Creates a `InstanceNetworkStatus` report for cases there the configuration
+    /// has not been synchronized.
+    ///
+    /// This status report will contain an interface for each requested interface,
+    /// but all interfaces will have no addresses assigned to them.
+    fn unsynchronized_for_config(config: &InstanceNetworkConfig) -> Self {
+        Self {
+            interfaces: config
+                .interfaces
+                .iter()
+                .map(|iface| InstanceInterfaceStatus {
+                    function_id: iface.function_id.clone(),
+                    mac_address: None,
+                    addresses: Vec::new(),
+                })
+                .collect(),
+            configs_synced: SyncState::Pending,
+        }
+    }
+}
+
 /// The actual status of a single network interface of an instance
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstanceInterfaceStatus {
@@ -69,4 +155,253 @@ pub struct InstanceInterfaceStatus {
     /// based on the requested subnet.
     /// The list will be empty if interface configuration hasn't been completed
     pub addresses: Vec<IpAddr>,
+}
+
+/// The network status that was last reported by the networking subystem
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceNetworkStatusObservation {
+    /// The version of the config that is applied on the networking subsystem
+    /// Only if the version is equivalent to the latest desired version we
+    /// can actually interpret the results. If the version is outdated, then the
+    /// list of interfaces might actually relate to a different interfaces than
+    /// the ones that are currently required by the networking config.
+    pub config_version: ConfigVersion,
+
+    /// Observed status for each configured interface
+    pub interfaces: Vec<InstanceInterfaceStatusObservation>,
+
+    /// When this status was observed
+    pub observed_at: DateTime<Utc>,
+}
+
+impl InstanceNetworkStatusObservation {
+    /// Validates that a report about an observed network status has a valid
+    /// format
+    pub fn validate(&self) -> Result<(), StatusValidationError> {
+        validate_interface_function_ids(&self.interfaces, |iface| iface.function_id.clone())
+            .map_err(StatusValidationError::InvalidValue)?;
+
+        Ok(())
+    }
+}
+
+/// The actual status of a single network interface of an instance
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceInterfaceStatusObservation {
+    /// The function ID that is assigned to this interface
+    pub function_id: InterfaceFunctionId,
+
+    /// The MAC address which has been assigned to this interface
+    /// The list will be empty if interface configuration hasn't been completed
+    /// and therefore the address is unknown.
+    #[serde(default)]
+    pub mac_address: Option<SerializableMacAddress>,
+
+    /// The list of IP addresses that had been assigned to this interface,
+    /// based on the requested subnet.
+    /// The list will be empty if interface configuration hasn't been completed
+    #[serde(default)]
+    pub addresses: Vec<IpAddr>,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::model::instance::config::network::InstanceInterfaceConfig;
+
+    use super::*;
+    use std::fmt::Write;
+
+    #[test]
+    fn serialize_network_status_observation() {
+        let timestamp: DateTime<Utc> = Utc::now();
+        let serialized_timestamp = format!("{:?}", timestamp);
+        let version = ConfigVersion::initial();
+
+        let mut observation = InstanceNetworkStatusObservation {
+            config_version: version,
+            interfaces: Vec::new(),
+            observed_at: timestamp,
+        };
+        let serialized = serde_json::to_string(&observation).unwrap();
+        assert_eq!(
+            serialized,
+            format!(
+                "{{\"config_version\":\"{}\",\"interfaces\":[],\"observed_at\":\"{}\"}}",
+                version.to_version_string(),
+                serialized_timestamp
+            )
+        );
+        assert_eq!(
+            serde_json::from_str::<InstanceNetworkStatusObservation>(&serialized).unwrap(),
+            observation
+        );
+
+        observation
+            .interfaces
+            .push(InstanceInterfaceStatusObservation {
+                function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                mac_address: None,
+                addresses: Vec::new(),
+            });
+        observation
+            .interfaces
+            .push(InstanceInterfaceStatusObservation {
+                function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
+                addresses: vec!["127.1.2.3".parse().unwrap()],
+            });
+        let serialized = serde_json::to_string(&observation).unwrap();
+        let mut expected = format!(
+            "{{\"config_version\":\"{}\",\"interfaces\":[",
+            version.to_version_string()
+        );
+        write!(
+            &mut expected,
+            "{{\"function_id\":{{\"type\":\"physical\"}},\"mac_address\":null,\"addresses\":[]}},"
+        )
+        .unwrap();
+        write!(&mut expected, "{{\"function_id\":{{\"type\":\"virtual\",\"id\":1}},\"mac_address\":\"01:02:03:04:05:06\",\"addresses\":[\"127.1.2.3\"]}}").unwrap();
+        write!(
+            &mut expected,
+            "],\"observed_at\":\"{}\"}}",
+            serialized_timestamp
+        )
+        .unwrap();
+        assert_eq!(serialized, expected);
+        assert_eq!(
+            serde_json::from_str::<InstanceNetworkStatusObservation>(&serialized).unwrap(),
+            observation
+        );
+    }
+
+    fn network_config() -> InstanceNetworkConfig {
+        let base_uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+
+        InstanceNetworkConfig {
+            interfaces: vec![
+                InstanceInterfaceConfig {
+                    function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                    network_segment_id: base_uuid,
+                },
+                InstanceInterfaceConfig {
+                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                    network_segment_id: uuid::Uuid::from_u128(base_uuid.as_u128() + 1),
+                },
+                InstanceInterfaceConfig {
+                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 2 },
+                    network_segment_id: uuid::Uuid::from_u128(base_uuid.as_u128() + 2),
+                },
+            ],
+        }
+    }
+
+    fn observation_for_config(config_version: ConfigVersion) -> InstanceNetworkStatusObservation {
+        // Note that the interfaces are reordered to make sure we actually can
+        // look up the matching status
+        InstanceNetworkStatusObservation {
+            config_version,
+            observed_at: Utc::now(),
+            interfaces: vec![
+                InstanceInterfaceStatusObservation {
+                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 2 },
+                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26]).into()),
+                    addresses: vec!["127.0.0.3".parse().unwrap()],
+                },
+                InstanceInterfaceStatusObservation {
+                    function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
+                    addresses: vec!["127.0.0.1".parse().unwrap()],
+                },
+                InstanceInterfaceStatusObservation {
+                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16]).into()),
+                    addresses: vec!["127.0.0.2".parse().unwrap()],
+                },
+            ],
+        }
+    }
+
+    fn unsynced_status() -> InstanceNetworkStatus {
+        InstanceNetworkStatus {
+            interfaces: vec![
+                InstanceInterfaceStatus {
+                    function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                    mac_address: None,
+                    addresses: Vec::new(),
+                },
+                InstanceInterfaceStatus {
+                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                    mac_address: None,
+                    addresses: Vec::new(),
+                },
+                InstanceInterfaceStatus {
+                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 2 },
+                    mac_address: None,
+                    addresses: Vec::new(),
+                },
+            ],
+            configs_synced: SyncState::Pending,
+        }
+    }
+
+    fn expected_status() -> InstanceNetworkStatus {
+        InstanceNetworkStatus {
+            interfaces: vec![
+                InstanceInterfaceStatus {
+                    function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
+                    addresses: vec!["127.0.0.1".parse().unwrap()],
+                },
+                InstanceInterfaceStatus {
+                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
+                    addresses: vec!["127.0.0.2".parse().unwrap()],
+                },
+                InstanceInterfaceStatus {
+                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 2 },
+                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
+                    addresses: vec!["127.0.0.3".parse().unwrap()],
+                },
+            ],
+            configs_synced: SyncState::Synced,
+        }
+    }
+
+    #[test]
+    fn network_status_without_observations() {
+        let config = network_config();
+        let version = ConfigVersion::initial();
+
+        let status = InstanceNetworkStatus::from_config_and_observation(
+            Versioned::new(&config, version),
+            None,
+        );
+        assert_eq!(status, unsynced_status())
+    }
+
+    #[test]
+    fn network_status_with_correct_version_observation() {
+        let config = network_config();
+        let version = ConfigVersion::initial();
+        let observation = observation_for_config(version);
+
+        let status = InstanceNetworkStatus::from_config_and_observation(
+            Versioned::new(&config, version),
+            Some(&observation),
+        );
+        assert_eq!(status, expected_status())
+    }
+
+    #[test]
+    fn network_status_with_mismatched_version_observation() {
+        let config = network_config();
+        let version = ConfigVersion::initial();
+        let observation = observation_for_config(version);
+
+        let status = InstanceNetworkStatus::from_config_and_observation(
+            Versioned::new(&config, version.increment()),
+            Some(&observation),
+        );
+        assert_eq!(status, unsynced_status())
+    }
 }

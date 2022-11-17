@@ -11,6 +11,7 @@
  */
 
 pub mod config;
+pub mod status;
 
 use std::{
     convert::{TryFrom, TryInto},
@@ -29,7 +30,10 @@ use ::rpc::Timestamp;
 use crate::{
     model::{
         config_version::ConfigVersion,
-        instance::config::{network::InstanceNetworkConfig, tenant::TenantConfig},
+        instance::{
+            config::{network::InstanceNetworkConfig, tenant::TenantConfig},
+            status::network::InstanceNetworkStatusObservation,
+        },
     },
     CarbideError, CarbideResult,
 };
@@ -282,13 +286,16 @@ impl<'a> NewInstance<'a> {
     ) -> CarbideResult<Instance> {
         let network_version = ConfigVersion::initial();
         let network_version_string = network_version.to_version_string();
+        // None means we haven't observed any network status from the DPU via VPC yet
+        // The first report from the networking subsytem will set the field
+        let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
 
         // TODO: We don't persist `TenantConfig.tenant_id` yet
 
         Ok(
             sqlx::query_as(concat!(
-                "INSERT INTO instances (machine_id, user_data, custom_ipxe, ssh_keys, use_custom_pxe_on_boot, network_config, network_config_version) ",
-                "VALUES ($1::uuid, $2, $3, $4::text[], true, $5::json, $6) RETURNING *"),
+                "INSERT INTO instances (machine_id, user_data, custom_ipxe, ssh_keys, use_custom_pxe_on_boot, network_config, network_config_version, network_status_observation) ",
+                "VALUES ($1::uuid, $2, $3, $4::text[], true, $5::json, $6, $7::json) RETURNING *"),
             )
                 .bind(&self.machine_id)
                 .bind(&self.tenant_config.user_data)
@@ -296,6 +303,7 @@ impl<'a> NewInstance<'a> {
                 .bind(&self.ssh_keys)
                 .bind(sqlx::types::Json(&self.network_config))
                 .bind(&network_version_string)
+                .bind(sqlx::types::Json(network_status_observation))
                 .fetch_one(&mut *txn)
                 .await?
         )

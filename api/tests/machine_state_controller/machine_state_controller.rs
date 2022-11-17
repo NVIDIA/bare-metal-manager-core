@@ -22,7 +22,7 @@ use carbide::{
     db::machine_topology::MachineTopology,
     machine_state_controller::{
         controller::MachineStateController,
-        snapshot_loader::DbMachineStateSnapshotLoader,
+        snapshot_loader::DbSnapshotLoader,
         state_handler::{
             MachineStateHandler, MachineStateHandlerContext, MachineStateHandlerError,
         },
@@ -106,7 +106,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             MachineStateController::builder()
                 .iteration_time(Duration::from_millis(100))
                 .database(pool.clone())
-                .snapshot_loader(Box::new(DbMachineStateSnapshotLoader::default()))
+                .snapshot_loader(Box::new(DbSnapshotLoader::default()))
                 .state_handler(machine_handler.clone())
                 .build()
                 .unwrap(),

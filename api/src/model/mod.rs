@@ -63,6 +63,22 @@ impl ConfigValidationError {
     }
 }
 
+// Error that is returned when we validate various status that are obtained
+/// from Forge system components
+#[derive(Debug, thiserror::Error, Clone)]
+pub enum StatusValidationError {
+    /// A configuration value is invalid
+    #[error("Invalid value: {0}")]
+    InvalidValue(String),
+}
+
+impl StatusValidationError {
+    /// Creates a [StatusValidationError::InvalidValue] variant
+    pub fn invalid_value<T: Into<String>>(value: T) -> Self {
+        Self::InvalidValue(value.into())
+    }
+}
+
 /// A transparent wrapper around [`MacAddress`] that enables serde serialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SerializableMacAddress(MacAddress);
