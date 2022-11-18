@@ -36,3 +36,4 @@ uuid = "1.0"
 # local crate depenendencies
 rpc = { path = "../rpc" }
 forge_credentials = { path = "../forge_credentials" }
+efivar = "0.2.1"
