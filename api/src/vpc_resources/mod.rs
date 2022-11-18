@@ -174,11 +174,7 @@ impl BlueFieldInterface {
     }
 
     pub fn leaf_interface_id(&self, machine_id: &uuid::Uuid) -> String {
-        let if_prefix = match self.0 {
-            InterfaceFunctionId::PhysicalFunctionId {} => "pf".to_owned(),
-            InterfaceFunctionId::VirtualFunctionId { id } => format!("vf/{}", id),
-        };
-        format!("forge-{}/{}", machine_id, if_prefix)
+        format!("forge-{}/{}", machine_id, self.0.kube_representation())
     }
 
     pub fn interface_name(&self) -> String {
@@ -216,13 +212,13 @@ impl BlueFieldInterfaceMap {
 }
 
 pub fn host_interfaces(dpu_machine_id: &uuid::Uuid) -> BTreeMap<String, String> {
-    //Virtual interfaces start from 1 to 16.
+    // Virtual interfaces start from 1 to 16.
     let mut interface_map = BlueFieldInterfaceMap::new(dpu_machine_id.to_owned());
 
-    //PF Interface entry
+    // PF Interface entry
     interface_map.insert(InterfaceFunctionId::PhysicalFunctionId {});
 
-    //VF Interface entries
+    // VF Interface entries
     (INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).for_each(|id| {
         interface_map.insert(InterfaceFunctionId::VirtualFunctionId { id: id as u8 });
     });

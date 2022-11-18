@@ -50,7 +50,6 @@ pub struct Instance {
     pub user_data: Option<String>,
     pub custom_ipxe: String,
     pub ssh_keys: Vec<String>,
-    pub managed_resource_id: uuid::Uuid,
     pub use_custom_pxe_on_boot: bool,
     pub interfaces: Vec<InstanceSubnet>,
 }
@@ -82,7 +81,6 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             user_data: row.try_get("user_data")?,
             custom_ipxe: row.try_get("custom_ipxe")?,
             ssh_keys: Vec::new(),
-            managed_resource_id: row.try_get("managed_resource_id")?,
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
             interfaces: Vec::new(),
         })
@@ -116,7 +114,6 @@ impl From<Instance> for rpc::Instance {
                 .map(|interface| interface.into())
                 .collect(),
             use_custom_pxe_on_boot: src.use_custom_pxe_on_boot,
-            managed_resource_id: Some(src.managed_resource_id.into()),
         }
     }
 }
@@ -206,7 +203,7 @@ impl Instance {
                                     i.requested as requested, i.started as started,
                                     i.finished as finished, i,user_data as user_data,
                                     i.custom_ipxe as custom_ipxe, i.ssh_keys as ssh_keys,
-                                    i.managed_resource_id as managed_resource_id, i.use_custom_pxe_on_boot as use_custom_pxe_on_boot
+                                    i.use_custom_pxe_on_boot as use_custom_pxe_on_boot
                                     FROM instances i
                                       INNER JOIN instance_subnets s ON i.id = s.instance_id
                                       INNER JOIN machine_interfaces ms ON ms.id = s.machine_interface_id

@@ -31,14 +31,6 @@ fn convert_instance_to_nice_format(
             instance.machine_id.clone().unwrap_or_default().value,
         ),
         (
-            "MANAGED RES ID",
-            instance
-                .managed_resource_id
-                .clone()
-                .unwrap_or_default()
-                .value,
-        ),
-        (
             "REQUESTED",
             instance.requested.clone().unwrap_or_default().to_string(),
         ),

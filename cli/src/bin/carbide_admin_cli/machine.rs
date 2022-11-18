@@ -66,16 +66,8 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
     } else {
         for (i, interface) in machine.interfaces.into_iter().enumerate() {
             let m_type = if interface.primary_interface {
-                if interface
-                    .machine_id
-                    .clone()
-                    .map(|x| x.to_string())
-                    .unwrap_or_else(|| "unknown machine".to_owned())
-                    == interface
-                        .attached_dpu_machine_id
-                        .clone()
-                        .map(|x| x.to_string())
-                        .unwrap_or_else(|| "unknown dpu".to_owned())
+                if interface.attached_dpu_machine_id.is_some()
+                    && interface.attached_dpu_machine_id == interface.machine_id
                 {
                     "DPU"
                 } else {
@@ -147,6 +139,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> String {
         "Id",
         "Created",
         "State",
+        "Attached DPU",
         "Primary Interface",
         "IP Address",
         "MAC Address",
@@ -160,8 +153,9 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> String {
             .filter(|x| x.primary_interface)
             .collect::<Vec<forgerpc::MachineInterface>>();
 
-        let (id, address, mac, machine_type) = if machine_interfaces.is_empty() {
+        let (id, address, mac, machine_type, dpu_id) = if machine_interfaces.is_empty() {
             (
+                "None".to_string(),
                 "None".to_string(),
                 "None".to_string(),
                 "None".to_string(),
@@ -174,12 +168,17 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> String {
                 mi.id.unwrap_or_default().to_string(),
                 mi.address.join(","),
                 mi.mac_address,
-                if mi.attached_dpu_machine_id.is_some() {
+                if mi.attached_dpu_machine_id == mi.machine_id
+                    && mi.attached_dpu_machine_id.is_some()
+                {
                     "DPU"
                 } else {
                     "X86_64"
                 }
                 .to_string(),
+                mi.attached_dpu_machine_id
+                    .map(|x| x.to_string())
+                    .unwrap_or_else(|| "NA".to_string()),
             )
         };
 
@@ -187,6 +186,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> String {
             machine.id.unwrap_or_default(),
             machine.created.unwrap_or_default(),
             machine.state.to_uppercase(),
+            dpu_id,
             id,
             address,
             mac,

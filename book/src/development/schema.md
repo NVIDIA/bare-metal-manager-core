@@ -63,7 +63,6 @@ erDiagram
         text user_data 
         text custom_ipxe 
         ARRAY ssh_keys 
-        uuid managed_resource_id 
     }
 
     vpcs {

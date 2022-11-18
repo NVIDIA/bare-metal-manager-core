@@ -24,7 +24,7 @@ pub enum InterfaceFunctionType {
 }
 
 /// Uniquely identifies an interface on the instance
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "type")]
 pub enum InterfaceFunctionId {
     #[serde(rename = "physical")]
@@ -43,6 +43,14 @@ pub enum InterfaceFunctionId {
 }
 
 impl InterfaceFunctionId {
+    // Returns String that will be used to represent FunctionId in kubernetes.
+    pub fn kube_representation(&self) -> String {
+        match self {
+            InterfaceFunctionId::PhysicalFunctionId {} => "pf".to_string(),
+            InterfaceFunctionId::VirtualFunctionId { id } => format!("vf/{}", id),
+        }
+    }
+
     /// Returns whether ID refers to a physical or virtual function
     pub fn function_type(&self) -> InterfaceFunctionType {
         match self {

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -13,6 +14,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Instant;
 
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
+use itertools::Itertools;
 use kube::api::ListParams;
 use kube::runtime::wait::{await_condition, Condition};
 use kube::{
@@ -30,21 +34,45 @@ use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipmi::{MachinePowerRequest, Operation};
-use crate::model::instance::config::network::InterfaceFunctionId;
+use crate::model::instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId};
 use crate::vpc_resources::{
     leaf, managed_resource, resource_group, BlueFieldInterface, VpcResource, VpcResourceStatus,
 };
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+struct IpDetails {
+    function_id: InterfaceFunctionId,
+    ip_addr: IpAddr,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManagedResourceData {
     machine_id: uuid::Uuid,
-    mr: managed_resource::ManagedResource,
+    dpu_machine_id: uuid::Uuid,
+    instance_id: uuid::Uuid,
+    network_config: InstanceNetworkConfig,
+    ip_details: Option<Vec<IpDetails>>,
+    managed_resources: Vec<managed_resource::ManagedResource>,
 }
 
 impl ManagedResourceData {
-    pub fn new(machine_id: uuid::Uuid, mr: managed_resource::ManagedResource) -> Self {
-        ManagedResourceData { machine_id, mr }
+    fn new(
+        machine_id: uuid::Uuid,
+        dpu_machine_id: uuid::Uuid,
+        instance_id: uuid::Uuid,
+        network_config: InstanceNetworkConfig,
+        ip_details: Option<Vec<IpDetails>>,
+        managed_resources: Vec<managed_resource::ManagedResource>,
+    ) -> Self {
+        ManagedResourceData {
+            machine_id,
+            dpu_machine_id,
+            instance_id,
+            network_config,
+            ip_details,
+            managed_resources,
+        }
     }
 }
 
@@ -106,7 +134,12 @@ async fn _leaf_resource_status(spec: leaf::Leaf) -> CarbideResult<leaf::LeafStat
 }
 
 async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, state: TaskState) {
-    log::info!("Current status: {}, checkpoint: {}", msg, checkpoint);
+    if let TaskState::Error(..) = &state {
+        log::error!("Error status: {}, checkpoint: {}", msg, checkpoint);
+    } else {
+        log::info!("Current status: {}, checkpoint: {}", msg, checkpoint);
+    }
+
     match Status::update(
         current_job.pool(),
         current_job.id(),
@@ -288,91 +321,121 @@ async fn create_managed_resource_handler(
     data: ManagedResourceData,
     client: Client,
 ) -> CarbideResult<()> {
-    let spec = data.mr;
-    let spec_name = spec.name().to_string();
     let start_time = Instant::now();
-    log::info!("Creating resource_group with name {}.", spec_name);
 
     update_status(
         &current_job,
         0,
-        format!("Creating managed_resource with name {}", spec_name),
+        format!(
+            "Creating managed_resource for instance {}",
+            data.instance_id
+        ),
         TaskState::Ongoing,
     )
     .await;
 
     let resource: Api<managed_resource::ManagedResource> =
         Api::namespaced(client.clone(), FORGE_KUBE_NAMESPACE);
-    let result = resource.create(&PostParams::default(), &spec).await;
 
-    match result {
-        Ok(_) => {
-            update_status(
-                &current_job,
-                1,
-                format!(
-                    "ManagedResource creation {} is successful after {:?}.",
-                    spec.name(),
-                    start_time.elapsed()
-                ),
-                TaskState::Ongoing,
-            )
-            .await;
-            let waiter = await_condition(
-                resource.clone(),
-                spec_name.as_str(),
-                ConditionReadyMatcher {
-                    matched_name: spec_name.clone(),
-                },
-            );
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
-                .await
-                .map_err(|_elapsed_error| {
-                    CarbideError::TokioTimeoutError("creating managed resource group".to_string())
-                })?;
+    let mut spec_names = Vec::new();
+    let mut waiters = FuturesUnordered::new();
+    for spec in &data.managed_resources {
+        let spec_name = spec.name().to_string();
+        if resource.get(&spec_name).await.is_err() {
+            let result = resource.create(&PostParams::default(), spec).await;
+            if let Err(err) = result {
+                update_status(
+                    &current_job,
+                    1,
+                    format!(
+                        "ManagedResource creation {} failed. Error: {:?} Duration: {:?}",
+                        spec.name(),
+                        err,
+                        start_time.elapsed(),
+                    ),
+                    TaskState::Error(err.to_string()),
+                )
+                .await;
+                return Err(CarbideError::GenericError(err.to_string()));
+            }
 
-            update_status(
-                &current_job,
-                2,
-                format!(
-                    "ManagedResource created {} on vpc after {:?}.",
-                    spec.name(),
-                    start_time.elapsed()
-                ),
-                TaskState::Ongoing,
-            )
-            .await;
-
-            let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
-            update_status(
-                &current_job,
-                3,
-                format!(
-                    "Machine reset task spawned for machine_id {} with task: {} after duration {:?}",
-                    data.machine_id, task_id, start_time.elapsed(),
-                ),
-                TaskState::Finished,
-            )
-            .await;
-            let _ = current_job.complete().await.map_err(CarbideError::from);
-            Ok(())
-        }
-        Err(err) => {
-            update_status(
-                &current_job,
-                4,
-                format!(
-                    "ManagedResource creation {} failed. Error: {:?} Duration: {:?}",
-                    spec.name(),
-                    err,
-                    start_time.elapsed(),
-                ),
-                TaskState::Error(err.to_string()),
-            )
-            .await;
-            Err(CarbideError::GenericError(err.to_string()))
+            spec_names.push(spec_name);
         }
     }
+
+    spec_names.iter().for_each(|name| {
+        waiters.push(await_condition(
+            resource.clone(),
+            name.as_str(),
+            ConditionReadyMatcher {
+                matched_name: name.to_owned(),
+            },
+        ));
+    });
+
+    update_status(
+        &current_job,
+        2,
+        format!(
+            "ManagedResource created for instance {} after {:?}.",
+            data.instance_id,
+            start_time.elapsed()
+        ),
+        TaskState::Ongoing,
+    )
+    .await;
+
+    let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(60 * 10));
+    tokio::pin!(sleep);
+
+    for _ in &spec_names {
+        tokio::select! {
+            _ = waiters.next() => {}
+            _ = &mut sleep => {
+                let err_msg =
+                    format!(
+                        "Timeout while waiting for ManagedResource creation for instance: {}, elapsed: {:?}",
+                        data.instance_id,
+                        start_time.elapsed());
+                update_status(
+                    &current_job,
+                    3,
+                    err_msg.clone(),
+                    TaskState::Error("Timeout".to_string()),
+                )
+                .await;
+                return Err(CarbideError::TokioTimeoutError(err_msg));
+            }
+        }
+    }
+
+    update_status(
+        &current_job,
+        4,
+        format!(
+            "ManagedResource created for instance {} on vpc after {:?}.",
+            data.instance_id,
+            start_time.elapsed()
+        ),
+        TaskState::Ongoing,
+    )
+    .await;
+
+    let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+    update_status(
+        &current_job,
+        5,
+        format!(
+            "Machine reset task spawned for machine_id {} with task: {} after duration {:?}",
+            data.machine_id,
+            task_id,
+            start_time.elapsed(),
+        ),
+        TaskState::Finished,
+    )
+    .await;
+    let _ = current_job.complete().await.map_err(CarbideError::from);
+    Ok(())
 }
 
 async fn find_leaf_with_host_interface(
@@ -395,22 +458,82 @@ async fn find_leaf_with_host_interface(
     Ok(None)
 }
 
+async fn find_leaf_with_dpu_id(
+    dpu_machine_id: uuid::Uuid,
+    client: Client,
+) -> CarbideResult<Option<String>> {
+    let host_interface = BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {})
+        .leaf_interface_id(&dpu_machine_id);
+    let leaf_name = find_leaf_with_host_interface(&host_interface, client.clone()).await?;
+    Ok(leaf_name)
+}
+
+async fn wait_for_hbn_to_configure(
+    leaf_name: Option<String>,
+    client: Client,
+    current_job: &CurrentJob,
+    start_time: &Instant,
+) -> CarbideResult<()> {
+    if let Some(leaf_name) = leaf_name {
+        let api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
+        let waiter = await_condition(
+            api,
+            leaf_name.as_str(),
+            ConditionReadyMatcher {
+                matched_name: leaf_name.clone(),
+            },
+        );
+
+        if let Err(err) = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter).await
+        {
+            let err_msg = format!(
+                "deleting managedresource timeout for leaf {}, Error: {}",
+                leaf_name, err
+            );
+
+            update_status(
+                current_job,
+                10,
+                "Waiting for HBN to configure failed.".to_string(),
+                TaskState::Error(err_msg.clone()),
+            )
+            .await;
+            return Err(CarbideError::TokioTimeoutError(err_msg));
+        }
+
+        update_status(
+            current_job,
+            11,
+            format!(
+                "hbn leaf: {} is configured with admin network, elapsed: {:?}.",
+                leaf_name,
+                start_time.elapsed(),
+            ),
+            TaskState::Ongoing,
+        )
+        .await;
+    }
+
+    Ok(())
+}
+
 async fn delete_managed_resource_handler(
     mut current_job: CurrentJob,
     data: ManagedResourceData,
     client: Client,
 ) -> CarbideResult<()> {
-    let spec = data.mr;
-    let spec_name = spec.name().to_string();
     let start_time = Instant::now();
-    log::info!("Deleting resource_group with name {}.", spec_name);
+    log::info!(
+        "Deleting managed_resources for instance {}.",
+        data.instance_id
+    );
 
     update_status(
         &current_job,
         0,
         format!(
-            "Deleting managed_resource with name {} elapsed: {:?}",
-            spec_name,
+            "Deleting managed_resource for instance {} elapsed: {:?}",
+            data.instance_id,
             start_time.elapsed()
         ),
         TaskState::Ongoing,
@@ -419,94 +542,74 @@ async fn delete_managed_resource_handler(
 
     let resource_api: Api<managed_resource::ManagedResource> =
         Api::namespaced(client.clone(), FORGE_KUBE_NAMESPACE);
-    let managed_resource = resource_api.get(&spec_name).await?;
-    let mac = managed_resource
-        .spec
-        .host_interface
-        .ok_or(CarbideError::NotFoundError(data.machine_id))?;
-    let leaf_name = find_leaf_with_host_interface(&mac, client.clone()).await?;
-    let result = resource_api
-        .delete(&spec_name, &DeleteParams::default())
-        .await;
 
-    match result {
-        Ok(_) => {
-            update_status(
-                &current_job,
-                1,
-                format!(
-                    "ManagedResource deletion {} is successful, elapsed: {:?}.",
-                    spec.name(),
-                    start_time.elapsed()
-                ),
-                TaskState::Ongoing,
-            )
-            .await;
+    let leaf_name = find_leaf_with_dpu_id(data.dpu_machine_id, client.clone()).await?;
 
-            // In case leaf is not found (although it should never happen), machine will stuck in
-            // boot loop. This is only possible due to misconfiguration. Do not return failure
-            // as MR is already deleted.
-            // TODO: Machine should be moved to FAILED state.
-            if let Some(leaf_name) = leaf_name {
-                let api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
-                let waiter = await_condition(
-                    api,
-                    spec_name.as_str(),
-                    ConditionReadyMatcher {
-                        matched_name: leaf_name.clone(),
-                    },
-                );
-                let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
-                    .await
-                    .map_err(|_elapsed_error| {
-                        CarbideError::TokioTimeoutError(
-                            "deleting managed resource group".to_string(),
-                        )
-                    })?;
+    for spec in data.managed_resources {
+        let spec_name = spec.name().to_string();
+        if resource_api.get(&spec_name).await.is_ok() {
+            let result = resource_api
+                .delete(&spec_name, &DeleteParams::default())
+                .await;
+
+            if let Err(err) = result {
                 update_status(
                     &current_job,
-                    2,
+                    5,
                     format!(
-                        "ManagedResource deletion {} successful and hbn is configured with admin network, elapsed: {:?}.",
+                        "ManagedResource deletion {} failed. Error: {:?}",
                         spec.name(),
-                        start_time.elapsed(),
+                        err
                     ),
-                    TaskState::Ongoing,
+                    TaskState::Error(err.to_string()),
                 )
                 .await;
+                return Err(CarbideError::GenericError(err.to_string()));
             }
 
-            let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
-            update_status(
-                &current_job,
-                3,
-                format!(
-                    "Machine reset task spawned for machine_id {}, task: {}, elapsed: {:?}",
-                    data.machine_id,
-                    task_id,
-                    start_time.elapsed(),
-                ),
-                TaskState::Finished,
-            )
-            .await;
-            let _ = current_job.complete().await.map_err(CarbideError::from);
-            Ok(())
-        }
-        Err(err) => {
-            update_status(
-                &current_job,
-                5,
-                format!(
-                    "ManagedResource deletion {} failed. Error: {:?}",
-                    spec.name(),
-                    err
-                ),
-                TaskState::Error(err.to_string()),
-            )
-            .await;
-            Err(CarbideError::GenericError(err.to_string()))
+            log::info!(
+                "ManagedResource deletion {} is successful, elapsed: {:?}.",
+                spec_name,
+                start_time.elapsed()
+            );
+        } else {
+            log::info!("ManagedResource {} is already deleted.", spec_name);
         }
     }
+    update_status(
+        &current_job,
+        1,
+        format!(
+            "ManagedResources for instance {} are deleted, elapsed: {:?}.",
+            data.instance_id,
+            start_time.elapsed(),
+        ),
+        TaskState::Ongoing,
+    )
+    .await;
+
+    // In case leaf is not found (although it should never happen), machine will stuck in
+    // boot loop. This is only possible due to misconfiguration. Do not return failure
+    // as MR is already deleted.
+    // TODO: Machine should be moved to FAILED state.
+    wait_for_hbn_to_configure(leaf_name, client.clone(), &current_job, &start_time).await?;
+
+    // Reboot host
+    let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+    update_status(
+        &current_job,
+        3,
+        format!(
+            "Machine reset task spawned for machine_id {}, task: {}, elapsed: {:?}",
+            data.machine_id,
+            task_id,
+            start_time.elapsed(),
+        ),
+        TaskState::Finished,
+    )
+    .await;
+    let _ = current_job.complete().await.map_err(CarbideError::from);
+    Ok(())
 }
 
 #[job(channel_name = "vpc_reconcile_handler")]
@@ -851,60 +954,88 @@ pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideRes
         .map_err(CarbideError::from)
 }
 
+fn managed_resource_name(
+    managed_resource_name_prefix: &String,
+    function_id: &InterfaceFunctionId,
+) -> String {
+    format!(
+        "{}/{}",
+        managed_resource_name_prefix,
+        function_id.kube_representation()
+    )
+}
+
 pub async fn create_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     machine_id: uuid::Uuid,
-    segment_id: uuid::Uuid,
     dpu_machine_id: uuid::Uuid,
-    managed_resource_name: String,
-    host_interface_ip: Option<String>,
+    network_config: InstanceNetworkConfig,
+    ip_details: HashMap<InterfaceFunctionId, IpAddr>,
+    instance_id: uuid::Uuid,
 ) -> CarbideResult<()> {
-    // find_by_segmentcan return max two prefixes, one for ipv4 and another for ipv6
-    // Ipv4 is needed for now.
-    let prefix = NetworkPrefix::find_by_segment(
-        &mut *txn,
-        crate::db::UuidKeyedObjectFilter::One(segment_id),
-    )
-    .await?
-    .into_iter()
-    .filter(|x| x.prefix.is_ipv4())
-    .last()
-    .ok_or_else(|| {
-        CarbideError::GenericError(format!(
-            "Counldn't find IPV4 NetworkPrefix for segment {}",
-            segment_id
-        ))
-    })?;
+    let mut managed_resources = Vec::new();
 
-    // This only handles PF for now.
-    let host_interface = Some(
-        BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {})
-            .leaf_interface_id(&dpu_machine_id),
-    );
+    let managed_resource_name_prefix = instance_id.to_string();
+    for iface in &network_config.interfaces {
+        // find_by_segmentcan CAN return max two prefixes, one for ipv4 and another for ipv6
+        // Ipv4 is needed for now.
+        let prefix = NetworkPrefix::find_by_segment(
+            &mut *txn,
+            crate::db::UuidKeyedObjectFilter::One(iface.network_segment_id),
+        )
+        .await?
+        .into_iter()
+        .filter(|x| x.prefix.is_ipv4())
+        .last()
+        .ok_or_else(|| {
+            CarbideError::GenericError(format!(
+                "Counldn't find IPV4 NetworkPrefix for segment {}",
+                iface.network_segment_id
+            ))
+        })?;
 
-    let managed_resource_spec = managed_resource::ManagedResourceSpec {
-        state: None,
-        dpu_i_ps: None,
-        host_interface,
-        host_interface_access: None,
-        host_interface_ip,
-        host_interface_mac: None,
-        resource_group: Some(prefix.id.to_string()),
-        r#type: None,
-    };
+        let host_interface = Some(
+            BlueFieldInterface::new(iface.function_id.clone()).leaf_interface_id(&dpu_machine_id),
+        );
 
-    let managed_resource =
-        managed_resource::ManagedResource::new(&managed_resource_name, managed_resource_spec);
+        let host_interface_ip = ip_details.get(&iface.function_id).map(|ip| ip.to_string());
+        let managed_resource_spec = managed_resource::ManagedResourceSpec {
+            state: None,
+            dpu_i_ps: None,
+            host_interface,
+            host_interface_access: None,
+            host_interface_ip,
+            host_interface_mac: None,
+            resource_group: Some(prefix.id.to_string()),
+            r#type: None,
+        };
+        managed_resources.push(managed_resource::ManagedResource::new(
+            &managed_resource_name(&managed_resource_name_prefix, &iface.function_id),
+            managed_resource_spec,
+        ));
+    }
 
     log::info!(
         "ManagedResource sent to kubernetes with data: {:?}",
-        managed_resource,
+        managed_resources,
     );
 
     let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
     VpcResourceActions::CreateManagedResource(ManagedResourceData::new(
         machine_id,
-        managed_resource,
+        dpu_machine_id,
+        instance_id,
+        network_config,
+        Some(
+            ip_details
+                .into_iter()
+                .map(|(function_id, ip_addr)| IpDetails {
+                    function_id,
+                    ip_addr,
+                })
+                .collect_vec(),
+        ),
+        managed_resources,
     ))
     .reconcile(db_conn)
     .await?;
@@ -915,34 +1046,44 @@ pub async fn create_managed_resource(
 pub async fn delete_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     machine_id: uuid::Uuid,
-    managed_resource_name: String,
+    dpu_machine_id: uuid::Uuid,
+    network_config: InstanceNetworkConfig,
+    instance_id: uuid::Uuid,
 ) -> CarbideResult<()> {
-    // find_by_segmentcan return max two prefixes, one for ipv4 and another for ipv6
-    // Ipv4 is needed for now.
-    let managed_resource_spec = managed_resource::ManagedResourceSpec {
-        state: None,
-        dpu_i_ps: None,
-        host_interface: None,
-        host_interface_access: None,
-        host_interface_ip: None,
-        host_interface_mac: None,
-        resource_group: None,
-        r#type: None,
-    };
+    let mut managed_resources = Vec::new();
 
-    let managed_resource =
-        managed_resource::ManagedResource::new(&managed_resource_name, managed_resource_spec);
+    let managed_resource_name_prefix = instance_id.to_string();
+    for iface in &network_config.interfaces {
+        let managed_resource_spec = managed_resource::ManagedResourceSpec {
+            state: None,
+            dpu_i_ps: None,
+            host_interface: None,
+            host_interface_access: None,
+            host_interface_ip: None,
+            host_interface_mac: None,
+            resource_group: None,
+            r#type: None,
+        };
 
+        managed_resources.push(managed_resource::ManagedResource::new(
+            &managed_resource_name(&managed_resource_name_prefix, &iface.function_id),
+            managed_resource_spec,
+        ));
+    }
     log::info!(
         "DeleteManagedResource sent to kubernetes with data: {:?}, machine_id: {}",
-        managed_resource,
+        managed_resources,
         machine_id
     );
 
     let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
     VpcResourceActions::DeleteManagedResource(ManagedResourceData::new(
         machine_id,
-        managed_resource,
+        dpu_machine_id,
+        instance_id,
+        network_config,
+        None,
+        managed_resources,
     ))
     .reconcile(db_conn)
     .await?;

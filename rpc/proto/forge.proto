@@ -362,7 +362,6 @@ message Instance {
 
   repeated InstanceSubnet interfaces = 10;
   bool use_custom_pxe_on_boot = 11;
-  UUID managed_resource_id = 12;
 }
 
 message PhysicalFunction {}
