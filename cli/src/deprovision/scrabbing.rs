@@ -13,6 +13,7 @@ use procfs::Meminfo;
 use regex::Regex;
 use rlimit::Resource;
 use std::fs;
+use std::str::FromStr;
 
 use crate::deprovision::cmdrun;
 use ::rpc::forge as rpc;
@@ -28,8 +29,34 @@ nvme format /dev/nvme0 -n NS_ID
 
 */
 
+fn check_memory_overwrite_efi_var() -> Result<(), String> {
+    let name = match efivar::efi::VariableName::from_str(
+        "MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829",
+    ) {
+        Ok(o) => o,
+        Err(e) => return Err(e.to_string()),
+    };
+    let s = efivar::system();
+    let mut buffer = [0u8; 1];
+    match s.read(&name, &mut buffer) {
+        Ok(o) => {
+            if o.0 == 1 && buffer[0] == 1 {
+                return Ok(());
+            }
+            Err(format!(
+                "Invalid result when reading MemoryOverwriteRequestControl efivar size={} value={}",
+                o.0, buffer[0]
+            ))
+        }
+        Err(e) => Err(format!(
+            "Failed to read MemoryOverwriteRequestControl efivar: {}",
+            e
+        )),
+    }
+}
+
 fn clean_this_nvme(nvmename: &String) -> Result<(), String> {
-    println!("cleaning {}", nvmename);
+    log::debug!("cleaning {}", nvmename);
     let nvme_ns_re = match Regex::new(r"\[.*\]:(0x[0-9]+)") {
         Ok(o) => o,
         Err(e) => return Err(e.to_string()),
@@ -116,7 +143,7 @@ fn get_os_mem_info() -> Result<StructOsMemInfo, String> {
     meminfo.mem_free = rust_meminfo.mem_free;
     meminfo.mem_buffers = rust_meminfo.buffers;
     meminfo.mem_cached = rust_meminfo.cached;
-    println!("{:?}", meminfo);
+    log::debug!("{:?}", meminfo);
     Ok(meminfo)
 }
 
@@ -155,7 +182,7 @@ fn cleanup_ram() -> Result<(), String> {
         Err(e) => return Err(e),
     };
 
-    println!(
+    log::debug!(
         "Preparing to cleanup {} bytes of RAM",
         meminfo.mem_available
     );
@@ -191,6 +218,7 @@ fn get_cleanup(uuid: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
         machine_id: Some(rpc_uuid),
         nvme: None,
         ram: None,
+        mem_overwrite: None,
         result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
     };
 
@@ -209,7 +237,7 @@ fn get_cleanup(uuid: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
                 });
             }
             Err(e) => {
-                println!("{}", e);
+                log::error!("{}", e);
                 cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
                     result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                     message: e,
@@ -218,8 +246,26 @@ fn get_cleanup(uuid: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
             }
         }
     } else {
-        println!("stdin == {}. Skip nvme cleanup.", stdin_link);
+        log::debug!("stdin == {}. Skip nvme cleanup.", stdin_link);
     }
+
+    match check_memory_overwrite_efi_var() {
+        Ok(_) => {
+            cleanup_result.mem_overwrite = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+                message: "OK".to_string(),
+            });
+        }
+        Err(e) => {
+            log::error!("{}", e);
+            cleanup_result.mem_overwrite = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+                message: e,
+            });
+            cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+        }
+    }
+
     match cleanup_ram() {
         Ok(_) => {
             cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
@@ -228,7 +274,7 @@ fn get_cleanup(uuid: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
             });
         }
         Err(e) => {
-            println!("{}", e);
+            log::error!("{}", e);
             cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
                 result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                 message: e,

@@ -638,6 +638,8 @@ message MachineCleanupInfo {
 	CleanupStepResult nvme = 2;
 	// RAM cleanup result
 	CleanupStepResult ram = 3;
+	// EFI variable MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829 must be set to 1
+	CleanupStepResult mem_overwrite = 4;
 
 	CleanupResult result = 11;
 }
