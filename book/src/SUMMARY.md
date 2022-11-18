@@ -37,6 +37,7 @@
   - [Dev1(SJC4)](labs/dev1.md)
   - [Dev2(RENO)](labs/dev2.md)
   - [Dev2 New DPUs(RENO)](labs/dev2_newdpus.md)
+  - [Integration Control Nodes(RENO)](labs/integration-control-nodes.md)
   - [Integration(RENO)](labs/integration.md)
 - [Production](production.md)
 
