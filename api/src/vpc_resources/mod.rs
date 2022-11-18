@@ -123,10 +123,7 @@ impl VpcResourceStatus for resource_group::ResourceGroupStatus {
                     if condition_status.to_lowercase().as_str() != "true" {
                         return false;
                     }
-
-                    if let Some(fabric_network_conf) = self.fabric_network_configuration.as_ref() {
-                        return fabric_network_conf.vlan_id.is_some();
-                    }
+                    return self.dhcp_circ_id.is_some();
                 }
             }
         }
