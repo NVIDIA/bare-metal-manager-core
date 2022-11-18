@@ -13,6 +13,8 @@ use std::convert::TryFrom;
 use std::env;
 use std::sync::Arc;
 
+use carbide::db::dpu_machine::DpuMachine;
+use carbide::db::instance::config::network::load_instance_network_config;
 use carbide::instance::allocate_instance;
 use carbide::instance::InstanceAllocationRequest;
 use color_eyre::Report;
@@ -634,6 +636,12 @@ where
             .map_err(CarbideError::from)?;
 
         let delete_instance = DeleteInstance::try_from(request.into_inner())?;
+        let instance_network_config =
+            load_instance_network_config(&mut txn, delete_instance.instance_id)
+                .await
+                .map_err(CarbideError::from)?
+                .config;
+
         let instance = delete_instance.delete(&mut txn).await?;
 
         // Change state to Decommissioned
@@ -662,10 +670,13 @@ where
             }
         };
 
+        let dpu = DpuMachine::find_by_machine_id(&mut txn, &instance.machine_id).await?;
         delete_managed_resource(
             &mut txn,
             instance.machine_id,
-            instance.managed_resource_id.to_string(),
+            dpu.machine_id().to_owned(),
+            instance_network_config,
+            instance.id,
         )
         .await?;
         txn.commit().await.map_err(CarbideError::from)?;

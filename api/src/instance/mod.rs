@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+
 use rpc::MachineStateMachineInput;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -147,13 +149,7 @@ pub async fn allocate_instance(
 
     let instance = new_instance.persist(&mut txn).await?;
 
-    // Interface 0 always exists, since we validate upfront that at least
-    // one interface and physical function is defined.
-    let first_segment_id = request.config.network.interfaces[0].network_segment_id;
-    // Note: Since we only support a single interface for now, this will always
-    // contain the IP of the physical function
-    let mut first_ip = None;
-
+    let mut ip_details = HashMap::new();
     for iface in request.config.network.interfaces.iter() {
         // TODO: Should we check that the network segment actually belongs to the
         // tenant?
@@ -174,9 +170,7 @@ pub async fn allocate_instance(
         let ip_addr = instance
             .assign_address(&mut txn, subnet, iface.network_segment_id)
             .await?;
-        if first_ip.is_none() {
-            first_ip = Some(ip_addr);
-        }
+        ip_details.insert(iface.function_id.clone(), ip_addr);
     }
 
     let dpu_machine_id = machine_interface
@@ -188,10 +182,10 @@ pub async fn allocate_instance(
     create_managed_resource(
         &mut txn,
         request.machine_id,
-        first_segment_id,
         dpu_machine_id,
-        instance.managed_resource_id.to_string(),
-        Some(first_ip.expect("At least one IP is assigned").to_string()),
+        request.config.network,
+        ip_details,
+        instance.id,
     )
     .await?;
 
