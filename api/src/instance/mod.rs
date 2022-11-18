@@ -165,10 +165,7 @@ pub async fn allocate_instance(
             &machine_interface,
             iface.network_segment_id,
             *instance.id(),
-            match iface.function_id {
-                crate::model::instance::config::network::InterfaceFunctionId::PhysicalFunctionId {  } => None,
-                crate::model::instance::config::network::InterfaceFunctionId::VirtualFunctionId { id } => Some(id as i32),
-            },
+            iface.function_id.clone(),
         )
         .await?;
 

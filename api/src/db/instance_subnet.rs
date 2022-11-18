@@ -23,6 +23,9 @@ use crate::db::machine_interface::MachineInterface;
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::db::vpc_resource_state::VpcResourceState;
 use crate::db::UuidKeyedObjectFilter;
+use crate::model::instance::config::network::{
+    InterfaceFunctionId, INTERFACE_VFID_MAX, INTERFACE_VFID_MIN,
+};
 use crate::{CarbideError, CarbideResult};
 
 use super::address_selection_strategy::AddressSelectionStrategy;
@@ -34,69 +37,38 @@ pub struct InstanceSubnet {
     machine_interface_id: uuid::Uuid,
     network_segment_id: uuid::Uuid,
     instance_id: uuid::Uuid,
-    vf_id: Option<i32>,
+    vf_id: InterfaceFunctionId,
     addresses: Vec<InstanceSubnetAddress>,
     state: VpcResourceState,
     events: Vec<InstanceSubnetEvent>,
     network_segments: Vec<NetworkSegment>,
-    interface_function: Option<InterfaceFunction>,
-}
-
-#[derive(Debug, Clone)]
-struct PhysicalFunction {}
-
-#[derive(Debug, Clone)]
-struct VirtualFunction {
-    pub vfid: i32,
-}
-
-#[derive(Debug, Clone)]
-enum InterfaceFunction {
-    Physical(PhysicalFunction),
-    Virtual(VirtualFunction),
 }
 
 impl<'r> FromRow<'r, PgRow> for InstanceSubnet {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let vf_id = match row.try_get::<Option<i32>, _>("vfid")? {
+            None => InterfaceFunctionId::PhysicalFunctionId {},
+            Some(id) => {
+                if id < 0 || !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&(id as usize)) {
+                    return Err(sqlx::Error::Decode(
+                        anyhow::anyhow!("Interface vfid {} is not valid", id).into(),
+                    ));
+                }
+                InterfaceFunctionId::VirtualFunctionId { id: id as u8 }
+            }
+        };
+
         Ok(InstanceSubnet {
             id: row.try_get("id")?,
             machine_interface_id: row.try_get("machine_interface_id")?,
             network_segment_id: row.try_get("network_segment_id")?,
             instance_id: row.try_get("instance_id")?,
-            vf_id: row.try_get("vfid")?,
+            vf_id,
             addresses: Vec::new(),
             state: VpcResourceState::Init,
             events: Vec::new(),
             network_segments: Vec::new(),
-            interface_function: None,
         })
-    }
-}
-
-impl From<VirtualFunction> for rpc::VirtualFunction {
-    fn from(vf: VirtualFunction) -> Self {
-        rpc::VirtualFunction { vfid: vf.vfid }
-    }
-}
-
-impl From<PhysicalFunction> for rpc::PhysicalFunction {
-    fn from(_: PhysicalFunction) -> Self {
-        Self {}
-    }
-}
-
-impl From<InterfaceFunction> for rpc::instance_subnet::InterfaceFunction {
-    fn from(int_fn: InterfaceFunction) -> rpc::instance_subnet::InterfaceFunction {
-        match int_fn {
-            InterfaceFunction::Physical(_physical) => {
-                rpc::instance_subnet::InterfaceFunction::Pf(::rpc::forge::PhysicalFunction {})
-            }
-            InterfaceFunction::Virtual(virtual_fn) => {
-                rpc::instance_subnet::InterfaceFunction::Vf(::rpc::forge::VirtualFunction {
-                    vfid: virtual_fn.vfid,
-                })
-            }
-        }
     }
 }
 
@@ -107,7 +79,10 @@ impl From<InstanceSubnet> for rpc::InstanceSubnet {
             machine_interface_id: Some(instance_subnet.machine_interface_id.into()),
             network_segment_id: Some(instance_subnet.network_segment_id.into()),
             instance_id: Some(instance_subnet.instance_id.into()),
-            vfid: instance_subnet.vf_id,
+            vfid: match instance_subnet.vf_id {
+                InterfaceFunctionId::PhysicalFunctionId {} => None,
+                InterfaceFunctionId::VirtualFunctionId { id } => Some(id as i32),
+            },
             addresses: instance_subnet
                 .addresses
                 .iter()
@@ -124,7 +99,16 @@ impl From<InstanceSubnet> for rpc::InstanceSubnet {
                 .into_iter()
                 .map(|x| x.into())
                 .collect(),
-            interface_function: instance_subnet.interface_function.map(|x| x.into()),
+            interface_function: Some(match instance_subnet.vf_id {
+                InterfaceFunctionId::PhysicalFunctionId {} => {
+                    rpc::instance_subnet::InterfaceFunction::Pf(::rpc::forge::PhysicalFunction {})
+                }
+                InterfaceFunctionId::VirtualFunctionId { id } => {
+                    rpc::instance_subnet::InterfaceFunction::Vf(::rpc::forge::VirtualFunction {
+                        vfid: id as i32,
+                    })
+                }
+            }),
         }
     }
 }
@@ -263,11 +247,6 @@ impl InstanceSubnet {
         for mut ins in instance_subnets.iter_mut() {
             ins.addresses = addresses.to_owned();
             ins.network_segments = network_segments.to_owned();
-            if let Some(vfid) = ins.vf_id {
-                ins.interface_function = Some(InterfaceFunction::Virtual(VirtualFunction { vfid }));
-            } else {
-                ins.interface_function = Some(InterfaceFunction::Physical(PhysicalFunction {}))
-            }
         }
 
         log::info!("InstanceSubnets {instance_subnets:?}");
@@ -280,8 +259,17 @@ impl InstanceSubnet {
         machine_interface: &MachineInterface,
         network_segment_id: uuid::Uuid,
         instance_id: uuid::Uuid,
-        vfid: Option<i32>,
+        vfid: InterfaceFunctionId,
     ) -> CarbideResult<Self> {
+        let vfid = match vfid {
+            crate::model::instance::config::network::InterfaceFunctionId::PhysicalFunctionId {} => {
+                None
+            }
+            crate::model::instance::config::network::InterfaceFunctionId::VirtualFunctionId {
+                id,
+            } => Some(id as i32),
+        };
+
         let instance_subnet: InstanceSubnet =
             sqlx::query_as("INSERT INTO instance_subnets (machine_interface_id, network_segment_id, instance_id, vfid) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int) RETURNING *")
                 .bind(machine_interface.id())
@@ -340,7 +328,7 @@ impl InstanceSubnet {
         &self.instance_id
     }
 
-    pub fn vfid(self) -> Option<i32> {
+    pub fn vfid(self) -> InterfaceFunctionId {
         self.vf_id
     }
 
