@@ -15,6 +15,14 @@ use uuid::Uuid;
 
 use crate::model::ConfigValidationError;
 
+// Specifies whether a network interface is physical network function (PF)
+// or a virtual network function
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InterfaceFunctionType {
+    PhysicalFunction = 0,
+    VirtualFunction = 1,
+}
+
 /// Uniquely identifies an interface on the instance
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -32,6 +40,18 @@ pub enum InterfaceFunctionId {
         id: u8,
         // This might later on also contain the DPU ID
     },
+}
+
+impl InterfaceFunctionId {
+    /// Returns whether ID refers to a physical or virtual function
+    pub fn function_type(&self) -> InterfaceFunctionType {
+        match self {
+            InterfaceFunctionId::PhysicalFunctionId { .. } => {
+                InterfaceFunctionType::PhysicalFunction
+            }
+            InterfaceFunctionId::VirtualFunctionId { .. } => InterfaceFunctionType::VirtualFunction,
+        }
+    }
 }
 
 /// Desired network configuration for an instance

@@ -24,7 +24,7 @@ use carbide::db::network_prefix::NewNetworkPrefix;
 use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
 use carbide::db::vpc::NewVpc;
 use carbide::db::vpc_resource_state::VpcResourceState;
-use carbide::model::instance::config::network::InstanceNetworkConfig;
+use carbide::model::instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId};
 
 #[ctor::ctor]
 fn setup() {
@@ -117,7 +117,7 @@ async fn new_instance_subnet_matches_machine_interface(pool: sqlx::PgPool) {
         &new_interface,
         *new_segment.id(),
         *new_instance.id(),
-        None,
+        InterfaceFunctionId::PhysicalFunctionId {},
     )
     .await
     .unwrap();
@@ -211,7 +211,7 @@ async fn new_instance_in_init_state(pool: sqlx::PgPool) {
         &new_interface,
         *new_segment.id(),
         *new_instance.id(),
-        None,
+        InterfaceFunctionId::PhysicalFunctionId {},
     )
     .await
     .unwrap();
@@ -307,7 +307,7 @@ async fn instance_subnet_state_machine_advance(pool: sqlx::PgPool) {
         &new_interface,
         *new_segment.id(),
         *new_instance.id(),
-        None,
+        InterfaceFunctionId::PhysicalFunctionId {},
     )
     .await
     .unwrap();
