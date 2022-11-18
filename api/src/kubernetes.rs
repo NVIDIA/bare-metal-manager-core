@@ -185,17 +185,15 @@ async fn create_resource_group_handler(
             .await;
             let new_rg = resource.get_status(&spec.name()).await?;
             if let Some(status) = new_rg.status.as_ref() {
-                if let Some(network_fabric) = status.fabric_network_configuration.as_ref() {
-                    if let Some(vlanid) = network_fabric.vlan_id {
-                        let mut txn = current_job.pool().begin().await?;
-                        NetworkPrefix::update_vlan_id(
-                            &mut txn,
-                            Uuid::try_from(spec_name.as_str())?,
-                            vlanid,
-                        )
-                        .await?;
-                        txn.commit().await?;
-                    }
+                if let Some(dhcp_circuit_id) = status.dhcp_circ_id.as_ref() {
+                    let mut txn = current_job.pool().begin().await?;
+                    NetworkPrefix::update_circuit_id(
+                        &mut txn,
+                        Uuid::try_from(spec_name.as_str())?,
+                        dhcp_circuit_id.to_owned(),
+                    )
+                    .await?;
+                    txn.commit().await?;
                 }
             }
 
