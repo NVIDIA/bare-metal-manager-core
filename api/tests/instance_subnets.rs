@@ -11,6 +11,7 @@
  */
 use std::str::FromStr;
 
+use carbide::model::config_version::{ConfigVersion, Versioned};
 use carbide::model::instance::config::tenant::TenantConfig;
 use log::LevelFilter;
 use mac_address::MacAddress;
@@ -104,7 +105,10 @@ async fn new_instance_subnet_matches_machine_interface(pool: sqlx::PgPool) {
             custom_ipxe: "".to_string(),
         },
         ssh_keys: vec![],
-        network_config: &InstanceNetworkConfig::for_segment_id(*new_segment.id()),
+        network_config: Versioned::new(
+            &InstanceNetworkConfig::for_segment_id(*new_segment.id()),
+            ConfigVersion::initial(),
+        ),
     }
     .persist(&mut txn2)
     .await
@@ -198,7 +202,10 @@ async fn new_instance_in_init_state(pool: sqlx::PgPool) {
             custom_ipxe: "".to_string(),
         },
         ssh_keys: vec![],
-        network_config: &InstanceNetworkConfig::for_segment_id(*new_segment.id()),
+        network_config: Versioned::new(
+            &InstanceNetworkConfig::for_segment_id(*new_segment.id()),
+            ConfigVersion::initial(),
+        ),
     }
     .persist(&mut txn2)
     .await
@@ -294,7 +301,10 @@ async fn instance_subnet_state_machine_advance(pool: sqlx::PgPool) {
             custom_ipxe: "".to_string(),
         },
         ssh_keys: vec![],
-        network_config: &InstanceNetworkConfig::for_segment_id(*new_segment.id()),
+        network_config: Versioned::new(
+            &InstanceNetworkConfig::for_segment_id(*new_segment.id()),
+            ConfigVersion::initial(),
+        ),
     }
     .persist(&mut txn2)
     .await

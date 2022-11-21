@@ -34,6 +34,10 @@ service Forge {
   rpc FindInstanceByMachineID(UUID) returns (InstanceList);
   rpc DeleteInstance(InstanceDeletionRequest) returns (InstanceDeletionResult);
 
+  // INTERNAL: RPC method is used between Site Controller components,
+  // and for testing
+  rpc RecordObservedInstanceNetworkStatus(InstanceNetworkStatusObservation) returns (ObservedInstanceNetworkStatusRecordResult);
+
   rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
 //  rpc LookupPTRRecord(DnsRequest) returns (DnsReply);
 
@@ -696,3 +700,64 @@ enum VpcResourceAction {
 message PxeInstructions {
     string pxe_script = 1;
 }
+
+// Specifies whether a network interface is physical network function (PF)
+// or a virtual network function
+enum InterfaceFunctionType {
+  PHYSICAL_FUNCTION = 0;
+  VIRTUAL_FUNCTION = 1;
+}
+
+// Observed status of the networking subsystem of an instance
+message InstanceNetworkStatusObservation {
+  // The ID of the instance for which this status was observed
+  UUID instance_id = 1;
+
+  // The version of the config that is applied on the networking subsystem
+  // Only if the version is equivalent to the latest desired version we
+  // can actually interpret the results. If the version is outdated, then the
+  // list of interfaces might actually relate to a different interfaces than
+  // the ones that are currently required by the networking config.
+  string config_version = 2;
+
+  // When this status was observed
+  //
+  // If the field isn't populated, the server will assume that status is up to
+  // date. Clients can set the timestamp to indicate that they provide a status
+  // to the server that is based on an older observation (e.g. a cache). This
+  // can help the server to decide whether the data that is acted upon might be
+  // oudated, and might not indicate that networking is still configured correctly.
+  optional google.protobuf.Timestamp observed_at = 3;
+
+  // Status for each configured interface
+  repeated InstanceInterfaceStatusObservation interfaces = 4;
+}
+
+// Result for the RecordObservedInstanceNetworkStatus method
+message ObservedInstanceNetworkStatusRecordResult {
+}
+
+// Observed status of a single network interface of an instance
+message InstanceInterfaceStatusObservation {
+  // Whether the interface is a physical or virtual function
+  // In the case of a virtual function the associcated
+  // `virtual_function_id` describes the ID of the interface
+  InterfaceFunctionType function_type = 1;
+
+  // If the interface is defined as a virtual function (associated
+  // `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
+  // then this value is set and specifies the virtual function ID that is configured
+  // for this network interface.
+  optional uint32 virtual_function_id = 2;
+
+  // The MAC address which has been assigned to this interface
+  // The list will be empty if interface configuration hasn't been completed
+  // and therefore the address is unknown.
+  optional string mac_address = 3;
+
+  // The list of IP addresses that had been assigned to this interface,
+  // based on the requested subnet.
+  // The list will be empty if interface configuration hasn't been completed
+  repeated string addresses = 4;
+}
+

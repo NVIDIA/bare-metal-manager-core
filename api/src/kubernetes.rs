@@ -12,7 +12,8 @@ use std::collections::HashMap;
  */
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::time::Instant;
+use std::sync::Arc;
+use std::time::{Instant, SystemTime};
 
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
@@ -23,6 +24,7 @@ use kube::{
     api::{Api, DeleteParams, PostParams, ResourceExt},
     Client,
 };
+use rpc::{InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation};
 use serde::{Deserialize, Serialize};
 use sqlx::{self, PgPool};
 use sqlx::{Acquire, PgConnection, Postgres};
@@ -34,6 +36,7 @@ use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipmi::{MachinePowerRequest, Operation};
+use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId};
 use crate::vpc_resources::{
     leaf, managed_resource, resource_group, BlueFieldInterface, VpcResource, VpcResourceStatus,
@@ -51,6 +54,7 @@ pub struct ManagedResourceData {
     machine_id: uuid::Uuid,
     dpu_machine_id: uuid::Uuid,
     instance_id: uuid::Uuid,
+    network_config_version: ConfigVersion,
     network_config: InstanceNetworkConfig,
     ip_details: Option<Vec<IpDetails>>,
     managed_resources: Vec<managed_resource::ManagedResource>,
@@ -61,7 +65,7 @@ impl ManagedResourceData {
         machine_id: uuid::Uuid,
         dpu_machine_id: uuid::Uuid,
         instance_id: uuid::Uuid,
-        network_config: InstanceNetworkConfig,
+        network_config: Versioned<InstanceNetworkConfig>,
         ip_details: Option<Vec<IpDetails>>,
         managed_resources: Vec<managed_resource::ManagedResource>,
     ) -> Self {
@@ -69,7 +73,8 @@ impl ManagedResourceData {
             machine_id,
             dpu_machine_id,
             instance_id,
-            network_config,
+            network_config_version: network_config.version,
+            network_config: network_config.config,
             ip_details,
             managed_resources,
         }
@@ -320,6 +325,7 @@ async fn create_managed_resource_handler(
     mut current_job: CurrentJob,
     data: ManagedResourceData,
     client: Client,
+    handler_args: &VpcReconcileHandlerArguments,
 ) -> CarbideResult<()> {
     let start_time = Instant::now();
 
@@ -408,6 +414,68 @@ async fn create_managed_resource_handler(
             }
         }
     }
+
+    // TODO: The MAC address is missing
+    // It doesn't seem available in the k8s ManagedResource spec
+    let mut iface_observations: Vec<InstanceInterfaceStatusObservation> =
+        Vec::with_capacity(data.network_config.interfaces.len());
+    for iface in data.network_config.interfaces.iter() {
+        let address = match &data.ip_details {
+            Some(details) => details
+                .iter()
+                .filter_map(|detail| {
+                    if detail.function_id == iface.function_id {
+                        Some(detail.ip_addr)
+                    } else {
+                        None
+                    }
+                })
+                .next(),
+            None => None,
+        };
+
+        let address = match address {
+            Some(address) => address,
+            None => {
+                let error = format!(
+                    "Failed to retrieve Ip Address for instance {} and function ID {:?}",
+                    data.instance_id, iface.function_id
+                );
+                update_status(
+                    &current_job,
+                    10,
+                    error.clone(),
+                    TaskState::Error(error.clone()),
+                )
+                .await;
+                return Err(CarbideError::GenericError(error));
+            }
+        };
+
+        iface_observations.push(InstanceInterfaceStatusObservation {
+            function_type: rpc::InterfaceFunctionType::from(iface.function_id.function_type())
+                as i32,
+            virtual_function_id: match iface.function_id {
+                InterfaceFunctionId::PhysicalFunctionId {} => None,
+                InterfaceFunctionId::VirtualFunctionId { id } => Some(id as u32),
+            },
+            mac_address: None,
+            addresses: vec![address.to_string()],
+        });
+    }
+
+    handler_args
+        .api
+        .record_observed_instance_network_status(tonic::Request::new(
+            InstanceNetworkStatusObservation {
+                instance_id: Some(data.instance_id.into()),
+                config_version: data.network_config_version.to_version_string(),
+                observed_at: Some(SystemTime::now().into()),
+                interfaces: iface_observations,
+            },
+        ))
+        .await
+        .map_err(|status| CarbideError::GenericError(status.to_string()))?;
 
     update_status(
         &current_job,
@@ -612,16 +680,22 @@ async fn delete_managed_resource_handler(
     Ok(())
 }
 
+#[derive(Clone)]
+pub struct VpcReconcileHandlerArguments {
+    url: String,
+    kube_enabled: bool,
+    api: Arc<dyn rpc::forge::forge_server::Forge>,
+}
+
 #[job(channel_name = "vpc_reconcile_handler")]
 pub async fn vpc_reconcile_handler(
     mut current_job: CurrentJob,
-    url: String,
-    kube_enabled: bool,
+    handler_args: VpcReconcileHandlerArguments,
 ) -> CarbideResult<()> {
-    log::debug!("Kubernetes integration is: {}", kube_enabled);
+    log::debug!("Kubernetes integration is: {}", handler_args.kube_enabled);
 
-    let state_pool = Db::new(&url).await?.0;
-    let status_pool = Db::new(&url).await?.0;
+    let state_pool = Db::new(&handler_args.url).await?.0;
+    let status_pool = Db::new(&handler_args.url).await?.0;
     let start_time = Instant::now();
 
     let _vpc_status_db_connection = status_pool.acquire().await?;
@@ -644,9 +718,9 @@ pub async fn vpc_reconcile_handler(
     )
     .await;
 
-    log::info!("Kubernetes integration is: {}", kube_enabled);
+    log::info!("Kubernetes integration is: {}", handler_args.kube_enabled);
 
-    if kube_enabled {
+    if handler_args.kube_enabled {
         let client = Client::try_default().await?;
         let namespace = FORGE_KUBE_NAMESPACE;
 
@@ -847,7 +921,7 @@ pub async fn vpc_reconcile_handler(
                 delete_resource_group_handler(current_job, spec, client).await?;
             }
             VpcResourceActions::CreateManagedResource(spec) => {
-                create_managed_resource_handler(current_job, spec, client).await?;
+                create_managed_resource_handler(current_job, spec, client, &handler_args).await?;
             }
             VpcResourceActions::UpdateManagedResource(_spec) => {
                 return Err(CarbideError::NotImplemented);
@@ -924,14 +998,19 @@ fn _managed_resource_status_matcher(
     }
 }
 
-pub async fn bgkubernetes_handler(url: String, kube_enabled: bool) -> CarbideResult<OwnedHandle> {
+pub async fn bgkubernetes_handler(
+    url: String,
+    kube_enabled: bool,
+    api: Arc<dyn rpc::forge::forge_server::Forge>,
+) -> CarbideResult<OwnedHandle> {
     log::info!("Starting Kubernetes handler.");
     let mut registry = JobRegistry::new(&[vpc_reconcile_handler]);
+    registry.set_context(VpcReconcileHandlerArguments {
+        url: url.clone(),
+        kube_enabled,
+        api,
+    });
 
-    registry.set_context(url.clone());
-    registry.set_context(kube_enabled);
-
-    //let new_pool = pool;
     let new_pool = Db::new(url.clone().as_ref()).await?.0;
 
     if kube_enabled {
@@ -969,7 +1048,7 @@ pub async fn create_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     machine_id: uuid::Uuid,
     dpu_machine_id: uuid::Uuid,
-    network_config: InstanceNetworkConfig,
+    network_config: Versioned<InstanceNetworkConfig>,
     ip_details: HashMap<InterfaceFunctionId, IpAddr>,
     instance_id: uuid::Uuid,
 ) -> CarbideResult<()> {
@@ -1047,7 +1126,7 @@ pub async fn delete_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     machine_id: uuid::Uuid,
     dpu_machine_id: uuid::Uuid,
-    network_config: InstanceNetworkConfig,
+    network_config: Versioned<InstanceNetworkConfig>,
     instance_id: uuid::Uuid,
 ) -> CarbideResult<()> {
     let mut managed_resources = Vec::new();

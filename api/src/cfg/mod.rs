@@ -9,6 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-pub(crate) use command_line::{Command, Daemon, Options};
+pub use command_line::{Command, Daemon, Options};
 
 mod command_line;

@@ -22,20 +22,20 @@ use sqlx::Acquire;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
-pub use ::rpc::forge as rpc;
-use carbide::db::constants::FORGE_KUBE_NAMESPACE;
-use carbide::db::instance::Instance;
-use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
-use carbide::kubernetes::VpcResourceActions;
-use carbide::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
-use carbide::vpc_resources::leaf;
-use carbide::{
+use crate::db::constants::FORGE_KUBE_NAMESPACE;
+use crate::db::instance::Instance;
+use crate::db::vpc_resource_leaf::VpcResourceLeaf;
+use crate::kubernetes::VpcResourceActions;
+use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
+use crate::vpc_resources::leaf;
+use crate::{
     db::{
         dhcp_entry::DhcpEntry, dhcp_record::DhcpRecord, machine::Machine,
         machine_interface::MachineInterface, network_segment::NetworkSegment,
     },
     CarbideError,
 };
+pub use ::rpc::forge as rpc;
 
 #[derive(Debug, Clone)]
 pub struct RecordCacheEntry {

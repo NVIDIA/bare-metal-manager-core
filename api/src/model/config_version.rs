@@ -19,6 +19,9 @@ use std::{
 use chrono::{DateTime, NaiveDateTime, Utc};
 
 /// A configuration that is accompanied by a version field
+///
+/// This small wrapper is intended to pass around configuration data and the
+/// associated version as a single parameter.
 pub struct Versioned<T> {
     /// The configuration that is versioned
     pub config: T,
@@ -30,6 +33,14 @@ impl<T> Versioned<T> {
     /// Creates a new a `Versioned` wrapper around the configuration
     pub fn new(config: T, version: ConfigVersion) -> Self {
         Self { config, version }
+    }
+
+    /// Converts a `Versioned<T>` into a `Versioned<&T>`
+    ///
+    /// This is helpful to pass around versioned data cheaply (without having to
+    /// deep copy it).
+    pub fn as_ref(&self) -> Versioned<&T> {
+        Versioned::new(&self.config, self.version)
     }
 }
 

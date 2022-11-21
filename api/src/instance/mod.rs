@@ -26,6 +26,7 @@ use crate::{
     },
     kubernetes::create_managed_resource,
     model::{
+        config_version::{ConfigVersion, Versioned},
         instance::config::{network::InstanceNetworkConfig, tenant::TenantConfig, InstanceConfig},
         ConfigValidationError,
     },
@@ -113,11 +114,13 @@ pub async fn allocate_instance(
         .take()
         .ok_or_else(|| ConfigValidationError::invalid_value("TenantConfig is missing"))?;
 
+    let network_config = Versioned::new(request.config.network, ConfigVersion::initial());
+
     let new_instance = NewInstance {
         machine_id: request.machine_id,
         tenant_config: &tenant_config,
         ssh_keys: request.ssh_keys,
-        network_config: &request.config.network,
+        network_config: network_config.as_ref(),
     };
 
     let machine_id = new_instance.machine_id;
@@ -150,7 +153,7 @@ pub async fn allocate_instance(
     let instance = new_instance.persist(&mut txn).await?;
 
     let mut ip_details = HashMap::new();
-    for iface in request.config.network.interfaces.iter() {
+    for iface in network_config.interfaces.iter() {
         // TODO: Should we check that the network segment actually belongs to the
         // tenant?
 
@@ -183,7 +186,7 @@ pub async fn allocate_instance(
         &mut txn,
         request.machine_id,
         dpu_machine_id,
-        request.config.network,
+        network_config,
         ip_details,
         instance.id,
     )
