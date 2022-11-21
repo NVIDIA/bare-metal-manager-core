@@ -55,7 +55,7 @@ vaultrs = "0.6.2"
 
 #only local dependencies here please
 forge_credentials = { path = "../forge_credentials" }
-freeipmi-sys = { path = "../ipmi/freeipmi-sys" }
+libredfish = { path = "../redfish" }
 rpc = { path = "../rpc" }
 
 [build-dependencies]

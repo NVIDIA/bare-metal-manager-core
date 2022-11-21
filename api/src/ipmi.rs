@@ -22,7 +22,7 @@ use uuid::Uuid;
 use ::rpc::forge as rpc;
 use ::rpc::forge::instance_power_request::Operation as rpcOperation;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
-use freeipmi_sys::{self, IpmiChassisControl};
+use libredfish::system::SystemPowerControl;
 
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::instance::Instance;
@@ -32,7 +32,7 @@ use crate::{CarbideError, CarbideResult};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum IpmiTask {
     Status,
-    PowerControl(IpmiChassisControl),
+    PowerControl(SystemPowerControl),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -99,10 +99,6 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
         cmd: IpmiCommand,
         credential_provider: Arc<dyn CredentialProvider>,
     ) -> CarbideResult<String> {
-        use freeipmi_sys::{
-            ipmi::IpmiContext, IpmiAuthenticationType, IpmiCipherSuite, IpmiDevice,
-            IpmiPrivilegeLevel,
-        };
 
         log::info!("IPMI command: {:?}", cmd);
         let credentials = credential_provider
@@ -119,60 +115,44 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
+        let conf = libredfish::Config {
+            user: Some(username),
+            endpoint: cmd.host,
+            password: Some(password),
+            port: None,
+            system: "".to_string()
+        };
+
         tokio::task::spawn_blocking(move || {
-            let interface = IpmiDevice::Lan2_0;
-            let cipher = IpmiCipherSuite::HmacSha256AesCbc128;
-            let auth = IpmiAuthenticationType::Md5;
-            let mode = IpmiPrivilegeLevel::Admin;
             let result: CarbideResult<String>;
 
-            let mut ctx = IpmiContext::new(
-                cmd.host,
-                username,
-                password,
-                Option::from(interface),
-                Option::from(cipher),
-                Option::from(mode),
-                Option::from(auth),
-            );
+            let mut redfish = libredfish::Redfish::new(conf);
 
-            match ctx.connect() {
-                Ok(_) => {
-                    log::info!("Missing implementation yet for bootdev pxe.");
-
-                    result = match cmd.action.unwrap() {
-                        IpmiTask::PowerControl(task) => match ctx.power_control(task) {
-                            Ok(()) => Ok("Success".to_string()),
-                            Err(e) => {
-                                let error_msg =
-                                    format!("Failed to run power control command {}", e);
-                                Err(CarbideError::GenericError(error_msg))
-                            }
-                        },
-                        IpmiTask::Status => match ctx.chassis_status() {
-                            Ok(status) => Ok(status
-                                .iter()
-                                .map(|x| format!("{}", x))
-                                .collect::<Vec<String>>()
-                                .join("\n")),
-                            Err(e) => {
-                                let error_msg = format!("Failed to run status command {}", e);
-                                Err(CarbideError::GenericError(error_msg))
-                            }
-                        },
-                    };
-                    let _ = ctx.disconnect();
+            match redfish.get_system_id() {
+                Ok(_x) => {
                 }
-
-                Err(a) => {
-                    log::error!("IPMI context error: {:?}", a);
-                    result = Err(CarbideError::GenericError(format!(
-                        "Failed to connect: {}",
-                        a
-                    )));
+                Err(e) => {
+                    return Err(CarbideError::GenericError(format!("Error getting system id: {:?}", e.to_string())));
                 }
             }
-            ctx.destroy();
+
+            result = match cmd.action.unwrap() {
+                IpmiTask::PowerControl(task) => match redfish.set_system_power(task) {
+                    Ok(()) => Ok("Success".to_string()),
+                    Err(e) => {
+                        let error_msg =
+                            format!("Failed to run power control command {}", e);
+                        Err(CarbideError::GenericError(error_msg))
+                    }
+                },
+                IpmiTask::Status => match redfish.get_system() {
+                    Ok(status) => Ok(status.power_state),
+                    Err(e) => {
+                        let error_msg = format!("Failed to run status command {}", e);
+                        Err(CarbideError::GenericError(error_msg))
+                    }
+                },
+            };
             result
         })
         .await
@@ -239,7 +219,7 @@ async fn command_handler(
 }
 
 impl IpmiCommand {
-    fn update_action(mut self, action: IpmiChassisControl) -> Self {
+    fn update_action(mut self, action: SystemPowerControl) -> Self {
         self.action = Some(IpmiTask::PowerControl(action));
         self
     }
@@ -284,22 +264,22 @@ impl IpmiCommand {
     }
 
     pub async fn power_up(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(IpmiChassisControl::PowerUp)
+        self.update_action(SystemPowerControl::On)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_down(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(IpmiChassisControl::PowerDown)
+        self.update_action(SystemPowerControl::GracefulShutdown)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_cycle(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(IpmiChassisControl::PowerCycle)
+        self.update_action(SystemPowerControl::GracefulRestart)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_reset(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(IpmiChassisControl::HardReset)
+        self.update_action(SystemPowerControl::PowerCycle)
             .launch_command(pool.clone())
             .await
     }
