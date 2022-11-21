@@ -2,7 +2,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use crate::common::*;
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum SystemPowerControl {
     On,
     ForceOff,
