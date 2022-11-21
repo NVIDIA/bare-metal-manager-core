@@ -13,10 +13,6 @@ use std::convert::TryFrom;
 use std::env;
 use std::sync::Arc;
 
-use carbide::db::dpu_machine::DpuMachine;
-use carbide::db::instance::config::network::load_instance_network_config;
-use carbide::instance::allocate_instance;
-use carbide::instance::InstanceAllocationRequest;
 use color_eyre::Report;
 use lru::LruCache;
 use mac_address::MacAddress;
@@ -27,48 +23,52 @@ use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::forge::InstanceList;
-use ::rpc::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
-use ::rpc::MachineStateMachineInput;
-use auth::CarbideAuth;
-use carbide::credentials::UpdateCredentials;
-use carbide::db::instance::Instance;
-use carbide::db::network_prefix::NetworkPrefix;
-use carbide::ipmi::MachinePowerRequest;
-use carbide::ipmi::{ipmi_handler, RealIpmiCommandHandler};
-use carbide::kubernetes::{
-    bgkubernetes_handler, create_resource_group, delete_managed_resource, delete_resource_group,
-};
-use carbide::model::hardware_info::HardwareInfo;
-use carbide::{
+use crate::{
+    auth::CarbideAuth,
+    cfg,
+    credentials::UpdateCredentials,
     db::{
         auth::SshKeyValidationRequest,
         domain::Domain,
         domain::NewDomain,
-        instance::DeleteInstance,
+        dpu_machine::DpuMachine,
+        instance::{
+            config::network::load_instance_network_config,
+            status::network::update_instance_network_status_observation, DeleteInstance, Instance,
+        },
         instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
         ipmi::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         machine::Machine,
         machine_interface::MachineInterface,
         machine_state::MachineState,
         machine_topology::MachineTopology,
+        network_prefix::NetworkPrefix,
         network_segment::{NetworkSegment, NewNetworkSegment},
         resource_record::DnsQuestion,
         tags::{Tag, TagAssociation, TagCreate, TagDelete, TagsList},
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
         UuidKeyedObjectFilter,
     },
+    dhcp_discover::RecordCacheEntry,
+    instance::{allocate_instance, InstanceAllocationRequest},
+    ipmi::{ipmi_handler, MachinePowerRequest, RealIpmiCommandHandler},
+    kubernetes::{
+        bgkubernetes_handler, create_resource_group, delete_managed_resource, delete_resource_group,
+    },
     machine_state_controller::{
-        controller::MachineStateController, snapshot_loader::DbSnapshotLoader,
+        controller::MachineStateController,
+        snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
+    },
+    model::{
+        hardware_info::HardwareInfo, instance::status::network::InstanceNetworkStatusObservation,
     },
     CarbideError,
 };
+pub use ::rpc::forge as rpc;
+use ::rpc::forge::InstanceList;
+use ::rpc::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
+use ::rpc::MachineStateMachineInput;
 use forge_credentials::CredentialProvider;
-
-use crate::auth;
-use crate::cfg;
-use crate::dhcp_discover::RecordCacheEntry;
 
 use self::rpc::forge_server::Forge;
 
@@ -79,9 +79,9 @@ pub static CONFIG: Lazy<RwLock<ExternalConfig>> =
     Lazy::new(|| RwLock::new(ExternalConfig { dhcp_server: None }));
 
 pub struct Api<C: CredentialProvider> {
-    pub(crate) database_connection: sqlx::PgPool,
-    pub(crate) credential_provider: Arc<C>,
-    pub(crate) dhcp_discovery_cache: Mutex<LruCache<MacAddress, RecordCacheEntry>>,
+    database_connection: sqlx::PgPool,
+    credential_provider: Arc<C>,
+    dhcp_discovery_cache: Mutex<LruCache<MacAddress, RecordCacheEntry>>,
 }
 
 #[tonic::async_trait]
@@ -545,6 +545,8 @@ where
     ) -> Result<Response<rpc::Instance>, Status> {
         let request = InstanceAllocationRequest::try_from(request.into_inner())?;
         let instance = allocate_instance(request, &self.database_connection).await?;
+
+        let _ = log_instance_debug_data(&self.database_connection, instance.id).await;
         Ok(Response::new(rpc::Instance::from(instance)))
     }
 
@@ -639,8 +641,7 @@ where
         let instance_network_config =
             load_instance_network_config(&mut txn, delete_instance.instance_id)
                 .await
-                .map_err(CarbideError::from)?
-                .config;
+                .map_err(CarbideError::from)?;
 
         let instance = delete_instance.delete(&mut txn).await?;
 
@@ -684,6 +685,43 @@ where
         // Machine will be rebooted once managed resource deletion successful.
 
         Ok(Response::new(rpc::InstanceDeletionResult {}))
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn record_observed_instance_network_status(
+        &self,
+        request: Request<rpc::InstanceNetworkStatusObservation>,
+    ) -> Result<Response<rpc::ObservedInstanceNetworkStatusRecordResult>, tonic::Status> {
+        let request = request.into_inner();
+        let instance_id = uuid::Uuid::try_from(
+            request
+                .instance_id
+                .clone()
+                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?,
+        )
+        .map_err(CarbideError::from)?;
+
+        let observation =
+            InstanceNetworkStatusObservation::try_from(request).map_err(CarbideError::from)?;
+        observation
+            .validate()
+            .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+        update_instance_network_status_observation(&mut txn, instance_id, &observation)
+            .await
+            .map_err(CarbideError::from)?;
+        txn.commit().await.map_err(CarbideError::from)?;
+
+        let _ = log_instance_debug_data(&self.database_connection, instance_id).await;
+
+        Ok(Response::new(
+            rpc::ObservedInstanceNetworkStatusRecordResult {},
+        ))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -1339,6 +1377,16 @@ impl<C> Api<C>
 where
     C: CredentialProvider + 'static,
 {
+    pub fn new(credential_provider: Arc<C>, database_connection: sqlx::PgPool) -> Self {
+        Self {
+            database_connection,
+            credential_provider,
+            dhcp_discovery_cache: Mutex::new(LruCache::new(
+                std::num::NonZeroUsize::new(1000).unwrap(),
+            )),
+        }
+    }
+
     #[tracing::instrument(skip_all)]
     pub async fn run(
         daemon_config: &cfg::Daemon,
@@ -1349,13 +1397,10 @@ where
         let database_connection = sqlx::Pool::connect(&daemon_config.datastore).await?;
         let conn_clone = database_connection.clone();
 
-        let api_service = Api {
-            database_connection: database_connection.clone(),
-            credential_provider: credential_provider.clone(),
-            dhcp_discovery_cache: Mutex::new(LruCache::new(
-                std::num::NonZeroUsize::new(1000).unwrap(),
-            )),
-        };
+        let api_service = Arc::new(Self::new(
+            credential_provider.clone(),
+            database_connection.clone(),
+        ));
 
         let mut authenticator = CarbideAuth::new();
 
@@ -1387,9 +1432,12 @@ where
         )
         .await?;
 
-        let _kube_handle =
-            bgkubernetes_handler(daemon_config.datastore.to_owned(), daemon_config.kubernetes)
-                .await?;
+        let _kube_handle = bgkubernetes_handler(
+            daemon_config.datastore.to_owned(),
+            daemon_config.kubernetes,
+            api_service.clone(),
+        )
+        .await?;
 
         let _state_controller_handle = MachineStateController::builder()
             .database(database_connection)
@@ -1400,11 +1448,34 @@ where
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
             .layer(auth_layer)
-            .add_service(rpc::forge_server::ForgeServer::new(api_service))
+            .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
             .add_service(reflection_service)
             .serve(daemon_config.listen[0])
             .await?;
 
         Ok(())
     }
+}
+
+/// TO BE REMOVED
+/// This is temporary here to see whether the new "API" - which would consume the
+/// data from `InstanceSnapshot` and `InstanceStatus` - would return the right thnings.
+async fn log_instance_debug_data(
+    pool: &sqlx::PgPool,
+    instance_id: uuid::Uuid,
+) -> Result<(), CarbideError> {
+    let mut txn = pool.begin().await.map_err(CarbideError::from)?;
+
+    let snapshot = DbSnapshotLoader::default()
+        .load_instance_snapshot(&mut txn, instance_id)
+        .await
+        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+    let status = snapshot.derive_status();
+
+    tracing::info!(
+        "Instance state report: Snapshot: {:?}, Status: {:?}",
+        snapshot,
+        status
+    );
+    Ok(())
 }

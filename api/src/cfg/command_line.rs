@@ -15,8 +15,8 @@ use clap::Parser;
 const DEFAULT_CONFIG_PATH: &str = ".config.toml";
 
 #[derive(Parser)]
-#[clap(name = env ! ("CARGO_BIN_NAME"))]
-pub(crate) struct Options {
+#[clap(name = "carbide-api")]
+pub struct Options {
     #[clap(short, long, parse(from_occurrences))]
     pub debug: u8,
 
@@ -28,7 +28,7 @@ pub(crate) struct Options {
 }
 
 #[derive(Parser)]
-pub(crate) enum Command {
+pub enum Command {
     #[clap(about = "Performs database migrations")]
     Migrate(Migrate),
 

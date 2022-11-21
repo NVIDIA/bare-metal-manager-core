@@ -24,7 +24,7 @@ use crate::model::{
         },
         status::SyncState,
     },
-    SerializableMacAddress, StatusValidationError,
+    RpcDataConversionError, SerializableMacAddress, StatusValidationError,
 };
 
 /// Status of the networking subsystem of an instance
@@ -185,6 +185,34 @@ impl InstanceNetworkStatusObservation {
     }
 }
 
+impl TryFrom<rpc::InstanceNetworkStatusObservation> for InstanceNetworkStatusObservation {
+    type Error = RpcDataConversionError;
+
+    fn try_from(observation: rpc::InstanceNetworkStatusObservation) -> Result<Self, Self::Error> {
+        let mut interfaces = Vec::with_capacity(observation.interfaces.len());
+        for iface in observation.interfaces {
+            interfaces.push(InstanceInterfaceStatusObservation::try_from(iface)?);
+        }
+
+        let observed_at = match observation.observed_at {
+            Some(timestamp) => {
+                let system_time = std::time::SystemTime::try_from(timestamp.clone())
+                    .map_err(|_| RpcDataConversionError::InvalidTimestamp(timestamp.to_string()))?;
+                DateTime::from(system_time)
+            }
+            None => Utc::now(),
+        };
+
+        Ok(Self {
+            config_version: observation.config_version.parse().map_err(|_| {
+                RpcDataConversionError::InvalidConfigVersion(observation.config_version)
+            })?,
+            interfaces,
+            observed_at,
+        })
+    }
+}
+
 /// The actual status of a single network interface of an instance
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceInterfaceStatusObservation {
@@ -202,6 +230,48 @@ pub struct InstanceInterfaceStatusObservation {
     /// The list will be empty if interface configuration hasn't been completed
     #[serde(default)]
     pub addresses: Vec<IpAddr>,
+}
+
+impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatusObservation {
+    type Error = RpcDataConversionError;
+
+    fn try_from(observation: rpc::InstanceInterfaceStatusObservation) -> Result<Self, Self::Error> {
+        let function_id = match observation.function_type() {
+            rpc::forge::InterfaceFunctionType::PhysicalFunction => {
+                InterfaceFunctionId::PhysicalFunctionId {}
+            }
+            rpc::forge::InterfaceFunctionType::VirtualFunction => {
+                InterfaceFunctionId::try_virtual_from(observation.virtual_function_id() as usize)
+                    .map_err(|_| {
+                        RpcDataConversionError::InvalidVirtualFunctionId(
+                            observation.virtual_function_id() as usize,
+                        )
+                    })?
+            }
+        };
+
+        let mut addresses = Vec::with_capacity(observation.addresses.len());
+        for address in observation.addresses {
+            addresses.push(
+                address
+                    .parse::<IpAddr>()
+                    .map_err(|_| RpcDataConversionError::InvalidIpAddress(address))?,
+            );
+        }
+
+        Ok(Self {
+            function_id,
+            addresses,
+            mac_address: observation
+                .mac_address
+                .map(|addr| {
+                    addr.parse::<MacAddress>()
+                        .map_err(|_| RpcDataConversionError::InvalidMacAddress(addr))
+                })
+                .transpose()?
+                .map(Into::into),
+        })
+    }
 }
 
 #[cfg(test)]

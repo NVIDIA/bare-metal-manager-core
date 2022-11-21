@@ -29,9 +29,10 @@ use serde::Serialize;
 
 pub use crate::protos::forge::{
     self, machine_credentials_update_request::CredentialPurpose,
-    machine_discovery_info::DiscoveryData, Domain, Instance, InstanceList, InstanceSubnet, Machine,
+    machine_discovery_info::DiscoveryData, Domain, Instance, InstanceInterfaceStatusObservation,
+    InstanceList, InstanceNetworkStatusObservation, InstanceSubnet, InterfaceFunctionType, Machine,
     MachineAction, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent, MachineInterface,
-    MachineList, Uuid,
+    MachineList, ObservedInstanceNetworkStatusRecordResult, Uuid,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiDevice, NetworkInterface, NvmeDevice,

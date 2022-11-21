@@ -23,9 +23,13 @@ use tonic::Status;
 #[cfg(test)]
 use ::rstest_reuse;
 
+pub mod api;
+mod auth;
 pub mod bg;
+pub mod cfg;
 pub mod credentials;
 pub mod db;
+mod dhcp_discover;
 mod human_hash;
 pub mod instance;
 pub mod ipmi;

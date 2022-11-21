@@ -13,7 +13,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::model::ConfigValidationError;
+use crate::model::{ConfigValidationError, RpcDataConversionError};
 
 // Specifies whether a network interface is physical network function (PF)
 // or a virtual network function
@@ -21,6 +21,26 @@ use crate::model::ConfigValidationError;
 pub enum InterfaceFunctionType {
     PhysicalFunction = 0,
     VirtualFunction = 1,
+}
+
+impl TryFrom<rpc::InterfaceFunctionType> for InterfaceFunctionType {
+    type Error = RpcDataConversionError;
+
+    fn try_from(function_type: rpc::InterfaceFunctionType) -> Result<Self, Self::Error> {
+        Ok(match function_type {
+            rpc::InterfaceFunctionType::PhysicalFunction => InterfaceFunctionType::PhysicalFunction,
+            rpc::InterfaceFunctionType::VirtualFunction => InterfaceFunctionType::VirtualFunction,
+        })
+    }
+}
+
+impl From<InterfaceFunctionType> for rpc::InterfaceFunctionType {
+    fn from(function_type: InterfaceFunctionType) -> rpc::InterfaceFunctionType {
+        match function_type {
+            InterfaceFunctionType::PhysicalFunction => rpc::InterfaceFunctionType::PhysicalFunction,
+            InterfaceFunctionType::VirtualFunction => rpc::InterfaceFunctionType::VirtualFunction,
+        }
+    }
 }
 
 /// Uniquely identifies an interface on the instance
@@ -60,7 +80,22 @@ impl InterfaceFunctionId {
             InterfaceFunctionId::VirtualFunctionId { .. } => InterfaceFunctionType::VirtualFunction,
         }
     }
+
+    /// Tries to convert a numeric identifier that represents a virtual function
+    /// into a `InterfaceFunctionId::VirtualFunctionId`.
+    /// This will return an error if the ID is not in the valid range.
+    pub fn try_virtual_from(id: usize) -> Result<InterfaceFunctionId, InvalidVirtualFunctionId> {
+        if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&id) {
+            return Err(InvalidVirtualFunctionId());
+        }
+
+        Ok(InterfaceFunctionId::VirtualFunctionId { id: id as u8 })
+    }
 }
+
+/// An ID is not a valid virtual function ID due to being out of bounds
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct InvalidVirtualFunctionId();
 
 /// Desired network configuration for an instance
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

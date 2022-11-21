@@ -29,7 +29,7 @@ use ::rpc::Timestamp;
 
 use crate::{
     model::{
-        config_version::ConfigVersion,
+        config_version::Versioned,
         instance::{
             config::{network::InstanceNetworkConfig, tenant::TenantConfig},
             status::network::InstanceNetworkStatusObservation,
@@ -63,7 +63,7 @@ pub struct NewInstance<'a> {
     pub machine_id: uuid::Uuid,
     pub tenant_config: &'a TenantConfig,
     pub ssh_keys: Vec<String>,
-    pub network_config: &'a InstanceNetworkConfig,
+    pub network_config: Versioned<&'a InstanceNetworkConfig>,
 }
 
 pub struct DeleteInstance {
@@ -281,8 +281,7 @@ impl<'a> NewInstance<'a> {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Instance> {
-        let network_version = ConfigVersion::initial();
-        let network_version_string = network_version.to_version_string();
+        let network_version_string = self.network_config.version.to_version_string();
         // None means we haven't observed any network status from the DPU via VPC yet
         // The first report from the networking subsytem will set the field
         let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
@@ -298,7 +297,7 @@ impl<'a> NewInstance<'a> {
                 .bind(&self.tenant_config.user_data)
                 .bind(&self.tenant_config.custom_ipxe)
                 .bind(&self.ssh_keys)
-                .bind(sqlx::types::Json(&self.network_config))
+                .bind(sqlx::types::Json(&self.network_config.config))
                 .bind(&network_version_string)
                 .bind(sqlx::types::Json(network_status_observation))
                 .fetch_one(&mut *txn)

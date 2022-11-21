@@ -36,6 +36,16 @@ pub mod machine;
 pub enum RpcDataConversionError {
     #[error("Field {0} is not valid base64")]
     InvalidBase64Data(&'static str),
+    #[error("Virtual Function ID of value {0} is not in the expected range 1-16")]
+    InvalidVirtualFunctionId(usize),
+    #[error("IP Address {0} is not valid")]
+    InvalidIpAddress(String),
+    #[error("MAC address {0} is not valid")]
+    InvalidMacAddress(String),
+    #[error("Version string {0} is not valid")]
+    InvalidConfigVersion(String),
+    #[error("Timestamp {0} is not valid")]
+    InvalidTimestamp(String),
 }
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`

@@ -18,7 +18,7 @@ use carbide::{
                 load_instance_network_status_observation,
                 update_instance_network_status_observation,
             },
-            DeleteInstance, Instance,
+            Instance,
         },
         machine::Machine,
     },
@@ -44,7 +44,10 @@ use ::rpc::MachineStateMachineInput;
 use chrono::Utc;
 use log::LevelFilter;
 use mac_address::MacAddress;
-use std::net::IpAddr;
+use rpc::forge::{forge_server::Forge, InstanceDeletionRequest};
+use std::{net::IpAddr, sync::Arc};
+mod test_credentials;
+use test_credentials::TestCredentialProvider;
 
 #[ctor::ctor]
 fn setup() {
@@ -60,6 +63,8 @@ fn setup() {
     "create_machine"
 ))]
 async fn test_crud_instance(pool: sqlx::PgPool) {
+    let api = carbide::api::Api::new(Arc::new(TestCredentialProvider::new()), pool.clone());
+    prepare_machine(&pool).await;
     let parsed_relay = "192.0.2.1".parse::<IpAddr>().unwrap();
     let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
     let mut txn = pool
@@ -75,7 +80,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     );
     txn.commit().await.unwrap();
 
-    let instance = create_instance(pool.clone()).await;
+    let instance = create_instance(&pool).await;
 
     let mut txn = pool
         .clone()
@@ -132,7 +137,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     println!("Assigned address: {}", record.address());
-    delete_instance(pool, instance.id).await;
+    delete_instance(&api, instance.id).await;
 }
 
 #[sqlx::test(fixtures(
@@ -142,7 +147,9 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     "create_machine"
 ))]
 async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
-    let instance = create_instance(pool.clone()).await;
+    let api = carbide::api::Api::new(Arc::new(TestCredentialProvider::new()), pool.clone());
+    prepare_machine(&pool).await;
+    let instance = create_instance(&pool).await;
     let instance_id = instance.id;
 
     let mut txn = pool
@@ -301,23 +308,23 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
             addresses: vec!["112.113.114.115".parse().unwrap()],
         }]
     );
+
+    txn.commit().await.unwrap();
+    delete_instance(&api, instance_id).await;
 }
 
 const FIXTURE_NETWORK_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
 const FIXTURE_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
 
-async fn delete_instance(pool: sqlx::PgPool, instance_id: uuid::Uuid) {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    DeleteInstance { instance_id }
-        .delete(&mut txn)
-        .await
-        .expect("Delete instance failed.");
+async fn delete_instance(api: &carbide::api::Api<TestCredentialProvider>, instance_id: uuid::Uuid) {
+    api.delete_instance(tonic::Request::new(InstanceDeletionRequest {
+        id: Some(instance_id.into()),
+    }))
+    .await
+    .expect("Delete instance failed.");
 }
 
-async fn create_instance(pool: sqlx::PgPool) -> Instance {
+async fn prepare_machine(pool: &sqlx::PgPool) {
     let mut txn = pool.begin().await.unwrap();
     let machine = Machine::find_one(&mut txn, FIXTURE_MACHINE_ID)
         .await
@@ -340,7 +347,10 @@ async fn create_instance(pool: sqlx::PgPool) -> Instance {
         .await
         .unwrap();
     txn.commit().await.unwrap();
+}
 
+async fn create_instance(pool: &sqlx::PgPool) -> Instance {
+    // TODO: Use `Api` once the new API which takes the same parameters is in place
     let request = InstanceAllocationRequest {
         machine_id: FIXTURE_MACHINE_ID,
         config: InstanceConfig {
@@ -358,5 +368,5 @@ async fn create_instance(pool: sqlx::PgPool) -> Instance {
     // resources. That's however ok - we will just ignore it and not execute
     // that task. Later we might also verify that the creation of those resources
     // is requested
-    allocate_instance(request, &pool).await.unwrap()
+    allocate_instance(request, pool).await.unwrap()
 }

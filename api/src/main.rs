@@ -17,13 +17,8 @@ use sqlx::PgPool;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
-use cfg::{Command, Options};
+use carbide::cfg::{Command, Options};
 use forge_credentials::ForgeVaultClient;
-
-mod api;
-mod auth;
-mod cfg;
-mod dhcp_discover;
 
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::Report> {
@@ -75,7 +70,7 @@ async fn main() -> Result<(), color_eyre::Report> {
             let vault_client = VaultClient::new(vault_client_settings)?;
             let forge_vault_client = ForgeVaultClient::new(vault_client, vault_mount_location);
             let forge_vault_client = Arc::new(forge_vault_client);
-            api::Api::run(config, forge_vault_client).await?
+            carbide::api::Api::run(config, forge_vault_client).await?
         }
     }
     Ok(())

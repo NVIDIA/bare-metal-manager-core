@@ -10,10 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::{
-    config_version::Versioned,
-    instance::config::network::InstanceNetworkConfig
-};
+use crate::model::{config_version::Versioned, instance::config::network::InstanceNetworkConfig};
 
 pub mod network;
 pub mod tenant;
