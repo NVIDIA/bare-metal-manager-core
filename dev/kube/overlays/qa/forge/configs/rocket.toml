@@ -1,8 +1,8 @@
 [default]
 address = "0.0.0.0"
-carbide_api_url = "http://10.23.138.62:22079"
-carbide_pxe_url = "http://10.23.138.62:8080"
-carbide_ntp_server = "10.23.138.62"
+carbide_api_url = "http://10.23.138.123:22079"
+carbide_pxe_url = "http://10.23.138.123:8080"
+carbide_ntp_server = "10.23.138.123"
 port = 8000
 
 [development]
