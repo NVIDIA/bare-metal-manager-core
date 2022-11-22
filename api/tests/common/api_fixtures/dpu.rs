@@ -59,7 +59,7 @@ pub async fn dpu_discover_dhcp(api: &TestApi, mac_address: &str) -> rpc::Uuid {
 pub async fn dpu_discover_machine(api: &TestApi, machine_interface_id: rpc::Uuid) -> rpc::Uuid {
     let response = api
         .discover_machine(Request::new(MachineDiscoveryInfo {
-            machine_id: Some(machine_interface_id),
+            machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(dpu_discovery_data::create_dpu_discovery_data()),
         }))
         .await

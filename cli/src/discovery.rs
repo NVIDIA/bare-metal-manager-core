@@ -128,7 +128,7 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> CarbideClientResult<i32
 
 pub fn get_machine_details(
     context: &Context,
-    uuid: &str,
+    machine_interface_id: uuid::Uuid,
 ) -> CarbideClientResult<rpc::MachineDiscoveryInfo> {
     // uname to detect type
     let info = uname().map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
@@ -457,12 +457,8 @@ pub fn get_machine_details(
         log::debug!("TPM EK certificate (base64): {}", cert);
     }
 
-    let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
-        .map(|m| m.into())
-        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
-
     Ok(rpc::MachineDiscoveryInfo {
-        machine_id: Some(rpc_uuid),
+        machine_interface_id: Some(machine_interface_id.into()),
         discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
             rpc_discovery::DiscoveryInfo {
                 network_interfaces: nics,
@@ -478,39 +474,42 @@ pub fn get_machine_details(
 }
 
 impl Discovery {
-    pub async fn run(forge_api: &str, uuid: &str) -> CarbideClientResult<()> {
+    pub async fn run(forge_api: &str, machine_interface_id: uuid::Uuid) -> CarbideClientResult<()> {
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
-        let info = get_machine_details(&context, uuid)?;
+        let info = get_machine_details(&context, machine_interface_id)?;
         let mut client = rpc::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
         let request = tonic::Request::new(info);
-        let machine_uuid = client
+
+        let response = client
             .discover_machine(request)
             .await
             .map_err(|err| {
                 log::error!("Error while discovering machine. {}", err.to_string());
                 err
             })?
-            .into_inner()
+            .into_inner();
+
+        let machine_id: uuid::Uuid = uuid::Uuid::try_from(response
             .machine_id
             .ok_or_else(|| {
                 CarbideClientError::GenericError(format!(
-                    "missing machine_id from response? interface_uuid was: {uuid}"
+                    "missing machine_id from response? machine_interface_uuid was: {machine_interface_id}"
                 ))
-            })?
-            .to_string();
+            })?)
+            .map_err(|e| {
+                CarbideClientError::GenericError(format!(
+                    "invalid machine_id in response? machine_interface_uuid was: {machine_interface_id}. Err: {e}"
+                ))
+            })?;
 
-        if let Err(err) =
-            crate::users::create_users(forge_api.to_string(), machine_uuid.as_str()).await
-        {
+        if let Err(err) = crate::users::create_users(forge_api.to_string(), machine_id).await {
             log::error!("Error while setting up users. {}", err.to_string());
         }
-        if let Err(err) =
-            crate::ipmi::update_ipmi_creds(forge_api.to_string(), machine_uuid.as_str()).await
-        {
+        if let Err(err) = crate::ipmi::update_ipmi_creds(forge_api.to_string(), machine_id).await {
             log::error!("Error while setting up IPMI. {}", err.to_string());
         }
 
-        log::info!("successfully discovered machine {uuid}");
+        log::info!("successfully discovered machine with ID {machine_id} for interface {machine_interface_id}");
 
         Ok(())
     }

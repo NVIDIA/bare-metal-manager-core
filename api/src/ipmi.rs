@@ -99,7 +99,6 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
         cmd: IpmiCommand,
         credential_provider: Arc<dyn CredentialProvider>,
     ) -> CarbideResult<String> {
-
         log::info!("IPMI command: {:?}", cmd);
         let credentials = credential_provider
             .get_credentials(CredentialKey::Bmc {
@@ -120,7 +119,7 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             endpoint: cmd.host,
             password: Some(password),
             port: None,
-            system: "".to_string()
+            system: "".to_string(),
         };
 
         tokio::task::spawn_blocking(move || {
@@ -129,10 +128,12 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             let mut redfish = libredfish::Redfish::new(conf);
 
             match redfish.get_system_id() {
-                Ok(_x) => {
-                }
+                Ok(_x) => {}
                 Err(e) => {
-                    return Err(CarbideError::GenericError(format!("Error getting system id: {:?}", e.to_string())));
+                    return Err(CarbideError::GenericError(format!(
+                        "Error getting system id: {:?}",
+                        e.to_string()
+                    )));
                 }
             }
 
@@ -140,8 +141,7 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                 IpmiTask::PowerControl(task) => match redfish.set_system_power(task) {
                     Ok(()) => Ok("Success".to_string()),
                     Err(e) => {
-                        let error_msg =
-                            format!("Failed to run power control command {}", e);
+                        let error_msg = format!("Failed to run power control command {}", e);
                         Err(CarbideError::GenericError(error_msg))
                     }
                 },

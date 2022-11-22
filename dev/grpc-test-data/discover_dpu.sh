@@ -13,7 +13,7 @@ MACHINE_INTERFACE_ID=$(echo $RESULT | jq ".machineInterfaceId.value" | tr -d '"'
 echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
 
 # Simulate the Machine discovery request of a DPU
-DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_id.value = $machine_interface_id' $REPO_ROOT/dev/grpc-test-data/dpu_machine_discovery.json)
+DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' $REPO_ROOT/dev/grpc-test-data/dpu_machine_discovery.json)
 RESULT=$(echo $DISCOVER_MACHINE_REQUEST | grpcurl -d @ -plaintext 127.0.0.1:1079 forge.Forge/DiscoverMachine)
 DPU_MACHINE_ID=$(echo $RESULT | jq ".machineId.value" | tr -d '"')
 echo "Created DPU Machine with ID $DPU_MACHINE_ID"

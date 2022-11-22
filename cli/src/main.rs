@@ -69,14 +69,24 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     match config.subcmd {
         Command::Discovery(d) => {
-            discovery::Discovery::run(&config.api, &d.uuid).await?;
-            deprovision::Deprovision::run(&config.api, &d.uuid).await?;
+            // TODO: It might be possible to set the Machine ID directly in the args
+            // let machine_interface_id = uuid::Uuid::parse_str(&d.uuid)
+            // .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+
+            discovery::Discovery::run(&config.api, d.uuid).await?;
+
+            // TODO: This might be broken - the command seems expects a machine_id - not a machine_interface_id
+            // We could get it as return value from `Discovery::run` - but it's
+            // unclear what deprovision actually expects.
+            deprovision::Deprovision::run(&config.api, d.uuid).await?;
         }
         Command::Done(d) => {
-            done::Done::run(config.api, &d.uuid).await?;
+            done::Done::run(config.api, d.uuid).await?;
         }
         Command::Reset(d) => {
-            deprovision::Deprovision::run(&config.api, &d.uuid).await?;
+            // TODO: This might be broken. It seems undefined on whether
+            // the input parameter here is a machine ID or a machine interface ID
+            deprovision::Deprovision::run(&config.api, d.uuid).await?;
         }
     }
     Ok(())

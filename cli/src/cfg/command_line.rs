@@ -44,19 +44,19 @@ pub(crate) enum Command {
 #[derive(Parser)]
 pub struct Discovery {
     #[clap(short, long, multiple_values(false), require_equals(true))]
-    pub uuid: String,
+    pub uuid: uuid::Uuid,
 }
 
 #[derive(Parser)]
 pub struct Done {
     #[clap(short, long, multiple_values(false), require_equals(true))]
-    pub uuid: String,
+    pub uuid: uuid::Uuid,
 }
 
 #[derive(Parser)]
 pub struct Reset {
     #[clap(short, long, multiple_values(false), require_equals(true))]
-    pub uuid: String,
+    pub uuid: uuid::Uuid,
 }
 
 impl Options {

@@ -618,7 +618,7 @@ message MachineCredentialsUpdateRequest {
 message MachineCredentialsUpdateResponse {}
 
 message MachineDiscoveryInfo {
-  UUID machine_id = 1;
+  UUID machine_interface_id = 1;
   oneof discovery_data {
     machine_discovery.DiscoveryInfo info = 2;
   }

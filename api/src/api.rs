@@ -817,12 +817,13 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let interface_id = match &machine_discovery_info.machine_id {
+        let interface_id = match &machine_discovery_info.machine_interface_id {
             Some(id) => match uuid::Uuid::try_from(id) {
                 Ok(uuid) => uuid,
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
-                        "Did not supply a valid discovery machine id UUID: {}",
+                        "Did not supply a valid discovery machine_interface_id. Value was: {}. Err: {}",
+                        id,
                         err
                     )));
                 }
@@ -893,22 +894,23 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+        let machine_interface_id =
+            uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
 
-        let interface = MachineInterface::find_one(&mut txn, uuid).await?;
+        let interface = MachineInterface::find_one(&mut txn, machine_interface_id).await?;
 
         let maybe_machine = match interface.machine_id {
             Some(machine_id) => Machine::find_one(&mut txn, machine_id).await?,
             None => {
                 return Err(Status::invalid_argument(format!(
                     "Machine interface has no machine id UUID: {}",
-                    uuid
+                    machine_interface_id
                 )));
             }
         };
 
         let response = match maybe_machine {
-            None => Err(CarbideError::NotFoundError(uuid).into()),
+            None => Err(CarbideError::NotFoundError(machine_interface_id).into()),
             Some(machine) => Ok(rpc::Machine::from(machine)),
         }
         .map(Response::new);
