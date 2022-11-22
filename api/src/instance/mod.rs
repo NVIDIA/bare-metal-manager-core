@@ -25,6 +25,7 @@ use crate::{
         machine_state::MachineState,
     },
     kubernetes::create_managed_resource,
+    machine_state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     model::{
         config_version::{ConfigVersion, Versioned},
         instance::config::{network::InstanceNetworkConfig, tenant::TenantConfig, InstanceConfig},
@@ -125,6 +126,17 @@ pub async fn allocate_instance(
 
     let machine_id = new_instance.machine_id;
     // check the state of the machine
+    let machine_state = DbSnapshotLoader::default()
+        .load_machine_snapshot(&mut txn, new_instance.machine_id)
+        .await
+        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+    if machine_state.hardware_info.is_dpu() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Machine with UUID {} is a DPU and can not be converted into an instance",
+            machine_id
+        )));
+    }
+
     let machine = Machine::find_one(&mut txn, machine_id)
         .await?
         .ok_or_else(|| {

@@ -9,16 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
 
-#[path = "../common/mod.rs"]
-pub mod common;
-mod machine_state_controller;
-mod snapshot_loader;
+//! Contains common functionality between integration tests
 
-#[ctor::ctor]
-fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
-}
+pub mod api_fixtures;
+pub mod test_credentials;

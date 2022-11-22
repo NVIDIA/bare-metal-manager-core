@@ -25,8 +25,7 @@ use carbide::{
 use mac_address::MacAddress;
 use sqlx::Executor;
 
-const FIXTURE_CREATED_NETWORK_SEGMENT_ID: uuid::Uuid =
-    uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe8");
+use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 
 const FIXTURE_CREATED_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
 
@@ -47,7 +46,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     let segment = NetworkSegment::find(
         &mut txn,
-        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_CREATED_NETWORK_SEGMENT_ID),
+        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
     )
     .await
     .unwrap()

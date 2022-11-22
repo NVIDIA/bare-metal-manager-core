@@ -22,7 +22,8 @@ use carbide::db::machine_interface::MachineInterface;
 use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
 use carbide::CarbideError;
 
-const FIXTURE_NETWORK_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+pub mod common;
+use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 
 #[ctor::ctor]
 fn setup() {

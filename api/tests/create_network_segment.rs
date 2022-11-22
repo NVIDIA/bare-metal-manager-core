@@ -24,6 +24,11 @@ use carbide::db::vpc::Vpc;
 use carbide::db::vpc_resource_state::VpcResourceState;
 use carbide::CarbideError;
 
+pub mod common;
+use common::api_fixtures::network_segment::{
+    FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID,
+};
+
 #[ctor::ctor]
 fn setup() {
     pretty_env_logger::formatted_timed_builder()
@@ -33,11 +38,6 @@ fn setup() {
 
 const FIXTURE_CREATED_DOMAIN_UUID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
 const FIXTURE_CREATED_VPC_UUID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
-const FIXTURE_CREATED_NETWORK_SEGMENT_ORPHAN_UUID: uuid::Uuid =
-    uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe8");
-
-const FIXTURE_CREATED_NETWORK_SEGMENT_UUID: uuid::Uuid =
-    uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_create_segment_with_domain(
@@ -232,7 +232,7 @@ async fn test_network_segment_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     let network_segment = NetworkSegment::find(
         &mut txn,
-        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_CREATED_NETWORK_SEGMENT_ORPHAN_UUID),
+        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID),
     )
     .await?
     .pop()
@@ -245,7 +245,7 @@ async fn test_network_segment_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     let network_segment = NetworkSegment::find(
         &mut txn,
-        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_CREATED_NETWORK_SEGMENT_ORPHAN_UUID),
+        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID),
     )
     .await?
     .pop();
@@ -263,7 +263,7 @@ async fn test_network_segment_delete_fails(
 
     let network_segment = NetworkSegment::find(
         &mut txn,
-        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_CREATED_NETWORK_SEGMENT_UUID),
+        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
     )
     .await?
     .pop()
@@ -289,7 +289,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
 
     let network_segment = NetworkSegment::find(
         &mut txn,
-        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_CREATED_NETWORK_SEGMENT_UUID),
+        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
     )
     .await?
     .pop()
