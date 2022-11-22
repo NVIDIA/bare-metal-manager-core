@@ -47,8 +47,7 @@ pub struct Instance {
     pub requested: DateTime<Utc>,
     pub started: DateTime<Utc>,
     pub finished: Option<DateTime<Utc>>,
-    pub user_data: Option<String>,
-    pub custom_ipxe: String,
+    pub tenant_config: TenantConfig,
     pub ssh_keys: Vec<String>,
     pub use_custom_pxe_on_boot: bool,
     pub interfaces: Vec<InstanceSubnet>,
@@ -72,14 +71,21 @@ pub struct DeleteInstance {
 
 impl<'r> FromRow<'r, PgRow> for Instance {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let user_data: Option<String> = row.try_get("user_data")?;
+        let custom_ipxe = row.try_get("custom_ipxe")?;
+        let tenant_config = TenantConfig {
+            tenant_id: "NOT_AVAILABLE".to_string(),
+            custom_ipxe,
+            user_data,
+        };
+
         Ok(Instance {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
             requested: row.try_get("requested")?,
             started: row.try_get("started")?,
             finished: row.try_get("finished")?,
-            user_data: row.try_get("user_data")?,
-            custom_ipxe: row.try_get("custom_ipxe")?,
+            tenant_config,
             ssh_keys: Vec::new(),
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
             interfaces: Vec::new(),
@@ -93,8 +99,8 @@ impl From<Instance> for rpc::Instance {
             id: Some(src.id.into()),
             segment_id: None,
             machine_id: Some(src.machine_id.into()),
-            user_data: src.user_data,
-            custom_ipxe: src.custom_ipxe,
+            user_data: src.tenant_config.user_data,
+            custom_ipxe: src.tenant_config.custom_ipxe,
             ssh_keys: src.ssh_keys,
             requested: Some(Timestamp {
                 seconds: src.requested.timestamp(),
