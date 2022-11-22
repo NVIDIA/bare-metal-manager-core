@@ -8,13 +8,7 @@ echo $DATABASE_URL
 vpc=$(grpcurl -d '{"name":"test_vpc"}' -plaintext 127.0.0.1:1079 forge.Forge/CreateVpc | jq ".id.value" | tr -d '"')
 domain=$(grpcurl -d '{"name":"forge.local"}' -plaintext 127.0.0.1:1079 forge.Forge/CreateDomain | jq ".id.value" | tr -d '"')
 segment=$(grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"prefixes\":[{\"prefix\":\"172.20.0.0/24\",\"gateway\":\"172.20.0.1\",\"reserve_first\":30}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -plaintext 127.0.0.1:1079 forge.Forge/CreateNetworkSegment | jq ".id.value" | tr -d '"')
-machine=$(psql -t -c 'INSERT INTO machines VALUES(DEFAULT) RETURNING id;' | head -1 | tr -d ' ')
-interface=$(psql -t -c "INSERT INTO machine_interfaces (attached_dpu_machine_id,machine_id,segment_id,mac_address,domain_id,hostname,primary_interface) VALUES (NULL, '${machine}', '${segment}', 'de:af:de:ad:be:ef','${domain}','myhost',true) RETURNING id;" | head -1 | tr -d ' ')
-psql -t -c "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ('$interface', '172.20.0.20');"
-psql -t -c "INSERT INTO machine_events (machine_id, action) VALUES ('${machine}', 'discover');"
-psql -t -c "INSERT INTO machine_events (machine_id, action) VALUES ('${machine}', 'adopt');"
-psql -t -c "INSERT INTO machine_events (machine_id, action) VALUES ('${machine}', 'test');"
-psql -t -c "INSERT INTO machine_events (machine_id, action) VALUES ('${machine}', 'commission');"
+$REPO_ROOT/dev/grpc-test-data/discover_dpu.sh
 '''
 cwd="${REPO_ROOT}"
 
