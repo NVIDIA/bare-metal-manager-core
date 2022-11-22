@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 use crate::deprovision::cmdrun;
 use ::rpc::forge as rpc;
-use cli::{CarbideClientError, CarbideClientResult};
+use cli::CarbideClientResult;
 
 /*
 
@@ -209,13 +209,10 @@ fn cleanup_ram() -> Result<(), String> {
 
     Ok(())
 }
-fn get_cleanup(uuid: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
-    let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
-        .map(|m| m.into())
-        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
 
+fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineCleanupInfo> {
     let mut cleanup_result = rpc::MachineCleanupInfo {
-        machine_id: Some(rpc_uuid),
+        machine_id: Some(machine_id.into()),
         nvme: None,
         ram: None,
         mem_overwrite: None,
@@ -286,9 +283,10 @@ fn get_cleanup(uuid: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
 }
 
 pub struct Deprovision {}
+
 impl Deprovision {
-    pub async fn run(api: &str, uuid: &str) -> CarbideClientResult<()> {
-        let info = get_cleanup(uuid)?;
+    pub async fn run(api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
+        let info = do_cleanup(machine_id)?;
         let mut client = rpc::forge_client::ForgeClient::connect(api.to_string()).await?;
         let request = tonic::Request::new(info);
         client.cleanup_machine_completed(request).await?;

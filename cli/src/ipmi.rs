@@ -18,7 +18,6 @@ use std::time::Instant;
 use rand::Rng;
 use regex::Regex;
 use tokio::time::{sleep, Duration};
-use uuid::Uuid;
 
 use ::rpc::forge as rpc;
 use cli::CarbideClientError;
@@ -96,15 +95,11 @@ struct IpmiInfo {
 impl IpmiInfo {
     fn convert(
         value: Vec<IpmiInfo>,
-        uuid: &str,
+        machine_id: uuid::Uuid,
         ip: String,
     ) -> Result<rpc::BmcMetaDataUpdateRequest, CarbideClientError> {
-        let machine_id: rpc::Uuid = Uuid::parse_str(uuid)
-            .map(|m| m.into())
-            .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
-
         let mut bmc_meta_data = rpc::BmcMetaDataUpdateRequest {
-            machine_id: Some(machine_id),
+            machine_id: Some(machine_id.into()),
             ip,
             data: Vec::new(),
             request_type: rpc::BmcRequestType::Ipmi as i32,
@@ -379,7 +374,10 @@ fn set_ipmi_creds(test_list: Option<&str>) -> CarbideClientResult<(Vec<IpmiInfo>
     Ok((user_lists, ip))
 }
 
-pub async fn update_ipmi_creds(forge_api: String, uuid: &str) -> CarbideClientResult<()> {
+pub async fn update_ipmi_creds(
+    forge_api: String,
+    machine_id: uuid::Uuid,
+) -> CarbideClientResult<()> {
     if IN_QEMU_VM.read().await.in_qemu {
         return Ok(());
     }
@@ -387,7 +385,7 @@ pub async fn update_ipmi_creds(forge_api: String, uuid: &str) -> CarbideClientRe
     wait_until_ipmi_is_ready().await?;
 
     let (ipmi_info, ip) = set_ipmi_creds(None)?;
-    let bmc_metadata: rpc::BmcMetaDataUpdateRequest = IpmiInfo::convert(ipmi_info, uuid, ip)?;
+    let bmc_metadata: rpc::BmcMetaDataUpdateRequest = IpmiInfo::convert(ipmi_info, machine_id, ip)?;
 
     let mut client = rpc::forge_client::ForgeClient::connect(forge_api).await?;
     let request = tonic::Request::new(bmc_metadata);

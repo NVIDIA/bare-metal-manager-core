@@ -7,17 +7,14 @@ use ::rpc::forge::{
     forge_client::ForgeClient, machine_credentials_update_request::CredentialPurpose,
     machine_credentials_update_request::Credentials,
 };
-use ::rpc::Uuid;
 use cli::CarbideClientResult;
 
-pub async fn create_users(forge_api: String, uuid: &str) -> CarbideClientResult<()> {
+pub async fn create_users(forge_api: String, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
     let login_user_creds = create_login_user().await?;
     let hbn_user_creds = create_hbn_user().await?;
     let update_request = ::rpc::forge::MachineCredentialsUpdateRequest {
         credentials: vec![login_user_creds, hbn_user_creds],
-        machine_id: Some(Uuid {
-            value: uuid.to_string(),
-        }),
+        machine_id: Some(machine_id.into()),
     };
 
     let mut client = ForgeClient::connect(forge_api).await?;

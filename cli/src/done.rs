@@ -12,17 +12,17 @@
 use tonic::Response;
 
 use ::rpc::forge as rpc;
-use cli::{CarbideClientError, CarbideClientResult};
+use cli::CarbideClientResult;
 
 pub struct Done {}
 
 impl Done {
-    pub async fn run(api: String, uuid: &str) -> CarbideClientResult<Response<rpc::Machine>> {
-        let rpc_uuid: rpc::Uuid = uuid::Uuid::parse_str(uuid)
-            .map(|m| m.into())
-            .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+    pub async fn run(
+        api: String,
+        machine_interface_id: uuid::Uuid,
+    ) -> CarbideClientResult<Response<rpc::Machine>> {
         let mut client = rpc::forge_client::ForgeClient::connect(api).await?;
-        let request = tonic::Request::new(rpc_uuid);
+        let request = tonic::Request::new(machine_interface_id.into());
         Ok(client.done(request).await?)
     }
 }
