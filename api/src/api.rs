@@ -1357,7 +1357,7 @@ where
 
         let pxe_script = if instance.use_custom_pxe_on_boot {
             Instance::use_custom_ipxe_on_next_boot(machine_id, false, &mut txn).await?;
-            instance.custom_ipxe
+            instance.tenant_config.custom_ipxe
         } else {
             "exit".to_string()
         };

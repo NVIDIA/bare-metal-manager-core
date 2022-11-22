@@ -138,9 +138,31 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     )
     .await
     .unwrap();
-    txn.commit().await.unwrap();
 
     println!("Assigned address: {}", record.address());
+
+    let snapshot_loader = DbSnapshotLoader::default();
+    let snapshot = snapshot_loader
+        .load_instance_snapshot(&mut txn, instance.id)
+        .await
+        .unwrap();
+
+    let tenant_config = snapshot
+        .config
+        .tenant
+        .as_ref()
+        .expect("Expecting tenant status");
+    assert_eq!(
+        tenant_config,
+        &TenantConfig {
+            user_data: Some("SomeRandomData".to_string()),
+            custom_ipxe: "SomeRandomiPxe".to_string(),
+            tenant_id: "NOT_AVAILABLE".to_string(),
+        }
+    );
+
+    txn.commit().await.unwrap();
+
     delete_instance(&api, instance.id).await;
 }
 

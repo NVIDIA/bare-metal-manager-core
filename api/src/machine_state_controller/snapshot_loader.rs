@@ -123,7 +123,7 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
             instance_id,
             machine_id: instance.machine_id,
             config: InstanceConfig {
-                tenant: None, // TODO: Load TenantConfig properly
+                tenant: Some(instance.tenant_config),
                 network: network_config.config,
             },
             network_config_version,
