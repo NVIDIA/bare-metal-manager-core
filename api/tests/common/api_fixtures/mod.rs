@@ -9,16 +9,21 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
 
-#[path = "../common/mod.rs"]
-pub mod common;
-mod machine_state_controller;
-mod snapshot_loader;
+//! Contains fixtures that use the Carbide API for setting up
 
-#[ctor::ctor]
-fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+use std::sync::Arc;
+
+use carbide::api::Api;
+
+use crate::common::test_credentials::TestCredentialProvider;
+
+pub mod dpu;
+pub mod network_segment;
+
+/// Carbide API for integration tests
+pub type TestApi = Api<TestCredentialProvider>;
+
+pub fn create_test_api(pool: sqlx::PgPool) -> TestApi {
+    carbide::api::Api::new(Arc::new(TestCredentialProvider::new()), pool)
 }

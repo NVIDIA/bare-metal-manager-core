@@ -25,9 +25,8 @@ use carbide::ipmi::{ipmi_handler, IpmiCommand, IpmiCommandHandler, IpmiTask};
 use carbide::CarbideResult;
 use forge_credentials::CredentialProvider;
 
-use crate::test_credentials::TestCredentialProvider;
-
-mod test_credentials;
+pub mod common;
+use common::test_credentials::TestCredentialProvider;
 
 const DATA: [(UserRoles, &str, &str); 3] = [
     (UserRoles::Administrator, "forge_admin", "randompassword"),

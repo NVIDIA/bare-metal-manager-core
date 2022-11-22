@@ -45,9 +45,13 @@ use chrono::Utc;
 use log::LevelFilter;
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, InstanceDeletionRequest};
-use std::{net::IpAddr, sync::Arc};
-mod test_credentials;
-use test_credentials::TestCredentialProvider;
+use std::net::IpAddr;
+
+pub mod common;
+
+use common::api_fixtures::{
+    create_test_api, dpu::create_dpu_machine, network_segment::FIXTURE_NETWORK_SEGMENT_ID, TestApi,
+};
 
 #[ctor::ctor]
 fn setup() {
@@ -63,7 +67,7 @@ fn setup() {
     "create_machine"
 ))]
 async fn test_crud_instance(pool: sqlx::PgPool) {
-    let api = carbide::api::Api::new(Arc::new(TestCredentialProvider::new()), pool.clone());
+    let api = create_test_api(pool.clone());
     prepare_machine(&pool).await;
     let parsed_relay = "192.0.2.1".parse::<IpAddr>().unwrap();
     let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
@@ -147,7 +151,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     "create_machine"
 ))]
 async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
-    let api = carbide::api::Api::new(Arc::new(TestCredentialProvider::new()), pool.clone());
+    let api = create_test_api(pool.clone());
     prepare_machine(&pool).await;
     let instance = create_instance(&pool).await;
     let instance_id = instance.id;
@@ -313,10 +317,41 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     delete_instance(&api, instance_id).await;
 }
 
-const FIXTURE_NETWORK_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
+    let api = create_test_api(pool.clone());
+
+    let dpu_machine_id = create_dpu_machine(&api).await;
+
+    let request = InstanceAllocationRequest {
+        machine_id: dpu_machine_id.try_into().unwrap(),
+        config: InstanceConfig {
+            tenant: Some(TenantConfig {
+                user_data: Some("SomeRandomData".to_string()),
+                custom_ipxe: "SomeRandomiPxe".to_string(),
+                tenant_id: "Tenant1".to_string(),
+            }),
+            network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
+        },
+        ssh_keys: vec!["mykey1".to_owned()],
+    };
+
+    // Note: This also requests a background task in the DB for creating managed
+    // resources. That's however ok - we will just ignore it and not execute
+    // that task. Later we might also verify that the creation of those resources
+    // is requested
+    let result = allocate_instance(request, &pool).await;
+    let error = result.expect_err("expected allocation to fail").to_string();
+    assert!(
+        error.contains("is a DPU"),
+        "Error message should contain 'is a DPU', but is {}",
+        error
+    );
+}
+
 const FIXTURE_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
 
-async fn delete_instance(api: &carbide::api::Api<TestCredentialProvider>, instance_id: uuid::Uuid) {
+async fn delete_instance(api: &TestApi, instance_id: uuid::Uuid) {
     api.delete_instance(tonic::Request::new(InstanceDeletionRequest {
         id: Some(instance_id.into()),
     }))

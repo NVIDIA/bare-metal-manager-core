@@ -9,16 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
 
-#[path = "../common/mod.rs"]
-pub mod common;
-mod machine_state_controller;
-mod snapshot_loader;
+// The actual instances are at the moment created via the SQL fixtures
+// in the fixtures folder. This file just contains the UUID references
+// for those.
 
-#[ctor::ctor]
-fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
-}
+pub const FIXTURE_NETWORK_SEGMENT_ID: uuid::Uuid =
+    uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+
+pub const FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID: uuid::Uuid =
+    uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe8");
