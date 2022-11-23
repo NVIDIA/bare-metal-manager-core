@@ -2,8 +2,8 @@ variables:
   NSPECT_ID: NSPECT-K66V-JJ0K
   APPLICATION_DOCKERFILE: dev/deployment/Dockerfile
   KUSTOMIZE_LOCATION: dev/kube
+  DOCKER_IMG: nvmetal-carbide
   APPLICATION_DOCKER_IMAGE: quay.io/nvidia/nvmetal-carbide
-  NVCR_APPLICATION_DOCKER_IMAGE: nvcr.io/nvidian/forge/nvmetal-carbide
 
 
   FF_USE_FASTZIP: "true" # enable fastzip - a faster zip implementation that also supports level configuration.
