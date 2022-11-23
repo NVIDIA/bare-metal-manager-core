@@ -58,6 +58,7 @@ use crate::{
     machine_state_controller::{
         controller::MachineStateController,
         snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
+        state_handler::RealMachineStateHandler,
     },
     model::{
         hardware_info::HardwareInfo, instance::status::network::InstanceNetworkStatusObservation,
@@ -1444,6 +1445,7 @@ where
         let _state_controller_handle = MachineStateController::builder()
             .database(database_connection)
             .snapshot_loader(Box::new(DbSnapshotLoader::default()))
+            .state_handler(Arc::new(RealMachineStateHandler::default()))
             .build()
             .expect("Unable to build MachineStateController");
 

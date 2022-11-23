@@ -178,6 +178,24 @@ impl Instance {
         &self.id
     }
 
+    pub async fn find_id_by_machine_id(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: uuid::Uuid,
+    ) -> Result<Option<uuid::Uuid>, sqlx::Error> {
+        #[derive(Debug, Clone, Copy, FromRow)]
+        pub struct InstanceId(uuid::Uuid);
+
+        // TODO: This won't work anymore if instances are not hard deleted on user delete.
+        // Multiple instances will map to the same machine. We would need to get the active one.
+        let instance_id =
+            sqlx::query_as::<_, InstanceId>("SELECT id from instances WHERE machine_id = $1::uuid")
+                .bind(machine_id)
+                .fetch_optional(&mut *txn)
+                .await?;
+
+        Ok(instance_id.map(|id| id.0))
+    }
+
     pub async fn find_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,

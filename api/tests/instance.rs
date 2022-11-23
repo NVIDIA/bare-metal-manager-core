@@ -23,7 +23,9 @@ use carbide::{
         machine::Machine,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
-    machine_state_controller::snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
+    machine_state_controller::snapshot_loader::{
+        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
+    },
     model::instance::{
         config::{
             network::{InstanceNetworkConfig, InterfaceFunctionId},
@@ -337,6 +339,67 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
     delete_instance(&api, instance_id).await;
+}
+
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_network_segment",
+    "create_machine"
+))]
+async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPool) {
+    let api = create_test_api(pool.clone());
+    prepare_machine(&pool).await;
+
+    let snapshot_loader = DbSnapshotLoader::default();
+
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    let snapshot = snapshot_loader
+        .load_machine_snapshot(&mut txn, FIXTURE_MACHINE_ID)
+        .await
+        .unwrap();
+    assert!(
+        snapshot.instance.is_none(),
+        "Expected instance snapshot to be not available"
+    );
+    txn.commit().await.unwrap();
+
+    let instance = create_instance(&pool).await;
+
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    let snapshot = snapshot_loader
+        .load_machine_snapshot(&mut txn, FIXTURE_MACHINE_ID)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    let instance_snapshot = snapshot
+        .instance
+        .expect("Expected instance snapshot to be available");
+    assert_eq!(instance_snapshot.network_config_version.version_nr(), 1);
+    assert_eq!(
+        instance_snapshot.config.network,
+        InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID)
+    );
+    assert!(instance_snapshot.observations.network.is_none());
+
+    assert_eq!(
+        instance_snapshot.config.tenant,
+        Some(TenantConfig {
+            user_data: Some("SomeRandomData".to_string()),
+            custom_ipxe: "SomeRandomiPxe".to_string(),
+            tenant_id: "NOT_AVAILABLE".to_string(),
+        })
+    );
+
+    delete_instance(&api, instance.id).await;
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]

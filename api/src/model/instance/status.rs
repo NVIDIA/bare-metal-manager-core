@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use serde::{Deserialize, Serialize};
+
 use crate::model::{config_version::Versioned, instance::config::network::InstanceNetworkConfig};
 
 pub mod network;
@@ -88,7 +90,7 @@ pub enum SyncState {
 ///
 /// We combine these with the desired config to derive instance state that we
 /// signal to customers
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceStatusObservations {
     /// Observed status of the networking subsystem
     pub network: Option<network::InstanceNetworkStatusObservation>,
