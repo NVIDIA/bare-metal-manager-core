@@ -17,7 +17,7 @@ use std::{
 
 use crate::{
     machine_state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError},
-    model::machine::MachineStateSnapshot,
+    model::{instance::status::SyncState, machine::MachineStateSnapshot},
 };
 
 /// Services that are accessible to the `MachineStateHandler`
@@ -67,15 +67,54 @@ pub struct NoopMachineStateHandler {}
 impl MachineStateHandler for NoopMachineStateHandler {
     async fn handle_machine_state(
         &self,
+        _state: &mut MachineStateSnapshot,
+        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _ctx: &mut MachineStateHandlerContext,
+    ) -> Result<(), MachineStateHandlerError> {
+        Ok(())
+    }
+}
+
+/// A `MachineStateHandler` implementation which does nothing
+#[derive(Debug, Default)]
+pub struct RealMachineStateHandler {
+    host_handler: HostMachineStateHandler,
+    dpu_handler: DpuMachineStateHandler,
+}
+
+#[async_trait::async_trait]
+impl MachineStateHandler for RealMachineStateHandler {
+    async fn handle_machine_state(
+        &self,
+        state: &mut MachineStateSnapshot,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        ctx: &mut MachineStateHandlerContext,
+    ) -> Result<(), MachineStateHandlerError> {
+        if state.hardware_info.is_dpu() {
+            self.dpu_handler.handle_machine_state(state, txn, ctx).await
+        } else {
+            self.host_handler
+                .handle_machine_state(state, txn, ctx)
+                .await
+        }
+    }
+}
+
+/// A `MachineStateHandler` implementation for DPU machines
+#[derive(Debug, Default)]
+pub struct DpuMachineStateHandler {}
+
+#[async_trait::async_trait]
+impl MachineStateHandler for DpuMachineStateHandler {
+    async fn handle_machine_state(
+        &self,
         state: &mut MachineStateSnapshot,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut MachineStateHandlerContext,
     ) -> Result<(), MachineStateHandlerError> {
-        // This block is just here to get some debug output on the cluster and see whether
-        // the controller gets the right data. We will remove it later on.
-        let mut guard = LAST_LOG_TIME.lock().unwrap();
-        if guard.elapsed() >= Duration::from_secs(30) {
-            tracing::info!("MachineStateHandler is acting on machine: {:?}", state);
+        let mut guard = LAST_DPU_LOG_TIME.lock().unwrap();
+        if guard.elapsed() >= Duration::from_secs(60) {
+            tracing::info!("MachineStateHandler is acting on DPU machine: {:?}", state);
             *guard = Instant::now();
         }
         drop(guard);
@@ -84,5 +123,55 @@ impl MachineStateHandler for NoopMachineStateHandler {
     }
 }
 
-static LAST_LOG_TIME: once_cell::sync::Lazy<Mutex<Instant>> =
+/// A `MachineStateHandler` implementation for host machines
+#[derive(Debug, Default)]
+pub struct HostMachineStateHandler {}
+
+#[async_trait::async_trait]
+impl MachineStateHandler for HostMachineStateHandler {
+    async fn handle_machine_state(
+        &self,
+        state: &mut MachineStateSnapshot,
+        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _ctx: &mut MachineStateHandlerContext,
+    ) -> Result<(), MachineStateHandlerError> {
+        // This block is just here to get some debug output on the cluster and see whether
+        // the controller gets the right data. We will remove it later on.
+        let mut guard = LAST_HOST_LOG_TIME.lock().unwrap();
+        if guard.elapsed() >= Duration::from_secs(60) {
+            tracing::info!("MachineStateHandler is acting on host machine: {:?}", state);
+            *guard = Instant::now();
+        }
+        drop(guard);
+
+        if let Some(instance) = state.instance.as_ref() {
+            let status = instance.derive_status();
+            if status.configs_synced == SyncState::Pending {
+                // This is a separate logging block to be guaranteed to get logging
+                // output of instances that are not fully initiated, to see
+                // what is missing.
+                let mut guard = LAST_INSTANCE_LOG_TIME.lock().unwrap();
+                if guard.elapsed() >= Duration::from_secs(90) {
+                    tracing::info!(
+                        "Configs of instance {:?} are not in sync. State {:?}nStatus: {:?}",
+                        instance.instance_id,
+                        instance,
+                        status
+                    );
+                    *guard = Instant::now();
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+static LAST_DPU_LOG_TIME: once_cell::sync::Lazy<Mutex<Instant>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(Instant::now()));
+
+static LAST_HOST_LOG_TIME: once_cell::sync::Lazy<Mutex<Instant>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(Instant::now()));
+
+static LAST_INSTANCE_LOG_TIME: once_cell::sync::Lazy<Mutex<Instant>> =
     once_cell::sync::Lazy::new(|| Mutex::new(Instant::now()));

@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::hardware_info::HardwareInfo;
 
+use super::instance::snapshot::InstanceSnapshot;
+
 pub const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 pub const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 
@@ -30,6 +32,9 @@ pub struct MachineStateSnapshot {
     pub config: MachineConfig,
     /// Desired state of the machine
     pub current: CurrentMachineState,
+    /// If there is an instance provisioned on top of the machine, this holds
+    /// it's state
+    pub instance: Option<InstanceSnapshot>,
 }
 
 /// Represents the current state of `Machine`

@@ -83,11 +83,18 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             .remove(&machine_id)
             .ok_or(SnapshotLoaderError::MissingHardwareInfo(machine_id))?;
 
+        let instance_id = Instance::find_id_by_machine_id(txn, machine_id).await?;
+        let instance_snapshot = match instance_id {
+            Some(instance_id) => Some(self.load_instance_snapshot(txn, instance_id).await?),
+            None => None,
+        };
+
         let snapshot = MachineStateSnapshot {
             machine_id,
             hardware_info: info.topology().discovery_data.info.clone(),
             current: CurrentMachineState {},
             config: MachineConfig {},
+            instance: instance_snapshot,
         };
 
         Ok(snapshot)
