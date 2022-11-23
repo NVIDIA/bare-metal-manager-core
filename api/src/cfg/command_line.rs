@@ -71,6 +71,10 @@ pub struct Daemon {
         env = "AUTH_PERMISSIVE_MODE"
     )]
     pub auth_permissive_mode: bool,
+
+    /// The Casbin policy file (in CSV format).
+    #[clap(long, require_equals(true), env = "CASBIN_POLICY_FILE")]
+    pub casbin_policy_file: std::path::PathBuf,
 }
 
 #[derive(Parser)]
