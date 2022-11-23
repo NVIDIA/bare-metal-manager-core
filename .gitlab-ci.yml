@@ -248,6 +248,10 @@ build-push-helm:
       sed -i '/^spec:/a \ \ imagePullSecrets:\n \ \- name: imagepullsecret' $CI_PROJECT_NAME/templates/postgres.yaml
       sed -i 's/carbide-postgres-pguser-carbide-postgres/{{ .Release.Name }}-postgres-pguser-{{ .Release.Name }}-postgres/g' $CI_PROJECT_NAME/templates/*
       sed -i 's/secretName: forge-provisioner-cert/secretName: {{ include "carbide.fullname" . }}-forge-provisioner-cert/g' $CI_PROJECT_NAME/templates/*
+      sed -i 's/nvcr\.io\/nvidian\/forge\/crunchy-pgbackrest:ubi8-2\.38-0/{{ .Values.postGresBt.image }}/g' $CI_PROJECT_NAME/templates/postgres.yaml
+      sed -i 's/nvcr\.io\/nvidian\/forge\/crunchy-postgres:ubi8-14\.2-1/{{ .Values.postGres.image }}/g' $CI_PROJECT_NAME/templates/postgres.yaml
+      yq -i '.postGresBt.image = "nvcr.io/nvidian/forge/crunchy-pgbackrest:ubi8-2.38-0"' $CI_PROJECT_NAME/values.yaml
+      yq -i '.postGres.image = "nvcr.io/nvidian/forge/crunchy-postgres:ubi8-14.2-1"' $CI_PROJECT_NAME/values.yaml
       sed -i 's/@type/"@type"/g' $CI_PROJECT_NAME/templates/*
       helm package $CI_PROJECT_NAME/
 
