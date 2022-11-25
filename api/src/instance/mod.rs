@@ -28,7 +28,11 @@ use crate::{
     machine_state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     model::{
         config_version::{ConfigVersion, Versioned},
-        instance::config::{network::InstanceNetworkConfig, tenant::TenantConfig, InstanceConfig},
+        instance::config::{
+            network::InstanceNetworkConfig,
+            tenant::{TenantConfig, TenantOrg},
+            InstanceConfig,
+        },
         ConfigValidationError,
     },
     CarbideError,
@@ -78,7 +82,8 @@ impl TryFrom<rpc::Instance> for InstanceAllocationRequest {
                 .try_into()?,
             config: InstanceConfig {
                 tenant: Some(TenantConfig {
-                    tenant_id: "".to_string(),
+                    tenant_org: TenantOrg::try_from("UNKNOWN".to_string())
+                        .expect("UNKNOWN is a valid org"),
                     user_data: request.user_data,
                     custom_ipxe: request.custom_ipxe,
                 }),

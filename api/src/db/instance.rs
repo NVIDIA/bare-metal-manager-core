@@ -31,7 +31,10 @@ use crate::{
     model::{
         config_version::Versioned,
         instance::{
-            config::{network::InstanceNetworkConfig, tenant::TenantConfig},
+            config::{
+                network::InstanceNetworkConfig,
+                tenant::{TenantConfig, TenantOrg},
+            },
             status::network::InstanceNetworkStatusObservation,
         },
     },
@@ -73,8 +76,12 @@ impl<'r> FromRow<'r, PgRow> for Instance {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let user_data: Option<String> = row.try_get("user_data")?;
         let custom_ipxe = row.try_get("custom_ipxe")?;
+        let tenant_org_str = row.try_get::<String, _>("tenant_org")?;
+        let tenant_org =
+            TenantOrg::try_from(tenant_org_str).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
         let tenant_config = TenantConfig {
-            tenant_id: "NOT_AVAILABLE".to_string(),
+            tenant_org,
             custom_ipxe,
             user_data,
         };
@@ -226,7 +233,8 @@ impl Instance {
         Ok(sqlx::query_as(r#"SELECT i.id as id, i.machine_id as machine_id,
                                     i.requested as requested, i.started as started,
                                     i.finished as finished, i,user_data as user_data,
-                                    i.custom_ipxe as custom_ipxe, i.ssh_keys as ssh_keys,
+                                    i.custom_ipxe as custom_ipxe, i.tenant_org as tenant_org,
+                                    i.ssh_keys as ssh_keys,
                                     i.use_custom_pxe_on_boot as use_custom_pxe_on_boot
                                     FROM instances i
                                       INNER JOIN instance_subnets s ON i.id = s.instance_id
@@ -310,16 +318,15 @@ impl<'a> NewInstance<'a> {
         // The first report from the networking subsytem will set the field
         let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
 
-        // TODO: We don't persist `TenantConfig.tenant_id` yet
-
         Ok(
             sqlx::query_as(concat!(
-                "INSERT INTO instances (machine_id, user_data, custom_ipxe, ssh_keys, use_custom_pxe_on_boot, network_config, network_config_version, network_status_observation) ",
-                "VALUES ($1::uuid, $2, $3, $4::text[], true, $5::json, $6, $7::json) RETURNING *"),
+                "INSERT INTO instances (machine_id, user_data, custom_ipxe, tenant_org, ssh_keys, use_custom_pxe_on_boot, network_config, network_config_version, network_status_observation) ",
+                "VALUES ($1::uuid, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json) RETURNING *"),
             )
                 .bind(&self.machine_id)
                 .bind(&self.tenant_config.user_data)
                 .bind(&self.tenant_config.custom_ipxe)
+                .bind(&self.tenant_config.tenant_org.as_str())
                 .bind(&self.ssh_keys)
                 .bind(sqlx::types::Json(&self.network_config.config))
                 .bind(&network_version_string)

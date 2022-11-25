@@ -29,7 +29,7 @@ use carbide::{
     model::instance::{
         config::{
             network::{InstanceNetworkConfig, InterfaceFunctionId},
-            tenant::TenantConfig,
+            tenant::{TenantConfig, TenantOrg},
             InstanceConfig,
         },
         status::{
@@ -159,7 +159,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         &TenantConfig {
             user_data: Some("SomeRandomData".to_string()),
             custom_ipxe: "SomeRandomiPxe".to_string(),
-            tenant_id: "NOT_AVAILABLE".to_string(),
+            tenant_org: TenantOrg::try_from("Tenant1".to_string()).unwrap(),
         }
     );
 
@@ -395,7 +395,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         Some(TenantConfig {
             user_data: Some("SomeRandomData".to_string()),
             custom_ipxe: "SomeRandomiPxe".to_string(),
-            tenant_id: "NOT_AVAILABLE".to_string(),
+            tenant_org: TenantOrg::try_from("Tenant1".to_string()).unwrap(),
         })
     );
 
@@ -414,7 +414,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
-                tenant_id: "Tenant1".to_string(),
+                tenant_org: TenantOrg::try_from("Tenant1".to_string()).unwrap(),
             }),
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
         },
@@ -477,7 +477,7 @@ async fn create_instance(pool: &sqlx::PgPool) -> Instance {
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
-                tenant_id: "Tenant1".to_string(),
+                tenant_org: TenantOrg::try_from("Tenant1".to_string()).unwrap(),
             }),
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
         },
