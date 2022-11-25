@@ -311,3 +311,23 @@ deploy_fleet_command_site_0:
     deployment_tier: testing
   tags:
     - corp
+
+deploy_fleet_command_integration_env:
+  extends: .deploy_fleet_command
+  before_script:
+    - export HELM_VER="${HELM_VERSION:1}"
+  variables:
+    APP_NAME: carbide
+    HELM_CHART_NAME: carbide
+    HELM_VER: ${HELM_VER}
+    DEPLOYMENT_NAME: carbide
+    LOCATION: reno-int-lp
+    TARGET_NAMESPACE: carbide
+    ENV_NAME: stg
+    ORG_NAME: nvidia
+    TEAM_NAME: nvforge
+  environment:
+    name: fleet_command
+    deployment_tier: testing
+  tags:
+    - corp
