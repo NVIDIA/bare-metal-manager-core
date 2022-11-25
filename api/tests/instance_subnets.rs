@@ -12,7 +12,7 @@
 use std::str::FromStr;
 
 use carbide::model::config_version::{ConfigVersion, Versioned};
-use carbide::model::instance::config::tenant::TenantConfig;
+use carbide::model::instance::config::tenant::{TenantConfig, TenantOrg};
 use log::LevelFilter;
 use mac_address::MacAddress;
 
@@ -101,7 +101,7 @@ async fn new_instance_subnet_matches_machine_interface(pool: sqlx::PgPool) {
         machine_id: new_machine.id().to_owned(),
         tenant_config: &TenantConfig {
             user_data: Some("".to_string()),
-            tenant_id: "Tenant1".to_string(),
+            tenant_org: TenantOrg::try_from("Tenant1".to_string()).unwrap(),
             custom_ipxe: "".to_string(),
         },
         ssh_keys: vec![],
@@ -198,7 +198,7 @@ async fn new_instance_in_init_state(pool: sqlx::PgPool) {
         machine_id: new_machine.id().to_owned(),
         tenant_config: &TenantConfig {
             user_data: Some("".to_string()),
-            tenant_id: "Tenant1".to_string(),
+            tenant_org: TenantOrg::try_from("Tenant1".to_string()).unwrap(),
             custom_ipxe: "".to_string(),
         },
         ssh_keys: vec![],
@@ -297,7 +297,7 @@ async fn instance_subnet_state_machine_advance(pool: sqlx::PgPool) {
         machine_id: new_machine.id().to_owned(),
         tenant_config: &TenantConfig {
             user_data: Some("".to_string()),
-            tenant_id: "Tenant1".to_string(),
+            tenant_org: TenantOrg::try_from("Tenant1".to_string()).unwrap(),
             custom_ipxe: "".to_string(),
         },
         ssh_keys: vec![],
