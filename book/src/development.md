@@ -16,7 +16,7 @@ For a list env vars we predefine look at
 2. Install additional cargo utilities
 
     ```cargo install cargo-watch cargo-make sccache```
-3. Install docker following these [directions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository)
+3. Install docker following these [directions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), then add yourself to the docker group: `sudo usermod -aG docker $USER` (otherwise you have to always `sudo docker`).
 4. Install docker-compose using your system package manager
 
     Arch - ```sudo pacman -S docker-compose```
@@ -27,24 +27,24 @@ For a list env vars we predefine look at
 
 5. Install [KinD](https://kind.sigs.k8s.io/docs/user/quick-start#installing-from-release-binaries)
 6. Install [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
-7. Install ISC kea using your system package manager   
-    
+7. Install ISC kea using your system package manager
+
     Arch - ```sudo pacman -S kea```
-    
+
     Debian - ```sudo apt-get install -y isc-kea-dhcp4-server isc-kea-dev```
 
-    Fedora - ```sudo dnf install -y kea kea-devel dea-libs``` 
+    Fedora - ```sudo dnf install -y kea kea-devel kea-libs```
 
-8. You can install PostgreSQL locally, but it might be easier to start a docker container when you need to. This is especially useful when running `cargo test` manually.    
+8. You can install PostgreSQL locally, but it might be easier to start a docker container when you need to. This is especially useful when running `cargo test` manually.
     ```docker run -e POSTGRES_PASSWORD="admin" -p "5432:5432" postgres:14.1-alpine```
-    
+
     a. Postgresql CLI utilities should be installed locally
-    
+
     Arch - ```sudo pacman -S postgresql-client```
 
     Debian - ```sudo apt-get install -y postgresql-client```
 
-    Fedora - ```sudo dnf install -y postgres```
+    Fedora - ```sudo dnf install -y postgresql```
 
 9. Install qemu and ovmf firmware for starting VM's to simulate PXE clients
 
@@ -54,10 +54,10 @@ For a list env vars we predefine look at
 
      Fedora - ```sudo dnf -y install bridge-utils libvirt virt-install qemu-kvm```
 
-10. Install `direnv` using your package manager. 
-    
+10. Install `direnv` using your package manager.
+
     Arch - ```sudo pacman -S direnv```
-    
+
     Debian - ```sudo apt-get install -y direnv```
 
     Fedora - ```sudo dnf install -y direnv```
@@ -84,25 +84,31 @@ For a list env vars we predefine look at
 
     Debian - ```sudo apt-get install -y mkosi debootstrap```
 
+    Fedora - ```sudo dnf install -y mkosi debootstrap```
+
 16. Install `liblzma-dev` from system package manager
 
     Debian - ```sudo apt-get install -y liblzma-dev```
+
+    Fedora - ```sudo dnf install -y xz-devel```
 
 17. Install `swtpm` and `swtpm-tools` from system package manager
 
     Debian - ```sudo apt-get install -y swtpm swtpm-tools```
 
+    Fedora - ```sudo dnf install -y swtpm swtpm-tools```
+
 ## IDE
 
-Recommended IDE for Rust development in the Carbide project is CLion, IntelliJ works as well but includes a lot of extra components that you don't need.  There are plenty 
+Recommended IDE for Rust development in the Carbide project is CLion, IntelliJ works as well but includes a lot of extra components that you don't need.  There are plenty
 of options (VS Code, NeoVim etc), but CLion/IntelliJ is widely used.
 
-One thing to note if regardless of what IDE you choose.. if you're running on Linux DO NOT USE Snap or Flatpak versions of the software packages.  These builds inroduce a number 
-of complications in the C lib linking between the IDE and your system and frankly it's not worth fighting.  
+One thing to note regardless of what IDE you choose: if you're running on Linux DO NOT USE Snap or Flatpak versions of the software packages. These builds inroduce a number
+of complications in the C lib linking between the IDE and your system and frankly it's not worth fighting.
 
 ## Running Unit Tests
 
-To quickly set up your environment to run unit tests, you'll need an initialized PSQL service locally on your system to connect to.  The docker-compose workflow 
+To quickly set up your environment to run unit tests, you'll need an initialized PSQL service locally on your system to connect to.  The docker-compose workflow
 handles this for you, but if you're just trying to set up a simple env to run unit tests run the following:
 
 ```docker run --rm -di -e POSTGRES_PASSWORD="admin" -p "5432:5432" --name pgdev postgres:14.1-alpine```
