@@ -67,7 +67,7 @@ impl InterfaceFunctionId {
     pub fn kube_representation(&self) -> String {
         match self {
             InterfaceFunctionId::PhysicalFunctionId {} => "pf".to_string(),
-            InterfaceFunctionId::VirtualFunctionId { id } => format!("vf/{}", id),
+            InterfaceFunctionId::VirtualFunctionId { id } => format!("vf-{}", id),
         }
     }
 

@@ -1038,9 +1038,9 @@ fn managed_resource_name(
     function_id: &InterfaceFunctionId,
 ) -> String {
     format!(
-        "{}/{}",
+        "{}.{}",
+        function_id.kube_representation(),
         managed_resource_name_prefix,
-        function_id.kube_representation()
     )
 }
 

@@ -174,7 +174,7 @@ impl BlueFieldInterface {
     }
 
     pub fn leaf_interface_id(&self, machine_id: &uuid::Uuid) -> String {
-        format!("forge-{}/{}", machine_id, self.0.kube_representation())
+        format!("{}.forge.{}", self.0.kube_representation(), machine_id)
     }
 
     pub fn interface_name(&self) -> String {
@@ -238,23 +238,23 @@ mod tests {
 
     #[template]
     #[rstest]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/pf", "pf0hpf")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/1", "pf0vf0")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/2", "pf0vf1")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/3", "pf0vf2")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/4", "pf0vf3")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/5", "pf0vf4")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/6", "pf0vf5")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/7", "pf0vf6")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/8", "pf0vf7")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/9", "pf0vf8")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/10", "pf0vf9")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/11", "pf0vf10")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/12", "pf0vf11")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/13", "pf0vf12")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/14", "pf0vf13")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/15", "pf0vf14")]
-    #[case("forge-60cef902-9779-4666-8362-c9bb4b37184f/vf/16", "pf0vf15")]
+    #[case("pf.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0hpf")]
+    #[case("vf-1.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf0")]
+    #[case("vf-2.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf1")]
+    #[case("vf-3.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf2")]
+    #[case("vf-4.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf3")]
+    #[case("vf-5.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf4")]
+    #[case("vf-6.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf5")]
+    #[case("vf-7.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf6")]
+    #[case("vf-8.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf7")]
+    #[case("vf-9.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf8")]
+    #[case("vf-10.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf9")]
+    #[case("vf-11.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf10")]
+    #[case("vf-12.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf11")]
+    #[case("vf-13.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf12")]
+    #[case("vf-14.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf13")]
+    #[case("vf-15.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf14")]
+    #[case("vf-16.forge.60cef902-9779-4666-8362-c9bb4b37184f", "pf0vf15")]
     fn test_params() {}
 
     #[apply(test_params)]
@@ -270,17 +270,21 @@ mod tests {
         let physical_interface =
             BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {});
         assert_eq!(
-            "forge-60cef902-9779-4666-8362-c9bb4b37184f/pf".to_owned(),
+            "pf.forge.60cef902-9779-4666-8362-c9bb4b37184f".to_owned(),
             physical_interface.leaf_interface_id(&tests::DPU_MACHINE_ID,)
         );
     }
 
     #[apply(test_params)]
     fn test_leaf_interface_id_virtual(#[case] key: &str, #[case] value: &str) {
-        if key.ends_with("pf") {
+        if key.starts_with("pf") {
             return;
         }
-        let id: i32 = key.to_owned().split('/').last().unwrap().parse().unwrap();
+        let id: i32 = key.to_owned().split('-').collect::<Vec<_>>()[1]
+            .split('.')
+            .collect::<Vec<_>>()[0]
+            .parse()
+            .unwrap();
         let virtual_interface =
             BlueFieldInterface::new(InterfaceFunctionId::VirtualFunctionId { id: id as u8 });
         assert_eq!(
