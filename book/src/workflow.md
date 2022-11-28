@@ -6,7 +6,7 @@
 
 **Summary**
 
-After this step, DPU is discovered by forge, HBN on DPU is configured by forge. 
+After this step, DPU is discovered by forge, HBN on DPU is configured by forge.
 
 - DPU ipxe boots
 - DPU gets IP address from provisioner/kea, the IP will be on pre-allocatedIPMI network segment.
@@ -42,7 +42,7 @@ Cloud control plane creates “VPC” and network segment to provisioner
 
 - Provisioner announces the tenant network segment as ResourceGroup (including network info) CRD to vpc.
 - Cloud control plane create Instance with associated network segments and image, etc,
-- Provisioner announces the Instance as mangedResource (that associate an x86 host with the above network segment) to vpc
+- Provisioner announces the Instance as managedResource (that associate an x86 host with the above network segment) to vpc
 - Vpc configures DPU to place the x86 host on the overlay network
 - Provisioner triggers x86 host to reboot
 - X86 host pxe boots, Repeat DHCP and host boot steps in host provisioning steps
