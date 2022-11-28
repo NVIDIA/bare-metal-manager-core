@@ -166,7 +166,7 @@ impl NewNetworkSegment {
 
         let mut segment: NetworkSegment = sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, vpc_id, mtu, version) VALUES ($1, $2, $3, $4, $5) RETURNING *")
             .bind(&self.name)
-            .bind(&self.subdomain_id)
+            .bind(self.subdomain_id)
             .bind(self.vpc_id)
             .bind(self.mtu)
             .bind(&version_string)
@@ -402,7 +402,7 @@ impl NetworkSegment {
             let vpc_list = Vpc::find(txn, UuidKeyedObjectFilter::One(vpc_uuid)).await?;
             if !vpc_list.is_empty() {
                 if let Some(vpc) = vpc_list.first() {
-                    if vpc.deleted == None {
+                    if vpc.deleted.is_none() {
                         return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
                             "Network Segment can't be deleted with associated VPC".to_string(),
                         ));
@@ -416,7 +416,7 @@ impl NetworkSegment {
                 Domain::find(txn, UuidKeyedObjectFilter::One(*subdomain_uuid)).await?;
             if !domain_list.is_empty() {
                 if let Some(dom) = domain_list.first() {
-                    if dom.deleted == None {
+                    if dom.deleted.is_none() {
                         return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
                             "Network Segment can't be deleted with associated subdomain"
                                 .to_string(),
@@ -438,7 +438,7 @@ impl NetworkSegment {
         Ok(sqlx::query_as(
             "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
         )
-        .bind(&self.id)
+        .bind(self.id)
         .fetch_one(&mut *txn)
         .await?)
     }
@@ -452,10 +452,10 @@ impl NetworkSegment {
             "UPDATE network_segments SET name=$1, subdomain_id=$2, vpc_id=$3, mtu=$4, updated=NOW() WHERE id=$5 RETURNING *",
         )
         .bind(&self.name)
-        .bind(&self.subdomain_id)
-        .bind(&self.vpc_id)
-        .bind(&self.mtu)
-        .bind(&self.id)
+        .bind(self.subdomain_id)
+        .bind(self.vpc_id)
+        .bind(self.mtu)
+        .bind(self.id)
         .fetch_one(&mut *txn)
         .await?)
     }

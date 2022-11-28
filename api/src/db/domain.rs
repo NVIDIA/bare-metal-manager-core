@@ -189,7 +189,7 @@ impl Domain {
         vpc_id: uuid::Uuid, // aka projects for now 4/7/2022
     ) -> CarbideResult<Vec<Self>> {
         let results: Vec<Self> = sqlx::query_as("SELECT * FROM domains where project_id = $1")
-            .bind(&vpc_id)
+            .bind(vpc_id)
             .fetch_all(&mut *txn)
             .await?;
         Ok(results)
@@ -211,7 +211,7 @@ impl Domain {
         uuid: Uuid,
     ) -> CarbideResult<Option<Self>> {
         Ok(sqlx::query_as("SELECT * FROM domains WHERE id = $1::uuid")
-            .bind(&uuid)
+            .bind(uuid)
             .fetch_optional(&mut *txn)
             .await?)
     }
@@ -220,7 +220,7 @@ impl Domain {
         Ok(sqlx::query_as(
             "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
         )
-        .bind(&self.id)
+        .bind(self.id)
         .fetch_one(&mut *txn)
         .await?)
     }
@@ -229,7 +229,7 @@ impl Domain {
         Ok(
             sqlx::query_as("UPDATE domains SET name=$1, updated=NOW() WHERE id=$2 RETURNING *")
                 .bind(&self.name)
-                .bind(&self.id)
+                .bind(self.id)
                 .fetch_one(&mut *txn)
                 .await?,
         )

@@ -1,5 +1,6 @@
 use std::fmt;
 use std::fmt::Formatter;
+
 use crate::common::*;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -185,7 +186,7 @@ pub struct OemDellBiosAttributes {
 #[serde(rename_all = "PascalCase")]
 pub struct OemDellSoftwareImage {
     pub software_images: Vec<ODataId>,
-    pub active_software_image: ODataId
+    pub active_software_image: ODataId,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -208,7 +209,7 @@ pub enum RedfishSettingsApplyTime {
     AtMaintenanceWindowStart,
     Immediate,
     InMaintenanceWindowOnReset,
-    OnReset,    // preferred
+    OnReset, // preferred
 }
 
 impl fmt::Display for RedfishSettingsApplyTime {
@@ -225,7 +226,7 @@ pub struct SetOemDellBiosSettingsApplyTime {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum SerialCommSettings {
-    OnConRedir,     // preferred
+    OnConRedir, // preferred
     OnNoConRedir,
     Off,
 }
@@ -238,7 +239,7 @@ impl fmt::Display for SerialCommSettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum SerialPortSettings {
-    Com1,     // preferred
+    Com1, // preferred
     Com2,
 }
 
@@ -250,7 +251,7 @@ impl fmt::Display for SerialPortSettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum SerialPortExtSettings {
-    Serial1,     // preferred
+    Serial1, // preferred
     Serial2,
     RemoteAccDevice,
 }
@@ -263,7 +264,7 @@ impl fmt::Display for SerialPortExtSettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum SerialPortBaudSettings {
-    Speed115200bps = 115200,     // preferred
+    Speed115200bps = 115200, // preferred
     Speed57600bps = 57600,
     Speed19200bps = 19200,
     Speed9600bps = 9600,
@@ -277,7 +278,7 @@ impl fmt::Display for SerialPortBaudSettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum SerialPortTermSettings {
-    Vt100Vt220,     // preferred
+    Vt100Vt220, // preferred
     Ansi,
 }
 
@@ -355,7 +356,7 @@ pub struct OemDellBiosTpmAttrs {
 pub struct SetOemDellBiosTpmAttrs {
     #[serde(rename = "@Redfish.SettingsApplyTime")]
     pub redfish_settings_apply_time: SetOemDellBiosSettingsApplyTime,
-    pub attributes: OemDellBiosTpmAttrs
+    pub attributes: OemDellBiosTpmAttrs,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -369,7 +370,6 @@ impl fmt::Display for UefiVariableAccessSettings {
         fmt::Debug::fmt(self, f)
     }
 }
-
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
@@ -389,6 +389,6 @@ pub struct SetOemDellBiosLockdownAttrs {
 #[test]
 fn test_bios_parser() {
     let test_data = include_str!("../tests/bios.json");
-    let result: OemDellBios = serde_json::from_str(&test_data).unwrap();
+    let result: OemDellBios = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }

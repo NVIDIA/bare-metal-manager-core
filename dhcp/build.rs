@@ -23,7 +23,7 @@ fn main() {
     let kea_shim_root = format!("{}/src/kea", env!("CARGO_MANIFEST_DIR"));
 
     Command::new(format!("{}/kea-msg-compiler", kea_bin_path))
-        .args(&["-d", &kea_shim_root[..]])
+        .args(["-d", &kea_shim_root[..]])
         .arg(format!("{}/carbide_logger.mes", kea_shim_root))
         .status()
         .expect("Cannot find `kea-msg-compiler` binary. Check your package installation for the `-dev` package, or, if compiling it yourself use `./configure --enable-generate-messages` to produce the binary");

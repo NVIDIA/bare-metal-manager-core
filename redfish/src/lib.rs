@@ -1,19 +1,23 @@
 #[macro_use]
 extern crate serde_derive;
 
+use std::collections::HashMap;
+use std::time::Duration;
+
+use reqwest::{
+    blocking::Client, blocking::ClientBuilder, header::HeaderValue, header::ACCEPT,
+    header::CONTENT_TYPE,
+};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
 pub mod bios;
 pub mod common;
 pub mod manager;
 pub mod power;
 pub mod storage;
-pub mod thermal;
 pub mod system;
-
-use std::collections::HashMap;
-use std::time::Duration;
-use reqwest::{header::HeaderValue, header::ACCEPT, header::CONTENT_TYPE, blocking::Client, blocking::ClientBuilder};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+pub mod thermal;
 
 const REDFISH_ENDPOINT: &str = "redfish/v1";
 
@@ -31,14 +35,14 @@ pub struct Redfish {
 }
 
 impl Redfish {
-
     pub fn new(conf: Config) -> Self {
         let timeout = Duration::from_secs(5);
         let builder = ClientBuilder::new();
         let c = builder
             .danger_accept_invalid_certs(true)
             .timeout(timeout)
-            .build().unwrap();
+            .build()
+            .unwrap();
         Redfish {
             client: c,
             config: conf,
@@ -50,8 +54,14 @@ impl Redfish {
         T: DeserializeOwned + ::std::fmt::Debug,
     {
         let url = match self.config.port {
-            Some(p) => format!("https://{}:{}/{}/{}", self.config.endpoint, p, REDFISH_ENDPOINT, api),
-            None => format!("https://{}/{}/{}", self.config.endpoint, REDFISH_ENDPOINT, api),
+            Some(p) => format!(
+                "https://{}:{}/{}/{}",
+                self.config.endpoint, p, REDFISH_ENDPOINT, api
+            ),
+            None => format!(
+                "https://{}/{}/{}",
+                self.config.endpoint, REDFISH_ENDPOINT, api
+            ),
         };
 
         let res: T = match &self.config.user {
@@ -60,7 +70,7 @@ impl Redfish {
                 .get(&url)
                 .header(ACCEPT, HeaderValue::from_static("application/json"))
                 .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-                .basic_auth(&user, self.config.password.as_ref())
+                .basic_auth(user, self.config.password.as_ref())
                 .send()?
                 .error_for_status()?
                 .json()?,
@@ -76,11 +86,16 @@ impl Redfish {
         Ok(res)
     }
 
-    fn post(&self, api: &str, data: HashMap<&str, String>) -> Result<(), reqwest::Error>
-    {
+    fn post(&self, api: &str, data: HashMap<&str, String>) -> Result<(), reqwest::Error> {
         let url = match self.config.port {
-            Some(p) => format!("https://{}:{}/{}/{}", self.config.endpoint, p, REDFISH_ENDPOINT, api),
-            None => format!("https://{}/{}/{}", self.config.endpoint, REDFISH_ENDPOINT, api),
+            Some(p) => format!(
+                "https://{}:{}/{}/{}",
+                self.config.endpoint, p, REDFISH_ENDPOINT, api
+            ),
+            None => format!(
+                "https://{}/{}/{}",
+                self.config.endpoint, REDFISH_ENDPOINT, api
+            ),
         };
 
         match &self.config.user {
@@ -89,7 +104,7 @@ impl Redfish {
                 .post(&url)
                 .header(ACCEPT, HeaderValue::from_static("application/json"))
                 .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-                .basic_auth(&user, self.config.password.as_ref())
+                .basic_auth(user, self.config.password.as_ref())
                 .json(&data)
                 .send()?
                 .error_for_status()?,
@@ -110,8 +125,14 @@ impl Redfish {
         T: Serialize + ::std::fmt::Debug,
     {
         let url = match self.config.port {
-            Some(p) => format!("https://{}:{}/{}/{}", self.config.endpoint, p, REDFISH_ENDPOINT, api),
-            None => format!("https://{}/{}/{}", self.config.endpoint, REDFISH_ENDPOINT, api),
+            Some(p) => format!(
+                "https://{}:{}/{}/{}",
+                self.config.endpoint, p, REDFISH_ENDPOINT, api
+            ),
+            None => format!(
+                "https://{}/{}/{}",
+                self.config.endpoint, REDFISH_ENDPOINT, api
+            ),
         };
 
         match &self.config.user {
@@ -120,7 +141,7 @@ impl Redfish {
                 .patch(&url)
                 .header(ACCEPT, HeaderValue::from_static("application/json"))
                 .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-                .basic_auth(&user, self.config.password.as_ref())
+                .basic_auth(user, self.config.password.as_ref())
                 .json(&data)
                 .send()?
                 .error_for_status()?,
@@ -149,9 +170,7 @@ impl Redfish {
                 self.config.system = v.last().unwrap().to_string();
                 Ok(self.config.system.clone())
             }
-            Err(e) => {
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -161,8 +180,14 @@ impl Redfish {
         Ok(host)
     }
 
-    pub fn set_system_power(&self, action: system::SystemPowerControl) -> Result<(), reqwest::Error> {
-        let url = format!("Systems/{}/Actions/ComputerSystem.Reset", self.config.system);
+    pub fn set_system_power(
+        &self,
+        action: system::SystemPowerControl,
+    ) -> Result<(), reqwest::Error> {
+        let url = format!(
+            "Systems/{}/Actions/ComputerSystem.Reset",
+            self.config.system
+        );
         let mut arg = HashMap::new();
         arg.insert("ResetType", action.to_string());
         self.post(&url, arg)
@@ -174,7 +199,11 @@ impl Redfish {
         Ok(bios)
     }
 
-    pub fn set_bios_attribute(&self, attribute: String, value: String) -> Result<(), reqwest::Error> {
+    pub fn set_bios_attribute(
+        &self,
+        attribute: String,
+        value: String,
+    ) -> Result<(), reqwest::Error> {
         let url = format!("Systems/{}/Bios/Settings/", self.config.system);
         let attr = format!("{{\"@Redfish.SettingsApplyTime\": {{\"ApplyTime\": \"OnReset\"}},\"Attributes\": {{\"{}\":\"{}\"}}}}", attribute, value);
         self.patch(&url, attr)
@@ -182,7 +211,7 @@ impl Redfish {
 
     pub fn enable_bios_lockdown(&self) -> Result<(), reqwest::Error> {
         let apply_time = bios::SetOemDellBiosSettingsApplyTime {
-            apply_time: bios::RedfishSettingsApplyTime::OnReset     // requires reboot to apply
+            apply_time: bios::RedfishSettingsApplyTime::OnReset, // requires reboot to apply
         };
         let lockdown = bios::OemDellBiosLockdownAttrs {
             in_band_manageability_interface: bios::EnabledDisabled::Disabled,
@@ -198,7 +227,7 @@ impl Redfish {
 
     pub fn disable_bios_lockdown(&self) -> Result<(), reqwest::Error> {
         let apply_time = bios::SetOemDellBiosSettingsApplyTime {
-            apply_time: bios::RedfishSettingsApplyTime::OnReset     // requires reboot to apply
+            apply_time: bios::RedfishSettingsApplyTime::OnReset, // requires reboot to apply
         };
         let lockdown = bios::OemDellBiosLockdownAttrs {
             in_band_manageability_interface: bios::EnabledDisabled::Enabled,
@@ -214,7 +243,7 @@ impl Redfish {
 
     pub fn setup_serial_console(&self) -> Result<(), reqwest::Error> {
         let apply_time = bios::SetOemDellBiosSettingsApplyTime {
-            apply_time: bios::RedfishSettingsApplyTime::OnReset     // requires reboot to apply
+            apply_time: bios::RedfishSettingsApplyTime::OnReset, // requires reboot to apply
         };
         let serial_console = bios::OemDellBiosSerialAttrs {
             serial_comm: bios::SerialCommSettings::OnConRedir,
@@ -235,7 +264,7 @@ impl Redfish {
 
     pub fn enable_tpm(&self) -> Result<(), reqwest::Error> {
         let apply_time = bios::SetOemDellBiosSettingsApplyTime {
-            apply_time: bios::RedfishSettingsApplyTime::OnReset     // requires reboot to apply
+            apply_time: bios::RedfishSettingsApplyTime::OnReset, // requires reboot to apply
         };
         let tpm = bios::OemDellBiosTpmAttrs {
             tpm_security: bios::OnOff::On,
@@ -252,7 +281,7 @@ impl Redfish {
     /// make sure the tpm is enabled after clear and reboot
     pub fn reset_tpm(&self) -> Result<(), reqwest::Error> {
         let apply_time = bios::SetOemDellBiosSettingsApplyTime {
-            apply_time: bios::RedfishSettingsApplyTime::OnReset
+            apply_time: bios::RedfishSettingsApplyTime::OnReset,
         };
         let tpm = bios::OemDellBiosTpmAttrs {
             tpm_security: bios::OnOff::On,
@@ -267,8 +296,8 @@ impl Redfish {
     }
 
     pub fn disable_tpm(&self) -> Result<(), reqwest::Error> {
-       let apply_time = bios::SetOemDellBiosSettingsApplyTime {
-            apply_time: bios::RedfishSettingsApplyTime::OnReset     // requires reboot to apply
+        let apply_time = bios::SetOemDellBiosSettingsApplyTime {
+            apply_time: bios::RedfishSettingsApplyTime::OnReset, // requires reboot to apply
         };
         let tpm = bios::OemDellBiosTpmAttrs {
             tpm_security: bios::OnOff::Off,
@@ -286,12 +315,18 @@ impl Redfish {
         &self,
         controller_id: u64,
     ) -> Result<storage::ArrayController, reqwest::Error> {
-        let url = format!("Systems/{}/SmartStorage/ArrayControllers/{}/", self.config.system, controller_id);
+        let url = format!(
+            "Systems/{}/SmartStorage/ArrayControllers/{}/",
+            self.config.system, controller_id
+        );
         let s: storage::ArrayController = self.get(&url)?;
         Ok(s)
     }
     pub fn get_array_controllers(&self) -> Result<storage::ArrayControllers, reqwest::Error> {
-        let url = format!("Systems/{}/SmartStorage/ArrayControllers/", self.config.system);
+        let url = format!(
+            "Systems/{}/SmartStorage/ArrayControllers/",
+            self.config.system
+        );
         let s: storage::ArrayControllers = self.get(&url)?;
         Ok(s)
     }
@@ -322,7 +357,10 @@ impl Redfish {
         &self,
         controller_id: u64,
     ) -> Result<storage::SmartArray, reqwest::Error> {
-        let url = format!("Systems/{}/SmartStorage/ArrayControllers/{}/", self.config.system, controller_id);
+        let url = format!(
+            "Systems/{}/SmartStorage/ArrayControllers/{}/",
+            self.config.system, controller_id
+        );
         let s: storage::SmartArray = self.get(&url)?;
         Ok(s)
     }
@@ -333,8 +371,7 @@ impl Redfish {
     ) -> Result<storage::LogicalDrives, reqwest::Error> {
         let url = format!(
             "Systems/{}/SmartStorage/ArrayControllers/{}/LogicalDrives/",
-            self.config.system,
-            controller_id
+            self.config.system, controller_id
         );
         let s: storage::LogicalDrives = self.get(&url)?;
         Ok(s)
@@ -347,8 +384,7 @@ impl Redfish {
     ) -> Result<storage::DiskDrive, reqwest::Error> {
         let url = format!(
             "Systems/{}/SmartStorage/ArrayControllers/{}/DiskDrives/{}/",
-            self.config.system,
-            controller_id, drive_id,
+            self.config.system, controller_id, drive_id,
         );
         let d: storage::DiskDrive = self.get(&url)?;
         Ok(d)
@@ -360,8 +396,7 @@ impl Redfish {
     ) -> Result<storage::DiskDrives, reqwest::Error> {
         let url = format!(
             "Systems/{}/SmartStorage/ArrayControllers/{}/DiskDrives/",
-            self.config.system,
-            controller_id
+            self.config.system, controller_id
         );
         let d: storage::DiskDrives = self.get(&url)?;
         Ok(d)
@@ -373,8 +408,7 @@ impl Redfish {
     ) -> Result<storage::StorageEnclosures, reqwest::Error> {
         let url = format!(
             "Systems/{}/SmartStorage/ArrayControllers/{}/StorageEnclosures/",
-            self.config.system,
-            controller_id
+            self.config.system, controller_id
         );
         let s: storage::StorageEnclosures = self.get(&url)?;
         Ok(s)
@@ -386,8 +420,7 @@ impl Redfish {
     ) -> Result<storage::StorageEnclosure, reqwest::Error> {
         let url = format!(
             "Systems/{}/SmartStorage/ArrayControllers/{}/StorageEnclosures/{}/",
-            self.config.system,
-            controller_id, enclosure_id,
+            self.config.system, controller_id, enclosure_id,
         );
         let s: storage::StorageEnclosure = self.get(&url)?;
         Ok(s)

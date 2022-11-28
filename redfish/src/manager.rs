@@ -190,6 +190,6 @@ impl StatusVec for Manager {
 #[test]
 fn test_manager_parser() {
     let test_data = include_str!("../tests/manager.json");
-    let result: Manager = serde_json::from_str(&test_data).unwrap();
+    let result: Manager = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }

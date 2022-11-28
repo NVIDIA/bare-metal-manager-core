@@ -1,5 +1,6 @@
 use std::fmt;
 use std::fmt::Formatter;
+
 use crate::common::*;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -109,7 +110,7 @@ pub struct ComputerSystem {
     pub sku: String,
     pub serial_number: String,
     pub status: SystemStatus,
-    pub trusted_modules: Vec<TrustedModule>
+    pub trusted_modules: Vec<TrustedModule>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -124,9 +125,9 @@ pub struct Systems {
 #[test]
 fn test_system_parser() {
     let test_data1 = include_str!("../tests/systems.json");
-    let result1: Systems = serde_json::from_str(&test_data1).unwrap();
+    let result1: Systems = serde_json::from_str(test_data1).unwrap();
     let test_data2 = include_str!("../tests/system.json");
-    let result2: ComputerSystem = serde_json::from_str(&test_data2).unwrap();
+    let result2: ComputerSystem = serde_json::from_str(test_data2).unwrap();
     println!("result1: {:#?}", result1);
     println!("result2: {:#?}", result2);
 }

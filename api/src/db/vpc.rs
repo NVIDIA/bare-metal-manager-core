@@ -232,7 +232,7 @@ impl UpdateVpc {
         .bind(&self.name)
         .bind(&self.organization)
         .bind(&next_version_str)
-        .bind(&self.id)
+        .bind(self.id)
         .bind(&current_version_str)
         .fetch_one(&mut *txn)
         .await;
@@ -257,7 +257,7 @@ impl DeleteVpc {
         // TODO: Should this update the version?
         Ok(
             sqlx::query_as("UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *")
-                .bind(&self.id)
+                .bind(self.id)
                 .fetch_one(&mut *txn)
                 .await?,
         )

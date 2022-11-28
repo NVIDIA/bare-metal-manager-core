@@ -43,7 +43,7 @@ impl DhcpEntry {
     ) -> CarbideResult<DhcpEntry> {
         Ok(
             sqlx::query_as("INSERT INTO dhcp_entries (machine_interface_id, vendor_string) VALUES ($1::uuid, $2::varchar) RETURNING *")
-                .bind(&self.machine_interface_id)
+                .bind(self.machine_interface_id)
                 .bind(&self.vendor_class)
                 .fetch_one(&mut *txn)
                 .await?,

@@ -39,7 +39,7 @@ pub async fn load_instance_network_config(
     sqlx::query_as(
         "SELECT network_config, network_config_version FROM instances where id = $1::uuid",
     )
-    .bind(&instance_id)
+    .bind(instance_id)
     .fetch_one(&mut *txn)
     .await
 }

@@ -252,7 +252,7 @@ async fn main() -> Result<(), rocket::Error> {
             &static_path.display()
         );
 
-        match std::fs::create_dir_all(&static_path) {
+        match std::fs::create_dir_all(static_path) {
             Ok(_) => println!("Directory {}, created", &static_path.display()),
             Err(e) => eprintln!("Could not create directory: {}", e),
         }

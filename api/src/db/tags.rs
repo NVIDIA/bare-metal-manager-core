@@ -352,7 +352,7 @@ impl TagAssociation {
         let query = "INSERT INTO {table} (tag_id, target_id) VALUES ($1, $2) RETURNING *";
         sqlx::query_as::<_, TagAssociation>(&query.replace("{table}", table_name.as_str()))
             .bind(tag_id)
-            .bind(&self.target)
+            .bind(self.target)
             .fetch_one(&mut *txn)
             .await
             .map_err(CarbideError::from)?;
@@ -380,7 +380,7 @@ impl TagAssociation {
         let query = "DELETE FROM {table} WHERE tag_id=$1 AND target_id=$2 RETURNING *";
         sqlx::query_as::<_, TagAssociation>(&query.replace("{table}", table_name.as_str()))
             .bind(tag_id)
-            .bind(&self.target)
+            .bind(self.target)
             .fetch_optional(&mut *txn)
             .await
             .map_err(CarbideError::from)?;
