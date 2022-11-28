@@ -90,7 +90,7 @@ impl MachineTopology {
         machine_id: &uuid::Uuid,
     ) -> CarbideResult<bool> {
         let res = sqlx::query("SELECT * from machine_topologies WHERE machine_id=$1::uuid")
-            .bind(&machine_id)
+            .bind(machine_id)
             .fetch_optional(&mut *txn)
             .await?;
 
@@ -124,7 +124,7 @@ impl MachineTopology {
             let res = sqlx::query_as(
                 "INSERT INTO machine_topologies VALUES ($1::uuid, $2::json) RETURNING *",
             )
-            .bind(&machine_id)
+            .bind(machine_id)
             .bind(sqlx::types::Json(&topology_data))
             .fetch_one(&mut *txn)
             .await?;

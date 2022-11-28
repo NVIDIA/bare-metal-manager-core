@@ -115,7 +115,7 @@ impl Hardware for ArrayController {
 #[test]
 fn test_array_controller_parser() {
     let test_data = include_str!("../tests/array-controller.json");
-    let result: ArrayController = serde_json::from_str(&test_data).unwrap();
+    let result: ArrayController = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }
 
@@ -145,7 +145,7 @@ pub struct ArrayControllers {
 #[test]
 fn test_array_controllers_parser() {
     let test_data = include_str!("../tests/array-controllers.json");
-    let result: ArrayControllers = serde_json::from_str(&test_data).unwrap();
+    let result: ArrayControllers = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }
 
@@ -224,7 +224,7 @@ impl Hardware for SmartArray {
 #[test]
 fn test_smart_array_parser() {
     let test_data = include_str!("../tests/smart-array.json");
-    let result: SmartArray = serde_json::from_str(&test_data).unwrap();
+    let result: SmartArray = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }
 
@@ -292,7 +292,7 @@ impl Hardware for StorageEnclosure {
 #[test]
 fn test_storage_enclosure_parser() {
     let test_data = include_str!("../tests/storage-enclosure.json");
-    let result: StorageEnclosure = serde_json::from_str(&test_data).unwrap();
+    let result: StorageEnclosure = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }
 
@@ -308,7 +308,7 @@ pub struct StorageEnclosures {
 #[test]
 fn test_storage_enclosures_parser() {
     let test_data = include_str!("../tests/storage-enclosures.json");
-    let result: StorageEnclosures = serde_json::from_str(&test_data).unwrap();
+    let result: StorageEnclosures = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }
 
@@ -392,7 +392,7 @@ impl Hardware for DiskDrive {
 #[test]
 fn test_storage_drive_parser() {
     let test_data = include_str!("../tests/disk-drive.json");
-    let result: DiskDrive = serde_json::from_str(&test_data).unwrap();
+    let result: DiskDrive = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }
 
@@ -408,7 +408,7 @@ pub struct DiskDrives {
 #[test]
 fn test_storage_drives_parser() {
     let test_data = include_str!("../tests/disk-drives.json");
-    let result: DiskDrives = serde_json::from_str(&test_data).unwrap();
+    let result: DiskDrives = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }
 
@@ -430,6 +430,6 @@ pub struct LogicalDrives {
 #[test]
 fn test_storage_logical_drives_parser() {
     let test_data = include_str!("../tests/logical-drives.json");
-    let result: LogicalDrives = serde_json::from_str(&test_data).unwrap();
+    let result: LogicalDrives = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }

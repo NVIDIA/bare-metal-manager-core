@@ -9,6 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::net::IpAddr;
+
+use chrono::Utc;
+use log::LevelFilter;
+use mac_address::MacAddress;
+
+use ::rpc::MachineStateMachineInput;
 use carbide::{
     db::{
         dhcp_record::DhcpRecord,
@@ -41,19 +48,12 @@ use carbide::{
         },
     },
 };
-
-use ::rpc::MachineStateMachineInput;
-use chrono::Utc;
-use log::LevelFilter;
-use mac_address::MacAddress;
-use rpc::forge::{forge_server::Forge, InstanceDeletionRequest};
-use std::net::IpAddr;
-
-pub mod common;
-
 use common::api_fixtures::{
     create_test_api, dpu::create_dpu_machine, network_segment::FIXTURE_NETWORK_SEGMENT_ID, TestApi,
 };
+use rpc::forge::{forge_server::Forge, InstanceDeletionRequest};
+
+pub mod common;
 
 #[ctor::ctor]
 fn setup() {
@@ -277,7 +277,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         "UPDATE instances SET network_config_version=$1 WHERE id = $2::uuid returning id",
     )
     .bind(&next_config_version.to_version_string())
-    .bind(&instance_id)
+    .bind(instance_id)
     .fetch_one(&mut txn)
     .await
     .unwrap();

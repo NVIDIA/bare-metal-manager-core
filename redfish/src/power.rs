@@ -146,6 +146,6 @@ impl StatusVec for Power {
 #[test]
 fn test_power_parser() {
     let test_data = include_str!("../tests/power.json");
-    let result: Power = serde_json::from_str(&test_data).unwrap();
+    let result: Power = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }

@@ -99,7 +99,7 @@ impl VpcResourceLeaf {
             "UPDATE vpc_resource_leafs SET loopback_ip_address=$1::inet where id=$2::uuid RETURNING *",
         )
             .bind(ip_address)
-            .bind(&self.id)
+            .bind(self.id)
             .fetch_one(&mut *txn)
             .await?;
 

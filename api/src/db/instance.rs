@@ -10,15 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod config;
-pub mod status;
-
 use std::{
     convert::{TryFrom, TryInto},
     net::IpAddr,
 };
 
-use super::UuidKeyedObjectFilter;
 use chrono::prelude::*;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
@@ -41,7 +37,11 @@ use crate::{
     CarbideError, CarbideResult,
 };
 
+use super::UuidKeyedObjectFilter;
 use super::{instance_subnet::InstanceSubnet, network_segment::NetworkSegment};
+
+pub mod config;
+pub mod status;
 
 #[derive(Debug, Clone)]
 pub struct Instance {
@@ -323,10 +323,10 @@ impl<'a> NewInstance<'a> {
                 "INSERT INTO instances (machine_id, user_data, custom_ipxe, tenant_org, ssh_keys, use_custom_pxe_on_boot, network_config, network_config_version, network_status_observation) ",
                 "VALUES ($1::uuid, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json) RETURNING *"),
             )
-                .bind(&self.machine_id)
+                .bind(self.machine_id)
                 .bind(&self.tenant_config.user_data)
                 .bind(&self.tenant_config.custom_ipxe)
-                .bind(&self.tenant_config.tenant_org.as_str())
+                .bind(self.tenant_config.tenant_org.as_str())
                 .bind(&self.ssh_keys)
                 .bind(sqlx::types::Json(&self.network_config.config))
                 .bind(&network_version_string)
@@ -356,7 +356,7 @@ impl DeleteInstance {
 
         Ok(
             sqlx::query_as("DELETE FROM instances where id=$1::uuid RETURNING *")
-                .bind(&self.instance_id)
+                .bind(self.instance_id)
                 .fetch_one(&mut *txn)
                 .await?,
         )

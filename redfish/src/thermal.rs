@@ -103,6 +103,6 @@ impl StatusVec for Thermal {
 #[test]
 fn test_thermal_parser() {
     let test_data = include_str!("../tests/chassis-thermal.json");
-    let result: Thermal = serde_json::from_str(&test_data).unwrap();
+    let result: Thermal = serde_json::from_str(test_data).unwrap();
     println!("result: {:#?}", result);
 }

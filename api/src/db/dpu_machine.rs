@@ -79,7 +79,7 @@ impl DpuMachine {
     ) -> CarbideResult<Self> {
         Ok(
             sqlx::query_as("SELECT * FROM dpu_machines WHERE machine_id = $1::uuid")
-                .bind(&machine_id)
+                .bind(machine_id)
                 .fetch_one(&mut *txn)
                 .await?,
         )

@@ -128,21 +128,17 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
     for i in 0..10 {
         let count = machine_handler.start_digit_count[i].load(Ordering::SeqCst);
-        let occurences: usize = machine_ids
+        let occurrences: usize = machine_ids
             .iter()
             .map(|id| {
                 let first_char = id.to_string().as_bytes()[0];
                 let idx = (first_char - b'0') as usize;
-                if i == idx {
-                    1
-                } else {
-                    0
-                }
+                usize::from(i == idx)
             })
             .sum();
 
-        if occurences != 0 {
-            let expected_count = expected_iterations * occurences as f64;
+        if occurrences != 0 {
+            let expected_count = expected_iterations * occurrences as f64;
             assert!(
                 (count as f64) > 0.75 * expected_count && (count as f64) < 1.25 * expected_count,
                 "Expected count of {} for number {}, but got {}",

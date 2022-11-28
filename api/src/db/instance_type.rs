@@ -146,7 +146,7 @@ impl NewInstanceType {
         Ok(sqlx::query_as("INSERT INTO instance_types (short_name, description, active, created, updated) VALUES ($1, $2, $3, now(), now()) RETURNING *")
             .bind(&self.short_name)
             .bind(&self.description)
-            .bind(&self.active)
+            .bind(self.active)
             .fetch_one(&mut *txn).await?)
     }
 }
@@ -159,8 +159,8 @@ impl UpdateInstanceType {
         Ok(sqlx::query_as("UPDATE instance_types SET short_name=$1, description=$2, active=$3, updated=now() WHERE id=$4 RETURNING *")
             .bind(&self.short_name)
             .bind(&self.description)
-            .bind(&self.active)
-            .bind(&self.id)
+            .bind(self.active)
+            .bind(self.id)
             .fetch_one(&mut *txn).await?)
     }
 }
@@ -173,7 +173,7 @@ impl DeactivateInstanceType {
         Ok(sqlx::query_as(
             "UPDATE instance_types SET active=false, updated=now() WHERE id=$1 RETURNING *",
         )
-        .bind(&self.id)
+        .bind(self.id)
         .fetch_one(&mut *txn)
         .await?)
     }

@@ -36,7 +36,7 @@ pub async fn load_instance_network_status_observation(
 
     let observation: OptionalObservation =
         sqlx::query_as("SELECT network_status_observation FROM instances where id = $1::uuid")
-            .bind(&instance_id)
+            .bind(instance_id)
             .fetch_one(&mut *txn)
             .await?;
 
@@ -62,7 +62,7 @@ pub async fn update_instance_network_status_observation(
         "UPDATE instances SET network_status_observation=$1::json where id = $2::uuid returning id",
     )
     .bind(sqlx::types::Json(status))
-    .bind(&instance_id)
+    .bind(instance_id)
     .fetch_one(&mut *txn)
     .await?;
 

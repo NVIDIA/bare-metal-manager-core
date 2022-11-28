@@ -18,9 +18,10 @@ use serde_json::json;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::{CarbideError, CarbideResult};
 use ::rpc::forge as rpc;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "user_roles")]
@@ -168,7 +169,7 @@ impl BmcMetaDataGetRequest {
         let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address
             FROM machine_topologies WHERE machine_id=$1"#;
         sqlx::query_as::<_, MachineHostInformation>(query)
-            .bind(&self.machine_id)
+            .bind(self.machine_id)
             .fetch_one(txn)
             .await
             .map_err(CarbideError::from)
@@ -251,7 +252,7 @@ impl BmcMetaDataUpdateRequest {
 
         let _: Option<(Uuid,)> = sqlx::query_as(query)
             .bind(&json!(self.ip))
-            .bind(&self.machine_id)
+            .bind(self.machine_id)
             .fetch_optional(&mut *txn)
             .await
             .map_err(CarbideError::from)?;

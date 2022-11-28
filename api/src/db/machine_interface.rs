@@ -372,7 +372,7 @@ impl MachineInterface {
 
         for address in allocated_addresses {
             sqlx::query("INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)")
-                .bind(&interface_id.0)
+                .bind(interface_id.0)
                 .bind(address)
                 .fetch_all(&mut *inner_txn).await?;
         }
