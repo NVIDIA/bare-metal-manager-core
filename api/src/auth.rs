@@ -102,6 +102,13 @@ pub enum AuthorizationError {
     Unauthorized(String),
 }
 
+impl From<AuthorizationError> for tonic::Status {
+    fn from(e: AuthorizationError) -> Self {
+        log::info!("Request was denied: {e}");
+        tonic::Status::permission_denied("Not authorized")
+    }
+}
+
 // A PolicyEngine is anything that can enforce whether a request is allowed.
 pub trait PolicyEngine {
     fn authorize(
