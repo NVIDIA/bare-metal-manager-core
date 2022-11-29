@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -120,6 +122,24 @@ impl InstanceNetworkConfig {
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         validate_interface_function_ids(&self.interfaces, |iface| iface.function_id.clone())
             .map_err(ConfigValidationError::InvalidValue)?;
+
+        // Note: We can't fully validate the network segment IDs here
+        // We validate that the ID is not duplicated, but not whether it actually exists
+        // or belongs to the tenant. This validation is currently happening in the
+        // cloud API, and when we try to allocate IPs.
+        // Multiple interfaces currently can't reference the same segment ID due to
+        // how DHCP works. It would be ambiguous during a DHCP request which
+        // interface it references, since the interface is resolved by the CircuitId
+        // and thereby by the network segment ID
+        let mut used_segment_ids = HashSet::new();
+        for iface in self.interfaces.iter() {
+            if !used_segment_ids.insert(&iface.network_segment_id) {
+                return Err(ConfigValidationError::InvalidValue(format!(
+                    "Multiple network interfaces use the same network segment {}",
+                    iface.network_segment_id
+                )));
+            }
+        }
 
         Ok(())
     }
@@ -288,5 +308,13 @@ mod tests {
         let mut config = create_valid_network_config();
         config.interfaces.swap_remove(INTERFACE_VFID_MAX);
         config.validate().unwrap();
+
+        // Duplicate network segment
+        const DUPLICATE_SEGMENT_ID: uuid::Uuid =
+            uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000");
+        let mut config = create_valid_network_config();
+        config.interfaces[0].network_segment_id = DUPLICATE_SEGMENT_ID;
+        config.interfaces[1].network_segment_id = DUPLICATE_SEGMENT_ID;
+        assert!(config.validate().is_err());
     }
 }
