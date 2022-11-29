@@ -137,7 +137,17 @@ dependencies = [
   {name="generate-rust-from-crd", path="include/Makefile-vpc.toml"}
 ]
 
+[tasks.pre-commit-verify]
+description = "Runs the same set of tasks CI will."
+category = "CI"
+dependencies = [
+    "clippy-flow",
+    "check-format-flow",
+    "workspace-ci-flow",
+]
+
 [tasks.clippy]
+workspace = false
 description = "Runs clippy code linter."
 category = "Test"
 dependencies = ["install-clippy"]

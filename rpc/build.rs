@@ -22,7 +22,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.MachineInterface", "#[derive(serde::Serialize)]")
         .type_attribute("forge.UUID", "#[derive(serde::Serialize)]")
         .type_attribute(".machine_discovery", "#[derive(serde::Deserialize)]")
-        .type_attribute(".", "#[allow(unknown_lints, clippy::all)]") // don't lint generated code
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

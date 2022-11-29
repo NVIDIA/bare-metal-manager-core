@@ -9,6 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+#[allow(unknown_lints, clippy::all)]
+#[rustfmt::skip]
 pub mod common;
+#[allow(unknown_lints, clippy::all)]
+#[rustfmt::skip]
 pub mod forge;
+#[allow(unknown_lints, clippy::all)]
+#[rustfmt::skip]
 pub mod machine_discovery;

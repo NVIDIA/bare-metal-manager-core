@@ -2,12 +2,13 @@
 
 members = [
   "api",
-  "forge_credentials",
   "cli",
   "dhcp",
-  "pxe",
-  "rpc",
   "dns",
+  "forge_credentials",
+  "pxe",
+  "redfish",
+  "rpc",
 ]
 
 [workspace.package]
