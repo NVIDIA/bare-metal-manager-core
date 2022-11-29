@@ -4,14 +4,13 @@ set esc:hex 1b
 set bold ${esc:string}[1m
 set boldoff ${esc:string}[22m
 
-set nvgreen ${esc:string}[32m
 set white ${esc:string}[37m
 
 #color --rgb 0x76b900 7
 #cpair --foreground 7 --background 9 0
 
 :start
-echo ${bold}${nvgreen}NVIDIA${white} Forge${boldoff} - v${version}
+echo ${bold}${white}Forge${boldoff} - v${version}
 prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open default menu... && goto default || goto carbide
 
 :whoami
@@ -47,7 +46,7 @@ exit
 goto start
 
 :debug
-echo Type "exit" to return tom menu
+echo Type "exit" to return to menu
 shell
 goto default
 
