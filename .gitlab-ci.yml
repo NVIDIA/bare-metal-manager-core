@@ -104,7 +104,9 @@ build-cargo:
     - /etc/init.d/postgresql start
     - sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
     - createdb root
-    - cargo make --env CARGO_MAKE_RUN_CLIPPY=true workspace-ci-flow
+    - cargo make clippy-flow
+    - cargo make check-format-flow
+    - cargo make workspace-ci-flow
     - mkdir binaries
     - cp target/debug/carbide-api binaries/
     - cp target/debug/carbide-dns binaries/

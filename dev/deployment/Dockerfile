@@ -20,7 +20,9 @@ RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
     /etc/init.d/postgresql start && \
     sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
     createdb root && \
-    cargo make --env CARGO_MAKE_RUN_CLIPPY=true workspace-ci-flow
+    cargo make clippy-flow && \
+    cargo make check-format-flow && \
+    cargo make workspace-ci-flow
 
 FROM ubuntu:focal as carbide
 #RUN ln -snf /usr/share/zoneinfo/UTC /etc/localtime && echo UTC > /etc/timezone
