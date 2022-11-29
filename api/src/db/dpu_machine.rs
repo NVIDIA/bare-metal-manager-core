@@ -75,10 +75,22 @@ impl DpuMachine {
 
     pub async fn find_by_machine_id(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: &uuid::Uuid,
+        dpu_machine_id: &uuid::Uuid,
     ) -> CarbideResult<Self> {
         Ok(
             sqlx::query_as("SELECT * FROM dpu_machines WHERE machine_id = $1::uuid")
+                .bind(dpu_machine_id)
+                .fetch_one(&mut *txn)
+                .await?,
+        )
+    }
+
+    pub async fn find_by_host_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &uuid::Uuid,
+    ) -> CarbideResult<Self> {
+        Ok(
+            sqlx::query_as("SELECT dm.* From dpu_machines dm JOIN machine_interfaces mi on dm.machine_id = mi.attached_dpu_machine_id WHERE mi.machine_id=$1::uuid")
                 .bind(machine_id)
                 .fetch_one(&mut *txn)
                 .await?,
