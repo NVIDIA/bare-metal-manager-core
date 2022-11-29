@@ -672,7 +672,7 @@ where
             }
         };
 
-        let dpu = DpuMachine::find_by_machine_id(&mut txn, &instance.machine_id).await?;
+        let dpu = DpuMachine::find_by_host_machine_id(&mut txn, &instance.machine_id).await?;
         delete_managed_resource(
             &mut txn,
             instance.machine_id,
