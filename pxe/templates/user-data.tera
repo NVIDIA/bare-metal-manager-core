@@ -1,4 +1,10 @@
 cat << \ZOF > /etc/bf.cfg
+
+# SFC variables
+ENABLE_SFC_HBN=yes
+NUM_SFs_ECPF0=18
+NUM_SFs_ECPF1=2
+
 bfb_modify_os()
 {
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
