@@ -228,6 +228,25 @@ message VpcList {
   repeated Vpc vpcs = 1;
 }
 
+enum TenantState {
+  // The instance is currently getting provisioned for a tenant
+  PROVISIONING = 0;
+  // The instance is ready and can be used by the tenant
+  READY = 1;
+  // The instance has been ready, but the newest configuration that the tenant
+  // desired has not been applied yet
+  CONFIGURING = 2;
+  // The instance is shutting down. Shutdown has not completed yet
+  TERMINATING = 3;
+  // The instance has fully shut down, and is no longer available for the user
+  TERMINATED = 4;
+  // The instance is in a terminal failed state. This state is equivalent to
+  // DEACTIVATED - no user software is running anymore during the state. However
+  // an instance might enter a FAILED state before even fully activating, in case
+  // activation failed.
+  FAILED = 5;
+}
+
 message NetworkSegment {
   UUID id = 1;
   UUID vpc_id = 2;
@@ -240,6 +259,7 @@ message NetworkSegment {
   repeated NetworkPrefix prefixes = 6;
 
   string version = 99;
+  TenantState state = 100;
 
   // Not sure if we actually still need those
   google.protobuf.Timestamp created = 11;

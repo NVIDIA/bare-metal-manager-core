@@ -28,6 +28,7 @@ pub mod common;
 use common::api_fixtures::network_segment::{
     FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID,
 };
+use rpc::protos::common::forge::TenantState;
 
 #[ctor::ctor]
 fn setup() {
@@ -108,6 +109,16 @@ async fn test_create_segment_with_domain(
     ));
 
     assert_eq!(next_address.len(), 2);
+    assert_eq!(segment.state.unwrap(), TenantState::Configuring);
+
+    let segment = NetworkSegment::find(
+        &mut txn,
+        carbide::db::UuidKeyedObjectFilter::One(segment.id),
+    )
+    .await?
+    .remove(0);
+
+    assert_eq!(segment.state.unwrap(), TenantState::Ready);
 
     Ok(())
 }
