@@ -23,7 +23,7 @@ For a list env vars we predefine look at
 
     Debian - ```sudo apt-get install -y docker-compose```
 
-    Fedora - ```sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin```
+    Fedora - ```sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-compose```
 
 5. Install [KinD](https://kind.sigs.k8s.io/docs/user/quick-start#installing-from-release-binaries)
 6. Install [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
@@ -54,7 +54,7 @@ For a list env vars we predefine look at
 
      Fedora - ```sudo dnf -y install bridge-utils libvirt virt-install qemu-kvm```
 
-10. Install `direnv` using your package manager.
+10. Install `direnv` using your package manager and then in repo root run: `direnv allow`
 
     Arch - ```sudo pacman -S direnv```
 
@@ -63,7 +63,14 @@ For a list env vars we predefine look at
     Fedora - ```sudo dnf install -y direnv```
 
 11. Install golang using whatever method is most convient for you.  `forge-vpc` (which is in a subtree of the `forge-provisioner` repo uses golang)
-12. Because forge-api uses only GRPC, you will need to install some GRPC based client utilities for interacting with the API `evans` and `grpccurl` are primary two.
+12. Install GRPC client `grpcurl`.
+
+	Arch - ```sudo pacman -S grpcurl```
+
+    Debian/Ubuntu/Others - [Get latest release from github](https://github.com/fullstorydev/grpcurl/releases)
+
+	Fedora - ```sudo dnf install grpcurl```
+
 13. Additionally, ```prost-build``` needs access to the protobuf compiler to parse proto files (it doesn't implement it's own parser).
 
     Arch - ```sudo pacman -S protobuf```
@@ -98,6 +105,40 @@ For a list env vars we predefine look at
 
     Fedora - ```sudo dnf install -y swtpm swtpm-tools```
 
+18. Login to gitlab Docker registry. You will need to be authenticated to fetch our build container, which some `cargo make` commands use.
+
+	Create a gitlab [Personal Access Token](https://gitlab-master.nvidia.com/-/profile/personal_access_tokens) at that link with 'api'
+	scope (less might work).
+
+	From the command line: `docker login gitlab-master.nvidia.com:5005`. Use your NVIDIA username and the access token as password.
+
+## Checking your setup / Running Unit Tests
+
+To quickly set up your environment to run unit tests, you'll need an initialized PSQL service locally on your system to connect to. The docker-compose workflow
+handles this for you, but if you're just trying to set up a simple env to run unit tests run the following.
+
+Start docker daemon:
+
+```sudo systemctl start docker```
+
+Start database container:
+
+```docker run --rm -di -e POSTGRES_PASSWORD="admin" -p "5432:5432" --name pgdev postgres:14.1-alpine```
+
+Init the database:
+
+```cd dev/terraform; docker run -v ${PWD}:/junk --rm hashicorp/terraform -chdir=/junk init```
+
+Test!
+
+```cargo test```
+
+If the tests don't pass ask in Slack #swngc-forge-dev .
+
+Cleanup, otherwise docker-compose won't work later:
+
+```docker ps; docker stop <container ID>```
+
 ## IDE
 
 Recommended IDE for Rust development in the Carbide project is CLion, IntelliJ works as well but includes a lot of extra components that you don't need.  There are plenty
@@ -106,24 +147,13 @@ of options (VS Code, NeoVim etc), but CLion/IntelliJ is widely used.
 One thing to note regardless of what IDE you choose: if you're running on Linux DO NOT USE Snap or Flatpak versions of the software packages. These builds inroduce a number
 of complications in the C lib linking between the IDE and your system and frankly it's not worth fighting.
 
-## Running Unit Tests
+## Next steps
 
-To quickly set up your environment to run unit tests, you'll need an initialized PSQL service locally on your system to connect to.  The docker-compose workflow
-handles this for you, but if you're just trying to set up a simple env to run unit tests run the following:
+Setup a full local environment with docker-compose: [Docker workflow](docker/development.md)
 
-```docker run --rm -di -e POSTGRES_PASSWORD="admin" -p "5432:5432" --name pgdev postgres:14.1-alpine```
+## Other Workflows
 
-Then init the database:
-
-```cd dev/terraform; docker run -v ${PWD}:/junk --rm hashicorp/terraform -chdir=/junk init```
-
-Now you should be able to run:
-
-```cargo test```
-
-## Workflows
-
-[Docker workflow](docker/development.md)
+If you are just getting started on Carbide you don't need these yet.
 
 [Kubernetes workflow](kubernetes/development.md) (STILL WIP but functional)
 

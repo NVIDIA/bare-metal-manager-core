@@ -1,13 +1,16 @@
 # Local Kubernetes workflow
 
+Nov 2022: Not currently used, prefer the docker-compose workflow.
+
 # STILL A WIP!!!
 
-Make sure you have followed all the steps [Local environment prep](../development.md#local-environment-prep)
+Make sure you have followed all the steps [Local environment prep](../development.md#local-environment-prep) and are on the VPN.
 
 ```
 cargo make kind
 ```
 
+If you need to rerun that command you may need to delete the cluster first, command is further down.
 
 Make sure you have the following installed prior to attempting to start Kind.
 * golang (vpc)
