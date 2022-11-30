@@ -83,8 +83,8 @@ category = "User Data"
 description = "update the checksum for the hbn installer zip file"
 script = '''
 rm -f artifacts.json.bk &&
-CHECKSUM=$(shasum -a 256 static/blobs/internal/aarch64/doca_container_configs_1.4.0.zip | cut -d ' ' -f 1)
-jq --arg CHECKSUM "$CHECKSUM" '."forge-user-data-artifact-aarch64".checksums."doca_container_configs_1.4.0.zip" = $CHECKSUM' < artifacts.json > artifacts.json.bk &&
+CHECKSUM=$(shasum -a 256 static/blobs/internal/aarch64/doca_container_configs_1.5.0.zip | cut -d ' ' -f 1)
+jq --arg CHECKSUM "$CHECKSUM" '."forge-user-data-artifact-aarch64".checksums."doca_container_configs_1.5.0.zip" = $CHECKSUM' < artifacts.json > artifacts.json.bk &&
 mv artifacts.json.bk artifacts.json
 '''
 cwd = "../pxe"
@@ -97,9 +97,9 @@ category = "User Data"
 description = "Download the HBN installer on aarch64 gitlab runner"
 command = "wget"
 args = [
-    "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/1.4.0/zip",
+    "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/1.5.0/zip",
     "-O",
-    "doca_container_configs_1.4.0.zip",
+    "doca_container_configs_1.5.0.zip",
 ]
 cwd = "../pxe/static/blobs/internal/aarch64"
 
@@ -129,7 +129,7 @@ args = [
     "-czvf",
     "${CI_PROJECT_DIR}/forge-user-data-artifacts-${CI_BUILD_ID}.tar.gz",
     "carbide-cli",
-    "doca_container_configs_1.4.0.zip",
+    "doca_container_configs_1.5.0.zip",
     "forge-dpu_1.0-1.deb"
 ]
 cwd = "../pxe/static/blobs/internal/aarch64"
