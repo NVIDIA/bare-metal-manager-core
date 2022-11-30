@@ -132,7 +132,11 @@ impl MachineTopology {
             if hardware_info.is_dpu() {
                 let new_leaf = NewVpcResourceLeaf::new().persist(&mut *txn).await?;
 
-                log::info!("Generating new leaf id {}", new_leaf.id());
+                log::info!(
+                    "Discovered Machine {} is a DPU. Generating new leaf id {}",
+                    machine_id,
+                    new_leaf.id()
+                );
 
                 let machine_dpu =
                     Machine::associate_vpc_leaf_id(&mut *txn, *machine_id, *new_leaf.id()).await?;

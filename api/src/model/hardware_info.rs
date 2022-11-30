@@ -374,12 +374,6 @@ impl HardwareInfo {
             return false; // has no network interfaces/attribute
         }
 
-        log::debug!("Interfaces Hash found");
-        log::debug!(
-            "Looking for attributes on interface: {:?}",
-            network_interfaces
-        );
-
         // Update list with id's we care about
         let dpu_pci_ids = HashSet::from(["0x15b3:0xa2d6", "0x1af4:0x1000"]);
         does_attributes_contain_dpu_pci_ids(&dpu_pci_ids, &network_interfaces[..])
@@ -391,17 +385,9 @@ fn does_attributes_contain_dpu_pci_ids(
     interfaces: &[NetworkInterface],
 ) -> bool {
     interfaces.iter().any(|interface| {
-        log::info!("Interface Info: {:?}", interface);
-        let mac_address = interface.mac_address.as_str();
         match &interface.pci_properties {
-            None => {
-                log::info!(
-                    "Unable to find PCI PROPERTIES for interface {}",
-                    mac_address
-                );
-            }
+            None => {}
             Some(pci_property) => {
-                log::info!("Network interface {} contains necessary information for examination. Checking if this is a DPU.", mac_address);
                 // If for some reason there is no vendor/device in pci_properties
                 // set to 0'
                 let vendor = pci_property.vendor.as_str();
@@ -409,15 +395,8 @@ fn does_attributes_contain_dpu_pci_ids(
                 let pci_id = format!("{}:{}", vendor, device);
 
                 if dpu_pci_ids.contains(pci_id.as_str()) {
-                    log::info!(
-                        "VENDOR AND DEVICE INFORMATION MATCHES - PCI_ID {} and MAC_ADDRESS: {}",
-                        pci_id,
-                        mac_address
-                    );
                     return true;
                 }
-
-                log::info!("VENDOR AND DEVICE INFORMATION DOES NOT MATCH, INTERFACE {} IS NOT A DPU", mac_address);
             }
         }
         false
