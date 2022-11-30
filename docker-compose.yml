@@ -11,7 +11,7 @@ services:
   dhcp-relay:
     depends_on:
       - carbide-dhcp
-    cap_add: 
+    cap_add:
       - CAP_NET_ADMIN
     container_name: "dhcp-relay"
     networks:
@@ -32,6 +32,7 @@ services:
         make install
         echo { \"option82\": { }, \"server\": [ { \"address\": \"172.20.0.12\" }], \"group\": [ { \"giaddr\": \"172.20.0.11\" } ] } > /etc/dhcphelper.json
         /usr/local/bin/dhcp-helper
+
   carbide-dhcp:
     depends_on:
       - terraform
@@ -107,7 +108,7 @@ services:
       - ARTIFACT_AUTHORIZATION_USER=$ARTIFACT_AUTHORIZATION_USER
       - ARTIFACT_AUTHORIZATION_TOKEN=$ARTIFACT_AUTHORIZATION_TOKEN
     command: cargo watch -C pxe -x run
-    
+
   postgresql:
     depends_on:
       - terraform
@@ -197,7 +198,7 @@ services:
       - $HOME/docker_cargo_home:/docker_cargo_home
       - .:/app/code
     ports:
-      - "1053:1053/udp"   
+      - "1053:1053/udp"
     environment:
       - CARGO_HOME=/docker_cargo_home
     command: cargo watch -C dns -x "run -- run --carbide-url=http://172.20.0.14:1079"

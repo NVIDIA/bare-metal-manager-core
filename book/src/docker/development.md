@@ -7,42 +7,59 @@ installation.
 The docker-compose configuration starts an environment that looks generally
 like this:
 
-
 ```mermaid
 flowchart TD
     subgraph Docker-Compose
         gw(("Envoy"))
-        dhcp["Carbide DHCP"]
+        dhcp-relay["DHCP relay (dhcp-helper)"]
+        dhcp["Carbide DHCP (kea-dhcp4)"]
         api["Carbide gRPC"]
         pxe["Carbide PXE"]
-        pg["PostgreSQL"]
+        pg["PostgreSQL 14"]
         vault["Hashicorp Vault"]
         terraform["Hashicorp Terraform"]
+        migrations["Database migrations"]
+        dns["Carbide DNS"]
+        ipmi["IPMI Console"]
     end
 
     subgraph Volumes
-        data[("PostgreSQL Data")]
+        certs[("CA Certificates")]
+        pg-data[("PostgreSQL Data")]
+        vault-data[("Vault Data")]
+        terraform-data[("Terraform State")]
     end
 
-    gw --> api
+    gw -->|port 1079| api
     gw --> pxe
-    api --> pg
+    api -->|port 5432| pg
     pxe --> api
-    pg ==> data
-    dhcp --> api
+    pg ==> pg-data
+    vault ==> vault-data
+    terraform ==> terraform-data
+    dhcp-relay --> dhcp
+    dhcp -->|port 1079| api
+    dns -->|port 1079| api
 
     subgraph External
         client_dhcp["DHCP Client"]
+        client_dns["DNS Client"]
         client_api["API Client"]
         client_pxe["PXE Client"]
+        client_ipmi["IPMI Client"]
     end
 
     client_pxe -->|port 8080| gw
     client_api -->|port 80| gw
-    client_dhcp -->|port 67| dhcp
+    client_dhcp -->|port 67| dhcp-relay
+    client_dns -->|port 1053| dns
+    client_ipmi -->|port 2222| ipmi
 
     terraform -..->|provisioner| vault
+    migrations -..->|prepare| pg
 ```
+
+These hosts get an IP address in 172.20.0.0/24 subnet.
 
 The container used to run components is specified by [the default
 Dockerfile](Dockerfile).  This contains the prereqs to run the components and
@@ -96,7 +113,7 @@ docker-compose up --build
 
 ## Seeding DB
 
-If you need to seed the database with some test data you can use
+Once docker-compose has started all the machine, seed the database with some test data:
 
 ```
 cargo make bootstrap-forge-docker
@@ -109,3 +126,15 @@ This will create
 3. a new `Machine`
 4. a new `MachineInterface`
 5. two new `MachineInterfaceAddress` (IPv4/IPv6)
+
+## Sanity check
+
+The `bootstrap-forge-docker` command above should succeed. Now Carbide has
+some data. Query carbide-api:
+
+```
+grpcurl -plaintext 127.0.0.1:1079 forge.Forge/FindMachines
+```
+
+It should return a JSON object with a `machines` array containing one machine.
+
