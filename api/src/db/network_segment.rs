@@ -110,7 +110,8 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
             .prefixes
             .iter()
             .map(|x| x.prefix.parse::<IpNetwork>())
-            .collect::<Result<Vec<_>, IpNetworkError>>().map_err(CarbideError::from)?
+            .collect::<Result<Vec<_>, IpNetworkError>>()
+            .map_err(CarbideError::from)?
             .iter()
             .any(|ip| ip.ip().is_ipv4())
         {
@@ -175,9 +176,10 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
                 .map(rpc::NetworkPrefix::from)
                 .collect_vec(),
             vpc_id: src.vpc_id.map(rpc::Uuid::from),
-            state: src.state.ok_or_else(|| {
-                CarbideError::GenericError("state is not updated yet.".to_owned())
-            })? as i32,
+            state: src
+                .state
+                .ok_or_else(|| CarbideError::GenericError("state is not updated yet.".to_owned()))?
+                as i32,
         })
     }
 }
@@ -319,10 +321,7 @@ impl NetworkSegment {
         &self.id
     }
 
-    pub async fn update_state(
-        &mut self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    pub async fn update_state(&mut self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<()> {
         let prefixes =
             NetworkPrefix::find_by_segment(&mut *txn, UuidKeyedObjectFilter::One(self.id)).await?;
         let prefixes = prefixes.iter().filter(|x| x.prefix.is_ipv4()).collect_vec();
