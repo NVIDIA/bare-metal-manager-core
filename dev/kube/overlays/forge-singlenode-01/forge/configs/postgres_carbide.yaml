@@ -13,6 +13,7 @@ spec:
         resources:
           requests:
             storage: 10Gi
+        storageClassName: local-path-storage
   backups:
     pgbackrest:
       image: registry.developers.crunchydata.com/crunchydata/crunchy-pgbackrest:ubi8-2.38-0
@@ -25,3 +26,4 @@ spec:
             resources:
               requests:
                 storage: 10Gi
+            storageClassName: local-path-storage
