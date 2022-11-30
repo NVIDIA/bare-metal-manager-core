@@ -391,16 +391,13 @@ where
             None => UuidKeyedObjectFilter::All,
         };
 
-        let result = NetworkSegment::find(&mut txn, uuid_filter)
-            .await
-            .map(|network| rpc::NetworkSegmentList {
-                network_segments: network.into_iter().map(rpc::NetworkSegment::from).collect(),
-            })
-            .map(rpc::NetworkSegmentList::from)
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
+        let results = NetworkSegment::find(&mut txn, uuid_filter).await?;
+        let mut network_segments = Vec::with_capacity(results.len());
 
-        Ok(result)
+        for result in results {
+            network_segments.push(result.try_into()?);
+        }
+        Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -427,7 +424,7 @@ where
             }
         }
 
-        let response = Ok(response.map(rpc::NetworkSegment::from).map(Response::new)?);
+        let response = Ok(Response::new(response?.try_into()?));
         txn.commit().await.map_err(CarbideError::from)?;
 
         response
@@ -525,18 +522,15 @@ where
             }
         };
 
-        let results = NetworkSegment::for_vpc(&mut txn, _uuid)
-            .await
-            .map(|network_segment| rpc::NetworkSegmentList {
-                network_segments: network_segment
-                    .into_iter()
-                    .map(rpc::NetworkSegment::from)
-                    .collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
+        let results = NetworkSegment::for_vpc(&mut txn, _uuid).await?;
 
-        Ok(results)
+        let mut network_segments = Vec::with_capacity(results.len());
+
+        for result in results {
+            network_segments.push(result.try_into()?);
+        }
+
+        Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]

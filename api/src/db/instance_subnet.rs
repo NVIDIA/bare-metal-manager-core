@@ -74,6 +74,24 @@ impl<'r> FromRow<'r, PgRow> for InstanceSubnet {
 
 impl From<InstanceSubnet> for rpc::InstanceSubnet {
     fn from(instance_subnet: InstanceSubnet) -> Self {
+        let id = instance_subnet.id;
+
+        // This is not the best solution, but enough to move on.
+        // This file will be removed in future release.
+        let subnets = instance_subnet
+            .network_segments
+            .into_iter()
+            .map(|x| x.try_into())
+            .collect::<Result<Vec<_>, CarbideError>>()
+            .unwrap_or_else(|err| {
+                log::error!(
+                    "Segment conversion failed for subnet: {}, error: {}",
+                    id,
+                    err
+                );
+                Vec::new()
+            });
+
         rpc::InstanceSubnet {
             id: Some(instance_subnet.id.into()),
             machine_interface_id: Some(instance_subnet.machine_interface_id.into()),
@@ -94,11 +112,7 @@ impl From<InstanceSubnet> for rpc::InstanceSubnet {
                 .into_iter()
                 .map(|e| e.into())
                 .collect(),
-            network_segments: instance_subnet
-                .network_segments
-                .into_iter()
-                .map(|x| x.into())
-                .collect(),
+            network_segments: subnets,
             interface_function: Some(match instance_subnet.vf_id {
                 InterfaceFunctionId::PhysicalFunctionId {} => {
                     rpc::instance_subnet::InterfaceFunction::Pf(::rpc::forge::PhysicalFunction {})

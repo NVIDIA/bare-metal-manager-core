@@ -12,8 +12,9 @@
 use std::convert::TryFrom;
 use std::net::IpAddr;
 
+use ::rpc::protos::common::forge::TenantState;
 use chrono::prelude::*;
-use ipnetwork::IpNetwork;
+use ipnetwork::{IpNetwork, IpNetworkError};
 use itertools::Itertools;
 use patricia_tree::PatriciaMap;
 use sqlx::postgres::PgRow;
@@ -52,6 +53,7 @@ pub struct NetworkSegment {
     pub deleted: Option<DateTime<Utc>>,
 
     pub prefixes: Vec<NetworkPrefix>,
+    pub state: Option<TenantState>,
 }
 
 #[derive(Debug)]
@@ -83,6 +85,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             deleted: row.try_get("deleted")?,
             mtu: row.try_get("mtu")?,
             prefixes: Vec::new(),
+            state: None,
         })
     }
 }
@@ -97,6 +100,25 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
     type Error = CarbideError;
 
     fn try_from(value: rpc::NetworkSegmentCreationRequest) -> Result<Self, Self::Error> {
+        if value.prefixes.is_empty() {
+            return Err(CarbideError::InvalidArgument(
+                "Prefixes are empty.".to_string(),
+            ));
+        }
+
+        if !value
+            .prefixes
+            .iter()
+            .map(|x| x.prefix.parse::<IpNetwork>())
+            .collect::<Result<Vec<_>, IpNetworkError>>().map_err(CarbideError::from)?
+            .iter()
+            .any(|ip| ip.ip().is_ipv4())
+        {
+            return Err(CarbideError::InvalidArgument(
+                "IPv4 prefix is missing.".to_string(),
+            ));
+        }
+
         Ok(NewNetworkSegment {
             name: value.name,
             subdomain_id: match value.subdomain_id {
@@ -122,9 +144,10 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
 ///
 /// subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
 ///
-impl From<NetworkSegment> for rpc::NetworkSegment {
-    fn from(src: NetworkSegment) -> Self {
-        rpc::NetworkSegment {
+impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
+    type Error = CarbideError;
+    fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
+        Ok(rpc::NetworkSegment {
             id: Some(src.id.into()),
             version: src.version.to_version_string(),
             name: src.name,
@@ -152,7 +175,10 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
                 .map(rpc::NetworkPrefix::from)
                 .collect_vec(),
             vpc_id: src.vpc_id.map(rpc::Uuid::from),
-        }
+            state: src.state.ok_or_else(|| {
+                CarbideError::GenericError("state is not updated yet.".to_owned())
+            })? as i32,
+        })
     }
 }
 
@@ -173,6 +199,7 @@ impl NewNetworkSegment {
             .fetch_one(&mut *txn).await?;
 
         segment.prefixes = NetworkPrefix::create_for(txn, &segment.id, &self.prefixes).await?;
+        segment.update_state(&mut *txn).await?;
 
         Ok(segment)
     }
@@ -215,6 +242,7 @@ impl NetworkSegment {
                         .bind(segment.id())
                         .fetch_all(&mut *txn)
                         .await?;
+                segment.update_state(&mut *txn).await?;
 
                 Ok(Some(segment))
             }
@@ -271,13 +299,14 @@ impl NetworkSegment {
                 .into_iter()
                 .into_group_map_by(|prefix| prefix.segment_id);
 
-        all_records.iter_mut().for_each(|record| {
+        for record in &mut all_records {
             if let Some(prefixes) = grouped_prefixes.remove(&record.id) {
                 record.prefixes = prefixes;
             } else {
                 log::warn!("Network {0} ({1}) has no prefixes?", record.id, record.name);
             }
-        });
+            record.update_state(&mut *txn).await?;
+        }
 
         Ok(all_records)
     }
@@ -288,6 +317,26 @@ impl NetworkSegment {
 
     pub fn id(&self) -> &uuid::Uuid {
         &self.id
+    }
+
+    pub async fn update_state(
+        &mut self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<()> {
+        let prefixes =
+            NetworkPrefix::find_by_segment(&mut *txn, UuidKeyedObjectFilter::One(self.id)).await?;
+        let prefixes = prefixes.iter().filter(|x| x.prefix.is_ipv4()).collect_vec();
+
+        self.state = Some(if prefixes.iter().any(|x| x.circuit_id.is_none()) {
+            // At least one prefix is present with empty circuit id.
+            TenantState::Configuring
+        } else {
+            // Not even a one prefix found with null circuit id. This means ResourceGroupd creation
+            // is successful.
+            TenantState::Ready
+        });
+
+        Ok(())
     }
 
     /// Returns a Vec<IpNetwork> of the next ip address for all the prefixes of this segment.
@@ -435,12 +484,14 @@ impl NetworkSegment {
             }
         }
 
-        Ok(sqlx::query_as(
+        let segment: NetworkSegment = sqlx::query_as(
             "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
         )
         .bind(self.id)
         .fetch_one(&mut *txn)
-        .await?)
+        .await?;
+
+        Ok(segment)
     }
 
     pub async fn update(
@@ -448,7 +499,7 @@ impl NetworkSegment {
 
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-        Ok(sqlx::query_as(
+        let mut segment: NetworkSegment = sqlx::query_as(
             "UPDATE network_segments SET name=$1, subdomain_id=$2, vpc_id=$3, mtu=$4, updated=NOW() WHERE id=$5 RETURNING *",
         )
         .bind(&self.name)
@@ -457,6 +508,10 @@ impl NetworkSegment {
         .bind(self.mtu)
         .bind(self.id)
         .fetch_one(&mut *txn)
-        .await?)
+        .await?;
+
+        segment.update_state(&mut *txn).await?;
+
+        Ok(segment)
     }
 }
