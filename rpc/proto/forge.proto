@@ -296,7 +296,7 @@ message NetworkSegmentUpdateRequest {
   optional string if_version_match = 2;
 
   string name = 3;
-  int32 mtu = 5;
+  optional int32 mtu = 5;
 }
 
 message NetworkSegmentUpdateResult {
