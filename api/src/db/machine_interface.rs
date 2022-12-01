@@ -129,12 +129,12 @@ impl MachineInterface {
     pub async fn associate_interface_with_dpu_machine(
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
-        vpc_leaf_id: &uuid::Uuid,
+        dpu_machine_id: &uuid::Uuid,
     ) -> CarbideResult<Self> {
         sqlx::query_as(
             "UPDATE machine_interfaces SET attached_dpu_machine_id=$1::uuid where id=$2::uuid RETURNING *",
         )
-            .bind(vpc_leaf_id)
+            .bind(dpu_machine_id)
             .bind(self.id)
             .fetch_one(&mut *txn)
             .await

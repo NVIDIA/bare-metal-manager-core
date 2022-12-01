@@ -26,12 +26,16 @@ fn setup() {
         .init();
 }
 
+const FIXTURE_CREATED_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
+
 #[ignore]
 #[sqlx::test]
 async fn new_leafs_are_in_new_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new().persist(&mut txn).await?;
+    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID)
+        .persist(&mut txn)
+        .await?;
 
     txn.commit().await?;
     let mut txn = pool.begin().await?;
@@ -50,12 +54,15 @@ async fn new_leafs_are_in_new_state(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn find_leaf_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new().persist(&mut txn).await?;
+    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID)
+        .persist(&mut txn)
+        .await?;
 
     txn.commit().await?;
     let mut txn = pool.begin().await?;
 
-    VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await?;
+    let leaf = VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await?;
+    assert_eq!(leaf.id(), &FIXTURE_CREATED_MACHINE_ID);
 
     Ok(())
 }
@@ -66,7 +73,10 @@ async fn find_leaf_and_update_loopback_ip(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new().persist(&mut txn).await?;
+    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID)
+        .persist(&mut txn)
+        .await?;
+    assert!(leaf.loopback_ip_address().is_none());
 
     txn.commit().await?;
 

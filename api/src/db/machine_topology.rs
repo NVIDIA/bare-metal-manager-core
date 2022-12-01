@@ -20,7 +20,7 @@ use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::machine::Machine;
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
-use crate::kubernetes::VpcResourceActions;
+use crate::kubernetes::{leaf_name, LeafData, VpcResourceActions};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
 use crate::vpc_resources::{host_interfaces, leaf};
@@ -130,14 +130,22 @@ impl MachineTopology {
             .await?;
 
             if hardware_info.is_dpu() {
-                let new_leaf = NewVpcResourceLeaf::new().persist(&mut *txn).await?;
+                let new_leaf = NewVpcResourceLeaf::new(*machine_id)
+                    .persist(&mut *txn)
+                    .await?;
 
                 log::info!(
                     "Discovered Machine {} is a DPU. Generating new leaf id {}",
                     machine_id,
                     new_leaf.id()
                 );
+                assert_eq!(new_leaf.id(), machine_id);
 
+                // TODO 1: Why do we use the returned `machine_dpu.id()` from here
+                // It should just be the same as the `machine_id` we pass in?
+                // All of them are the DPU `machine_id`s?
+                // TODO 2: This might no longer be needed, since we already have
+                // a similar relation via attached_dpu_id
                 let machine_dpu =
                     Machine::associate_vpc_leaf_id(&mut *txn, *machine_id, *new_leaf.id()).await?;
 
@@ -155,7 +163,7 @@ impl MachineTopology {
                 let dpu = DpuMachine::find_by_machine_id(&mut *txn, machine_dpu.id()).await?;
 
                 let leaf_spec = leaf::Leaf::new(
-                    &new_leaf.id().to_string(),
+                    &leaf_name(*machine_id),
                     leaf::LeafSpec {
                         control: Some(leaf::LeafControl {
                             maintenance_mode: Some(false),
@@ -174,9 +182,12 @@ impl MachineTopology {
 
                 let db_conn = txn.acquire().await?;
 
-                VpcResourceActions::CreateLeaf(leaf_spec)
-                    .reconcile(db_conn)
-                    .await?;
+                VpcResourceActions::CreateLeaf(LeafData {
+                    leaf: leaf_spec,
+                    dpu_machine_id: *machine_id,
+                })
+                .reconcile(db_conn)
+                .await?;
             }
             Ok(Some(res))
         }

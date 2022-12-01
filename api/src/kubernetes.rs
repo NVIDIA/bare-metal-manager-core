@@ -50,6 +50,12 @@ struct IpDetails {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LeafData {
+    pub leaf: leaf::Leaf,
+    pub dpu_machine_id: uuid::Uuid,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManagedResourceData {
     machine_id: uuid::Uuid,
     dpu_machine_id: uuid::Uuid,
@@ -83,9 +89,9 @@ impl ManagedResourceData {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum VpcResourceActions {
-    CreateLeaf(leaf::Leaf),
-    DeleteLeaf(leaf::Leaf),
-    UpdateLeaf(leaf::Leaf),
+    CreateLeaf(LeafData),
+    DeleteLeaf(LeafData),
+    UpdateLeaf(LeafData),
     CreateResourceGroup(resource_group::ResourceGroup),
     UpdateResourceGroup(resource_group::ResourceGroup),
     DeleteResourceGroup(resource_group::ResourceGroup),
@@ -725,17 +731,22 @@ pub async fn vpc_reconcile_handler(
         let namespace = FORGE_KUBE_NAMESPACE;
 
         match vpc_resource {
-            VpcResourceActions::CreateLeaf(spec) => {
+            VpcResourceActions::CreateLeaf(leaf_data) => {
+                let spec_name = leaf_name(leaf_data.dpu_machine_id);
+                let spec = leaf_data.leaf;
+                assert_eq!(
+                    Some(&spec_name),
+                    spec.metadata.name.as_ref(),
+                    "Leaf space name mismatch"
+                );
+
                 let mut vpc_txn = state_pool.begin().await?;
-                //let status_txn = state_pool.begin().await?;
 
                 let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), namespace);
 
-                let spec_name = spec.name().to_string();
                 // Kube CRD names are strings, so we have to convert from string to uuid::Uuid
-                let vpc_id = Uuid::from_str(spec_name.as_str())?;
-
-                let mut vpc_db_resource = VpcResourceLeaf::find(&mut vpc_txn, vpc_id).await?;
+                let mut vpc_db_resource =
+                    VpcResourceLeaf::find(&mut vpc_txn, leaf_data.dpu_machine_id).await?;
 
                 let result = leafs.create(&PostParams::default(), &spec).await;
                 match result {
@@ -835,10 +846,11 @@ pub async fn vpc_reconcile_handler(
                     }
                 };
             }
-            VpcResourceActions::DeleteLeaf(spec) => {
+            VpcResourceActions::DeleteLeaf(leaf_data) => {
                 let mut state_txn = state_pool.begin().await?;
-                let vpc_id = Uuid::from_str(&spec.name())?;
-                let vpc_db_resource = VpcResourceLeaf::find(&mut state_txn, vpc_id).await?;
+                let vpc_db_resource =
+                    VpcResourceLeaf::find(&mut state_txn, leaf_data.dpu_machine_id).await?;
+                let spec_name = leaf_name(leaf_data.dpu_machine_id);
 
                 vpc_db_resource
                     .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Submit)
@@ -850,7 +862,7 @@ pub async fn vpc_reconcile_handler(
                     4,
                     format!(
                         "VPC Resource {} deleted, elapsed {:?}",
-                        spec.name(),
+                        spec_name,
                         start_time.elapsed()
                     ),
                     TaskState::Finished,
@@ -858,10 +870,11 @@ pub async fn vpc_reconcile_handler(
                 .await;
                 let _ = current_job.complete().await.map_err(CarbideError::from);
             }
-            VpcResourceActions::UpdateLeaf(mut new_spec) => {
-                let spec_name = new_spec.name().to_string();
+            VpcResourceActions::UpdateLeaf(leaf_data) => {
+                let spec_name = leaf_name(leaf_data.dpu_machine_id);
+                let mut new_spec = leaf_data.leaf;
 
-                log::info!("UpdateLeaf spec - {spec_name} {new_spec:?}");
+                log::info!("UpdateLeaf spec - {spec_name} to {new_spec:?}");
 
                 let leaf_api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
                 let original_leaf = leaf_api.get(&spec_name).await?;
@@ -1033,15 +1046,14 @@ pub async fn bgkubernetes_handler(
         .map_err(CarbideError::from)
 }
 
-fn managed_resource_name(
-    managed_resource_name_prefix: &String,
-    function_id: &InterfaceFunctionId,
-) -> String {
-    format!(
-        "{}.{}",
-        function_id.kube_representation(),
-        managed_resource_name_prefix,
-    )
+/// Generates the kubernetes name of a Leaf CRD - based on the Forge dpu_machine_id
+pub fn leaf_name(dpu_machine_id: uuid::Uuid) -> String {
+    format!("{}.leaf", dpu_machine_id,)
+}
+
+/// Generates the kubernetes name of a ManagedResource CRD - based on the Forge instance_id and function_id
+fn managed_resource_name(instance_id: uuid::Uuid, function_id: &InterfaceFunctionId) -> String {
+    format!("{}.{}", instance_id, function_id.kube_representation(),)
 }
 
 pub async fn create_managed_resource(
@@ -1054,7 +1066,6 @@ pub async fn create_managed_resource(
 ) -> CarbideResult<()> {
     let mut managed_resources = Vec::new();
 
-    let managed_resource_name_prefix = instance_id.to_string();
     for iface in &network_config.interfaces {
         // find_by_segmentcan CAN return max two prefixes, one for ipv4 and another for ipv6
         // Ipv4 is needed for now.
@@ -1089,7 +1100,7 @@ pub async fn create_managed_resource(
             r#type: None,
         };
         managed_resources.push(managed_resource::ManagedResource::new(
-            &managed_resource_name(&managed_resource_name_prefix, &iface.function_id),
+            &managed_resource_name(instance_id, &iface.function_id),
             managed_resource_spec,
         ));
     }
@@ -1131,7 +1142,6 @@ pub async fn delete_managed_resource(
 ) -> CarbideResult<()> {
     let mut managed_resources = Vec::new();
 
-    let managed_resource_name_prefix = instance_id.to_string();
     for iface in &network_config.interfaces {
         let managed_resource_spec = managed_resource::ManagedResourceSpec {
             state: None,
@@ -1145,7 +1155,7 @@ pub async fn delete_managed_resource(
         };
 
         managed_resources.push(managed_resource::ManagedResource::new(
-            &managed_resource_name(&managed_resource_name_prefix, &iface.function_id),
+            &managed_resource_name(instance_id, &iface.function_id),
             managed_resource_spec,
         ));
     }
