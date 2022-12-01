@@ -14,6 +14,8 @@ use log::LevelFilter;
 use carbide::db::vpc_resource_leaf::NewVpcResourceLeaf;
 use carbide::CarbideError;
 
+const FIXTURE_CREATED_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
+
 #[ctor::ctor]
 fn setup() {
     pretty_env_logger::formatted_timed_builder()
@@ -27,7 +29,9 @@ async fn vpc_resource_state_machine_advance_from_db_events(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new().persist(&mut txn).await?;
+    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID)
+        .persist(&mut txn)
+        .await?;
 
     txn.commit().await.unwrap();
     let mut txn = pool.begin().await?;
@@ -60,7 +64,7 @@ async fn vpc_resource_state_machine_fail_state(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
-    let leaf = NewVpcResourceLeaf::new()
+    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID)
         .persist(&mut txn)
         .await
         .expect("Unable to create VPC Leaf REsource");
@@ -87,7 +91,9 @@ async fn vpc_resource_test_fsm_invalid_advance(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let vpc_leaf = NewVpcResourceLeaf::new().persist(&mut txn).await?;
+    let vpc_leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID)
+        .persist(&mut txn)
+        .await?;
 
     let state = vpc_leaf.current_state(&mut txn).await?;
 

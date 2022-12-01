@@ -35,7 +35,9 @@ pub struct VpcResourceLeaf {
 }
 
 #[derive(Debug, Default)]
-pub struct NewVpcResourceLeaf {}
+pub struct NewVpcResourceLeaf {
+    dpu_machine_id: uuid::Uuid,
+}
 
 impl<'r> FromRow<'r, PgRow> for VpcResourceLeaf {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
@@ -53,11 +55,11 @@ impl VpcResourceLeaf {
     // that always return CarbideResult<Vec<T>>
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        name: uuid::Uuid,
+        dpu_machine_id: uuid::Uuid,
     ) -> CarbideResult<VpcResourceLeaf> {
         Ok(
             sqlx::query_as("SELECT * from vpc_resource_leafs WHERE id = $1")
-                .bind(name)
+                .bind(dpu_machine_id)
                 .fetch_one(&mut *txn)
                 .await?,
         )
@@ -177,8 +179,8 @@ impl VpcResourceLeaf {
 }
 
 impl NewVpcResourceLeaf {
-    pub fn new() -> NewVpcResourceLeaf {
-        Self {}
+    pub fn new(dpu_machine_id: uuid::Uuid) -> NewVpcResourceLeaf {
+        Self { dpu_machine_id }
     }
 
     pub async fn persist(
@@ -186,7 +188,8 @@ impl NewVpcResourceLeaf {
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<VpcResourceLeaf> {
         let (vpc_resource_id,) =
-            sqlx::query_as("INSERT INTO vpc_resource_leafs DEFAULT VALUES returning id")
+            sqlx::query_as("INSERT INTO vpc_resource_leafs (id) VALUES($1::uuid) returning id")
+                .bind(self.dpu_machine_id)
                 .fetch_one(&mut *txn)
                 .await?;
 

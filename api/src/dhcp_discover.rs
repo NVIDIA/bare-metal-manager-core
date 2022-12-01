@@ -25,7 +25,7 @@ use tonic::{Request, Response, Status};
 use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::instance::Instance;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
-use crate::kubernetes::VpcResourceActions;
+use crate::kubernetes::{leaf_name, LeafData, VpcResourceActions};
 use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
 use crate::vpc_resources::leaf;
 use crate::{
@@ -204,14 +204,16 @@ pub async fn discover_dhcp(
                 // can create this mapping.  The only way for it to not be present for a given relay address is
                 // if this is a DPU coming up for the very first time. In this case we need to do nothing -- because
                 // the provisioning step in 'discover_machine' is going to create this mapping for us.
-                if let Some(dpu) = resource {
+                if let Some(resource_leaf) = resource {
+                    // Hint: This seems wrong - but we indeed set the field this way during DPU discovery
+                    let dpu_machine_id = *resource_leaf.id();
                     // we need to go look at our mapping and get the assigned leaf ID for this relay address
                     //TODO: think about making a GET leaf call in VPC resource actions
                     let client = Client::try_default().await.map_err(CarbideError::from)?;
                     let namespace = FORGE_KUBE_NAMESPACE;
                     let leafs: KubeApi<leaf::Leaf> = KubeApi::namespaced(client, namespace);
                     let mut leaf = leafs
-                        .get(dpu.id().to_string().as_str())
+                        .get(leaf_name(dpu_machine_id).as_str())
                         .await
                         .map_err(|err| CarbideError::GenericError(err.to_string()))?;
 
@@ -228,10 +230,15 @@ pub async fn discover_dhcp(
 
                     let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
 
-                    VpcResourceActions::UpdateLeaf(leaf)
-                        .reconcile(db_conn)
-                        .await?;
+                    VpcResourceActions::UpdateLeaf(LeafData {
+                        leaf,
+                        dpu_machine_id,
+                    })
+                    .reconcile(db_conn)
+                    .await?;
 
+                    // TODO: Since we already know the dpu_machine_id (which is the same as the Leaf ID),
+                    // we might not need this anymore
                     let dpu_machine_interface =
                         VpcResourceLeaf::find_associated_dpu_machine_interface(&mut txn, relay_ip)
                             .await?;
