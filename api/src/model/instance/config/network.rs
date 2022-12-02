@@ -145,6 +145,72 @@ impl InstanceNetworkConfig {
     }
 }
 
+impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
+    type Error = RpcDataConversionError;
+
+    fn try_from(config: rpc::InstanceNetworkConfig) -> Result<Self, Self::Error> {
+        let mut assigned_vfs: u8 = 0;
+        let mut interfaces = Vec::with_capacity(config.interfaces.len());
+        for iface in config.interfaces.into_iter() {
+            let iface_type = rpc::InterfaceFunctionType::from_i32(iface.function_type)
+                .and_then(|ty| InterfaceFunctionType::try_from(ty).ok())
+                .ok_or(RpcDataConversionError::InvalidInterfaceFunctionType(
+                    iface.function_type,
+                ))?;
+
+            let function_id = match iface_type {
+                InterfaceFunctionType::PhysicalFunction => {
+                    InterfaceFunctionId::PhysicalFunctionId {}
+                }
+                InterfaceFunctionType::VirtualFunction => {
+                    // Note that this might overflow if the RPC call delivers more than
+                    // 256 VFs. However that's ok - the `InstanceNetworkConfig.validate()`
+                    // call will declare those configs as invalid later on anyway.
+                    // We mainly don't want to crash here.
+                    assigned_vfs = assigned_vfs.saturating_add(1);
+                    let id = assigned_vfs;
+                    InterfaceFunctionId::VirtualFunctionId { id }
+                }
+            };
+
+            let network_segment_id =
+                iface
+                    .network_segment_id
+                    .ok_or(RpcDataConversionError::MissingArgument(
+                        "InstanceInterfaceConfig::network_segment_id",
+                    ))?;
+            let network_segment_id = uuid::Uuid::try_from(network_segment_id).map_err(|_| {
+                RpcDataConversionError::InvalidUuid("InstanceInterfaceConfig::network_segment_id")
+            })?;
+
+            interfaces.push(InstanceInterfaceConfig {
+                function_id,
+                network_segment_id,
+            });
+        }
+
+        Ok(Self { interfaces })
+    }
+}
+
+impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
+    type Error = RpcDataConversionError;
+
+    fn try_from(config: InstanceNetworkConfig) -> Result<rpc::InstanceNetworkConfig, Self::Error> {
+        let mut interfaces = Vec::with_capacity(config.interfaces.len());
+        for iface in config.interfaces.into_iter() {
+            let function_type = iface.function_id.function_type();
+
+            interfaces.push(rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
+                network_segment_id: Some(iface.network_segment_id.into()),
+            });
+        }
+
+        Ok(rpc::InstanceNetworkConfig { interfaces })
+    }
+}
+
 /// Validates that any container which has elements that have InterfaceFunctionIds
 /// assigned assigned is using unique and valid FunctionIds.
 pub fn validate_interface_function_ids<T, F: Fn(&T) -> InterfaceFunctionId>(

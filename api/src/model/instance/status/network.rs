@@ -65,6 +65,21 @@ pub struct InstanceNetworkStatus {
     pub configs_synced: SyncState,
 }
 
+impl TryFrom<InstanceNetworkStatus> for rpc::InstanceNetworkStatus {
+    type Error = RpcDataConversionError;
+
+    fn try_from(status: InstanceNetworkStatus) -> Result<Self, Self::Error> {
+        let mut interfaces = Vec::with_capacity(status.interfaces.len());
+        for iface in status.interfaces {
+            interfaces.push(rpc::InstanceInterfaceStatus::try_from(iface)?);
+        }
+        Ok(rpc::InstanceNetworkStatus {
+            interfaces,
+            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
+        })
+    }
+}
+
 impl InstanceNetworkStatus {
     /// Derives an Instances network status from the users desired config
     /// and status that we observed from the networking subsystem.
@@ -155,6 +170,25 @@ pub struct InstanceInterfaceStatus {
     /// based on the requested subnet.
     /// The list will be empty if interface configuration hasn't been completed
     pub addresses: Vec<IpAddr>,
+}
+
+impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
+    type Error = RpcDataConversionError;
+
+    fn try_from(status: InstanceInterfaceStatus) -> Result<Self, Self::Error> {
+        Ok(rpc::InstanceInterfaceStatus {
+            virtual_function_id: match status.function_id {
+                InterfaceFunctionId::PhysicalFunctionId {} => None,
+                InterfaceFunctionId::VirtualFunctionId { id } => Some(id as u32),
+            },
+            mac_address: status.mac_address.map(|mac| mac.to_string()),
+            addresses: status
+                .addresses
+                .into_iter()
+                .map(|ip| ip.to_string())
+                .collect(),
+        })
+    }
 }
 
 /// The network status that was last reported by the networking subystem

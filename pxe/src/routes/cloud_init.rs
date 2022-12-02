@@ -23,12 +23,32 @@ async fn user_data_handler_in_assigned(
     machine: Machine,
     config: RuntimeConfig,
 ) -> (String, HashMap<String, String>) {
-    let user_data = match machine.machine {
+    let machine_id = machine.machine.and_then(|m| m.id);
+
+    let user_data = match &machine_id {
         Some(rpc_machine) => {
-            match RpcContext::get_instance(rpc_machine.id.unwrap(), config.api_url.clone()).await {
-                Ok(instance) => instance
+            match RpcContext::get_instance(rpc_machine.clone(), config.api_url.clone()).await {
+                Ok(rpc::Instance {
+                    config:
+                        Some(rpc::InstanceConfig {
+                            tenant: Some(tenant_config),
+                            ..
+                        }),
+                    ..
+                }) => tenant_config
                     .user_data
                     .unwrap_or_else(|| "User data is not available.".to_string()),
+                Ok(_) => {
+                    // TODO: We shouldn't really pass this into the as PXE user-data?
+                    // However there is currently no way to return an error from here,
+                    // and the error branch below does the same
+                    let error = format!(
+                        "Missing TenantConfig in instance for Machine {}",
+                        rpc_machine
+                    );
+                    eprintln!("{}", error);
+                    error
+                }
                 Err(err) => {
                     eprintln!("{}", err);
                     format!("Failed to fetch user_data: {}", err)

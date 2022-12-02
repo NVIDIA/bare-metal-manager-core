@@ -534,23 +534,18 @@ where
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn create_instance(
+    async fn allocate_instance(
         &self,
-        request: Request<rpc::Instance>,
+        request: Request<rpc::InstanceAllocationRequest>,
     ) -> Result<Response<rpc::Instance>, Status> {
         let request = InstanceAllocationRequest::try_from(request.into_inner())?;
-        let instance = allocate_instance(request, &self.database_connection).await?;
+        let instance_snapshot = allocate_instance(request, &self.database_connection).await?;
 
-        let _ = log_instance_debug_data(&self.database_connection, instance.id).await;
-        Ok(Response::new(rpc::Instance::from(instance)))
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
-    async fn update_instance(
-        &self,
-        _request: Request<rpc::Instance>,
-    ) -> Result<Response<rpc::Instance>, Status> {
-        return Err(Status::unimplemented("not implemented"));
+        let _ =
+            log_instance_debug_data(&self.database_connection, instance_snapshot.instance_id).await;
+        Ok(Response::new(
+            rpc::Instance::try_from(instance_snapshot).map_err(CarbideError::from)?,
+        ))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -565,7 +560,9 @@ where
             .map_err(CarbideError::from)?;
 
         let rpc::InstanceSearchQuery { id, .. } = request.into_inner();
-        let instances = match id {
+        // TODO: We load more information here than necessary - Instance::find()
+        // and InstanceSnapshotLoader do redundant jobs
+        let raw_instances = match id {
             Some(id) => {
                 let id = id;
                 let uuid = match uuid::Uuid::try_from(id) {
@@ -580,16 +577,19 @@ where
                 Instance::find(&mut txn, uuid).await
             }
             None => Instance::find(&mut txn, UuidKeyedObjectFilter::All).await,
-        };
+        }?;
 
-        let result = instances
-            .map(|instance| InstanceList {
-                instances: instance.into_iter().map(rpc::Instance::from).collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
+        let loader = DbSnapshotLoader::default();
+        let mut instances = Vec::with_capacity(raw_instances.len());
+        for instance in raw_instances {
+            let snapshot = loader
+                .load_instance_snapshot(&mut txn, instance.id)
+                .await
+                .map_err(CarbideError::from)?;
+            instances.push(rpc::Instance::try_from(snapshot).map_err(CarbideError::from)?);
+        }
 
-        Ok(result)
+        Ok(Response::new(InstanceList { instances }))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -604,17 +604,22 @@ where
             .map_err(CarbideError::from)?;
 
         let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
-
-        let response = Instance::find_by_machine_id(&mut txn, uuid)
+        let instance_id = Instance::find_id_by_machine_id(&mut txn, uuid)
             .await
-            .map(|optional_instance| {
-                optional_instance
-                    .map(|instance| InstanceList {
-                        instances: vec![rpc::Instance::from(instance)],
-                    })
-                    .unwrap_or_default()
-            })
-            .map(Response::new)?;
+            .map_err(CarbideError::from)?;
+
+        let instance_id = match instance_id {
+            Some(id) => id,
+            None => return Ok(Response::new(rpc::InstanceList::default())),
+        };
+
+        let snapshot = DbSnapshotLoader::default()
+            .load_instance_snapshot(&mut txn, instance_id)
+            .await
+            .map_err(CarbideError::from)?;
+        let response = Response::new(rpc::InstanceList {
+            instances: vec![snapshot.try_into().map_err(CarbideError::from)?],
+        });
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -622,10 +627,10 @@ where
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn delete_instance(
+    async fn release_instance(
         &self,
-        request: Request<rpc::InstanceDeletionRequest>,
-    ) -> Result<Response<rpc::InstanceDeletionResult>, Status> {
+        request: Request<rpc::InstanceReleaseRequest>,
+    ) -> Result<Response<rpc::InstanceReleaseResult>, Status> {
         let mut txn = self
             .database_connection
             .begin()
@@ -679,7 +684,7 @@ where
 
         // Machine will be rebooted once managed resource deletion successful.
 
-        Ok(Response::new(rpc::InstanceDeletionResult {}))
+        Ok(Response::new(rpc::InstanceReleaseResult {}))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]

@@ -21,7 +21,6 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use ::rpc::forge as rpc;
-use ::rpc::Timestamp;
 
 use crate::{
     model::{
@@ -100,41 +99,10 @@ impl<'r> FromRow<'r, PgRow> for Instance {
     }
 }
 
-impl From<Instance> for rpc::Instance {
-    fn from(src: Instance) -> Self {
-        rpc::Instance {
-            id: Some(src.id.into()),
-            segment_id: None,
-            machine_id: Some(src.machine_id.into()),
-            user_data: src.tenant_config.user_data,
-            custom_ipxe: src.tenant_config.custom_ipxe,
-            ssh_keys: src.ssh_keys,
-            requested: Some(Timestamp {
-                seconds: src.requested.timestamp(),
-                nanos: 0,
-            }),
-            started: Some(Timestamp {
-                seconds: src.started.timestamp(),
-                nanos: 0,
-            }),
-            finished: src.finished.map(|t| Timestamp {
-                seconds: t.timestamp(),
-                nanos: 0,
-            }),
-            interfaces: src
-                .interfaces
-                .into_iter()
-                .map(|interface| interface.into())
-                .collect(),
-            use_custom_pxe_on_boot: src.use_custom_pxe_on_boot,
-        }
-    }
-}
-
-impl TryFrom<rpc::InstanceDeletionRequest> for DeleteInstance {
+impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::InstanceDeletionRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::InstanceReleaseRequest) -> Result<Self, Self::Error> {
         let id = value
             .id
             .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?;

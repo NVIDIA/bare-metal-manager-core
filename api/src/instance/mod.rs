@@ -18,22 +18,17 @@ use uuid::Uuid;
 
 use crate::{
     db::{
-        instance::{Instance, NewInstance},
-        instance_subnet::InstanceSubnet,
-        machine::Machine,
-        machine_interface::MachineInterface,
-        machine_state::MachineState,
+        instance::NewInstance, instance_subnet::InstanceSubnet, machine::Machine,
+        machine_interface::MachineInterface, machine_state::MachineState,
     },
     kubernetes::create_managed_resource,
-    machine_state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
+    machine_state_controller::snapshot_loader::{
+        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
+    },
     model::{
         config_version::{ConfigVersion, Versioned},
-        instance::config::{
-            network::InstanceNetworkConfig,
-            tenant::{TenantConfig, TenantOrg},
-            InstanceConfig,
-        },
-        ConfigValidationError,
+        instance::{config::InstanceConfig, snapshot::InstanceSnapshot},
+        ConfigValidationError, RpcDataConversionError,
     },
     CarbideError,
 };
@@ -53,42 +48,28 @@ pub struct InstanceAllocationRequest {
 
 // TODO: This part will be replaced when the new API which supports multiple
 // instances comes in
-impl TryFrom<rpc::Instance> for InstanceAllocationRequest {
+impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
     type Error = CarbideError;
 
-    fn try_from(request: rpc::Instance) -> Result<Self, Self::Error> {
-        if request.id.is_some() {
-            return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
-                "Instance",
-            )));
+    fn try_from(request: rpc::InstanceAllocationRequest) -> Result<Self, Self::Error> {
+        let machine_id = request
+            .machine_id
+            .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?
+            .try_into()?;
+        let config = request
+            .config
+            .ok_or(RpcDataConversionError::MissingArgument("config"))?;
+
+        let config = InstanceConfig::try_from(config)?;
+
+        // The `tenant` field in the config is optional - but we need it here
+        if config.tenant.is_none() {
+            return Err(RpcDataConversionError::MissingArgument("InstanceConfig::tenant").into());
         }
 
-        let segment_id = request
-            .segment_id
-            .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
-            .try_into()?;
-
-        // TODO: Should we actually move IP allocation before this, so we can
-        // store it as part of our internal `Config`?
-        // Downside is we might leak the IP if we don't actual persist the result
-        // But maybe it isn't actually allocated so far if both things happen
-        // within the same transaction.
-        let network_config = InstanceNetworkConfig::for_segment_id(segment_id);
-
         Ok(InstanceAllocationRequest {
-            machine_id: request
-                .machine_id
-                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
-                .try_into()?,
-            config: InstanceConfig {
-                tenant: Some(TenantConfig {
-                    tenant_org: TenantOrg::try_from("UNKNOWN".to_string())
-                        .expect("UNKNOWN is a valid org"),
-                    user_data: request.user_data,
-                    custom_ipxe: request.custom_ipxe,
-                }),
-                network: network_config,
-            },
+            machine_id,
+            config,
             ssh_keys: request.ssh_keys,
         })
     }
@@ -98,7 +79,7 @@ impl TryFrom<rpc::Instance> for InstanceAllocationRequest {
 pub async fn allocate_instance(
     mut request: InstanceAllocationRequest,
     database: &PgPool,
-) -> Result<Instance, CarbideError> {
+) -> Result<InstanceSnapshot, CarbideError> {
     // Validate the configuration for the instance
     // Note that this basic validation can not cross-check references
     // like `machine_id` or any `network_segments`.
@@ -211,7 +192,11 @@ pub async fn allocate_instance(
 
     // Machine will be rebooted once managed resource creation is successful.
 
+    let snapshot = DbSnapshotLoader::default()
+        .load_instance_snapshot(&mut txn, instance.id)
+        .await?;
+
     txn.commit().await.map_err(CarbideError::from)?;
 
-    Ok(instance)
+    Ok(snapshot)
 }

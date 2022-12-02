@@ -12,6 +12,7 @@
 use std::net::IpAddr;
 
 use mac_address::MacAddress;
+use machine_state_controller::snapshot_loader::SnapshotLoaderError;
 use model::{
     config_version::{ConfigVersion, ParseConfigVersionError},
     ConfigValidationError, RpcDataConversionError,
@@ -178,6 +179,9 @@ pub enum CarbideError {
 
     #[error("Invalid configuration version - {0}")]
     InvalidConfigurationVersion(#[from] ParseConfigVersionError),
+
+    #[error("Failed to load machine or instance snapshot: {0}")]
+    SnapshotLoaderError(#[from] SnapshotLoaderError),
 
     // TODO: Or VersionMismatchError? Or ObjectNotFoundOrModifiedError?
     #[error(

@@ -31,27 +31,77 @@ fn convert_instance_to_nice_format(
             instance.machine_id.clone().unwrap_or_default().value,
         ),
         (
-            "REQUESTED",
-            instance.requested.clone().unwrap_or_default().to_string(),
+            "TENANT ORG",
+            instance
+                .config
+                .as_ref()
+                .and_then(|config| config.tenant.as_ref())
+                .map(|tenant| tenant.tenant_org.clone())
+                .unwrap_or_default(),
         ),
         (
-            "STARTED",
-            instance.started.clone().unwrap_or_default().to_string(),
+            "TENANT STATE",
+            instance
+                .status
+                .as_ref()
+                .and_then(|status| status.tenant.as_ref())
+                .and_then(|tenant| forgerpc::TenantState::from_i32(tenant.state))
+                .map(|state| format!("{:?}", state))
+                .unwrap_or_default(),
         ),
         (
-            "FINISHED",
-            instance.finished.clone().unwrap_or_default().to_string(),
+            "TENANT STATE DETAILS",
+            instance
+                .status
+                .as_ref()
+                .and_then(|status| status.tenant.as_ref())
+                .map(|tenant| tenant.state_details.clone())
+                .unwrap_or_default(),
         ),
         (
-            "CUSTOM PXE ON NEXT BOOT",
-            instance.use_custom_pxe_on_boot.to_string(),
+            "CONFIGS SYNCED",
+            instance
+                .status
+                .as_ref()
+                .and_then(|status| forgerpc::SyncState::from_i32(status.configs_synced))
+                .map(|state| format!("{:?}", state))
+                .unwrap_or_default(),
+        ),
+        (
+            "NETWORK CONFIG SYNCED",
+            instance
+                .status
+                .as_ref()
+                .and_then(|status| status.network.as_ref())
+                .and_then(|status| forgerpc::SyncState::from_i32(status.configs_synced))
+                .map(|state| format!("{:?}", state))
+                .unwrap_or_default(),
+        ),
+        (
+            "NETWORK CONFIG VERSION",
+            instance.network_config_version.clone(),
         ),
     ];
 
     let mut extra_info = vec![
-        ("CUSTOM IPXE", instance.custom_ipxe.clone()),
-        ("USERDATA", instance.user_data.clone().unwrap_or_default()),
-        ("SSH KEYS", instance.ssh_keys.join(", ")),
+        (
+            "CUSTOM IPXE",
+            instance
+                .config
+                .as_ref()
+                .and_then(|config| config.tenant.as_ref())
+                .map(|tenant| tenant.custom_ipxe.clone())
+                .unwrap_or_default(),
+        ),
+        (
+            "USERDATA",
+            instance
+                .config
+                .as_ref()
+                .and_then(|config| config.tenant.as_ref())
+                .and_then(|tenant| tenant.user_data.clone())
+                .unwrap_or_default(),
+        ),
     ];
 
     if extrainfo {
@@ -64,37 +114,50 @@ fn convert_instance_to_nice_format(
 
     let width = 25;
     writeln!(&mut lines, "INTERFACES:")?;
-    if instance.interfaces.is_empty() {
+    let if_configs = instance
+        .config
+        .as_ref()
+        .and_then(|config| config.network.as_ref())
+        .map(|config| config.interfaces.as_slice())
+        .unwrap_or_default();
+    let if_status = instance
+        .status
+        .as_ref()
+        .and_then(|status| status.network.as_ref())
+        .map(|status| status.interfaces.as_slice())
+        .unwrap_or_default();
+
+    if if_configs.is_empty() || if_status.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
+    } else if if_configs.len() != if_status.len() {
+        writeln!(&mut lines, "\tLENGTH MISMATCH")?;
     } else {
-        for (i, interface) in instance.interfaces.clone().into_iter().enumerate() {
+        for (i, interface) in if_configs.iter().enumerate() {
+            let status = &if_status[i];
             let data = &[
-                ("SN", i.to_string()),
-                ("ID", interface.id.clone().unwrap_or_default().to_string()),
                 (
-                    "Machine Interface Id",
-                    interface
-                        .machine_interface_id
-                        .clone()
-                        .unwrap_or_else(default_uuid)
-                        .to_string(),
+                    "FUNCTION_TYPE",
+                    forgerpc::InterfaceFunctionType::from_i32(interface.function_type)
+                        .map(|ty| format!("{:?}", ty))
+                        .unwrap_or_else(|| "INVALID".to_string()),
                 ),
                 (
-                    "Segment Id",
+                    "VF ID",
+                    status
+                        .virtual_function_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                ),
+                (
+                    "SEGMENT ID",
                     interface
                         .network_segment_id
                         .clone()
                         .unwrap_or_else(default_uuid)
                         .to_string(),
                 ),
-                (
-                    "VF Id",
-                    interface
-                        .vfid
-                        .map(|i| i.to_string())
-                        .unwrap_or_else(|| "None".to_string()),
-                ),
-                ("Addresses", interface.addresses.clone().join(", ")),
+                ("MAC ADDR", status.mac_address.clone().unwrap_or_default()),
+                ("ADDRESSES", status.addresses.clone().join(", ")),
             ];
 
             for (key, value) in data {
@@ -115,38 +178,54 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> String 
 
     table.add_row(row![
         "Id",
-        "Requested",
         "MachineId",
-        "MachineInterfaceId",
+        "TenantOrg",
+        "TenantState",
+        "ConfigsSynced",
         "IPAddresses",
     ]);
 
     for instance in instances.instances {
-        let mut instance_interfaces = instance
-            .interfaces
-            .into_iter()
-            .filter(|x| x.vfid.is_none())
-            .collect::<Vec<forgerpc::InstanceSubnet>>();
+        let tenant_org = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.tenant.as_ref())
+            .map(|tenant| tenant.tenant_org.clone())
+            .unwrap_or_default();
 
-        let (machine_interface, ipaddress) = if instance_interfaces.is_empty() {
-            ("None".to_string(), "None".to_string())
-        } else {
-            let ii = instance_interfaces.remove(0);
+        let tenant_state = instance
+            .status
+            .as_ref()
+            .and_then(|status| status.tenant.as_ref())
+            .and_then(|tenant| forgerpc::TenantState::from_i32(tenant.state))
+            .map(|state| format!("{:?}", state))
+            .unwrap_or_default();
 
-            (
-                ii.machine_interface_id
-                    .unwrap_or_else(default_uuid)
-                    .to_string(),
-                ii.addresses.join(","),
-            )
-        };
+        let configs_synced = instance
+            .status
+            .as_ref()
+            .and_then(|status| forgerpc::SyncState::from_i32(status.configs_synced))
+            .map(|state| format!("{:?}", state))
+            .unwrap_or_default();
+
+        let instance_addresses: Vec<&str> = instance
+            .status
+            .as_ref()
+            .and_then(|status| status.network.as_ref())
+            .map(|network| network.interfaces.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .filter(|x| x.virtual_function_id.is_none())
+            .flat_map(|status| status.addresses.iter().map(|addr| addr.as_str()))
+            .collect();
 
         table.add_row(row![
             instance.id.unwrap_or_default(),
-            instance.requested.unwrap_or_default(),
             instance.machine_id.unwrap_or_else(default_uuid),
-            machine_interface,
-            ipaddress
+            tenant_org,
+            tenant_state,
+            configs_synced,
+            instance_addresses.join(",")
         ]);
     }
 

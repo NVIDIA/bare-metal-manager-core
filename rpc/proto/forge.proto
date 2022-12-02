@@ -28,11 +28,17 @@ service Forge {
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
 
   // Manage instances on machines
-  rpc CreateInstance(Instance) returns (Instance);
-  rpc UpdateInstance(Instance) returns (Instance);
+  // Allocates a Machine as Instance for tenant, with the given configuration
+  rpc AllocateInstance(InstanceAllocationRequest) returns (Instance);
+  // Releases an instance that has been allocated by a tenant
+  rpc ReleaseInstance(InstanceReleaseRequest) returns (InstanceReleaseResult);
+  // Updates the network interface configuration for an instance
+  // The update will take effect asynchronously. Users should monitor `Instance.status.network_status.synced`
+  // to determine whether all updates have been applied.
+  // Note: This is commented because we will not immediately implement the method
+  // rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
   rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
   rpc FindInstanceByMachineID(UUID) returns (InstanceList);
-  rpc DeleteInstance(InstanceDeletionRequest) returns (InstanceDeletionResult);
 
   // INTERNAL: RPC method is used between Site Controller components,
   // and for testing
@@ -228,6 +234,10 @@ message VpcList {
   repeated Vpc vpcs = 1;
 }
 
+// Enumerates possible instance states from the view of a tenant
+// This is only a subset of total states that the instance might be in, and
+// excludes states that are used while the instance is not being allocated to
+// a tenant.
 enum TenantState {
   // The instance is currently getting provisioned for a tenant
   PROVISIONING = 0;
@@ -370,51 +380,194 @@ message InstanceList {
   repeated Instance instances = 1;
 }
 
+message InstanceAllocationRequest {
+  // The Machine on top of which we create an Instance
+  // If we go towards "we already have instances model", this would become more of a
+  // AssignInstanceToTenant request, and the ID would be the instance_id
+  UUID machine_id = 1;
+
+  // Desired configuration for the allocated instance
+  InstanceConfig config = 2;
+
+  // SSH keys are not part of `InstanceConfig` since they are secrets that are
+  // set once at instance allocation. They should not be reported in `Instance`
+  // which contains `InstanceConfig`.
+  // TODO: We might need to add changeInstanceSshKeys method if users want to
+  // update them at instance creation. But we can defer this until there is a
+  // customer need.
+  repeated string ssh_keys = 11;
+}
+
+// Tenant related configuration that is set once the instance is allocated
+// by a tenant
+message TenantConfig {
+  // Identifies the tenant that uses this instance
+  string tenant_org = 1;
+
+  // TODO: If we want to make those user-changeable, it might also be worthwhile to
+  // move them into a message `InstanceImageConfig` or something along that.
+  // Alternative is to instruct users to simply provision new images if they need
+  // a different image.
+  // In the model where `Instance`s also exist before being allocated by the user
+  // then this one has at least one state change - from being empty to being populated.
+  // We could also move all of this into a `message InstanceTenantConfig` to be
+  // able to get from empty to populated.
+  optional string user_data = 11;
+  string custom_ipxe = 12;
+}
+
+// Desired configuration for an instance
+message InstanceConfig {
+  // Tenant related configuation.
+  // This field can be absent if the instance has not yet been allocated by
+  // a tenant. On assignment, the config changes once. Due to the one-time
+  // change no version field is required.
+  TenantConfig tenant = 1;
+
+  // Configures instance networking configurations
+  InstanceNetworkConfig network = 11;
+}
+
+// Desired network configuration for an instance
+message InstanceNetworkConfig {
+  // Configures how instance network interfaces are set up
+  repeated InstanceInterfaceConfig interfaces = 1;
+
+  // The ID of security group that is attached to this instance.
+  // The configurations in this group apply to all interfaces on the instance.
+  // Note: This is commented because we will not supported setting these in the first
+  // release of the new Instance API
+  // optional UUID security_group_id = 4;
+}
+
+// New configuration for the instances network interfaces
+// This completely overwrites the existing interfaces, so it would be up on the caller
+// to make sure the new settings are consistent and old interfaces that should not be
+// touched are listed here again.
+// A change in any entry of `InstanceNetworkConfig::interface_configs` can be interpreted by
+// Forge as deleting the old interface and replacing it with a new interface.
+// Note: This is commented because we will not immediately implement the method
+// message InstanceNetworkConfigUpdateRequest {
+//   // The ID of the instance that should get an updated networking configuration
+//   UUID instance_id = 1;
+
+//   // If the field here is set, the update will only be applied if the version
+//   // is equivalent to the current network config version on the Forge Site.
+//   // If a concurrent update changed the site configuration, the API will return
+//   // a `ConcurrentModificationError`.
+//   optional string if_version_match = 2;
+
+//   // The updated instance network configuration
+//   InstanceNetworkConfig network_config = 3;
+// }
+
+// Current status of an instance
+message InstanceStatus {
+  // Status that is related to the tenant of the instance.
+  // In case no tenant has been assigned to this instance, the field would be absent.
+  optional InstanceTenantStatus tenant = 1;
+
+  // Note: There will be a separate state for the states
+  // that are only important for the site admin and forge team.
+  // That state is at the moment defined on `message Machine`, but might
+  // be carried over. It's outside of the scope of this change.
+
+  // Status of the networking subsystem of an instance
+  InstanceNetworkStatus network = 11;
+
+  // Whether all configurations related to an instance are in-sync.
+  // This is a logical AND for the settings of all sub-configurations.
+  // At this time it equals `InstanceNetworkStatus::configs_synced`,
+  // but might in the future also include readiness for other subsystems.
+  SyncState configs_synced = 101;
+}
+
+// State of the networking subsystem of an instance
+message InstanceNetworkStatus {
+  // Status for each configured interface
+  //
+  // Each entry in this status array maps to it's corresponding entry in the
+  // Config section. E.g. `instance.status.network.interface_status[1]`
+  // would map to `instance.config.network.interface_configs[1]`.
+  repeated InstanceInterfaceStatus interfaces = 1;
+
+  // Whether all desired network changes that the user has applied have taken effect
+  // This includes:
+  // - Whether `InstanceNetworkConfig` is of exactly the same version as the
+  //   version the user desires.
+  // - Whether the version of each security policy that is either directly referenced
+  //   as part of an `InstanceInterfaceConfig` or indirectly referenced via the
+  //   the security policies that are applied to the VPC or NetworkSegment
+  //   is exactly the same version as the version the user desires.
+  //
+  // Note for the implementation: We need to monitor all these config versions
+  // on the feedback path from DPU to carbide in order to know whether the
+  // changes have indeed taken effect.
+  // TODO: Do we also want to show all applied versios here, or just track them
+  // internally? Probably not helpfor for tenants at all - but it could be helpful
+  // for the Forge operating team to debug settings that to do do not go in-sync
+  // without having to attach to the database.
+  SyncState configs_synced = 101;
+}
+
+// Contains all information about an actively running instance
+// This entails both the instace configuration, as well as the current state of the instance
 message Instance {
+  // Instance ID
   UUID id = 1;
-  UUID segment_id = 2;
-  UUID machine_id = 3;
+  // The ID of the machine which is utilized for this Instance
+  UUID machine_id = 2;
 
-  optional string user_data = 4;
-  string custom_ipxe = 5;
+  // The desired configuration on the instance
+  InstanceConfig config = 103;
 
-  repeated string ssh_keys = 6;
+  // The most recent status of the instance that has been observed
+  InstanceStatus status = 104;
 
-  google.protobuf.Timestamp requested = 7;
-  google.protobuf.Timestamp started = 8;
-  google.protobuf.Timestamp finished = 9;
-
-  repeated InstanceSubnet interfaces = 10;
-  bool use_custom_pxe_on_boot = 11;
+  // Current version of the networking configuration that is applied on the instance
+  // This field can be used in InstanceNetworkConfigUpdateRequest::if_version_match
+  // to only request updates if the version hasn't been updated in between.
+  string network_config_version = 201;
 }
 
-message PhysicalFunction {}
-message VirtualFunction {
-  int32 vfid = 1;
-}
+// The configuration that a customer desires for an instances network interface
+message InstanceInterfaceConfig {
+  // Whether the user wants to create a physical or virtual function
+  InterfaceFunctionType function_type = 1;
 
-
-message InstanceSubnet {
-  UUID id = 1;
-  UUID machine_interface_id = 2;
+  // Network segment ID can change. It if changes - we require a new IP address
   UUID network_segment_id = 3;
-  optional UUID instance_id = 4;
-  optional int32 vfid = 5;
-  repeated string addresses = 6;
-  VpcResourceState state = 7;
-  repeated InstanceSubnetEvent events = 8;
-  repeated NetworkSegment network_segments = 9;
-   oneof interface_function {
-    PhysicalFunction pf = 10;
-    VirtualFunction  vf = 11;
-  }
+
+  // The ID of security group that is attached to this interface
+  // Note: This is commented because we will not supported setting these in the first
+  // release of the new Instance API
+  // optional UUID security_group_id = 4;
 }
 
-message InstanceDeletionRequest {
+// The actual status of a single network interface of an instance
+message InstanceInterfaceStatus {
+  // If the interface is defined as a virtual function (associated
+  // `InstanceInterfaceConfig.function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
+  // then this value is set and specifies the virtual function ID that is configured
+  // for this network interface.
+  optional uint32 virtual_function_id = 1;
+
+  // The MAC address which has been assigned to this interface
+  // The list will be empty if interface configuration hasn't been completed
+  // and therefore the address is unknown.
+  optional string mac_address = 2;
+
+  // The list of IP addresses that had been assigned to this interface,
+  // based on the requested subnet.
+  // The list will be empty if interface configuration hasn't been completed
+  repeated string addresses = 3;
+}
+
+message InstanceReleaseRequest {
   UUID id = 1;
 }
 
-message InstanceDeletionResult {
+message InstanceReleaseResult {
 }
 
 message MachineSearchQuery {
@@ -436,19 +589,39 @@ message InterfaceSearchQuery {
 
 message Machine {
   UUID id = 1;
-  optional UUID vpc_leaf_id = 2;
-  InstanceType supported_instance_type = 3;
 
   google.protobuf.Timestamp created = 4;
   google.protobuf.Timestamp updated = 5;
   google.protobuf.Timestamp deployed = 6;
 
+  // Note: These might change if ore lifecycle mention flows into `Instance`
   string state = 7;
-
   repeated MachineEvent events = 8;
+  // Note: This is not yet removed in this change to limit the amount of breaking
+  // changes at once - but users shouldn't rely on it. The actually interesting
+  // information around interfaces for Instance users is in `Instance::InstanceNetworkStatus`.
   repeated MachineInterface interfaces = 9;
 
+  // TODO: This field might actually move Instance since the discovered hardware
+  // could be different per lifecycle. When the machine is updated with different
+  // hardware and restarted, the data can change. The Instance would have the
+  // capability to store the actual discovery information for each lifecycle
   optional machine_discovery.DiscoveryInfo discovery_info = 10;
+}
+
+// The most recent tenant related status
+message InstanceTenantStatus {
+  // The current state of the instance from the point of view of the assigned tenant
+  TenantState state = 1;
+  // An optional message which can contain details about the state
+  string state_details = 2;
+}
+
+enum SyncState {
+  // All configuration changes that users requested have been applied
+  SYNCED = 0;
+  // At least one configuration change to an active instance has not yet been processed
+  PENDING = 1;
 }
 
 enum MachineArchitecture {

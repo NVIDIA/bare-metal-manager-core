@@ -114,7 +114,6 @@ impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
         rpc::Machine {
             id: Some(machine.id.into()),
-            vpc_leaf_id: machine.vpc_leaf_id.map(|v| v.into()),
             created: Some(Timestamp {
                 seconds: machine.created.timestamp(),
                 nanos: 0,
@@ -128,7 +127,6 @@ impl From<Machine> for rpc::Machine {
                 nanos: 0,
             }),
             state: machine.state.to_string(),
-            supported_instance_type: None,
             events: machine
                 .events
                 .into_iter()
