@@ -19,6 +19,9 @@ or
 ```
 cd $CARBIDE_ROOT_DIR/pxe && cargo make create-ephemeral-image && cargo make ipxe-x86_64
 ```
+or
+
+download pre-built artifacts - ideal if the `ipxe-x86_64` gives you errors. Extract latest [from Artifactory](https://urm.nvidia.com/ui/native/swngc-ngcc-generic-local/nvmetal/boot-artifacts/x86_64/) into `$CARBIDE_ROOT_DIR/pxe/static/blobs/internal/x86_64/` (you'll need to create the hierarchy).
 
 `build-boot-artifacts-x86_64` will also rebuild binaries that
 we package as part of the boot artifacts (like `carbide-cli`), while

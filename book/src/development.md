@@ -149,7 +149,12 @@ of complications in the C lib linking between the IDE and your system and frankl
 
 ## Next steps
 
-Setup a full local environment with docker-compose: [Docker workflow](docker/development.md)
+Setup a full local environment with docker-compose:
+- [Docker workflow](docker/development.md)
+
+Setup a QEMU host for your docker-compose services to manager:
+1. [Build iPXE image](ipxe/development.md)
+1. [Start QEMU server](vm_pxe_client.html)
 
 ## Other Workflows
 
@@ -157,6 +162,4 @@ If you are just getting started on Carbide you don't need these yet.
 
 [Kubernetes workflow](kubernetes/development.md) (STILL WIP but functional)
 
-[iPXE and bootable artifacts](bootable_artifacts.md)
-
-[iPXE image building workflow](ipxe/development.md)
+[iPXE and bootable artifacts](bootable_artifacts.md) (a bit broken, skip)
