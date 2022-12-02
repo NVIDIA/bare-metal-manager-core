@@ -52,21 +52,21 @@ fn convert_property_to_string<'a>(
     default_value: &'a str,
     device: &'a Device,
 ) -> CarbideClientResult<&'a str> {
-    return match device.property_value(name) {
-        None => match default_value.len() {
-            0 => Err(CarbideClientError::GenericError(format!(
+    match device.property_value(name) {
+        None => match default_value.is_empty() {
+            true => Err(CarbideClientError::GenericError(format!(
                 "Could not find property {}",
                 name
             ))),
-            _ => Ok(default_value),
+            false => Ok(default_value),
         },
-        Some(p) => p.to_str().ok_or_else(|| {
+        Some(p) => p.to_str().map(|s| s.trim()).ok_or_else(|| {
             CarbideClientError::GenericError(format!(
                 "Could not transform os string to string for property {}",
                 name
             ))
         }),
-    };
+    }
 }
 
 fn convert_sysattr_to_string<'a>(
@@ -74,21 +74,21 @@ fn convert_sysattr_to_string<'a>(
     default_value: &'a str,
     device: &'a Device,
 ) -> CarbideClientResult<&'a str> {
-    return match device.attribute_value(name) {
-        None => match default_value.len() {
-            0 => Err(CarbideClientError::GenericError(format!(
+    match device.attribute_value(name) {
+        None => match default_value.is_empty() {
+            true => Err(CarbideClientError::GenericError(format!(
                 "Could not find attribute {}",
                 name
             ))),
-            _ => Ok(default_value),
+            false => Ok(default_value),
         },
-        Some(p) => p.to_str().ok_or_else(|| {
+        Some(p) => p.to_str().map(|s| s.trim()).ok_or_else(|| {
             CarbideClientError::GenericError(format!(
                 "Could not transform os string to string for attribute {}",
                 name
             ))
         }),
-    };
+    }
 }
 
 // NUMA_NODE is not exposed in libudev but the full path to a device is.
