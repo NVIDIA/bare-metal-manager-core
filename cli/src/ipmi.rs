@@ -31,8 +31,8 @@ const PASSWORD_LEN: usize = 16;
 #[derive(Clone, Debug, Copy)]
 enum IpmitoolRoles {
     _Callback = 0x1,
-    User = 0x2,
-    Operator = 0x3,
+    _User = 0x2,
+    _Operator = 0x3,
     Administrator = 0x4,
     _OEMProprietary = 0x5,
     _NoAccess = 0xF,
@@ -41,9 +41,9 @@ enum IpmitoolRoles {
 impl fmt::Display for IpmitoolRoles {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let str_val = match self {
-            IpmitoolRoles::User => "user",
+            IpmitoolRoles::_User => "user",
             IpmitoolRoles::Administrator => "administrator",
-            IpmitoolRoles::Operator => "operator",
+            IpmitoolRoles::_Operator => "operator",
             _ => "noaccess",
         };
 
@@ -54,36 +54,15 @@ impl fmt::Display for IpmitoolRoles {
 impl IpmitoolRoles {
     fn convert(&self) -> Result<rpc::UserRoles, CarbideClientError> {
         match self {
-            IpmitoolRoles::User => Ok(rpc::UserRoles::User),
+            IpmitoolRoles::_User => Ok(rpc::UserRoles::User),
             IpmitoolRoles::Administrator => Ok(rpc::UserRoles::Administrator),
-            IpmitoolRoles::Operator => Ok(rpc::UserRoles::Operator),
+            IpmitoolRoles::_Operator => Ok(rpc::UserRoles::Operator),
             _ => Err(CarbideClientError::GenericError(
                 "Not implemented".to_string(),
             )),
         }
     }
 }
-
-#[derive(Clone, Debug)]
-struct UsersList {
-    user: &'static str,
-    role: IpmitoolRoles,
-}
-
-const USERS: [UsersList; 3] = [
-    UsersList {
-        user: "forge_admin",
-        role: IpmitoolRoles::Administrator,
-    },
-    UsersList {
-        user: "forge_user",
-        role: IpmitoolRoles::User,
-    },
-    UsersList {
-        user: "forge_operator",
-        role: IpmitoolRoles::Operator,
-    },
-];
 
 #[derive(Debug)]
 struct IpmiInfo {
@@ -323,55 +302,44 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     Ok(())
 }
 
-fn set_ipmi_creds(test_list: Option<&str>) -> CarbideClientResult<(Vec<IpmiInfo>, String)> {
+fn set_ipmi_creds(test_list: Option<&str>) -> CarbideClientResult<(IpmiInfo, String)> {
     let ip = fetch_ipmi_ip()?;
     let (mut free_users, existing_users) = fetch_ipmi_users_and_free_ids(test_list)?;
 
-    // first, we create users, if we need to.
-    let mut user_records = vec![];
+    // first, we create the root user, if we need to.
+    let root_user = if let Some(existing_user) = existing_users.get("root") {
+        // User already exists.
+        // Get Id
+        log::info!(
+            "User {} already exists. Only setting password and privileges.",
+            existing_user.name
+        );
+        existing_user.clone()
+    } else {
+        // Create user and get id.
+        if let Some(free_user) = free_users.pop_front() {
+            log::info!("Creating root user");
+            create_ipmi_user(free_user.id.as_str(), "root")?;
+            free_user
+        } else {
+            return Err(CarbideClientError::GenericError(
+                "Insufficient free ids to create root user".to_string(),
+            ));
+        }
+    };
 
-    for user_info in USERS.iter() {
-        user_records.push((
-            user_info,
-            if let Some(existing_user) = existing_users.get(&user_info.user.to_string()) {
-                // User already exists.
-                // Get Id
-                log::info!(
-                    "User {} already exists. Only setting password and privileges.",
-                    existing_user.name
-                );
-                existing_user.clone()
-            } else {
-                // Create user and get id.
-                if let Some(free_user) = free_users.pop_front() {
-                    log::info!("Creating user {}", user_info.user);
-                    create_ipmi_user(free_user.id.as_str(), user_info.user)?;
-                    free_user
-                } else {
-                    return Err(CarbideClientError::GenericError(format!(
-                        "Insufficient free ids to create user. Failed for user: {}",
-                        user_info.user
-                    )));
-                }
-            },
-        ));
-    }
+    // once we have the root user, set the password and the ipmi properties for it
+    let password = set_ipmi_password(&root_user.id)?;
+    set_ipmi_props(&root_user.id, IpmitoolRoles::Administrator)?;
 
-    let mut user_lists: Vec<IpmiInfo> = Vec::new();
-
-    // once we have the users, we set their passwords.
-    for (user_info, user_record) in user_records.iter() {
-        let password = set_ipmi_password(&user_record.id)?;
-        set_ipmi_props(&user_record.id, user_info.role)?;
-
-        user_lists.push(IpmiInfo {
-            user: user_info.user.to_string(),
-            role: user_info.role,
+    Ok((
+        IpmiInfo {
+            user: "root".to_string(),
+            role: IpmitoolRoles::Administrator,
             password,
-        })
-    }
-
-    Ok((user_lists, ip))
+        },
+        ip,
+    ))
 }
 
 pub async fn update_ipmi_creds(
@@ -385,7 +353,8 @@ pub async fn update_ipmi_creds(
     wait_until_ipmi_is_ready().await?;
 
     let (ipmi_info, ip) = set_ipmi_creds(None)?;
-    let bmc_metadata: rpc::BmcMetaDataUpdateRequest = IpmiInfo::convert(ipmi_info, machine_id, ip)?;
+    let bmc_metadata: rpc::BmcMetaDataUpdateRequest =
+        IpmiInfo::convert(vec![ipmi_info], machine_id, ip)?;
 
     let mut client = rpc::forge_client::ForgeClient::connect(forge_api).await?;
     let request = tonic::Request::new(bmc_metadata);
@@ -432,11 +401,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_ipmi_cred() {
-        let (responses, ip) = set_ipmi_creds(Some("test/user_list.csv")).unwrap();
+        let (response, ip) = set_ipmi_creds(Some("test/user_list.csv")).unwrap();
         assert_eq!(&ip, EXPECTED_IP);
-        for response in responses {
-            assert_eq!(response.password.len(), PASSWORD_LEN);
-        }
+        assert_eq!(response.password.len(), PASSWORD_LEN);
     }
 
     #[tokio::test]

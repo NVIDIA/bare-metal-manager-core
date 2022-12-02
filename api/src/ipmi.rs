@@ -274,12 +274,12 @@ impl IpmiCommand {
             .await
     }
     pub async fn power_cycle(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(SystemPowerControl::GracefulRestart)
+        self.update_action(SystemPowerControl::PowerCycle)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_reset(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(SystemPowerControl::PowerCycle)
+        self.update_action(SystemPowerControl::GracefulRestart)
             .launch_command(pool.clone())
             .await
     }
