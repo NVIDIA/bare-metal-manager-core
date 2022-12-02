@@ -200,6 +200,7 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
             CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
             CarbideError::MissingArgument(msg) => Status::invalid_argument(msg),
+            CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
             error @ CarbideError::ConcurrentModificationError(_, _) => {
                 Status::failed_precondition(error.to_string())
             }
