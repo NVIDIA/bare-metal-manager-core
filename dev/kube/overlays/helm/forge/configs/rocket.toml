@@ -1,7 +1,9 @@
 [default]
 address = "0.0.0.0"
-carbide_api_url = "http://10.23.138.62:22079"
-carbide_pxe_url = "http://10.23.138.62:8080"
+carbide_api_url = "http://carbide-carbide-api-http:12079"
+
+# TODO(ajf): No MetalLB so we have to point this at just one of the nodes
+carbide_pxe_url = "http://10.180.248.29:8080"
 carbide_ntp_server = "10.23.138.62"
 port = 8000
 

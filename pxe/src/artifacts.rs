@@ -310,14 +310,31 @@ where
         .join(arch_string)
 }
 
+pub enum ArtifactVerificationResult {
+    Verified {
+        path: String,
+        hash: String,
+    },
+    CompareHashFailed {
+        path: String,
+        expected_hash: String,
+        actual_hash: String,
+    },
+    CalculateHashFailed {
+        path: String,
+    },
+}
+
 pub fn validate_artifact<P>(required_artifact_path: P, artifact: &Artifact) -> bool
 where
     P: AsRef<Path>,
 {
     let path = get_full_artifact_path(artifact, required_artifact_path);
-    for (file_name, checksum) in artifact.checksums.iter() {
+
+    artifact.checksums.iter().map(|(file_name, checksum)| {
         let mut hasher = Sha256::new();
-        match fs::File::open(path.join(file_name)) {
+        let full_artifact_path = path.join(file_name);
+        match fs::File::open(&full_artifact_path) {
             Ok(mut file) => {
                 match io::copy(&mut file, &mut hasher) {
                     Ok(_bytes_written) => {
@@ -325,13 +342,13 @@ where
                         let hex_hash = hex::encode(hash_bytes);
 
                         if hex_hash.as_str() == checksum.as_str() {
-                            continue; //valid file
+                            ArtifactVerificationResult::Verified { path: file_name.clone(), hash: hex_hash }
                         } else {
                             eprintln!(
                                 "artifact file checksum mismatch! file_name: {} expected: {} actual: {}",
                                 file_name, checksum, hex_hash
                             );
-                            return false;
+                            ArtifactVerificationResult::CompareHashFailed { path: full_artifact_path.to_string_lossy().into(), expected_hash: hex_hash, actual_hash: checksum.clone() }
                         }
                     }
                     Err(error) => {
@@ -339,7 +356,8 @@ where
                             "unable to calculate hash for artifact file: {} with error: {:?}",
                             file_name, error
                         );
-                        return false;
+
+                        ArtifactVerificationResult::CalculateHashFailed { path: full_artifact_path.to_string_lossy().into() }
                     }
                 }
             }
@@ -348,10 +366,8 @@ where
                     "unable to open artifact file: {} with error: {:?}",
                     file_name, error
                 );
-                return false;
+                ArtifactVerificationResult::CalculateHashFailed { path: full_artifact_path.to_string_lossy().into() }
             }
         }
-    }
-
-    true
+    }).collect::<Vec<ArtifactVerificationResult>>().iter().all(|item| matches!(item, ArtifactVerificationResult::Verified { path: _, hash: _ }) )
 }
