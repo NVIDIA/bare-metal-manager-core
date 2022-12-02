@@ -207,6 +207,9 @@ where
             }
         };
 
+        // TODO: This needs to validate that nothing references the domain anymore
+        // (like NetworkSegments)
+
         let response = Ok(dom
             .delete(&mut txn)
             .await
@@ -310,6 +313,9 @@ where
             .begin()
             .await
             .map_err(CarbideError::from)?;
+
+        // TODO: This needs to validate that nothing references the VPC anymore
+        // (like NetworkSegments)
 
         let response = Ok(DeleteVpc::try_from(request.into_inner())?
             .delete(&mut txn)

@@ -25,10 +25,8 @@ use uuid::Uuid;
 use ::rpc::forge as rpc;
 use ::rpc::Timestamp;
 
-use crate::db::domain::Domain;
 use crate::db::machine_interface::MachineInterface;
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use crate::db::vpc::Vpc;
 use crate::model::config_version::ConfigVersion;
 use crate::{db::UuidKeyedObjectFilter, CarbideError, CarbideResult};
 
@@ -328,7 +326,7 @@ impl NetworkSegment {
 
         self.state = Some(if prefixes.iter().any(|x| x.circuit_id.is_none()) {
             // At least one prefix is present with empty circuit id.
-            TenantState::Configuring
+            TenantState::Provisioning
         } else {
             // Not even a one prefix found with null circuit id. This means ResourceGroupd creation
             // is successful.
@@ -446,34 +444,6 @@ impl NetworkSegment {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-        if let Some(vpc_uuid) = self.vpc_id {
-            let vpc_list = Vpc::find(txn, UuidKeyedObjectFilter::One(vpc_uuid)).await?;
-            if !vpc_list.is_empty() {
-                if let Some(vpc) = vpc_list.first() {
-                    if vpc.deleted.is_none() {
-                        return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
-                            "Network Segment can't be deleted with associated VPC".to_string(),
-                        ));
-                    };
-                }
-            }
-        };
-
-        if let Some(subdomain_uuid) = self.subdomain_id() {
-            let domain_list =
-                Domain::find(txn, UuidKeyedObjectFilter::One(*subdomain_uuid)).await?;
-            if !domain_list.is_empty() {
-                if let Some(dom) = domain_list.first() {
-                    if dom.deleted.is_none() {
-                        return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
-                            "Network Segment can't be deleted with associated subdomain"
-                                .to_string(),
-                        ));
-                    }
-                }
-            }
-        }
-
         let machine_interfaces = MachineInterface::find_by_segment_id(txn, self.id()).await;
         if let Ok(machine_interfaces) = machine_interfaces {
             if !machine_interfaces.is_empty() {
@@ -489,6 +459,10 @@ impl NetworkSegment {
         .bind(self.id)
         .fetch_one(&mut *txn)
         .await?;
+
+        // TODO: We also can't delete network segments while there are instances
+        // attached. Or at least we can't full remove it from the DB, and just it's
+        // status to TERMINATING
 
         Ok(segment)
     }
