@@ -22,6 +22,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.MachineInterface", "#[derive(serde::Serialize)]")
         .type_attribute("forge.UUID", "#[derive(serde::Serialize)]")
         .type_attribute(".machine_discovery", "#[derive(serde::Deserialize)]")
+        .type_attribute(
+            "forge.InstanceInterfaceConfig",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute("forge.InstanceNetworkConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.TenantConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceConfig", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.InstanceInterfaceStatus",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute("forge.InstanceNetworkStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceTenantStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.Instance", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceList", "#[derive(serde::Serialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

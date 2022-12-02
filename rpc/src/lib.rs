@@ -29,10 +29,13 @@ use serde::Serialize;
 
 pub use crate::protos::forge::{
     self, machine_credentials_update_request::CredentialPurpose,
-    machine_discovery_info::DiscoveryData, Domain, Instance, InstanceInterfaceStatusObservation,
-    InstanceList, InstanceNetworkStatusObservation, InstanceSubnet, InterfaceFunctionType, Machine,
-    MachineAction, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent, MachineInterface,
-    MachineList, ObservedInstanceNetworkStatusRecordResult, Uuid,
+    machine_discovery_info::DiscoveryData, Domain, Instance, InstanceAllocationRequest,
+    InstanceConfig, InstanceInterfaceConfig, InstanceInterfaceStatus,
+    InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
+    InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
+    InterfaceFunctionType, Machine, MachineAction, MachineCleanupInfo, MachineDiscoveryInfo,
+    MachineEvent, MachineInterface, MachineList, ObservedInstanceNetworkStatusRecordResult,
+    SyncState, TenantConfig, TenantState, Uuid,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiDevice, NetworkInterface, NvmeDevice,
@@ -127,68 +130,12 @@ impl Serialize for Machine {
         let mut state = serializer.serialize_struct("Machine", 7)?;
 
         state.serialize_field("id", &self.id)?;
-        //state.serialize_field("supported_instance_type", &self.supported_instance_type)?;
         state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
         state.serialize_field("updated", &self.updated.as_ref().map(|ts| ts.seconds))?;
         state.serialize_field("deployed", &self.deployed.as_ref().map(|ts| ts.seconds))?;
         state.serialize_field("state", &self.state)?;
         state.serialize_field("events", &self.events)?;
         state.serialize_field("interfaces", &self.interfaces)?;
-
-        state.end()
-    }
-}
-
-impl Serialize for Instance {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("Instance", 10)?;
-
-        state.serialize_field("id", &self.id)?;
-        state.serialize_field("segment_id", &self.segment_id)?;
-        state.serialize_field("machine_id", &self.machine_id)?;
-        state.serialize_field("user_data", &self.user_data)?;
-        state.serialize_field("custome_ipxe", &self.custom_ipxe)?;
-        state.serialize_field("ssh_keys", &self.ssh_keys)?;
-
-        state.serialize_field("requested", &self.requested.as_ref().map(|ts| ts.seconds))?;
-        state.serialize_field("started", &self.started.as_ref().map(|ts| ts.seconds))?;
-        state.serialize_field("finished", &self.finished.as_ref().map(|ts| ts.seconds))?;
-
-        state.serialize_field("interfaces", &self.interfaces)?;
-
-        state.end()
-    }
-}
-
-impl Serialize for InstanceList {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("InstanceList", 1)?;
-
-        state.serialize_field("instances", &self.instances)?;
-
-        state.end()
-    }
-}
-
-impl Serialize for InstanceSubnet {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("InstanceSubnet", 6)?;
-
-        state.serialize_field("id", &self.id)?;
-        state.serialize_field("machine_interface_id", &self.machine_interface_id)?;
-        state.serialize_field("network_segment_id", &self.network_segment_id)?;
-        state.serialize_field("instance_id", &self.instance_id)?;
-        state.serialize_field("vfid", &self.vfid)?;
-        state.serialize_field("addresses", &self.addresses)?;
 
         state.end()
     }

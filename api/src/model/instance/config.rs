@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     instance::config::{network::InstanceNetworkConfig, tenant::TenantConfig},
-    ConfigValidationError,
+    ConfigValidationError, RpcDataConversionError,
 };
 
 /// Instance configuration
@@ -37,6 +37,41 @@ pub struct InstanceConfig {
     /// Configures instance networking
     #[serde(default)]
     pub network: InstanceNetworkConfig,
+}
+
+impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
+    type Error = RpcDataConversionError;
+
+    fn try_from(config: rpc::InstanceConfig) -> Result<Self, Self::Error> {
+        let tenant = match config.tenant {
+            Some(tenant) => Some(TenantConfig::try_from(tenant)?),
+            None => None,
+        };
+
+        let network = InstanceNetworkConfig::try_from(config.network.ok_or(
+            RpcDataConversionError::MissingArgument("InstanceConfig::network"),
+        )?)?;
+
+        Ok(InstanceConfig { tenant, network })
+    }
+}
+
+impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
+    type Error = RpcDataConversionError;
+
+    fn try_from(config: InstanceConfig) -> Result<rpc::InstanceConfig, Self::Error> {
+        let tenant = match config.tenant {
+            Some(tenant) => Some(rpc::TenantConfig::try_from(tenant)?),
+            None => None,
+        };
+
+        let network = rpc::InstanceNetworkConfig::try_from(config.network)?;
+
+        Ok(rpc::InstanceConfig {
+            tenant,
+            network: Some(network),
+        })
+    }
 }
 
 impl InstanceConfig {

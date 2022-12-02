@@ -12,7 +12,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{config_version::Versioned, instance::config::network::InstanceNetworkConfig};
+use crate::model::{
+    config_version::Versioned, instance::config::network::InstanceNetworkConfig,
+    RpcDataConversionError,
+};
 
 pub mod network;
 pub mod tenant;
@@ -36,6 +39,18 @@ pub struct InstanceStatus {
     pub configs_synced: SyncState,
 }
 
+impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
+    type Error = RpcDataConversionError;
+
+    fn try_from(status: InstanceStatus) -> Result<Self, Self::Error> {
+        Ok(rpc::InstanceStatus {
+            tenant: status.tenant.map(|status| status.try_into()).transpose()?,
+            network: Some(status.network.try_into()?),
+            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
+        })
+    }
+}
+
 impl InstanceStatus {
     /// Derives an Instances network status from the users desired config
     /// and status that we observed from the networking subsystem.
@@ -49,25 +64,32 @@ impl InstanceStatus {
         network_config: Versioned<&InstanceNetworkConfig>,
         observations: &InstanceStatusObservations,
     ) -> Self {
-        // TODO: Implement tenant state properly
-        //
-        // While we currently know whether the tenants desired config has been met
-        // or not (`configs_synced`), and could switch the state to `Provisioning`
-        // or `Configuring` based on that, we don't know yet whether the instance
-        // ever was ready and therefore not which of those 2 states we are in.
-        // Therefore we just always return `Ready` for the moment, which makes
-        // us at least not go back from `Ready` to `Provisioning`
-        let tenant = tenant::InstanceTenantStatus {
-            state: tenant::TenantState::Ready,
-            state_details: String::new(),
-        };
-
         let network = network::InstanceNetworkStatus::from_config_and_observation(
             network_config,
             observations.network.as_ref(),
         );
         // If additional configs are added, they need to be incorporated here
         let configs_synced = network.configs_synced;
+
+        // TODO: Implement tenant state properly
+        //
+        // The current implementation is an approximation, and only works because
+        // the only time the network status changes is after the managed resource
+        // becomes ready. This is the only time we observe the network status,
+        // and can therefore get from `Provisioning` to `Ready`.
+        // If we would observe the state more often, using the same logic could
+        // however make us go back from a `Ready` state to a `Provisioning` state.
+        // This would be wrong - it needs to be `Configuring` instead. To fix this,
+        // we need an additional persisted flag that tracks whether the instance
+        // has ever been `Ready`. We don't have this yet, so we can't provide the
+        // better implementation.
+        let tenant = tenant::InstanceTenantStatus {
+            state: match configs_synced {
+                SyncState::Synced => tenant::TenantState::Ready,
+                SyncState::Pending => tenant::TenantState::Provisioning,
+            },
+            state_details: String::new(),
+        };
 
         Self {
             tenant: Some(tenant),
@@ -84,6 +106,17 @@ pub enum SyncState {
     Synced,
     // At least one configuration change to an active instance has not yet been processed
     Pending,
+}
+
+impl TryFrom<SyncState> for rpc::SyncState {
+    type Error = RpcDataConversionError;
+
+    fn try_from(state: SyncState) -> Result<Self, Self::Error> {
+        Ok(match state {
+            SyncState::Synced => rpc::SyncState::Synced,
+            SyncState::Pending => rpc::SyncState::Pending,
+        })
+    }
 }
 
 /// Contains all reports we have about the current instances state

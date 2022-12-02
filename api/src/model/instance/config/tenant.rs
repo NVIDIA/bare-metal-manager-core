@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::ConfigValidationError;
+use crate::model::{ConfigValidationError, RpcDataConversionError};
 
 /// Identifies a forge tenant
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +80,31 @@ pub struct TenantConfig {
     /// iPXE user data
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_data: Option<String>,
+}
+
+impl TryFrom<rpc::TenantConfig> for TenantConfig {
+    type Error = RpcDataConversionError;
+
+    fn try_from(config: rpc::TenantConfig) -> Result<Self, Self::Error> {
+        Ok(Self {
+            tenant_org: TenantOrg::try_from(config.tenant_org.clone())
+                .map_err(|_| RpcDataConversionError::InvalidTenantOrg(config.tenant_org))?,
+            custom_ipxe: config.custom_ipxe,
+            user_data: config.user_data,
+        })
+    }
+}
+
+impl TryFrom<TenantConfig> for rpc::TenantConfig {
+    type Error = RpcDataConversionError;
+
+    fn try_from(config: TenantConfig) -> Result<rpc::TenantConfig, Self::Error> {
+        Ok(Self {
+            tenant_org: config.tenant_org.to_string(),
+            custom_ipxe: config.custom_ipxe,
+            user_data: config.user_data,
+        })
+    }
 }
 
 impl TenantConfig {

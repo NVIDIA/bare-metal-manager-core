@@ -13,7 +13,6 @@ use ipnetwork::IpNetwork;
 use rust_fsm::StateMachine;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 
-use ::rpc::forge as rpc;
 use ::rpc::VpcResourceStateMachine;
 use ::rpc::VpcResourceStateMachineInput;
 
@@ -39,7 +38,6 @@ pub struct InstanceSubnet {
     instance_id: uuid::Uuid,
     vf_id: InterfaceFunctionId,
     addresses: Vec<InstanceSubnetAddress>,
-    state: VpcResourceState,
     events: Vec<InstanceSubnetEvent>,
     network_segments: Vec<NetworkSegment>,
 }
@@ -65,65 +63,9 @@ impl<'r> FromRow<'r, PgRow> for InstanceSubnet {
             instance_id: row.try_get("instance_id")?,
             vf_id,
             addresses: Vec::new(),
-            state: VpcResourceState::Init,
             events: Vec::new(),
             network_segments: Vec::new(),
         })
-    }
-}
-
-impl From<InstanceSubnet> for rpc::InstanceSubnet {
-    fn from(instance_subnet: InstanceSubnet) -> Self {
-        let id = instance_subnet.id;
-
-        // This is not the best solution, but enough to move on.
-        // This file will be removed in future release.
-        let subnets = instance_subnet
-            .network_segments
-            .into_iter()
-            .map(|x| x.try_into())
-            .collect::<Result<Vec<_>, CarbideError>>()
-            .unwrap_or_else(|err| {
-                log::error!(
-                    "Segment conversion failed for subnet: {}, error: {}",
-                    id,
-                    err
-                );
-                Vec::new()
-            });
-
-        rpc::InstanceSubnet {
-            id: Some(instance_subnet.id.into()),
-            machine_interface_id: Some(instance_subnet.machine_interface_id.into()),
-            network_segment_id: Some(instance_subnet.network_segment_id.into()),
-            instance_id: Some(instance_subnet.instance_id.into()),
-            vfid: match instance_subnet.vf_id {
-                InterfaceFunctionId::PhysicalFunctionId {} => None,
-                InterfaceFunctionId::VirtualFunctionId { id } => Some(id as i32),
-            },
-            addresses: instance_subnet
-                .addresses
-                .iter()
-                .map(|addr| addr.address.to_string())
-                .collect(),
-            state: Some(instance_subnet.state.into()),
-            events: instance_subnet
-                .events
-                .into_iter()
-                .map(|e| e.into())
-                .collect(),
-            network_segments: subnets,
-            interface_function: Some(match instance_subnet.vf_id {
-                InterfaceFunctionId::PhysicalFunctionId {} => {
-                    rpc::instance_subnet::InterfaceFunction::Pf(::rpc::forge::PhysicalFunction {})
-                }
-                InterfaceFunctionId::VirtualFunctionId { id } => {
-                    rpc::instance_subnet::InterfaceFunction::Vf(::rpc::forge::VirtualFunction {
-                        vfid: id as i32,
-                    })
-                }
-            }),
-        }
     }
 }
 

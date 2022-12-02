@@ -12,6 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::RpcDataConversionError;
+
 /// The most recent tenant related status
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceTenantStatus {
@@ -19,6 +21,17 @@ pub struct InstanceTenantStatus {
     pub state: TenantState,
     /// An optional message which can contain details about the state
     pub state_details: String,
+}
+
+impl TryFrom<InstanceTenantStatus> for rpc::InstanceTenantStatus {
+    type Error = RpcDataConversionError;
+
+    fn try_from(state: InstanceTenantStatus) -> Result<Self, Self::Error> {
+        Ok(rpc::InstanceTenantStatus {
+            state: rpc::TenantState::try_from(state.state)? as i32,
+            state_details: state.state_details,
+        })
+    }
 }
 
 /// Enumerates possible instance states from the view of a tenant
@@ -44,6 +57,21 @@ pub enum TenantState {
     /// an instance might enter a FAILED state before even fully activating, in case
     /// activation failed.
     Failed,
+}
+
+impl TryFrom<TenantState> for rpc::TenantState {
+    type Error = RpcDataConversionError;
+
+    fn try_from(state: TenantState) -> Result<Self, Self::Error> {
+        Ok(match state {
+            TenantState::Provisioning => rpc::TenantState::Provisioning,
+            TenantState::Ready => rpc::TenantState::Ready,
+            TenantState::Configuring => rpc::TenantState::Configuring,
+            TenantState::Terminating => rpc::TenantState::Terminating,
+            TenantState::Terminated => rpc::TenantState::Terminated,
+            TenantState::Failed => rpc::TenantState::Failed,
+        })
+    }
 }
 
 #[cfg(test)]

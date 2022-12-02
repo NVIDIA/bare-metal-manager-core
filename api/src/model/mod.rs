@@ -46,6 +46,14 @@ pub enum RpcDataConversionError {
     InvalidConfigVersion(String),
     #[error("Timestamp {0} is not valid")]
     InvalidTimestamp(String),
+    #[error("Tenant Org {0} is not valid")]
+    InvalidTenantOrg(String),
+    #[error("Interface Function Type {0} is not valid")]
+    InvalidInterfaceFunctionType(i32),
+    #[error("Invalid UUID for field {0}")]
+    InvalidUuid(&'static str),
+    #[error("Argument {0} is missing")]
+    MissingArgument(&'static str),
 }
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`

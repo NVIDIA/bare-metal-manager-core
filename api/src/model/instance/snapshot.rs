@@ -16,6 +16,7 @@ use crate::model::{
         config::InstanceConfig,
         status::{InstanceStatus, InstanceStatusObservations},
     },
+    RpcDataConversionError,
 };
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +41,22 @@ pub struct InstanceSnapshot {
 
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
+}
+
+impl TryFrom<InstanceSnapshot> for rpc::Instance {
+    type Error = RpcDataConversionError;
+
+    fn try_from(snapshot: InstanceSnapshot) -> Result<Self, Self::Error> {
+        let status = snapshot.derive_status();
+
+        Ok(rpc::Instance {
+            id: Some(snapshot.instance_id.into()),
+            machine_id: Some(snapshot.machine_id.into()),
+            config: Some(snapshot.config.try_into()?),
+            status: Some(status.try_into()?),
+            network_config_version: snapshot.network_config_version.to_version_string(),
+        })
+    }
 }
 
 impl InstanceSnapshot {
