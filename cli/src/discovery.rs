@@ -23,6 +23,12 @@ use cli::{CarbideClientError, CarbideClientResult};
 
 mod tpm;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum CpuArchitecture {
+    Aarch64,
+    X86_64,
+}
+
 pub struct Discovery {}
 
 fn convert_udev_to_mac(udev: String) -> CarbideClientResult<String> {
@@ -129,9 +135,17 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> CarbideClientResult<i32
 pub fn get_machine_details(
     context: &Context,
     machine_interface_id: uuid::Uuid,
-) -> CarbideClientResult<rpc::MachineDiscoveryInfo> {
+) -> CarbideClientResult<(rpc::MachineDiscoveryInfo, CpuArchitecture)> {
     // uname to detect type
     let info = uname().map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+    let arch = match info.machine.as_str() {
+        "aarch64" => Ok(CpuArchitecture::Aarch64),
+        "x86_64" => Ok(CpuArchitecture::X86_64),
+        invalid => Err(CarbideClientError::GenericError(format!(
+            "could not find valid architecture from given arch: {invalid}"
+        ))),
+    }?;
+
     log::debug!("{:?}", info);
     // Nics
     let mut enumerator = libudev::Enumerator::new(context)
@@ -230,8 +244,8 @@ pub fn get_machine_details(
     let mut cpus: Vec<rpc_discovery::Cpu> = Vec::new();
     for cpu_num in 0..cpu_info.num_cores() {
         log::debug!("{:?}", cpu_info.get_info(cpu_num));
-        match info.machine.as_str() {
-            "aarch64" => {
+        match arch {
+            CpuArchitecture::Aarch64 => {
                 cpus.push(rpc_discovery::Cpu {
                     vendor: cpu_info
                         .get_info(cpu_num)
@@ -266,7 +280,7 @@ pub fn get_machine_details(
                     node: 2,
                 });
             }
-            "x86_64" => {
+            CpuArchitecture::X86_64 => {
                 cpus.push(rpc_discovery::Cpu {
                     vendor: cpu_info
                         .vendor_id(cpu_num)
@@ -312,12 +326,6 @@ pub fn get_machine_details(
                         })?,
                     node: 0,
                 });
-            }
-            a => {
-                return Err(CarbideClientError::GenericError(format!(
-                    "Could not find a valid architecture: {}",
-                    a
-                )))
             }
         }
     }
@@ -457,26 +465,29 @@ pub fn get_machine_details(
         log::debug!("TPM EK certificate (base64): {}", cert);
     }
 
-    Ok(rpc::MachineDiscoveryInfo {
-        machine_interface_id: Some(machine_interface_id.into()),
-        discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
-            rpc_discovery::DiscoveryInfo {
-                network_interfaces: nics,
-                cpus,
-                block_devices: disks,
-                nvme_devices: nvmes,
-                dmi_devices: dmis,
-                machine_type: info.machine.as_str().to_owned(),
-                tpm_ek_certificate,
-            },
-        )),
-    })
+    Ok((
+        rpc::MachineDiscoveryInfo {
+            machine_interface_id: Some(machine_interface_id.into()),
+            discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
+                rpc_discovery::DiscoveryInfo {
+                    network_interfaces: nics,
+                    cpus,
+                    block_devices: disks,
+                    nvme_devices: nvmes,
+                    dmi_devices: dmis,
+                    machine_type: info.machine.as_str().to_owned(),
+                    tpm_ek_certificate,
+                },
+            )),
+        },
+        arch,
+    ))
 }
 
 impl Discovery {
     pub async fn run(forge_api: &str, machine_interface_id: uuid::Uuid) -> CarbideClientResult<()> {
         let context = libudev::Context::new().map_err(CarbideClientError::from)?;
-        let info = get_machine_details(&context, machine_interface_id)?;
+        let (info, architecture) = get_machine_details(&context, machine_interface_id)?;
         let mut client = rpc::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
         let request = tonic::Request::new(info);
 
@@ -505,8 +516,14 @@ impl Discovery {
         if let Err(err) = crate::users::create_users(forge_api.to_string(), machine_id).await {
             log::error!("Error while setting up users. {}", err.to_string());
         }
-        if let Err(err) = crate::ipmi::update_ipmi_creds(forge_api.to_string(), machine_id).await {
-            log::error!("Error while setting up IPMI. {}", err.to_string());
+        //Note: We're intentionally not doing this for Aarch64 (DPUs) because losing the root password for those is ... not fun.
+        //And because we're not using IPMI on them, so it's a risk not worth taking right now.  Maybe revisit later.
+        if architecture == CpuArchitecture::X86_64 {
+            if let Err(err) =
+                crate::ipmi::update_ipmi_creds(forge_api.to_string(), machine_id).await
+            {
+                log::error!("Error while setting up IPMI. {}", err.to_string());
+            }
         }
 
         log::info!("successfully discovered machine with ID {machine_id} for interface {machine_interface_id}");
