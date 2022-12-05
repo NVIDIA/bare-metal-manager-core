@@ -13,9 +13,18 @@ For a list env vars we predefine look at
 ## Local environment prep
 
 1. Install rust by following directions [here](https://www.rust-lang.org/tools/install)
+
+    Make sure you have a C++ compiler:
+
+    Arch - ```sudo pacman -S base-devel```
+
+    Debian - ```sudo apt-get -y install build-essential```
+
+    Fedora - ```sudo dnf -y install gcc-c++ systemd-devel``` (systemd-devel needed for libudev-devel)
+
 2. Install additional cargo utilities
 
-    ```cargo install cargo-watch cargo-make sccache```
+    ```cargo install cargo-watch cargo-make sccache mdbook mdbook-mermaid```
 3. Install docker following these [directions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), then add yourself to the docker group: `sudo usermod -aG docker $USER` (otherwise you have to always `sudo docker`).
 4. Install docker-compose using your system package manager
 
@@ -65,11 +74,11 @@ For a list env vars we predefine look at
 11. Install golang using whatever method is most convient for you.  `forge-vpc` (which is in a subtree of the `forge-provisioner` repo uses golang)
 12. Install GRPC client `grpcurl`.
 
-	Arch - ```sudo pacman -S grpcurl```
+    Arch - ```sudo pacman -S grpcurl```
 
     Debian/Ubuntu/Others - [Get latest release from github](https://github.com/fullstorydev/grpcurl/releases)
 
-	Fedora - ```sudo dnf install grpcurl```
+    Fedora - ```sudo dnf install grpcurl```
 
 13. Additionally, ```prost-build``` needs access to the protobuf compiler to parse proto files (it doesn't implement it's own parser).
 
@@ -77,7 +86,7 @@ For a list env vars we predefine look at
 
     Debian - ```sudo apt-get install -y protobuf-compiler```
 
-    Fedora - ```sudo dnf install -y protobuf```
+    Fedora - ```sudo dnf install -y protobuf protobuf-devel```
 
 14. Install 'jq' from system package manager
 
@@ -107,10 +116,16 @@ For a list env vars we predefine look at
 
 18. Login to gitlab Docker registry. You will need to be authenticated to fetch our build container, which some `cargo make` commands use.
 
-	Create a gitlab [Personal Access Token](https://gitlab-master.nvidia.com/-/profile/personal_access_tokens) at that link with 'api'
-	scope (less might work).
+    Create a gitlab [Personal Access Token](https://gitlab-master.nvidia.com/-/profile/personal_access_tokens) at that link with 'api'
+    scope (less might work).
 
-	From the command line: `docker login gitlab-master.nvidia.com:5005`. Use your NVIDIA username and the access token as password.
+    From the command line: `docker login gitlab-master.nvidia.com:5005`. Use your NVIDIA username and the access token as password.
+
+19. Build the book locally
+
+    ```cargo make book```
+
+    Then bookmark `file:///$REPO_ROOT/public/index.html`.
 
 ## Checking your setup / Running Unit Tests
 

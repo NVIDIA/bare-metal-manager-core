@@ -97,7 +97,7 @@ You should execute the following stanza prior to bringing up docker-compose for 
 
 ```
 mkdir $HOME/docker_cargo_home
-rustup target add x86_64-unknown-linux-musl
+rustup target add x86_64-unknown-linux-musl # make sure you're in REPO_ROOT when you run this
 CARGO_HOME=$HOME/docker_cargo_home cargo install cargo-watch --target x86_64-unknown-linux-musl
 ```
 
