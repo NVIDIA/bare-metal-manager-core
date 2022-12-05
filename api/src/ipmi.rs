@@ -279,7 +279,7 @@ impl IpmiCommand {
             .await
     }
     pub async fn power_reset(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(SystemPowerControl::GracefulRestart)
+        self.update_action(SystemPowerControl::ForceRestart)
             .launch_command(pool.clone())
             .await
     }
