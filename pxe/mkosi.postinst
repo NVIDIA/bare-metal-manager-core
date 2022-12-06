@@ -12,6 +12,14 @@ mkdir -p $tmpdir
 cd $tmpdir
 softdir=/distr
 
+# Install racadm
+wget https://linux.dell.com/repo/community/openmanage/10300/focal/pool/main/s/srvadmin-idracadm8/srvadmin-idracadm8_10.3.0.0_amd64.deb
+wget https://linux.dell.com/repo/community/openmanage/10300/focal/pool/main/s/srvadmin-idracadm8/srvadmin-idracadm7_10.3.0.0_all.deb
+wget https://linux.dell.com/repo/community/openmanage/10300/focal/pool/main/s/srvadmin-hapi/srvadmin-hapi_10.3.0.0_amd64.deb
+dpkg -i srvadmin-hapi_10.3.0.0_amd64.deb
+dpkg -i srvadmin-idracadm7_10.3.0.0_all.deb
+dpkg -i srvadmin-idracadm8_10.3.0.0_amd64.deb
+
 set >/home/set.$1
 ls -l /boot
 
@@ -63,5 +71,3 @@ chmod +x /usr/sbin/chipsec_load_module.sh
 rm -f $chipsecsrcfile
 apt purge -y $hdrpkg nasm g++-10 gcc-10 gcc g++ gcc-9
 rm -r -f $tmpdir
-
-

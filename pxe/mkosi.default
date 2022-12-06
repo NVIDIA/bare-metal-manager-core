@@ -17,7 +17,9 @@ WithNetwork=yes
 BasePackages=true
 Packages=
      build-essential
+     ipmitool
      iputils-ping
+     libargtable2-0
      libudev-dev
      linux-headers-generic
      lshw
@@ -26,6 +28,7 @@ Packages=
      net-tools
      nvme-cli
      openssh-server
+     pciutils
      python3 
      python3-setuptools
      python3-pip
