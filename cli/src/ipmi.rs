@@ -12,7 +12,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsStr;
 use std::fmt;
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 use std::time::Instant;
 
 use rand::Rng;
@@ -64,6 +64,8 @@ impl IpmitoolRoles {
     }
 }
 
+const FORGE_ADMIN_USER_NAME: &str = "forge_admin";
+
 #[derive(Debug)]
 struct IpmiInfo {
     user: String,
@@ -111,9 +113,30 @@ impl Default for Cmd {
 }
 
 impl Cmd {
-    fn args(mut self, args: Vec<&str>) -> Self {
+    pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
+        Self {
+            command: Command::new(program),
+        }
+    }
+
+    fn args<I, S>(mut self, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
         self.command.args(args);
         self
+    }
+
+    fn status(mut self) -> CarbideClientResult<ExitStatus> {
+        if cfg!(test) {
+            use std::os::unix::prelude::ExitStatusExt;
+            return Ok(ExitStatus::from_raw(0));
+        }
+
+        self.command
+            .status()
+            .map_err(|x| CarbideClientError::GenericError(x.to_string()))
     }
 
     fn output(mut self) -> CarbideClientResult<String> {
@@ -299,42 +322,50 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
         .args(vec!["lan", "set", "1", "access", "on"])
         .output(); // Ignore it as this command might fail in some cards.
 
+    // enable redfish access
+    let idrac_user_str = format!("iDRAC.Users.{id}.Privilege");
+    let _ = Cmd::new("racadm")
+        .args(["set", idrac_user_str.as_str(), "0x1ff"])
+        .status()?;
+
     Ok(())
 }
 
-fn set_ipmi_creds(test_list: Option<&str>) -> CarbideClientResult<(IpmiInfo, String)> {
+fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String)> {
     let ip = fetch_ipmi_ip()?;
-    let (mut free_users, existing_users) = fetch_ipmi_users_and_free_ids(test_list)?;
+    let (mut free_users, existing_users) = fetch_ipmi_users_and_free_ids(None)?;
 
-    // first, we create the root user, if we need to.
-    let root_user = if let Some(existing_user) = existing_users.get("root") {
-        // User already exists.
-        // Get Id
-        log::info!(
-            "User {} already exists. Only setting password and privileges.",
-            existing_user.name
-        );
-        existing_user.clone()
-    } else {
-        // Create user and get id.
-        if let Some(free_user) = free_users.pop_front() {
-            log::info!("Creating root user");
-            create_ipmi_user(free_user.id.as_str(), "root")?;
-            free_user
+    // first, we create users, if we need to.
+    let forge_admin_user =
+        if let Some(existing_user) = existing_users.get(&FORGE_ADMIN_USER_NAME.to_string()) {
+            // User already exists.
+            // Get Id
+            log::info!(
+                "User {} already exists. Only setting password and privileges.",
+                existing_user.name
+            );
+            existing_user.clone()
         } else {
-            return Err(CarbideClientError::GenericError(
-                "Insufficient free ids to create root user".to_string(),
-            ));
-        }
-    };
+            // Create user and get id.
+            if let Some(free_user) = free_users.pop_front() {
+                log::info!("Creating user {}", FORGE_ADMIN_USER_NAME);
+                create_ipmi_user(free_user.id.as_str(), FORGE_ADMIN_USER_NAME)?;
+                free_user
+            } else {
+                return Err(CarbideClientError::GenericError(format!(
+                    "Insufficient free ids to create user. Failed for user: {}",
+                    FORGE_ADMIN_USER_NAME
+                )));
+            }
+        };
 
-    // once we have the root user, set the password and the ipmi properties for it
-    let password = set_ipmi_password(&root_user.id)?;
-    set_ipmi_props(&root_user.id, IpmitoolRoles::Administrator)?;
+    // once we have the user, we set the password and privileges.
+    let password = set_ipmi_password(&forge_admin_user.id)?;
+    set_ipmi_props(&forge_admin_user.id, IpmitoolRoles::Administrator)?;
 
     Ok((
         IpmiInfo {
-            user: "root".to_string(),
+            user: FORGE_ADMIN_USER_NAME.to_string(),
             role: IpmitoolRoles::Administrator,
             password,
         },
@@ -352,7 +383,7 @@ pub async fn update_ipmi_creds(
 
     wait_until_ipmi_is_ready().await?;
 
-    let (ipmi_info, ip) = set_ipmi_creds(None)?;
+    let (ipmi_info, ip) = set_ipmi_creds()?;
     let bmc_metadata: rpc::BmcMetaDataUpdateRequest =
         IpmiInfo::convert(vec![ipmi_info], machine_id, ip)?;
 
@@ -397,13 +428,6 @@ mod tests {
     #[tokio::test]
     async fn test_ipmi_ip() {
         assert_eq!(&fetch_ipmi_ip().unwrap(), EXPECTED_IP)
-    }
-
-    #[tokio::test]
-    async fn test_ipmi_cred() {
-        let (response, ip) = set_ipmi_creds(Some("test/user_list.csv")).unwrap();
-        assert_eq!(&ip, EXPECTED_IP);
-        assert_eq!(response.password.len(), PASSWORD_LEN);
     }
 
     #[tokio::test]
