@@ -32,7 +32,6 @@ pub mod cfg;
 pub mod credentials;
 pub mod db;
 mod dhcp;
-mod dhcp_discover;
 mod human_hash;
 pub mod instance;
 pub mod ipmi;

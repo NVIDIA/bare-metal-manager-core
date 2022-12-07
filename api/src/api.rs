@@ -49,7 +49,7 @@ use crate::{
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
         UuidKeyedObjectFilter,
     },
-    dhcp_discover::RecordCacheEntry,
+    dhcp::discover::RecordCacheEntry,
     instance::{allocate_instance, InstanceAllocationRequest},
     ipmi::{ipmi_handler, MachinePowerRequest, RealIpmiCommandHandler},
     kubernetes::{
@@ -931,7 +931,7 @@ where
         &self,
         request: Request<rpc::DhcpDiscovery>,
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
-        crate::dhcp_discover::discover_dhcp(
+        crate::dhcp::discover::discover_dhcp(
             &self.database_connection,
             &self.dhcp_discovery_cache,
             request,
