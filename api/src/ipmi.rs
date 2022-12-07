@@ -120,6 +120,8 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             password: Some(password),
             port: None,
             system: "".to_string(),
+            manager: "".to_string(),
+            vendor: libredfish::Vendor::Unknown,
         };
 
         tokio::task::spawn_blocking(move || {
