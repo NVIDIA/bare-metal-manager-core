@@ -1,17 +1,16 @@
+use crate::common::*;
 use std::fmt;
 use std::fmt::Formatter;
-
-use crate::common::*;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum SystemPowerControl {
     On,
     ForceOff,
     ForceRestart,
-    GracefulRestart,
+    GracefulRestart, // preferred
     GracefulShutdown,
     PushPowerButton,
-    PowerCycle,
+    PowerCycle, // alternative hammer
 }
 
 impl fmt::Display for SystemPowerControl {
@@ -116,10 +115,35 @@ pub struct ComputerSystem {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct Systems {
-    #[serde(rename = "@odata.context")]
-    pub odata_context: String,
+    #[serde(flatten)]
+    pub odata: ODataLinks,
+    pub description: String,
     pub members: Vec<ODataId>,
     pub name: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct BootOptions {
+    #[serde(flatten)]
+    pub odata: ODataLinks,
+    pub description: String,
+    pub members: Vec<ODataId>,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct BootOption {
+    #[serde(flatten)]
+    pub odata: ODataLinks,
+    pub description: String,
+    pub boot_option_enabled: String,
+    pub boot_option_reference: String,
+    pub display_name: String,
+    pub id: String,
+    pub name: String,
+    pub uefi_device_path: String,
 }
 
 #[test]
