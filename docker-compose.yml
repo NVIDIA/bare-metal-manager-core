@@ -66,7 +66,7 @@ services:
       - ca-certificate:/identity
     environment:
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C api -x "run -- migrate --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
+    command: cargo watch -C api -x "run  --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
 
   carbide-api:
     depends_on:
@@ -81,7 +81,9 @@ services:
       - $HOME/docker_cargo_home:/docker_cargo_home
       - .:/app/code
       - ca-certificate:/identity
-    command: cargo watch -C api -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
+    # add '-dd' for trace/debug mode:
+    # command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
+    command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
     ports:
       - 1079:1079
     environment:
@@ -201,7 +203,7 @@ services:
       - "1053:1053/udp"
     environment:
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C dns -x "run -- run --carbide-url=http://172.20.0.14:1079"
+    command: cargo watch -C dns -x "run --target-dir /tmp/carbide-dns -- run --carbide-url=http://172.20.0.14:1079"
 
   ipmi-console:
     depends_on:
@@ -217,7 +219,7 @@ services:
       - ca-certificate:/identity
     environment:
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C ipmi/console -x "run -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem' --listen='0.0.0.0:2222' --api-endpoint='http://172.20.0.14:1079'"
+    command: cargo watch -C ipmi/console -x "run  --target-dir /tmp/ipmi-console -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem' --listen='0.0.0.0:2222' --api-endpoint='http://172.20.0.14:1079'"
     ports:
       - 2222:2222
 volumes:
