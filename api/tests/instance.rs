@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::net::IpAddr;
+use std::{collections::HashMap, net::IpAddr, time::SystemTime};
 
 use chrono::Utc;
 use log::LevelFilter;
@@ -21,7 +21,7 @@ use ::rpc::{
 };
 use carbide::{
     db::{
-        dhcp_record::DhcpRecord,
+        dhcp_record::InstanceDhcpRecord,
         instance::{
             config::network::load_instance_network_config,
             status::network::{
@@ -38,7 +38,7 @@ use carbide::{
     },
     model::instance::{
         config::{
-            network::{InstanceNetworkConfig, InterfaceFunctionId},
+            network::{InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType},
             tenant::{TenantConfig, TenantOrg},
             InstanceConfig,
         },
@@ -53,7 +53,10 @@ use carbide::{
     },
 };
 use common::api_fixtures::{
-    create_test_api, dpu::create_dpu_machine, network_segment::FIXTURE_NETWORK_SEGMENT_ID, TestApi,
+    create_test_api,
+    dpu::create_dpu_machine,
+    network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID},
+    TestApi,
 };
 
 pub mod common;
@@ -74,22 +77,27 @@ fn setup() {
 async fn test_crud_instance(pool: sqlx::PgPool) {
     let api = create_test_api(pool.clone());
     prepare_machine(&pool).await;
-    let parsed_relay = "192.0.2.1".parse::<IpAddr>().unwrap();
+    let parsed_relay = "192.168.0.1".parse::<IpAddr>().unwrap();
     let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
     let mut txn = pool
         .clone()
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    assert!(
-        Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(Instance::find_by_relay_ip(&mut txn, parsed_relay)
+        .await
+        .unwrap()
+        .is_none());
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = create_instance(&api).await;
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let (instance_id, _instance) = create_instance(&api, network).await;
 
     let mut txn = pool
         .clone()
@@ -97,7 +105,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let fetched_instance = Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac)
+    let fetched_instance = Instance::find_by_relay_ip(&mut txn, parsed_relay)
         .await
         .unwrap()
         .unwrap();
@@ -121,7 +129,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(FIXTURE_MACHINE_ID, false, &mut txn).await;
-    let fetched_instance = Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac)
+    let fetched_instance = Instance::find_by_relay_ip(&mut txn, parsed_relay)
         .await
         .unwrap()
         .unwrap();
@@ -135,17 +143,18 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let record = DhcpRecord::find_for_instance(
+    let record = InstanceDhcpRecord::find_for_instance(
         &mut txn,
-        &parsed_mac,
-        &FIXTURE_NETWORK_SEGMENT_ID,
-        FIXTURE_MACHINE_ID,
+        parsed_mac,
+        FIXTURE_CIRCUIT_ID.to_string(),
+        fetched_instance,
     )
     .await
     .unwrap();
 
-    println!("Assigned address: {}", record.address());
-
+    // This should the first IP. Algo does not look into machine_interface_addresses
+    // table for used addresses for instance.
+    assert_eq!(record.address().ip().to_string(), "192.0.2.3");
     let snapshot_loader = DbSnapshotLoader::default();
     let snapshot = snapshot_loader
         .load_instance_snapshot(&mut txn, instance_id)
@@ -180,7 +189,14 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
 async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     let api = create_test_api(pool.clone());
     prepare_machine(&pool).await;
-    let (instance_id, _instance) = create_instance(&api).await;
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let (instance_id, _instance) = create_instance(&api, network).await;
 
     let mut txn = pool
         .clone()
@@ -355,6 +371,8 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     delete_instance(&api, instance_id).await;
 }
 
+const FIXTURE_CIRCUIT_ID: &str = "vlan_100";
+const FIXTURE_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
 #[sqlx::test(fixtures(
     "create_domain",
     "create_vpc",
@@ -382,7 +400,14 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
     );
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = create_instance(&api).await;
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let (instance_id, _instance) = create_instance(&api, network).await;
 
     let mut txn = pool
         .clone()
@@ -448,7 +473,86 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
     );
 }
 
-const FIXTURE_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_network_segment",
+    "create_machine"
+))]
+async fn test_instance_address_creation(pool: sqlx::PgPool) {
+    let api = create_test_api(pool.clone());
+    prepare_machine(&pool).await;
+    let txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
+                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::VirtualFunction as i32,
+                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID.into()),
+            },
+        ],
+    });
+
+    let (instance_id, instance) = create_instance(&api, network).await;
+
+    let segment_ip = HashMap::from([(None, "192.0.2.3"), (Some(1), "192.0.3.3")]);
+
+    api.record_observed_instance_network_status(tonic::Request::new(
+        rpc::InstanceNetworkStatusObservation {
+            instance_id: Some(instance_id.into()),
+            config_version: instance.network_config_version,
+            observed_at: Some(SystemTime::now().into()),
+            interfaces: vec![
+                rpc::InstanceInterfaceStatusObservation {
+                    function_type: rpc::InterfaceFunctionType::from(
+                        InterfaceFunctionType::PhysicalFunction,
+                    ) as i32,
+                    virtual_function_id: None,
+                    mac_address: None,
+                    addresses: vec!["192.0.2.3".to_string()],
+                },
+                rpc::InstanceInterfaceStatusObservation {
+                    function_type: rpc::InterfaceFunctionType::from(
+                        InterfaceFunctionType::VirtualFunction,
+                    ) as i32,
+                    virtual_function_id: Some(1),
+                    mac_address: None,
+                    addresses: vec!["192.0.3.3".to_string()],
+                },
+            ],
+        },
+    ))
+    .await
+    .unwrap();
+
+    let instance = &api
+        .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
+            id: Some(instance_id.into()),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances[0];
+
+    for interface in instance.status.clone().unwrap().network.unwrap().interfaces {
+        assert_eq!(
+            interface.addresses[0],
+            segment_ip
+                .get(&interface.virtual_function_id)
+                .unwrap()
+                .to_owned()
+        );
+    }
+    txn.commit().await.unwrap();
+}
 
 async fn delete_instance(api: &TestApi, instance_id: uuid::Uuid) {
     api.release_instance(tonic::Request::new(InstanceReleaseRequest {
@@ -483,7 +587,10 @@ async fn prepare_machine(pool: &sqlx::PgPool) {
     txn.commit().await.unwrap();
 }
 
-async fn create_instance(api: &TestApi) -> (uuid::Uuid, rpc::Instance) {
+async fn create_instance(
+    api: &TestApi,
+    network: Option<rpc::InstanceNetworkConfig>,
+) -> (uuid::Uuid, rpc::Instance) {
     // Note: This also requests a background task in the DB for creating managed
     // resources. That's however ok - we will just ignore it and not execute
     // that task. Later we might also verify that the creation of those resources
@@ -497,12 +604,7 @@ async fn create_instance(api: &TestApi) -> (uuid::Uuid, rpc::Instance) {
                     custom_ipxe: "SomeRandomiPxe".to_string(),
                     tenant_org: "Tenant1".to_string(),
                 }),
-                network: Some(rpc::InstanceNetworkConfig {
-                    interfaces: vec![rpc::InstanceInterfaceConfig {
-                        function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
-                        network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-                    }],
-                }),
+                network,
             }),
             ssh_keys: vec!["mykey1".to_owned()],
         }))

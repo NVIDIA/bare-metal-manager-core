@@ -16,7 +16,6 @@ use ::rpc::protos::common::forge::TenantState;
 use chrono::prelude::*;
 use ipnetwork::{IpNetwork, IpNetworkError};
 use itertools::Itertools;
-use patricia_tree::PatriciaMap;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
@@ -29,13 +28,6 @@ use crate::db::machine_interface::MachineInterface;
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use crate::model::config_version::ConfigVersion;
 use crate::{db::UuidKeyedObjectFilter, CarbideError, CarbideResult};
-
-#[derive(Debug)]
-pub enum IpAllocationError {
-    PrefixExhausted(NetworkPrefix),
-}
-
-pub type IpAllocationResult = Result<IpAddr, IpAllocationError>;
 
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
@@ -104,17 +96,17 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
             ));
         }
 
-        if !value
+        if value
             .prefixes
             .iter()
             .map(|x| x.prefix.parse::<IpNetwork>())
             .collect::<Result<Vec<_>, IpNetworkError>>()
             .map_err(CarbideError::from)?
             .iter()
-            .any(|ip| ip.ip().is_ipv4())
+            .any(|ip| ip.ip().is_ipv6())
         {
             return Err(CarbideError::InvalidArgument(
-                "IPv4 prefix is missing.".to_string(),
+                "IPv6 is not yet supported.".to_string(),
             ));
         }
 
@@ -174,10 +166,9 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
                 .map(rpc::NetworkPrefix::from)
                 .collect_vec(),
             vpc_id: src.vpc_id.map(rpc::Uuid::from),
-            state: src
-                .state
-                .ok_or_else(|| CarbideError::GenericError("state is not updated yet.".to_owned()))?
-                as i32,
+            state: src.state.ok_or_else(|| {
+                CarbideError::NetworkSegmentNotReady("state is not updated yet.".to_owned())
+            })? as i32,
         })
     }
 }
@@ -336,110 +327,6 @@ impl NetworkSegment {
         Ok(())
     }
 
-    /// Returns a Vec<IpNetwork> of the next ip address for all the prefixes of this segment.
-    ///
-    /// It will allocate both address families, if both are present.
-    ///
-    /// This function assumes that proper DB locking has been done prior to calling this function
-    ///
-    /// # Arguments
-    ///
-    /// None
-    ///
-    /// # Examples
-    ///
-    /// let network = NetworkSegment::for_relay("192.0.2.1")
-    ///
-    /// let next_addresses: Vec<IpNetwork> = network.next_addresses();
-    ///
-    /// # Returns
-    ///
-    pub async fn next_address<'a>(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<IpAllocationResult>> {
-        let used_ips: Vec<(IpNetwork, )> = sqlx::query_as(r"
-             SELECT address FROM machine_interface_addresses
-             INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
-             INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id
-             WHERE network_segments.id = $1::uuid
-             UNION
-             SELECT address FROM instance_subnet_addresses
-             INNER JOIN instance_subnets ON instance_subnets.id = instance_subnet_addresses.instance_subnet_id
-             INNER JOIN network_segments ON instance_subnets.network_segment_id = network_segments.id
-             WHERE network_segments.id = $1::uuid")
-            .bind(self.id())
-            .fetch_all(&mut *txn)
-            .await?;
-
-        let segment_prefixes: Vec<NetworkPrefix> =
-            sqlx::query_as("SELECT * FROM network_prefixes WHERE segment_id = $1::uuid")
-                .bind(self.id())
-                .fetch_all(&mut *txn)
-                .await?;
-
-        let addresses = segment_prefixes
-            .into_iter()
-            .map(|segment_prefix| {
-                let mut excluded_ips: PatriciaMap<()> = PatriciaMap::new();
-
-                /// This looks dumb, because octets() isn't on IpAddr, only on IpXAddr
-                ///
-                /// https://github.com/rust-lang/rfcs/issues/1881
-                ///
-                fn to_vec(addr: &IpAddr) -> Vec<u8> {
-                    match addr {
-                        IpAddr::V4(address) => address.octets().to_vec(),
-                        IpAddr::V6(address) => address.octets().to_vec(),
-                    }
-                }
-
-                excluded_ips.extend(used_ips.iter().filter_map(|(ip,)| {
-                    segment_prefix
-                        .prefix
-                        .contains(ip.ip())
-                        .then(|| (to_vec(&ip.ip()), ()))
-                }));
-
-                // TODO: add gateway to the list of used IPs above?
-                if let Some(gateway) = segment_prefix.gateway {
-                    assert!(segment_prefix.prefix.is_ipv4());
-
-                    excluded_ips.extend(std::iter::once((to_vec(&gateway.ip()), ())));
-                }
-
-                // Exclude the first "N" number of addresses
-                //
-                // The gateway will be excluded separately, so if `num_reserved` == 1` and that's
-                // also the gateway address, then we'll exclude the same address twice, and you'll
-                // get the second address.
-                //
-                excluded_ips.extend(
-                    segment_prefix
-                        .prefix
-                        .iter()
-                        .take(segment_prefix.num_reserved as usize)
-                        .map(|ip| (to_vec(&ip), ())),
-                );
-
-                // Iterate over all the IPs until we find one that's not in the map, that's our
-                // first free IPs
-                segment_prefix
-                    .prefix
-                    .iter()
-                    .find_map(|address| {
-                        excluded_ips
-                            .get(to_vec(&address))
-                            .is_none()
-                            .then_some(address)
-                    })
-                    .ok_or(IpAllocationError::PrefixExhausted(segment_prefix))
-            })
-            .collect();
-
-        Ok(addresses)
-    }
-
     pub async fn delete(
         &self,
         txn: &mut Transaction<'_, Postgres>,
@@ -486,5 +373,19 @@ impl NetworkSegment {
         segment.update_state(&mut *txn).await?;
 
         Ok(segment)
+    }
+
+    pub async fn find_by_circuit_id(
+        txn: &mut Transaction<'_, Postgres>,
+        circuit_id: String,
+    ) -> CarbideResult<Self> {
+        Ok(sqlx::query_as(
+            r#"SELECT network_segments.* FROM network_segments 
+            INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id 
+            WHERE network_segments.deleted is NULL AND network_prefixes.circuit_id=$1"#,
+        )
+        .bind(circuit_id)
+        .fetch_one(&mut *txn)
+        .await?)
     }
 }

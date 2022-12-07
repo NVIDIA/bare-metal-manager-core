@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::net::IpAddr;
 use std::str::FromStr;
 
 use carbide::db::UuidKeyedObjectFilter;
@@ -46,30 +45,21 @@ async fn create_network_segment_with_api(
     let mut request = rpc::forge::NetworkSegmentCreationRequest {
         mtu: Some(1500),
         name: "TEST_SEGMENT".to_string(),
-        prefixes: vec![
-            rpc::forge::NetworkPrefix {
-                id: None,
-                prefix: "192.0.2.1/24".to_string(),
-                gateway: Some("192.0.2.1".to_string()),
-                reserve_first: 1,
-                state: None,
-                events: vec![],
-            },
-            rpc::forge::NetworkPrefix {
-                id: None,
-                prefix: "2001:db8:f::/64".to_string(),
-                gateway: None,
-                reserve_first: 100,
-                state: None,
-                events: vec![],
-            },
-        ],
+        prefixes: vec![rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: "192.0.2.1/24".to_string(),
+            gateway: Some("192.0.2.1".to_string()),
+            reserve_first: 1,
+            state: None,
+            events: vec![],
+        }],
         subdomain_id: None,
         vpc_id: None,
     };
     if use_subdomain {
         request.subdomain_id = Some(FIXTURE_CREATED_DOMAIN_UUID.into());
     }
+
     if use_vpc {
         request.vpc_id = Some(FIXTURE_CREATED_VPC_UUID.into());
     }
@@ -100,18 +90,6 @@ async fn test_network_segment_lifecycle_impl(
         .await
         .unwrap()
         .remove(0);
-        let next_address = db_segment.next_address(&mut txn).await?;
-        assert_eq!(next_address.len(), 2);
-
-        let next_ipv4: IpAddr = "192.0.2.2".parse()?;
-        let next_ipv6: IpAddr = "2001:db8:f::64".parse()?;
-
-        assert!(matches!(
-            next_address.as_slice(),
-            [Ok(v4), Ok(v6)] if v4 == &next_ipv4 && v6 == &next_ipv6
-        ));
-
-        assert_eq!(next_address.len(), 2);
 
         txn.commit().await?;
 

@@ -313,8 +313,8 @@ pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
     let uuid = if let Some(machine_interface_id) = &machine.inner.machine_interface_id {
         CString::new(machine_interface_id.to_string()).unwrap()
     } else {
-        log::error!(
-            "Found a host missing UUID, dumping everything we know about it: {:?}",
+        log::debug!(
+            "Found a host missing UUID (Possibly a Instance), dumping everything we know about it: {:?}",
             &machine
         );
         CString::new("").unwrap()

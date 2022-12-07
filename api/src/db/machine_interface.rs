@@ -24,7 +24,8 @@ use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::NetworkSegment;
-use crate::{db::network_segment::IpAllocationError, CarbideError, CarbideResult};
+use crate::dhcp::allocation::{FreeIpResolver, IpAllocator};
+use crate::{CarbideError, CarbideResult};
 
 use super::UuidKeyedObjectFilter;
 
@@ -42,6 +43,10 @@ pub struct MachineInterface {
     hostname: String,
     primary_interface: bool,
     addresses: Vec<MachineInterfaceAddress>,
+}
+
+struct FreeAdminNetworkIpResolver {
+    segment_id: uuid::Uuid,
 }
 
 /*
@@ -280,65 +285,6 @@ impl MachineInterface {
         }
     }
 
-    pub async fn allocate_addresses(
-        txn: &mut Transaction<'_, Postgres>,
-        segment: &NetworkSegment,
-        addresses: AddressSelectionStrategy<'_>,
-    ) -> CarbideResult<Vec<IpNetwork>> {
-        match addresses {
-            AddressSelectionStrategy::Automatic => {
-                // DeadLock: if these tables needs to be locked anywhere else, follow the sequence to
-                // avoid deadlock.
-                sqlx::query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE")
-                    .execute(&mut *txn)
-                    .await?;
-                sqlx::query("LOCK TABLE instance_subnet_addresses IN ACCESS EXCLUSIVE MODE")
-                    .execute(&mut *txn)
-                    .await?;
-
-                //
-                // Get the next address for each prefix on this network segment.  Split the result
-                // list into successes and failures.
-                //
-                let (success, failures) = segment.next_address(&mut *txn).await?.into_iter().fold(
-                    (vec![], vec![]),
-                    |(mut successes, mut failures), item| {
-                        match item {
-                            Ok(address) => successes.push(address),
-                            Err(error) => failures.push(error),
-                        };
-
-                        (successes, failures)
-                    },
-                );
-
-                //
-                // If there's any failures, join the errors together and return it wrapped in a new
-                // error type.
-                //
-                if !failures.is_empty() {
-                    Err(CarbideError::NetworkSegmentsExhausted(
-                        failures
-                            .into_iter()
-                            .map(|failure| match failure {
-                                IpAllocationError::PrefixExhausted(prefix) => format!(
-                                    "Prefix: {0} ({1}) has exhausted all address space",
-                                    prefix.id, prefix.prefix
-                                ),
-                            })
-                            .join(", "),
-                    ))
-                } else {
-                    //
-                    // Otherwise just return the list of allocated IPs
-                    //
-                    Ok(success.into_iter().map(IpNetwork::from).collect_vec())
-                }
-            }
-            _ => Ok(vec![]),
-        }
-    }
-
     pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
         segment: &NetworkSegment,
@@ -350,10 +296,17 @@ impl MachineInterface {
     ) -> CarbideResult<Self> {
         // We're potentially about to insert a couple rows, so create a savepoint.
         let mut inner_txn = txn.begin().await?;
+        sqlx::query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *inner_txn)
+            .await?;
+
+        let dhcp_handler = FreeAdminNetworkIpResolver {
+            segment_id: segment.id,
+        };
 
         // If either requested addresses are auto-generated, we lock the entire table.
         let allocated_addresses =
-            Self::allocate_addresses(&mut inner_txn, segment, addresses).await?;
+            IpAllocator::new(&mut inner_txn, segment, &dhcp_handler, addresses).await?;
 
         let interface_id: (Uuid, ) = sqlx::query_as("INSERT INTO machine_interfaces (segment_id, mac_address, hostname, domain_id, primary_interface) VALUES ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id")
             .bind(segment.id())
@@ -373,7 +326,7 @@ impl MachineInterface {
         for address in allocated_addresses {
             sqlx::query("INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)")
                 .bind(interface_id.0)
-                .bind(address)
+                .bind(address?)
                 .fetch_all(&mut *inner_txn).await?;
         }
 
@@ -475,5 +428,25 @@ impl MachineInterface {
                     machine_id
                 ))
             })
+    }
+}
+
+#[async_trait::async_trait]
+impl FreeIpResolver for FreeAdminNetworkIpResolver {
+    async fn used_ips(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<Vec<(IpNetwork,)>> {
+        let query: &str = r"
+             SELECT address FROM machine_interface_addresses
+             INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
+             INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id
+             WHERE network_segments.id = $1::uuid";
+
+        sqlx::query_as(query)
+            .bind(self.segment_id)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(CarbideError::from)
     }
 }

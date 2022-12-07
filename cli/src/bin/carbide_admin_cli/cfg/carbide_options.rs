@@ -15,7 +15,7 @@ use clap::{ArgGroup, Parser};
 #[clap(name = env!("CARGO_BIN_NAME"))]
 #[clap(propagate_version = true)]
 #[clap(author = "Slack channel #swngc-forge-dev")]
-#[clap(version = "0.0.1")]
+#[clap(version = "0.0.2")]
 pub struct CarbideOptions {
     #[clap(short, long, multiple_values(false), env = "CARBIDE_API_URL")]
     #[clap(

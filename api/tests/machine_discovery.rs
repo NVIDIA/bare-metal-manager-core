@@ -39,13 +39,10 @@ async fn test_machine_discovery_no_domain(
     .await
     .expect("Unable to create machine");
 
-    let wanted_ips: Vec<IpNetwork> = vec![
-        "192.0.2.3".parse().unwrap(),
-        "2001:db8:f::64".parse().unwrap(),
-    ]
-    .into_iter()
-    .sorted()
-    .collect::<Vec<IpNetwork>>();
+    let wanted_ips: Vec<IpNetwork> = vec!["192.0.2.3".parse().unwrap()]
+        .into_iter()
+        .sorted()
+        .collect::<Vec<IpNetwork>>();
 
     let actual_ips = machine_interface
         .addresses()
@@ -76,10 +73,7 @@ async fn test_machine_discovery_with_domain(
     .await
     .expect("Unable to create machine");
 
-    let wanted_ips: Vec<IpNetwork> = vec![
-        "192.0.2.3".parse().unwrap(),
-        "2001:db8:f::64".parse().unwrap(),
-    ];
+    let wanted_ips: Vec<IpNetwork> = vec!["192.0.2.3".parse().unwrap()];
 
     assert_eq!(
         machine_interface

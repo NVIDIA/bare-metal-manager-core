@@ -16,13 +16,13 @@ use std::{
 };
 
 use chrono::prelude::*;
-use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use ::rpc::forge as rpc;
 
 use crate::{
+    db::instance_address::InstanceAddress,
     model::{
         config_version::Versioned,
         instance::{
@@ -37,7 +37,6 @@ use crate::{
 };
 
 use super::UuidKeyedObjectFilter;
-use super::{instance_subnet::InstanceSubnet, network_segment::NetworkSegment};
 
 pub mod config;
 pub mod status;
@@ -52,7 +51,6 @@ pub struct Instance {
     pub tenant_config: TenantConfig,
     pub ssh_keys: Vec<String>,
     pub use_custom_pxe_on_boot: bool,
-    pub interfaces: Vec<InstanceSubnet>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +92,6 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             tenant_config,
             ssh_keys: Vec::new(),
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
-            interfaces: Vec::new(),
         })
     }
 }
@@ -119,7 +116,7 @@ impl Instance {
     ) -> CarbideResult<Vec<Instance>> {
         let base_query = "SELECT * FROM instances m {where} GROUP BY m.id".to_owned();
 
-        let mut all_instances: Vec<Instance> = match filter {
+        let all_instances: Vec<Instance> = match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, Instance>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
@@ -138,13 +135,6 @@ impl Instance {
                     .await?
             }
         };
-
-        for ins in all_instances.iter_mut() {
-            let instance_subnets = InstanceSubnet::find_by_instance_id(&mut *txn, ins.id)
-                .await
-                .unwrap_or_default();
-            ins.interfaces = instance_subnets;
-        }
 
         Ok(all_instances)
     }
@@ -175,7 +165,7 @@ impl Instance {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
     ) -> CarbideResult<Option<Instance>> {
-        let mut instance =
+        let instance =
             sqlx::query_as::<_, Instance>("SELECT * from instances WHERE machine_id = $1::uuid")
                 .bind(machine_id)
                 .fetch_optional(&mut *txn)
@@ -183,79 +173,23 @@ impl Instance {
 
         // TODO handle more than one subnet assignment on an instance
         // has network_segment_id
-
-        if let Some(ref mut ins) = instance {
-            let instance_subnets =
-                InstanceSubnet::find_by_instance_id(&mut *txn, *ins.id()).await?;
-            ins.interfaces = instance_subnets;
-        };
-
         Ok(instance)
     }
 
-    async fn find_by_mac_and_segment(
-        txn: &mut Transaction<'_, Postgres>,
-        segment_id: uuid::Uuid,
-        parsed_mac: MacAddress,
-    ) -> CarbideResult<Self> {
-        Ok(sqlx::query_as(r#"SELECT i.id as id, i.machine_id as machine_id,
-                                    i.requested as requested, i.started as started,
-                                    i.finished as finished, i,user_data as user_data,
-                                    i.custom_ipxe as custom_ipxe, i.tenant_org as tenant_org,
-                                    i.ssh_keys as ssh_keys,
-                                    i.use_custom_pxe_on_boot as use_custom_pxe_on_boot
-                                    FROM instances i
-                                      INNER JOIN instance_subnets s ON i.id = s.instance_id
-                                      INNER JOIN machine_interfaces ms ON ms.id = s.machine_interface_id
-                                      WHERE
-                                        ms.mac_address = $1 AND s.network_segment_id = $2"#)
-            .bind(parsed_mac)
-            .bind(segment_id)
-            .fetch_one(&mut *txn)
-            .await?)
-    }
-
-    pub async fn find_by_mac_and_relay(
+    pub async fn find_by_relay_ip(
         txn: &mut Transaction<'_, Postgres>,
         relay: IpAddr,
-        parsed_mac: MacAddress,
     ) -> CarbideResult<Option<Instance>> {
-        match NetworkSegment::for_relay(txn, relay).await? {
-            None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
-            Some(segment) => {
-                Ok(
-                    match Instance::find_by_mac_and_segment(&mut *txn, segment.id, parsed_mac).await
-                    {
-                        Ok(instance) => Some(instance),
-                        Err(CarbideError::DatabaseError(sqlx::Error::RowNotFound)) => None, // Instance is not found.
-                        Err(er) => {
-                            return Err(er);
-                        }
-                    },
-                )
-            }
-        }
-    }
-
-    pub async fn assign_address(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        subnet: InstanceSubnet,
-        segment_id: uuid::Uuid,
-    ) -> CarbideResult<IpAddr> {
-        let mut segments =
-            NetworkSegment::find(txn, super::UuidKeyedObjectFilter::One(segment_id)).await?;
-        if segments.is_empty() {
-            return Err(CarbideError::NotFoundError(segment_id));
-        }
-
-        let segment = segments.remove(0);
-        let address = InstanceSubnet::get_address(&mut *txn, self.id, &segment, subnet)
-            .await
-            .map(|x| x.ip())?;
-
-        log::info!("IP assigned to {} is {}.", self.id(), address);
-        Ok(address)
+        Ok(sqlx::query_as(
+            r#"select i.* from instances i 
+            INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id 
+            INNER JOIN machines s ON s.id = m.attached_dpu_machine_id 
+            INNER JOIN vpc_resource_leafs v ON v.id = s.vpc_leaf_id 
+            WHERE v.loopback_ip_address=$1"#,
+        )
+        .bind(relay)
+        .fetch_optional(&mut *txn)
+        .await?)
     }
 
     pub async fn use_custom_ipxe_on_next_boot(
@@ -320,7 +254,7 @@ impl DeleteInstance {
             ));
         }
 
-        InstanceSubnet::delete_by_instance_id(&mut *txn, self.instance_id).await?;
+        InstanceAddress::delete(&mut *txn, self.instance_id).await?;
 
         Ok(
             sqlx::query_as("DELETE FROM instances where id=$1::uuid RETURNING *")

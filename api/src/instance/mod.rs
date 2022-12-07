@@ -18,19 +18,27 @@ use uuid::Uuid;
 
 use crate::{
     db::{
-        instance::NewInstance, instance_subnet::InstanceSubnet, machine::Machine,
-        machine_interface::MachineInterface, machine_state::MachineState,
+        instance::{config::network::load_instance_network_config, NewInstance},
+        instance_address::InstanceAddress,
+        machine::Machine,
+        machine_interface::MachineInterface,
+        machine_state::MachineState,
+        network_segment::NetworkSegment,
     },
+    dhcp::allocation::DhcpError,
     kubernetes::create_managed_resource,
     machine_state_controller::snapshot_loader::{
         DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
     },
     model::{
         config_version::{ConfigVersion, Versioned},
-        instance::{config::InstanceConfig, snapshot::InstanceSnapshot},
+        instance::{
+            config::{network::InterfaceFunctionId, InstanceConfig},
+            snapshot::InstanceSnapshot,
+        },
         ConfigValidationError, RpcDataConversionError,
     },
-    CarbideError,
+    CarbideError, CarbideResult,
 };
 
 /// User parameters for creating an instance
@@ -84,14 +92,6 @@ pub async fn allocate_instance(
     // Note that this basic validation can not cross-check references
     // like `machine_id` or any `network_segments`.
     request.config.validate()?;
-
-    // TODO: This check can be removed once ManagedResource sync supports multiple interfaces
-    if request.config.network.interfaces.len() > 1 {
-        return Err(ConfigValidationError::invalid_value(
-            "Multiple interfaces are not yet supported",
-        )
-        .into());
-    }
 
     let mut txn = database.begin().await?;
 
@@ -149,30 +149,17 @@ pub async fn allocate_instance(
     }
 
     let instance = new_instance.persist(&mut txn).await?;
+    // TODO: Should we check that the network segment actually belongs to the
+    // tenant?
 
-    let mut ip_details = HashMap::new();
-    for iface in network_config.interfaces.iter() {
-        // TODO: Should we check that the network segment actually belongs to the
-        // tenant?
-
-        // TODO 2: This can apparently also refer to a deleted network segment
-        // Or the segment might even be deleted while the instance is created
-        let subnet = InstanceSubnet::create(
-            &mut txn,
-            &machine_interface,
-            iface.network_segment_id,
-            *instance.id(),
-            iface.function_id.clone(),
-        )
-        .await?;
-
-        // TODO: This method should probably not be on `Instance` but more
-        // on `InstanceSubnet`?
-        let ip_addr = instance
-            .assign_address(&mut txn, subnet, iface.network_segment_id)
-            .await?;
-        ip_details.insert(iface.function_id.clone(), ip_addr);
-    }
+    // TODO 2: This can apparently also refer to a deleted network segment
+    // Or the segment might even be deleted while the instance is created
+    let interface_ips = HashMap::from_iter(
+        InstanceAddress::allocate(&mut txn, *instance.id(), &network_config.config)
+            .await?
+            .into_iter()
+            .map(|x| (x.segment_id, x.address.ip())),
+    );
 
     let dpu_machine_id = machine_interface
         .attached_dpu_machine_id()
@@ -185,7 +172,7 @@ pub async fn allocate_instance(
         request.machine_id,
         dpu_machine_id,
         network_config,
-        ip_details,
+        interface_ips,
         instance.id,
     )
     .await?;
@@ -199,4 +186,28 @@ pub async fn allocate_instance(
     txn.commit().await.map_err(CarbideError::from)?;
 
     Ok(snapshot)
+}
+
+pub async fn circuit_id_to_function_id(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    instance_id: uuid::Uuid,
+    circuit_id: String,
+) -> CarbideResult<InterfaceFunctionId> {
+    let segment = NetworkSegment::find_by_circuit_id(&mut *txn, circuit_id.clone()).await?;
+    let network_config = load_instance_network_config(&mut *txn, instance_id)
+        .await?
+        .config;
+
+    network_config
+        .interfaces
+        .iter()
+        .find_map(|x| {
+            if x.network_segment_id == segment.id {
+                Some(x.function_id.clone())
+            } else {
+                None
+            }
+        })
+        .ok_or(DhcpError::InvalidCircuitId(instance_id, circuit_id))
+        .map_err(CarbideError::from)
 }
