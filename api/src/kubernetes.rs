@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -10,6 +9,7 @@ use std::collections::HashMap;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -17,7 +17,6 @@ use std::time::{Instant, SystemTime};
 
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use itertools::Itertools;
 use kube::api::ListParams;
 use kube::runtime::wait::{await_condition, Condition};
 use kube::{
@@ -38,21 +37,24 @@ use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipmi::{MachinePowerRequest, Operation};
 use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId};
+use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
 use crate::vpc_resources::{
     leaf, managed_resource, resource_group, BlueFieldInterface, VpcResource, VpcResourceStatus,
 };
 use crate::{CarbideError, CarbideResult};
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct IpDetails {
-    function_id: InterfaceFunctionId,
-    ip_addr: IpAddr,
-}
+use ipnetwork::Ipv4Network;
+use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LeafData {
     pub leaf: leaf::Leaf,
     pub dpu_machine_id: uuid::Uuid,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UpdateLeafData {
+    pub dpu_machine_id: uuid::Uuid,
+    host_admin_i_ps: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -62,7 +64,7 @@ pub struct ManagedResourceData {
     instance_id: uuid::Uuid,
     network_config_version: ConfigVersion,
     network_config: InstanceNetworkConfig,
-    ip_details: Option<Vec<IpDetails>>,
+    ip_details: Option<HashMap<Uuid, IpAddr>>, // NetworkSegment => IpAddr
     managed_resources: Vec<managed_resource::ManagedResource>,
 }
 
@@ -72,7 +74,7 @@ impl ManagedResourceData {
         dpu_machine_id: uuid::Uuid,
         instance_id: uuid::Uuid,
         network_config: Versioned<InstanceNetworkConfig>,
-        ip_details: Option<Vec<IpDetails>>,
+        ip_details: Option<HashMap<Uuid, IpAddr>>, // NetworkSegment => IpAddr
         managed_resources: Vec<managed_resource::ManagedResource>,
     ) -> Self {
         ManagedResourceData {
@@ -91,7 +93,7 @@ impl ManagedResourceData {
 pub enum VpcResourceActions {
     CreateLeaf(LeafData),
     DeleteLeaf(LeafData),
-    UpdateLeaf(LeafData),
+    UpdateLeaf(UpdateLeafData),
     CreateResourceGroup(resource_group::ResourceGroup),
     UpdateResourceGroup(resource_group::ResourceGroup),
     DeleteResourceGroup(resource_group::ResourceGroup),
@@ -427,16 +429,7 @@ async fn create_managed_resource_handler(
         Vec::with_capacity(data.network_config.interfaces.len());
     for iface in data.network_config.interfaces.iter() {
         let address = match &data.ip_details {
-            Some(details) => details
-                .iter()
-                .filter_map(|detail| {
-                    if detail.function_id == iface.function_id {
-                        Some(detail.ip_addr)
-                    } else {
-                        None
-                    }
-                })
-                .next(),
+            Some(details) => details.get(&iface.network_segment_id),
             None => None,
         };
 
@@ -872,24 +865,15 @@ pub async fn vpc_reconcile_handler(
             }
             VpcResourceActions::UpdateLeaf(leaf_data) => {
                 let spec_name = leaf_name(leaf_data.dpu_machine_id);
-                let mut new_spec = leaf_data.leaf;
-
-                log::info!("UpdateLeaf spec - {spec_name} to {new_spec:?}");
 
                 let leaf_api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
-                let original_leaf = leaf_api.get(&spec_name).await?;
+                let mut updated_leaf = leaf_api.get(&spec_name).await?;
+                updated_leaf.spec.host_admin_i_ps = leaf_data.host_admin_i_ps;
 
-                log::info!("leaf_to_find leaf - {original_leaf:?}");
-
-                let resource_version = original_leaf.resource_version();
-
-                // Updates must contain the most recent observed version
-                new_spec.metadata.resource_version = resource_version;
-
-                log::info!("UpdateLeaf new_spec - {new_spec:?}");
+                log::info!("UpdateLeaf - {updated_leaf:?}");
 
                 let result = leaf_api
-                    .replace(&spec_name, &PostParams::default(), &new_spec)
+                    .replace(&spec_name, &PostParams::default(), &updated_leaf)
                     .await;
 
                 match result {
@@ -1061,7 +1045,7 @@ pub async fn create_managed_resource(
     machine_id: uuid::Uuid,
     dpu_machine_id: uuid::Uuid,
     network_config: Versioned<InstanceNetworkConfig>,
-    ip_details: HashMap<InterfaceFunctionId, IpAddr>,
+    ip_details: HashMap<Uuid, IpAddr>,
     instance_id: uuid::Uuid,
 ) -> CarbideResult<()> {
     let mut managed_resources = Vec::new();
@@ -1088,7 +1072,9 @@ pub async fn create_managed_resource(
             BlueFieldInterface::new(iface.function_id.clone()).leaf_interface_id(&dpu_machine_id),
         );
 
-        let host_interface_ip = ip_details.get(&iface.function_id).map(|ip| ip.to_string());
+        let host_interface_ip = ip_details
+            .get(&iface.network_segment_id)
+            .map(|ip| ip.to_string());
         let managed_resource_spec = managed_resource::ManagedResourceSpec {
             state: None,
             dpu_i_ps: None,
@@ -1116,15 +1102,7 @@ pub async fn create_managed_resource(
         dpu_machine_id,
         instance_id,
         network_config,
-        Some(
-            ip_details
-                .into_iter()
-                .map(|(function_id, ip_addr)| IpDetails {
-                    function_id,
-                    ip_addr,
-                })
-                .collect_vec(),
-        ),
+        Some(ip_details),
         managed_resources,
     ))
     .reconcile(db_conn)
@@ -1262,4 +1240,32 @@ pub async fn power_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResul
     log::info!("Sending power reset command for machine: {}", machine_id);
     let mpr = MachinePowerRequest::new(machine_id, Operation::Reset, true);
     mpr.invoke_power_command(pool).await
+}
+
+pub async fn update_leaf(
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+    resource_leaf: VpcResourceLeaf,
+    record: rpc::forge::DhcpRecord,
+) -> CarbideResult<()> {
+    let dpu_machine_id = *resource_leaf.id();
+
+    let host_admin_ip_network = Ipv4Network::from_str(record.address.as_str())
+        .map_err(|err| CarbideError::GenericError(err.to_string()))?;
+    let host_admin_ip_address_string = host_admin_ip_network.ip().to_string();
+
+    let host_admin_i_ps = Some(BTreeMap::from([(
+        DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
+        host_admin_ip_address_string,
+    )]));
+
+    let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+
+    VpcResourceActions::UpdateLeaf(UpdateLeafData {
+        dpu_machine_id,
+        host_admin_i_ps,
+    })
+    .reconcile(db_conn)
+    .await?;
+
+    Ok(())
 }

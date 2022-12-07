@@ -7,17 +7,12 @@ INSERT INTO network_segments (id, name, subdomain_id, mtu, vpc_id, version) VALU
 	'V1-T1666644937952267'
 );
 
-INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved) VALUES (
-	'91609f10-c91d-470d-a260-6293ea0c1200',
-	'2001:db8:f::/64',
-	NULL,
-	100);
-
-INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved) VALUES (
+INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved, circuit_id) VALUES (
 	'91609f10-c91d-470d-a260-6293ea0c1200',
 	'192.0.2.0/24',
 	'192.0.2.1',
-	3);
+	3,
+  'vlan_100');
 
 INSERT INTO network_segments (id, name, mtu, version) VALUES (
 	'4de5bdd6-1f28-4ed4-aba7-f52e292f0fe8',
@@ -25,3 +20,10 @@ INSERT INTO network_segments (id, name, mtu, version) VALUES (
 	1500,
 	'V1-T1666644937952267'
 );
+
+INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved, circuit_id) VALUES (
+	'4de5bdd6-1f28-4ed4-aba7-f52e292f0fe8',
+	'192.0.3.0/24',
+	'192.0.3.1',
+	3,
+  'vlan_101');

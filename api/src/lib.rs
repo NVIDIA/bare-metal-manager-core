@@ -11,6 +11,7 @@
  */
 use std::net::IpAddr;
 
+use dhcp::allocation::DhcpError;
 use mac_address::MacAddress;
 use machine_state_controller::snapshot_loader::SnapshotLoaderError;
 use model::{
@@ -30,6 +31,7 @@ pub mod bg;
 pub mod cfg;
 pub mod credentials;
 pub mod db;
+mod dhcp;
 mod dhcp_discover;
 mod human_hash;
 pub mod instance;
@@ -194,6 +196,12 @@ pub enum CarbideError {
 
     #[error("Invalid configuration: {0}")]
     InvalidConfiguration(#[from] ConfigValidationError),
+
+    #[error("Error in DHCP allocation/handling: {0}")]
+    DhcpError(#[from] DhcpError),
+
+    #[error("NetworkSegment is not yet ready: {0}")]
+    NetworkSegmentNotReady(String),
 }
 
 impl From<CarbideError> for tonic::Status {

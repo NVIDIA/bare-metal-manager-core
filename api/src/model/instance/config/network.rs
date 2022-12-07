@@ -322,9 +322,8 @@ mod tests {
 
     /// Creats a valid instance network configuration using the maximum
     /// amount of interface
+    const BASE_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c0000");
     fn create_valid_network_config() -> InstanceNetworkConfig {
-        let base_segment_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c0000");
-
         let interfaces: Vec<InstanceInterfaceConfig> = (0..=INTERFACE_VFID_MAX)
             .map(|idx| {
                 let function_id = if idx == 0 {
@@ -333,7 +332,7 @@ mod tests {
                     InterfaceFunctionId::VirtualFunctionId { id: idx as u8 }
                 };
 
-                let network_segment_id = Uuid::from_u128(base_segment_id.as_u128() + idx as u128);
+                let network_segment_id = Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + idx as u128);
                 InstanceInterfaceConfig {
                     function_id,
                     network_segment_id,

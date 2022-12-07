@@ -9,25 +9,20 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use ipnetwork::Ipv4Network;
-use kube::{api::Api as KubeApi, Client};
 use lru::LruCache;
 use mac_address::MacAddress;
-use sqlx::Acquire;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
-use crate::db::constants::FORGE_KUBE_NAMESPACE;
+use crate::db::dhcp_record::InstanceDhcpRecord;
 use crate::db::instance::Instance;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
-use crate::kubernetes::{leaf_name, LeafData, VpcResourceActions};
-use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
-use crate::vpc_resources::leaf;
+use crate::dhcp::allocation::DhcpError;
+use crate::kubernetes;
 use crate::{
     db::{
         dhcp_entry::DhcpEntry, dhcp_record::DhcpRecord, machine::Machine,
@@ -42,6 +37,7 @@ pub struct RecordCacheEntry {
     pub record: rpc::DhcpRecord,
     pub timestamp: Instant,
     pub link_address: IpAddr,
+    pub circuit_id: Option<String>,
 }
 
 pub async fn discover_dhcp(
@@ -70,9 +66,8 @@ pub async fn discover_dhcp(
     let parsed_relay = address_to_use_for_dhcp
         .parse()
         .map_err(CarbideError::from)?;
+    let relay_ip = IpAddr::from_str(&relay_address).map_err(CarbideError::from)?;
 
-    // This log will be removed in next version.
-    log::info!("Circuit id received in packet {:?}", circuit_id);
     let parsed_mac: MacAddress = mac_address
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
@@ -81,6 +76,7 @@ pub async fn discover_dhcp(
         if let Some(cache_entry) = dhcp_discovery_cache.get(&parsed_mac) {
             if cache_entry.timestamp.elapsed() < Duration::from_secs(60)
                 && cache_entry.link_address == parsed_relay
+                && cache_entry.circuit_id == circuit_id
             {
                 log::info!("returning cached response for {parsed_mac:?}");
                 let record_clone = cache_entry.record.clone();
@@ -96,29 +92,49 @@ pub async fn discover_dhcp(
 
     // Instance handling
     let possible_instance: Option<Instance> =
-        Instance::find_by_mac_and_relay(&mut txn, parsed_relay, parsed_mac).await?;
+        Instance::find_by_relay_ip(&mut txn, relay_ip).await?;
 
     if let Some(instance) = possible_instance {
-        let segment = match NetworkSegment::for_relay(&mut txn, parsed_relay).await? {
-            Some(segment) => segment,
-            None => {
-                return Err(CarbideError::NoNetworkSegmentsForRelay(parsed_relay).into());
-            }
-        };
-
-        let record: rpc::DhcpRecord =
-            DhcpRecord::find_for_instance(&mut txn, &parsed_mac, &segment.id, instance.machine_id)
-                .await?
-                .into();
+        let circuit_id_parsed = circuit_id
+            .as_ref()
+            .ok_or(DhcpError::MissingCircuitId(instance.id))
+            .map_err(CarbideError::from)?;
+        let record: rpc::DhcpRecord = InstanceDhcpRecord::find_for_instance(
+            &mut txn,
+            parsed_mac,
+            circuit_id_parsed.clone(),
+            instance.clone(),
+        )
+        .await
+        .map_err(|x| {
+            log::error!(
+                "DHCP request failed for {}, {:?} with {}.",
+                instance.id,
+                circuit_id,
+                x
+            );
+            CarbideError::from(DhcpError::InvalidInterface(
+                instance.id,
+                circuit_id_parsed.clone(),
+            ))
+        })?
+        .try_into()?;
         txn.commit().await.map_err(CarbideError::from)?;
-        let record_clone = record.clone();
+
+        log::info!(
+            "Returning DHCP response for instance {}, circuit_id: {}, record: {:?}",
+            instance.id,
+            circuit_id_parsed,
+            record
+        );
 
         dhcp_discovery_cache.lock().await.put(
             parsed_mac,
             RecordCacheEntry {
-                record: record_clone,
+                record: record.clone(),
                 timestamp: Instant::now(),
                 link_address: parsed_relay,
+                circuit_id,
             },
         );
 
@@ -194,9 +210,6 @@ pub async fn discover_dhcp(
                     .into();
 
             if newly_created_interface {
-                let relay_ip = IpAddr::from_str(&relay_address)
-                    .map_err(|err| CarbideError::GenericError(err.to_string()))?;
-
                 let resource = VpcResourceLeaf::find_by_loopback_ip(&mut txn, relay_ip).await?;
 
                 // we're using the presence of the mapping as a "tell" for whether this ia DPU -- we literally
@@ -205,40 +218,10 @@ pub async fn discover_dhcp(
                 // if this is a DPU coming up for the very first time. In this case we need to do nothing -- because
                 // the provisioning step in 'discover_machine' is going to create this mapping for us.
                 if let Some(resource_leaf) = resource {
-                    // Hint: This seems wrong - but we indeed set the field this way during DPU discovery
-                    let dpu_machine_id = *resource_leaf.id();
                     // we need to go look at our mapping and get the assigned leaf ID for this relay address
                     //TODO: think about making a GET leaf call in VPC resource actions
-                    let client = Client::try_default().await.map_err(CarbideError::from)?;
-                    let namespace = FORGE_KUBE_NAMESPACE;
-                    let leafs: KubeApi<leaf::Leaf> = KubeApi::namespaced(client, namespace);
-                    let mut leaf = leafs
-                        .get(leaf_name(dpu_machine_id).as_str())
-                        .await
-                        .map_err(|err| CarbideError::GenericError(err.to_string()))?;
+                    kubernetes::update_leaf(&mut txn, resource_leaf, record.clone()).await?;
 
-                    let host_admin_ip_network = Ipv4Network::from_str(record.address.as_str())
-                        .map_err(|err| CarbideError::GenericError(err.to_string()))?;
-                    let host_admin_ip_address_string = host_admin_ip_network.ip().to_string();
-
-                    let new_host_admin_ips_map = BTreeMap::from([(
-                        DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
-                        host_admin_ip_address_string,
-                    )]);
-
-                    leaf.spec.host_admin_i_ps = Some(new_host_admin_ips_map);
-
-                    let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
-
-                    VpcResourceActions::UpdateLeaf(LeafData {
-                        leaf,
-                        dpu_machine_id,
-                    })
-                    .reconcile(db_conn)
-                    .await?;
-
-                    // TODO: Since we already know the dpu_machine_id (which is the same as the Leaf ID),
-                    // we might not need this anymore
                     let dpu_machine_interface =
                         VpcResourceLeaf::find_associated_dpu_machine_interface(&mut txn, relay_ip)
                             .await?;
@@ -254,12 +237,6 @@ pub async fn discover_dhcp(
                             relay_address
                         )
                     }
-                    //spec:
-                    //  control:
-                    //    managementIP: 10.180.221.200
-                    //    vendor: DPU
-                    //  hostAdminIPs:
-                    //    pf0hpf: ""
                 } else {
                     log::info!(
                             "VpcResourceLeaf not found, using relay ip: {} assuming this is DPU DHCPDISCOVER",
@@ -274,6 +251,7 @@ pub async fn discover_dhcp(
                     record: record_clone,
                     timestamp: Instant::now(),
                     link_address: parsed_relay,
+                    circuit_id: None,
                 },
             );
             record
