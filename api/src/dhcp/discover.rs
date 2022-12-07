@@ -18,17 +18,18 @@ use mac_address::MacAddress;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
-use crate::db::dhcp_record::InstanceDhcpRecord;
-use crate::db::instance::Instance;
-use crate::db::vpc_resource_leaf::VpcResourceLeaf;
-use crate::dhcp::allocation::DhcpError;
-use crate::kubernetes;
 use crate::{
     db::{
-        dhcp_entry::DhcpEntry, dhcp_record::DhcpRecord, machine::Machine,
-        machine_interface::MachineInterface, network_segment::NetworkSegment,
+        dhcp_entry::DhcpEntry,
+        dhcp_record::{DhcpRecord, InstanceDhcpRecord},
+        instance::Instance,
+        machine::Machine,
+        machine_interface::MachineInterface,
+        network_segment::NetworkSegment,
+        vpc_resource_leaf::VpcResourceLeaf,
     },
-    CarbideError,
+    dhcp::allocation::DhcpError,
+    kubernetes, CarbideError,
 };
 pub use ::rpc::forge as rpc;
 
