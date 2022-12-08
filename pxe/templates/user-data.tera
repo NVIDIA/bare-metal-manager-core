@@ -38,14 +38,28 @@ write_files:
       vm.hubetlb_shm_group = 0
       vm.nr_hugepages=2048
       vm.min_free_kbytes=67584
+  - path: /etc/systemd/network/35-uplink.network
+    permissions: '0644'
+    content: |
+      [Match]
+      Name=p[0-1]
+      [Link]
+      MTUBytes=9216
+  - path: /etc/systemd/network/35-sf.network
+    permissions: '0644'
+    content: |
+      [Match]
+      Name=*_sf_r
+      [Link]
+      MTUBytes=9216
 runcmd:
   - [ sudo, efibootmgr, -o, "F,40"]
   - [ wget, {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli, -P, /opt/carbide ]
   - [ chmod, +x, /opt/carbide/carbide-cli ]
   - [ /opt/carbide/carbide-cli, --api={{ api_url }}, discovery, --uuid={{ interface_id }} ]
-  - [ /usr/bin/systemctl, enable, containerd ]
-  - [ /usr/bin/systemctl, start, containerd ]
-  - [ /usr/bin/systemctl, enable, kubelet ]
+  - [ /usr/bin/systemctl, enable, containerd@mgmt ]
+  - [ /usr/bin/systemctl, start, containerd@mgmt ]
+  - [ /usr/bin/systemctl, enable, kubelet@mgmt ]
   - [ systemctl, enable, chrony ]
   - [ systemctl, restart, chrony ]
   - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
