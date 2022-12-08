@@ -566,7 +566,7 @@ pub struct OemDellSerial {
     pub command: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone, Eq, PartialEq)]
 pub enum OemDellBootDevices {
     Normal,
     PXE,
