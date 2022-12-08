@@ -11,21 +11,18 @@ set white ${esc:string}[37m
 
 :start
 echo ${bold}${white}Forge${boldoff} - v${version}
-prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open default menu... && goto default || goto carbide
+prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open forge menu... && goto forge_menu || goto carbide
 
 :whoami
 ifconf -c dhcp
 isset ${43.70} && chain --autofree http://${next-server}:8080/api/v0/pxe/whoami?uuid=${43.70}
-prompt --key x Hit the ${bold}x${boldoff} key to continue
-goto default
+goto forge_menu
 
 :carbide
 ifconf -c dhcp
-isset ${43.70} && chain --autofree http://${next-server}:8080/api/v0/pxe/boot?uuid=${43.70}&buildarch=${buildarch}
-prompt --key x Hit the ${bold}x${boldoff} key to continue
-goto default
+isset ${43.70} && chain --autofree http://${next-server}:8080/api/v0/pxe/boot?uuid=${43.70}&buildarch=${buildarch} && exit 1 || goto error_handler
 
-:default
+:forge_menu
 menu NGC Forge - ${hostname}
 item carbide Boot according to Carbide workflow
 item whoami Print information about this machine
@@ -36,8 +33,8 @@ item retry Retry boot
 item debug iPXE Debug Shell
 item reboot Reboot System
 choose --default carbide --timeout 5000 target && goto ${target}
-prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open default menu...
-goto default
+prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open forge menu...
+goto forge_menu
 
 :localboot
 exit
@@ -45,10 +42,14 @@ exit
 :retry
 goto start
 
+:error_handler
+prompt --key x Hit the ${bold}x${boldoff} key to continue
+goto forge_menu
+
 :debug
 echo Type "exit" to return to menu
 shell
-goto default
+goto forge_menu
 
 :reboot
 reboot
