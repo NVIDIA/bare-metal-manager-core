@@ -102,6 +102,10 @@ impl IpmiCommandHandler for TestIpmiCommandHandler {
         match cmd.action.unwrap() {
             IpmiTask::PowerControl(_task) => Ok("Power Control".to_string()),
             IpmiTask::Status => Ok("Status".to_string()),
+            IpmiTask::EnableLockdown => Ok("Enable Lockdown".to_string()),
+            IpmiTask::DisableLockdown => Ok("Disable Lockdown".to_string()),
+            IpmiTask::SetupSerialConsole => Ok("Setup Serial Console".to_string()),
+            IpmiTask::FirstBootDevice(_device, _once) => Ok("First Boot Device".to_string()),
         }
     }
 }

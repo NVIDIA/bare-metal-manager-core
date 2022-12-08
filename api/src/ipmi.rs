@@ -22,6 +22,7 @@ use uuid::Uuid;
 use ::rpc::forge as rpc;
 use ::rpc::forge::instance_power_request::Operation as rpcOperation;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+use libredfish::manager::OemDellBootDevices;
 use libredfish::system::SystemPowerControl;
 
 use crate::bg::{CurrentState, Status, TaskState};
@@ -33,6 +34,10 @@ use crate::{CarbideError, CarbideResult};
 pub enum IpmiTask {
     Status,
     PowerControl(SystemPowerControl),
+    EnableLockdown,
+    DisableLockdown,
+    SetupSerialConsole,
+    FirstBootDevice(OemDellBootDevices, bool),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -130,10 +135,19 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             let mut redfish = libredfish::Redfish::new(conf);
 
             match redfish.get_system_id() {
-                Ok(_x) => {}
+                Ok(()) => {}
                 Err(e) => {
                     return Err(CarbideError::GenericError(format!(
                         "Error getting system id: {:?}",
+                        e.to_string()
+                    )));
+                }
+            }
+            match redfish.get_manager_id() {
+                Ok(()) => {}
+                Err(e) => {
+                    return Err(CarbideError::GenericError(format!(
+                        "Error getting manager id: {:?}",
                         e.to_string()
                     )));
                 }
@@ -154,6 +168,92 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                         Err(CarbideError::GenericError(error_msg))
                     }
                 },
+                IpmiTask::EnableLockdown => {
+                    match redfish.enable_bmc_lockdown() {
+                        Ok(()) => Ok("Success".to_string()),
+                        Err(e) => {
+                            let error_msg = format!("Failed to enable bmc lockdown {}", e);
+                            Err(CarbideError::GenericError(error_msg))
+                        }
+                    }
+                    // TODO: un-comment this when the idrac user/password management is handled.
+                    /*
+                    match redfish.enable_bios_lockdown() {
+                        Ok(()) => {},
+                        Err(e) => {
+                            let error_msg = format!("Failed to enable bios lockdown {}", e);
+                            return Err(CarbideError::GenericError(error_msg));
+                        }
+                    }
+                    match redfish.set_system_power(SystemPowerControl::ForceRestart) {
+                        Ok(()) => Ok("Success".to_string()),
+                        Err(e) => {
+                            let error_msg = format!("Failed to run power control command {}", e);
+                            Err(CarbideError::GenericError(error_msg))
+                        }
+                    }
+                    */
+                }
+                IpmiTask::DisableLockdown => {
+                    match redfish.disable_bmc_lockdown() {
+                        Ok(()) => Ok("Success".to_string()),
+                        Err(e) => {
+                            let error_msg = format!("Failed to disable bmc lockdown {}", e);
+                            Err(CarbideError::GenericError(error_msg))
+                        }
+                    }
+                    // TODO: un-comment this when the idrac user/password management is handled.
+                    /*
+                    match redfish.disable_bios_lockdown() {
+                        Ok(()) => {},
+                        Err(e) => {
+                            let error_msg = format!("Failed to run disable bios lockdown command {}", e);
+                            return Err(CarbideError::GenericError(error_msg));
+                        }
+                    }
+                    match redfish.set_system_power(SystemPowerControl::ForceRestart) {
+                        Ok(()) => Ok("Success".to_string()),
+                        Err(e) => {
+                            let error_msg = format!("Failed to run power control command {}", e);
+                            Err(CarbideError::GenericError(error_msg))
+                        }
+                    }
+                    */
+                }
+                IpmiTask::SetupSerialConsole => {
+                    match redfish.setup_bmc_remote_access() {
+                        Ok(()) => {}
+                        Err(e) => {
+                            let error_msg = format!("Failed to set bmc remote access {}", e);
+                            return Err(CarbideError::GenericError(error_msg));
+                        }
+                    }
+                    match redfish.setup_serial_console() {
+                        Ok(()) => {}
+                        Err(e) => {
+                            let error_msg =
+                                format!("Failed to set bios serial port settings {}", e);
+                            return Err(CarbideError::GenericError(error_msg));
+                        }
+                    }
+                    match redfish.set_system_power(SystemPowerControl::ForceRestart) {
+                        Ok(()) => Ok("Success".to_string()),
+                        Err(e) => {
+                            let error_msg = format!("Failed to run power control command {}", e);
+                            Err(CarbideError::GenericError(error_msg))
+                        }
+                    }
+                }
+                IpmiTask::FirstBootDevice(device, only_once) => {
+                    match redfish.set_boot_first(device, only_once) {
+                        Ok(()) => Ok("Success".to_string()),
+                        Err(e) => {
+                            let error_msg =
+                                format!("Failed to set {} as first boot device, {}", device, e);
+                            Err(CarbideError::GenericError(error_msg))
+                        }
+                    }
+                }
             };
             result
         })
