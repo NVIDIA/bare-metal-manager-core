@@ -82,8 +82,13 @@ services:
       - .:/app/code
       - ca-certificate:/identity
     # add '-dd' for trace/debug mode:
-    # command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
-    command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
+    # command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
+    command: >-
+      cargo watch -C api -x "run --target-dir /tmp/carbide-api --
+      run
+      --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'
+      --casbin-policy-file=/app/code/api/casbin-policy.csv
+      --auth-permissive-mode=true"
     ports:
       - 1079:1079
     environment:
