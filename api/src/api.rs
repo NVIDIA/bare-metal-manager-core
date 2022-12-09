@@ -1402,7 +1402,18 @@ where
     ) -> Result<(), Report> {
         log::info!("Starting API server on {:?}", daemon_config.listen[0]);
 
-        let database_connection = sqlx::Pool::connect(&daemon_config.datastore).await?;
+        let database_connection = sqlx::pool::PoolOptions::new()
+            .max_connections(MAX_DB_CONNECTIONS)
+            .connect(&daemon_config.datastore)
+            .await?;
+        let stats_pool = database_connection.clone();
+        tokio::spawn(async move {
+            loop {
+                log::info!("Active DB connections: {}", stats_pool.size());
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+
         let conn_clone = database_connection.clone();
 
         let api_service = Arc::new(Self::new(
@@ -1441,9 +1452,9 @@ where
         .await?;
 
         let _kube_handle = bgkubernetes_handler(
-            daemon_config.datastore.to_owned(),
             daemon_config.kubernetes,
             api_service.clone(),
+            database_connection.clone(),
         )
         .await?;
 
@@ -1488,3 +1499,6 @@ async fn log_instance_debug_data(
     );
     Ok(())
 }
+
+/// Maximum database connections
+const MAX_DB_CONNECTIONS: u32 = 1000;

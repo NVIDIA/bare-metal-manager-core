@@ -681,7 +681,6 @@ async fn delete_managed_resource_handler(
 
 #[derive(Clone)]
 pub struct VpcReconcileHandlerArguments {
-    url: String,
     kube_enabled: bool,
     api: Arc<dyn rpc::forge::forge_server::Forge>,
 }
@@ -693,11 +692,7 @@ pub async fn vpc_reconcile_handler(
 ) -> CarbideResult<()> {
     log::debug!("Kubernetes integration is: {}", handler_args.kube_enabled);
 
-    let state_pool = Db::new(&handler_args.url).await?.0;
-    let status_pool = Db::new(&handler_args.url).await?.0;
     let start_time = Instant::now();
-
-    let _vpc_status_db_connection = status_pool.acquire().await?;
 
     // Retrieve job payload as JSON
     let data: Option<String> = current_job.json()?;
@@ -733,7 +728,7 @@ pub async fn vpc_reconcile_handler(
                     "Leaf space name mismatch"
                 );
 
-                let mut vpc_txn = state_pool.begin().await?;
+                let mut vpc_txn = current_job.pool().begin().await?;
 
                 let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), namespace);
 
@@ -840,7 +835,7 @@ pub async fn vpc_reconcile_handler(
                 };
             }
             VpcResourceActions::DeleteLeaf(leaf_data) => {
-                let mut state_txn = state_pool.begin().await?;
+                let mut state_txn = current_job.pool().begin().await?;
                 let vpc_db_resource =
                     VpcResourceLeaf::find(&mut state_txn, leaf_data.dpu_machine_id).await?;
                 let spec_name = leaf_name(leaf_data.dpu_machine_id);
@@ -996,19 +991,13 @@ fn _managed_resource_status_matcher(
 }
 
 pub async fn bgkubernetes_handler(
-    url: String,
     kube_enabled: bool,
     api: Arc<dyn rpc::forge::forge_server::Forge>,
+    pool: PgPool,
 ) -> CarbideResult<OwnedHandle> {
     log::info!("Starting Kubernetes handler.");
     let mut registry = JobRegistry::new(&[vpc_reconcile_handler]);
-    registry.set_context(VpcReconcileHandlerArguments {
-        url: url.clone(),
-        kube_enabled,
-        api,
-    });
-
-    let new_pool = Db::new(url.clone().as_ref()).await?.0;
+    registry.set_context(VpcReconcileHandlerArguments { kube_enabled, api });
 
     if kube_enabled {
         let client = Client::try_default().await?;
@@ -1022,7 +1011,7 @@ pub async fn bgkubernetes_handler(
 
     // This function should return ownedhandle. If ownedhandle is dropped, it will stop main event loop also.
     registry
-        .runner(&new_pool)
+        .runner(&pool)
         .set_concurrency(10, 20)
         .set_channel_names(&["vpc_reconcile_handler"])
         .run()
