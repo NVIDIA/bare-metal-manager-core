@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::sync::Arc;
+
 use http::{header, HeaderMap, Request, Response};
 use serde::{Deserialize, Serialize};
 use tower_http::auth::AuthorizeRequest;
@@ -114,6 +116,45 @@ pub type PolicyEngineObject = (dyn PolicyEngine + Send + Sync);
 mod casbin_engine;
 
 pub use casbin_engine::CasbinEngine;
+
+struct PermissiveWrapper {
+    inner: Arc<PolicyEngineObject>,
+}
+
+impl PermissiveWrapper {
+    fn new(inner: Arc<PolicyEngineObject>) -> Self {
+        Self { inner }
+    }
+}
+
+impl PolicyEngine for PermissiveWrapper {
+    fn authorize(
+        &self,
+        principals: &[Principal],
+        action: Action,
+        object: Object,
+    ) -> Result<Authorization, AuthorizationError> {
+        let result = self.inner.authorize(principals, action, object);
+        result.or_else(|e| {
+            log::warn!(
+                "The policy engine denied this request, but \
+                --auth-permissive-mode overrides it. The policy engine error \
+                message follows:"
+            );
+            log::warn!("{e}");
+
+            // FIXME: Strictly speaking, it's not true that Anonymous is
+            // authorized to do this. Maybe define a different principal
+            // to use here? "Development"?
+            let authorization = Authorization {
+                principal: Principal::Anonymous,
+                action,
+                object,
+            };
+            Ok(authorization)
+        })
+    }
+}
 
 // This is intended to be hooked into tower-http's
 // RequireAuthorizationLayer::custom() middleware layer.
