@@ -117,6 +117,40 @@ mod casbin_engine;
 
 pub use casbin_engine::CasbinEngine;
 
+#[derive(Clone)]
+pub struct Authorizer {
+    policy_engine: Arc<PolicyEngineObject>,
+}
+
+impl Authorizer {
+    pub fn new(policy_engine: Arc<PolicyEngineObject>) -> Self {
+        Self { policy_engine }
+    }
+
+    pub fn authorize<R: PrincipalExtractor>(
+        &self,
+        req: &R,
+        action: Action,
+        object: Object,
+    ) -> Result<Authorization, AuthorizationError> {
+        let principals = req.principals();
+        let engine = self.policy_engine.clone();
+        log::debug!(
+            "Checking authorization with (object={object:?}, action={action:?}, \
+            principals={principals:?})"
+        );
+        engine.authorize(&principals, action, object)
+    }
+
+    // TODO: config this out in release mode?
+    fn enable_permissive(&mut self) {
+        let inner_engine = self.policy_engine.clone();
+        let permissive_engine: Arc<PolicyEngineObject> =
+            Arc::new(PermissiveWrapper::new(inner_engine));
+        self.policy_engine = permissive_engine;
+    }
+}
+
 struct PermissiveWrapper {
     inner: Arc<PolicyEngineObject>,
 }
