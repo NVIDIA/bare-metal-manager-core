@@ -332,6 +332,7 @@ message NetworkPrefix {
   int32 reserve_first = 4;
   VpcResourceState state = 5;
   repeated NetworkPrefixEvent events = 6;
+  optional string circuit_id = 7;
 }
 
 message MachineState {

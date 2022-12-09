@@ -52,6 +52,7 @@ async fn create_network_segment_with_api(
             reserve_first: 1,
             state: None,
             events: vec![],
+            circuit_id: None,
         }],
         subdomain_id: None,
         vpc_id: None,

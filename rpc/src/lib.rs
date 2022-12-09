@@ -29,13 +29,14 @@ use serde::Serialize;
 
 pub use crate::protos::forge::{
     self, machine_credentials_update_request::CredentialPurpose,
-    machine_discovery_info::DiscoveryData, Domain, Instance, InstanceAllocationRequest,
+    machine_discovery_info::DiscoveryData, Domain, DomainList, Instance, InstanceAllocationRequest,
     InstanceConfig, InstanceInterfaceConfig, InstanceInterfaceStatus,
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
     InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
     InterfaceFunctionType, Machine, MachineAction, MachineCleanupInfo, MachineDiscoveryInfo,
-    MachineEvent, MachineInterface, MachineList, ObservedInstanceNetworkStatusRecordResult,
-    SyncState, TenantConfig, TenantState, Uuid,
+    MachineEvent, MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment,
+    NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, SyncState, TenantConfig,
+    TenantState, Uuid,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiDevice, NetworkInterface, NvmeDevice,
@@ -137,6 +138,89 @@ impl Serialize for Machine {
         state.serialize_field("events", &self.events)?;
         state.serialize_field("interfaces", &self.interfaces)?;
 
+        state.end()
+    }
+}
+
+impl Serialize for NetworkSegmentList {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("NetowrkSegmentList", 1)?;
+
+        state.serialize_field("segments", &self.network_segments)?;
+
+        state.end()
+    }
+}
+
+impl Serialize for NetworkPrefixEvent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("NetworkPrefixEvent", 4)?;
+
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("network_prefix_id", &self.network_prefix_id)?;
+        state.serialize_field("event", &self.event)?;
+        state.serialize_field("time", &self.time.as_ref().map(|ts| ts.seconds))?;
+
+        state.end()
+    }
+}
+
+impl Serialize for protos::forge::NetworkPrefix {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("NetworkPrefix", 7)?;
+
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("prefix", &self.prefix)?;
+        state.serialize_field("gateway", &self.gateway)?;
+        state.serialize_field("reserve_first", &self.reserve_first)?;
+        state.serialize_field("state", &self.state)?;
+        state.serialize_field("events", &self.events)?;
+        state.serialize_field("circuit_id", &self.circuit_id)?;
+
+        state.end()
+    }
+}
+
+impl Serialize for NetworkSegment {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("NetworkSegment", 11)?;
+
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("vpc_id", &self.vpc_id)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("subdomain_id", &self.subdomain_id)?;
+        state.serialize_field("mtu", &self.mtu)?;
+        state.serialize_field("prefixes", &self.prefixes)?;
+        state.serialize_field("version", &self.version)?;
+        state.serialize_field("state", &self.state)?;
+        state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
+        state.serialize_field("updated", &self.updated.as_ref().map(|ts| ts.seconds))?;
+        state.serialize_field("deleted", &self.deleted.as_ref().map(|ts| ts.seconds))?;
+
+        state.end()
+    }
+}
+
+impl Serialize for DomainList {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("DomainList", 1)?;
+
+        state.serialize_field("domains", &self.domains)?;
         state.end()
     }
 }
