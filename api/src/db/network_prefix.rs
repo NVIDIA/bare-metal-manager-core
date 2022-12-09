@@ -91,6 +91,7 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
             reserve_first: src.num_reserved,
             state: Some(src.state.into()),
             events: src.events.iter().map(|event| event.into()).collect(),
+            circuit_id: src.circuit_id,
         }
     }
 }

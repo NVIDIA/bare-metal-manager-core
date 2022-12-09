@@ -36,6 +36,10 @@ pub enum CarbideCommand {
     Machine(Machine),
     #[clap(about = "Instance related handling", subcommand)]
     Instance(Instance),
+    #[clap(about = "Network Segment related handling", subcommand)]
+    NetworkSegment(NetworkSegment),
+    #[clap(about = "Domain related handling", subcommand)]
+    Domain(Domain),
 }
 
 #[derive(Parser, Debug)]
@@ -80,6 +84,44 @@ pub struct ShowInstance {
 
     #[clap(short, long, multiple_values(false), action)]
     pub extrainfo: bool,
+}
+
+#[derive(Parser, Debug)]
+pub enum Domain {
+    #[clap(about = "Display Domain information")]
+    Show(ShowDomain),
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+        ArgGroup::new("show_domain")
+        .required(true)
+        .args(&["all", "uuid"])))]
+pub struct ShowDomain {
+    #[clap(short, long, multiple_values(false), action)]
+    pub all: bool,
+
+    #[clap(short, long, multiple_values(false))]
+    pub uuid: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub enum NetworkSegment {
+    #[clap(about = "Display Network Segment information")]
+    Show(ShowNetwork),
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+        ArgGroup::new("show_network")
+        .required(true)
+        .args(&["all", "uuid"])))]
+pub struct ShowNetwork {
+    #[clap(short, long, multiple_values(false), action)]
+    pub all: bool,
+
+    #[clap(short, long, multiple_values(false))]
+    pub uuid: Option<String>,
 }
 
 impl CarbideOptions {

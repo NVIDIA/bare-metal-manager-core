@@ -10,8 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 pub mod cfg;
+pub mod domain;
 pub mod instance;
 pub mod machine;
+pub mod network;
 mod rpc;
 
 use ::rpc::forge as forgerpc;
@@ -26,6 +28,12 @@ pub enum CarbideCliError {
 
     #[error("Generic Error: {0}")]
     GenericError(String),
+
+    #[error("Segment not found.")]
+    SegmentNotFound,
+
+    #[error("Domain not found.")]
+    DomainNotFound,
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;

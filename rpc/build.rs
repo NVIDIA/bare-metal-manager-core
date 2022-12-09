@@ -38,6 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.InstanceStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Instance", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.VpcResourceState", "#[derive(serde::Serialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")
