@@ -2234,6 +2234,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_with",
 ]
 
 [[package]]
@@ -3878,6 +3879,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_with"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25bf4a5a814902cd1014dbccfa4d4560fb8432c779471e96e035602519f82eef"
+dependencies = [
+ "base64",
+ "chrono",
+ "hex",
+ "indexmap",
+ "serde",
+ "serde_json",
+ "serde_with_macros",
+ "time 0.3.14",
+]
+
+[[package]]
+name = "serde_with_macros"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3452b4c0f6c1e357f73fdb87cd1efabaa12acf328c7a528e252893baeb3f4aa"
+dependencies = [
+ "darling",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "serde_yaml"
 version = "0.8.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4413,6 +4442,7 @@ dependencies = [
  "itoa 1.0.3",
  "libc",
  "num_threads",
+ "serde",
 ]
 
 [[package]]
