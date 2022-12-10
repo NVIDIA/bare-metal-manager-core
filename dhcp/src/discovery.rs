@@ -10,13 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 use std::ffi::{c_char, CStr};
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::primitive::u32;
 
 use derive_builder::Builder;
 use mac_address::MacAddress;
 
+use crate::cache;
 use crate::machine::Machine;
+use crate::CONFIG;
 
 /// Enumerates results of setting discovery options on the Builder
 #[repr(C)]
@@ -55,7 +57,7 @@ pub extern "C" fn discovery_builder_result_as_str(result: DiscoveryBuilderResult
     .as_ptr()
 }
 
-#[derive(Debug, Builder)]
+#[derive(Debug, Clone, Builder)]
 pub struct Discovery {
     pub(crate) relay_address: Ipv4Addr,
     pub(crate) mac_address: MacAddress,
@@ -257,6 +259,18 @@ pub unsafe extern "C" fn discovery_fetch_machine(
     ctx: *mut DiscoveryBuilderFFI,
     machine_ptr_out: *mut *mut Machine,
 ) -> DiscoveryBuilderResult {
+    let url = &CONFIG
+        .read()
+        .unwrap() // TODO(ajf): don't unwrap
+        .api_endpoint;
+    discovery_fetch_machine_at(ctx, machine_ptr_out, url)
+}
+
+unsafe fn discovery_fetch_machine_at(
+    ctx: *mut DiscoveryBuilderFFI,
+    machine_ptr_out: *mut *mut Machine,
+    url: &str,
+) -> DiscoveryBuilderResult {
     if machine_ptr_out.is_null() {
         return DiscoveryBuilderResult::InvalidMachinePointer;
     }
@@ -271,24 +285,33 @@ pub unsafe extern "C" fn discovery_fetch_machine(
             }
         };
 
-        let r = discovery.relay_address;
-        let m = discovery.mac_address;
-        let v = match discovery.vendor_class.clone() {
-            Some(s) => s,
-            None => "No vendor specified in the request".to_string(),
-        };
+        let mac_address = discovery.mac_address;
+        let circuit_id = discovery.circuit_id.clone();
+        let addr_for_dhcp = IpAddr::V4(
+            discovery
+                .link_select_address
+                .unwrap_or(discovery.relay_address),
+        );
 
-        match Machine::try_from(discovery) {
+        if let Some(cache_entry) = cache::get(mac_address, addr_for_dhcp, &circuit_id) {
+            log::info!(
+                "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?})"
+            );
+            *machine_ptr_out = Box::into_raw(Box::new(cache_entry.machine));
+            return DiscoveryBuilderResult::Success;
+        }
+
+        match Machine::try_fetch(discovery, url) {
             Ok(machine) => {
+                cache::put(mac_address, addr_for_dhcp, circuit_id, machine.clone());
                 *machine_ptr_out = Box::into_raw(Box::new(machine));
                 DiscoveryBuilderResult::Success
             }
             Err(e_str) => {
                 log::info!(
-                    "Error getting info back from the machine discovery: {}:{}:{}:{}",
-                    m,
-                    r,
-                    v,
+                    "Error getting info back from the machine discovery: mac={} addr={} err={}",
+                    mac_address,
+                    addr_for_dhcp,
                     e_str
                 );
                 DiscoveryBuilderResult::FetchMachineError
@@ -310,4 +333,142 @@ pub unsafe extern "C" fn discovery_fetch_machine(
 #[no_mangle]
 pub unsafe extern "C" fn discovery_builder_free(ctx: *mut DiscoveryBuilderFFI) {
     drop(Box::from_raw(ctx as *mut DiscoveryBuilder));
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::ptr::null_mut;
+    use std::thread;
+
+    use super::*;
+    use crate::mock_api_server;
+    use crate::CarbideDhcpContext;
+
+    // Basic test passing null pointers
+    #[test]
+    fn test_discovery_fetch_machine_handles_null() {
+        unsafe {
+            assert_eq!(
+                discovery_fetch_machine(null_mut(), null_mut()),
+                DiscoveryBuilderResult::InvalidMachinePointer
+            );
+
+            let mut out = null_mut();
+            assert_eq!(
+                discovery_fetch_machine(null_mut(), &mut out),
+                DiscoveryBuilderResult::InvalidDiscoveryBuilderPointer
+            );
+        }
+    }
+
+    // Test the success case of calling API server and test the cache.
+    #[test]
+    fn test_discovery_fetch_machine_success() {
+        // Start the mock API server
+        let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        let mut api_server = mock_api_server::MockAPIServer::start(rt);
+
+        // Input packet, found by printing a real one
+        let builder_ffi = discovery_builder_allocate();
+        unsafe {
+            marshal_discovery_ffi(builder_ffi, |builder| {
+                builder.relay_address([172, 20, 0, 11].into());
+                builder.mac_address(MacAddress::new([2, 66, 172, 20, 0, 42]));
+                builder.circuit_id("eth0");
+                DiscoveryBuilderResult::Success
+            });
+        }
+
+        // Pointer to result will go here
+        let mut out = null_mut();
+
+        // Test!
+        let res = unsafe {
+            discovery_fetch_machine_at(builder_ffi, &mut out, api_server.local_http_addr())
+        };
+        assert_eq!(res, DiscoveryBuilderResult::Success);
+
+        // Check
+        let machine = unsafe { &*out };
+        assert!(mock_api_server::matches_mock_response(machine));
+        assert_eq!(
+            api_server.calls_for(mock_api_server::ENDPOINT_DISCOVER_DHCP),
+            1
+        );
+
+        // Call it again
+        let res = unsafe { discovery_fetch_machine(builder_ffi, &mut out) };
+        // .. still succeeds and is correct
+        let machine = unsafe { &*out };
+        assert_eq!(res, DiscoveryBuilderResult::Success);
+        assert!(mock_api_server::matches_mock_response(machine));
+        // .. but we used the cache so only one backend call was made
+        assert_eq!(
+            api_server.calls_for(mock_api_server::ENDPOINT_DISCOVER_DHCP),
+            1
+        );
+
+        // Cleanup
+        unsafe {
+            discovery_builder_free(builder_ffi);
+        }
+        api_server.stop();
+    }
+
+    // Run many basic discovery_fetch_machine tests concurrently
+    #[test]
+    fn test_discovery_fetch_machine_multi_threading() {
+        // Start the mock API server
+        let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        let mut api_server = mock_api_server::MockAPIServer::start(rt);
+        let endpoint_url = api_server.local_http_addr();
+        thread::scope(|s| {
+            let mut handles = Vec::with_capacity(10);
+            for last_mac in 0..10 {
+                handles.push(s.spawn(move || {
+                    for _ in 0..10 {
+                        multi_threading_test_inner(last_mac, endpoint_url);
+                    }
+                }));
+            }
+            for h in handles {
+                h.join().unwrap();
+            }
+        });
+
+        // Ten MAC addresses, so ten backend calls
+        assert_eq!(
+            api_server.calls_for(mock_api_server::ENDPOINT_DISCOVER_DHCP),
+            10,
+        );
+        api_server.stop();
+    }
+
+    fn multi_threading_test_inner(last_mac: u8, url: &str) {
+        let builder_ffi = discovery_builder_allocate();
+        unsafe {
+            marshal_discovery_ffi(builder_ffi, |builder| {
+                builder.relay_address([172, 20, 0, 11].into());
+                builder.mac_address(MacAddress::new([2, 66, 172, 20, 0, last_mac]));
+                builder.circuit_id("eth0");
+                DiscoveryBuilderResult::Success
+            });
+        }
+        let mut out = null_mut();
+        let res = unsafe { discovery_fetch_machine_at(builder_ffi, &mut out, url) };
+        assert_eq!(res, DiscoveryBuilderResult::Success);
+        let machine = unsafe { &*out };
+        assert!(mock_api_server::matches_mock_response(machine));
+        unsafe {
+            discovery_builder_free(builder_ffi);
+        }
+    }
+
+    #[test]
+    fn assert_thread_safety() {
+        fn assert_send<T: Send>() {}
+        assert_send::<Machine>();
+        assert_send::<DiscoveryBuilderFFI>();
+    }
 }

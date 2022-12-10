@@ -11,11 +11,8 @@
  */
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::time::{Duration, Instant};
 
-use lru::LruCache;
 use mac_address::MacAddress;
-use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -33,17 +30,8 @@ use crate::{
 };
 pub use ::rpc::forge as rpc;
 
-#[derive(Debug, Clone)]
-pub struct RecordCacheEntry {
-    pub record: rpc::DhcpRecord,
-    pub timestamp: Instant,
-    pub link_address: IpAddr,
-    pub circuit_id: Option<String>,
-}
-
 pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,
-    dhcp_discovery_cache: &Mutex<LruCache<MacAddress, RecordCacheEntry>>,
     request: Request<rpc::DhcpDiscovery>,
 ) -> Result<Response<rpc::DhcpRecord>, Status> {
     let mut txn = database_connection
@@ -72,21 +60,6 @@ pub async fn discover_dhcp(
     let parsed_mac: MacAddress = mac_address
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
-    {
-        let mut dhcp_discovery_cache = dhcp_discovery_cache.lock().await;
-        if let Some(cache_entry) = dhcp_discovery_cache.get(&parsed_mac) {
-            if cache_entry.timestamp.elapsed() < Duration::from_secs(60)
-                && cache_entry.link_address == parsed_relay
-                && cache_entry.circuit_id == circuit_id
-            {
-                log::info!("returning cached response for {parsed_mac:?}");
-                let record_clone = cache_entry.record.clone();
-                return Ok(Response::new(record_clone));
-            } else {
-                let _removed = dhcp_discovery_cache.pop_entry(&parsed_mac);
-            }
-        }
-    }
 
     let existing_machines =
         Machine::find_existing_machines(&mut txn, parsed_mac, parsed_relay).await?;
@@ -128,17 +101,6 @@ pub async fn discover_dhcp(
             circuit_id_parsed,
             record
         );
-
-        dhcp_discovery_cache.lock().await.put(
-            parsed_mac,
-            RecordCacheEntry {
-                record: record.clone(),
-                timestamp: Instant::now(),
-                link_address: parsed_relay,
-                circuit_id,
-            },
-        );
-
         return Ok(Response::new(record));
     }
 
@@ -245,16 +207,6 @@ pub async fn discover_dhcp(
                         )
                 }
             }
-            let record_clone = record.clone();
-            dhcp_discovery_cache.lock().await.put(
-                parsed_mac,
-                RecordCacheEntry {
-                    record: record_clone,
-                    timestamp: Instant::now(),
-                    link_address: parsed_relay,
-                    circuit_id: None,
-                },
-            );
             record
         })),
     };

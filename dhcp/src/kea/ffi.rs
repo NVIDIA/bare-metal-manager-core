@@ -15,7 +15,7 @@ extern "C" {
     pub fn shim_version() -> libc::c_int;
     pub fn shim_load(_: *mut libc::c_void) -> libc::c_int;
     pub fn shim_unload() -> libc::c_int;
-    pub fn shim_multi_threaded_compatible() -> libc::c_int;
+    pub fn shim_multi_threading_compatible() -> libc::c_int;
 }
 
 #[no_mangle]
@@ -42,6 +42,6 @@ pub unsafe extern "C" fn unload() -> libc::c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn multi_threaded_compatible() -> libc::c_int {
-    shim_multi_threaded_compatible()
+pub unsafe extern "C" fn multi_threading_compatible() -> libc::c_int {
+    shim_multi_threading_compatible()
 }

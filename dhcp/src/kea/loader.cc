@@ -85,7 +85,7 @@ extern "C" {
 		return 0;
 	}
 
-	int shim_multi_threaded_compatible() {
-		return 0;
+	int shim_multi_threading_compatible() {
+		return (1);
 	}
 }

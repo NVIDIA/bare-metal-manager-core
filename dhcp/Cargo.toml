@@ -11,14 +11,20 @@ crate-type = ["cdylib"]
 [dependencies]
 derive_builder = "*"
 ipnetwork = "*"
+lazy_static = "1.4.0"
 libc = "*"
 log = "*"
+lru = "0.8.1"
 mac_address = "*"
 once_cell = "*"
+prost = "0.11.3"
 rpc = { path = "../rpc" }
 tokio = { workspace = true }
 tonic = "0.8.0"
 uuid = "1.0"
+
+[dev-dependencies]
+hyper = "*"
 
 [build-dependencies]
 cbindgen = "*"

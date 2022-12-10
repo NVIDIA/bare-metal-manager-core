@@ -14,11 +14,8 @@ use std::env;
 use std::sync::Arc;
 
 use color_eyre::Report;
-use lru::LruCache;
-use mac_address::MacAddress;
 use once_cell::sync::Lazy;
 use sqlx::Acquire;
-use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
@@ -49,7 +46,6 @@ use crate::{
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
         UuidKeyedObjectFilter,
     },
-    dhcp::discover::RecordCacheEntry,
     instance::{allocate_instance, InstanceAllocationRequest},
     ipmi::{ipmi_handler, MachinePowerRequest, RealIpmiCommandHandler},
     kubernetes::{
@@ -82,7 +78,6 @@ pub static CONFIG: Lazy<RwLock<ExternalConfig>> =
 pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
     credential_provider: Arc<C>,
-    dhcp_discovery_cache: Mutex<LruCache<MacAddress, RecordCacheEntry>>,
 }
 
 #[tonic::async_trait]
@@ -931,12 +926,7 @@ where
         &self,
         request: Request<rpc::DhcpDiscovery>,
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
-        crate::dhcp::discover::discover_dhcp(
-            &self.database_connection,
-            &self.dhcp_discovery_cache,
-            request,
-        )
-        .await
+        crate::dhcp::discover::discover_dhcp(&self.database_connection, request).await
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -1389,9 +1379,6 @@ where
         Self {
             database_connection,
             credential_provider,
-            dhcp_discovery_cache: Mutex::new(LruCache::new(
-                std::num::NonZeroUsize::new(1000).unwrap(),
-            )),
         }
     }
 

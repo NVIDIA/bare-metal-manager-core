@@ -140,6 +140,7 @@ dependencies = [
 [tasks.pre-commit-verify]
 description = "Runs the same set of tasks CI will."
 category = "CI"
+# clippy-flow and check-format-flow are default targets provided by cargo-make
 dependencies = [
     "clippy-flow",
     "check-format-flow",

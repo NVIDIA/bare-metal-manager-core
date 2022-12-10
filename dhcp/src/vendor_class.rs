@@ -11,20 +11,20 @@
  */
 use std::{fmt::Display, str::FromStr};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum MachineClientClass {
     PXEClient,
     HTTPClient,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum MachineArchitecture {
     BiosX86,
     EfiX64,
     Arm64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct VendorClass {
     pub client_type: MachineClientClass,
     pub client_architecture: MachineArchitecture,

@@ -14,9 +14,8 @@ use std::net::Ipv4Addr;
 use std::primitive::u32;
 use std::ptr;
 
-use ipnetwork::IpNetwork;
-
 use ::rpc::forge as rpc;
+use ipnetwork::IpNetwork;
 
 use crate::discovery::Discovery;
 use crate::vendor_class::{MachineArchitecture, MachineClientClass, VendorClass};
@@ -28,17 +27,15 @@ use crate::CONFIG;
 /// This just stores the protobuf DHCP record and the discovery info the client used so we can add
 /// additional constraints (options) to and from the client.
 ///
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Machine {
     pub inner: rpc::DhcpRecord,
     pub discovery_info: Discovery,
     pub vendor_class: Option<VendorClass>,
 }
 
-impl TryFrom<Discovery> for Machine {
-    type Error = String;
-
-    fn try_from(discovery: Discovery) -> Result<Self, String> {
+impl Machine {
+    pub fn try_fetch(discovery: Discovery, url: &str) -> Result<Self, String> {
         // First, see if we can parse the vendor class
         let vendor_class = match discovery.vendor_class {
             Some(ref vendor_class) => Some(
@@ -49,15 +46,7 @@ impl TryFrom<Discovery> for Machine {
             None => None,
         };
 
-        // Option<X>
-        //   if none then none
-        //   if some then parse if err fail
-
-        let url = CONFIG
-            .read()
-            .unwrap() // TODO(ajf): don't unwrap
-            .api_endpoint
-            .clone();
+        let url = url.to_owned();
 
         // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
         // thread.  This is required because tonic is async but this code generally is not.
