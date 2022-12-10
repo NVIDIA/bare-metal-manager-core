@@ -17,11 +17,15 @@ use libc::c_char;
 use once_cell::sync::Lazy;
 use tokio::runtime::{Builder, Runtime};
 
+mod cache;
 mod discovery;
 mod kea;
 mod kea_logger;
 mod machine;
 mod vendor_class;
+
+#[cfg(test)]
+mod mock_api_server;
 
 static CONFIG: Lazy<RwLock<CarbideDhcpContext>> =
     Lazy::new(|| RwLock::new(CarbideDhcpContext::default()));

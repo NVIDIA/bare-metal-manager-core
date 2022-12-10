@@ -87,7 +87,7 @@ void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
 
 /*
  * The main function which updates the option in response4_ptr.
- * Currntly as per implementation only Option and OptionUint16 templates are
+ * Currently as per implementation only Option and OptionUint16 templates are
  * implemented.
  */
 template <typename T>
