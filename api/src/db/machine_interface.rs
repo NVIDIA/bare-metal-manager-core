@@ -24,7 +24,7 @@ use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::NetworkSegment;
-use crate::dhcp::allocation::{FreeIpResolver, IpAllocator};
+use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::{CarbideError, CarbideResult};
 
 use super::UuidKeyedObjectFilter;
@@ -45,7 +45,7 @@ pub struct MachineInterface {
     addresses: Vec<MachineInterfaceAddress>,
 }
 
-struct FreeAdminNetworkIpResolver {
+struct UsedAdminNetworkIpResolver {
     segment_id: uuid::Uuid,
 }
 
@@ -300,7 +300,7 @@ impl MachineInterface {
             .execute(&mut *inner_txn)
             .await?;
 
-        let dhcp_handler = FreeAdminNetworkIpResolver {
+        let dhcp_handler = UsedAdminNetworkIpResolver {
             segment_id: segment.id,
         };
 
@@ -432,7 +432,7 @@ impl MachineInterface {
 }
 
 #[async_trait::async_trait]
-impl FreeIpResolver for FreeAdminNetworkIpResolver {
+impl UsedIpResolver for UsedAdminNetworkIpResolver {
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,

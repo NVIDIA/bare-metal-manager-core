@@ -21,7 +21,7 @@ use crate::{
 };
 
 #[async_trait::async_trait]
-pub trait FreeIpResolver {
+pub trait UsedIpResolver {
     // Method to get used IP for implementor.
     async fn used_ips(
         &self,
@@ -70,7 +70,7 @@ impl IpAllocator {
     pub async fn new(
         txn: &mut Transaction<'_, Postgres>,
         segment: &NetworkSegment,
-        free_ip_resolver: &impl FreeIpResolver,
+        free_ip_resolver: &impl UsedIpResolver,
         address_strategy: AddressSelectionStrategy<'_>,
     ) -> Result<Self, CarbideError> {
         match address_strategy {

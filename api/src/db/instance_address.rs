@@ -16,7 +16,7 @@ use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::dhcp::allocation::{FreeIpResolver, IpAllocator};
+use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::{model::instance::config::network::InstanceNetworkConfig, CarbideError, CarbideResult};
 
 use super::{
@@ -177,7 +177,7 @@ impl InstanceAddress {
             }
             let circuit_id = circuit_id.remove(0);
 
-            let dhcp_handler = FreeOverlayNetworkIpResolver {
+            let dhcp_handler = UsedOverlayNetworkIpResolver {
                 segment_id: segment.id,
             };
 
@@ -204,12 +204,12 @@ impl InstanceAddress {
     }
 }
 
-struct FreeOverlayNetworkIpResolver {
+struct UsedOverlayNetworkIpResolver {
     segment_id: uuid::Uuid,
 }
 
 #[async_trait::async_trait]
-impl FreeIpResolver for FreeOverlayNetworkIpResolver {
+impl UsedIpResolver for UsedOverlayNetworkIpResolver {
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
