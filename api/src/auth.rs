@@ -220,6 +220,25 @@ impl PolicyEngine for PermissiveWrapper {
     }
 }
 
+pub struct NoopEngine {}
+
+impl PolicyEngine for NoopEngine {
+    fn authorize(
+        &self,
+        _principals: &[Principal],
+        action: Action,
+        object: Object,
+    ) -> Result<Authorization, AuthorizationError> {
+        // FIXME: same problem again as the PermissiveWrapper implementation.
+        // Figure out a name for this use case, and use that instead.
+        Ok(Authorization {
+            principal: Principal::Anonymous,
+            action,
+            object,
+        })
+    }
+}
+
 // This is intended to be hooked into tower-http's
 // RequireAuthorizationLayer::custom() middleware layer.
 #[derive(Clone)]
