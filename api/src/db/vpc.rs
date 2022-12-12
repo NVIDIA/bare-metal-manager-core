@@ -17,8 +17,6 @@ use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
-use ::rpc::Timestamp;
-
 use crate::db::UuidKeyedObjectFilter;
 use crate::model::config_version::ConfigVersion;
 use crate::{CarbideError, CarbideResult};
@@ -141,18 +139,9 @@ impl From<Vpc> for rpc::forge::Vpc {
             version: src.version.to_version_string(),
             name: src.name,
             organization: src.organization_id,
-            created: Some(Timestamp {
-                seconds: src.created.timestamp(),
-                nanos: 0,
-            }),
-            updated: Some(Timestamp {
-                seconds: src.updated.timestamp(),
-                nanos: 0,
-            }),
-            deleted: src.deleted.map(|t| Timestamp {
-                seconds: t.timestamp(),
-                nanos: 0,
-            }),
+            created: Some(src.created.into()),
+            updated: Some(src.updated.into()),
+            deleted: src.deleted.map(|t| t.into()),
         }
     }
 }

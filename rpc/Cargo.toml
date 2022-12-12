@@ -6,6 +6,7 @@ authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 edition.workspace = true
 
 [dependencies]
+chrono = { version = "0.4.19", features = ["serde"] }
 tonic = "0.8.0"
 tonic-reflection = "0.5.0"
 

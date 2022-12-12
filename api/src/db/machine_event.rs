@@ -16,7 +16,6 @@ use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
 
 use ::rpc::forge as rpc;
-use ::rpc::Timestamp;
 
 use crate::db::machine_action::MachineAction;
 use crate::CarbideResult;
@@ -52,10 +51,7 @@ impl From<MachineEvent> for rpc::MachineEvent {
         let mut proto_event = rpc::MachineEvent {
             id: event.id,
             machine_id: Some(event.machine_id.into()),
-            time: Some(Timestamp {
-                seconds: event.timestamp.timestamp(),
-                nanos: 0,
-            }),
+            time: Some(event.timestamp.into()),
             event: 0, // 0 is usually null in protobuf I guess
         };
 

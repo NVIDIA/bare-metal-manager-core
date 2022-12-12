@@ -18,14 +18,13 @@
 use std::convert::From;
 use std::convert::TryFrom;
 use std::fmt::Display;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::str::FromStr;
 
 use mac_address::{MacAddress, MacParseError};
 use prost::Message;
-pub use prost_types::Timestamp;
 use rust_fsm::*;
-use serde::ser::SerializeStruct;
-use serde::Serialize;
 
 pub use crate::protos::forge::{
     self, machine_credentials_update_request::CredentialPurpose,
@@ -55,6 +54,116 @@ pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
         .encode(&mut expected)
         .expect("encode reflection service file descriptor");
     expected
+}
+
+/// A wrapper around the prost timestamp which allows for serde serialization
+/// and has helper methods to convert from and into std::time::SystemTime and DateTime
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
+pub struct Timestamp(prost_types::Timestamp);
+
+impl std::fmt::Display for Timestamp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl Deref for Timestamp {
+    type Target = prost_types::Timestamp;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Timestamp {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<prost_types::Timestamp> for Timestamp {
+    fn from(ts: prost_types::Timestamp) -> Self {
+        Self(ts)
+    }
+}
+
+impl From<Timestamp> for prost_types::Timestamp {
+    fn from(ts: Timestamp) -> prost_types::Timestamp {
+        ts.0
+    }
+}
+
+impl From<chrono::DateTime<chrono::Utc>> for Timestamp {
+    fn from(time: chrono::DateTime<chrono::Utc>) -> Self {
+        Self::from(std::time::SystemTime::from(time))
+    }
+}
+
+impl From<std::time::SystemTime> for Timestamp {
+    fn from(time: std::time::SystemTime) -> Self {
+        Self(prost_types::Timestamp::from(time))
+    }
+}
+
+impl TryFrom<Timestamp> for std::time::SystemTime {
+    type Error = prost_types::TimestampError;
+
+    fn try_from(ts: Timestamp) -> Result<Self, Self::Error> {
+        std::time::SystemTime::try_from(ts.0)
+    }
+}
+
+impl TryFrom<Timestamp> for chrono::DateTime<chrono::Utc> {
+    type Error = prost_types::TimestampError;
+
+    fn try_from(ts: Timestamp) -> Result<Self, Self::Error> {
+        std::time::SystemTime::try_from(ts.0).map(|t| t.into())
+    }
+}
+
+impl serde::Serialize for Timestamp {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // We serialize the timestamp as chrono string
+        match chrono::DateTime::<chrono::Utc>::try_from(self.clone()) {
+            Ok(ts) => ts.serialize(s),
+            Err(_) => chrono::DateTime::<chrono::Utc>::default().serialize(s),
+        }
+    }
+}
+
+impl prost::Message for Timestamp {
+    fn encode_raw<B>(&self, buf: &mut B)
+    where
+        B: prost::bytes::BufMut,
+        Self: Sized,
+    {
+        self.0.encode_raw(buf)
+    }
+
+    fn merge_field<B>(
+        &mut self,
+        tag: u32,
+        wire_type: prost::encoding::WireType,
+        buf: &mut B,
+        ctx: prost::encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        B: prost::bytes::Buf,
+        Self: Sized,
+    {
+        self.0.merge_field(tag, wire_type, buf, ctx)
+    }
+
+    fn encoded_len(&self) -> usize {
+        self.0.encoded_len()
+    }
+
+    fn clear(&mut self) {
+        self.0.clear()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -91,153 +200,6 @@ impl TryFrom<i32> for MachineAction {
             x if x == MachineAction::Cleanup as i32 => Ok(MachineAction::Cleanup),
             _ => Err(()),
         }
-    }
-}
-
-impl Serialize for MachineEvent {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("MachineEvent", 4)?;
-
-        state.serialize_field("id", &self.id)?;
-        state.serialize_field("machine_id", &self.machine_id)?;
-        state.serialize_field("event", &self.event)?;
-        state.serialize_field("time", &self.time.as_ref().map(|ts| ts.seconds))?;
-
-        state.end()
-    }
-}
-
-impl Serialize for MachineList {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("MachineList", 1)?;
-
-        state.serialize_field("machines", &self.machines)?;
-
-        state.end()
-    }
-}
-
-impl Serialize for Machine {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("Machine", 7)?;
-
-        state.serialize_field("id", &self.id)?;
-        state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
-        state.serialize_field("updated", &self.updated.as_ref().map(|ts| ts.seconds))?;
-        state.serialize_field("deployed", &self.deployed.as_ref().map(|ts| ts.seconds))?;
-        state.serialize_field("state", &self.state)?;
-        state.serialize_field("events", &self.events)?;
-        state.serialize_field("interfaces", &self.interfaces)?;
-
-        state.end()
-    }
-}
-
-impl Serialize for NetworkSegmentList {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("NetowrkSegmentList", 1)?;
-
-        state.serialize_field("segments", &self.network_segments)?;
-
-        state.end()
-    }
-}
-
-impl Serialize for NetworkPrefixEvent {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("NetworkPrefixEvent", 4)?;
-
-        state.serialize_field("id", &self.id)?;
-        state.serialize_field("network_prefix_id", &self.network_prefix_id)?;
-        state.serialize_field("event", &self.event)?;
-        state.serialize_field("time", &self.time.as_ref().map(|ts| ts.seconds))?;
-
-        state.end()
-    }
-}
-
-impl Serialize for protos::forge::NetworkPrefix {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("NetworkPrefix", 7)?;
-
-        state.serialize_field("id", &self.id)?;
-        state.serialize_field("prefix", &self.prefix)?;
-        state.serialize_field("gateway", &self.gateway)?;
-        state.serialize_field("reserve_first", &self.reserve_first)?;
-        state.serialize_field("state", &self.state)?;
-        state.serialize_field("events", &self.events)?;
-        state.serialize_field("circuit_id", &self.circuit_id)?;
-
-        state.end()
-    }
-}
-
-impl Serialize for NetworkSegment {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("NetworkSegment", 11)?;
-
-        state.serialize_field("id", &self.id)?;
-        state.serialize_field("vpc_id", &self.vpc_id)?;
-        state.serialize_field("name", &self.name)?;
-        state.serialize_field("subdomain_id", &self.subdomain_id)?;
-        state.serialize_field("mtu", &self.mtu)?;
-        state.serialize_field("prefixes", &self.prefixes)?;
-        state.serialize_field("version", &self.version)?;
-        state.serialize_field("state", &self.state)?;
-        state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
-        state.serialize_field("updated", &self.updated.as_ref().map(|ts| ts.seconds))?;
-        state.serialize_field("deleted", &self.deleted.as_ref().map(|ts| ts.seconds))?;
-
-        state.end()
-    }
-}
-
-impl Serialize for DomainList {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("DomainList", 1)?;
-
-        state.serialize_field("domains", &self.domains)?;
-        state.end()
-    }
-}
-
-impl Serialize for Domain {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("Domain", 5)?;
-
-        state.serialize_field("id", &self.id)?;
-        state.serialize_field("name", &self.name)?;
-        state.serialize_field("created", &self.created.as_ref().map(|ts| ts.seconds))?;
-        state.serialize_field("updated", &self.updated.as_ref().map(|ts| ts.seconds))?;
-        state.serialize_field("deleted", &self.updated.as_ref().map(|ts| ts.seconds))?;
-        state.end()
     }
 }
 
@@ -318,4 +280,59 @@ state_machine! {
     Accepted => { Wait => WaitingForVpc, Fail => Broken,},
     WaitingForVpc => { VpcSuccess => Ready, Fail => Broken, },
     Broken(Recommission) => Init,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn test_serialize_timestamp() {
+        let ts = std::time::SystemTime::now();
+
+        let proto_ts = Timestamp::from(ts);
+        let encoded = proto_ts.encode_to_vec();
+
+        let decoded = Timestamp::decode(&encoded[..]).unwrap();
+        let decoded_system_time = decoded.try_into().unwrap();
+        assert_eq!(ts, decoded_system_time);
+    }
+
+    #[test]
+    fn test_serialize_timestamp_as_json() {
+        let ts = std::time::SystemTime::UNIX_EPOCH;
+        let proto_ts = Timestamp::from(ts);
+        assert_eq!(
+            "\"1970-01-01T00:00:00Z\"",
+            serde_json::to_string(&proto_ts).unwrap()
+        );
+    }
+
+    /// Test to check that serializing a type with a custom Timestamp implementation works
+    #[test]
+    fn test_serialize_domain() {
+        let uuid = uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000");
+        let ts = std::time::SystemTime::now();
+        let ts2 = ts.checked_add(Duration::from_millis(1500)).unwrap();
+
+        let domain = Domain {
+            id: Some(uuid.into()),
+            name: "MyDomain".to_string(),
+            created: Some(ts.into()),
+            updated: Some(ts2.into()),
+            deleted: None,
+        };
+
+        let encoded = domain.encode_to_vec();
+        let decoded = Domain::decode(&encoded[..]).unwrap();
+
+        let deserialized_uuid: uuid::Uuid = decoded.id.unwrap().try_into().unwrap();
+        let created_system_time = decoded.created.unwrap().try_into().unwrap();
+        let updated_system_time = decoded.updated.unwrap().try_into().unwrap();
+        assert_eq!(uuid, deserialized_uuid);
+        assert_eq!(ts, created_system_time);
+        assert_eq!(ts2, updated_system_time);
+    }
 }

@@ -3492,6 +3492,7 @@ dependencies = [
 name = "rpc"
 version = "0.0.1"
 dependencies = [
+ "chrono",
  "mac_address",
  "prost",
  "prost-build",
