@@ -22,7 +22,6 @@ use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
 use ::rpc::forge as rpc;
-use ::rpc::Timestamp;
 
 use crate::db::machine_interface::MachineInterface;
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
@@ -144,22 +143,9 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             name: src.name,
             subdomain_id: src.subdomain_id.map(rpc::Uuid::from),
             mtu: Some(src.mtu),
-
-            created: Some(Timestamp {
-                seconds: src.created.timestamp(),
-                nanos: 0,
-            }),
-
-            updated: Some(Timestamp {
-                seconds: src.updated.timestamp(),
-                nanos: 0,
-            }),
-
-            deleted: src.deleted.map(|t| Timestamp {
-                seconds: t.timestamp(),
-                nanos: 0,
-            }),
-
+            created: Some(src.created.into()),
+            updated: Some(src.updated.into()),
+            deleted: src.deleted.map(|t| t.into()),
             prefixes: src
                 .prefixes
                 .into_iter()

@@ -17,7 +17,6 @@ use sqlx::{Error, Postgres, Row};
 use uuid::Uuid;
 
 use ::rpc::forge as rpc;
-use ::rpc::Timestamp;
 
 use crate::{CarbideError, CarbideResult};
 
@@ -120,14 +119,8 @@ impl From<InstanceType> for rpc::InstanceType {
             description: src.description,
             capabilities: vec![0],
             active: src.active,
-            created: Some(Timestamp {
-                seconds: src.created.timestamp(),
-                nanos: 0,
-            }),
-            updated: Some(Timestamp {
-                seconds: src.updated.timestamp(),
-                nanos: 0,
-            }),
+            created: Some(src.created.into()),
+            updated: Some(src.updated.into()),
         }
     }
 }

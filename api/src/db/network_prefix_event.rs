@@ -16,7 +16,6 @@ use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
 
 use ::rpc::forge as rpc;
-use ::rpc::Timestamp;
 
 use crate::db::vpc_resource_action::VpcResourceAction;
 use crate::CarbideResult;
@@ -44,10 +43,7 @@ impl From<NetworkPrefixEvent> for rpc::NetworkPrefixEvent {
         let mut proto_event = rpc::NetworkPrefixEvent {
             id: event.id,
             network_prefix_id: Some(event.network_prefix_id.into()),
-            time: Some(Timestamp {
-                seconds: event.timestamp.timestamp(),
-                nanos: 0,
-            }),
+            time: Some(event.timestamp.into()),
             event: 0,
         };
 
@@ -62,10 +58,7 @@ impl From<&NetworkPrefixEvent> for rpc::NetworkPrefixEvent {
         let mut proto_event = rpc::NetworkPrefixEvent {
             id: event.id,
             network_prefix_id: Some(event.network_prefix_id.into()),
-            time: Some(Timestamp {
-                seconds: event.timestamp.timestamp(),
-                nanos: 0,
-            }),
+            time: Some(event.timestamp.into()),
             event: 0,
         };
 

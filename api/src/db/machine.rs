@@ -27,7 +27,6 @@ use uuid::Uuid;
 use ::rpc::forge as rpc;
 use ::rpc::MachineStateMachine;
 use ::rpc::MachineStateMachineInput;
-use ::rpc::Timestamp;
 
 use crate::db::machine_action::MachineAction;
 use crate::db::machine_event::MachineEvent;
@@ -114,18 +113,9 @@ impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
         rpc::Machine {
             id: Some(machine.id.into()),
-            created: Some(Timestamp {
-                seconds: machine.created.timestamp(),
-                nanos: 0,
-            }),
-            updated: Some(Timestamp {
-                seconds: machine.updated.timestamp(),
-                nanos: 0,
-            }),
-            deployed: machine.deployed.map(|ts| Timestamp {
-                seconds: ts.timestamp(),
-                nanos: 0,
-            }),
+            created: Some(machine.created.into()),
+            updated: Some(machine.updated.into()),
+            deployed: machine.deployed.map(|ts| ts.into()),
             state: machine.state.to_string(),
             events: machine
                 .events
