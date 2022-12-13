@@ -1,7 +1,7 @@
 #include "callouts.h"
 #include "carbide_rust.h"
 
-isc::log::Logger logger("kea-carbide-callouts");
+isc::log::Logger logger("carbide-callouts");
 
 void CDHCPOptionsHandler<Option>::resetOption(boost::any param) {
   switch (option) {
