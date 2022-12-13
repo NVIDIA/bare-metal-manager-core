@@ -48,6 +48,8 @@ write_files:
       [Link]
       MTUBytes=9216
 runcmd:
+  - [ date, -s , '@{{ seconds_since_epoch }}' ]
+  - [ hwclock, --systohc ]
   - [ ip, vrf, exec, mgmt, wget, {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli, -P, /opt/carbide/ ]
   - [ chmod, +x, /opt/carbide/carbide-cli ]
   - [ ip, vrf, exec, mgmt, /opt/carbide/carbide-cli, --api={{ api_url }}, discovery, --uuid={{ interface_id }} ]
