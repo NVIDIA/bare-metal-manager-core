@@ -27,8 +27,7 @@ use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
 use crate::{
-    auth::{self, CarbideAuth},
-    cfg,
+    auth, cfg,
     credentials::UpdateCredentials,
     db::{
         auth::SshKeyValidationRequest,
@@ -1436,22 +1435,6 @@ where
             authorizer,
         ));
 
-        let mut authenticator = CarbideAuth::new();
-
-        // FIXME: Don't ship with this enabled. Should it be a config option?
-        authenticator.set_permissive_mode(true);
-
-        // Example code just to show usage. Do not actually use this!
-        /*
-        authenticator.add_jwt_key(
-            auth::Algorithm::RS256,
-            auth::KeySpec::KeyID(String::from("wow this is a great key ID!")),
-            auth::DecodingKey::from_base64_secret("dWggb2g=").unwrap(),
-        );
-        */
-
-        let auth_layer = tower_http::auth::RequireAuthorizationLayer::custom(authenticator);
-
         let reflection_service = Builder::configure()
             .register_encoded_file_descriptor_set(::rpc::REFLECTION_SERVICE_DESCRIPTOR)
             .build()?;
@@ -1500,7 +1483,6 @@ where
 
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
-            .layer(auth_layer)
             .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
             .add_service(reflection_service)
             .serve(daemon_config.listen[0])
