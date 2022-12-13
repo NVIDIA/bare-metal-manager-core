@@ -24,6 +24,96 @@ users:
     passwd: $6$QnKhCwOoDCL7WBiY$KgzONMVSjgq/137.pYEwHYQwLLR1CMuqhn2jMOxqhXEni8nQsynh.s6qhdqOWoB5CLhOnM2fjtKuAwf6rm5.6.
     groups: [adm, dialout, cdrom, floppy, sudo, audio, dip, video, plugdev, netdev, lxd]
 write_files:
+  - path: /etc/vrf/systemd.conf
+    permissions: '0644'
+    content: |
+      # Systemd-based services that are expected to be run in a VRF context.
+      #
+      # If changes are made to this file run systemctl daemon-reload
+      # to re-generate systemd files.
+
+      chef-client
+      collectd
+      containerd
+      dhcpd
+      dhcrelay
+      docker
+      hsflowd
+      kubelet
+      netq-agent
+      netq-notifier
+      netqd
+      nslcd
+      ntp
+      puppet
+      salt-minion
+      snmpd
+      snmptrapd
+      systemd-timesyncd
+      ssh
+      zabbix-agent
+  - path: /lib/systemd/system/systemd-timesyncd.service
+    permissions: '0644'
+    content: |
+      #  SPDX-License-Identifier: LGPL-2.1+
+      #
+      #  This file is part of systemd.
+      #
+      #  systemd is free software; you can redistribute it and/or modify it
+      #  under the terms of the GNU Lesser General Public License as published by
+      #  the Free Software Foundation; either version 2.1 of the License, or
+      #  (at your option) any later version.
+
+      [Unit]
+      Description=Network Time Synchronization
+      Documentation=man:systemd-timesyncd.service(8)
+      ConditionCapability=CAP_SYS_TIME
+      ConditionVirtualization=!container
+      DefaultDependencies=no
+      After=systemd-sysusers.service
+      Before=time-set.target sysinit.target shutdown.target
+      Conflicts=shutdown.target
+      Wants=time-set.target time-sync.target
+
+      [Service]
+      AmbientCapabilities=CAP_SYS_TIME
+      #CapabilityBoundingSet=CAP_SYS_TIME
+      ExecStart=!!/lib/systemd/systemd-timesyncd
+      LockPersonality=yes
+      MemoryDenyWriteExecute=yes
+      NoNewPrivileges=yes
+      PrivateDevices=yes
+      PrivateTmp=yes
+      #ProtectControlGroups=yes
+      ProtectHome=yes
+      ProtectHostname=yes
+      ProtectKernelModules=yes
+      ProtectKernelTunables=yes
+      ProtectKernelLogs=yes
+      ProtectSystem=strict
+      Restart=always
+      RestartSec=0
+      #RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+      RestrictNamespaces=yes
+      RestrictRealtime=yes
+      RestrictSUIDSGID=yes
+      RuntimeDirectory=systemd/timesync
+      StateDirectory=systemd/timesync
+      SystemCallArchitectures=native
+      SystemCallErrorNumber=EPERM
+      #SystemCallFilter=@system-service @clock
+      Type=notify
+      #User=systemd-timesync
+      WatchdogSec=3min
+
+      [Install]
+      WantedBy=sysinit.target
+      Alias=dbus-org.freedesktop.timesync1.service
+  - path: /etc/systemd/timesyncd.conf
+    permissions: '0644'
+    content: |
+      [Time]
+      NTP={{ ntp_server }}
   - path: /etc/sysctl.d/98-hbn.conf
     permissions: '0644'
     content: |
@@ -50,6 +140,10 @@ write_files:
 runcmd:
   - [ date, -s , '@{{ seconds_since_epoch }}' ]
   - [ hwclock, --systohc ]
+  - [ /usr/bin/systemctl, daemon-reload ]
+  - [ /usr/bin/systemctl, disable, --now, systemd-timesyncd ]
+  - [ /usr/bin/systemctl, enable, --now, systemd-timesyncd@mgmt ]
+  - [ /usr/bin/timedatectl, set-ntp, true ]
   - [ ip, vrf, exec, mgmt, wget, {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli, -P, /opt/carbide/ ]
   - [ chmod, +x, /opt/carbide/carbide-cli ]
   - [ ip, vrf, exec, mgmt, /opt/carbide/carbide-cli, --api={{ api_url }}, discovery, --uuid={{ interface_id }} ]
