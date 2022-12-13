@@ -15,10 +15,7 @@ use chrono::Utc;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use ::rpc::{
-    forge::{forge_server::Forge, InstanceReleaseRequest},
-    MachineStateMachineInput,
-};
+use ::rpc::forge::forge_server::Forge;
 use carbide::{
     db::{
         dhcp_record::InstanceDhcpRecord,
@@ -30,7 +27,6 @@ use carbide::{
             },
             Instance,
         },
-        machine::Machine,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     machine_state_controller::snapshot_loader::{
@@ -55,8 +51,11 @@ use carbide::{
 use common::api_fixtures::{
     create_test_api,
     dpu::create_dpu_machine,
+    instance::{
+        create_instance, delete_instance, prepare_machine, FIXTURE_CIRCUIT_ID,
+        FIXTURE_X86_MACHINE_ID,
+    },
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID},
-    TestApi,
 };
 
 pub mod common;
@@ -109,7 +108,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(fetched_instance.machine_id, FIXTURE_MACHINE_ID);
+    assert_eq!(fetched_instance.machine_id, FIXTURE_X86_MACHINE_ID);
 
     let network_config = load_instance_network_config(&mut txn, instance_id)
         .await
@@ -128,7 +127,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
 
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = Instance::use_custom_ipxe_on_next_boot(FIXTURE_MACHINE_ID, false, &mut txn).await;
+    let _ = Instance::use_custom_ipxe_on_next_boot(FIXTURE_X86_MACHINE_ID, false, &mut txn).await;
     let fetched_instance = Instance::find_by_relay_ip(&mut txn, parsed_relay)
         .await
         .unwrap()
@@ -371,8 +370,6 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     delete_instance(&api, instance_id).await;
 }
 
-const FIXTURE_CIRCUIT_ID: &str = "vlan_100";
-const FIXTURE_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
 #[sqlx::test(fixtures(
     "create_domain",
     "create_vpc",
@@ -391,7 +388,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         .await
         .expect("Unable to create transaction on database pool");
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, FIXTURE_MACHINE_ID)
+        .load_machine_snapshot(&mut txn, FIXTURE_X86_MACHINE_ID)
         .await
         .unwrap();
     assert!(
@@ -415,7 +412,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         .await
         .expect("Unable to create transaction on database pool");
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, FIXTURE_MACHINE_ID)
+        .load_machine_snapshot(&mut txn, FIXTURE_X86_MACHINE_ID)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -552,66 +549,4 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
         );
     }
     txn.commit().await.unwrap();
-}
-
-async fn delete_instance(api: &TestApi, instance_id: uuid::Uuid) {
-    api.release_instance(tonic::Request::new(InstanceReleaseRequest {
-        id: Some(instance_id.into()),
-    }))
-    .await
-    .expect("Delete instance failed.");
-}
-
-async fn prepare_machine(pool: &sqlx::PgPool) {
-    let mut txn = pool.begin().await.unwrap();
-    let machine = Machine::find_one(&mut txn, FIXTURE_MACHINE_ID)
-        .await
-        .unwrap()
-        .unwrap();
-    machine
-        .advance(&mut txn, &MachineStateMachineInput::Discover)
-        .await
-        .unwrap();
-    machine
-        .advance(&mut txn, &MachineStateMachineInput::Adopt)
-        .await
-        .unwrap();
-    machine
-        .advance(&mut txn, &MachineStateMachineInput::Test)
-        .await
-        .unwrap();
-    machine
-        .advance(&mut txn, &MachineStateMachineInput::Commission)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-}
-
-async fn create_instance(
-    api: &TestApi,
-    network: Option<rpc::InstanceNetworkConfig>,
-) -> (uuid::Uuid, rpc::Instance) {
-    // Note: This also requests a background task in the DB for creating managed
-    // resources. That's however ok - we will just ignore it and not execute
-    // that task. Later we might also verify that the creation of those resources
-    // is requested
-    let info = api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            machine_id: Some(FIXTURE_MACHINE_ID.into()),
-            config: Some(rpc::InstanceConfig {
-                tenant: Some(rpc::TenantConfig {
-                    user_data: Some("SomeRandomData".to_string()),
-                    custom_ipxe: "SomeRandomiPxe".to_string(),
-                    tenant_org: "Tenant1".to_string(),
-                }),
-                network,
-            }),
-            ssh_keys: vec!["mykey1".to_owned()],
-        }))
-        .await
-        .expect("Create instance failed.")
-        .into_inner();
-
-    let instance_id = uuid::Uuid::try_from(info.id.clone().expect("Missing instance ID")).unwrap();
-    (instance_id, info)
 }

@@ -70,12 +70,12 @@ impl IpAllocator {
     pub async fn new(
         txn: &mut Transaction<'_, Postgres>,
         segment: &NetworkSegment,
-        free_ip_resolver: &impl UsedIpResolver,
+        used_ip_resolver: &impl UsedIpResolver,
         address_strategy: AddressSelectionStrategy<'_>,
     ) -> Result<Self, CarbideError> {
         match address_strategy {
             AddressSelectionStrategy::Automatic => {
-                let used_ips = free_ip_resolver.used_ips(&mut *txn).await?;
+                let used_ips = used_ip_resolver.used_ips(&mut *txn).await?;
 
                 Ok(IpAllocator {
                     prefixes: segment

@@ -19,10 +19,13 @@ use carbide::api::Api;
 use crate::common::test_credentials::TestCredentialProvider;
 
 pub mod dpu;
+pub mod instance;
 pub mod network_segment;
 
 /// Carbide API for integration tests
 pub type TestApi = Api<TestCredentialProvider>;
+
+pub const FIXTURE_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
 
 pub fn create_test_api(pool: sqlx::PgPool) -> TestApi {
     carbide::api::Api::new(Arc::new(TestCredentialProvider::new()), pool)
