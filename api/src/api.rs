@@ -47,7 +47,7 @@ use crate::{
         UuidKeyedObjectFilter,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
-    ipmi::{ipmi_handler, MachinePowerRequest, RealIpmiCommandHandler},
+    ipmi::{ipmi_handler, MachineBmcRequest, RealIpmiCommandHandler},
     kubernetes::{
         bgkubernetes_handler, create_resource_group, delete_managed_resource, delete_resource_group,
     },
@@ -782,7 +782,7 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let machine_power_request = MachinePowerRequest::try_from(request.into_inner())?;
+        let machine_power_request = MachineBmcRequest::try_from(request.into_inner())?;
 
         let instance =
             Instance::find_by_machine_id(&mut txn, machine_power_request.machine_id).await?;
@@ -799,7 +799,7 @@ where
         txn.commit().await.map_err(CarbideError::from)?;
 
         let _ = machine_power_request
-            .invoke_power_command(self.database_connection.clone())
+            .invoke_bmc_command(self.database_connection.clone())
             .await?;
 
         Ok(Response::new(rpc::InstancePowerResult {}))
