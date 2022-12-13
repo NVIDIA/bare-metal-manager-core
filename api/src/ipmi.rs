@@ -170,16 +170,14 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                 },
                 IpmiTask::EnableLockdown => {
                     match redfish.enable_bmc_lockdown() {
-                        Ok(()) => Ok("Success".to_string()),
+                        Ok(()) => {}
                         Err(e) => {
                             let error_msg = format!("Failed to enable bmc lockdown {}", e);
-                            Err(CarbideError::GenericError(error_msg))
+                            return Err(CarbideError::GenericError(error_msg));
                         }
                     }
-                    // TODO: un-comment this when the idrac user/password management is handled.
-                    /*
                     match redfish.enable_bios_lockdown() {
-                        Ok(()) => {},
+                        Ok(()) => {}
                         Err(e) => {
                             let error_msg = format!("Failed to enable bios lockdown {}", e);
                             return Err(CarbideError::GenericError(error_msg));
@@ -192,22 +190,20 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                             Err(CarbideError::GenericError(error_msg))
                         }
                     }
-                    */
                 }
                 IpmiTask::DisableLockdown => {
                     match redfish.disable_bmc_lockdown() {
-                        Ok(()) => Ok("Success".to_string()),
+                        Ok(()) => {}
                         Err(e) => {
                             let error_msg = format!("Failed to disable bmc lockdown {}", e);
-                            Err(CarbideError::GenericError(error_msg))
+                            return Err(CarbideError::GenericError(error_msg));
                         }
                     }
-                    // TODO: un-comment this when the idrac user/password management is handled.
-                    /*
                     match redfish.disable_bios_lockdown() {
-                        Ok(()) => {},
+                        Ok(()) => {}
                         Err(e) => {
-                            let error_msg = format!("Failed to run disable bios lockdown command {}", e);
+                            let error_msg =
+                                format!("Failed to run disable bios lockdown command {}", e);
                             return Err(CarbideError::GenericError(error_msg));
                         }
                     }
@@ -218,7 +214,6 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                             Err(CarbideError::GenericError(error_msg))
                         }
                     }
-                    */
                 }
                 IpmiTask::SetupSerialConsole => {
                     match redfish.setup_bmc_remote_access() {
@@ -321,13 +316,18 @@ async fn command_handler(
 }
 
 impl IpmiCommand {
-    fn update_action(mut self, action: SystemPowerControl) -> Self {
+    fn update_power_action(mut self, action: SystemPowerControl) -> Self {
         self.action = Some(IpmiTask::PowerControl(action));
         self
     }
 
     fn update_status(mut self) -> Self {
         self.action = Some(IpmiTask::Status);
+        self
+    }
+
+    fn update_action(mut self, action: IpmiTask) -> Self {
+        self.action = Some(action);
         self
     }
 
@@ -366,27 +366,42 @@ impl IpmiCommand {
     }
 
     pub async fn power_up(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(SystemPowerControl::On)
+        self.update_power_action(SystemPowerControl::On)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_down(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(SystemPowerControl::GracefulShutdown)
+        self.update_power_action(SystemPowerControl::GracefulShutdown)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_cycle(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(SystemPowerControl::PowerCycle)
+        self.update_power_action(SystemPowerControl::PowerCycle)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_reset(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_action(SystemPowerControl::ForceRestart)
+        self.update_power_action(SystemPowerControl::ForceRestart)
             .launch_command(pool.clone())
             .await
     }
     pub async fn ipmi_status(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
         self.update_status().launch_command(pool.clone()).await
+    }
+    pub async fn enable_lockdown(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
+        self.update_action(IpmiTask::EnableLockdown)
+            .launch_command(pool.clone())
+            .await
+    }
+    pub async fn disable_lockdown(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
+        self.update_action(IpmiTask::DisableLockdown)
+            .launch_command(pool.clone())
+            .await
+    }
+    pub async fn setup_serial(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
+        self.update_action(IpmiTask::SetupSerialConsole)
+            .launch_command(pool.clone())
+            .await
     }
     //pub async fn boot_from_network(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
     //    self.update_option(Actions::NetworkBoot)
@@ -425,6 +440,12 @@ where
 #[derive(Debug)]
 pub enum Operation {
     Reset = 0,
+    On = 1,
+    Off = 2,
+    Cycle = 3,
+    EnableLockdown = 4,
+    DisableLockdown = 5,
+    SetupSerial = 6,
 }
 
 impl TryFrom<i32> for Operation {
@@ -442,20 +463,20 @@ impl TryFrom<i32> for Operation {
     }
 }
 
-pub struct MachinePowerRequest {
+pub struct MachineBmcRequest {
     pub machine_id: uuid::Uuid,
     operation: Operation,
     boot_with_custom_ipxe: bool,
 }
 
-impl TryFrom<rpc::InstancePowerRequest> for MachinePowerRequest {
+impl TryFrom<rpc::InstancePowerRequest> for MachineBmcRequest {
     type Error = CarbideError;
     fn try_from(ipr: rpc::InstancePowerRequest) -> Result<Self, Self::Error> {
         let machine_id = ipr
             .machine_id
             .ok_or(CarbideError::MissingArgument("UUID is missing."))?;
 
-        Ok(MachinePowerRequest {
+        Ok(MachineBmcRequest {
             machine_id: uuid::Uuid::try_from(machine_id)?,
             operation: Operation::try_from(ipr.operation)?,
             boot_with_custom_ipxe: ipr.boot_with_custom_ipxe,
@@ -463,9 +484,9 @@ impl TryFrom<rpc::InstancePowerRequest> for MachinePowerRequest {
     }
 }
 
-impl MachinePowerRequest {
+impl MachineBmcRequest {
     pub fn new(machine_id: uuid::Uuid, operation: Operation, boot_with_custom_ipxe: bool) -> Self {
-        MachinePowerRequest {
+        MachineBmcRequest {
             machine_id,
             operation,
             boot_with_custom_ipxe,
@@ -484,7 +505,7 @@ impl MachinePowerRequest {
         .await
     }
 
-    pub async fn invoke_power_command(&self, pool: sqlx::PgPool) -> CarbideResult<Uuid> {
+    pub async fn invoke_bmc_command(&self, pool: sqlx::PgPool) -> CarbideResult<Uuid> {
         let mut txn = pool.begin().await.map_err(CarbideError::from)?;
 
         let role = UserRoles::Administrator;
@@ -501,10 +522,16 @@ impl MachinePowerRequest {
 
         let task_id = match self.operation {
             Operation::Reset => ipmi_command.power_reset(&pool).await?,
+            Operation::On => ipmi_command.power_up(&pool).await?,
+            Operation::Off => ipmi_command.power_down(&pool).await?,
+            Operation::Cycle => ipmi_command.power_cycle(&pool).await?,
+            Operation::EnableLockdown => ipmi_command.enable_lockdown(&pool).await?,
+            Operation::DisableLockdown => ipmi_command.disable_lockdown(&pool).await?,
+            Operation::SetupSerial => ipmi_command.setup_serial(&pool).await?,
         };
 
         log::info!(
-            "Started power operation {:?} with task_id: {} for machine_id {}",
+            "Started bmc operation {:?} with task_id: {} for machine_id {}",
             self.operation,
             task_id,
             self.machine_id

@@ -34,7 +34,7 @@ use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
-use crate::ipmi::{MachinePowerRequest, Operation};
+use crate::ipmi::{MachineBmcRequest, Operation};
 use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId};
 use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
@@ -488,7 +488,8 @@ async fn create_managed_resource_handler(
     )
     .await;
 
-    let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+    let task_id =
+        enable_lockdown_reset_machine(data.machine_id, current_job.pool().clone()).await?;
     update_status(
         &current_job,
         5,
@@ -662,7 +663,8 @@ async fn delete_managed_resource_handler(
     wait_for_hbn_to_configure(leaf_name, client.clone(), &current_job, &start_time).await?;
 
     // Reboot host
-    let task_id = power_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+    let task_id =
+        disable_lockdown_reset_machine(data.machine_id, current_job.pool().clone()).await?;
     update_status(
         &current_job,
         3,
@@ -1223,12 +1225,24 @@ pub async fn delete_resource_group(
     Ok(())
 }
 
-// This function will create a background task under IPMI handler to reset machine.
-// It will not reset machine immediately.
-pub async fn power_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
-    log::info!("Sending power reset command for machine: {}", machine_id);
-    let mpr = MachinePowerRequest::new(machine_id, Operation::Reset, true);
-    mpr.invoke_power_command(pool).await
+// This function will create a background task under IPMI handler to enable lockdown and reset.
+pub async fn enable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
+    log::info!(
+        "Sending enable lockdown and power reset command for machine: {}",
+        machine_id
+    );
+    let mpr = MachineBmcRequest::new(machine_id, Operation::EnableLockdown, true);
+    mpr.invoke_bmc_command(pool).await
+}
+
+// This function will create a background task under IPMI handler to disable lockdown and reset.
+pub async fn disable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
+    log::info!(
+        "Sending disable lockdown and power reset command for machine: {}",
+        machine_id
+    );
+    let mpr = MachineBmcRequest::new(machine_id, Operation::DisableLockdown, true);
+    mpr.invoke_bmc_command(pool).await
 }
 
 pub async fn update_leaf(
