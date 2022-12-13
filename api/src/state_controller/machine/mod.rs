@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod controller;
-pub mod snapshot_loader;
-pub mod state_handler;
+//! State Controller implementation for Machines
+
+pub mod handler;
+pub mod io;

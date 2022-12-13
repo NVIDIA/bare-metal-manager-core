@@ -27,9 +27,6 @@ use crate::{
     },
     dhcp::allocation::DhcpError,
     kubernetes::create_managed_resource,
-    machine_state_controller::snapshot_loader::{
-        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
-    },
     model::{
         config_version::{ConfigVersion, Versioned},
         instance::{
@@ -37,6 +34,9 @@ use crate::{
             snapshot::InstanceSnapshot,
         },
         ConfigValidationError, RpcDataConversionError,
+    },
+    state_controller::snapshot_loader::{
+        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
     },
     CarbideError, CarbideResult,
 };

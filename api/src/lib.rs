@@ -13,13 +13,13 @@ use std::net::IpAddr;
 
 use dhcp::allocation::DhcpError;
 use mac_address::MacAddress;
-use machine_state_controller::snapshot_loader::SnapshotLoaderError;
 use model::{
     config_version::{ConfigVersion, ParseConfigVersionError},
     ConfigValidationError, RpcDataConversionError,
 };
 use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
+use state_controller::snapshot_loader::SnapshotLoaderError;
 use tonic::Status;
 
 #[cfg(test)]
@@ -36,8 +36,8 @@ mod human_hash;
 pub mod instance;
 pub mod ipmi;
 pub mod kubernetes;
-pub mod machine_state_controller;
 pub mod model;
+pub mod state_controller;
 pub mod vpc_resources;
 
 /// Special user-defined code for PostgreSQL level state transition violation
