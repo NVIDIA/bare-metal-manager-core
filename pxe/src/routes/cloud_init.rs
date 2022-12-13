@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rocket::get;
 use rocket::routes;
@@ -78,6 +79,18 @@ async fn user_data_handler(
     context.insert("api_url".to_string(), config.api_url);
     context.insert("pxe_url".to_string(), config.pxe_url);
     context.insert("ntp_server".to_string(), config.ntp_server);
+
+    let start = SystemTime::now();
+    let seconds_since_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs();
+
+    context.insert(
+        "seconds_since_epoch".to_string(),
+        seconds_since_epoch.to_string(),
+    );
+
     ("user-data".to_string(), context)
 }
 
