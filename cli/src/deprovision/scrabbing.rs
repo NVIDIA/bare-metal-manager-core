@@ -9,11 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::IN_QEMU_VM;
 use procfs::Meminfo;
 use regex::Regex;
 use rlimit::Resource;
 use std::fs;
 use std::str::FromStr;
+use uname::uname;
 
 use crate::deprovision::cmdrun;
 use ::rpc::forge as rpc;
@@ -210,7 +212,7 @@ fn cleanup_ram() -> Result<(), String> {
     Ok(())
 }
 
-fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineCleanupInfo> {
+async fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineCleanupInfo> {
     let mut cleanup_result = rpc::MachineCleanupInfo {
         machine_id: Some(machine_id.into()),
         nvme: None,
@@ -259,7 +261,9 @@ fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineCleanup
                 result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                 message: e,
             });
-            cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+            if !IN_QEMU_VM.read().await.in_qemu {
+                cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+            }
         }
     }
 
@@ -281,12 +285,31 @@ fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineCleanup
     }
     Ok(cleanup_result)
 }
+fn is_host() -> bool {
+    // this is temporary fix. We should not run scrabbing on DPU.
+    // we need cleanup only on x86_64
+    match uname().map_err(|_| true) {
+        Ok(info) => match info.machine.as_str() {
+            "x86_64" => return true,
+            arch => {
+                log::debug!("We do not need cleanup for DPU machine. Arch is {}", arch);
+                return false;
+            }
+        },
+        Err(e) => log::error!("uname error: {}", e),
+    }
+    true
+}
 
 pub struct Deprovision {}
 
 impl Deprovision {
     pub async fn run(api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
-        let info = do_cleanup(machine_id)?;
+        if !is_host() {
+            //do not send API cleanup_machine_completed
+            return Ok(());
+        }
+        let info = do_cleanup(machine_id).await?;
         let mut client = rpc::forge_client::ForgeClient::connect(api.to_string()).await?;
         let request = tonic::Request::new(info);
         client.cleanup_machine_completed(request).await?;
