@@ -265,11 +265,11 @@ impl Machine {
         human_hash::humanize(uuid, 2)
     }
 
-    pub async fn find_existing_machines(
+    pub async fn find_existing_machine(
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
         relay: IpAddr,
-    ) -> CarbideResult<Vec<(Uuid,)>> {
+    ) -> CarbideResult<Option<(Uuid,)>> {
         let sql = r#"
         SELECT m.id FROM
             machines m
@@ -288,7 +288,7 @@ impl Machine {
         Ok(sqlx::query_as(sql)
             .bind(macaddr)
             .bind(IpNetwork::from(relay))
-            .fetch_all(&mut *txn)
+            .fetch_optional(&mut *txn)
             .await?)
     }
 

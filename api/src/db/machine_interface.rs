@@ -234,6 +234,47 @@ impl MachineInterface {
         }
     }
 
+    // Returns (MachineInterface, newly_created_interface).
+    // newly_created_interface indicates that we couldn't find a MachineInterface so created new
+    // one.
+    pub async fn find_or_create_machine_interface(
+        txn: &mut Transaction<'_, Postgres>,
+        machines: Option<(uuid::Uuid,)>,
+        mac_address: MacAddress,
+        relay: IpAddr,
+    ) -> CarbideResult<(Self, bool)> {
+        match machines {
+            None => {
+                log::info!("No existing machine with mac address {} using network with relay: {}, creating one.", mac_address, relay);
+                Ok((
+                    MachineInterface::validate_existing_mac_and_create(
+                        &mut *txn,
+                        mac_address,
+                        relay,
+                    )
+                    .await?,
+                    true,
+                ))
+            }
+            Some(_) => {
+                let mut ifcs =
+                    MachineInterface::find_by_mac_address(&mut *txn, mac_address).await?;
+                match ifcs.len() {
+                    1 => Ok((ifcs.remove(0), false)),
+                    n => {
+                        log::warn!(
+                            "{0} existing mac address ({1}) for network segment (relay ip: {2})",
+                            n,
+                            &mac_address,
+                            &relay
+                        );
+                        Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
+                    }
+                }
+            }
+        }
+    }
+
     /// Do basic validating on existing macs and create the interface if it does not exist
     pub async fn validate_existing_mac_and_create(
         txn: &mut Transaction<'_, Postgres>,
