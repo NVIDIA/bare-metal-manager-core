@@ -29,9 +29,6 @@ use carbide::{
         },
     },
     instance::{allocate_instance, InstanceAllocationRequest},
-    machine_state_controller::snapshot_loader::{
-        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
-    },
     model::instance::{
         config::{
             network::{InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType},
@@ -46,6 +43,9 @@ use carbide::{
             tenant::TenantState,
             SyncState,
         },
+    },
+    state_controller::snapshot_loader::{
+        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
     },
 };
 use common::api_fixtures::{

@@ -51,13 +51,14 @@ use crate::{
     kubernetes::{
         bgkubernetes_handler, create_resource_group, delete_managed_resource, delete_resource_group,
     },
-    machine_state_controller::{
-        controller::MachineStateController,
-        snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
-        state_handler::RealMachineStateHandler,
-    },
     model::{
         hardware_info::HardwareInfo, instance::status::network::InstanceNetworkStatusObservation,
+    },
+    state_controller::{
+        controller::StateController,
+        machine::handler::MachineStateHandler,
+        machine::io::MachineStateControllerIO,
+        snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
     },
     CarbideError,
 };
@@ -1445,10 +1446,9 @@ where
         )
         .await?;
 
-        let _state_controller_handle = MachineStateController::builder()
+        let _state_controller_handle = StateController::<MachineStateControllerIO>::builder()
             .database(database_connection)
-            .snapshot_loader(Box::new(DbSnapshotLoader::default()))
-            .state_handler(Arc::new(RealMachineStateHandler::default()))
+            .state_handler(Arc::new(MachineStateHandler::default()))
             .build()
             .expect("Unable to build MachineStateController");
 

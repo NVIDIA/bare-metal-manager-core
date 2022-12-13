@@ -17,46 +17,78 @@ use std::{
 
 use tokio::{sync::oneshot, task::JoinSet};
 
-use crate::{
-    db::machine::Machine,
-    machine_state_controller::{
-        snapshot_loader::MachineStateSnapshotLoader,
-        state_handler::{
-            MachineStateHandler, MachineStateHandlerContext, MachineStateHandlerError,
-            MachineStateHandlerServices, NoopMachineStateHandler,
-        },
+use crate::state_controller::{
+    snapshot_loader::SnapshotLoaderError,
+    state_handler::{
+        NoopStateHandler, StateHandler, StateHandlerContext, StateHandlerError,
+        StateHandlerServices,
     },
 };
 
-/// The machine static controller evaluates the current state of all instance in
-/// a Forge site, and decides which actions the system should undertake to
-/// bring the state inline with the state users requested.
+/// The object static controller evaluates the current state of all objects of a
+/// certain type in a Forge site, and decides which actions the system should
+/// undertake to bring the state inline with the state users requested.
 ///
-/// Each Forge API server is running a MachineStateController instance.
-/// While all instances run in parallel, the MachineStateController uses internal
+/// Each Forge API server is running a StateController instance for each object type.
+/// While all instances run in parallel, the StateController uses internal
 /// synchronization to make sure that inside a single site - only a single controller
-/// will decide the next step for a single Machine.
+/// will decide the next step for a single object.
 #[derive(Debug)]
-pub struct MachineStateController {
-    handler_services: Arc<MachineStateHandlerServices>,
-    state_handler: Arc<dyn MachineStateHandler>,
+pub struct StateController<IO: StateControllerIO> {
+    handler_services: Arc<StateHandlerServices>,
+    io: Arc<IO>,
+    lock_query: String,
+    state_handler: Arc<dyn StateHandler<State = IO::State, ObjectId = IO::ObjectId>>,
     stop_receiver: oneshot::Receiver<()>,
     config: Config,
 }
 
-/// Query to get an advisory lock on the table machine_state_controller_lock
+/// This trait defines on what objects a state controller instance will act,
+/// and how it loads the objects state.
+#[async_trait::async_trait]
+pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
+    type ObjectId: Send + Sync + 'static + Clone;
+    type State: Send + Sync + 'static;
+
+    /// Returns the name of the table in the database that will be used for advisory locking
+    ///
+    /// This lock will prevent multiple instances of controller running on multiple nodes
+    /// from making changes to objects at the same time
+    fn db_lock_name() -> &'static str;
+
+    /// Resolves the list of objects that the state controller should act upon
+    async fn list_objects(
+        &self,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+    ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError>;
+
+    /// Loads a state of an object
+    async fn load_object_state(
+        &self,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        object_id: &Self::ObjectId,
+    ) -> Result<Self::State, SnapshotLoaderError>;
+}
+
+/// Creates the query that will be used for advisory locking of a postgres table
+/// with the given name.
 ///
 /// Note that there is no real relation between the table and the query
 /// We just use it to get an object identifier
-const LOCK_QUERY: &str = "SELECT pg_try_advisory_xact_lock((SELECT 'machine_state_controller_lock'::regclass::oid)::integer);";
+fn create_lock_query(db_lock_name: &str) -> String {
+    format!(
+        "SELECT pg_try_advisory_xact_lock((SELECT '{}'::regclass::oid)::integer);",
+        db_lock_name
+    )
+}
 
-impl MachineStateController {
-    /// Returns a [`Builder`] for configuring `MachineStateController`
-    pub fn builder() -> Builder {
+impl<IO: StateControllerIO> StateController<IO> {
+    /// Returns a [`Builder`] for configuring `StateController`
+    pub fn builder() -> Builder<IO> {
         Builder::new()
     }
 
-    /// Runs the machine state controller task
+    /// Runs the object state controller task
     pub async fn run(mut self) {
         let max_jitter = (self.config.iteration_time.as_millis() / 3) as u64;
         let err_jitter = (self.config.iteration_time.as_millis() / 5) as u64;
@@ -69,7 +101,7 @@ impl MachineStateController {
             match &res {
                 Ok(()) | Err(IterationError::LockError) => {}
                 Err(e) => {
-                    tracing::error!("MachineStateController iteration failed due to: {:?}", e);
+                    tracing::error!("StateController iteration failed due to: {:?}", e);
                 }
             }
 
@@ -92,7 +124,7 @@ impl MachineStateController {
             tokio::select! {
                 _ = tokio::time::sleep(sleep_time) => {},
                 _ = &mut self.stop_receiver => {
-                    tracing::info!("MachineStateController stop was requested");
+                    tracing::info!("StateController stop was requested");
                     return;
                 }
             }
@@ -102,16 +134,23 @@ impl MachineStateController {
     async fn single_iteration(&mut self) -> Result<(), IterationError> {
         let mut txn = self.handler_services.pool.begin().await?;
 
-        let locked: bool = sqlx::query_scalar(LOCK_QUERY).fetch_one(&mut txn).await?;
+        let locked: bool = sqlx::query_scalar(&self.lock_query)
+            .fetch_one(&mut txn)
+            .await?;
 
         if !locked {
-            tracing::info!("Machine state controller was not able to obtain the lock");
+            tracing::info!("State controller was not able to obtain the lock");
             return Err(IterationError::LockError);
         }
-        tracing::info!("Machine state controller acquired the lock");
+        tracing::info!("State controller acquired the lock");
 
-        handle_controller_iteration(&self.state_handler, &self.handler_services, &self.config)
-            .await?;
+        handle_controller_iteration::<IO>(
+            &self.io,
+            &self.state_handler,
+            &self.handler_services,
+            &self.config,
+        )
+        .await?;
 
         txn.commit().await?;
 
@@ -119,26 +158,29 @@ impl MachineStateController {
     }
 }
 
-async fn handle_controller_iteration(
-    state_handler: &Arc<dyn MachineStateHandler>,
-    handler_services: &Arc<MachineStateHandlerServices>,
+async fn handle_controller_iteration<IO: StateControllerIO>(
+    io: &Arc<IO>,
+    state_handler: &Arc<dyn StateHandler<State = IO::State, ObjectId = IO::ObjectId>>,
+    handler_services: &Arc<StateHandlerServices>,
     config: &Config,
 ) -> Result<(), IterationError> {
-    // We start by grabbing a list of Machine's that should be active
+    // We start by grabbing a list of objectss that should be active
     // The list might change until we fetch more data. However that should be ok:
-    // The next iteration of the controller would also find machines that
-    // have been added to the system. And no Machine should ever be removed
+    // The next iteration of the controller would also find objects that
+    // have been added to the system. And no object should ever be removed
     // outside of the state controller
     let mut txn = handler_services.pool.begin().await?;
-    let machine_ids = Machine::list_active_machine_ids(&mut txn).await?;
+    let object_ids = io.list_objects(&mut txn).await?;
     txn.commit().await?;
 
     let mut task_set = JoinSet::new();
 
     let concurrency_limiter = Arc::new(tokio::sync::Semaphore::new(config.max_concurrency));
 
-    for &machine_id in &machine_ids {
+    for object_id in object_ids.iter() {
+        let object_id = object_id.clone();
         let services = handler_services.clone();
+        let io = io.clone();
         let handler = state_handler.clone();
         let concurrency_limiter = concurrency_limiter.clone();
 
@@ -156,19 +198,16 @@ async fn handle_controller_iteration(
             // Note that this inner async block is required to be able to use
             // the ? operator in the inner block, and then return a `Result`
             // from the other outer block.
-            let result: Result<(), MachineStateHandlerError> = async move {
+            let result: Result<(), StateHandlerError> = async move {
                 let mut txn = services.pool.begin().await?;
-                let mut snapshot = services
-                    .snapshot_loader
-                    .load_machine_snapshot(&mut txn, machine_id)
-                    .await?;
+                let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
 
-                let mut ctx = MachineStateHandlerContext {
+                let mut ctx = StateHandlerContext {
                     services: &services,
                 };
 
                 handler
-                    .handle_machine_state(&mut snapshot, &mut txn, &mut ctx)
+                    .handle_object_state(&object_id, &mut snapshot, &mut txn, &mut ctx)
                     .await
             }
             .await;
@@ -178,7 +217,7 @@ async fn handle_controller_iteration(
 
     // We want for all tasks to run to completion here and therefore can't
     // return early until the `TaskSet` is fully consumed.
-    // If we would return early then some tasks might still work on a `Machine`
+    // If we would return early then some tasks might still work on an object
     // even thought the next controller iteration already started.
     // Therefore we drain the `task_set` here completely and record all errors
     // before returning.
@@ -212,8 +251,10 @@ enum IterationError {
     LockError,
     #[error("A task panicked: {0}")]
     Panic(#[from] tokio::task::JoinError),
-    #[error("Machine state handler error: {0}")]
-    MachineStateHandlerError(#[from] MachineStateHandlerError),
+    #[error("State handler error: {0}")]
+    StateHandlerError(#[from] StateHandlerError),
+    #[error("Snapshot loader error: {0}")]
+    SnapshotLoaderError(#[from] SnapshotLoaderError),
 }
 
 #[derive(Debug)]
@@ -224,15 +265,15 @@ struct Config {
     max_concurrency: usize,
 }
 
-/// A remote handle for the machine state controller
-pub struct MachineStateControllerHandle {
-    /// Instructs the machine to stop.
+/// A remote handle for the state controller
+pub struct StateControllerHandle {
+    /// Instructs the controller to stop.
     /// We rely on the handle being dropped to instruct the controller to stop performing actions
     _stop_sender: oneshot::Sender<()>,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum MachineStateControllerBuildError {
+pub enum StateControllerBuildError {
     #[error("Missing parameter {0}")]
     MissingArgument(&'static str),
     #[error("Invalid parameter {0}")]
@@ -241,55 +282,45 @@ pub enum MachineStateControllerBuildError {
 
 /// Default iteration time for the state controller
 const DEFAULT_ITERATION_TIME: Duration = Duration::from_secs(30);
-/// Default maximum concurrency for the machine state controller
+/// Default maximum concurrency for the state controller
 ///
 /// The controller will act on this amount of instances in parallel
 const DEFAULT_MAX_CONCURRENCY: usize = 10;
 
-/// A builder for `MachineStateController`
+/// A builder for `StateController`
 #[derive(Debug)]
-pub struct Builder {
+pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
     iteration_time: Option<Duration>,
     max_concurrency: usize,
-    snapshot_loader: Option<Box<dyn MachineStateSnapshotLoader>>,
-    state_handler: Arc<dyn MachineStateHandler>,
+    state_handler: Arc<dyn StateHandler<State = IO::State, ObjectId = IO::ObjectId>>,
 }
 
-impl Builder {
+impl<IO: StateControllerIO> Builder<IO> {
     /// Creates a new `Builder`
     ///
     /// This is not deriving [`Default`] since the method is only intended to be
-    /// called by [`MachineStateController::builder()`].
+    /// called by [`StateController::builder()`].
     fn new() -> Self {
         Self {
             database: None,
             iteration_time: None,
-            snapshot_loader: None,
-            state_handler: Arc::new(NoopMachineStateHandler::default()),
+            state_handler: Arc::new(NoopStateHandler::<IO::ObjectId, IO::State>::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
         }
     }
 
-    /// Builds a [´MachineStateController`] with all configured options
-    pub fn build(
-        mut self,
-    ) -> Result<MachineStateControllerHandle, MachineStateControllerBuildError> {
-        let database =
-            self.database
-                .take()
-                .ok_or(MachineStateControllerBuildError::MissingArgument(
-                    "database",
-                ))?;
-
-        let snapshot_loader = self.snapshot_loader.take().ok_or(
-            MachineStateControllerBuildError::MissingArgument("snapshot_loader"),
-        )?;
+    /// Builds a [`StateController`] with all configured options
+    pub fn build(mut self) -> Result<StateControllerHandle, StateControllerBuildError> {
+        let database = self
+            .database
+            .take()
+            .ok_or(StateControllerBuildError::MissingArgument("database"))?;
 
         let (stop_sender, stop_receiver) = oneshot::channel();
 
         if self.max_concurrency == 0 {
-            return Err(MachineStateControllerBuildError::MissingArgument(
+            return Err(StateControllerBuildError::MissingArgument(
                 "max_concurrency",
             ));
         }
@@ -298,20 +329,19 @@ impl Builder {
             max_concurrency: self.max_concurrency,
         };
 
-        let handler_services = Arc::new(MachineStateHandlerServices {
-            snapshot_loader,
-            pool: database,
-        });
+        let handler_services = Arc::new(StateHandlerServices { pool: database });
 
-        let controller = MachineStateController {
+        let controller = StateController::<IO> {
             stop_receiver,
             config,
+            lock_query: create_lock_query(IO::db_lock_name()),
             handler_services,
+            io: Arc::new(IO::default()),
             state_handler: self.state_handler.clone(),
         };
         tokio::spawn(async move { controller.run().await });
 
-        let handle = MachineStateControllerHandle {
+        let handle = StateControllerHandle {
             _stop_sender: stop_sender,
         };
 
@@ -333,7 +363,7 @@ impl Builder {
         self
     }
 
-    /// Configures the maximum amount of concurrency for the machine state controller
+    /// Configures the maximum amount of concurrency for the object state controller
     ///
     /// The controller will attempt to advance the state of this amount of instances
     /// in parallel.
@@ -342,14 +372,11 @@ impl Builder {
         self
     }
 
-    /// Sets the function that will be called to load the full state of a `Machine`
-    pub fn snapshot_loader(mut self, handler: Box<dyn MachineStateSnapshotLoader>) -> Self {
-        self.snapshot_loader = Some(handler);
-        self
-    }
-
-    /// Sets the function that will be called to advance the state of a single `Machine`
-    pub fn state_handler(mut self, handler: Arc<dyn MachineStateHandler>) -> Self {
+    /// Sets the function that will be called to advance the state of a single object
+    pub fn state_handler(
+        mut self,
+        handler: Arc<dyn StateHandler<State = IO::State, ObjectId = IO::ObjectId>>,
+    ) -> Self {
         self.state_handler = handler;
         self
     }

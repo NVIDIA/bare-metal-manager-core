@@ -15,11 +15,11 @@ use carbide::{
         machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
-    machine_state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     model::hardware_info::{
         BlockDevice, Cpu, DmiDevice, HardwareInfo, NetworkInterface, NvmeDevice,
         PciDeviceProperties,
     },
+    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     CarbideResult,
 };
 use mac_address::MacAddress;

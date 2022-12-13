@@ -20,14 +20,12 @@ use std::{
 
 use carbide::{
     db::machine_topology::MachineTopology,
-    machine_state_controller::{
-        controller::MachineStateController,
-        snapshot_loader::DbSnapshotLoader,
-        state_handler::{
-            MachineStateHandler, MachineStateHandlerContext, MachineStateHandlerError,
-        },
-    },
     model::{hardware_info::HardwareInfo, machine::MachineStateSnapshot},
+    state_controller::{
+        controller::StateController,
+        machine::io::MachineStateControllerIO,
+        state_handler::{StateHandler, StateHandlerContext, StateHandlerError},
+    },
 };
 
 #[derive(Debug, Default, Clone)]
@@ -39,13 +37,18 @@ pub struct TestMachineStateHandler {
 }
 
 #[async_trait::async_trait]
-impl MachineStateHandler for TestMachineStateHandler {
-    async fn handle_machine_state(
+impl StateHandler for TestMachineStateHandler {
+    type State = MachineStateSnapshot;
+    type ObjectId = uuid::Uuid;
+
+    async fn handle_object_state(
         &self,
+        machine_id: &uuid::Uuid,
         state: &mut MachineStateSnapshot,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _ctx: &mut MachineStateHandlerContext,
-    ) -> Result<(), MachineStateHandlerError> {
+        _ctx: &mut StateHandlerContext,
+    ) -> Result<(), StateHandlerError> {
+        assert_eq!(state.machine_id, *machine_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         let id = state.machine_id.to_string();
         let start_digit = id.as_bytes()[0];
@@ -103,10 +106,9 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let mut handles = Vec::new();
     for _ in 0..10 {
         handles.push(
-            MachineStateController::builder()
+            StateController::<MachineStateControllerIO>::builder()
                 .iteration_time(Duration::from_millis(100))
                 .database(pool.clone())
-                .snapshot_loader(Box::new(DbSnapshotLoader::default()))
                 .state_handler(machine_handler.clone())
                 .build()
                 .unwrap(),
