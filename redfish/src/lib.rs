@@ -352,13 +352,26 @@ impl Redfish {
         self.patch(&url, set_tpm_disabled)
     }
 
-    pub fn enable_bmc_lockdown(&self) -> Result<(), reqwest::Error> {
+    pub fn enable_bmc_lockdown(
+        &self,
+        entry: manager::OemDellBootDevices,
+        once: bool,
+    ) -> Result<(), reqwest::Error> {
         let apply_time = SetOemDellSettingsApplyTime {
-            apply_time: RedfishSettingsApplyTime::Immediate, // bmc settings don't require reboot
+            apply_time: RedfishSettingsApplyTime::OnReset,
+        };
+        let boot_entry = manager::OemDellServerBoot {
+            first_boot_device: entry,
+            boot_once: if once {
+                EnabledDisabled::Enabled
+            } else {
+                EnabledDisabled::Disabled
+            },
         };
         let lockdown = manager::OemDellBmcLockdown {
             system_lockdown: EnabledDisabled::Enabled,
             racadm_enable: EnabledDisabled::Disabled,
+            server_boot: boot_entry,
         };
         let set_bmc_lockdown = manager::SetOemDellBmcLockdown {
             redfish_settings_apply_time: apply_time,
@@ -368,13 +381,26 @@ impl Redfish {
         self.patch(&url, set_bmc_lockdown)
     }
 
-    pub fn disable_bmc_lockdown(&self) -> Result<(), reqwest::Error> {
+    pub fn disable_bmc_lockdown(
+        &self,
+        entry: manager::OemDellBootDevices,
+        once: bool,
+    ) -> Result<(), reqwest::Error> {
         let apply_time = SetOemDellSettingsApplyTime {
             apply_time: RedfishSettingsApplyTime::Immediate, // bmc settings don't require reboot
+        };
+        let boot_entry = manager::OemDellServerBoot {
+            first_boot_device: entry,
+            boot_once: if once {
+                EnabledDisabled::Enabled
+            } else {
+                EnabledDisabled::Disabled
+            },
         };
         let lockdown = manager::OemDellBmcLockdown {
             system_lockdown: EnabledDisabled::Disabled,
             racadm_enable: EnabledDisabled::Enabled,
+            server_boot: boot_entry,
         };
         let set_bmc_lockdown = manager::SetOemDellBmcLockdown {
             redfish_settings_apply_time: apply_time,

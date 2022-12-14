@@ -760,6 +760,8 @@ pub struct OemDellBmcLockdown {
     pub system_lockdown: EnabledDisabled,
     #[serde(rename = "Racadm.1.Enable")]
     pub racadm_enable: EnabledDisabled,
+    #[serde(flatten, with = "prefix_server_boot")]
+    pub server_boot: OemDellServerBoot,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
