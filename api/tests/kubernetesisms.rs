@@ -40,6 +40,7 @@ async fn create_leaf_in_kube() {
             control: Some(leaf::LeafControl {
                 maintenance_mode: Some(true),
                 management_ip: Some("4.3.2.1".to_string()),
+                ssh_credential_kv_path: None,
                 vendor: None,
             }),
             host_admin_i_ps: None,

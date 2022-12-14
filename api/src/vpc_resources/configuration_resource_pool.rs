@@ -25,8 +25,11 @@ use serde::{Deserialize, Serialize};
 #[kube(status = "ConfigurationResourcePoolStatus")]
 pub struct ConfigurationResourcePoolSpec {
     /// AllocationBlockBitSize is allocation block size in bits.
-    #[serde(rename = "allocationBlockSize")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "allocationBlockSize"
+    )]
     pub allocation_block_size: Option<i32>,
     /// Range is the ConfigurationResourcePool half-open range [Start, End).
     #[serde(default, skip_serializing_if = "Option::is_none")]
