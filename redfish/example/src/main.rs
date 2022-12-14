@@ -83,11 +83,11 @@ fn main() -> Result<(), reqwest::Error> {
             }
             "lockdown_enable" => {
                 redfish.enable_bios_lockdown()?;
-                redfish.enable_bmc_lockdown()?;
+                redfish.enable_bmc_lockdown(libredfish::manager::OemDellBootDevices::PXE, false)?;
                 println!("BIOS settings changes require system restart");
             }
             "lockdown_disable" => {
-                redfish.disable_bmc_lockdown()?;
+                redfish.disable_bmc_lockdown(libredfish::manager::OemDellBootDevices::PXE, false)?;
                 redfish.disable_bios_lockdown()?;
                 println!("BIOS settings changes require system restart");
             }

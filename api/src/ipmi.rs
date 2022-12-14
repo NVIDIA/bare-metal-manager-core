@@ -169,17 +169,19 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                     }
                 },
                 IpmiTask::EnableLockdown => {
-                    match redfish.enable_bmc_lockdown() {
-                        Ok(()) => {}
-                        Err(e) => {
-                            let error_msg = format!("Failed to enable bmc lockdown {}", e);
-                            return Err(CarbideError::GenericError(error_msg));
-                        }
-                    }
                     match redfish.enable_bios_lockdown() {
                         Ok(()) => {}
                         Err(e) => {
                             let error_msg = format!("Failed to enable bios lockdown {}", e);
+                            return Err(CarbideError::GenericError(error_msg));
+                        }
+                    }
+                    match redfish
+                        .enable_bmc_lockdown(libredfish::manager::OemDellBootDevices::PXE, false)
+                    {
+                        Ok(()) => {}
+                        Err(e) => {
+                            let error_msg = format!("Failed to enable bmc lockdown {}", e);
                             return Err(CarbideError::GenericError(error_msg));
                         }
                     }
@@ -192,7 +194,9 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                     }
                 }
                 IpmiTask::DisableLockdown => {
-                    match redfish.disable_bmc_lockdown() {
+                    match redfish
+                        .disable_bmc_lockdown(libredfish::manager::OemDellBootDevices::PXE, false)
+                    {
                         Ok(()) => {}
                         Err(e) => {
                             let error_msg = format!("Failed to disable bmc lockdown {}", e);
