@@ -53,9 +53,9 @@ rno1-m03-b17-10_bmc ansible_host=10.180.221.229 bmc_mac=08:c0:eb:cb:0e:98
 rno1-m03-b17-07_bmc ansible_host=10.180.221.230 bmc_mac=08:c0:eb:cb:0d:f8
 rno1-m03-b17-11_bmc ansible_host=10.180.221.231 bmc_mac=08:c0:eb:cb:0d:e8
 rno1-m03-b17-09_bmc ansible_host=10.180.221.228 bmc_mac=08:c0:eb:cb:0e:18
-rno1-m03-b18-11_bmc ansible_host=10.180.222.239 bmc_mac=fe:a0:6a:6f:ae:b1
+rno1-m03-b18-11_bmc ansible_host=10.180.222.253 bmc_mac=fe:a0:6a:6f:ae:b1
 rno1-m03-b18-08_bmc ansible_host=10.180.222.238 bmc_mac=36:fa:ff:1d:8f:61
-rno1-m03-b19-08_bmc ansible_host=10.180.222.246 bmc_mac=42:70:53:e9:80:65
+rno1-m03-b19-08_bmc ansible_host=10.180.222.254 bmc_mac=42:70:53:e9:80:65
 rno1-m03-b19-11_bmc ansible_host=10.180.222.248 bmc_mac=08:c0:eb:cb:0f:18
 rno1-m03-b18-09_bmc ansible_host=10.180.222.243 bmc_mac=08:c0:eb:cb:0d:d8
 rno1-m03-b19-07_bmc ansible_host=10.180.222.245 bmc_mac=08:c0:eb:cb:0e:68
