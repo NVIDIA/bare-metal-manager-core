@@ -1162,7 +1162,8 @@ pub async fn create_resource_group(
     );
 
     let resource_group_network = resource_group::ResourceGroupSpec {
-        dhcp_server,
+        dhcp_server: None,
+        dhcp_servers: dhcp_server.map(|str| vec![str]), //TODO: fix this properly this is just a hack to make the types line up.
         fabric_ip_pool: None,
         network: Some(resource_group::ResourceGroupNetwork {
             gateway,
@@ -1199,6 +1200,7 @@ pub async fn delete_resource_group(
 
     let resource_group_network = resource_group::ResourceGroupSpec {
         dhcp_server: None,
+        dhcp_servers: None,
         fabric_ip_pool: None,
         network: Some(resource_group::ResourceGroupNetwork {
             gateway,

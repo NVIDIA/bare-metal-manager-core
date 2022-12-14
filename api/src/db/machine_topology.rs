@@ -12,6 +12,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use chrono::prelude::*;
+use forge_credentials::CredentialKey;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
@@ -168,6 +169,13 @@ impl MachineTopology {
                         control: Some(leaf::LeafControl {
                             maintenance_mode: Some(false),
                             management_ip: Some(dpu.address().ip().to_string()),
+                            ssh_credential_kv_path: Some(
+                                CredentialKey::DpuSsh {
+                                    machine_id: machine_id.to_string(),
+                                }
+                                .to_key_str(),
+                            ),
+                            //it's also required for us to pass an HBN kv path but apparently that's not setup in schema yet.
                             vendor: Some("DPU".to_string()),
                         }),
                         host_admin_i_ps: Some(BTreeMap::from([(

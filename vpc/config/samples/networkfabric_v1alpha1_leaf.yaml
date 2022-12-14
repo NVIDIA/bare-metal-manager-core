@@ -1,7 +1,0 @@
-apiVersion: networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1
-kind: Leaf
-metadata:
-  name: leaf-sample
-spec:
-  # Add fields here
-  foo: bar

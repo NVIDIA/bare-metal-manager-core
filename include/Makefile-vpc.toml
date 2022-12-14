@@ -3,10 +3,9 @@ category = "vpc"
 workspace = false
 script = '''
 mkdir -p tmp
-git fetch ssh://git@gitlab-master.nvidia.com:12051/nvmetal/vpc.git main
-git subtree pull --prefix vpc/ ssh://git@gitlab-master.nvidia.com:12051/nvmetal/vpc.git main --squash -m 'updated rust structs for vpc crds'
-kustomize build vpc/config/crd/ -o tmp/
-#sed -i -e '/asn:/{N;N;N;d;}' tmp/apiextensions.k8s.io_v1_customresourcedefinition_leafs.networkfabric.vpc.forge.gitlab-master.nvidia.com.yaml
+rm -rf vpc
+git clone ssh://git@gitlab-master.nvidia.com:12051/nvmetal/vpc.git --depth 1
+kubectl kustomize vpc/config/crd -o tmp/
 '''
 cwd="${REPO_ROOT}"
 
