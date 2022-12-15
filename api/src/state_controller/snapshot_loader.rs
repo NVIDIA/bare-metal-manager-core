@@ -131,7 +131,7 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
             machine_id: instance.machine_id,
             config: InstanceConfig {
                 tenant: Some(instance.tenant_config),
-                network: network_config.config,
+                network: network_config.value,
             },
             network_config_version,
             observations: InstanceStatusObservations {

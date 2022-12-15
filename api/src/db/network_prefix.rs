@@ -279,4 +279,42 @@ impl NetworkPrefix {
 
         Ok(())
     }
+
+    pub async fn delete_for_segment(
+        segment_id: uuid::Uuid,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        // TODO: We need this query only because network_prefix_events exists,
+        // but we might want to remove this in the future.
+        // Alternatively we could use cascade on delete for this
+        let to_delete: Vec<NetworkPrefixId> =
+            sqlx::query_as("select id FROM network_prefixes WHERE segment_id=$1::uuid")
+                .bind(segment_id)
+                .fetch_all(&mut *txn)
+                .await?;
+        let to_delete: Vec<uuid::Uuid> = to_delete.iter().map(|id| id.0).collect();
+
+        let _deleted_events: Vec<NetworkPrefixId> =
+            sqlx::query_as("DELETE FROM network_prefix_events WHERE network_prefix_id=ANY($1)")
+                .bind(&to_delete)
+                .fetch_all(&mut *txn)
+                .await?;
+
+        let _deleted_prefixes: Vec<NetworkPrefixId> =
+            sqlx::query_as("DELETE FROM network_prefixes WHERE segment_id=$1::uuid RETURNING id")
+                .bind(segment_id)
+                .fetch_all(&mut *txn)
+                .await?;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, FromRow)]
+pub struct NetworkPrefixId(uuid::Uuid);
+
+impl From<NetworkPrefixId> for uuid::Uuid {
+    fn from(id: NetworkPrefixId) -> Self {
+        id.0
+    }
 }

@@ -115,7 +115,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(network_config.version.version_nr(), 1);
     assert_eq!(
-        network_config.config,
+        network_config.value,
         InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID)
     );
 

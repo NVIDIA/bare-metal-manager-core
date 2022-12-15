@@ -17,6 +17,7 @@ use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::{model::instance::config::network::InstanceNetworkConfig, CarbideError, CarbideResult};
 
 use super::{
@@ -138,23 +139,23 @@ impl InstanceAddress {
 
             let segment = segment.remove(0);
 
-            match segment.state {
-                None => {
+            if segment.is_marked_as_deleted() {
+                // TODO: Single error for not ready and deleted?
+                return Err(CarbideError::NetworkSegmentNotReady(format!(
+                    "Network segment {} was deleted",
+                    segment.id()
+                )));
+            }
+
+            match &segment.controller_state.value {
+                NetworkSegmentControllerState::Ready => {}
+                _ => {
                     return Err(CarbideError::NetworkSegmentNotReady(format!(
-                        "State is not yet updated for {}",
-                        segment.id()
+                        "Segment {} is not ready. State: {:?}",
+                        segment.id(),
+                        segment.controller_state.value
                     )));
                 }
-                Some(x) => match x {
-                    rpc::protos::common::forge::TenantState::Ready => {}
-                    _ => {
-                        return Err(CarbideError::NetworkSegmentNotReady(format!(
-                            "Segment {} is not yet ready. State: {:?}",
-                            segment.id(),
-                            x
-                        )));
-                    }
-                },
             }
 
             let mut circuit_id = segment

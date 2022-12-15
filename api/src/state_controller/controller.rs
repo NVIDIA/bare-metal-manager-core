@@ -17,11 +17,14 @@ use std::{
 
 use tokio::{sync::oneshot, task::JoinSet};
 
-use crate::state_controller::{
-    snapshot_loader::SnapshotLoaderError,
-    state_handler::{
-        NoopStateHandler, StateHandler, StateHandlerContext, StateHandlerError,
-        StateHandlerServices,
+use crate::{
+    kubernetes::VpcApi,
+    state_controller::{
+        snapshot_loader::SnapshotLoaderError,
+        state_handler::{
+            NoopStateHandler, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerServices,
+        },
     },
 };
 
@@ -206,11 +209,25 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                     services: &services,
                 };
 
-                handler
+                match handler
                     .handle_object_state(&object_id, &mut snapshot, &mut txn, &mut ctx)
                     .await
+                {
+                    Ok(()) => txn
+                        .commit()
+                        .await
+                        .map_err(StateHandlerError::TransactionError),
+                    Err(e) => Err(e),
+                }
             }
             .await;
+
+            if let Err(e) = &result {
+                // TODO: Print object ID - but this requires lots of changes for
+                // making it implement Debug/Display
+                tracing::warn!("State handler returned error: {:?}", e);
+            }
+
             result
         });
     }
@@ -291,6 +308,7 @@ const DEFAULT_MAX_CONCURRENCY: usize = 10;
 #[derive(Debug)]
 pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
+    vpc_api: Option<Arc<dyn VpcApi>>,
     iteration_time: Option<Duration>,
     max_concurrency: usize,
     state_handler: Arc<dyn StateHandler<State = IO::State, ObjectId = IO::ObjectId>>,
@@ -304,6 +322,7 @@ impl<IO: StateControllerIO> Builder<IO> {
     fn new() -> Self {
         Self {
             database: None,
+            vpc_api: None,
             iteration_time: None,
             state_handler: Arc::new(NoopStateHandler::<IO::ObjectId, IO::State>::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
@@ -317,6 +336,11 @@ impl<IO: StateControllerIO> Builder<IO> {
             .take()
             .ok_or(StateControllerBuildError::MissingArgument("database"))?;
 
+        let vpc_api = self
+            .vpc_api
+            .take()
+            .ok_or(StateControllerBuildError::MissingArgument("vpc_api"))?;
+
         let (stop_sender, stop_receiver) = oneshot::channel();
 
         if self.max_concurrency == 0 {
@@ -329,7 +353,10 @@ impl<IO: StateControllerIO> Builder<IO> {
             max_concurrency: self.max_concurrency,
         };
 
-        let handler_services = Arc::new(StateHandlerServices { pool: database });
+        let handler_services = Arc::new(StateHandlerServices {
+            pool: database,
+            vpc_api,
+        });
 
         let controller = StateController::<IO> {
             stop_receiver,
@@ -351,6 +378,12 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures the utilized database
     pub fn database(mut self, db: sqlx::PgPool) -> Self {
         self.database = Some(db);
+        self
+    }
+
+    /// Configures the utilized VPC API
+    pub fn vpc_api(mut self, vpc_api: Arc<dyn VpcApi>) -> Self {
+        self.vpc_api = Some(vpc_api);
         self
     }
 

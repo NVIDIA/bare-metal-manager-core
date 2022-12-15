@@ -82,7 +82,7 @@ impl ManagedResourceData {
             dpu_machine_id,
             instance_id,
             network_config_version: network_config.version,
-            network_config: network_config.config,
+            network_config: network_config.value,
             ip_details,
             managed_resources,
         }
@@ -1031,6 +1031,11 @@ fn managed_resource_name(instance_id: uuid::Uuid, function_id: &InterfaceFunctio
     format!("{}.{}", instance_id, function_id.kube_representation(),)
 }
 
+/// Generates the kubernetes name of a Network Prefix - based on the Forge network_prefix_id
+fn resource_group_name(prefix_id: uuid::Uuid) -> String {
+    prefix_id.to_string()
+}
+
 pub async fn create_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     machine_id: uuid::Uuid,
@@ -1176,7 +1181,7 @@ pub async fn create_resource_group(
     };
 
     let resource_group =
-        resource_group::ResourceGroup::new(&prefix.id.to_string(), resource_group_network);
+        resource_group::ResourceGroup::new(&resource_group_name(prefix.id), resource_group_network);
 
     log::info!("ResourceGroup sent to kubernetes: {:?}", resource_group);
 
@@ -1213,7 +1218,7 @@ pub async fn delete_resource_group(
     };
 
     let resource_group =
-        resource_group::ResourceGroup::new(&prefix.id.to_string(), resource_group_network);
+        resource_group::ResourceGroup::new(&resource_group_name(prefix.id), resource_group_network);
 
     log::info!(
         "ResourceGroupDelete sent to kubernetes: {:?}",
@@ -1273,4 +1278,101 @@ pub async fn update_leaf(
     .await?;
 
     Ok(())
+}
+
+/// Error type for interacting with VPC
+#[derive(Debug, thiserror::Error)]
+pub enum VpcApiError {
+    #[error("Kube API returned {0:?}")]
+    KubeError(Box<kube::Error>),
+}
+
+/// The result of trying to delete an object in VPC
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum VpcApiDeletionResult {
+    /// The deletion of an object is confirmed by kubernetes, but the object
+    /// had not been deleted yet.
+    DeletionInProgress,
+    /// The object is fully deleted.
+    Deleted,
+}
+
+/// Interactions with forge-vpc
+///
+/// Functions in this API will be called by the Forge state machines.
+/// Therefore all these functions should be "non blocking" - they should not wait
+/// for any kubernetes objects to change state, but just try to modify objects
+/// or poll their state.
+#[async_trait::async_trait]
+pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
+    async fn try_delete_resource_group(
+        &self,
+        network_prefix_id: uuid::Uuid,
+    ) -> Result<VpcApiDeletionResult, VpcApiError>;
+}
+
+/// Implementation of the VPC API which makes "real kubernetes API calls"
+pub struct VpcApiImpl {
+    client: Client,
+}
+
+impl VpcApiImpl {
+    pub fn new(client: Client) -> Self {
+        Self { client }
+    }
+}
+
+impl std::fmt::Debug for VpcApiImpl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VpcApiImpl").finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl VpcApi for VpcApiImpl {
+    async fn try_delete_resource_group(
+        &self,
+        network_prefix_id: uuid::Uuid,
+    ) -> Result<VpcApiDeletionResult, VpcApiError> {
+        let resource_name = resource_group_name(network_prefix_id);
+
+        let resource: Api<resource_group::ResourceGroup> =
+            Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
+        let result = resource
+            .delete(&resource_name, &DeleteParams::default())
+            .await;
+        tracing::info!(
+            "Result of deleting resource group {} is: {:?}",
+            resource_name,
+            result
+        );
+
+        match result {
+            Ok(result) if result.is_left() => {
+                tracing::info!("Left deletion result: {:?}", result.unwrap_left());
+                Ok(VpcApiDeletionResult::DeletionInProgress)
+            }
+            Ok(result) => {
+                tracing::info!("Right deletion result: {:?}", result.unwrap_right());
+                // TODO: If the status isn't a 200 (deleted) or 400 (not found),
+                // we should probably not use deleted as a result
+                Ok(VpcApiDeletionResult::Deleted)
+            }
+            Err(e) => Err(VpcApiError::KubeError(Box::new(e))),
+        }
+    }
+}
+
+/// Simulation of the VPC API for a docker-compose environment
+#[derive(Debug, Default)]
+pub struct VpcApiSim {}
+
+#[async_trait::async_trait]
+impl VpcApi for VpcApiSim {
+    async fn try_delete_resource_group(
+        &self,
+        _network_prefix_id: uuid::Uuid,
+    ) -> Result<VpcApiDeletionResult, VpcApiError> {
+        Ok(VpcApiDeletionResult::Deleted)
+    }
 }

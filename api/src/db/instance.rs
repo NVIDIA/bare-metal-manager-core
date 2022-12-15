@@ -230,7 +230,7 @@ impl<'a> NewInstance<'a> {
                 .bind(&self.tenant_config.custom_ipxe)
                 .bind(self.tenant_config.tenant_org.as_str())
                 .bind(&self.ssh_keys)
-                .bind(sqlx::types::Json(&self.network_config.config))
+                .bind(sqlx::types::Json(&self.network_config.value))
                 .bind(&network_version_string)
                 .bind(sqlx::types::Json(network_status_observation))
                 .fetch_one(&mut *txn)

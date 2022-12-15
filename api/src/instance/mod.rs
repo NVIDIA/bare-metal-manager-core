@@ -155,7 +155,7 @@ pub async fn allocate_instance(
     // TODO 2: This can apparently also refer to a deleted network segment
     // Or the segment might even be deleted while the instance is created
     let interface_ips = HashMap::from_iter(
-        InstanceAddress::allocate(&mut txn, *instance.id(), &network_config.config)
+        InstanceAddress::allocate(&mut txn, *instance.id(), &network_config.value)
             .await?
             .into_iter()
             .map(|x| (x.segment_id, x.address.ip())),
@@ -196,7 +196,7 @@ pub async fn circuit_id_to_function_id(
     let segment = NetworkSegment::find_by_circuit_id(&mut *txn, circuit_id.clone()).await?;
     let network_config = load_instance_network_config(&mut *txn, instance_id)
         .await?
-        .config;
+        .value;
 
     network_config
         .interfaces
