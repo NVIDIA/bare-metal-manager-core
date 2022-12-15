@@ -1,6 +1,8 @@
 use pwhash::sha512_crypt;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use ::rpc::forge::{
@@ -57,10 +59,17 @@ async fn create_login_user() -> CarbideClientResult<Credentials> {
             FORGE_USER_ID,
             "--gid",
             FORGE_GROUP_ID,
+            "--groups",
+            "adm,dialout,cdrom,floppy,sudo,audio,dip,video,plugdev,netdev,lxd",
             SSH_USERNAME,
         ])
         .status()
         .await?;
+
+    let mut sudo_include_file = File::create("/etc/sudoers.d/99_sudo_include_file").await?;
+    let sudoers_line = format!("{} ALL=(ALL) NOPASSWD:ALL\n", SSH_USERNAME);
+    sudo_include_file.write_all(sudoers_line.as_bytes()).await?;
+    sudo_include_file.flush().await?;
 
     Ok(Credentials {
         user: SSH_USERNAME.to_string(),
