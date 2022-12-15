@@ -55,6 +55,8 @@ async fn create_login_user() -> CarbideClientResult<Credentials> {
             "--system",
             "--no-log-init",
             "--create-home",
+            "--shell",
+            "/bin/bash",
             "--uid",
             FORGE_USER_ID,
             "--gid",
