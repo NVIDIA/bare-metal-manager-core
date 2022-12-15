@@ -14,6 +14,7 @@ use std::net::IpAddr;
 
 use ::rpc::protos::common::forge::TenantState;
 use chrono::prelude::*;
+use futures::StreamExt;
 use ipnetwork::{IpNetwork, IpNetworkError};
 use itertools::Itertools;
 use sqlx::postgres::PgRow;
@@ -23,10 +24,18 @@ use uuid::Uuid;
 
 use ::rpc::forge as rpc;
 
-use crate::db::machine_interface::MachineInterface;
-use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use crate::model::config_version::ConfigVersion;
-use crate::{db::UuidKeyedObjectFilter, CarbideError, CarbideResult};
+use crate::{
+    db::{
+        machine_interface::MachineInterface,
+        network_prefix::{NetworkPrefix, NewNetworkPrefix},
+        UuidKeyedObjectFilter,
+    },
+    model::{
+        config_version::{ConfigVersion, Versioned},
+        network_segment::NetworkSegmentControllerState,
+    },
+    CarbideError, CarbideResult,
+};
 
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
@@ -37,12 +46,22 @@ pub struct NetworkSegment {
     pub vpc_id: Option<Uuid>,
     pub mtu: i32,
 
+    pub controller_state: Versioned<NetworkSegmentControllerState>,
+
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
 
     pub prefixes: Vec<NetworkPrefix>,
-    pub state: Option<TenantState>,
+    /// Whether VPC had been configured on all prefixes
+    pub resource_groups_created: bool,
+}
+
+impl NetworkSegment {
+    /// Returns whether the segment was deleted by the user
+    pub fn is_marked_as_deleted(&self) -> bool {
+        self.deleted.is_some()
+    }
 }
 
 #[derive(Debug)]
@@ -63,18 +82,26 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
+        let controller_state_version_str: &str = row.try_get("controller_state_version")?;
+        let controller_state_version = controller_state_version_str
+            .parse()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let controller_state: sqlx::types::Json<NetworkSegmentControllerState> =
+            row.try_get("controller_state")?;
+
         Ok(NetworkSegment {
             id: row.try_get("id")?,
             version,
             name: row.try_get("name")?,
             subdomain_id: row.try_get("subdomain_id")?,
             vpc_id: row.try_get("vpc_id")?,
+            controller_state: Versioned::new(controller_state.0, controller_state_version),
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
             mtu: row.try_get("mtu")?,
             prefixes: Vec::new(),
-            state: None,
+            resource_groups_created: false,
         })
     }
 }
@@ -137,6 +164,22 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
 impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
     type Error = CarbideError;
     fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
+        // Note that even thought the segment might already be ready in terms
+        // of `resource_groups_created == true`, we only return `Ready` after
+        // the state machine also noticed that. Otherwise we would need to also
+        // allow address allocation before the controller state is ready, which
+        // spreads out the state mismatch to a lot more places.
+        let mut state = match &src.controller_state.value {
+            NetworkSegmentControllerState::Provisioning => TenantState::Provisioning,
+            NetworkSegmentControllerState::Ready => TenantState::Ready,
+            NetworkSegmentControllerState::Deleting { .. } => TenantState::Terminating,
+        };
+        // If deletion is requested, we immediately overwrite the state to terminating.
+        // Even though the state controller hasn't caught up - it eventually will
+        if src.is_marked_as_deleted() {
+            state = TenantState::Terminating;
+        }
+
         Ok(rpc::NetworkSegment {
             id: Some(src.id.into()),
             version: src.version.to_version_string(),
@@ -152,9 +195,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
                 .map(rpc::NetworkPrefix::from)
                 .collect_vec(),
             vpc_id: src.vpc_id.map(rpc::Uuid::from),
-            state: src.state.ok_or_else(|| {
-                CarbideError::NetworkSegmentNotReady("state is not updated yet.".to_owned())
-            })? as i32,
+            state: state as i32,
         })
     }
 }
@@ -166,17 +207,20 @@ impl NewNetworkSegment {
     ) -> CarbideResult<NetworkSegment> {
         let version = ConfigVersion::initial();
         let version_string = version.to_version_string();
+        let controller_state = NetworkSegmentControllerState::Provisioning;
 
-        let mut segment: NetworkSegment = sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, vpc_id, mtu, version) VALUES ($1, $2, $3, $4, $5) RETURNING *")
+        let mut segment: NetworkSegment = sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, vpc_id, mtu, version, controller_state_version, controller_state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *")
             .bind(&self.name)
             .bind(self.subdomain_id)
             .bind(self.vpc_id)
             .bind(self.mtu)
             .bind(&version_string)
+            .bind(&version_string)
+            .bind(sqlx::types::Json(&controller_state))
             .fetch_one(&mut *txn).await?;
 
         segment.prefixes = NetworkPrefix::create_for(txn, &segment.id, &self.prefixes).await?;
-        segment.update_state(&mut *txn).await?;
+        segment.update_prefix_state(&mut *txn).await?;
 
         Ok(segment)
     }
@@ -202,7 +246,7 @@ impl NetworkSegment {
         relay: IpAddr,
     ) -> CarbideResult<Option<Self>> {
         let mut results = sqlx::query_as(
-            r#"SELECT network_segments.* FROM network_segments INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id WHERE network_segments.deleted is NULL AND $1::inet <<= network_prefixes.prefix"#,
+            r#"SELECT network_segments.* FROM network_segments INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id WHERE $1::inet <<= network_prefixes.prefix"#,
         )
             .bind(IpNetwork::from(relay))
             .fetch_all(&mut *txn)
@@ -219,12 +263,30 @@ impl NetworkSegment {
                         .bind(segment.id())
                         .fetch_all(&mut *txn)
                         .await?;
-                segment.update_state(&mut *txn).await?;
+                segment.update_prefix_state(&mut *txn).await?;
 
                 Ok(Some(segment))
             }
             _ => Err(CarbideError::MultipleNetworkSegmentsForRelay(relay)),
         }
+    }
+
+    /// Retrieves the IDs of all network segments
+    ///
+    /// * `txn` - A reference to a currently open database transaction
+    ///
+    pub async fn list_segment_ids(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
+        let mut results = Vec::new();
+        let mut segment_id_stream =
+            sqlx::query_as::<_, NetworkSegmentId>("SELECT id FROM network_segments").fetch(txn);
+        while let Some(maybe_id) = segment_id_stream.next().await {
+            let id = maybe_id?;
+            results.push(id.into());
+        }
+
+        Ok(results)
     }
 
     #[tracing::instrument(skip(txn, filter))]
@@ -236,27 +298,23 @@ impl NetworkSegment {
 
         let mut all_records: Vec<NetworkSegment> = match filter {
             UuidKeyedObjectFilter::All => {
-                sqlx::query_as::<_, NetworkSegment>(
-                    &base_query.replace("{where}", "WHERE deleted is NULL"),
-                )
-                .fetch_all(&mut *txn)
-                .await?
+                sqlx::query_as::<_, NetworkSegment>(&base_query.replace("{where}", ""))
+                    .fetch_all(&mut *txn)
+                    .await?
             }
 
             UuidKeyedObjectFilter::List(uuids) => {
-                sqlx::query_as::<_, NetworkSegment>(&base_query.replace(
-                    "{where}",
-                    "WHERE network_segments.id=ANY($1) and deleted is NULL",
-                ))
+                sqlx::query_as::<_, NetworkSegment>(
+                    &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
+                )
                 .bind(uuids)
                 .fetch_all(&mut *txn)
                 .await?
             }
             UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as::<_, NetworkSegment>(&base_query.replace(
-                    "{where}",
-                    "WHERE network_segments.id=$1 and deleted is NULL",
-                ))
+                sqlx::query_as::<_, NetworkSegment>(
+                    &base_query.replace("{where}", "WHERE network_segments.id=$1"),
+                )
                 .bind(uuid)
                 .fetch_all(&mut *txn)
                 .await?
@@ -282,10 +340,42 @@ impl NetworkSegment {
             } else {
                 log::warn!("Network {0} ({1}) has no prefixes?", record.id, record.name);
             }
-            record.update_state(&mut *txn).await?;
+            record.update_prefix_state(&mut *txn).await?;
         }
 
         Ok(all_records)
+    }
+
+    /// Updates the network segment state that is owned by the state controller
+    /// under the premise that the curren controller state version didn't change.
+    ///
+    /// Returns `true` if the state could be updated, and `false` if the object
+    /// either doesn't exist anymore or is at a different version.
+    pub async fn try_update_controller_state(
+        txn: &mut Transaction<'_, Postgres>,
+        segment_id: uuid::Uuid,
+        expected_version: ConfigVersion,
+        new_state: &NetworkSegmentControllerState,
+    ) -> Result<bool, sqlx::Error> {
+        let expected_version_str = expected_version.to_version_string();
+        let next_version = expected_version.increment();
+        let next_version_str = next_version.to_version_string();
+
+        let query_result: Result<NetworkSegmentId, _> = sqlx::query_as(
+            "UPDATE network_segments SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id",
+        )
+        .bind(&next_version_str)
+        .bind(sqlx::types::Json(new_state))
+        .bind(segment_id)
+        .bind(&expected_version_str)
+        .fetch_one(txn)
+        .await;
+
+        match query_result {
+            Ok(_) => Ok(true),
+            Err(sqlx::Error::RowNotFound) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     pub fn subdomain_id(&self) -> Option<&uuid::Uuid> {
@@ -296,27 +386,25 @@ impl NetworkSegment {
         &self.id
     }
 
-    pub async fn update_state(&mut self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<()> {
+    pub async fn update_prefix_state(
+        &mut self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<()> {
         let prefixes =
             NetworkPrefix::find_by_segment(&mut *txn, UuidKeyedObjectFilter::One(self.id)).await?;
         let prefixes = prefixes.iter().filter(|x| x.prefix.is_ipv4()).collect_vec();
 
-        self.state = Some(if prefixes.iter().any(|x| x.circuit_id.is_none()) {
-            // At least one prefix is present with empty circuit id.
-            TenantState::Provisioning
-        } else {
-            // Not even a one prefix found with null circuit id. This means ResourceGroupd creation
-            // is successful.
-            TenantState::Ready
-        });
+        self.resource_groups_created = !prefixes.iter().any(|x| x.circuit_id.is_none());
 
         Ok(())
     }
 
-    pub async fn delete(
+    pub async fn mark_as_deleted(
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
+        // TODO: This is not necessarily needed here.
+        // Plus we need to check the instance addresses
         let machine_interfaces = MachineInterface::find_by_segment_id(txn, self.id()).await;
         if let Ok(machine_interfaces) = machine_interfaces {
             if !machine_interfaces.is_empty() {
@@ -340,6 +428,21 @@ impl NetworkSegment {
         Ok(segment)
     }
 
+    pub async fn force_delete(
+        segment_id: uuid::Uuid,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<uuid::Uuid, sqlx::Error> {
+        NetworkPrefix::delete_for_segment(segment_id, txn).await?;
+
+        let segment: NetworkSegmentId =
+            sqlx::query_as("DELETE FROM network_segments WHERE id=$1::uuid RETURNING id")
+                .bind(segment_id)
+                .fetch_one(&mut *txn)
+                .await?;
+
+        Ok(segment.0)
+    }
+
     pub async fn update(
         &self,
 
@@ -356,7 +459,7 @@ impl NetworkSegment {
         .fetch_one(&mut *txn)
         .await?;
 
-        segment.update_state(&mut *txn).await?;
+        segment.update_prefix_state(&mut *txn).await?;
 
         Ok(segment)
     }
@@ -368,10 +471,19 @@ impl NetworkSegment {
         Ok(sqlx::query_as(
             r#"SELECT network_segments.* FROM network_segments 
             INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id 
-            WHERE network_segments.deleted is NULL AND network_prefixes.circuit_id=$1"#,
+            WHERE network_prefixes.circuit_id=$1"#,
         )
         .bind(circuit_id)
         .fetch_one(&mut *txn)
         .await?)
+    }
+}
+
+#[derive(Debug, Clone, Copy, FromRow)]
+pub struct NetworkSegmentId(uuid::Uuid);
+
+impl From<NetworkSegmentId> for uuid::Uuid {
+    fn from(id: NetworkSegmentId) -> Self {
+        id.0
     }
 }

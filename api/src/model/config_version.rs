@@ -18,21 +18,22 @@ use std::{
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 
-/// A configuration that is accompanied by a version field
+/// A value that is accompanied by a version field
 ///
-/// This small wrapper is intended to pass around configuration data and the
+/// This small wrapper is intended to pass around any kind of value and the
 /// associated version as a single parameter.
+#[derive(Debug, Clone)]
 pub struct Versioned<T> {
-    /// The configuration that is versioned
-    pub config: T,
-    /// The version of the configuration
+    /// The value that is versioned
+    pub value: T,
+    /// The value that is associated with this version
     pub version: ConfigVersion,
 }
 
 impl<T> Versioned<T> {
-    /// Creates a new a `Versioned` wrapper around the configuration
-    pub fn new(config: T, version: ConfigVersion) -> Self {
-        Self { config, version }
+    /// Creates a new a `Versioned` wrapper around the value
+    pub fn new(value: T, version: ConfigVersion) -> Self {
+        Self { value, version }
     }
 
     /// Converts a `Versioned<T>` into a `Versioned<&T>`
@@ -40,7 +41,7 @@ impl<T> Versioned<T> {
     /// This is helpful to pass around versioned data cheaply (without having to
     /// deep copy it).
     pub fn as_ref(&self) -> Versioned<&T> {
-        Versioned::new(&self.config, self.version)
+        Versioned::new(&self.value, self.version)
     }
 }
 
@@ -48,13 +49,13 @@ impl<T> Deref for Versioned<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.config
+        &self.value
     }
 }
 
 impl<T> DerefMut for Versioned<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.config
+        &mut self.value
     }
 }
 

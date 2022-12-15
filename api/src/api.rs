@@ -39,7 +39,6 @@ use crate::{
         machine_interface::MachineInterface,
         machine_state::MachineState,
         machine_topology::MachineTopology,
-        network_prefix::NetworkPrefix,
         network_segment::{NetworkSegment, NewNetworkSegment},
         resource_record::DnsQuestion,
         tags::{Tag, TagAssociation, TagCreate, TagDelete, TagsList},
@@ -49,7 +48,8 @@ use crate::{
     instance::{allocate_instance, InstanceAllocationRequest},
     ipmi::{ipmi_handler, MachineBmcRequest, RealIpmiCommandHandler},
     kubernetes::{
-        bgkubernetes_handler, create_resource_group, delete_managed_resource, delete_resource_group,
+        bgkubernetes_handler, create_resource_group, delete_managed_resource, VpcApi, VpcApiImpl,
+        VpcApiSim,
     },
     model::{
         hardware_info::HardwareInfo, instance::status::network::InstanceNetworkStatusObservation,
@@ -58,6 +58,9 @@ use crate::{
         controller::StateController,
         machine::handler::MachineStateHandler,
         machine::io::MachineStateControllerIO,
+        network_segment::{
+            handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
+        },
         snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
     },
     CarbideError,
@@ -475,21 +478,11 @@ where
             _ => return Err(Status::not_found("network segment not found")),
         };
 
-        let prefixes =
-            NetworkPrefix::find_by_segment(&mut txn, UuidKeyedObjectFilter::One(*segment.id()))
-                .await?;
-
         let response = Ok(segment
-            .delete(&mut txn)
+            .mark_as_deleted(&mut txn)
             .await
             .map(|_| rpc::NetworkSegmentDeletionResult {})
             .map(Response::new)?);
-
-        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
-
-        for prefix in &prefixes {
-            delete_resource_group(prefix, db_conn).await?;
-        }
 
         txn.commit().await.map_err(CarbideError::from)?;
 
@@ -1439,6 +1432,13 @@ where
         )
         .await?;
 
+        let vpc_api: Arc<dyn VpcApi> = if daemon_config.kubernetes {
+            let client = kube::Client::try_default().await?;
+            Arc::new(VpcApiImpl::new(client))
+        } else {
+            Arc::new(VpcApiSim::default())
+        };
+
         let _kube_handle = bgkubernetes_handler(
             daemon_config.kubernetes,
             api_service.clone(),
@@ -1446,11 +1446,23 @@ where
         )
         .await?;
 
-        let _state_controller_handle = StateController::<MachineStateControllerIO>::builder()
-            .database(database_connection)
-            .state_handler(Arc::new(MachineStateHandler::default()))
-            .build()
-            .expect("Unable to build MachineStateController");
+        let _machine_state_controller_handle =
+            StateController::<MachineStateControllerIO>::builder()
+                .database(database_connection.clone())
+                .vpc_api(vpc_api.clone())
+                .state_handler(Arc::new(MachineStateHandler::default()))
+                .build()
+                .expect("Unable to build MachineStateController");
+
+        let _network_segment_controller_handle =
+            StateController::<NetworkSegmentStateControllerIO>::builder()
+                .database(database_connection)
+                .vpc_api(vpc_api)
+                .state_handler(Arc::new(NetworkSegmentStateHandler::new(
+                    chrono::Duration::minutes(NETWORK_SEGMENT_DRAIN_TIME_MINUTES),
+                )))
+                .build()
+                .expect("Unable to build NetworkSegmentController");
 
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
@@ -1489,3 +1501,7 @@ async fn log_instance_debug_data(
 
 /// Maximum database connections
 const MAX_DB_CONNECTIONS: u32 = 1000;
+
+/// The time for which network segments must have 0 allocated IPs, before they
+/// are actually released
+const NETWORK_SEGMENT_DRAIN_TIME_MINUTES: i64 = 5;

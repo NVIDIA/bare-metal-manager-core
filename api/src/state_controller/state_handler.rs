@@ -12,13 +12,18 @@
 
 use std::sync::Arc;
 
-use crate::state_controller::snapshot_loader::SnapshotLoaderError;
+use crate::{
+    kubernetes::{VpcApi, VpcApiError},
+    state_controller::snapshot_loader::SnapshotLoaderError,
+};
 
 /// Services that are accessible to the `StateHandler`
 #[derive(Debug)]
 pub struct StateHandlerServices {
     /// A database connection pool that can be used for additional queries
     pub pool: sqlx::PgPool,
+    /// API for interaction with Forge VPC
+    pub vpc_api: Arc<dyn VpcApi>,
 }
 
 /// Context parameter passed to `StateHandler`
@@ -53,6 +58,8 @@ pub enum StateHandlerError {
     LoadSnapshotError(#[from] SnapshotLoaderError),
     #[error("Unable to perform database transaction: {0}")]
     TransactionError(#[from] sqlx::Error),
+    #[error("Failed interaction with VPC: {0}")]
+    VpcApiError(#[from] VpcApiError),
 }
 
 /// A `StateHandler` implementation which does nothing

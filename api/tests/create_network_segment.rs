@@ -9,9 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 use carbide::db::UuidKeyedObjectFilter;
+use carbide::kubernetes::{VpcApi, VpcApiDeletionResult, VpcApiError};
+use carbide::state_controller::{
+    network_segment::handler::NetworkSegmentStateHandler,
+    state_handler::{StateHandler, StateHandlerContext, StateHandlerServices},
+};
 use log::LevelFilter;
 use mac_address::MacAddress;
 
@@ -70,6 +77,37 @@ async fn create_network_segment_with_api(
         .into_inner()
 }
 
+async fn get_segment_state(api: &TestApi, segment_id: uuid::Uuid) -> rpc::forge::TenantState {
+    let segment = api
+        .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
+            id: Some(segment_id.into()),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .network_segments
+        .remove(0);
+    segment.state()
+}
+
+async fn run_controller_iteration(
+    pool: &sqlx::PgPool,
+    segment_id: uuid::Uuid,
+    handler: &NetworkSegmentStateHandler,
+    handler_ctx: &mut StateHandlerContext<'_>,
+) {
+    let mut txn = pool.begin().await.unwrap();
+    let mut db_segment = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::One(segment_id))
+        .await
+        .unwrap()
+        .remove(0);
+    handler
+        .handle_object_state(&segment_id, &mut db_segment, &mut txn, handler_ctx)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+}
+
 async fn test_network_segment_lifecycle_impl(
     pool: sqlx::PgPool,
     delete_in_ready_state: bool,
@@ -81,16 +119,35 @@ async fn test_network_segment_lifecycle_impl(
     assert!(segment.created.is_some());
     assert!(segment.deleted.is_none());
     assert_eq!(segment.state(), rpc::forge::TenantState::Provisioning);
+    let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
+    let prefix_id: uuid::Uuid = segment
+        .prefixes
+        .get(0)
+        .unwrap()
+        .id
+        .clone()
+        .unwrap()
+        .try_into()
+        .unwrap();
+
+    let state_handler = NetworkSegmentStateHandler::new(chrono::Duration::milliseconds(500));
+    let vpc_api = Arc::new(MockVpcApi::new(2));
+    let handler_services = StateHandlerServices {
+        pool: pool.clone(),
+        vpc_api: vpc_api.clone(),
+    };
+    let mut handler_ctx = StateHandlerContext {
+        services: &Arc::new(handler_services),
+    };
+
+    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
 
     if delete_in_ready_state {
         let mut txn = pool.begin().await.unwrap();
-        let db_segment = NetworkSegment::find(
-            &mut txn,
-            UuidKeyedObjectFilter::One(segment.id.clone().unwrap().try_into().unwrap()),
-        )
-        .await
-        .unwrap()
-        .remove(0);
+        let db_segment = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::One(segment_id))
+            .await
+            .unwrap()
+            .remove(0);
 
         txn.commit().await?;
 
@@ -108,16 +165,20 @@ async fn test_network_segment_lifecycle_impl(
             "vlan_123".to_owned()
         );
 
-        let segment = api
-            .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-                id: segment.id.clone(),
-            }))
-            .await
-            .unwrap()
-            .into_inner()
-            .network_segments
-            .remove(0);
-        assert_eq!(segment.state(), rpc::forge::TenantState::Ready);
+        // The TenantState only switches after the state controller recognized the update
+        assert_eq!(
+            get_segment_state(&api, segment_id).await,
+            rpc::forge::TenantState::Provisioning
+        );
+        txn.commit().await.unwrap();
+
+        run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
+
+        // Now the segment should be ready
+        assert_eq!(
+            get_segment_state(&api, segment_id).await,
+            rpc::forge::TenantState::Ready
+        );
     }
 
     api.delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
@@ -126,14 +187,40 @@ async fn test_network_segment_lifecycle_impl(
     .await
     .expect("expect deletion to succeed");
 
-    let results = api
+    // After the API request, the segment should show up as deleting
+    assert_eq!(
+        get_segment_state(&api, segment_id).await,
+        rpc::forge::TenantState::Terminating
+    );
+    // Make the controller aware about termination too
+    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
+
+    // Wait for the drain period
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    // 3 controller iterations, one moves us into the Vpc deletion state, one tries
+    // to delete the VPC, the third succeeds in deleting the VPC and cleans up the DB
+    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
+    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
+    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
+
+    let mut segments = api
         .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-            id: segment.id,
+            id: segment.id.clone(),
         }))
         .await
         .unwrap()
-        .into_inner();
-    assert!(results.network_segments.is_empty());
+        .into_inner()
+        .network_segments;
+
+    if delete_in_ready_state {
+        assert!(segments.is_empty());
+        let deletion_calls = vpc_api.deletion_calls();
+        // 3 because of the temporary extra call to check how delete behaves on a deleted CRD
+        assert_eq!(*deletion_calls.get(&prefix_id).unwrap(), 3);
+    } else {
+        let segment = segments.remove(0);
+        assert_eq!(segment.state(), rpc::forge::TenantState::Terminating);
+    }
 
     Ok(())
 }
@@ -306,4 +393,43 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     );
 
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct MockVpcApi {
+    attempts_to_delete: usize,
+    deletion_calls: Mutex<HashMap<uuid::Uuid, usize>>,
+}
+
+impl MockVpcApi {
+    pub fn new(attempts_to_delete: usize) -> Self {
+        Self {
+            attempts_to_delete,
+            deletion_calls: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Returns how many deletion calls have been performed for a certain UUID
+    pub fn deletion_calls(&self) -> HashMap<uuid::Uuid, usize> {
+        let guard = self.deletion_calls.lock().unwrap();
+        (*guard).clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl VpcApi for MockVpcApi {
+    async fn try_delete_resource_group(
+        &self,
+        _network_prefix_id: uuid::Uuid,
+    ) -> Result<VpcApiDeletionResult, VpcApiError> {
+        let mut guard = self.deletion_calls.lock().unwrap();
+        let attempts = guard.entry(_network_prefix_id).or_insert(0);
+        *attempts += 1;
+
+        if *attempts == self.attempts_to_delete {
+            return Ok(VpcApiDeletionResult::Deleted);
+        }
+
+        Ok(VpcApiDeletionResult::DeletionInProgress)
+    }
 }

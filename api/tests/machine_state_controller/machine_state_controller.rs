@@ -20,6 +20,7 @@ use std::{
 
 use carbide::{
     db::machine_topology::MachineTopology,
+    kubernetes::{VpcApi, VpcApiDeletionResult, VpcApiError},
     model::{hardware_info::HardwareInfo, machine::MachineStateSnapshot},
     state_controller::{
         controller::StateController,
@@ -56,6 +57,19 @@ impl StateHandler for TestMachineStateHandler {
         self.start_digit_count[idx as usize].fetch_add(1, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct MockVpcApi {}
+
+#[async_trait::async_trait]
+impl VpcApi for MockVpcApi {
+    async fn try_delete_resource_group(
+        &self,
+        _network_prefix_id: uuid::Uuid,
+    ) -> Result<VpcApiDeletionResult, VpcApiError> {
+        Ok(VpcApiDeletionResult::Deleted)
     }
 }
 
@@ -109,6 +123,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             StateController::<MachineStateControllerIO>::builder()
                 .iteration_time(Duration::from_millis(100))
                 .database(pool.clone())
+                .vpc_api(Arc::new(MockVpcApi {}))
                 .state_handler(machine_handler.clone())
                 .build()
                 .unwrap(),
