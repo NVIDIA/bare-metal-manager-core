@@ -531,6 +531,10 @@ where
         &self,
         request: Request<rpc::InstanceSearchQuery>,
     ) -> Result<Response<rpc::InstanceList>, Status> {
+        let _auth =
+            self.authorizer
+                .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
+
         let mut txn = self
             .database_connection
             .begin()
@@ -575,6 +579,10 @@ where
         &self,
         request: Request<rpc::Uuid>,
     ) -> Result<Response<InstanceList>, Status> {
+        let _auth =
+            self.authorizer
+                .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
+
         let mut txn = self
             .database_connection
             .begin()
