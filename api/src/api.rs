@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
 use crate::{
-    auth::CarbideAuth,
+    auth::{self, CarbideAuth},
     cfg,
     credentials::UpdateCredentials,
     db::{
@@ -75,6 +75,7 @@ const DPU_ADMIN_USERNAME: &str = "forge";
 pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
     credential_provider: Arc<C>,
+    authorizer: auth::Authorizer,
 }
 
 #[tonic::async_trait]
@@ -1377,10 +1378,15 @@ impl<C> Api<C>
 where
     C: CredentialProvider + 'static,
 {
-    pub fn new(credential_provider: Arc<C>, database_connection: sqlx::PgPool) -> Self {
+    pub fn new(
+        credential_provider: Arc<C>,
+        database_connection: sqlx::PgPool,
+        authorizer: auth::Authorizer,
+    ) -> Self {
         Self {
             database_connection,
             credential_provider,
+            authorizer,
         }
     }
 
@@ -1410,10 +1416,16 @@ where
         });
 
         let conn_clone = database_connection.clone();
+        let authorizer = auth::Authorizer::build_casbin(
+            &daemon_config.casbin_policy_file,
+            daemon_config.auth_permissive_mode,
+        )
+        .await?;
 
         let api_service = Arc::new(Self::new(
             credential_provider.clone(),
             database_connection.clone(),
+            authorizer,
         ));
 
         let mut authenticator = CarbideAuth::new();
