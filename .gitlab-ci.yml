@@ -78,7 +78,7 @@ build-container-arm:
     entrypoint: [""]
   before_script: |
     mkdir -p /kaniko/.docker
-    devopsctl credentials get forge/docker docker_json >> /kaniko/.docker/config.json
+    echo "$DOCKER_AUTH_CONFIG" > /kaniko/.docker/config.json
   script: |
     set -xeuo pipefail
 
