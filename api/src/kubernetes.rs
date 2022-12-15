@@ -1358,6 +1358,10 @@ impl VpcApi for VpcApiImpl {
                 // we should probably not use deleted as a result
                 Ok(VpcApiDeletionResult::Deleted)
             }
+            Err(kube::Error::Api(api_error)) if api_error.code == 404 => {
+                // Object not found means it is deleted
+                Ok(VpcApiDeletionResult::Deleted)
+            }
             Err(e) => Err(VpcApiError::KubeError(Box::new(e))),
         }
     }
