@@ -4,7 +4,8 @@ variables:
   KUSTOMIZE_LOCATION: dev/kube
   DOCKER_IMG: nvmetal-carbide
   APPLICATION_DOCKER_IMAGE: quay.io/nvidia/nvmetal-carbide
-
+  NVCR_APPLICATION_DOCKER_IMAGE: nvcr.io/nvidian/forge/nvmetal-carbide
+  STG_NVCR_APPLICATION_DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide
 
   FF_USE_FASTZIP: "true" # enable fastzip - a faster zip implementation that also supports level configuration.
   ARTIFACT_COMPRESSION_LEVEL: default # can also be set to fastest, fast, slow and slowest. If just enabling fastzip is not enough try setting this to fastest or fast.
@@ -37,14 +38,14 @@ stages:
   - security
 
 include:
-  - project: 'nvmetal/gitlab-templates'
+  - project: "nvmetal/gitlab-templates"
     ref: main
     file:
       - defaults.gitlab-ci.yml
 
 nightly_tests:
   stage: e2e-test
-  image: 
+  image:
     name: $TOOLS_IMAGE_REPO
   needs: [build-push-kustomize]
   rules:
@@ -68,7 +69,7 @@ build-container:
     DOCKER_FILE: Dockerfile.build-container
   rules:
     - changes:
-      - $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container
+        - $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container
 
 build-container-arm:
   stage: .pre
@@ -88,7 +89,7 @@ build-container-arm:
     - aarch64
   rules:
     - changes:
-      - $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm
+        - $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm
 
 # if you modify this, you must keep it in sync with ${PROJECT_ROOT}/dev/deployment/Dockerfile or you will notice post-merge build failures.
 build-cargo:
@@ -111,7 +112,7 @@ build-cargo:
     - cp target/debug/carbide-api binaries/
     - cp target/debug/carbide-dns binaries/
     - cp target/debug/carbide binaries/
-    - cp target/debug/carbide-admin-cli binaries    
+    - cp target/debug/carbide-admin-cli binaries
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
     - if: $CI_PIPELINE_SOURCE == "schedule"
@@ -215,7 +216,7 @@ pages:
 
 build-push-helm:
   variables:
-    PUSH_TO_NVCR: 'true'
+    PUSH_TO_NVCR: "true"
     HELM_FILE_NAME: "${CI_PROJECT_NAME}-${HELM_VERSION}"
   before_script:
     - apt-get update
