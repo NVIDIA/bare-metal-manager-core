@@ -43,6 +43,14 @@ lazy_static! {
     ));
 }
 
+#[derive(Debug, Clone)]
+pub struct CacheEntry {
+    pub machine: Machine,
+    pub timestamp: Instant,
+    pub link_address: IpAddr,
+    pub circuit_id: Option<String>,
+}
+
 /// Fetch an entry from the cache.
 ///
 /// Result is owned by the caller, it is a clone of cached item.
@@ -86,14 +94,6 @@ pub fn put(
         circuit_id,
     };
     MACHINE_CACHE.lock().unwrap().put(key, new_entry);
-}
-
-#[derive(Debug, Clone)]
-pub struct CacheEntry {
-    pub machine: Machine,
-    pub timestamp: Instant,
-    pub link_address: IpAddr,
-    pub circuit_id: Option<String>,
 }
 
 //

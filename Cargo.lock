@@ -57,9 +57,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.65"
+version = "1.0.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98161a4e3e2184da77bb14f02184cdd111e83bbbcc9979dfee3c44b9a85f5602"
+checksum = "216261ddc8289130e551ddcd5ce8a064710c0d064a4d2895c67151c92b5443f6"
 
 [[package]]
 name = "anymap2"
@@ -1021,9 +1021,11 @@ dependencies = [
 name = "dhcp"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
  "cbindgen",
  "cc",
  "derive_builder",
+ "dhcproto",
  "hyper",
  "ipnetwork 0.20.0",
  "lazy_static",
@@ -1034,9 +1036,23 @@ dependencies = [
  "once_cell",
  "prost",
  "rpc",
+ "serde_json",
  "tokio",
  "tonic",
  "uuid 1.1.2",
+]
+
+[[package]]
+name = "dhcproto"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "656b1fafe9931d897da5f17b40115deaedb0725d9b8d3e67c6f1271d29b07a58"
+dependencies = [
+ "hex",
+ "rand",
+ "thiserror",
+ "trust-dns-proto",
+ "url",
 ]
 
 [[package]]
@@ -3860,9 +3876,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.85"
+version = "1.0.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e55a28e3aaef9d5ce0506d0a14dbba8054ddc7e499ef522dd8b26859ec9d4a44"
+checksum = "020ff22c755c2ed3f8cf162dbb41a7268d934702f3ed3631656ea597e08fc3db"
 dependencies = [
  "indexmap",
  "itoa 1.0.3",
