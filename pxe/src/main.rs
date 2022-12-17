@@ -258,14 +258,19 @@ async fn main() -> Result<(), rocket::Error> {
         }
     }
 
-    let configuration_file_path =
-        env::var("ARTIFACT_CONFIG").unwrap_or_else(|_| "artifacts.json".to_string());
-    let artifact_configuration = ArtifactConfig::from_config_file(configuration_file_path)
-        .expect("unable to parse artifact configuration file?");
-    println!("Artifact config parsed: {}", &artifact_configuration);
+    let artifactory_integration =
+        env::var("ARTIFACTORY_INTEGRATION").unwrap_or_else(|_| "false".to_string());
 
-    if let Err(error) = artifact_configuration.validate_artifacts(static_path).await {
-        eprintln!("Error validating artifacts. Error: {:?}", error);
+    if artifactory_integration == "true" {
+        let configuration_file_path =
+            env::var("ARTIFACT_CONFIG").unwrap_or_else(|_| "artifacts.json".to_string());
+        let artifact_configuration = ArtifactConfig::from_config_file(configuration_file_path)
+            .expect("unable to parse artifact configuration file?");
+        println!("Artifact config parsed: {}", &artifact_configuration);
+
+        if let Err(error) = artifact_configuration.validate_artifacts(static_path).await {
+            eprintln!("Error validating artifacts. Error: {:?}", error);
+        }
     }
 
     rocket::build()
