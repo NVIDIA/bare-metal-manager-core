@@ -16,9 +16,9 @@ use std::primitive::u32;
 use derive_builder::Builder;
 use mac_address::MacAddress;
 
-use crate::cache;
 use crate::machine::Machine;
 use crate::CONFIG;
+use crate::{cache, CarbideDhcpContext};
 
 /// Enumerates results of setting discovery options on the Builder
 #[repr(C)]
@@ -263,6 +263,7 @@ pub unsafe extern "C" fn discovery_fetch_machine(
         .read()
         .unwrap() // TODO(ajf): don't unwrap
         .api_endpoint;
+
     discovery_fetch_machine_at(ctx, machine_ptr_out, url)
 }
 
@@ -301,7 +302,14 @@ unsafe fn discovery_fetch_machine_at(
             return DiscoveryBuilderResult::Success;
         }
 
-        match Machine::try_fetch(discovery, url) {
+        // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
+        // thread. This is required because tonic is async but this code generally is not.
+        //
+        // TODO(ajf): how to reason about FFI code with async.
+        //
+        let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+
+        match runtime.block_on(Machine::try_fetch(discovery, url)) {
             Ok(machine) => {
                 cache::put(mac_address, addr_for_dhcp, circuit_id, machine.clone());
                 *machine_ptr_out = Box::into_raw(Box::new(machine));
@@ -365,9 +373,10 @@ mod tests {
     // Test the success case of calling API server and test the cache.
     #[test]
     fn test_discovery_fetch_machine_success() {
-        // Start the mock API server
+        // Start the mock API server, spawning a task to run hyper.
+        // We call block_on in discovery_fetch_machine_at, which allows hyper to make progress.
         let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
-        let mut api_server = mock_api_server::MockAPIServer::start(rt);
+        let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
 
         // Input packet, found by printing a real one
         let builder_ffi = discovery_builder_allocate();
@@ -413,7 +422,6 @@ mod tests {
         unsafe {
             discovery_builder_free(builder_ffi);
         }
-        api_server.stop();
     }
 
     // Run many basic discovery_fetch_machine tests concurrently
@@ -421,7 +429,8 @@ mod tests {
     fn test_discovery_fetch_machine_multi_threading() {
         // Start the mock API server
         let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
-        let mut api_server = mock_api_server::MockAPIServer::start(rt);
+        let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
+
         let endpoint_url = api_server.local_http_addr();
         thread::scope(|s| {
             let mut handles = Vec::with_capacity(10);
@@ -442,7 +451,6 @@ mod tests {
             api_server.calls_for(mock_api_server::ENDPOINT_DISCOVER_DHCP),
             10,
         );
-        api_server.stop();
     }
 
     fn multi_threading_test_inner(last_mac: u8, url: &str) {

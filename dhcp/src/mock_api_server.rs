@@ -11,6 +11,8 @@
  */
 
 /// A hyper / TCP server that pretends to be carbide-api, for unit testing.
+/// It responds to DHCP_DISCOVERY messages with a DHCP_OFFER of 172.20.0.{x}/32, where x is the
+/// last byte of the MAC address sent in the DISCOVERY packet.
 ///
 /// Module only included if #cfg(test)
 ///
@@ -23,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use ::rpc::forge as rpc;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
+use mac_address::MacAddress;
 use prost::Message;
 use tokio::task::JoinHandle;
 
@@ -32,10 +35,11 @@ pub const ENDPOINT_DISCOVER_DHCP: &str = "/forge.Forge/DiscoverDhcp";
 
 // Contents of the response
 const DHCP_RESPONSE_FQDN: &str = "december-nitrogen.forge.local";
-const DHCP_RESPONSE_ADDRESS: &str = "172.20.0.31/32";
+const DHCP_RESPONSE_ADDR_PREFIX: &str = "172.20.0";
 
 // Encode a DhcpRecord to match gRPC HTTP/2 DATA frame that API server (via hyper) produces.
-pub fn dhcp_response(mac_address: &str) -> Vec<u8> {
+pub fn dhcp_response(mac_address_str: &str) -> Vec<u8> {
+    let mac_obj: MacAddress = mac_address_str.parse().unwrap();
     let r = rpc::DhcpRecord {
         machine_id: None,
         machine_interface_id: Some(rpc::Uuid {
@@ -48,8 +52,8 @@ pub fn dhcp_response(mac_address: &str) -> Vec<u8> {
             value: "023138e1-ebf1-4ef7-8a2c-bbce928a1601".to_string(),
         }),
         fqdn: DHCP_RESPONSE_FQDN.to_string(),
-        mac_address: mac_address.to_string(),
-        address: DHCP_RESPONSE_ADDRESS.to_string(),
+        mac_address: mac_address_str.to_string(),
+        address: address_to_offer(mac_obj),
         mtu: 1490,
         prefix: "172.20.0.0/24".to_string(),
         gateway: Some("172.20.0.1/32".to_string()),
@@ -61,9 +65,15 @@ pub fn dhcp_response(mac_address: &str) -> Vec<u8> {
     out
 }
 
+// Given a MAC address, make the IP address we should offer it
+fn address_to_offer(mac: MacAddress) -> String {
+    format!("{}.{}/32", DHCP_RESPONSE_ADDR_PREFIX, mac.bytes()[5])
+}
+
 // Does this Machine the result we expected?
 pub fn matches_mock_response(machine: &Machine) -> bool {
-    machine.inner.fqdn == DHCP_RESPONSE_FQDN && machine.inner.address == DHCP_RESPONSE_ADDRESS
+    machine.inner.fqdn == DHCP_RESPONSE_FQDN
+        && machine.inner.address == address_to_offer(machine.discovery_info.mac_address)
 }
 
 pub struct MockAPIServer {
@@ -75,7 +85,7 @@ pub struct MockAPIServer {
 
 impl MockAPIServer {
     // Start a Hyper HTTP/2 server as a task on give runtime
-    pub fn start(rt: &tokio::runtime::Runtime) -> MockAPIServer {
+    pub async fn start() -> MockAPIServer {
         // :0 asks the kernel to assign an unused port
         // Gitlab CI (or some part of our config of it) does not support IPv6
         let addr = SocketAddr::V4(SocketAddrV4::from_str("127.0.0.1:0").unwrap());
@@ -90,27 +100,20 @@ impl MockAPIServer {
                 }))
             }
         });
-        let _guard = rt.enter();
         let server = Server::bind(&addr).http2_only(true).serve(make_svc);
         let local_addr = server.local_addr();
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let server = server.with_graceful_shutdown(async move {
             rx.await.ok();
         });
-        let handle = rt.spawn(async move { server.await });
-        rt.block_on(async { tokio::time::sleep(tokio::time::Duration::from_millis(10)).await }); // let it start
+        let handle = tokio::spawn(server);
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await; // let it start
         MockAPIServer {
             calls,
             handle,
             local_addr: format!("http://{}", local_addr),
             tx: Some(tx),
         }
-    }
-
-    // Stop the Hyper server
-    pub fn stop(&mut self) {
-        let _ = self.tx.take().expect("missing tx").send(());
-        self.handle.abort();
     }
 
     // The HTTP address of the server
@@ -153,5 +156,13 @@ impl MockAPIServer {
         // slice is to strip the gRPC parts: 1 byte is_compressed and a 4 byte message length
         let disco = rpc::DhcpDiscovery::decode(input_bytes.slice(5..)).unwrap();
         dhcp_response(&disco.mac_address)
+    }
+}
+
+impl Drop for MockAPIServer {
+    // Stop the Hyper server
+    fn drop(&mut self) {
+        let _ = self.tx.take().expect("missing tx").send(());
+        self.handle.abort();
     }
 }

@@ -19,7 +19,6 @@ use ipnetwork::IpNetwork;
 
 use crate::discovery::Discovery;
 use crate::vendor_class::{MachineArchitecture, MachineClientClass, VendorClass};
-use crate::CarbideDhcpContext;
 use crate::CONFIG;
 
 /// Machine: a machine that's currently trying to boot something
@@ -35,7 +34,7 @@ pub struct Machine {
 }
 
 impl Machine {
-    pub fn try_fetch(discovery: Discovery, url: &str) -> Result<Self, String> {
+    pub async fn try_fetch(discovery: Discovery, url: &str) -> Result<Self, String> {
         // First, see if we can parse the vendor class
         let vendor_class = match discovery.vendor_class {
             Some(ref vendor_class) => Some(
@@ -48,43 +47,28 @@ impl Machine {
 
         let url = url.to_owned();
 
-        // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
-        // thread.  This is required because tonic is async but this code generally is not.
-        //
-        // TODO(ajf): how to reason about FFI code with async.
-        //
-        let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        match rpc::forge_client::ForgeClient::connect(url).await {
+            Ok(mut client) => {
+                let request = tonic::Request::new(rpc::DhcpDiscovery {
+                    mac_address: discovery.mac_address.to_string(),
+                    relay_address: discovery.relay_address.to_string(),
+                    link_address: discovery.link_select_address.map(|addr| addr.to_string()),
+                    vendor_string: discovery.vendor_class.clone(),
+                    circuit_id: discovery.circuit_id.clone(),
+                });
 
-        runtime.block_on(async move {
-            match rpc::forge_client::ForgeClient::connect(url).await {
-                Ok(mut client) => {
-                    let request = tonic::Request::new(rpc::DhcpDiscovery {
-                        mac_address: discovery.mac_address.to_string(),
-                        relay_address: discovery.relay_address.to_string(),
-                        link_address: discovery.link_select_address.map(|addr| addr.to_string()),
-                        vendor_string: discovery.vendor_class.clone(),
-                        circuit_id: discovery.circuit_id.clone(),
-                    });
-
-                    client
-                        .discover_dhcp(request)
-                        .await
-                        .map(|response| Machine {
-                            inner: response.into_inner(),
-                            discovery_info: discovery,
-                            vendor_class,
-                        })
-                        .map_err(|error| {
-                            log::error!("unable to discover machine via Carbide: {:?}", error);
-                            format!("unable to discover machine via Carbide: {:?}", error)
-                        })
-                }
-                Err(err) => {
-                    log::error!("unable to connect to Carbide API: {:?}", err);
-                    Err(format!("unable to connect to Carbide API: {:?}", err))
-                }
+                client
+                    .discover_dhcp(request)
+                    .await
+                    .map(|response| Machine {
+                        inner: response.into_inner(),
+                        discovery_info: discovery,
+                        vendor_class,
+                    })
+                    .map_err(|error| format!("unable to discover machine via Carbide: {:?}", error))
             }
-        })
+            Err(err) => Err(format!("unable to connect to Carbide API: {:?}", err)),
+        }
     }
 }
 

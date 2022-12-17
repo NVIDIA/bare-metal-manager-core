@@ -24,8 +24,8 @@ mod kea_logger;
 mod machine;
 mod vendor_class;
 
-#[cfg(test)]
-mod mock_api_server;
+// Should be #[cfg(test)] but tests/integration_test.rs also uses it
+pub mod mock_api_server;
 
 static CONFIG: Lazy<RwLock<CarbideDhcpContext>> =
     Lazy::new(|| RwLock::new(CarbideDhcpContext::default()));
