@@ -33,6 +33,7 @@ const READ_TIMEOUT: Duration = Duration::from_millis(50);
 //
 // Kea should receive the packets, call our hooks, which should call MockAPIServer and then respond to
 // the relay (aka gateway), which is us.
+#[ignore]
 #[test]
 fn test_real_kea_multithreaded() -> Result<(), anyhow::Error> {
     // Start multi-threaded mock API server. The hooks call this over the network.
