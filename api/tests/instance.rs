@@ -55,7 +55,7 @@ use common::api_fixtures::{
         create_instance, delete_instance, prepare_machine, FIXTURE_CIRCUIT_ID,
         FIXTURE_X86_MACHINE_ID,
     },
-    network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID},
+    network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
 
 pub mod common;
@@ -493,7 +493,7 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::VirtualFunction as i32,
-                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID.into()),
+                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
             },
         ],
     });

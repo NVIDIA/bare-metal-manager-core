@@ -73,6 +73,21 @@ pub enum ConfigValidationError {
     /// A configuration value is invalid
     #[error("Invalid value: {0}")]
     InvalidValue(String),
+
+    #[error("Found unknown segments.")]
+    UnknownSegments,
+
+    #[error("No Vpc is attached to segment {0}.")]
+    VpcNotAttachedToSegment(uuid::Uuid),
+
+    #[error("Found segments attached to multiple VPCs.")]
+    MultipleVpcFound,
+
+    #[error("Segment {0} is not yet ready. Current state: {1}")]
+    NetworkSegmentNotReady(uuid::Uuid, String),
+
+    #[error("Segment {0} is requested to be deleted.")]
+    NetworkSegmentToBeDeleted(uuid::Uuid),
 }
 
 impl ConfigValidationError {

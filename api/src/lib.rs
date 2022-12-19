@@ -198,9 +198,6 @@ pub enum CarbideError {
 
     #[error("Error in DHCP allocation/handling: {0}")]
     DhcpError(#[from] DhcpError),
-
-    #[error("NetworkSegment is not yet ready: {0}")]
-    NetworkSegmentNotReady(String),
 }
 
 impl From<CarbideError> for tonic::Status {
