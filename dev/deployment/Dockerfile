@@ -43,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/pxe/templates && \
   mkdir -p /opt/carbide/static
-COPY --from=builder ["/carbide/target/debug/carbide-api", "/carbide/target/debug/carbide","/carbide/target/debug/carbide-dns", "/opt/carbide/"]
+COPY --from=builder ["/carbide/target/debug/carbide-api", "/carbide/target/debug/carbide","/carbide/target/debug/carbide-dns", "/carbide/target/debug/carbide-admin-cli", "/opt/carbide/"]
 COPY --from=builder /carbide/target/debug/libdhcp.so /usr/lib/x86_64-linux-gnu/kea/hooks
 COPY api/migrations/ /opt/carbide/migrations/
 COPY pxe/templates/*  /opt/carbide/pxe/templates/
