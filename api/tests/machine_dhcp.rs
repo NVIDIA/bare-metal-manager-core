@@ -53,6 +53,17 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let api = common::api_fixtures::create_test_api(pool.clone());
+
+    // Inititially 0 addresses are allocated on the segment
+    let mut txn = pool.begin().await?;
+    assert_eq!(
+        MachineInterface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        0
+    );
+    txn.commit().await.unwrap();
+
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
     let response = api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
@@ -68,7 +79,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     assert_eq!(
         response.segment_id.unwrap(),
-        common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID.into()
+        FIXTURE_NETWORK_SEGMENT_ID.into()
     );
 
     assert_eq!(response.mac_address, mac_address);
@@ -79,6 +90,16 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     assert_eq!(response.address, "192.0.2.3/32".to_owned());
     assert_eq!(response.prefix, "192.0.2.0/24".to_owned());
     assert_eq!(response.gateway.unwrap(), "192.0.2.1/32".to_owned());
+
+    // After DHCP, 1 address is allocated on the segment
+    let mut txn = pool.begin().await?;
+    assert_eq!(
+        MachineInterface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        1
+    );
+    txn.commit().await.unwrap();
     Ok(())
 }
 
@@ -87,8 +108,20 @@ async fn test_multiple_machines_dhcp_with_api(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let api = common::api_fixtures::create_test_api(pool.clone());
+
+    // Inititially 0 addresses are allocated on the segment
+    let mut txn = pool.begin().await?;
+    assert_eq!(
+        MachineInterface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        0
+    );
+    txn.commit().await.unwrap();
+
     let mac_address = "FF:FF:FF:FF:FF:0".to_string();
-    for i in 0..=5 {
+    const NUM_MACHINES: usize = 6;
+    for i in 0..NUM_MACHINES {
         let mac = format!("{}{}", mac_address, i);
         let expected_ip = format!("192.0.2.{}/32", i + 3); // IP starts with 3.
         let response = api
@@ -117,6 +150,15 @@ async fn test_multiple_machines_dhcp_with_api(
         assert_eq!(response.prefix, "192.0.2.0/24".to_owned());
         assert_eq!(response.gateway.unwrap(), "192.0.2.1/32".to_owned());
     }
+
+    let mut txn = pool.begin().await?;
+    assert_eq!(
+        MachineInterface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        NUM_MACHINES
+    );
+    txn.commit().await.unwrap();
     Ok(())
 }
 
@@ -159,7 +201,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
 
     assert_eq!(
         response.segment_id.unwrap(),
-        common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID.into()
+        FIXTURE_NETWORK_SEGMENT_ID.into()
     );
 
     assert_eq!(response.mac_address, mac_address);
@@ -185,7 +227,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
 
     assert_eq!(
         response.segment_id.unwrap(),
-        common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID_1.into()
+        FIXTURE_NETWORK_SEGMENT_ID_1.into()
     );
 
     assert!(response.machine_interface_id.is_none());

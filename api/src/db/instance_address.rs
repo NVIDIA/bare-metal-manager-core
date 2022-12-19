@@ -157,6 +157,25 @@ impl InstanceAddress {
         Ok(())
     }
 
+    /// Counts the amount of addresses that have been allocated for a given segment
+    pub async fn count_by_segment_id(
+        txn: &mut Transaction<'_, Postgres>,
+        segment_id: uuid::Uuid,
+    ) -> Result<usize, sqlx::Error> {
+        let (address_count, ): (i64,) = query_as(
+            r"
+            SELECT count(*)
+            FROM instance_addresses
+            INNER JOIN network_prefixes ON network_prefixes.circuit_id = instance_addresses.circuit_id
+            WHERE network_prefixes.segment_id = $1::uuid",
+            )
+            .bind(segment_id)
+            .fetch_one(txn)
+            .await?;
+
+        Ok(address_count.max(0) as usize)
+    }
+
     pub async fn allocate(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: uuid::Uuid,

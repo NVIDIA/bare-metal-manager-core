@@ -15,7 +15,10 @@
 use std::task::Poll;
 
 use crate::{
-    db::{network_prefix::NetworkPrefix, network_segment::NetworkSegment},
+    db::{
+        instance_address::InstanceAddress, machine_interface::MachineInterface,
+        network_prefix::NetworkPrefix, network_segment::NetworkSegment,
+    },
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerError},
 };
@@ -117,9 +120,36 @@ impl StateHandler for NetworkSegmentStateHandler {
             NetworkSegmentControllerState::Deleting { deletion_state } => {
                 match deletion_state {
                     NetworkSegmentDeletionState::DrainAllocatedIps { delete_at } => {
-                        // TODO: Check here whether the IPs are actually freed.
+                        // Check here whether the IPs are actually freed.
                         // If ones are still allocated, we can not delete and have to
                         // update the `delete_at` timestamp.
+                        let num_machine_interfaces =
+                            MachineInterface::count_by_segment_id(txn, &state.id).await?;
+                        let num_instance_addresses =
+                            InstanceAddress::count_by_segment_id(txn, state.id).await?;
+                        if num_machine_interfaces + num_instance_addresses > 0 {
+                            let delete_at = chrono::Utc::now()
+                                .checked_add_signed(self.drain_period)
+                                .unwrap_or_else(chrono::Utc::now);
+                            tracing::info!(
+                                "{} Allocated IPs on Segment {} detected. Waiting for deletion until {:?}",
+                                num_machine_interfaces + num_instance_addresses,
+                                state.id, delete_at
+                            );
+                            let new_state = NetworkSegmentControllerState::Deleting {
+                                deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps {
+                                    delete_at,
+                                },
+                            };
+                            NetworkSegment::try_update_controller_state(
+                                txn,
+                                *segment_id,
+                                state.controller_state.version,
+                                &new_state,
+                            )
+                            .await?;
+                            return Ok(());
+                        }
 
                         if chrono::Utc::now() >= *delete_at {
                             tracing::info!("Network Segment {} is transitioning into state \"Deleting::DeleteVPCResourceGroups\"", segment_id);

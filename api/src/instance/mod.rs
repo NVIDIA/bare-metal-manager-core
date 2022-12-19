@@ -152,8 +152,6 @@ pub async fn allocate_instance(
     // TODO: Should we check that the network segment actually belongs to the
     // tenant?
 
-    // TODO 2: This can apparently also refer to a deleted network segment
-    // Or the segment might even be deleted while the instance is created
     let interface_ips = HashMap::from_iter(
         InstanceAddress::allocate(&mut txn, *instance.id(), &network_config.value)
             .await?

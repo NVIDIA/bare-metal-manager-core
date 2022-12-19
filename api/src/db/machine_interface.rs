@@ -209,16 +209,17 @@ impl MachineInterface {
         )
     }
 
-    pub async fn find_by_segment_id(
+    pub async fn count_by_segment_id(
         txn: &mut Transaction<'_, Postgres>,
         segment_id: &uuid::Uuid,
-    ) -> CarbideResult<Vec<MachineInterface>> {
-        Ok(
-            sqlx::query_as("SELECT * FROM machine_interfaces WHERE segment_id = $1")
+    ) -> Result<usize, sqlx::Error> {
+        let (address_count,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM machine_interfaces WHERE segment_id = $1")
                 .bind(segment_id)
-                .fetch_all(txn)
-                .await?,
-        )
+                .fetch_one(txn)
+                .await?;
+
+        Ok(address_count.max(0) as usize)
     }
 
     pub async fn find_one(
