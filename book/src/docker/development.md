@@ -1,6 +1,6 @@
 ## Docker development workflow
 
-[The docker compose configuration file](docker-compose.yml) contains all of the
+[The docker compose configuration file](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/docker-compose.yml) contains all of the
 software in the control plane in order to make requests to a working Carbide
 installation.
 
@@ -62,9 +62,9 @@ flowchart TD
 These hosts get an IP address in 172.20.0.0/24 subnet.
 
 The container used to run components is specified by [the default
-Dockerfile](Dockerfile).  This contains the prereqs to run the components and
-where the build actually happens.  The containers run ```cargo watch``` in
-order to recompile on changes.
+Dockerfile](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/Dockerfile).
+This contains the prereqs to run the components and where the build actually happens.
+The containers run ```cargo watch``` in order to recompile on changes.
 
 (NOTE: this messes with ```rust-analyzer``` and needs someone to fix it)
 
@@ -87,6 +87,9 @@ In ```${REPO_ROOT}```
 ```
 cargo make runtime-container
 ```
+
+This will build the container that is described by
+[the root Dockerfile](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/Dockerfile)
 
 ## docker-compose workflow
 

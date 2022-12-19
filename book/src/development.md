@@ -40,7 +40,16 @@ For a list env vars we predefine look at
 
     Arch - ```sudo pacman -S kea```
 
-    Debian - ```sudo apt-get install -y isc-kea-dhcp4-server isc-kea-dev```
+    Debian
+    - Add the KEA package source, just [as our build container does](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/243203db10f883376c933ed57b6f43a3861c4752/dev/docker/Dockerfile.build-container#L14-15)
+      ```
+      cp dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
+      cp dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
+      ```
+    - Install kea from the this source
+      ```
+      sudo apt-get update && apt-get install -y isc-kea-dhcp4-server isc-kea-dev
+      ```
 
     Fedora - ```sudo dnf install -y kea kea-devel kea-libs```
 
