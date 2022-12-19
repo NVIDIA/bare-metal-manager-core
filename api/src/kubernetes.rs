@@ -95,9 +95,6 @@ pub enum VpcResourceActions {
     CreateLeaf(LeafData),
     DeleteLeaf(LeafData),
     UpdateLeaf(UpdateLeafData),
-    CreateResourceGroup(resource_group::ResourceGroup),
-    UpdateResourceGroup(resource_group::ResourceGroup),
-    DeleteResourceGroup(resource_group::ResourceGroup),
     CreateManagedResource(ManagedResourceData),
     UpdateManagedResource(ManagedResourceData),
     DeleteManagedResource(ManagedResourceData),
@@ -168,164 +165,6 @@ async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, s
         Ok(_) => (),
         Err(x) => {
             log::error!("Status update failed. Error: {:?}", x)
-        }
-    }
-}
-
-async fn create_resource_group_handler(
-    mut current_job: CurrentJob,
-    spec: resource_group::ResourceGroup,
-    client: Client,
-) -> CarbideResult<()> {
-    let spec_name = spec.name().to_string();
-    let start_time = Instant::now();
-    log::info!("Creating resource_group with name {}.", spec_name);
-
-    update_status(
-        &current_job,
-        0,
-        format!("Creating resource group with name {}", spec_name),
-        TaskState::Ongoing,
-    )
-    .await;
-
-    let resource: Api<resource_group::ResourceGroup> =
-        Api::namespaced(client, FORGE_KUBE_NAMESPACE);
-    let result = resource.create(&PostParams::default(), &spec).await;
-
-    match result {
-        Ok(_) => {
-            update_status(
-                &current_job,
-                2,
-                format!(
-                    "ResourceGroup created {} on vpc, elapsed {:?}.",
-                    spec.name(),
-                    start_time.elapsed()
-                ),
-                TaskState::Ongoing,
-            )
-            .await;
-            let waiter = await_condition(
-                resource.clone(),
-                spec_name.as_str(),
-                ConditionReadyMatcher {
-                    matched_name: spec_name.clone(),
-                },
-            );
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(60 * 5), waiter)
-                .await
-                .map_err(|_elapsed_error| {
-                    CarbideError::TokioTimeoutError("creating resource group".to_string())
-                })?;
-
-            update_status(
-                &current_job,
-                3,
-                format!(
-                    "ResourceGroup updated {} on vpc, elapsed {:?}.",
-                    spec.name(),
-                    start_time.elapsed()
-                ),
-                TaskState::Ongoing,
-            )
-            .await;
-            let new_rg = resource.get_status(&spec.name()).await?;
-            if let Some(status) = new_rg.status.as_ref() {
-                if let Some(dhcp_circuit_id) = status.dhcp_circ_id.as_ref() {
-                    let mut txn = current_job.pool().begin().await?;
-                    NetworkPrefix::update_circuit_id(
-                        &mut txn,
-                        Uuid::try_from(spec_name.as_str())?,
-                        dhcp_circuit_id.to_owned(),
-                    )
-                    .await?;
-                    txn.commit().await?;
-                }
-            }
-
-            update_status(
-                &current_job,
-                4,
-                format!(
-                    "ResourceGroup created {} and vlan id updated, elapsed {:?}.",
-                    spec.name(),
-                    start_time.elapsed()
-                ),
-                TaskState::Finished,
-            )
-            .await;
-            let _ = current_job.complete().await.map_err(CarbideError::from);
-            Ok(())
-        }
-        Err(err) => {
-            update_status(
-                &current_job,
-                5,
-                format!(
-                    "ResourceGroup creation {} failed. Error: {:?}, elapsed {:?}",
-                    spec.name(),
-                    err,
-                    start_time.elapsed(),
-                ),
-                TaskState::Error(err.to_string()),
-            )
-            .await;
-            Err(CarbideError::GenericError(err.to_string()))
-        }
-    }
-}
-
-async fn delete_resource_group_handler(
-    mut current_job: CurrentJob,
-    spec: resource_group::ResourceGroup,
-    client: Client,
-) -> CarbideResult<()> {
-    let spec_name = spec.name().to_string();
-    let start_time = Instant::now();
-
-    update_status(
-        &current_job,
-        0,
-        format!("Deleting resource group with name {}", spec_name),
-        TaskState::Ongoing,
-    )
-    .await;
-
-    let resource: Api<resource_group::ResourceGroup> =
-        Api::namespaced(client, FORGE_KUBE_NAMESPACE);
-    let result = resource.delete(&spec_name, &DeleteParams::default()).await;
-
-    match result {
-        Ok(_) => {
-            update_status(
-                &current_job,
-                1,
-                format!(
-                    "ResourceGroup deletion {} is successful, elapsed {:?}.",
-                    spec.name(),
-                    start_time.elapsed()
-                ),
-                TaskState::Finished,
-            )
-            .await;
-            let _ = current_job.complete().await.map_err(CarbideError::from);
-            Ok(())
-        }
-        Err(err) => {
-            update_status(
-                &current_job,
-                2,
-                format!(
-                    "ResourceGroup deletion {} failed. Error: {:?}, elapsed {:?}",
-                    spec.name(),
-                    err,
-                    start_time.elapsed()
-                ),
-                TaskState::Error(err.to_string()),
-            )
-            .await;
-            Err(CarbideError::GenericError(err.to_string()))
         }
     }
 }
@@ -906,15 +745,6 @@ pub async fn vpc_reconcile_handler(
                     }
                 }
             }
-            VpcResourceActions::CreateResourceGroup(spec) => {
-                create_resource_group_handler(current_job, spec, client).await?;
-            }
-            VpcResourceActions::UpdateResourceGroup(_spec) => {
-                return Err(CarbideError::NotImplemented);
-            }
-            VpcResourceActions::DeleteResourceGroup(spec) => {
-                delete_resource_group_handler(current_job, spec, client).await?;
-            }
             VpcResourceActions::CreateManagedResource(spec) => {
                 create_managed_resource_handler(current_job, spec, client, &handler_args).await?;
             }
@@ -1155,84 +985,6 @@ pub async fn delete_managed_resource(
     Ok(())
 }
 
-pub async fn create_resource_group(
-    prefix: &NetworkPrefix,
-    db_conn: &mut PgConnection,
-    dhcp_server: Option<String>,
-) -> CarbideResult<()> {
-    let gateway = prefix.gateway.map(|x| x.ip().to_string());
-
-    let (ip, prefix_length) = (
-        Some(prefix.prefix.ip().to_string()),
-        Some(prefix.prefix.prefix() as i32),
-    );
-
-    let resource_group_network = resource_group::ResourceGroupSpec {
-        dhcp_server: None,
-        dhcp_servers: dhcp_server.map(|str| vec![str]), //TODO: fix this properly this is just a hack to make the types line up.
-        fabric_ip_pool: None,
-        network: Some(resource_group::ResourceGroupNetwork {
-            gateway,
-            ip,
-            prefix_length,
-        }),
-        network_implementation_type: None,
-        overlay_ip_pool: None,
-        tenant_identifier: None,
-    };
-
-    let resource_group =
-        resource_group::ResourceGroup::new(&resource_group_name(prefix.id), resource_group_network);
-
-    log::info!("ResourceGroup sent to kubernetes: {:?}", resource_group);
-
-    VpcResourceActions::CreateResourceGroup(resource_group)
-        .reconcile(db_conn)
-        .await?;
-
-    Ok(())
-}
-
-pub async fn delete_resource_group(
-    prefix: &NetworkPrefix,
-    db_conn: &mut PgConnection,
-) -> CarbideResult<()> {
-    let gateway = prefix.gateway.map(|x| x.ip().to_string());
-
-    let (ip, prefix_length) = (
-        Some(prefix.prefix.ip().to_string()),
-        Some(prefix.prefix.prefix() as i32),
-    );
-
-    let resource_group_network = resource_group::ResourceGroupSpec {
-        dhcp_server: None,
-        dhcp_servers: None,
-        fabric_ip_pool: None,
-        network: Some(resource_group::ResourceGroupNetwork {
-            gateway,
-            ip,
-            prefix_length,
-        }),
-        network_implementation_type: None,
-        overlay_ip_pool: None,
-        tenant_identifier: None,
-    };
-
-    let resource_group =
-        resource_group::ResourceGroup::new(&resource_group_name(prefix.id), resource_group_network);
-
-    log::info!(
-        "ResourceGroupDelete sent to kubernetes: {:?}",
-        resource_group
-    );
-
-    VpcResourceActions::DeleteResourceGroup(resource_group)
-        .reconcile(db_conn)
-        .await?;
-
-    Ok(())
-}
-
 // This function will create a background task under IPMI handler to enable lockdown and reset.
 pub async fn enable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
     log::info!(
@@ -1397,6 +1149,12 @@ impl VpcApi for VpcApiImpl {
         let resource: Api<resource_group::ResourceGroup> =
             Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
 
+        // We determined by testing in the real k8s environment that creating a resource
+        // is not idempotent. Performing a `create` call for a resource that already exists
+        // will yield a HTTP 409 AlreadyExists error.
+        // Since the previous controller iteration might have created the object and
+        // we just have to get the status, we have to perform a `get` call before
+        // create.
         let fetch_existing_result = resource.get(&resource_name).await;
         tracing::info!(
             "Fetching a potential existing ResourceGroup with name {} yielded: {:?}",
@@ -1406,8 +1164,6 @@ impl VpcApi for VpcApiImpl {
         match fetch_existing_result {
             Ok(existing_resource) => {
                 // This comparison exists because the VPC definitions don't implement PartialEq :'(
-                // However if we can rely just on kubernetes create being idempotent,
-                // and the API server checking for spec equality, we can drop this
                 if existing_resource.spec.dhcp_servers != resource_group.spec.dhcp_servers
                     || existing_resource
                         .spec
@@ -1460,25 +1216,6 @@ impl VpcApi for VpcApiImpl {
             "ResourceGroup creation request succeeded. Resoure is {:?}",
             result
         );
-
-        // TODO: Everything else here is for testing k8s behavior and should be removed
-
-        let mut different_group = resource_group.clone();
-        different_group.spec.network = None;
-
-        let result2 = resource
-            .create(&PostParams::default(), &different_group)
-            .await;
-        log::info!("Idempotency test different object: \
-            If we accidentally call ResourceGroup::create with a different spec if one already exists, \
-            it would return {:?}", result2);
-
-        let result2 = resource
-            .create(&PostParams::default(), &resource_group)
-            .await;
-        log::info!("Idempotency test same object: \
-            If we would simply always call ResourceGroup::create instead of checking whether it exists, \
-            it would return {:?}", result2);
 
         Ok(resource_group_creation_result_from_state(&result))
     }
