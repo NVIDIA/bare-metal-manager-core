@@ -523,8 +523,6 @@ where
         let request = InstanceAllocationRequest::try_from(request.into_inner())?;
         let instance_snapshot = allocate_instance(request, &self.database_connection).await?;
 
-        let _ =
-            log_instance_debug_data(&self.database_connection, instance_snapshot.instance_id).await;
         Ok(Response::new(
             rpc::Instance::try_from(instance_snapshot).map_err(CarbideError::from)?,
         ))
@@ -698,8 +696,6 @@ where
             .await
             .map_err(CarbideError::from)?;
         txn.commit().await.map_err(CarbideError::from)?;
-
-        let _ = log_instance_debug_data(&self.database_connection, instance_id).await;
 
         Ok(Response::new(
             rpc::ObservedInstanceNetworkStatusRecordResult {},
@@ -1471,29 +1467,6 @@ where
 
         Ok(())
     }
-}
-
-/// TO BE REMOVED
-/// This is temporary here to see whether the new "API" - which would consume the
-/// data from `InstanceSnapshot` and `InstanceStatus` - would return the right thnings.
-async fn log_instance_debug_data(
-    pool: &sqlx::PgPool,
-    instance_id: uuid::Uuid,
-) -> Result<(), CarbideError> {
-    let mut txn = pool.begin().await.map_err(CarbideError::from)?;
-
-    let snapshot = DbSnapshotLoader::default()
-        .load_instance_snapshot(&mut txn, instance_id)
-        .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
-    let status = snapshot.derive_status();
-
-    tracing::info!(
-        "Instance state report: Snapshot: {:?}, Status: {:?}",
-        snapshot,
-        status
-    );
-    Ok(())
 }
 
 /// Configurations that are not yet exposed via the CLI
