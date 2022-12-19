@@ -27,6 +27,7 @@ use carbide::{
             },
             Instance,
         },
+        instance_address::InstanceAddress,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     model::instance::{
@@ -87,6 +88,12 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .is_none());
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        0
+    );
     txn.commit().await.unwrap();
 
     let network = Some(rpc::InstanceNetworkConfig {
@@ -109,6 +116,12 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
     assert_eq!(fetched_instance.machine_id, FIXTURE_X86_MACHINE_ID);
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        1
+    );
 
     let network_config = load_instance_network_config(&mut txn, instance_id)
         .await
@@ -177,6 +190,20 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     delete_instance(&api, instance_id).await;
+
+    // Address is freed during delete
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        0
+    );
+    txn.commit().await.unwrap();
 }
 
 #[sqlx::test(fixtures(
@@ -479,11 +506,25 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
 async fn test_instance_address_creation(pool: sqlx::PgPool) {
     let api = create_test_api(pool.clone());
     prepare_machine(&pool).await;
-    let txn = pool
+    let mut txn = pool
         .clone()
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
+
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID_1)
+            .await
+            .unwrap(),
+        0
+    );
+    txn.commit().await.unwrap();
 
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![
@@ -499,6 +540,26 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
     });
 
     let (instance_id, instance) = create_instance(&api, network).await;
+
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID_1)
+            .await
+            .unwrap(),
+        1
+    );
+    txn.commit().await.unwrap();
 
     let segment_ip = HashMap::from([(None, "192.0.2.3"), (Some(1), "192.0.3.3")]);
 
@@ -548,5 +609,4 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
                 .to_owned()
         );
     }
-    txn.commit().await.unwrap();
 }

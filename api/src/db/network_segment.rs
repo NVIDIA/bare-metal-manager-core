@@ -26,6 +26,7 @@ use ::rpc::forge as rpc;
 
 use crate::{
     db::{
+        instance_address::InstanceAddress,
         machine_interface::MachineInterface,
         network_prefix::{NetworkPrefix, NewNetworkPrefix},
         UuidKeyedObjectFilter,
@@ -403,15 +404,21 @@ impl NetworkSegment {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<NetworkSegment> {
-        // TODO: This is not necessarily needed here.
-        // Plus we need to check the instance addresses
-        let machine_interfaces = MachineInterface::find_by_segment_id(txn, self.id()).await;
-        if let Ok(machine_interfaces) = machine_interfaces {
-            if !machine_interfaces.is_empty() {
-                return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
-                    "Network Segment can't be deleted with associated MachineInterface".to_string(),
-                ));
-            }
+        // This check is not strictly necessary here, since the segment state machine
+        // will also wait until all allocated addresses have been freed before actually
+        // deleting the segment. However it gives the user some early feedback for
+        // the commmon case, which allows them to free resources
+        let num_machine_interfaces = MachineInterface::count_by_segment_id(txn, self.id()).await?;
+        if num_machine_interfaces > 0 {
+            return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
+                "Network Segment can't be deleted with associated MachineInterface".to_string(),
+            ));
+        }
+        let num_instance_addresses = InstanceAddress::count_by_segment_id(txn, *self.id()).await?;
+        if num_instance_addresses > 0 {
+            return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
+                "Network Segment can't be deleted while addresses on the segment are allocated to instances".to_string(),
+            ));
         }
 
         let segment: NetworkSegment = sqlx::query_as(
