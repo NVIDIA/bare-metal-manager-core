@@ -12,7 +12,8 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::task::Poll;
 use std::time::{Instant, SystemTime};
 
 use futures::stream::FuturesUnordered;
@@ -42,7 +43,7 @@ use crate::vpc_resources::{
     leaf, managed_resource, resource_group, BlueFieldInterface, VpcResource, VpcResourceStatus,
 };
 use crate::{CarbideError, CarbideResult};
-use ipnetwork::Ipv4Network;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1285,6 +1286,12 @@ pub async fn update_leaf(
 pub enum VpcApiError {
     #[error("Kube API returned {0:?}")]
     KubeError(Box<kube::Error>),
+    #[error(
+        "A VPC object with the same name {0} but different spec already exists. \
+    The object will not be deleted automatically. \
+    Please review the configuration and delete the object manually"
+    )]
+    ObjectExistsWithDifferentSpec(String),
 }
 
 /// The result of trying to delete an object in VPC
@@ -1297,6 +1304,13 @@ pub enum VpcApiDeletionResult {
     Deleted,
 }
 
+/// The result of trying to create a ResourceGroup
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VpcApiCreateResourceGroupResult {
+    /// The Circuit ID which was assigned by VPC
+    pub circuit_id: String,
+}
+
 /// Interactions with forge-vpc
 ///
 /// Functions in this API will be called by the Forge state machines.
@@ -1305,20 +1319,45 @@ pub enum VpcApiDeletionResult {
 /// or poll their state.
 #[async_trait::async_trait]
 pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
+    /// Trys to create a resource group on Forge VPC
+    ///
+    /// Will return
+    /// - Ok(Poll::Ready(result)) if the creation succeeded
+    /// - Ok(Poll::Pending) if the creation is in progress. The method should
+    ///   be called again later to retrieve the final result.
+    /// - Err if the creation attempt failed
+    async fn try_create_resource_group(
+        &self,
+        network_prefix_id: uuid::Uuid,
+        prefix: IpNetwork,
+        gateway: Option<IpNetwork>,
+    ) -> Result<Poll<VpcApiCreateResourceGroupResult>, VpcApiError>;
+
+    /// Trys to delete a resource group on Forge VPC
+    ///
+    /// Will return
+    /// - Ok(Poll::Ready(())) if the deletion has succeeded
+    /// - Ok(Poll::Pending) if the deletion is in progress. The method should
+    ///   be called again later to retrieve the final result.
+    /// - Err if the deletion attempt failed
     async fn try_delete_resource_group(
         &self,
         network_prefix_id: uuid::Uuid,
-    ) -> Result<VpcApiDeletionResult, VpcApiError>;
+    ) -> Result<Poll<()>, VpcApiError>;
 }
 
 /// Implementation of the VPC API which makes "real kubernetes API calls"
 pub struct VpcApiImpl {
     client: Client,
+    dhcp_servers: Vec<String>,
 }
 
 impl VpcApiImpl {
-    pub fn new(client: Client) -> Self {
-        Self { client }
+    pub fn new(client: Client, dhcp_servers: Vec<String>) -> Self {
+        Self {
+            client,
+            dhcp_servers,
+        }
     }
 }
 
@@ -1330,10 +1369,124 @@ impl std::fmt::Debug for VpcApiImpl {
 
 #[async_trait::async_trait]
 impl VpcApi for VpcApiImpl {
+    async fn try_create_resource_group(
+        &self,
+        network_prefix_id: uuid::Uuid,
+        prefix: IpNetwork,
+        gateway: Option<IpNetwork>,
+    ) -> Result<Poll<VpcApiCreateResourceGroupResult>, VpcApiError> {
+        let gateway = gateway.map(|x| x.ip().to_string());
+
+        let resource_name = resource_group_name(network_prefix_id);
+        let resource_group_spec = resource_group::ResourceGroupSpec {
+            dhcp_server: None,
+            dhcp_servers: Some(self.dhcp_servers.clone()),
+            fabric_ip_pool: None,
+            network: Some(resource_group::ResourceGroupNetwork {
+                gateway,
+                ip: Some(prefix.ip().to_string()),
+                prefix_length: Some(prefix.prefix() as _),
+            }),
+            network_implementation_type: None,
+            overlay_ip_pool: None,
+            tenant_identifier: None,
+        };
+        let resource_group =
+            resource_group::ResourceGroup::new(&resource_name, resource_group_spec);
+
+        let resource: Api<resource_group::ResourceGroup> =
+            Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
+
+        let fetch_existing_result = resource.get(&resource_name).await;
+        tracing::info!(
+            "Fetching a potential existing ResourceGroup with name {} yielded: {:?}",
+            resource_name,
+            fetch_existing_result
+        );
+        match fetch_existing_result {
+            Ok(existing_resource) => {
+                // This comparison exists because the VPC definitions don't implement PartialEq :'(
+                // However if we can rely just on kubernetes create being idempotent,
+                // and the API server checking for spec equality, we can drop this
+                if existing_resource.spec.dhcp_servers != resource_group.spec.dhcp_servers
+                    || existing_resource
+                        .spec
+                        .network
+                        .as_ref()
+                        .map(|network| &network.gateway)
+                        != resource_group
+                            .spec
+                            .network
+                            .as_ref()
+                            .map(|network| &network.gateway)
+                    || existing_resource
+                        .spec
+                        .network
+                        .as_ref()
+                        .map(|network| &network.ip)
+                        != resource_group
+                            .spec
+                            .network
+                            .as_ref()
+                            .map(|network| &network.ip)
+                    || existing_resource
+                        .spec
+                        .network
+                        .as_ref()
+                        .map(|network| network.prefix_length)
+                        != resource_group
+                            .spec
+                            .network
+                            .as_ref()
+                            .map(|network| network.prefix_length)
+                {
+                    return Err(VpcApiError::ObjectExistsWithDifferentSpec(resource_name));
+                }
+
+                return Ok(resource_group_creation_result_from_state(
+                    &existing_resource,
+                ));
+            }
+            Err(e) => {
+                tracing::info!("Trying to fetch a potential existing object failed. Creating a new ResourceGroup. Error: {:?}", e);
+            }
+        }
+
+        let result = resource
+            .create(&PostParams::default(), &resource_group)
+            .await
+            .map_err(|e| VpcApiError::KubeError(Box::new(e)))?;
+        log::info!(
+            "ResourceGroup creation request succeeded. Resoure is {:?}",
+            result
+        );
+
+        // TODO: Everything else here is for testing k8s behavior and should be removed
+
+        let mut different_group = resource_group.clone();
+        different_group.spec.network = None;
+
+        let result2 = resource
+            .create(&PostParams::default(), &different_group)
+            .await;
+        log::info!("Idempotency test different object: \
+            If we accidentally call ResourceGroup::create with a different spec if one already exists, \
+            it would return {:?}", result2);
+
+        let result2 = resource
+            .create(&PostParams::default(), &resource_group)
+            .await;
+        log::info!("Idempotency test same object: \
+            If we would simply always call ResourceGroup::create instead of checking whether it exists, \
+            it would return {:?}", result2);
+
+        Ok(resource_group_creation_result_from_state(&result))
+    }
+
     async fn try_delete_resource_group(
         &self,
         network_prefix_id: uuid::Uuid,
-    ) -> Result<VpcApiDeletionResult, VpcApiError> {
+    ) -> Result<Poll<()>, VpcApiError> {
         let resource_name = resource_group_name(network_prefix_id);
 
         let resource: Api<resource_group::ResourceGroup> =
@@ -1348,15 +1501,17 @@ impl VpcApi for VpcApiImpl {
         );
 
         match result {
-            Ok(result) if result.is_left() => {
-                tracing::info!("Left deletion result: {:?}", result.unwrap_left());
-                Ok(VpcApiDeletionResult::DeletionInProgress)
-            }
-            Ok(result) => {
-                tracing::info!("Right deletion result: {:?}", result.unwrap_right());
+            Ok(result) if result.is_left() => Ok(Poll::Pending),
+            Ok(_) => {
+                // Note: In testing this never showed up - we get from a `Left` (Pending)
+                // to a 404 error
                 // TODO: If the status isn't a 200 (deleted) or 400 (not found),
                 // we should probably not use deleted as a result
-                Ok(VpcApiDeletionResult::Deleted)
+                Ok(Poll::Ready(()))
+            }
+            Err(kube::Error::Api(api_error)) if api_error.code == 404 => {
+                // Object not found means it is deleted
+                Ok(Poll::Ready(()))
             }
             Err(kube::Error::Api(api_error)) if api_error.code == 404 => {
                 // Object not found means it is deleted
@@ -1367,16 +1522,137 @@ impl VpcApi for VpcApiImpl {
     }
 }
 
+fn resource_group_creation_result_from_state(
+    state: &resource_group::ResourceGroup,
+) -> Poll<VpcApiCreateResourceGroupResult> {
+    match state.status() {
+        Some(status) if status.is_ready() => {
+            let circuit_id = status
+                .dhcp_circ_id
+                .clone()
+                .expect("Status confirmed that the circuit ID is set");
+            Poll::Ready(VpcApiCreateResourceGroupResult { circuit_id })
+        }
+        _ => Poll::Pending,
+    }
+}
+
 /// Simulation of the VPC API for a docker-compose environment
 #[derive(Debug, Default)]
-pub struct VpcApiSim {}
+pub struct VpcApiSim {
+    state: Arc<Mutex<VpcApiSimState>>,
+    config: VpcApiSimConfig,
+}
+
+impl VpcApiSim {
+    pub fn with_config(config: VpcApiSimConfig) -> Self {
+        Self {
+            state: Default::default(),
+            config,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct VpcApiSimConfig {
+    pub required_creation_attempts: usize,
+    pub required_deletion_attempts: usize,
+}
+
+impl Default for VpcApiSimConfig {
+    fn default() -> Self {
+        Self {
+            required_creation_attempts: 2,
+            required_deletion_attempts: 2,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct VpcApiSimState {
+    resource_groups: HashMap<String, VpcApiSimResourceGroupState>,
+}
+
+#[derive(Debug)]
+struct VpcApiSimResourceGroupState {
+    creation_attempts: usize,
+    deletion_attempts: usize,
+    spec: VpcApiSimResourceGroup,
+    circuit_id: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+struct VpcApiSimResourceGroup {
+    network_prefix_id: uuid::Uuid,
+    prefix: IpNetwork,
+    gateway: Option<IpNetwork>,
+}
 
 #[async_trait::async_trait]
 impl VpcApi for VpcApiSim {
+    async fn try_create_resource_group(
+        &self,
+        network_prefix_id: uuid::Uuid,
+        prefix: IpNetwork,
+        gateway: Option<IpNetwork>,
+    ) -> Result<Poll<VpcApiCreateResourceGroupResult>, VpcApiError> {
+        let name = resource_group_name(network_prefix_id);
+        let group = VpcApiSimResourceGroup {
+            network_prefix_id,
+            prefix,
+            gateway,
+        };
+
+        let mut guard = self.state.lock().unwrap();
+
+        if let Some(entry) = guard.resource_groups.get_mut(&name) {
+            if entry.spec != group {
+                return Err(VpcApiError::ObjectExistsWithDifferentSpec(name));
+            }
+            entry.creation_attempts += 1;
+            if entry.creation_attempts >= self.config.required_creation_attempts {
+                Ok(Poll::Ready(VpcApiCreateResourceGroupResult {
+                    circuit_id: entry.circuit_id.clone(),
+                }))
+            } else {
+                Ok(Poll::Pending)
+            }
+        } else {
+            let circuit_id = name.clone() + "Circuit";
+            guard.resource_groups.insert(
+                name,
+                VpcApiSimResourceGroupState {
+                    spec: group,
+                    creation_attempts: 1,
+                    deletion_attempts: 0,
+                    circuit_id: circuit_id.clone(),
+                },
+            );
+            if self.config.required_creation_attempts == 1 {
+                Ok(Poll::Ready(VpcApiCreateResourceGroupResult { circuit_id }))
+            } else {
+                // We mimic the behavior of real VPC - the status isn't immediately available
+                Ok(Poll::Pending)
+            }
+        }
+    }
+
     async fn try_delete_resource_group(
         &self,
-        _network_prefix_id: uuid::Uuid,
-    ) -> Result<VpcApiDeletionResult, VpcApiError> {
-        Ok(VpcApiDeletionResult::Deleted)
+        network_prefix_id: uuid::Uuid,
+    ) -> Result<Poll<()>, VpcApiError> {
+        let name = resource_group_name(network_prefix_id);
+        let mut guard = self.state.lock().unwrap();
+        if let Some(entry) = guard.resource_groups.get_mut(&name) {
+            entry.deletion_attempts += 1;
+            if entry.deletion_attempts >= self.config.required_deletion_attempts {
+                guard.resource_groups.remove(&name);
+                Ok(Poll::Ready(()))
+            } else {
+                Ok(Poll::Pending)
+            }
+        } else {
+            Ok(Poll::Ready(()))
+        }
     }
 }

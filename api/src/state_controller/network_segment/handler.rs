@@ -12,9 +12,10 @@
 
 //! State Handler implementation for Network Segments
 
+use std::task::Poll;
+
 use crate::{
-    db::network_segment::NetworkSegment,
-    kubernetes::VpcApiDeletionResult,
+    db::{network_prefix::NetworkPrefix, network_segment::NetworkSegment},
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerError},
 };
@@ -47,25 +48,50 @@ impl StateHandler for NetworkSegmentStateHandler {
     ) -> Result<(), StateHandlerError> {
         match &state.controller_state.value {
             NetworkSegmentControllerState::Provisioning => {
+                let mut created_all_resource_groups = true;
+                for prefix in state.prefixes.iter() {
+                    match ctx
+                        .services
+                        .vpc_api
+                        .try_create_resource_group(prefix.id, prefix.prefix, prefix.gateway)
+                        .await?
+                    {
+                        Poll::Ready(result) => {
+                            NetworkPrefix::update_circuit_id(txn, prefix.id, result.circuit_id)
+                                .await?;
+                        }
+                        Poll::Pending => {
+                            // We have to retry this. But we let the loop
+                            // continue, so that resource groups for
+                            // other prefixes are provisioned at the same time
+                            created_all_resource_groups = false;
+                        }
+                    }
+                }
+
+                if !created_all_resource_groups {
+                    // We need another iteration to get confirmation that
+                    // all CRDs have actually been created
+                    return Ok(());
+                }
+
                 // Once we discover that VPC is configured, we moved into the Ready state
                 // While we could also immediately handle deletions here, we
                 // opt to wait for being in the ready state - so that there's just a single
                 // place covering them.
-                if state.resource_groups_created {
-                    tracing::info!(
-                        "Network Segment {} is transitioning into state \"Ready\"",
-                        segment_id
-                    );
-                    let new_state = NetworkSegmentControllerState::Ready;
-                    NetworkSegment::try_update_controller_state(
-                        txn,
-                        *segment_id,
-                        state.controller_state.version,
-                        &new_state,
-                    )
-                    .await?;
-                    return Ok(());
-                }
+                tracing::info!(
+                    "Network Segment {} is transitioning into state \"Ready\"",
+                    segment_id
+                );
+                let new_state = NetworkSegmentControllerState::Ready;
+                NetworkSegment::try_update_controller_state(
+                    txn,
+                    *segment_id,
+                    state.controller_state.version,
+                    &new_state,
+                )
+                .await?;
+                return Ok(());
             }
             NetworkSegmentControllerState::Ready => {
                 if state.is_marked_as_deleted() {
@@ -120,19 +146,14 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 .try_delete_resource_group(prefix.id)
                                 .await?
                             {
-                                VpcApiDeletionResult::DeletionInProgress => {
+                                Poll::Pending => {
                                     deleted_all_crds = false;
                                 }
-                                VpcApiDeletionResult::Deleted => {
-                                    // TODO: Remove this later. This is just to check what
-                                    // result a real kube VPC call has if we issue a delete on an
-                                    // object that is already gone
-                                    let already_deleted_result = ctx
-                                        .services
-                                        .vpc_api
-                                        .try_delete_resource_group(prefix.id)
-                                        .await;
-                                    tracing::info!("trying to delete an already deleted ResourceGroup yields {:?}", already_deleted_result);
+                                Poll::Ready(()) => {
+                                    tracing::info!(
+                                        "ResourceGroup for Prefix {} was deleted",
+                                        prefix.id
+                                    );
                                 }
                             }
                         }

@@ -142,10 +142,13 @@ impl<IO: StateControllerIO> StateController<IO> {
             .await?;
 
         if !locked {
-            tracing::info!("State controller was not able to obtain the lock");
+            tracing::info!(
+                "State controller was not able to obtain the lock {}",
+                IO::db_lock_name()
+            );
             return Err(IterationError::LockError);
         }
-        tracing::info!("State controller acquired the lock");
+        tracing::info!("State controller acquired the lock {}", IO::db_lock_name());
 
         handle_controller_iteration::<IO>(
             &self.io,

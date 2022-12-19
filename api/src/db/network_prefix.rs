@@ -268,7 +268,7 @@ impl NetworkPrefix {
         txn: &mut Transaction<'_, Postgres>,
         segment_id: uuid::Uuid,
         dhcp_circuit_id: String,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), sqlx::Error> {
         let _: (uuid::Uuid,) = sqlx::query_as(
             "UPDATE network_prefixes set circuit_id=$1 WHERE id=$2 RETURNING segment_id",
         )

@@ -15,7 +15,6 @@ use std::sync::Arc;
 
 use color_eyre::Report;
 use once_cell::sync::Lazy;
-use sqlx::Acquire;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
@@ -47,10 +46,7 @@ use crate::{
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     ipmi::{ipmi_handler, MachineBmcRequest, RealIpmiCommandHandler},
-    kubernetes::{
-        bgkubernetes_handler, create_resource_group, delete_managed_resource, VpcApi, VpcApiImpl,
-        VpcApiSim,
-    },
+    kubernetes::{bgkubernetes_handler, delete_managed_resource, VpcApi, VpcApiImpl, VpcApiSim},
     model::{
         hardware_info::HardwareInfo, instance::status::network::InstanceNetworkStatusObservation,
     },
@@ -419,15 +415,6 @@ where
         let response = NewNetworkSegment::try_from(request.into_inner())?
             .persist(&mut txn)
             .await;
-
-        let dhcp_server = CONFIG.read().await.dhcp_server.clone();
-        let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
-
-        if let Ok(segment) = response.as_ref() {
-            for prefix in &segment.prefixes {
-                create_resource_group(prefix, db_conn, dhcp_server.clone()).await?;
-            }
-        }
 
         let response = Ok(Response::new(response?.try_into()?));
         txn.commit().await.map_err(CarbideError::from)?;
@@ -1383,15 +1370,21 @@ where
     ) -> Result<(), Report> {
         log::info!("Starting API server on {:?}", daemon_config.listen[0]);
 
+        let service_config = if daemon_config.kubernetes {
+            ServiceConfig::default()
+        } else {
+            ServiceConfig::for_local_development()
+        };
+
         let database_connection = sqlx::pool::PoolOptions::new()
-            .max_connections(MAX_DB_CONNECTIONS)
+            .max_connections(service_config.max_db_connections)
             .connect(&daemon_config.datastore)
             .await?;
         let stats_pool = database_connection.clone();
         tokio::spawn(async move {
             loop {
                 log::info!("Active DB connections: {}", stats_pool.size());
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                tokio::time::sleep(service_config.db_stats_interval).await;
             }
         });
 
@@ -1417,6 +1410,8 @@ where
         */
 
         update_external_config().await;
+        // TODO: Fix config to directly hold a Vec
+        let dhcp_servers: Vec<String> = CONFIG.read().await.dhcp_server.iter().cloned().collect();
 
         let auth_layer = tower_http::auth::RequireAuthorizationLayer::custom(authenticator);
 
@@ -1434,7 +1429,7 @@ where
 
         let vpc_api: Arc<dyn VpcApi> = if daemon_config.kubernetes {
             let client = kube::Client::try_default().await?;
-            Arc::new(VpcApiImpl::new(client))
+            Arc::new(VpcApiImpl::new(client, dhcp_servers))
         } else {
             Arc::new(VpcApiSim::default())
         };
@@ -1450,6 +1445,7 @@ where
             StateController::<MachineStateControllerIO>::builder()
                 .database(database_connection.clone())
                 .vpc_api(vpc_api.clone())
+                .iteration_time(service_config.machine_state_controller_iteration_time)
                 .state_handler(Arc::new(MachineStateHandler::default()))
                 .build()
                 .expect("Unable to build MachineStateController");
@@ -1458,8 +1454,9 @@ where
             StateController::<NetworkSegmentStateControllerIO>::builder()
                 .database(database_connection)
                 .vpc_api(vpc_api)
+                .iteration_time(service_config.network_segment_state_controller_iteration_time)
                 .state_handler(Arc::new(NetworkSegmentStateHandler::new(
-                    chrono::Duration::minutes(NETWORK_SEGMENT_DRAIN_TIME_MINUTES),
+                    service_config.network_segment_drain_time,
                 )))
                 .build()
                 .expect("Unable to build NetworkSegmentController");
@@ -1499,9 +1496,48 @@ async fn log_instance_debug_data(
     Ok(())
 }
 
-/// Maximum database connections
-const MAX_DB_CONNECTIONS: u32 = 1000;
+/// Configurations that are not yet exposed via the CLI
+///
+/// We might want to integrate those into a toml file instead of hardcoding,
+/// but for now this will do it
+struct ServiceConfig {
+    /// The time for which network segments must have 0 allocated IPs, before they
+    /// are actually released
+    network_segment_drain_time: chrono::Duration,
+    /// Iteration time for the machine state controller
+    machine_state_controller_iteration_time: std::time::Duration,
+    /// Iteration time for the network segment state controller
+    network_segment_state_controller_iteration_time: std::time::Duration,
+    /// Maximum datebase connections
+    max_db_connections: u32,
+    /// The interval in which the time amount of active database connections will be printed
+    db_stats_interval: std::time::Duration,
+}
 
-/// The time for which network segments must have 0 allocated IPs, before they
-/// are actually released
-const NETWORK_SEGMENT_DRAIN_TIME_MINUTES: i64 = 5;
+impl Default for ServiceConfig {
+    fn default() -> Self {
+        Self {
+            network_segment_drain_time: chrono::Duration::minutes(5),
+            machine_state_controller_iteration_time: std::time::Duration::from_secs(30),
+            network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
+            max_db_connections: 1000,
+            db_stats_interval: std::time::Duration::from_secs(60),
+        }
+    }
+}
+
+impl ServiceConfig {
+    /// Configuration for local development
+    ///
+    /// Components are running faster, so we can observe state changes without waiting too long.
+    /// Machine state controller is kept normal for now, since it's output is noisy.
+    pub fn for_local_development() -> Self {
+        Self {
+            network_segment_drain_time: chrono::Duration::seconds(60),
+            machine_state_controller_iteration_time: std::time::Duration::from_secs(30),
+            network_segment_state_controller_iteration_time: std::time::Duration::from_secs(10),
+            max_db_connections: 1000,
+            db_stats_interval: std::time::Duration::from_secs(60),
+        }
+    }
+}

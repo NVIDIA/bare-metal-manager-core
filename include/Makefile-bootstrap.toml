@@ -10,16 +10,17 @@ domain=$(grpcurl -d '{"name":"forge.local"}' -plaintext 127.0.0.1:1079 forge.For
 segment=$(grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"prefixes\":[{\"prefix\":\"172.20.0.0/24\",\"gateway\":\"172.20.0.1\",\"reserve_first\":30}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -plaintext 127.0.0.1:1079 forge.Forge/CreateNetworkSegment | jq ".id.value" | tr -d '"')
 
 RELAY_ADDRESS=$(jq '.relay_address' $REPO_ROOT/dev/grpc-test-data/host_dhcp_discovery.json | tr -d '"')
-CIRCUIT_ID=$(jq '.circuit_id' $REPO_ROOT/dev/grpc-test-data/host_dhcp_discovery.json | tr -d '"')
 
 echo Relay address: $RELAY_ADDRESS
-echo Circuit id: $CIRCUIT_ID
 echo Segment: $segment
-
-psql -t -c "UPDATE network_prefixes SET circuit_id='$CIRCUIT_ID' WHERE circuit_id IS NULL;"
 
 $REPO_ROOT/dev/grpc-test-data/discover_dpu.sh
 psql -t -c "UPDATE vpc_resource_leafs SET loopback_ip_address='$RELAY_ADDRESS' WHERE loopback_ip_address IS NULL;"
+
+echo "Waiting 60s for the network segment to become ready"
+echo "If this step fails, run /dev/grpc-test-data/discover_host.sh manually"
+sleep 60
+
 $REPO_ROOT/dev/grpc-test-data/discover_host.sh
 '''
 cwd="${REPO_ROOT}"

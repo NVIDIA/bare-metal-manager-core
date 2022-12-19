@@ -7,12 +7,19 @@ set -eo pipefail
 # If you need more than one HOST, you can edit the MAC address in the file and call
 # `discover_dpu.sh` to create DPU first and `discover_host.sh` to create host again
 
-# Simulate the DHCP request of a DPU
-RESULT=$(grpcurl -d @ -plaintext 127.0.0.1:1079 forge.Forge/DiscoverDhcp < "$REPO_ROOT/dev/grpc-test-data/host_dhcp_discovery.json")
+# Determine the CircuitId that our host needs to use
+# We use the first network segment that we can find
+RESULT=$(grpcurl -plaintext 127.0.0.1:1079 forge.Forge/FindNetworkSegments)
+CIRCUIT_ID=$(echo "$RESULT" | jq ".networkSegments | .[0] | .prefixes | .[0] | .circuitId" | tr -d '"')
+echo "Circuit ID is $CIRCUIT_ID"
+
+# Simulate the DHCP request of a x86 host
+HOST_DHCP_REQUEST=$(jq --arg circuit_id "$CIRCUIT_ID" '.circuit_id = $circuit_id' "$REPO_ROOT/dev/grpc-test-data/host_dhcp_discovery.json")
+RESULT=$(echo "$HOST_DHCP_REQUEST" | grpcurl -d @ -plaintext 127.0.0.1:1079 forge.Forge/DiscoverDhcp)
 MACHINE_INTERFACE_ID=$(echo "$RESULT" | jq ".machineInterfaceId.value" | tr -d '"')
 echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
 
-# Simulate the Machine discovery request of a DPU
+# Simulate the Machine discovery request of a x86 host
 DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' "$REPO_ROOT/dev/grpc-test-data/dpu_machine_discovery.json")
 DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//aarch64/x86_64}
 RESULT=$(echo "$DISCOVER_MACHINE_REQUEST" | grpcurl -d @ -plaintext 127.0.0.1:1079 forge.Forge/DiscoverMachine)
