@@ -21,7 +21,7 @@ mod common;
 
 use common::api_fixtures::{
     instance::{create_instance, prepare_machine, FIXTURE_CIRCUIT_ID, FIXTURE_CIRCUIT_ID_1},
-    network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID},
+    network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
 
 #[ctor::ctor]
@@ -139,7 +139,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::VirtualFunction as i32,
-                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID.into()),
+                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
             },
         ],
     });
@@ -185,7 +185,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
 
     assert_eq!(
         response.segment_id.unwrap(),
-        common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID.into()
+        common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID_1.into()
     );
 
     assert!(response.machine_interface_id.is_none());

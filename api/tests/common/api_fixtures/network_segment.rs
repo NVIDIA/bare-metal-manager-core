@@ -17,5 +17,5 @@
 pub const FIXTURE_NETWORK_SEGMENT_ID: uuid::Uuid =
     uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
 
-pub const FIXTURE_NETWORK_SEGMENT_NO_VPC_NO_ID: uuid::Uuid =
-    uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe8");
+pub const FIXTURE_NETWORK_SEGMENT_ID_1: uuid::Uuid =
+    uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe9");
