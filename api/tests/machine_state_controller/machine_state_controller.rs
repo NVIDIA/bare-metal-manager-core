@@ -15,12 +15,13 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    task::Poll,
     time::Duration,
 };
 
 use carbide::{
     db::machine_topology::MachineTopology,
-    kubernetes::{VpcApi, VpcApiDeletionResult, VpcApiError},
+    kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError},
     model::{hardware_info::HardwareInfo, machine::MachineStateSnapshot},
     state_controller::{
         controller::StateController,
@@ -28,6 +29,7 @@ use carbide::{
         state_handler::{StateHandler, StateHandlerContext, StateHandlerError},
     },
 };
+use ipnetwork::IpNetwork;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestMachineStateHandler {
@@ -65,11 +67,20 @@ pub struct MockVpcApi {}
 
 #[async_trait::async_trait]
 impl VpcApi for MockVpcApi {
+    async fn try_create_resource_group(
+        &self,
+        _network_prefix_id: uuid::Uuid,
+        _prefix: IpNetwork,
+        _gateway: Option<IpNetwork>,
+    ) -> Result<Poll<VpcApiCreateResourceGroupResult>, VpcApiError> {
+        panic!("Not used in this test")
+    }
+
     async fn try_delete_resource_group(
         &self,
         _network_prefix_id: uuid::Uuid,
-    ) -> Result<VpcApiDeletionResult, VpcApiError> {
-        Ok(VpcApiDeletionResult::Deleted)
+    ) -> Result<Poll<()>, VpcApiError> {
+        Ok(Poll::Ready(()))
     }
 }
 
