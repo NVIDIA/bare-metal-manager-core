@@ -9,7 +9,7 @@
 # its affiliates is strictly prohibited.
 [env]
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04"
-BFB_NAME = "DOCA_1.5.0_BSP_3.9.3_Ubuntu_20.04-15.bfb"
+BFB_NAME = "DOCA_1.5.1_BSP_3.9.3_Ubuntu_20.04-4.2211-LTS.signed.bfb"
 
 [tasks.build-boot-artifacts-x86_64]
 #dependencies = [
