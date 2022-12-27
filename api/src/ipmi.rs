@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use sqlx;
+use sqlx::{self, PgPool};
 use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
 
@@ -26,8 +26,12 @@ use libredfish::manager::OemDellBootDevices;
 use libredfish::system::SystemPowerControl;
 
 use crate::bg::{CurrentState, Status, TaskState};
+use crate::db::dpu_machine::DpuMachine;
 use crate::db::instance::Instance;
 use crate::db::ipmi::{BmcMetaDataGetRequest, UserRoles};
+use crate::dpu::reachability::{
+    wait_for_requested_state, PingReachabilityChecker, ReachabilityError,
+};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -49,6 +53,12 @@ pub struct IpmiCommand {
 }
 
 async fn update_status(current_job: &CurrentJob, checkpoint: u32, msg: String, state: TaskState) {
+    if let TaskState::Error(..) = &state {
+        log::error!("Error status: {}, checkpoint: {}", msg, checkpoint);
+    } else {
+        log::info!("Current status: {}, checkpoint: {}", msg, checkpoint);
+    }
+
     match Status::update(
         current_job.pool(),
         current_job.id(),
@@ -91,7 +101,65 @@ pub trait IpmiCommandHandler: Send + Sync + 'static + Debug + IpmiCommandHandler
         &self,
         cmd: IpmiCommand,
         credential_provider: Arc<dyn CredentialProvider>,
+        pool: PgPool,
     ) -> CarbideResult<String>;
+}
+
+// This function will observe DPU state and take necessary actions.
+// The idea this function is to wait until DPU goes down, then wait until it is reachable. Post
+// this reboot host.
+async fn observe_dpu_state_and_reboot_host(
+    pool: sqlx::PgPool,
+    cmd: &IpmiCommand,
+) -> CarbideResult<()> {
+    let mut txn = pool.begin().await.map_err(CarbideError::from)?;
+    let dpu = DpuMachine::find_by_host_machine_id(&mut txn, &cmd.machine_id).await?;
+    txn.commit().await?;
+
+    // Wait until DPU goes down.
+    match wait_for_requested_state(
+        Duration::from_secs(300),
+        PingReachabilityChecker::new(dpu.address().ip(), crate::dpu::reachability::State::Dead),
+    )
+    .await
+    {
+        Err(ReachabilityError::TokioTimeout) => {
+            log::warn!(
+                "Even after given duration (300 secs), DPU didn't reboot post Bios Lockdown."
+            );
+            return Ok(());
+        }
+        Err(x) => {
+            return Err(CarbideError::from(x));
+        }
+        Ok(_) => {}
+    };
+
+    log::info!(
+        "DPU with id {} attached to host {} went down.",
+        dpu.machine_id(),
+        cmd.machine_id
+    );
+
+    // Wait for DPU to come up.
+    wait_for_requested_state(
+        Duration::from_secs(600),
+        PingReachabilityChecker::new(dpu.address().ip(), crate::dpu::reachability::State::Alive),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    log::info!(
+        "DPU with id {} attached to host {} is up now.",
+        dpu.machine_id(),
+        cmd.machine_id
+    );
+
+    // Reboot host now. Raise it as separate task. It will give some breathing time to DPU.
+    let machine_power_request = MachineBmcRequest::new(cmd.machine_id, Operation::Reset, true);
+    let task_id = machine_power_request.invoke_bmc_command(pool).await?;
+    log::info!("Spawned job to reboot host with id: {}", task_id);
+    Ok(())
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -103,6 +171,7 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
         &self,
         cmd: IpmiCommand,
         credential_provider: Arc<dyn CredentialProvider>,
+        pool: PgPool,
     ) -> CarbideResult<String> {
         log::info!("IPMI command: {:?}", cmd);
         let credentials = credential_provider
@@ -121,7 +190,7 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
 
         let conf = libredfish::Config {
             user: Some(username),
-            endpoint: cmd.host,
+            endpoint: cmd.host.clone(),
             password: Some(password),
             port: None,
             system: "".to_string(),
@@ -129,7 +198,9 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             vendor: libredfish::Vendor::Unknown,
         };
 
-        tokio::task::spawn_blocking(move || {
+        let action = cmd.action.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
             let result: CarbideResult<String>;
 
             let mut redfish = libredfish::Redfish::new(conf);
@@ -153,7 +224,7 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                 }
             }
 
-            result = match cmd.action.unwrap() {
+            result = match action.unwrap() {
                 IpmiTask::PowerControl(task) => match redfish.set_system_power(task) {
                     Ok(()) => Ok("Success".to_string()),
                     Err(e) => {
@@ -169,6 +240,13 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                     }
                 },
                 IpmiTask::EnableLockdown => {
+                    match redfish.enable_bios_lockdown() {
+                        Ok(()) => {}
+                        Err(e) => {
+                            let error_msg = format!("Failed to enable bios lockdown {}", e);
+                            return Err(CarbideError::GenericError(error_msg));
+                        }
+                    }
                     match redfish
                         .enable_bmc_lockdown(libredfish::manager::OemDellBootDevices::PXE, false)
                     {
@@ -193,6 +271,14 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                         Ok(()) => {}
                         Err(e) => {
                             let error_msg = format!("Failed to disable bmc lockdown {}", e);
+                            return Err(CarbideError::GenericError(error_msg));
+                        }
+                    }
+                    match redfish.disable_bios_lockdown() {
+                        Ok(()) => {}
+                        Err(e) => {
+                            let error_msg =
+                                format!("Failed to run disable bios lockdown command {}", e);
                             return Err(CarbideError::GenericError(error_msg));
                         }
                     }
@@ -242,7 +328,16 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             result
         })
         .await
-        .map_err(CarbideError::TokioJoinError)?
+        .map_err(CarbideError::TokioJoinError)?;
+
+        // Observe if DPU is also rebooted. If yes, reboot host again once DPU is up.
+        // TODO: Do this only if BIOS Lockdown state is changed. In case, there is no
+        // change, don't observe.
+        if let Some(IpmiTask::EnableLockdown | IpmiTask::DisableLockdown) = cmd.action {
+            observe_dpu_state_and_reboot_host(pool, &cmd).await?;
+        }
+
+        result
     }
 }
 
@@ -283,7 +378,7 @@ async fn command_handler(
     }
 
     let result = ipmi_command_handler
-        .handle_ipmi_command(cmd, credential_provider.clone())
+        .handle_ipmi_command(cmd, credential_provider.clone(), current_job.pool().clone())
         .await;
     match result {
         Ok(s) => {

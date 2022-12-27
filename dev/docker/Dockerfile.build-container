@@ -15,7 +15,8 @@ COPY isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
 COPY isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
 
 RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
-RUN apt update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y curl wget postgresql-14 build-essential isc-kea-dhcp4-server isc-kea-dhcp6-server isc-kea-dev libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libudev-dev libssl-dev clang automake cmake pkg-config sudo iproute2 protobuf-compiler fdisk dosfstools jq unzip && rm -rf /var/lib/apt/lists/*
+
+RUN apt update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y curl wget postgresql-14 build-essential isc-kea-dhcp4-server isc-kea-dhcp6-server isc-kea-dev libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libudev-dev libssl-dev clang automake cmake pkg-config sudo iproute2 protobuf-compiler fdisk dosfstools jq unzip iputils-ping && rm -rf /var/lib/apt/lists/*
 RUN rustup component add rustfmt
 RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache && cargo cache -r registry-index,registry-sources
 RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.14.0/kind-linux-amd64  && chmod +x ./kind && mv kind /usr/local/bin
