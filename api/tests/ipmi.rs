@@ -98,6 +98,7 @@ impl IpmiCommandHandler for TestIpmiCommandHandler {
         &self,
         cmd: IpmiCommand,
         _credential_provider: Arc<dyn CredentialProvider>,
+        _pool: sqlx::PgPool,
     ) -> CarbideResult<String> {
         match cmd.action.unwrap() {
             IpmiTask::PowerControl(_task) => Ok("Power Control".to_string()),

@@ -12,6 +12,7 @@
 use std::net::IpAddr;
 
 use dhcp::allocation::DhcpError;
+use dpu::reachability::ReachabilityError;
 use mac_address::MacAddress;
 use model::{
     config_version::{ConfigVersion, ParseConfigVersionError},
@@ -32,6 +33,7 @@ pub mod cfg;
 pub mod credentials;
 pub mod db;
 mod dhcp;
+mod dpu;
 mod human_hash;
 pub mod instance;
 pub mod ipmi;
@@ -198,6 +200,9 @@ pub enum CarbideError {
 
     #[error("Error in DHCP allocation/handling: {0}")]
     DhcpError(#[from] DhcpError),
+
+    #[error("DPU Reachability Error: {0}")]
+    ReachabilityError(#[from] ReachabilityError),
 }
 
 impl From<CarbideError> for tonic::Status {
