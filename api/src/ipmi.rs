@@ -116,6 +116,11 @@ async fn observe_dpu_state_and_reboot_host(
     let dpu = DpuMachine::find_by_host_machine_id(&mut txn, &cmd.machine_id).await?;
     txn.commit().await?;
 
+    log::info!(
+        "Observing DPU with id {} attached to host {}.",
+        dpu.machine_id(),
+        cmd.machine_id
+    );
     // Wait until DPU goes down.
     match wait_for_requested_state(
         Duration::from_secs(300),
@@ -333,8 +338,10 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
         // Observe if DPU is also rebooted. If yes, reboot host again once DPU is up.
         // TODO: Do this only if BIOS Lockdown state is changed. In case, there is no
         // change, don't observe.
-        if let Some(IpmiTask::EnableLockdown | IpmiTask::DisableLockdown) = cmd.action {
-            observe_dpu_state_and_reboot_host(pool, &cmd).await?;
+        if result.is_ok() {
+            if let Some(IpmiTask::EnableLockdown | IpmiTask::DisableLockdown) = cmd.action {
+                observe_dpu_state_and_reboot_host(pool, &cmd).await?;
+            }
         }
 
         result
