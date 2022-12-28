@@ -27,7 +27,7 @@ RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
 FROM ubuntu:focal as carbide
 #RUN ln -snf /usr/share/zoneinfo/UTC /etc/localtime && echo UTC > /etc/timezone
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  ca-certificates curl iproute2 
+  ca-certificates curl iproute2
 COPY dev/deployment/pgdg.gpg /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
 COPY dev/deployment/pgdg.list /etc/apt/sources.list.d/pgdg.list
 COPY dev/deployment/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
@@ -37,7 +37,7 @@ COPY dev/deployment/wait-for-pg /usr/local/bin
 COPY dev/deployment/wait-for-carbide-migrations /usr/local/bin
 RUN apt-get update && apt-get install -y --no-install-recommends \
   postgresql-client-14 postgresql-client-14-dbgsym \
-  ca-certificates curl iproute2 \
+  ca-certificates curl iproute2 iputils-ping \
   isc-kea-dhcp4-server isc-kea-dhcp6-server libudev1 \
   && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /opt/carbide/migrations && \
