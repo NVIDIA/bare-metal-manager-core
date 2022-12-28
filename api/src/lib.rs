@@ -12,12 +12,12 @@
 use std::net::IpAddr;
 
 use dhcp::allocation::DhcpError;
-use dpu::reachability::ReachabilityError;
 use mac_address::MacAddress;
 use model::{
     config_version::{ConfigVersion, ParseConfigVersionError},
     ConfigValidationError, RpcDataConversionError,
 };
+use reachability::ReachabilityError;
 use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
 use state_controller::snapshot_loader::SnapshotLoaderError;
@@ -33,12 +33,12 @@ pub mod cfg;
 pub mod credentials;
 pub mod db;
 mod dhcp;
-mod dpu;
 mod human_hash;
 pub mod instance;
 pub mod ipmi;
 pub mod kubernetes;
 pub mod model;
+mod reachability;
 pub mod state_controller;
 pub mod vpc_resources;
 

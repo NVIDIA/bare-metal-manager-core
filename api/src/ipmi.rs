@@ -29,9 +29,7 @@ use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::instance::Instance;
 use crate::db::ipmi::{BmcMetaDataGetRequest, UserRoles};
-use crate::dpu::reachability::{
-    wait_for_requested_state, PingReachabilityChecker, ReachabilityError,
-};
+use crate::reachability::{wait_for_requested_state, PingReachabilityChecker, ReachabilityError};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -119,7 +117,7 @@ async fn observe_dpu_state_and_reboot_host(
     // Wait until DPU goes down.
     match wait_for_requested_state(
         Duration::from_secs(300),
-        PingReachabilityChecker::new(dpu.address().ip(), crate::dpu::reachability::State::Dead),
+        PingReachabilityChecker::new(dpu.address().ip(), crate::reachability::State::Dead),
     )
     .await
     {
@@ -144,7 +142,7 @@ async fn observe_dpu_state_and_reboot_host(
     // Wait for DPU to come up.
     wait_for_requested_state(
         Duration::from_secs(600),
-        PingReachabilityChecker::new(dpu.address().ip(), crate::dpu::reachability::State::Alive),
+        PingReachabilityChecker::new(dpu.address().ip(), crate::reachability::State::Alive),
     )
     .await
     .map_err(CarbideError::from)?;
