@@ -20,14 +20,14 @@ pub enum ReachabilityError {
 
 pub type ReachabilityResult<T> = Result<T, ReachabilityError>;
 
-// Trait to implement various conditions to validate if DPU is in acceptable state (UP or Down).
+// Trait to implement various conditions to validate if host is in acceptable state (UP or Down).
 #[async_trait]
 pub trait Reachability {
-    // Method to check if DPU is reachable.
+    // Method to check if host is reachable.
     async fn is_reachable(&self) -> ReachabilityResult<bool>;
 
     // Reachable is not always means that condition is matched. We need to revert reachability in
-    // case to check if DPU is down.
+    // case to check if host is down.
     async fn await_condition(&self) -> ReachabilityResult<()>;
 }
 
@@ -108,7 +108,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_wait_for_dpu_down() {
+    async fn test_wait_for_host_down() {
         assert!(wait_for_requested_state(
             Duration::from_secs(5),
             PingReachabilityChecker::new(
@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wait_for_dpu_down_fail() {
+    async fn test_wait_for_host_down_fail() {
         assert!(wait_for_requested_state(
             Duration::from_secs(2),
             PingReachabilityChecker::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1,)), State::Dead,),
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wait_for_dpu_up() {
+    async fn test_wait_for_host_up() {
         assert!(wait_for_requested_state(
             Duration::from_secs(5),
             PingReachabilityChecker::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1,)), State::Alive,),
@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wait_for_dpu_up_fail() {
+    async fn test_wait_for_host_up_fail() {
         assert!(wait_for_requested_state(
             Duration::from_secs(2),
             PingReachabilityChecker::new(
