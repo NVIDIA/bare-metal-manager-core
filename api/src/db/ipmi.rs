@@ -131,37 +131,6 @@ impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
 }
 
 impl BmcMetaDataGetRequest {
-    pub async fn get_bmc_meta_data<C>(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        credential_provider: &C,
-    ) -> CarbideResult<rpc::BmcMetaDataGetResponse>
-    where
-        C: CredentialProvider + ?Sized,
-    {
-        let address = self.get_bmc_host_ip(txn).await?;
-
-        let credentials = credential_provider
-            .get_credentials(CredentialKey::Bmc {
-                machine_id: self.machine_id.to_string(),
-                user_role: self.role.to_string(),
-            })
-            .await
-            .map_err(|err| {
-                CarbideError::GenericError(format!("Error getting credentials for BMC: {:?}", err))
-            })?;
-
-        let (username, password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
-        Ok(rpc::BmcMetaDataGetResponse {
-            ip: address,
-            user: username,
-            password,
-        })
-    }
-
     pub async fn get_bmc_host_ip(
         &self,
         txn: &mut Transaction<'_, Postgres>,
