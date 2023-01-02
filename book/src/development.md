@@ -12,7 +12,11 @@ For a list env vars we predefine look at
 
 ## Local environment prep
 
-1. Install rust by following directions [here](https://www.rust-lang.org/tools/install)
+1. Install rust by following directions [here](https://www.rust-lang.org/tools/install).
+    You will need to use the rustup based installation method, in order to be
+    able to use the same Rust compiler that is utilized by the CI toolchain.
+    You can find the target compiler version in [rust-toolchain.toml](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/rust-toolchain.toml). If rustup is installed,
+    you can switch toolchain versions using `rustup toolchain`.
 
     Make sure you have a C++ compiler:
 
