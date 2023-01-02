@@ -32,6 +32,72 @@ pub struct StateHandlerContext<'a> {
     pub services: &'a Arc<StateHandlerServices>,
 }
 
+/// An object which makes the current controller state available to a state handler
+///
+/// The state can be read accessed by default via dereferencing the holder to the
+/// state type.
+///
+/// For write access, the `.as_mut()` method can be used.
+/// If the state is write accessed, the new state will be automatically be persisted.
+pub struct ControllerStateReader<'a, S> {
+    state: &'a mut S,
+    /// Whether the state might possibly have been mutated
+    is_modified: bool,
+}
+
+impl<'a, S> std::ops::Deref for ControllerStateReader<'a, S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        self.state
+    }
+}
+
+impl<'a, S> ControllerStateReader<'a, S> {
+    pub fn new(state: &'a mut S) -> Self {
+        Self {
+            state,
+            is_modified: false,
+        }
+    }
+
+    /// Whether the state might have been modified
+    ///
+    /// If this flag is true, the new state will be persisted
+    pub fn is_modified(&self) -> bool {
+        self.is_modified
+    }
+
+    /// Provides write access to the controller state
+    ///
+    /// One this function is called, the state will be automatically persisted
+    pub fn modify(&mut self) -> ControllerStateModifier<'_, S> {
+        self.is_modified = true;
+        ControllerStateModifier { state: self.state }
+    }
+}
+
+/// A guard object that allows to mutate the actual ControllerState
+///
+/// If the state was modified, the new state will automatically be persisted
+pub struct ControllerStateModifier<'a, S> {
+    state: &'a mut S,
+}
+
+impl<'a, S> std::ops::Deref for ControllerStateModifier<'a, S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        self.state
+    }
+}
+
+impl<'a, S> std::ops::DerefMut for ControllerStateModifier<'a, S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.state
+    }
+}
+
 /// Defines a function that will be called to determine the next step in
 /// an objects lifecycle.
 ///
@@ -41,11 +107,13 @@ pub struct StateHandlerContext<'a> {
 pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
     type ObjectId;
     type State;
+    type ControllerState;
 
     async fn handle_object_state(
         &self,
         object_id: &Self::ObjectId,
         state: &mut Self::State,
+        controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError>;
@@ -63,17 +131,17 @@ pub enum StateHandlerError {
 }
 
 /// A `StateHandler` implementation which does nothing
-pub struct NoopStateHandler<I, S> {
-    _phantom_data: std::marker::PhantomData<Option<(I, S)>>,
+pub struct NoopStateHandler<I, S, CS> {
+    _phantom_data: std::marker::PhantomData<Option<(I, S, CS)>>,
 }
 
-impl<I, S> std::fmt::Debug for NoopStateHandler<I, S> {
+impl<I, S, CS> std::fmt::Debug for NoopStateHandler<I, S, CS> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NoopStateHandler").finish()
     }
 }
 
-impl<I, S> Default for NoopStateHandler<I, S> {
+impl<I, S, CS> Default for NoopStateHandler<I, S, CS> {
     fn default() -> Self {
         Self {
             _phantom_data: Default::default(),
@@ -82,14 +150,18 @@ impl<I, S> Default for NoopStateHandler<I, S> {
 }
 
 #[async_trait::async_trait]
-impl<I: Send + Sync + 'static, S: Send + Sync + 'static> StateHandler for NoopStateHandler<I, S> {
+impl<I: Send + Sync + 'static, S: Send + Sync + 'static, CS: Send + Sync + 'static> StateHandler
+    for NoopStateHandler<I, S, CS>
+{
     type State = S;
+    type ControllerState = CS;
     type ObjectId = I;
 
     async fn handle_object_state(
         &self,
         _object_id: &Self::ObjectId,
         _state: &mut Self::State,
+        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {

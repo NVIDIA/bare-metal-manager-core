@@ -13,7 +13,10 @@
 //! State Controller IO implementation for Machines
 
 use crate::{
-    model::machine::MachineStateSnapshot,
+    model::{
+        config_version::{ConfigVersion, Versioned},
+        machine::MachineStateSnapshot,
+    },
     state_controller::{
         controller::StateControllerIO,
         snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError},
@@ -30,6 +33,7 @@ pub struct MachineStateControllerIO {
 impl StateControllerIO for MachineStateControllerIO {
     type ObjectId = uuid::Uuid;
     type State = MachineStateSnapshot;
+    type ControllerState = ();
 
     fn db_lock_name() -> &'static str {
         "machine_state_controller_lock"
@@ -51,5 +55,24 @@ impl StateControllerIO for MachineStateControllerIO {
         self.snapshot_loader
             .load_machine_snapshot(txn, *machine_id)
             .await
+    }
+
+    async fn load_controller_state(
+        &self,
+        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _object_id: &Self::ObjectId,
+        _state: &Self::State,
+    ) -> Result<Versioned<Self::ControllerState>, SnapshotLoaderError> {
+        Ok(Versioned::new((), ConfigVersion::initial()))
+    }
+
+    async fn persist_controller_state(
+        &self,
+        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _object_id: &Self::ObjectId,
+        _old_version: ConfigVersion,
+        _new_state: Self::ControllerState,
+    ) -> Result<(), SnapshotLoaderError> {
+        Ok(())
     }
 }

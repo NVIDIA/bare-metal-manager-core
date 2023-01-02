@@ -26,7 +26,9 @@ use carbide::{
     state_controller::{
         controller::StateController,
         machine::io::MachineStateControllerIO,
-        state_handler::{StateHandler, StateHandlerContext, StateHandlerError},
+        state_handler::{
+            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+        },
     },
 };
 use ipnetwork::IpNetwork;
@@ -42,12 +44,14 @@ pub struct TestMachineStateHandler {
 #[async_trait::async_trait]
 impl StateHandler for TestMachineStateHandler {
     type State = MachineStateSnapshot;
+    type ControllerState = ();
     type ObjectId = uuid::Uuid;
 
     async fn handle_object_state(
         &self,
         machine_id: &uuid::Uuid,
         state: &mut MachineStateSnapshot,
+        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
