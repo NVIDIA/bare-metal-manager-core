@@ -109,27 +109,6 @@ impl FromStr for UserRoles {
     }
 }
 
-impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
-    type Error = CarbideError;
-
-    fn try_from(value: rpc::BmcMetaDataGetRequest) -> Result<Self, Self::Error> {
-        let uuid = value
-            .machine_id
-            .ok_or_else(|| CarbideError::GenericError("Machine id is null".to_string()))?;
-        Ok(BmcMetaDataGetRequest {
-            machine_id: Uuid::try_from(uuid)?,
-            role: UserRoles::from(match rpc::UserRoles::from_i32(value.role) {
-                Some(x) => x,
-                None => {
-                    return Err(CarbideError::GenericError(
-                        "Invalid role found.".to_string(),
-                    ));
-                }
-            }),
-        })
-    }
-}
-
 impl BmcMetaDataGetRequest {
     pub async fn get_bmc_host_ip(
         &self,
