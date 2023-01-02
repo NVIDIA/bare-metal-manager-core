@@ -10,12 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use std::convert::TryFrom;
-use std::env;
 use std::sync::Arc;
 
 use color_eyre::Report;
-use once_cell::sync::Lazy;
-use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 
@@ -68,12 +65,6 @@ use ::rpc::MachineStateMachineInput;
 use forge_credentials::CredentialProvider;
 
 use self::rpc::forge_server::Forge;
-
-pub struct ExternalConfig {
-    pub dhcp_server: Option<String>,
-}
-pub static CONFIG: Lazy<RwLock<ExternalConfig>> =
-    Lazy::new(|| RwLock::new(ExternalConfig { dhcp_server: None }));
 
 pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
@@ -1321,11 +1312,6 @@ where
         Ok(Response::new(rpc::PxeInstructions { pxe_script }))
     }
 }
-async fn update_external_config() {
-    let dhcp_server =
-        env::var("CARBIDE_DHCP_SERVER").expect("Env variable CARBIDE_DHCP_SERVER is not defined.");
-    CONFIG.write().await.dhcp_server = Some(dhcp_server);
-}
 
 impl<C> Api<C>
 where
@@ -1384,10 +1370,6 @@ where
         );
         */
 
-        update_external_config().await;
-        // TODO: Fix config to directly hold a Vec
-        let dhcp_servers: Vec<String> = CONFIG.read().await.dhcp_server.iter().cloned().collect();
-
         let auth_layer = tower_http::auth::RequireAuthorizationLayer::custom(authenticator);
 
         let reflection_service = Builder::configure()
@@ -1404,7 +1386,7 @@ where
 
         let vpc_api: Arc<dyn VpcApi> = if daemon_config.kubernetes {
             let client = kube::Client::try_default().await?;
-            Arc::new(VpcApiImpl::new(client, dhcp_servers))
+            Arc::new(VpcApiImpl::new(client, daemon_config.dhcp_server.clone()))
         } else {
             Arc::new(VpcApiSim::default())
         };

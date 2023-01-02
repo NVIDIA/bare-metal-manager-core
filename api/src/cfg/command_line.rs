@@ -53,6 +53,13 @@ pub struct Daemon {
     /// Enable kubernetes integrations
     #[clap(short, long)]
     pub kubernetes: bool,
+
+    /// List of DHCP servers that should be announced
+    /// TODO: The env variable approach at the moment will just accept a single
+    /// server name. We need custom logic to either split a comma separated
+    /// env variable, or have a different env variable which supports multiple servers.
+    #[clap(long, multiple_values(true), env = "CARBIDE_DHCP_SERVER")]
+    pub dhcp_server: Vec<String>,
 }
 
 #[derive(Parser)]
