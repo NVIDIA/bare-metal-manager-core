@@ -14,6 +14,10 @@
 
 use crate::{
     db::{network_segment::NetworkSegment, UuidKeyedObjectFilter},
+    model::{
+        config_version::{ConfigVersion, Versioned},
+        network_segment::NetworkSegmentControllerState,
+    },
     state_controller::{controller::StateControllerIO, snapshot_loader::SnapshotLoaderError},
 };
 
@@ -25,6 +29,7 @@ pub struct NetworkSegmentStateControllerIO {}
 impl StateControllerIO for NetworkSegmentStateControllerIO {
     type ObjectId = uuid::Uuid;
     type State = NetworkSegment;
+    type ControllerState = NetworkSegmentControllerState;
 
     fn db_lock_name() -> &'static str {
         "network_segments_controller_lock"
@@ -62,5 +67,27 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         }
         let segment = segments.swap_remove(0);
         Ok(segment)
+    }
+
+    async fn load_controller_state(
+        &self,
+        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _object_id: &Self::ObjectId,
+        state: &Self::State,
+    ) -> Result<Versioned<Self::ControllerState>, SnapshotLoaderError> {
+        Ok(state.controller_state.clone())
+    }
+
+    async fn persist_controller_state(
+        &self,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        object_id: &Self::ObjectId,
+        old_version: ConfigVersion,
+        new_state: Self::ControllerState,
+    ) -> Result<(), SnapshotLoaderError> {
+        let _updated =
+            NetworkSegment::try_update_controller_state(txn, *object_id, old_version, &new_state)
+                .await?;
+        Ok(())
     }
 }

@@ -19,11 +19,12 @@ use tokio::{sync::oneshot, task::JoinSet};
 
 use crate::{
     kubernetes::VpcApi,
+    model::config_version::{ConfigVersion, Versioned},
     state_controller::{
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
-            NoopStateHandler, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerServices,
+            ControllerStateReader, NoopStateHandler, StateHandler, StateHandlerContext,
+            StateHandlerError, StateHandlerServices,
         },
     },
 };
@@ -41,7 +42,13 @@ pub struct StateController<IO: StateControllerIO> {
     handler_services: Arc<StateHandlerServices>,
     io: Arc<IO>,
     lock_query: String,
-    state_handler: Arc<dyn StateHandler<State = IO::State, ObjectId = IO::ObjectId>>,
+    state_handler: Arc<
+        dyn StateHandler<
+            State = IO::State,
+            ControllerState = IO::ControllerState,
+            ObjectId = IO::ObjectId,
+        >,
+    >,
     stop_receiver: oneshot::Receiver<()>,
     config: Config,
 }
@@ -52,6 +59,7 @@ pub struct StateController<IO: StateControllerIO> {
 pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     type ObjectId: Send + Sync + 'static + Clone;
     type State: Send + Sync + 'static;
+    type ControllerState: Send + Sync + 'static;
 
     /// Returns the name of the table in the database that will be used for advisory locking
     ///
@@ -71,6 +79,23 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         object_id: &Self::ObjectId,
     ) -> Result<Self::State, SnapshotLoaderError>;
+
+    /// Loads the object state that is owned by the state controller
+    async fn load_controller_state(
+        &self,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        object_id: &Self::ObjectId,
+        state: &Self::State,
+    ) -> Result<Versioned<Self::ControllerState>, SnapshotLoaderError>;
+
+    /// Persists the object state that is owned by the state controller
+    async fn persist_controller_state(
+        &self,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        object_id: &Self::ObjectId,
+        old_version: ConfigVersion,
+        new_state: Self::ControllerState,
+    ) -> Result<(), SnapshotLoaderError>;
 }
 
 /// Creates the query that will be used for advisory locking of a postgres table
@@ -166,7 +191,13 @@ impl<IO: StateControllerIO> StateController<IO> {
 
 async fn handle_controller_iteration<IO: StateControllerIO>(
     io: &Arc<IO>,
-    state_handler: &Arc<dyn StateHandler<State = IO::State, ObjectId = IO::ObjectId>>,
+    state_handler: &Arc<
+        dyn StateHandler<
+            State = IO::State,
+            ControllerState = IO::ControllerState,
+            ObjectId = IO::ObjectId,
+        >,
+    >,
     handler_services: &Arc<StateHandlerServices>,
     config: &Config,
 ) -> Result<(), IterationError> {
@@ -207,19 +238,41 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
             let result: Result<(), StateHandlerError> = async move {
                 let mut txn = services.pool.begin().await?;
                 let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
+                let mut controller_state = io
+                    .load_controller_state(&mut txn, &object_id, &snapshot)
+                    .await?;
 
                 let mut ctx = StateHandlerContext {
                     services: &services,
                 };
 
+                let mut state_holder = ControllerStateReader::new(&mut controller_state.value);
+
                 match handler
-                    .handle_object_state(&object_id, &mut snapshot, &mut txn, &mut ctx)
+                    .handle_object_state(
+                        &object_id,
+                        &mut snapshot,
+                        &mut state_holder,
+                        &mut txn,
+                        &mut ctx,
+                    )
                     .await
                 {
-                    Ok(()) => txn
-                        .commit()
-                        .await
-                        .map_err(StateHandlerError::TransactionError),
+                    Ok(()) => {
+                        if state_holder.is_modified() {
+                            io.persist_controller_state(
+                                &mut txn,
+                                &object_id,
+                                controller_state.version,
+                                controller_state.value,
+                            )
+                            .await?;
+                        }
+
+                        txn.commit()
+                            .await
+                            .map_err(StateHandlerError::TransactionError)
+                    }
                     Err(e) => Err(e),
                 }
             }
@@ -314,7 +367,13 @@ pub struct Builder<IO: StateControllerIO> {
     vpc_api: Option<Arc<dyn VpcApi>>,
     iteration_time: Option<Duration>,
     max_concurrency: usize,
-    state_handler: Arc<dyn StateHandler<State = IO::State, ObjectId = IO::ObjectId>>,
+    state_handler: Arc<
+        dyn StateHandler<
+            State = IO::State,
+            ControllerState = IO::ControllerState,
+            ObjectId = IO::ObjectId,
+        >,
+    >,
 }
 
 impl<IO: StateControllerIO> Builder<IO> {
@@ -327,7 +386,11 @@ impl<IO: StateControllerIO> Builder<IO> {
             database: None,
             vpc_api: None,
             iteration_time: None,
-            state_handler: Arc::new(NoopStateHandler::<IO::ObjectId, IO::State>::default()),
+            state_handler: Arc::new(NoopStateHandler::<
+                IO::ObjectId,
+                IO::State,
+                IO::ControllerState,
+            >::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
         }
     }
@@ -411,7 +474,13 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Sets the function that will be called to advance the state of a single object
     pub fn state_handler(
         mut self,
-        handler: Arc<dyn StateHandler<State = IO::State, ObjectId = IO::ObjectId>>,
+        handler: Arc<
+            dyn StateHandler<
+                State = IO::State,
+                ControllerState = IO::ControllerState,
+                ObjectId = IO::ObjectId,
+            >,
+        >,
     ) -> Self {
         self.state_handler = handler;
         self

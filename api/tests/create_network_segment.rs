@@ -15,8 +15,11 @@ use std::sync::Arc;
 use carbide::db::UuidKeyedObjectFilter;
 use carbide::kubernetes::{VpcApiSim, VpcApiSimConfig};
 use carbide::state_controller::{
-    network_segment::handler::NetworkSegmentStateHandler,
-    state_handler::{StateHandler, StateHandlerContext, StateHandlerServices},
+    controller::StateControllerIO,
+    network_segment::{handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO},
+    state_handler::{
+        ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerServices,
+    },
 };
 use log::LevelFilter;
 use mac_address::MacAddress;
@@ -95,15 +98,33 @@ async fn run_controller_iteration(
     handler: &NetworkSegmentStateHandler,
     handler_ctx: &mut StateHandlerContext<'_>,
 ) {
+    let io = NetworkSegmentStateControllerIO::default();
     let mut txn = pool.begin().await.unwrap();
-    let mut db_segment = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::One(segment_id))
-        .await
-        .unwrap()
-        .remove(0);
-    handler
-        .handle_object_state(&segment_id, &mut db_segment, &mut txn, handler_ctx)
+
+    let mut db_segment = io.load_object_state(&mut txn, &segment_id).await.unwrap();
+    let mut controller_state = io
+        .load_controller_state(&mut txn, &segment_id, &db_segment)
         .await
         .unwrap();
+    let mut holder = ControllerStateReader::new(&mut controller_state.value);
+    handler
+        .handle_object_state(
+            &segment_id,
+            &mut db_segment,
+            &mut holder,
+            &mut txn,
+            handler_ctx,
+        )
+        .await
+        .unwrap();
+    io.persist_controller_state(
+        &mut txn,
+        &segment_id,
+        controller_state.version,
+        controller_state.value,
+    )
+    .await
+    .unwrap();
     txn.commit().await.unwrap();
 }
 

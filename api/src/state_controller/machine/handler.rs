@@ -19,7 +19,9 @@ use std::{
 
 use crate::{
     model::{instance::status::SyncState, machine::MachineStateSnapshot},
-    state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerError},
+    state_controller::state_handler::{
+        ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+    },
 };
 
 /// The actual Machine State handler
@@ -32,22 +34,24 @@ pub struct MachineStateHandler {
 #[async_trait::async_trait]
 impl StateHandler for MachineStateHandler {
     type State = MachineStateSnapshot;
+    type ControllerState = ();
     type ObjectId = uuid::Uuid;
 
     async fn handle_object_state(
         &self,
         machine_id: &uuid::Uuid,
         state: &mut MachineStateSnapshot,
+        controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         if state.hardware_info.is_dpu() {
             self.dpu_handler
-                .handle_object_state(machine_id, state, txn, ctx)
+                .handle_object_state(machine_id, state, controller_state, txn, ctx)
                 .await
         } else {
             self.host_handler
-                .handle_object_state(machine_id, state, txn, ctx)
+                .handle_object_state(machine_id, state, controller_state, txn, ctx)
                 .await
         }
     }
@@ -60,12 +64,14 @@ pub struct DpuMachineStateHandler {}
 #[async_trait::async_trait]
 impl StateHandler for DpuMachineStateHandler {
     type State = MachineStateSnapshot;
+    type ControllerState = ();
     type ObjectId = uuid::Uuid;
 
     async fn handle_object_state(
         &self,
         _machine_id: &uuid::Uuid,
         state: &mut MachineStateSnapshot,
+        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
@@ -87,12 +93,14 @@ pub struct HostMachineStateHandler {}
 #[async_trait::async_trait]
 impl StateHandler for HostMachineStateHandler {
     type State = MachineStateSnapshot;
+    type ControllerState = ();
     type ObjectId = uuid::Uuid;
 
     async fn handle_object_state(
         &self,
         _machine_id: &uuid::Uuid,
         state: &mut MachineStateSnapshot,
+        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {

@@ -20,7 +20,9 @@ use crate::{
         network_prefix::NetworkPrefix, network_segment::NetworkSegment,
     },
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
-    state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerError},
+    state_controller::state_handler::{
+        ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+    },
 };
 
 /// The actual Network Segment State handler
@@ -41,15 +43,18 @@ impl NetworkSegmentStateHandler {
 impl StateHandler for NetworkSegmentStateHandler {
     type ObjectId = uuid::Uuid;
     type State = NetworkSegment;
+    type ControllerState = NetworkSegmentControllerState;
 
     async fn handle_object_state(
         &self,
         segment_id: &uuid::Uuid,
         state: &mut NetworkSegment,
+        controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
-        match &state.controller_state.value {
+        let read_state: &NetworkSegmentControllerState = &*controller_state;
+        match read_state {
             NetworkSegmentControllerState::Provisioning => {
                 let mut created_all_resource_groups = true;
                 for prefix in state.prefixes.iter() {
@@ -86,14 +91,7 @@ impl StateHandler for NetworkSegmentStateHandler {
                     "Network Segment {} is transitioning into state \"Ready\"",
                     segment_id
                 );
-                let new_state = NetworkSegmentControllerState::Ready;
-                NetworkSegment::try_update_controller_state(
-                    txn,
-                    *segment_id,
-                    state.controller_state.version,
-                    &new_state,
-                )
-                .await?;
+                *controller_state.modify() = NetworkSegmentControllerState::Ready;
                 return Ok(());
             }
             NetworkSegmentControllerState::Ready => {
@@ -102,18 +100,11 @@ impl StateHandler for NetworkSegmentStateHandler {
                     let delete_at = chrono::Utc::now()
                         .checked_add_signed(self.drain_period)
                         .unwrap_or_else(chrono::Utc::now);
-                    let new_state = NetworkSegmentControllerState::Deleting {
+                    *controller_state.modify() = NetworkSegmentControllerState::Deleting {
                         deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps {
                             delete_at,
                         },
                     };
-                    NetworkSegment::try_update_controller_state(
-                        txn,
-                        *segment_id,
-                        state.controller_state.version,
-                        &new_state,
-                    )
-                    .await?;
                     return Ok(());
                 }
             }
@@ -136,34 +127,20 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 num_machine_interfaces + num_instance_addresses,
                                 state.id, delete_at
                             );
-                            let new_state = NetworkSegmentControllerState::Deleting {
+                            *controller_state.modify() = NetworkSegmentControllerState::Deleting {
                                 deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps {
                                     delete_at,
                                 },
                             };
-                            NetworkSegment::try_update_controller_state(
-                                txn,
-                                *segment_id,
-                                state.controller_state.version,
-                                &new_state,
-                            )
-                            .await?;
                             return Ok(());
                         }
 
                         if chrono::Utc::now() >= *delete_at {
                             tracing::info!("Network Segment {} is transitioning into state \"Deleting::DeleteVPCResourceGroups\"", segment_id);
-                            let new_state = NetworkSegmentControllerState::Deleting {
+                            *controller_state.modify() = NetworkSegmentControllerState::Deleting {
                                 deletion_state:
                                     NetworkSegmentDeletionState::DeleteVPCResourceGroups,
                             };
-                            NetworkSegment::try_update_controller_state(
-                                txn,
-                                *segment_id,
-                                state.controller_state.version,
-                                &new_state,
-                            )
-                            .await?;
                             return Ok(());
                         }
                     }
