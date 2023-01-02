@@ -85,7 +85,6 @@ service Forge {
   rpc ValidateUserSSHKey(SSHKeyValidationRequest) returns (SSHKeyValidationResponse);
 
   // IPMI handling
-  rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
   rpc UpdateBMCMetaData(BMCMetaDataUpdateRequest) returns (BMCMetaDataUpdateResponse);
 
   // User Credential handling.

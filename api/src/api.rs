@@ -33,7 +33,7 @@ use crate::{
             status::network::update_instance_network_status_observation, DeleteInstance, Instance,
         },
         instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
-        ipmi::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
+        ipmi::BmcMetaDataUpdateRequest,
         machine::Machine,
         machine_interface::MachineInterface,
         machine_state::MachineState,
@@ -1204,27 +1204,6 @@ where
 
         let response = Ok(SshKeyValidationRequest::try_from(request.into_inner())?
             .verify_user(&mut txn)
-            .await
-            .map(Response::new)?);
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
-    }
-
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn get_bmc_meta_data(
-        &self,
-        request: Request<rpc::BmcMetaDataGetRequest>,
-    ) -> Result<Response<rpc::BmcMetaDataGetResponse>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let response = Ok(BmcMetaDataGetRequest::try_from(request.into_inner())?
-            .get_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
             .await
             .map(Response::new)?);
 
