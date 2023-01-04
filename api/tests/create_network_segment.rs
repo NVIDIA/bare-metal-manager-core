@@ -29,7 +29,6 @@ use carbide::db::machine_interface::MachineInterface;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
 use carbide::db::vpc::Vpc;
-use carbide::db::vpc_resource_state::VpcResourceState;
 
 pub mod common;
 use common::api_fixtures::{create_test_api, TestApi};
@@ -332,33 +331,10 @@ async fn test_advance_network_prefix_state(
     txn.commit().await?;
     let mut txn = pool.begin().await?;
 
-    let new_prefix = NetworkPrefix::find(&mut txn, segment.prefixes[0].id).await?;
-    assert_eq!(
-        new_prefix.current_state(&mut txn).await?,
-        VpcResourceState::New
-    );
-
-    new_prefix
-        .advance(&mut txn, &rpc::VpcResourceStateMachineInput::Submit)
-        .await?;
-
-    new_prefix
-        .advance(&mut txn, &rpc::VpcResourceStateMachineInput::Accept)
-        .await?;
-
-    new_prefix
-        .advance(&mut txn, &rpc::VpcResourceStateMachineInput::Wait)
-        .await?;
-
-    new_prefix
-        .advance(&mut txn, &rpc::VpcResourceStateMachineInput::VpcSuccess)
-        .await?;
-
-    let current_state = new_prefix.current_state(&mut txn).await?;
-
+    assert!(NetworkPrefix::find(&mut txn, segment.prefixes[0].id)
+        .await
+        .is_ok());
     txn.commit().await?;
-
-    assert_eq!(current_state, VpcResourceState::Ready);
 
     Ok(())
 }

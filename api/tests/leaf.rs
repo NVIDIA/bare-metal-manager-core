@@ -40,12 +40,9 @@ async fn new_leafs_are_in_new_state(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await?;
     let mut txn = pool.begin().await?;
 
-    let vpc_resource_leaf = VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await?;
-    let current_state = vpc_resource_leaf.current_state(&mut txn).await?;
-
-    log::info!("Current state - {}", current_state);
-
-    //assert!(matches!(current_state, VpcResourceState::New));
+    assert!(VpcResourceLeaf::find(&mut txn, leaf.id().to_owned())
+        .await
+        .is_ok());
 
     Ok(())
 }

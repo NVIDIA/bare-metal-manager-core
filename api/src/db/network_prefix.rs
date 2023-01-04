@@ -12,18 +12,12 @@
 use std::convert::TryFrom;
 
 use ipnetwork::IpNetwork;
-use rust_fsm::StateMachine;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use ::rpc::forge as rpc;
-use ::rpc::VpcResourceStateMachine;
-use ::rpc::VpcResourceStateMachineInput;
 
-use crate::db::network_prefix_event::NetworkPrefixEvent;
-use crate::db::vpc_resource_action::VpcResourceAction;
-use crate::db::vpc_resource_state::VpcResourceState;
 use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 
@@ -35,8 +29,6 @@ pub struct NetworkPrefix {
     pub gateway: Option<IpNetwork>,
     pub num_reserved: i32,
     pub circuit_id: Option<String>,
-    state: VpcResourceState,
-    events: Vec<NetworkPrefixEvent>,
 }
 
 #[derive(Debug)]
@@ -55,8 +47,6 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
             gateway: row.try_get("gateway")?,
             num_reserved: row.try_get("num_reserved")?,
             circuit_id: row.try_get("circuit_id")?,
-            state: VpcResourceState::Init,
-            events: Vec::new(),
         })
     }
 }
@@ -89,8 +79,8 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
             prefix: src.prefix.to_string(),
             gateway: src.gateway.map(|v| v.to_string()),
             reserve_first: src.num_reserved,
-            state: Some(src.state.into()),
-            events: src.events.iter().map(|event| event.into()).collect(),
+            state: None,
+            events: vec![],
             circuit_id: src.circuit_id,
         }
     }
@@ -145,76 +135,6 @@ impl NetworkPrefix {
         })
     }
 
-    pub fn events(&self) -> &Vec<NetworkPrefixEvent> {
-        &self.events
-    }
-
-    /// Return the current state of the machine based on the sequence of events the machine has
-    /// experienced.
-    ///
-    /// This object does not store the current state, but calculates it from the actions that have
-    /// been performed on the machines.
-    ///
-    /// Arguments:
-    ///
-    /// * `txn` - A reference to a currently open database transaction
-    ///
-    pub async fn current_state(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<VpcResourceState> {
-        let events = NetworkPrefixEvent::for_network_prefix(txn, &self.id).await?;
-        let state_machine = self.state_machine(&events)?;
-        Ok(VpcResourceState::from(state_machine.state()))
-    }
-
-    fn state_machine(
-        &self,
-        events: &[NetworkPrefixEvent],
-    ) -> CarbideResult<StateMachine<VpcResourceStateMachine>> {
-        let mut machine: StateMachine<VpcResourceStateMachine> = StateMachine::new();
-        events
-            .iter()
-            .map(|event| machine.consume(&VpcResourceStateMachineInput::from(&event.action)))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(CarbideError::InvalidState)?;
-
-        Ok(machine)
-    }
-
-    /// Perform an arbitrary action to a Machine and advance it to the next state given the last
-    /// state.
-    ///
-    /// Arguments:
-    ///
-    /// * `txn` - A reference to a currently open database transaction
-    /// * `action` - A reference to a VpcResourceAction enum
-    ///
-    pub async fn advance(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        action: &VpcResourceStateMachineInput,
-    ) -> CarbideResult<bool> {
-        // first validate the state change by getting the current state in the db
-        let events = NetworkPrefixEvent::for_network_prefix(txn, &self.id).await?;
-        let mut state_machine = self.state_machine(&events)?;
-        state_machine
-            .consume(action)
-            .map_err(CarbideError::InvalidState)?;
-
-        let id: (i64, ) = sqlx::query_as(
-            "INSERT INTO network_prefix_events (network_prefix_id, action) VALUES ($1::uuid, $2) RETURNING id",
-        )
-            .bind(self.id)
-            .bind(VpcResourceAction::from(action))
-            .fetch_one(txn)
-            .await?;
-
-        log::info!("Event ID is {}", id.0);
-
-        Ok(true)
-    }
-
     /*
      * Create a prefix for a given segment id.
      *
@@ -249,13 +169,6 @@ impl NetworkPrefix {
                 .bind(prefix.num_reserved)
                 .fetch_one(&mut *inner_transaction).await?;
 
-            new_prefix
-                .advance(
-                    &mut inner_transaction,
-                    &VpcResourceStateMachineInput::Initialize,
-                )
-                .await?;
-
             inserted_prefixes.push(new_prefix);
         }
 
@@ -284,22 +197,6 @@ impl NetworkPrefix {
         segment_id: uuid::Uuid,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(), sqlx::Error> {
-        // TODO: We need this query only because network_prefix_events exists,
-        // but we might want to remove this in the future.
-        // Alternatively we could use cascade on delete for this
-        let to_delete: Vec<NetworkPrefixId> =
-            sqlx::query_as("select id FROM network_prefixes WHERE segment_id=$1::uuid")
-                .bind(segment_id)
-                .fetch_all(&mut *txn)
-                .await?;
-        let to_delete: Vec<uuid::Uuid> = to_delete.iter().map(|id| id.0).collect();
-
-        let _deleted_events: Vec<NetworkPrefixId> =
-            sqlx::query_as("DELETE FROM network_prefix_events WHERE network_prefix_id=ANY($1)")
-                .bind(&to_delete)
-                .fetch_all(&mut *txn)
-                .await?;
-
         let _deleted_prefixes: Vec<NetworkPrefixId> =
             sqlx::query_as("DELETE FROM network_prefixes WHERE segment_id=$1::uuid RETURNING id")
                 .bind(segment_id)

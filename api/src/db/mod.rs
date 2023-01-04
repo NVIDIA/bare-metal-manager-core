@@ -29,15 +29,11 @@ pub mod machine_state;
 pub mod machine_topology;
 pub mod migrations;
 pub mod network_prefix;
-pub mod network_prefix_event;
 pub mod network_segment;
 pub mod resource_record;
 pub mod tags;
 pub mod vpc;
-pub mod vpc_resource_action;
 pub mod vpc_resource_leaf;
-pub mod vpc_resource_leaf_event;
-pub mod vpc_resource_state;
 
 ///
 /// A parameter to find() to filter machines by Uuid;

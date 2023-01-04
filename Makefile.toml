@@ -25,7 +25,7 @@ dependencies = [
 [tasks.generate-database-schema]
 workspace = false
 command = "mermerd"
-args = ['-c', 'postgres://localhost', '-s', 'public', '--useAllTables', '--showAllConstraints', '--encloseWithMermaidBackticks', '-o', 'book/src/development/schema.md']
+args = ['-c', "${DATABASE_URL}", '-s', 'public', '--useAllTables', '--showAllConstraints', '--encloseWithMermaidBackticks', '-o', 'book/src/development/schema.md']
 
 
 [tasks.build-carbide-cli-ci]

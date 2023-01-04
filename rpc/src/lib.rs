@@ -255,33 +255,6 @@ state_machine! {
     Decommissioned => {Recommission => Tested, Release => New},
 }
 
-state_machine! {
-    derive(Debug)
-    pub VpcResourceStateMachine(Init)
-
-    // initial state is New and generated when the Carbide resource (Machine, MachineInterface etc)
-    // is successfully persisted to database
-    //
-    // From New, submit to forge-vpc the resource (CRD) that needs to be created in forge-vpc
-    //    e.g. ResourceGroup, ManagedResource, Leaf
-    // Just before we submit the request to forge-vpc  to the Submitting state
-    // When forge-vpc ACK's our resource creation submission, we move t Accepted
-    // After Accepted we move to "WaitingForVpc" while forge-vpc completes the necessary work
-    //
-    // In addition to a background job that is spawned to handle creation of forge-vpc resources
-    // an additional job will spawn to handle retrieving status from forge-vpc and
-    // updating the state for the resource in in forge DB.
-    // once forge-vpc reports the new resource as successfully created, we move to "Ready" state
-    // IF any steps alongs the way fails, move to 'Broken' state and setup to retry again.
-
-    Init(Initialize) => New,
-    New => { Submit => Submitting, Fail => Broken,},
-    Submitting => { Accept => Accepted, Fail => Broken, },
-    Accepted => { Wait => WaitingForVpc, Fail => Broken,},
-    WaitingForVpc => { VpcSuccess => Ready, Fail => Broken, },
-    Broken(Recommission) => Init,
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;

@@ -677,15 +677,8 @@ pub async fn vpc_reconcile_handler(
                 };
             }
             VpcResourceActions::DeleteLeaf(leaf_data) => {
-                let mut state_txn = current_job.pool().begin().await?;
-                let vpc_db_resource =
-                    VpcResourceLeaf::find(&mut state_txn, leaf_data.dpu_machine_id).await?;
+                //TODO: I am pretty sure that we are not deleting any Leaf here.
                 let spec_name = leaf_name(leaf_data.dpu_machine_id);
-
-                vpc_db_resource
-                    .advance(&mut state_txn, &rpc::VpcResourceStateMachineInput::Submit)
-                    .await?;
-                state_txn.commit().await?;
 
                 update_status(
                     &current_job,
