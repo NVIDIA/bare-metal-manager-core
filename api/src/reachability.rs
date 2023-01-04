@@ -22,13 +22,18 @@ pub type ReachabilityResult<T> = Result<T, ReachabilityError>;
 
 // Trait to implement various conditions to validate if host is in acceptable state (UP or Down).
 #[async_trait]
-pub trait Reachability {
-    // Method to check if host is reachable.
-    async fn is_reachable(&self) -> ReachabilityResult<bool>;
+pub trait Reachability: Sync {
+    /// Method to check if host fulfills needed condition.
+    async fn check_condition(&self) -> ReachabilityResult<bool>;
 
-    // Reachable is not always means that condition is matched. We need to revert reachability in
-    // case to check if host is down.
-    async fn await_condition(&self) -> ReachabilityResult<()>;
+    /// Wait until check_condition returns true. `wait_for_requested_state` will check for timeout.
+    async fn await_condition(&self) -> ReachabilityResult<()> {
+        while !self.check_condition().await? {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+
+        return Ok(());
+    }
 }
 
 pub async fn wait_for_requested_state(
@@ -41,24 +46,27 @@ pub async fn wait_for_requested_state(
     }
 }
 
-pub enum State {
+pub enum ExpectedState {
     Alive,
     Dead,
 }
 pub struct PingReachabilityChecker {
     host: IpAddr,
-    state: State,
+    expected_state: ExpectedState,
 }
 
 impl PingReachabilityChecker {
-    pub fn new(host: IpAddr, state: State) -> Self {
-        PingReachabilityChecker { host, state }
+    pub fn new(host: IpAddr, expected_state: ExpectedState) -> Self {
+        PingReachabilityChecker {
+            host,
+            expected_state,
+        }
     }
 }
 
 #[async_trait]
 impl Reachability for PingReachabilityChecker {
-    async fn is_reachable(&self) -> ReachabilityResult<bool> {
+    async fn check_condition(&self) -> ReachabilityResult<bool> {
         let host = self.host.to_string();
         let status = tokio::task::spawn_blocking(move || {
             // Should we use some library instead of Command?
@@ -72,32 +80,15 @@ impl Reachability for PingReachabilityChecker {
         .await
         .map_err(|err| ReachabilityError::SpawnBlockingThreadFailed(err.to_string()))?;
 
-        Ok(status
+        let is_reachable = status
             .map_err(|err| ReachabilityError::ReachabilityCheckError(err.to_string()))?
-            .success())
-    }
+            .success();
 
-    async fn await_condition(&self) -> ReachabilityResult<()> {
-        loop {
-            let reachable = self.is_reachable().await?;
-            match self.state {
-                State::Dead => {
-                    if reachable {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                    } else {
-                        return Ok(());
-                    }
-                }
-
-                State::Alive => {
-                    if !reachable {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                    } else {
-                        return Ok(());
-                    }
-                }
-            }
-        }
+        Ok(if let ExpectedState::Alive = self.expected_state {
+            is_reachable
+        } else {
+            !is_reachable
+        })
     }
 }
 
@@ -115,7 +106,7 @@ mod tests {
                 IpAddr::V4(Ipv4Addr::new(
                     255, 123, 253, 5, // Some random IP which is not reachable from system
                 )),
-                State::Dead,
+                ExpectedState::Dead,
             ),
         )
         .await
@@ -126,7 +117,10 @@ mod tests {
     async fn test_wait_for_host_down_fail() {
         assert!(wait_for_requested_state(
             Duration::from_secs(2),
-            PingReachabilityChecker::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1,)), State::Dead,),
+            PingReachabilityChecker::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1,)),
+                ExpectedState::Dead,
+            ),
         )
         .await
         .is_err());
@@ -136,7 +130,10 @@ mod tests {
     async fn test_wait_for_host_up() {
         assert!(wait_for_requested_state(
             Duration::from_secs(5),
-            PingReachabilityChecker::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1,)), State::Alive,),
+            PingReachabilityChecker::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1,)),
+                ExpectedState::Alive,
+            ),
         )
         .await
         .is_ok());
@@ -150,7 +147,7 @@ mod tests {
                 IpAddr::V4(Ipv4Addr::new(
                     255, 123, 253, 5, // Some random IP which is not reachable from system
                 )),
-                State::Alive,
+                ExpectedState::Alive,
             ),
         )
         .await

@@ -122,7 +122,7 @@ async fn observe_dpu_state_and_reboot_host(
     // Wait until DPU goes down.
     match wait_for_requested_state(
         Duration::from_secs(300),
-        PingReachabilityChecker::new(dpu.address().ip(), crate::reachability::State::Dead),
+        PingReachabilityChecker::new(dpu.address().ip(), crate::reachability::ExpectedState::Dead),
     )
     .await
     {
@@ -147,7 +147,10 @@ async fn observe_dpu_state_and_reboot_host(
     // Wait for DPU to come up.
     wait_for_requested_state(
         Duration::from_secs(600),
-        PingReachabilityChecker::new(dpu.address().ip(), crate::reachability::State::Alive),
+        PingReachabilityChecker::new(
+            dpu.address().ip(),
+            crate::reachability::ExpectedState::Alive,
+        ),
     )
     .await
     .map_err(CarbideError::from)?;
