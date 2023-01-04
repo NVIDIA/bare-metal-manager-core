@@ -1,14 +1,17 @@
 ```mermaid
 erDiagram
-    vpc_leafs {
-        uuid id PK
+    _sqlx_migrations {
+        bigint version PK
+        text description 
+        timestamp_with_time_zone installed_on 
+        boolean success 
+        bytea checksum 
+        bigint execution_time 
     }
 
-    vpc_leaf_events {
-        bigint id PK
-        uuid vpc_leaf_id FK
-        kube_vpc_action action 
-        timestamp_with_time_zone timestamp 
+    vpc_resource_leafs {
+        uuid id PK
+        inet loopback_ip_address 
     }
 
     instance_types {
@@ -36,6 +39,14 @@ erDiagram
         timestamp_with_time_zone requested 
         timestamp_with_time_zone started 
         timestamp_with_time_zone finished 
+        text user_data 
+        text custom_ipxe 
+        ARRAY ssh_keys 
+        boolean use_custom_pxe_on_boot 
+        character_varying network_config_version 
+        jsonb network_config 
+        jsonb network_status_observation 
+        text tenant_org 
     }
 
     machine_topologies {
@@ -52,47 +63,38 @@ erDiagram
         timestamp_with_time_zone timestamp 
     }
 
-    domains {
-        uuid id PK
-        character_varying name 
-        timestamp_with_time_zone created 
-        timestamp_with_time_zone updated 
-    }
-
     network_segments {
         uuid id PK
         character_varying name 
         uuid subdomain_id FK
         uuid vpc_id FK
         integer mtu 
+        character_varying version 
         timestamp_with_time_zone created 
         timestamp_with_time_zone updated 
+        timestamp_with_time_zone deleted 
         boolean admin_network 
         integer vni_id 
+        character_varying controller_state_version 
+        jsonb controller_state 
     }
 
-    vpcs {
+    domains {
         uuid id PK
         character_varying name 
-        uuid organization_id 
         timestamp_with_time_zone created 
         timestamp_with_time_zone updated 
         timestamp_with_time_zone deleted 
     }
 
-    network_prefixes {
+    vpcs {
         uuid id PK
-        uuid segment_id FK
-        cidr prefix 
-        inet gateway 
-        integer num_reserved 
-    }
-
-    network_prefix_events {
-        bigint id PK
-        uuid network_prefix_id FK
-        kube_vpc_action action 
-        timestamp_with_time_zone timestamp 
+        character_varying name 
+        character_varying organization_id 
+        character_varying version 
+        timestamp_with_time_zone created 
+        timestamp_with_time_zone updated 
+        timestamp_with_time_zone deleted 
     }
 
     machine_interfaces {
@@ -128,32 +130,18 @@ erDiagram
         uuid target_id FK
     }
 
-    instance_subnets {
+    network_prefixes {
         uuid id PK
-        uuid machine_interface_id FK
-        uuid network_segment_id FK
-        uuid instance_id FK
-        integer vfid 
+        uuid segment_id FK
+        cidr prefix 
+        inet gateway 
+        integer num_reserved 
+        text circuit_id 
     }
 
-    instance_subnet_addresses {
-        uuid id PK
-        uuid instance_subnet_id FK
-        inet address 
-    }
-
-    instance_subnets_events {
-        bigint id PK
-        uuid instance_subnet_id FK
-        kube_vpc_action action 
-        timestamp_with_time_zone timestamp 
-    }
-
-    ipmi_creds {
-        character_varying host 
-        character_varying username 
-        character_varying role 
-        character_varying password 
+    dhcp_entries {
+        uuid machine_interface_id PK
+        character_varying vendor_string PK
     }
 
     ssh_public_keys {
@@ -162,42 +150,73 @@ erDiagram
         ARRAY pubkeys 
     }
 
+    instance_addresses {
+        uuid id 
+        uuid instance_id FK
+        text circuit_id 
+        inet address 
+    }
+
     machine_console_metadata {
-        character_varying bmchost 
+        uuid machine_id FK
         character_varying username 
         user_roles role 
         character_varying password 
         console_type bmctype 
     }
 
-    auth_keys {
-        character_varying username 
-        character_varying role 
-        jsonb pubkeys 
+    machine_state_controller_lock {
+        uuid id 
     }
 
-    vpc_leaf_events }o--|| vpc_leafs : "vpc_leaf_id"
-    machines }o--|| vpc_leafs : "vpc_leaf_id"
+    mq_msgs {
+        uuid id PK
+        timestamp_with_time_zone created_at 
+        timestamp_with_time_zone attempt_at 
+        integer attempts 
+        interval retry_backoff 
+        text channel_name 
+        text channel_args 
+        interval commit_interval 
+        uuid after_message_id FK
+    }
+
+    mq_payloads {
+        uuid id PK
+        text name 
+        jsonb payload_json 
+        bytea payload_bytes 
+    }
+
+    bg_status {
+        uuid id PK
+        jsonb status 
+        timestamp_with_time_zone last_updated 
+    }
+
+    network_segments_controller_lock {
+        uuid id 
+    }
+
+    machines }o--|| vpc_resource_leafs : "vpc_leaf_id"
     machines }o--|| instance_types : "supported_instance_type"
     instances }o--|| machines : "machine_id"
     machine_topologies |o--|| machines : "machine_id"
     machine_events }o--|| machines : "machine_id"
-    tags_machine }o--|| machines : "target_id"
     machine_interfaces }o--|| machines : "attached_dpu_machine_id"
     machine_interfaces }o--|| machines : "machine_id"
-    instance_subnets }o--|| instances : "instance_id"
+    tags_machine }o--|| machines : "target_id"
+    machine_console_metadata }o--|| machines : "machine_id"
+    instance_addresses }o--|| instances : "instance_id"
     network_segments }o--|| domains : "subdomain_id"
-    machine_interfaces }o--|| domains : "domain_id"
     network_segments }o--|| vpcs : "vpc_id"
     network_prefixes }o--|| network_segments : "segment_id"
     machine_interfaces }o--|| network_segments : "segment_id"
     tags_networksegment }o--|| network_segments : "target_id"
-    instance_subnets }o--|| network_segments : "network_segment_id"
-    network_prefix_events }o--|| network_prefixes : "network_prefix_id"
+    machine_interfaces }o--|| domains : "domain_id"
     machine_interface_addresses }o--|| machine_interfaces : "interface_id"
-    instance_subnets }o--|| machine_interfaces : "machine_interface_id"
-    tags_machine }o--|| tags : "tag_id"
+    dhcp_entries }o--|| machine_interfaces : "machine_interface_id"
     tags_networksegment }o--|| tags : "tag_id"
-    instance_subnet_addresses }o--|| instance_subnets : "instance_subnet_id"
-    instance_subnets_events }o--|| instance_subnets : "instance_subnet_id"
+    tags_machine }o--|| tags : "tag_id"
+    mq_msgs }o--|| mq_msgs : "after_message_id"
 ```
