@@ -59,7 +59,6 @@ pub struct Artifact {
 #[serde(rename_all = "kebab-case")]
 pub struct ArtifactConfig {
     pub forge_boot_artifact_aarch64: Artifact,
-    pub forge_user_data_artifact_aarch64: Artifact,
     pub forge_boot_artifact_x86_64: Artifact,
     #[serde(skip)]
     pub artifact_authorization: Option<Authorization>,
@@ -69,8 +68,8 @@ impl Display for ArtifactConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "forge_boot_artifact_aarch64: {:#?}\nforge_user_data_artifact_aarch64: {:#?}\nforge_boot_artifact_x86_64: {:#?}",
-            self.forge_boot_artifact_aarch64, self.forge_user_data_artifact_aarch64, self.forge_boot_artifact_x86_64
+            "forge_boot_artifact_aarch64: {:#?}\nforge_boot_artifact_x86_64: {:#?}",
+            self.forge_boot_artifact_aarch64, self.forge_boot_artifact_x86_64
         )
     }
 }
@@ -141,34 +140,7 @@ impl ArtifactConfig {
                 }
             }
         }
-        let required_artifact_path_clone = required_artifact_path.clone();
-        let forge_user_data_artifact_aarch64_clone = self.forge_user_data_artifact_aarch64.clone();
-        if !tokio::task::spawn_blocking(move || {
-            validate_artifact(
-                required_artifact_path_clone,
-                &forge_user_data_artifact_aarch64_clone,
-            )
-        })
-        .await?
-        {
-            match self.artifact_authorization.as_ref() {
-                Some(authorization) => {
-                    eprintln!(
-                        "unable to validate artifact: forge_user_data_artifact_aarch64, downloading it"
-                    );
-                    let user_data_artifacts_fut = download_artifact(
-                        self.forge_user_data_artifact_aarch64.clone(),
-                        authorization.clone(),
-                        client.clone(),
-                        required_artifact_path.clone(),
-                    );
-                    futures.push(user_data_artifacts_fut);
-                }
-                None => {
-                    return Err(ArtifactDownloadError::MissingAuthorization.into());
-                }
-            }
-        }
+
         let required_artifact_path_clone = required_artifact_path.clone();
         let forge_boot_artifact_x86_64_clone = self.forge_boot_artifact_x86_64.clone();
         if !tokio::task::spawn_blocking(move || {

@@ -9,14 +9,6 @@
       "ipxe.efi": "56db00dfa98e08d850eb7cf42a2b167075d164f90883189870ed9fb72f98ae13"
     }
   },
-  "forge-user-data-artifact-aarch64": {
-    "url": "https://urm.nvidia.com/artifactory/swngc-ngcc-generic-local/nvmetal/user-data-artifacts/aarch64/forge-user-data-artifacts-49016248.tar.gz",
-    "architecture": "Aarch64",
-    "checksums": {
-      "carbide-cli": "93c75721d7c3dec7ce2a196efb0f30017e5a73ae003f5619ee6621347e1471c2",
-      "doca_container_configs_1.4.0.zip": "2f4007a7e79ce10917674ac0cc1becf88b9bb3289238a5e324077a83c20f569c"
-    }
-  },
   "forge-boot-artifact-x86-64": {
     "url": "https://urm.nvidia.com/artifactory/swngc-ngcc-generic-local/nvmetal/boot-artifacts/x86_64/forge-boot-artifacts-48662653.tar.gz",
     "architecture": "X86_64",

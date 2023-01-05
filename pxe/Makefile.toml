@@ -8,6 +8,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 [env]
+REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_PROJECT_DIR"], env_not_set = ["REPO_ROOT"]}}
+
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04"
 BFB_NAME = "DOCA_1.5.1_BSP_3.9.3_Ubuntu_20.04-4.2211-LTS.signed.bfb"
 
@@ -15,7 +17,7 @@ BFB_NAME = "DOCA_1.5.1_BSP_3.9.3_Ubuntu_20.04-4.2211-LTS.signed.bfb"
 #dependencies = [
 
 dependencies = [
-        { name = "build-carbide-cli", path = "../Makefile.toml" },
+        { name = "build-carbide-cli", path = "${REPO_ROOT}" },
         "build",
         "create-ephemeral-image-x86_64-ci",
         "ipxe-x86_64",
@@ -23,7 +25,7 @@ dependencies = [
 
 [tasks.build-boot-artifacts-x86_64-ci]
 dependencies = [
-        { name = "build-carbide-cli-ci", path = "../Makefile.toml" },
+        { name = "build-carbide-cli-ci", path = "${REPO_ROOT}" },
         "build",
         "create-ephemeral-image-x86_64-ci",
         "ipxe-x86_64-ci",
@@ -31,12 +33,14 @@ dependencies = [
 
 [tasks.build-boot-artifacts-aarch64]
 dependencies = [
+	{ name = "build-carbide-cli", path = "${REPO_ROOT}" },
 	"bfb-aarch64",
 	"ipxe-aarch64",
 ]
 
 [tasks.build-boot-artifacts-aarch64-ci]
 dependencies = [
+	{ name = "build-carbide-cli-ci", path = "${REPO_ROOT}" },
 	"bfb-aarch64-ci",
 	"ipxe-aarch64",
 ]
@@ -65,7 +69,7 @@ dependencies = [
 category = "Copy Debug Artifacts"
 command = "cp"
 args = [
-	"../target/debug/carbide-cli",
+	"${REPO_ROOT}/target/debug/carbide-cli",
 	"mkosi.extra/carbide/",
 ]
 
@@ -205,21 +209,21 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Build the x86_64 Legacy BIOS iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=../../local/embed.ipxe" ]
+args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe" ]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-x86_64]
 category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=../../local/embed.ipxe"]
+args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
-args = [ "bin-arm64-efi/ipxe.efi", "EMBED=../../local/embed.ipxe"]
+args = [ "bin-arm64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
 cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
@@ -232,8 +236,14 @@ dependencies = [
 	"bfbtools-download",
 	"bfb-extract",
 	"bfb-extract-efi",
-	"bfb-extract-ubuntu",
+	"bfb-add-cli-to-bfb",
+	"download-hbn-installer-to-bfb",
+	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
+	"move-forge-dpu-package-to-bfb",
+	"bfb-extract-vmlinuz",
 	"bfb-copy-efi",
+	"bfb-remove-extracted-efi",
+	"bfb-rebuild-rootfs",
 	"bfb-copy-rootfs",
 ]
 
@@ -247,9 +257,15 @@ dependencies = [
 	"bfbtools-download",
 	"bfb-extract",
 	"bfb-extract-efi",
-	"bfb-extract-ubuntu",
+	"bfb-add-cli-to-bfb",
+	"download-hbn-installer-to-bfb",
+	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
+	"move-forge-dpu-package-to-bfb",
+	"bfb-extract-vmlinuz",
 	"bfb-copy-efi",
 	"bfb-update-efi-checksum-aarch64",
+	"bfb-remove-extracted-efi",
+	"bfb-rebuild-rootfs",
 	"bfb-copy-rootfs",
 	"bfb-update-rootfs-checksum-aarch64",
 ]
@@ -303,11 +319,39 @@ description = "Extract the BFB initramfs on aarch64 gitlab runner"
 script = [ "gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | cpio -id" ]
 cwd = "/tmp/bfb-dump/initramfs-tmp"
 
-[tasks.bfb-extract-ubuntu]
+[tasks.bfb-add-cli-to-bfb]
+category = "iPXE Kernel"
+description = "Add the cli to the bfb"
+command = "cp"
+args = [
+	"${REPO_ROOT}/target/debug/carbide-cli",
+	"/tmp/bfb-dump/initramfs-tmp",
+]
+
+[tasks.download-hbn-installer-to-bfb]
+category = "iPXE Kernel"
+description = "Add the HBN installer to the bfb"
+command = "wget"
+args = [
+	"https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/1.5.0/zip",
+	"-O",
+	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs_1.5.0.zip",
+]
+
+[tasks.move-forge-dpu-package-to-bfb]
+category = "iPXE Kernel"
+description = "Move aarch64 EFI iPXE debian file"
+command = "mv"
+args = [
+	"${REPO_ROOT}/bluefield/forge-dpu_1.0-1.deb",
+	"/tmp/bfb-dump/initramfs-tmp",
+]
+
+[tasks.bfb-extract-vmlinuz]
 category = "iPXE Kernel"
 description = "Extract the BFB ubuntu image on aarch64 gitlab runner"
 command = "tar"
-args = [ "-xf", "image.tar.xz"]
+args = [ "--wildcards", "-xf", "image.tar.xz", "./boot/vmlinuz*"]
 cwd = "/tmp/bfb-dump/initramfs-tmp/ubuntu"
 
 [tasks.bfb-update-efi-checksum-aarch64]
@@ -330,6 +374,12 @@ command = "cp"
 args = [ "/tmp/bfb-dump/initramfs-tmp/ubuntu/boot/vmlinuz", "carbide.efi"]
 cwd = "static/blobs/internal/aarch64"
 
+[tasks.bfb-remove-extracted-efi]
+category = "iPXE Kernel"
+description = "Remove the BFB efi kernel on aarch64 gitlab runner"
+command = "rm"
+args = [ "-fr", "/tmp/bfb-dump/initramfs-tmp/ubuntu/boot"]
+
 [tasks.bfb-update-rootfs-checksum-aarch64]
 category = "iPXE Kernel"
 description = "update the checksum for the aarch64 BFB rootfs"
@@ -342,6 +392,12 @@ mv artifacts.json.bk artifacts.json
 dependencies = [
 	"bfb-copy-rootfs"
 ]
+
+[tasks.bfb-rebuild-rootfs]
+category = "iPXE Kernel"
+description = "Rebuild the BFB root fs on aarch64 gitlab runner"
+script = [ "find . -print0 | sudo cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0" ]
+cwd = "/tmp/bfb-dump/initramfs-tmp"
 
 [tasks.bfb-copy-rootfs]
 category = "iPXE Kernel"

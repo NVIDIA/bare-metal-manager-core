@@ -8,6 +8,12 @@ NUM_SFs_ECPF1=2
 
 bfb_modify_os()
 {
+# move the files out of the installer and into the installed OS
+mkdir -p /mnt/opt/forge
+mv /carbide-cli /mnt/opt/forge
+mv /forge-dpu_1.0-1.deb /mnt/opt/forge
+mv /doca_container_configs_1.5.0.zip /mnt/opt/forge
+
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
 debug:
@@ -144,21 +150,18 @@ runcmd:
   - [ /usr/bin/systemctl, disable, --now, systemd-timesyncd ]
   - [ /usr/bin/systemctl, enable, --now, systemd-timesyncd@mgmt ]
   - [ /usr/bin/timedatectl, set-ntp, true ]
-  - [ ip, vrf, exec, mgmt, wget, {{ pxe_url }}/public/blobs/internal/aarch64/carbide-cli, -P, /opt/carbide/ ]
-  - [ chmod, +x, /opt/carbide/carbide-cli ]
-  - [ ip, vrf, exec, mgmt, /opt/carbide/carbide-cli, --api={{ api_url }}, discovery, --uuid={{ interface_id }} ]
+  - [ chmod, +x, /opt/forge/carbide-cli ]
+  - [ ip, vrf, exec, mgmt, /opt/forge/carbide-cli, --api={{ api_url }}, discovery, --uuid={{ interface_id }} ]
   - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
   - [ /usr/bin/mlxconfig, -y, -d, /dev/mst/mt*_pciconf0, s, SRIOV_EN=True, NUM_OF_VFS=16, HIDE_PORT2_PF=True ]
-  - [ mkdir, -p, /opt/hbn_installer, /opt/carbide ]
-  - [ ip, vrf, exec, mgmt, wget, {{ pxe_url }}/public/blobs/internal/aarch64/doca_container_configs_1.5.0.zip, -P, /opt/hbn_installer/ ]
-  - [ ip, vrf, exec, mgmt, wget, {{ pxe_url }}/public/blobs/internal/aarch64/forge-dpu_1.0-1.deb, -P, /tmp/forge-dpu_1.0-1.deb ]
-  - [ dpkg, -i, /tmp/forge-dpu_1.0-1.deb ]
-  - [ /usr/bin/unzip, /opt/hbn_installer/doca_container_configs_1.5.0.zip, -d, /opt/hbn_installer/ ]
+  - [ dpkg, -i, /opt/forge/forge-dpu_1.0-1.deb ]
+  - [ mkdir, -p, /opt/hbn_installer ]
+  - [ /usr/bin/unzip, /opt/forge/doca_container_configs_1.5.0.zip, -d, /opt/hbn_installer/ ]
   - [ chmod, +x, /opt/hbn_installer/scripts/doca_hbn/hbn-dpu-setup.sh]
   - [ cd, /opt/hbn_installer/scripts/doca_hbn ]
   - [ ip, vrf, exec, mgmt, /bin/bash, hbn-dpu-setup.sh ]
   - [ cp, /opt/hbn_installer/configs/1.5.0/doca_hbn.yaml, /etc/kubelet.d/ ]
-  - [ ip, vrf, exec, mgmt, /opt/carbide/carbide-cli, --api={{ api_url }}, done, --uuid={{ interface_id }} ]
+  - [ ip, vrf, exec, mgmt, /opt/forge/carbide-cli, --api={{ api_url }}, done, --uuid={{ interface_id }} ]
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
   - [ /usr/sbin/reboot ]
 EOF
