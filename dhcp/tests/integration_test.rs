@@ -241,12 +241,25 @@ impl Kea {
     }
 
     fn config(api_server_url: &str) -> String {
-        let hook_lib = format!("{}/../target/debug/libdhcp.so", env!("CARGO_MANIFEST_DIR"));
-        assert!(
-            Path::new(&hook_lib).exists(),
-            "Expected our Kea hooks dynamic library at '{}'",
-            hook_lib
+        let hook_lib_d = format!("{}/../target/debug/libdhcp.so", env!("CARGO_MANIFEST_DIR"));
+        let hook_lib_r = format!(
+            "{}/../target/release/libdhcp.so",
+            env!("CARGO_MANIFEST_DIR")
         );
+        let hook_lib = if Path::new(&hook_lib_r).exists() {
+            hook_lib_r
+        } else if Path::new(&hook_lib_d).exists() {
+            hook_lib_d
+        } else {
+            // If `cargo build` has not been run yet (after a `cargo clean`), the `build.rs` script won't have
+            // generated libdhcp.so. So we do it ourselves.
+            println!(
+                "Could not find Kea hooks dynamic library at '{}'. Building.",
+                hook_lib_d
+            );
+            test_cdylib::build_current_project();
+            hook_lib_d
+        };
 
         let conf = json!({
         "Dhcp4": {
