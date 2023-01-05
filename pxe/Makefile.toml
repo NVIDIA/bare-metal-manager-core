@@ -51,6 +51,7 @@ dependencies = [
 	"mkosi-generate-zipapp",
 	"mkosi-clean-artifacts",
 	"copy-debug-artifacts",
+	"copy-forge-root-ca",
 	"mkosi-build-image",
 	"mkosi-remove-unnecessary-files",
 ]
@@ -61,8 +62,17 @@ dependencies = [
 	"mkosi-generate-zipapp",
 	"mkosi-clean-artifacts-x86_64-ci",
 	"copy-debug-artifacts",
+	"copy-forge-root-ca",
 	"mkosi-build-image-x86_64-ci",
 	"mkosi-remove-unnecessary-files",
+]
+
+[tasks.copy-forge-root-ca]
+category = "Copy Forge Root CA"
+command = "cp"
+args = [
+	"${REPO_ROOT}/dev/forge_root.pem",
+	"mkosi.extra/carbide/",
 ]
 
 [tasks.copy-debug-artifacts]
@@ -237,6 +247,7 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-cli-to-bfb",
+	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",
@@ -258,6 +269,7 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-cli-to-bfb",
+	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",
@@ -318,6 +330,15 @@ category = "iPXE Kernel"
 description = "Extract the BFB initramfs on aarch64 gitlab runner"
 script = [ "gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | cpio -id" ]
 cwd = "/tmp/bfb-dump/initramfs-tmp"
+
+[tasks.bfb-add-forge-root-ca-to-bfb]
+category = "iPXE Kernel"
+description = "Add the forge root CA to the bfb"
+command = "cp"
+args = [
+	"${REPO_ROOT}/dev/forge_root.pem",
+	"/tmp/bfb-dump/initramfs-tmp",
+]
 
 [tasks.bfb-add-cli-to-bfb]
 category = "iPXE Kernel"
