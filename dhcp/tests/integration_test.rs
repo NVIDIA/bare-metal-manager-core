@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs::{remove_file, File};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::{Ipv4Addr, UdpSocket};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::channel;
@@ -33,7 +34,6 @@ const READ_TIMEOUT: Duration = Duration::from_millis(50);
 //
 // Kea should receive the packets, call our hooks, which should call MockAPIServer and then respond to
 // the relay (aka gateway), which is us.
-#[ignore]
 #[test]
 fn test_real_kea_multithreaded() -> Result<(), anyhow::Error> {
     // Start multi-threaded mock API server. The hooks call this over the network.
@@ -241,8 +241,12 @@ impl Kea {
     }
 
     fn config(api_server_url: &str) -> String {
-        let repo_root = std::env::var("REPO_ROOT").unwrap(); // set in .envrc
-        let hook_lib = format!("{}/target/debug/libdhcp.so", repo_root);
+        let hook_lib = format!("{}/../target/debug/libdhcp.so", env!("CARGO_MANIFEST_DIR"));
+        assert!(
+            Path::new(&hook_lib).exists(),
+            "Expected our Kea hooks dynamic library at '{}'",
+            hook_lib
+        );
 
         let conf = json!({
         "Dhcp4": {
