@@ -27,8 +27,7 @@ workspace = false
 script = '''
 	vers=$(grep Version misc/DEBIAN/control | cut -d : -f 2 | sed s/\ //g) && \
 	export vers && \
-	dpkg-deb --build forge-dpu_${vers} && \
-	cp forge-dpu_${vers}.deb ../cli/
+	dpkg-deb --build forge-dpu_${vers}
 '''
 dependencies = [
 	"setup-forge-dpu-deb"

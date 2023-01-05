@@ -138,17 +138,6 @@ build-boot-artifacts-x86_64:
     - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   when: manual
 
-build-user-data-artifacts-x86_64:
-  before_script:
-    - mkdir ~/.jfrog
-    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
-  stage: build
-  image:
-    name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
-  script:
-    - cargo make --cwd cli build-user-data-artifacts-x86_64-ci
-  when: manual
-
 build-boot-artifacts-aarch64:
   before_script:
     - mkdir ~/.jfrog
@@ -158,19 +147,6 @@ build-boot-artifacts-aarch64:
     name: $BUILD_CONTAINER_IMAGE_NAME_ARM
   script:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
-  tags:
-    - aarch64
-  when: manual
-
-build-user-data-artifacts-aarch64:
-  before_script:
-    - mkdir ~/.jfrog
-    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
-  stage: build
-  image:
-    name: $BUILD_CONTAINER_IMAGE_NAME_ARM
-  script:
-    - cargo make --cwd cli build-user-data-artifacts-aarch64-ci
   tags:
     - aarch64
   when: manual
