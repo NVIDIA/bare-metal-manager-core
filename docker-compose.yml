@@ -48,7 +48,7 @@ services:
       - ca-certificate:/identity
     environment:
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C dhcp -x build -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-carbide.conf"
+    command: cargo watch -C dhcp -x "build --target-dir /tmp/carbide-dhcp" -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-carbide.conf"
     cap_add:
       - net_bind_service
 
@@ -66,7 +66,7 @@ services:
       - ca-certificate:/identity
     environment:
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C api -x "run  --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
+    command: cargo watch -C api -x "run --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
 
   carbide-api:
     depends_on:
@@ -109,7 +109,7 @@ services:
       - ROCKET_port=1080
       - ARTIFACT_AUTHORIZATION_USER=$ARTIFACT_AUTHORIZATION_USER
       - ARTIFACT_AUTHORIZATION_TOKEN=$ARTIFACT_AUTHORIZATION_TOKEN
-    command: cargo watch -C pxe -x run
+    command: cargo watch -C pxe -x "run --target-dir /tmp/carbide-pxe"
 
   postgresql:
     depends_on:
@@ -219,7 +219,7 @@ services:
       - ca-certificate:/identity
     environment:
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C ipmi/console -x "run  --target-dir /tmp/ipmi-console -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem' --listen='0.0.0.0:2222' --api-endpoint='http://172.20.0.14:1079'"
+    command: cargo watch -C ipmi/console -x "run --target-dir /tmp/ipmi-console -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem' --listen='0.0.0.0:2222' --api-endpoint='http://172.20.0.14:1079'"
     ports:
       - 2222:2222
 volumes:
