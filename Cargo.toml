@@ -2,10 +2,12 @@
 
 members = [
   "api",
+  "bluefield/agent",
   "cli",
   "dhcp",
   "dns",
   "forge_credentials",
+  "host-support",
   "pxe",
   "redfish",
   "rpc",

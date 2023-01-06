@@ -1,0 +1,22 @@
+[package]
+name = "forge-host-support"
+version = "0.1.0"
+edition.workspace = true
+license-file = "../LICENSE"
+authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+base64 = "0.13"
+libudev = "0.3"
+log = "0.4"
+procfs = "0.14"
+thiserror = "1"
+tokio = { workspace = true }
+tonic = "0.8"
+uname = "0.1"
+uuid = "1.0"
+
+# local crate dependencies
+rpc = { path = "../rpc" }

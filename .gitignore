@@ -1,4 +1,6 @@
 **/target
+bluefield/forge-dpu*.deb
+bluefield/forge-dpu*/
 public/
 .vagrant
 .DS_Store

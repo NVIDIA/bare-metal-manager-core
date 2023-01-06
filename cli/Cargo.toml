@@ -13,9 +13,9 @@ path = "src/main.rs"
 base64 = "0.13"
 clap = { version = "~3", features = ["derive", "env"] }
 color-eyre = "0.6"
+efivar = "0.2.1"
 humanbool = "1.3"
 libc = "0.2"
-libudev = "0.3"
 log = "0.4"
 once_cell = "1.15"
 pretty_env_logger = "0.4"
@@ -33,7 +33,7 @@ tonic = "0.8"
 uname = "0.1"
 uuid = "1.0"
 
-# local crate depenendencies
+# local crate dependencies
 rpc = { path = "../rpc" }
 forge_credentials = { path = "../forge_credentials" }
-efivar = "0.2.1"
+forge-host-support = { path = "../host-support" }
