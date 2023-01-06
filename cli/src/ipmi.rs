@@ -157,7 +157,13 @@ impl Cmd {
             )));
         }
 
-        Ok(String::from_utf8(output.stdout)?)
+        String::from_utf8(output.stdout).map_err(|_| {
+            CarbideClientError::GenericError(format!(
+                "Result of IPMI command {:?} with args {:?} is invalid UTF8",
+                self.command.get_program(),
+                self.command.get_args().collect::<Vec<&OsStr>>()
+            ))
+        })
     }
 }
 

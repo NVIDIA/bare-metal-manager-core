@@ -9,19 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::str::Utf8Error;
-use std::string::FromUtf8Error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideClientError {
     #[error("Generic error: {0}")]
     GenericError(String),
-
-    #[error("Could not chunk the udev address into 2 length strings {0}")]
-    Utf8Error(#[from] Utf8Error),
-
-    #[error("Generic Udev Error {0}")]
-    UdevError(#[from] libudev::Error),
 
     #[error("Generic Tonic transport error {0}")]
     TonicTransportError(#[from] tonic::transport::Error),
@@ -38,8 +30,13 @@ pub enum CarbideClientError {
     #[error("StdIo error {0}")]
     StdIo(#[from] std::io::Error),
 
-    #[error("String conversion failed from [u8] {0}")]
-    FromUtf8Error(#[from] FromUtf8Error),
+    #[error("Hardware enumeration error: {0}")]
+    HardwareEnumerationError(
+        #[from] forge_host_support::hardware_enumeration::HardwareEnumerationError,
+    ),
+
+    #[error("Hardware enumeration error: {0}")]
+    RegistrationError(#[from] forge_host_support::registration::RegistrationError),
 }
 
 pub type CarbideClientResult<T> = Result<T, CarbideClientError>;

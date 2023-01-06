@@ -1,0 +1,12 @@
+[Unit]
+Description=Forge DPU agent service
+After=network
+
+[Service]
+Type=simple
+Environment="RUST_BACKTRACE=1"
+Environment="RUST_LOG=debug"
+ExecStart=/usr/bin/forge-dpu-agent
+
+[Install]
+WantedBy=multi-user.target
