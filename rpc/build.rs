@@ -19,6 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .file_descriptor_set_path(&reflection)
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .include_file("common.rs")
+        .type_attribute("forge.CredentialResponse", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Domain", "#[derive(serde::Serialize)]")
         .type_attribute("forge.DomainList", "#[derive(serde::Serialize)]")
         .type_attribute(

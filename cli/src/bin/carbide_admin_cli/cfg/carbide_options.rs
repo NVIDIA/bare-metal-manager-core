@@ -46,6 +46,20 @@ pub enum CarbideCommand {
 pub enum Machine {
     #[clap(about = "Display Machine information")]
     Show(ShowMachine),
+    #[clap(about = "Print DPU admin SSH username:password")]
+    DpuSshCredentials(MachineQuery),
+}
+
+#[derive(Parser, Debug)]
+pub struct MachineQuery {
+    #[clap(
+        short,
+        long,
+        multiple_values(false),
+        require_equals(true),
+        help = "UUID, IPv4, MAC or hostnmame of the DPU machine to query"
+    )]
+    pub query: String,
 }
 
 #[derive(Parser, Debug)]

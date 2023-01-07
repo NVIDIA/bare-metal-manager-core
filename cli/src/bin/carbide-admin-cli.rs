@@ -11,17 +11,17 @@
  */
 mod carbide_admin_cli;
 
-use carbide_admin_cli::cfg::carbide_options::{
-    CarbideCommand, CarbideOptions, Domain, Instance, Machine, NetworkSegment,
-};
-use log::LevelFilter;
-use serde::Deserialize;
-
 use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
+
+use carbide_admin_cli::cfg::carbide_options::{
+    CarbideCommand, CarbideOptions, Domain, Instance, Machine, NetworkSegment,
+};
+use log::LevelFilter;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -43,8 +43,8 @@ fn get_carbide_api_url(carbide_api: Option<String>, config: Option<Config>) -> S
 
     panic!(
         r#"Unknown CARBIDE_API_URL. Set (will be read in same sequence.)
-           1. --carbide_api/-c flag or 
-           2. environment variable CARBIDE_API_URL or 
+           1. --carbide_api/-c flag or
+           2. environment variable CARBIDE_API_URL or
            3. add carbide_api_url in $HOME/.config/carbide_api_cli.json."#
     )
 }
@@ -90,6 +90,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
                 carbide_admin_cli::machine::handle_show(machine, config.json, carbide_api).await?
+            }
+            Machine::DpuSshCredentials(query) => {
+                let cred = carbide_admin_cli::rpc::get_dpu_ssh_credential(query.query, carbide_api)
+                    .await?;
+                if config.json {
+                    println!("{}", serde_json::to_string_pretty(&cred).unwrap());
+                } else {
+                    println!("{}:{}", cred.username, cred.password);
+                }
             }
         },
         CarbideCommand::Instance(instance) => match instance {

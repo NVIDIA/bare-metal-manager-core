@@ -132,3 +132,20 @@ pub async fn get_domains(
     })
     .await
 }
+
+pub async fn get_dpu_ssh_credential(
+    query: String,
+    server: String,
+) -> CarbideCliResult<rpc::CredentialResponse> {
+    with_forge_client(server, |mut client| async move {
+        let request = tonic::Request::new(rpc::CredentialRequest { host_id: query });
+        let cred = client
+            .get_dpu_ssh_credential(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+
+        Ok(cred)
+    })
+    .await
+}

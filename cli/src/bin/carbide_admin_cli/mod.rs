@@ -14,7 +14,7 @@ pub mod domain;
 pub mod instance;
 pub mod machine;
 pub mod network;
-mod rpc;
+pub mod rpc;
 
 use ::rpc::forge as forgerpc;
 
