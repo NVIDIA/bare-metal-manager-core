@@ -10,12 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 use std::convert::TryFrom;
+use std::net::Ipv4Addr;
+use std::str::FromStr;
 use std::sync::Arc;
 
+pub use ::rpc::forge as rpc;
+use ::rpc::forge::InstanceList;
+use ::rpc::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
+use ::rpc::MachineStateMachineInput;
 use color_eyre::Report;
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
+use uuid::Uuid;
 
+use self::rpc::forge_server::Forge;
 use crate::{
     auth::CarbideAuth,
     cfg,
@@ -58,13 +68,9 @@ use crate::{
     },
     CarbideError,
 };
-pub use ::rpc::forge as rpc;
-use ::rpc::forge::InstanceList;
-use ::rpc::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
-use ::rpc::MachineStateMachineInput;
-use forge_credentials::CredentialProvider;
 
-use self::rpc::forge_server::Forge;
+// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
+const DPU_ADMIN_USERNAME: &str = "forge";
 
 pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
@@ -1203,6 +1209,60 @@ where
         response
     }
 
+    // Fetch the DPU admin SSH password from Vault.
+    // "host_id" can be any of:
+    //  - UUID (primary key)
+    //  - IPv4 address
+    //  - MAC address
+    //  - Hostname
+    //
+    // Usage:
+    //  grpcurl -d '{"host_id": "neptune-bravo"}' -plaintext 127.0.0.1:1079 forge.Forge/GetDpuSSHCredential | jq -r -j ".password"
+    // That should evaluate to exactly the password, ready for inclusion in a script.
+    //
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn get_dpu_ssh_credential(
+        &self,
+        request: Request<rpc::CredentialRequest>,
+    ) -> Result<Response<rpc::CredentialResponse>, Status> {
+        let query = request.into_inner().host_id;
+
+        let uuid = self.find_dpu_machine_uuid(&query).await?;
+
+        // Load credentials from Vault
+        let credentials = self
+            .credential_provider
+            .get_credentials(CredentialKey::DpuSsh {
+                machine_id: uuid.to_string(),
+            })
+            .await
+            .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
+                Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
+                    CarbideError::NotFoundError(uuid)
+                }
+                Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
+                Err(err) => CarbideError::GenericError(format!(
+                    "Error getting SSH credentials for DPU: {:?}",
+                    err
+                )),
+            })?;
+
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        // UpdateMachineCredentials only allows a single account currently so warn if it's
+        // not the correct one.
+        if username != DPU_ADMIN_USERNAME {
+            tracing::warn!("Expected '{DPU_ADMIN_USERNAME}' username in Vault, found '{username}'");
+        }
+
+        Ok(Response::new(rpc::CredentialResponse {
+            username,
+            password,
+        }))
+    }
+
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_bmc_meta_data(
         &self,
@@ -1427,6 +1487,55 @@ where
             .await?;
 
         Ok(())
+    }
+
+    // Map any of a UUID, IPv4, MAC or hostname to the UUID of a DPU machine, by querying the
+    // database.
+    async fn find_dpu_machine_uuid(&self, query: &str) -> Result<Uuid, tonic::Status> {
+        if let Ok(uuid) = Uuid::parse_str(query) {
+            return Ok(uuid);
+        }
+        if let Ok(ip) = Ipv4Addr::from_str(query) {
+            let mut txn = self
+                .database_connection
+                .begin()
+                .await
+                .map_err(CarbideError::from)?;
+            match DpuMachine::find_by_ip(&mut txn, &ip).await {
+                Ok(machine) => return Ok(*machine.machine_id()),
+                Err(err) => {
+                    return Err(Status::not_found(format!(
+                        "IP address '{ip}' did not match any machines: {err}"
+                    )));
+                }
+            }
+        }
+        if let Ok(mac) = MacAddress::from_str(query) {
+            let mut txn = self
+                .database_connection
+                .begin()
+                .await
+                .map_err(CarbideError::from)?;
+            match DpuMachine::find_by_mac_address(&mut txn, &mac).await {
+                Ok(machine) => return Ok(*machine.machine_id()),
+                Err(err) => {
+                    return Err(Status::not_found(format!(
+                        "MAC address '{mac}' did not match any machines: {err}"
+                    )));
+                }
+            }
+        }
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+        match DpuMachine::find_by_hostname(&mut txn, query).await {
+            Ok(machine) => Ok(*machine.machine_id()),
+            Err(err) => Err(Status::not_found(format!(
+                "Hostname '{query}' did not match any machines: {err}"
+            ))),
+        }
     }
 }
 

@@ -84,6 +84,9 @@ service Forge {
   // Auth Requests
   rpc ValidateUserSSHKey(SSHKeyValidationRequest) returns (SSHKeyValidationResponse);
 
+  // PRIVILEGED: Query Vault for the DPU's SSH admin password
+  rpc GetDpuSSHCredential(CredentialRequest) returns (CredentialResponse);
+
   // IPMI handling
   rpc UpdateBMCMetaData(BMCMetaDataUpdateRequest) returns (BMCMetaDataUpdateResponse);
 
@@ -761,6 +764,15 @@ message SSHKeyValidationResponse {
     UserRoles role = 2;
 }
 
+message CredentialRequest {
+	string host_id = 1;  // UUID, IP address, host name or MAC address
+}
+
+message CredentialResponse {
+	string username = 1;
+	string password = 2;
+}
+
 enum BMCRequestType {
     IPMI = 0;
     REDFISH = 1;
@@ -812,7 +824,7 @@ message MachineCleanupInfo {
 	}
 	message CleanupStepResult {
 		CleanupResult result = 1;
-		// If the result was an error, this can contain the associate error message 
+		// If the result was an error, this can contain the associate error message
 		string message = 2;
 	}
 

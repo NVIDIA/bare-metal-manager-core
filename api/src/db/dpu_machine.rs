@@ -12,6 +12,9 @@
 //!
 //! Machine - represents a database-backed Machine object
 //!
+
+use std::net::Ipv4Addr;
+
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
@@ -92,6 +95,42 @@ impl DpuMachine {
         Ok(
             sqlx::query_as("SELECT dm.* From dpu_machines dm JOIN machine_interfaces mi on dm.machine_id = mi.attached_dpu_machine_id WHERE mi.machine_id=$1::uuid")
                 .bind(machine_id)
+                .fetch_one(&mut *txn)
+                .await?,
+        )
+    }
+
+    pub async fn find_by_ip(
+        txn: &mut Transaction<'_, Postgres>,
+        query: &Ipv4Addr,
+    ) -> CarbideResult<Self> {
+        Ok(
+            sqlx::query_as("SELECT * FROM dpu_machines WHERE address = $1::inet")
+                .bind(query.to_string())
+                .fetch_one(&mut *txn)
+                .await?,
+        )
+    }
+
+    pub async fn find_by_hostname(
+        txn: &mut Transaction<'_, Postgres>,
+        query: &str,
+    ) -> CarbideResult<Self> {
+        Ok(
+            sqlx::query_as("SELECT * FROM dpu_machines WHERE hostname = $1")
+                .bind(query)
+                .fetch_one(&mut *txn)
+                .await?,
+        )
+    }
+
+    pub async fn find_by_mac_address(
+        txn: &mut Transaction<'_, Postgres>,
+        query: &MacAddress,
+    ) -> CarbideResult<Self> {
+        Ok(
+            sqlx::query_as("SELECT * FROM dpu_machines WHERE mac_address = $1::macaddr")
+                .bind(query)
                 .fetch_one(&mut *txn)
                 .await?,
         )

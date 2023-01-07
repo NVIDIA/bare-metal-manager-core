@@ -9,12 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::cfg::carbide_options::ShowMachine;
-use super::{default_uuid, rpc, CarbideCliResult};
+use std::fmt::Write;
+
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 use serde_json;
-use std::fmt::Write;
+
+use super::cfg::carbide_options::ShowMachine;
+use super::{default_uuid, rpc, CarbideCliResult};
 
 fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResult<String> {
     let width = 10;

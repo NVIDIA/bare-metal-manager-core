@@ -18,4 +18,12 @@ RESULT=$(echo $DISCOVER_MACHINE_REQUEST | grpcurl -d @ -plaintext 127.0.0.1:1079
 DPU_MACHINE_ID=$(echo $RESULT | jq ".machineId.value" | tr -d '"')
 echo "Created DPU Machine with ID $DPU_MACHINE_ID"
 
-# TODO: Simulate credential settings of a DPU
+# Simulate credential settings of a DPU
+RESULT=`grpcurl -d "{\"machine_id\": {\"value\": \"$DPU_MACHINE_ID\"}, \"credentials\": [{\"user\": \"forge\", \"password\": \"notforprod\", \"credential_purpose\": 1}] }" -plaintext 127.0.0.1:1079 forge.Forge/UpdateMachineCredentials`
+cred_ret=$?
+if [ $cred_ret -eq 0 ]; then
+	echo "Created 'forge' DPU SSH account"
+else
+	echo "Failed to create DPU SSH account"
+	exit $cred_ret
+fi
