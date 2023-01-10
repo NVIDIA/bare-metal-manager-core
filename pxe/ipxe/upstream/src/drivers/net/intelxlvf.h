@@ -91,7 +91,7 @@ struct intelxlvf_admin_version_buffer {
 #define INTELXLVF_ADMIN_API_MAJOR 1
 
 /** Admin queue VF API minor version */
-#define INTELXLVF_ADMIN_API_MINOR 0
+#define INTELXLVF_ADMIN_API_MINOR 1
 
 /** Admin Queue VF Reset opcode */
 #define INTELXLVF_ADMIN_RESET 0x00000002
@@ -99,10 +99,26 @@ struct intelxlvf_admin_version_buffer {
 /** Admin Queue VF Get Resources opcode */
 #define INTELXLVF_ADMIN_GET_RESOURCES 0x00000003
 
+/** Admin Queue VF Capabilities data buffer */
+struct intelxlvf_admin_capabilities_buffer {
+	/** Capabilities */
+	uint32_t caps;
+} __attribute__ (( packed ));
+
 /** Admin Queue VF Get Resources data buffer */
 struct intelxlvf_admin_get_resources_buffer {
+	/** Number of VSIs */
+	uint16_t vsis;
+	/** Number of queue pairs */
+	uint16_t qps;
+	/** Number of MSI-X vectors */
+	uint16_t vectors;
+	/** Maximum MTU */
+	uint16_t mtu;
+	/** Capabilities */
+	uint32_t caps;
 	/** Reserved */
-	uint8_t reserved_a[20];
+	uint8_t reserved_a[8];
 	/** VSI switching element ID */
 	uint16_t vsi;
 	/** Reserved */
@@ -110,6 +126,12 @@ struct intelxlvf_admin_get_resources_buffer {
 	/** MAC address */
 	uint8_t mac[ETH_ALEN];
 } __attribute__ (( packed ));
+
+/** Layer 2 capabilities (add/remove MAC, configure promiscuous mode) */
+#define INTELXLVF_ADMIN_CAP_L2 0x00000001
+
+/** Request Queues capabilities */
+#define INTELXLVF_ADMIN_CAP_RQPS 0x00000040
 
 /** Admin Queue VF Status Change Event opcode */
 #define INTELXLVF_ADMIN_STATUS 0x00000011
@@ -253,12 +275,50 @@ struct intelxlvf_admin_promisc_buffer {
 	uint16_t flags;
 } __attribute__ (( packed ));
 
+/** Admin Queue VF Get Statistics opcode */
+#define INTELXLVF_ADMIN_GET_STATS 0x0000000f
+
+/** VF statistics */
+struct intelxlvf_admin_stats {
+	/** Bytes */
+	uint64_t bytes;
+	/** Unicast packets */
+	uint64_t unicasts;
+	/** Multicast packets */
+	uint64_t multicasts;
+	/** Broadcast packets */
+	uint64_t broadcasts;
+	/** Discarded packets */
+	uint64_t discards;
+	/** Errors */
+	uint64_t errors;
+} __attribute__ (( packed ));
+
+/** Admin Queue VF Get Statistics data buffer */
+struct intelxlvf_admin_stats_buffer {
+	/** Receive statistics */
+	struct intelxlvf_admin_stats rx;
+	/** Transmit statistics */
+	struct intelxlvf_admin_stats tx;
+} __attribute__ (( packed ));
+
+/** Admin Queue VF Request Queues opcode */
+#define INTELXLVF_ADMIN_REQUEST_QPS 0x0000001d
+
+/** Admin Queue VF Request Queues data buffer */
+struct intelxlvf_admin_request_qps_buffer {
+	/** Number of queue pairs */
+	uint16_t count;
+} __attribute__ (( packed ));
+
 /** Admin queue data buffer */
 union intelxlvf_admin_buffer {
 	/** Original 40 Gigabit Ethernet data buffer */
 	union intelxl_admin_buffer xl;
 	/** VF Version data buffer */
 	struct intelxlvf_admin_version_buffer ver;
+	/** VF Capabilities data buffer */
+	struct intelxlvf_admin_capabilities_buffer caps;
 	/** VF Get Resources data buffer */
 	struct intelxlvf_admin_get_resources_buffer res;
 	/** VF Status Change Event data buffer */
@@ -271,6 +331,10 @@ union intelxlvf_admin_buffer {
 	struct intelxlvf_admin_promisc_buffer promisc;
 	/** VF IRQ Map data buffer */
 	struct intelxlvf_admin_irq_map_buffer irq;
+	/** VF Get Statistics data buffer */
+	struct intelxlvf_admin_stats_buffer stats;
+	/** VF Request Queues data buffer */
+	struct intelxlvf_admin_request_qps_buffer rqps;
 } __attribute__ (( packed ));
 
 /** Admin queue descriptor */

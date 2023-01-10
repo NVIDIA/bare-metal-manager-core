@@ -46,54 +46,6 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 /******************************************************************************
  *
- * MAC address
- *
- ******************************************************************************
- */
-
-/**
- * Fetch initial MAC address and maximum frame size
- *
- * @v intelxl		Intel device
- * @v netdev		Network device
- * @ret rc		Return status code
- */
-static int intelxl_fetch_mac ( struct intelxl_nic *intelxl,
-			       struct net_device *netdev ) {
-	union intelxl_receive_address mac;
-	uint32_t prtpm_sal;
-	uint32_t prtpm_sah;
-	uint32_t prtgl_sah;
-	size_t mfs;
-
-	/* Read NVM-loaded address */
-	prtpm_sal = readl ( intelxl->regs + INTELXL_PRTPM_SAL );
-	prtpm_sah = readl ( intelxl->regs + INTELXL_PRTPM_SAH );
-	mac.reg.low = cpu_to_le32 ( prtpm_sal );
-	mac.reg.high = cpu_to_le32 ( prtpm_sah );
-
-	/* Check that address is valid */
-	if ( ! is_valid_ether_addr ( mac.raw ) ) {
-		DBGC ( intelxl, "INTELXL %p has invalid MAC address (%s)\n",
-		       intelxl, eth_ntoa ( mac.raw ) );
-		return -ENOENT;
-	}
-
-	/* Copy MAC address */
-	DBGC ( intelxl, "INTELXL %p has autoloaded MAC address %s\n",
-	       intelxl, eth_ntoa ( mac.raw ) );
-	memcpy ( netdev->hw_addr, mac.raw, ETH_ALEN );
-
-	/* Get maximum frame size */
-	prtgl_sah = readl ( intelxl->regs + INTELXL_PRTGL_SAH );
-	mfs = INTELXL_PRTGL_SAH_MFS_GET ( prtgl_sah );
-	netdev->max_pkt_len = ( mfs - 4 /* CRC */ );
-
-	return 0;
-}
-
-/******************************************************************************
- *
  * MSI-X interrupts
  *
  ******************************************************************************
@@ -171,7 +123,7 @@ void intelxl_msix_disable ( struct intelxl_nic *intelxl,
  */
 
 /** Admin queue register offsets */
-static const struct intelxl_admin_offsets intelxl_admin_offsets = {
+const struct intelxl_admin_offsets intelxl_admin_offsets = {
 	.bal = INTELXL_ADMIN_BAL,
 	.bah = INTELXL_ADMIN_BAH,
 	.len = INTELXL_ADMIN_LEN,
@@ -536,12 +488,94 @@ static int intelxl_admin_shutdown ( struct intelxl_nic *intelxl ) {
 }
 
 /**
+ * Get MAC address
+ *
+ * @v netdev		Network device
+ * @ret rc		Return status code
+ */
+static int intelxl_admin_mac_read ( struct net_device *netdev ) {
+	struct intelxl_nic *intelxl = netdev->priv;
+	struct intelxl_admin_descriptor *cmd;
+	struct intelxl_admin_mac_read_params *read;
+	union intelxl_admin_buffer *buf;
+	uint8_t *mac;
+	int rc;
+
+	/* Populate descriptor */
+	cmd = intelxl_admin_command_descriptor ( intelxl );
+	cmd->opcode = cpu_to_le16 ( INTELXL_ADMIN_MAC_READ );
+	cmd->flags = cpu_to_le16 ( INTELXL_ADMIN_FL_BUF );
+	cmd->len = cpu_to_le16 ( sizeof ( buf->mac_read ) );
+	read = &cmd->params.mac_read;
+	buf = intelxl_admin_command_buffer ( intelxl );
+	mac = buf->mac_read.pf;
+
+	/* Issue command */
+	if ( ( rc = intelxl_admin_command ( intelxl ) ) != 0 )
+		return rc;
+
+	/* Check that MAC address is present in response */
+	if ( ! ( read->valid & INTELXL_ADMIN_MAC_READ_VALID_LAN ) ) {
+		DBGC ( intelxl, "INTELXL %p has no MAC address\n", intelxl );
+		return -ENOENT;
+	}
+
+	/* Check that address is valid */
+	if ( ! is_valid_ether_addr ( mac ) ) {
+		DBGC ( intelxl, "INTELXL %p has invalid MAC address (%s)\n",
+		       intelxl, eth_ntoa ( mac ) );
+		return -ENOENT;
+	}
+
+	/* Copy MAC address */
+	DBGC ( intelxl, "INTELXL %p has MAC address %s\n",
+	       intelxl, eth_ntoa ( mac ) );
+	memcpy ( netdev->hw_addr, mac, ETH_ALEN );
+
+	return 0;
+}
+
+/**
+ * Set MAC address
+ *
+ * @v netdev		Network device
+ * @ret rc		Return status code
+ */
+static int intelxl_admin_mac_write ( struct net_device *netdev ) {
+	struct intelxl_nic *intelxl = netdev->priv;
+	struct intelxl_admin_descriptor *cmd;
+	struct intelxl_admin_mac_write_params *write;
+	union {
+		uint8_t raw[ETH_ALEN];
+		struct {
+			uint16_t high;
+			uint32_t low;
+		} __attribute__ (( packed ));
+	} mac;
+	int rc;
+
+	/* Populate descriptor */
+	cmd = intelxl_admin_command_descriptor ( intelxl );
+	cmd->opcode = cpu_to_le16 ( INTELXL_ADMIN_MAC_WRITE );
+	write = &cmd->params.mac_write;
+	memcpy ( mac.raw, netdev->ll_addr, ETH_ALEN );
+	write->high = bswap_16 ( mac.high );
+	write->low = bswap_32 ( mac.low );
+
+	/* Issue command */
+	if ( ( rc = intelxl_admin_command ( intelxl ) ) != 0 )
+		return rc;
+
+	return 0;
+}
+
+/**
  * Clear PXE mode
  *
  * @v intelxl		Intel device
  * @ret rc		Return status code
  */
-static int intelxl_admin_clear_pxe ( struct intelxl_nic *intelxl ) {
+int intelxl_admin_clear_pxe ( struct intelxl_nic *intelxl ) {
 	struct intelxl_admin_descriptor *cmd;
 	struct intelxl_admin_clear_pxe_params *pxe;
 	int rc;
@@ -678,6 +712,31 @@ static int intelxl_admin_promisc ( struct intelxl_nic *intelxl ) {
 	promisc->flags = cpu_to_le16 ( flags );
 	promisc->valid = cpu_to_le16 ( flags );
 	promisc->vsi = cpu_to_le16 ( intelxl->vsi );
+
+	/* Issue command */
+	if ( ( rc = intelxl_admin_command ( intelxl ) ) != 0 )
+		return rc;
+
+	return 0;
+}
+
+/**
+ * Set MAC configuration
+ *
+ * @v intelxl		Intel device
+ * @ret rc		Return status code
+ */
+int intelxl_admin_mac_config ( struct intelxl_nic *intelxl ) {
+	struct intelxl_admin_descriptor *cmd;
+	struct intelxl_admin_mac_config_params *config;
+	int rc;
+
+	/* Populate descriptor */
+	cmd = intelxl_admin_command_descriptor ( intelxl );
+	cmd->opcode = cpu_to_le16 ( INTELXL_ADMIN_MAC_CONFIG );
+	config = &cmd->params.mac_config;
+	config->mfs = cpu_to_le16 ( intelxl->mfs );
+	config->flags = INTELXL_ADMIN_MAC_CONFIG_FL_CRC;
 
 	/* Issue command */
 	if ( ( rc = intelxl_admin_command ( intelxl ) ) != 0 )
@@ -1221,8 +1280,8 @@ static int intelxl_disable_ring ( struct intelxl_nic *intelxl,
  * @v ring		Descriptor ring
  * @ret rc		Return status code
  */
-static int intelxl_create_ring ( struct intelxl_nic *intelxl,
-				 struct intelxl_ring *ring ) {
+int intelxl_create_ring ( struct intelxl_nic *intelxl,
+			  struct intelxl_ring *ring ) {
 	physaddr_t address;
 	int rc;
 
@@ -1255,8 +1314,8 @@ static int intelxl_create_ring ( struct intelxl_nic *intelxl,
  * @v intelxl		Intel device
  * @v ring		Descriptor ring
  */
-static void intelxl_destroy_ring ( struct intelxl_nic *intelxl,
-				   struct intelxl_ring *ring ) {
+void intelxl_destroy_ring ( struct intelxl_nic *intelxl,
+			    struct intelxl_ring *ring ) {
 	int rc;
 
 	/* Disable ring */
@@ -1348,24 +1407,20 @@ void intelxl_empty_rx ( struct intelxl_nic *intelxl ) {
  */
 static int intelxl_open ( struct net_device *netdev ) {
 	struct intelxl_nic *intelxl = netdev->priv;
-	union intelxl_receive_address mac;
 	unsigned int queue;
-	uint32_t prtgl_sal;
-	uint32_t prtgl_sah;
 	int rc;
 
 	/* Calculate maximum frame size */
 	intelxl->mfs = ( ( ETH_HLEN + netdev->mtu + 4 /* CRC */ +
 			   INTELXL_ALIGN - 1 ) & ~( INTELXL_ALIGN - 1 ) );
 
-	/* Program MAC address and maximum frame size */
-	memset ( &mac, 0, sizeof ( mac ) );
-	memcpy ( mac.raw, netdev->ll_addr, sizeof ( mac.raw ) );
-	prtgl_sal = le32_to_cpu ( mac.reg.low );
-	prtgl_sah = ( le32_to_cpu ( mac.reg.high ) |
-		      INTELXL_PRTGL_SAH_MFS_SET ( intelxl->mfs ) );
-	writel ( prtgl_sal, intelxl->regs + INTELXL_PRTGL_SAL );
-	writel ( prtgl_sah, intelxl->regs + INTELXL_PRTGL_SAH );
+	/* Set MAC address */
+	if ( ( rc = intelxl_admin_mac_write ( netdev ) ) != 0 )
+		goto err_mac_write;
+
+	/* Set maximum frame size */
+	if ( ( rc = intelxl_admin_mac_config ( intelxl ) ) != 0 )
+		goto err_mac_config;
 
 	/* Associate transmit queue to PF */
 	writel ( ( INTELXL_QXX_CTL_PFVF_Q_PF |
@@ -1408,6 +1463,8 @@ static int intelxl_open ( struct net_device *netdev ) {
  err_create_tx:
 	intelxl_destroy_ring ( intelxl, &intelxl->rx );
  err_create_rx:
+ err_mac_config:
+ err_mac_write:
 	return rc;
 }
 
@@ -1639,6 +1696,7 @@ static int intelxl_probe ( struct pci_device *pci ) {
 		goto err_alloc;
 	}
 	netdev_init ( netdev, &intelxl_operations );
+	netdev->max_pkt_len = INTELXL_MAX_PKT_LEN;
 	intelxl = netdev->priv;
 	pci_set_drvdata ( pci, netdev );
 	netdev->dev = &pci->dev;
@@ -1694,10 +1752,6 @@ static int intelxl_probe ( struct pci_device *pci ) {
 	       intelxl, intelxl->pf, intelxl->port, intelxl->base,
 	       INTELXL_PFLAN_QALLOC_LASTQ ( pflan_qalloc ) );
 
-	/* Fetch MAC address and maximum frame size */
-	if ( ( rc = intelxl_fetch_mac ( intelxl, netdev ) ) != 0 )
-		goto err_fetch_mac;
-
 	/* Enable MSI-X dummy interrupt */
 	if ( ( rc = intelxl_msix_enable ( intelxl, pci,
 					  INTELXL_MSIX_VECTOR ) ) != 0 )
@@ -1731,6 +1785,10 @@ static int intelxl_probe ( struct pci_device *pci ) {
 	if ( ( rc = intelxl_admin_promisc ( intelxl ) ) != 0 )
 		goto err_admin_promisc;
 
+	/* Get MAC address */
+	if ( ( rc = intelxl_admin_mac_read ( netdev ) ) != 0 )
+		goto err_admin_mac_read;
+
 	/* Configure queue register addresses */
 	intelxl->tx.reg = INTELXL_QTX ( intelxl->queue );
 	intelxl->tx.tail = ( intelxl->tx.reg + INTELXL_QXX_TAIL );
@@ -1762,6 +1820,7 @@ static int intelxl_probe ( struct pci_device *pci ) {
 
 	unregister_netdev ( netdev );
  err_register_netdev:
+ err_admin_mac_read:
  err_admin_promisc:
  err_admin_vsi:
  err_admin_switch:
@@ -1772,7 +1831,6 @@ static int intelxl_probe ( struct pci_device *pci ) {
  err_open_admin:
 	intelxl_msix_disable ( intelxl, pci, INTELXL_MSIX_VECTOR );
  err_msix:
- err_fetch_mac:
 	pci_reset ( pci, intelxl->exp );
  err_exp:
 	iounmap ( intelxl->regs );
