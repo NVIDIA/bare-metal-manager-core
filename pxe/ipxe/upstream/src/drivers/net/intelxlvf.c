@@ -103,6 +103,32 @@ static int intelxlvf_reset_wait_active ( struct intelxl_nic *intelxl ) {
 }
 
 /**
+ * Wait for reset to complete
+ *
+ * @v intelxl		Intel device
+ * @ret rc		Return status code
+ */
+static int intelxlvf_reset_wait ( struct intelxl_nic *intelxl ) {
+	int rc;
+
+	/* Wait for minimum reset time */
+	mdelay ( INTELXLVF_RESET_DELAY_MS );
+
+	/* Wait for reset to take effect */
+	if ( ( rc = intelxlvf_reset_wait_teardown ( intelxl ) ) != 0 )
+		goto err_teardown;
+
+	/* Wait for virtual function to become active */
+	if ( ( rc = intelxlvf_reset_wait_active ( intelxl ) ) != 0 )
+		goto err_active;
+
+ err_active:
+ err_teardown:
+	intelxl_reopen_admin ( intelxl );
+	return rc;
+}
+
+/**
  * Reset hardware via admin queue
  *
  * @v intelxl		Intel device
@@ -119,24 +145,13 @@ static int intelxlvf_reset_admin ( struct intelxl_nic *intelxl ) {
 
 	/* Issue command */
 	if ( ( rc = intelxl_admin_command ( intelxl ) ) != 0 )
-		goto err_command;
+		return rc;
 
-	/* Wait for minimum reset time */
-	mdelay ( INTELXLVF_RESET_DELAY_MS );
+	/* Wait for reset to complete */
+	if ( ( rc = intelxlvf_reset_wait ( intelxl ) ) != 0 )
+		return rc;
 
-	/* Wait for reset to take effect */
-	if ( ( rc = intelxlvf_reset_wait_teardown ( intelxl ) ) != 0 )
-		goto err_teardown;
-
-	/* Wait for virtual function to become active */
-	if ( ( rc = intelxlvf_reset_wait_active ( intelxl ) ) != 0 )
-		goto err_active;
-
- err_active:
- err_teardown:
-	intelxl_reopen_admin ( intelxl );
- err_command:
-	return rc;
+	return 0;
 }
 
 /******************************************************************************
@@ -377,16 +392,109 @@ static int intelxlvf_admin_get_resources ( struct net_device *netdev ) {
 	/* Populate descriptor */
 	cmd = intelxlvf_admin_command_descriptor ( intelxl );
 	cmd->vopcode = cpu_to_le32 ( INTELXLVF_ADMIN_GET_RESOURCES );
+	cmd->flags = cpu_to_le16 ( INTELXL_ADMIN_FL_RD | INTELXL_ADMIN_FL_BUF );
+	cmd->len = cpu_to_le16 ( sizeof ( buf->caps ) );
 	buf = intelxlvf_admin_command_buffer ( intelxl );
+	buf->caps.caps = cpu_to_le32 ( INTELXLVF_ADMIN_CAP_L2 |
+				       INTELXLVF_ADMIN_CAP_RQPS );
 
 	/* Issue command */
 	if ( ( rc = intelxlvf_admin_command ( netdev ) ) != 0 )
 		return rc;
 
 	/* Parse response */
+	intelxl->caps = le32_to_cpu ( buf->res.caps );
 	intelxl->vsi = le16_to_cpu ( buf->res.vsi );
 	memcpy ( netdev->hw_addr, buf->res.mac, ETH_ALEN );
-	DBGC ( intelxl, "INTELXL %p VSI %#04x\n", intelxl, intelxl->vsi );
+	DBGC ( intelxl, "INTELXL %p capabilities %#08x VSI %#04x\n",
+	       intelxl, intelxl->caps, intelxl->vsi );
+
+	return 0;
+}
+
+/**
+ * Get statistics (for debugging)
+ *
+ * @v netdev		Network device
+ * @ret rc		Return status code
+ */
+static int intelxlvf_admin_stats ( struct net_device *netdev ) {
+	struct intelxl_nic *intelxl = netdev->priv;
+	struct intelxlvf_admin_descriptor *cmd;
+	union intelxlvf_admin_buffer *buf;
+	struct intelxlvf_admin_stats *tx;
+	struct intelxlvf_admin_stats *rx;
+	int rc;
+
+	/* Populate descriptor */
+	cmd = intelxlvf_admin_command_descriptor ( intelxl );
+	cmd->vopcode = cpu_to_le32 ( INTELXLVF_ADMIN_GET_STATS );
+	cmd->flags = cpu_to_le16 ( INTELXL_ADMIN_FL_RD | INTELXL_ADMIN_FL_BUF );
+	cmd->len = cpu_to_le16 ( sizeof ( buf->queues ) );
+	buf = intelxlvf_admin_command_buffer ( intelxl );
+	buf->queues.vsi = cpu_to_le16 ( intelxl->vsi );
+	tx = &buf->stats.tx;
+	rx = &buf->stats.rx;
+
+	/* Issue command */
+	if ( ( rc = intelxlvf_admin_command ( netdev ) ) != 0 )
+		return rc;
+	DBGC ( intelxl, "INTELXL %p TX bytes %#llx discards %#llx errors "
+	       "%#llx\n", intelxl,
+	       ( ( unsigned long long ) le64_to_cpu ( tx->bytes ) ),
+	       ( ( unsigned long long ) le64_to_cpu ( tx->discards ) ),
+	       ( ( unsigned long long ) le64_to_cpu ( tx->errors ) ) );
+	DBGC ( intelxl, "INTELXL %p TX unicasts %#llx multicasts %#llx "
+	       "broadcasts %#llx\n", intelxl,
+	       ( ( unsigned long long ) le64_to_cpu ( tx->unicasts ) ),
+	       ( ( unsigned long long ) le64_to_cpu ( tx->multicasts ) ),
+	       ( ( unsigned long long ) le64_to_cpu ( tx->broadcasts ) ) );
+	DBGC ( intelxl, "INTELXL %p RX bytes %#llx discards %#llx errors "
+	       "%#llx\n", intelxl,
+	       ( ( unsigned long long ) le64_to_cpu ( rx->bytes ) ),
+	       ( ( unsigned long long ) le64_to_cpu ( rx->discards ) ),
+	       ( ( unsigned long long ) le64_to_cpu ( rx->errors ) ) );
+	DBGC ( intelxl, "INTELXL %p RX unicasts %#llx multicasts %#llx "
+	       "broadcasts %#llx\n", intelxl,
+	       ( ( unsigned long long ) le64_to_cpu ( rx->unicasts ) ),
+	       ( ( unsigned long long ) le64_to_cpu ( rx->multicasts ) ),
+	       ( ( unsigned long long ) le64_to_cpu ( rx->broadcasts ) ) );
+
+	return 0;
+}
+
+/**
+ * Configure number of queue pairs
+ *
+ * @v netdev		Network device
+ * @ret rc		Return status code
+ */
+static int intelxlvf_admin_request_qps ( struct net_device *netdev ) {
+	struct intelxl_nic *intelxl = netdev->priv;
+	struct intelxlvf_admin_descriptor *cmd;
+	union intelxlvf_admin_buffer *buf;
+	int rc;
+
+	/* Populate descriptor */
+	cmd = intelxlvf_admin_command_descriptor ( intelxl );
+	cmd->opcode = cpu_to_le16 ( INTELXLVF_ADMIN_SEND_TO_PF );
+	cmd->vopcode = cpu_to_le32 ( INTELXLVF_ADMIN_REQUEST_QPS );
+	cmd->flags = cpu_to_le16 ( INTELXL_ADMIN_FL_RD | INTELXL_ADMIN_FL_BUF );
+	cmd->len = cpu_to_le16 ( sizeof ( buf->rqps ) );
+	buf = intelxlvf_admin_command_buffer ( intelxl );
+	buf->rqps.count = cpu_to_le16 ( 1 );
+
+	/* Issue command (which will trigger a reset) */
+	if ( ( rc = intelxl_admin_command ( intelxl ) ) != 0 )
+		return rc;
+
+	/* Wait for reset to complete */
+	if ( ( rc = intelxlvf_reset_wait ( intelxl ) ) != 0 )
+		return rc;
+
+	/* Reestablish capabilities to reactivate VF after reset */
+	if ( ( rc = intelxlvf_admin_get_resources ( netdev ) ) != 0 )
+		return rc;
 
 	return 0;
 }
@@ -565,6 +673,10 @@ static int intelxlvf_open ( struct net_device *netdev ) {
 	if ( ( rc = intelxlvf_admin_promisc ( netdev ) ) != 0 )
 		goto err_promisc;
 
+	/* Reset statistics counters (if debugging) */
+	if ( DBG_LOG )
+		intelxlvf_admin_stats ( netdev );
+
 	return 0;
 
  err_promisc:
@@ -587,6 +699,10 @@ static int intelxlvf_open ( struct net_device *netdev ) {
 static void intelxlvf_close ( struct net_device *netdev ) {
 	struct intelxl_nic *intelxl = netdev->priv;
 	int rc;
+
+	/* Show statistics (if debugging) */
+	if ( DBG_LOG )
+		intelxlvf_admin_stats ( netdev );
 
 	/* Disable queues */
 	if ( ( rc = intelxlvf_admin_queues ( netdev, 0 ) ) != 0 ) {
@@ -702,6 +818,11 @@ static int intelxlvf_probe ( struct pci_device *pci ) {
 	if ( ( rc = intelxlvf_admin_get_resources ( netdev ) ) != 0 )
 		goto err_get_resources;
 
+	/* Configure number of queue pairs, if applicable */
+	if ( ( intelxl->caps & INTELXLVF_ADMIN_CAP_RQPS ) &&
+	     ( ( rc = intelxlvf_admin_request_qps ( netdev ) ) != 0 ) )
+		goto err_rqps;
+
 	/* Register network device */
 	if ( ( rc = register_netdev ( netdev ) ) != 0 )
 		goto err_register_netdev;
@@ -710,6 +831,7 @@ static int intelxlvf_probe ( struct pci_device *pci ) {
 
 	unregister_netdev ( netdev );
  err_register_netdev:
+ err_rqps:
  err_get_resources:
  err_version:
  err_reset_admin:

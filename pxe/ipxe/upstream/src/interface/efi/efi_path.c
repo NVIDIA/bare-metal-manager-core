@@ -41,18 +41,42 @@
  */
 
 /**
+ * Find next element in device path
+ *
+ * @v path		Device path, or NULL
+ * @v next		Next element in device path, or NULL if at end
+ */
+EFI_DEVICE_PATH_PROTOCOL * efi_path_next ( EFI_DEVICE_PATH_PROTOCOL *path ) {
+
+	/* Check for non-existent device path */
+	if ( ! path )
+		return NULL;
+
+	/* Check for end of device path */
+	if ( path->Type == END_DEVICE_PATH_TYPE )
+		return NULL;
+
+	/* Move to next component of the device path */
+	path = ( ( ( void * ) path ) +
+		 /* There's this amazing new-fangled thing known as
+		  * a UINT16, but who wants to use one of those? */
+		 ( ( path->Length[1] << 8 ) | path->Length[0] ) );
+
+	return path;
+}
+
+/**
  * Find end of device path
  *
- * @v path		Path to device
- * @ret path_end	End of device path
+ * @v path		Device path, or NULL
+ * @ret path_end	End of device path, or NULL
  */
 EFI_DEVICE_PATH_PROTOCOL * efi_path_end ( EFI_DEVICE_PATH_PROTOCOL *path ) {
+	EFI_DEVICE_PATH_PROTOCOL *next;
 
-	while ( path->Type != END_DEVICE_PATH_TYPE ) {
-		path = ( ( ( void * ) path ) +
-			 /* There's this amazing new-fangled thing known as
-			  * a UINT16, but who wants to use one of those? */
-			 ( ( path->Length[1] << 8 ) | path->Length[0] ) );
+	/* Find end of device path */
+	while ( ( next = efi_path_next ( path ) ) != NULL ) {
+		path = next;
 	}
 
 	return path;
@@ -61,13 +85,36 @@ EFI_DEVICE_PATH_PROTOCOL * efi_path_end ( EFI_DEVICE_PATH_PROTOCOL *path ) {
 /**
  * Find length of device path (excluding terminator)
  *
- * @v path		Path to device
+ * @v path		Device path, or NULL
  * @ret path_len	Length of device path
  */
 size_t efi_path_len ( EFI_DEVICE_PATH_PROTOCOL *path ) {
 	EFI_DEVICE_PATH_PROTOCOL *end = efi_path_end ( path );
 
 	return ( ( ( void * ) end ) - ( ( void * ) path ) );
+}
+
+/**
+ * Get VLAN tag from device path
+ *
+ * @v path		Device path
+ * @ret tag		VLAN tag, or 0 if not a VLAN
+ */
+unsigned int efi_path_vlan ( EFI_DEVICE_PATH_PROTOCOL *path ) {
+	EFI_DEVICE_PATH_PROTOCOL *next;
+	VLAN_DEVICE_PATH *vlan;
+
+	/* Search for VLAN device path */
+	for ( ; ( next = efi_path_next ( path ) ) ; path = next ) {
+		if ( ( path->Type == MESSAGING_DEVICE_PATH ) &&
+		     ( path->SubType == MSG_VLAN_DP ) ) {
+			vlan = container_of ( path, VLAN_DEVICE_PATH, Header );
+			return vlan->VlanId;
+		}
+	}
+
+	/* No VLAN device path found */
+	return 0;
 }
 
 /**
