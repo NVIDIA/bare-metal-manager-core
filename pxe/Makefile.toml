@@ -71,7 +71,7 @@ dependencies = [
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
-	"${REPO_ROOT}/dev/forge_root.pem",
+	"${REPO_ROOT}/dev/forge_prodroot.pem",
 	"mkosi.extra/carbide/",
 ]
 
@@ -336,7 +336,7 @@ category = "iPXE Kernel"
 description = "Add the forge root CA to the bfb"
 command = "cp"
 args = [
-	"${REPO_ROOT}/dev/forge_root.pem",
+	"${REPO_ROOT}/dev/forge_prodroot.pem",
 	"/tmp/bfb-dump/initramfs-tmp",
 ]
 
