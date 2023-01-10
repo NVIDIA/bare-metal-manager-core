@@ -38,10 +38,18 @@ cargo build -p cli
 
 [tasks.build-carbide-cli]
 category = "Build"
-description = "Build carbide-cli using debian container locally"
+description = "Build carbide-cli locally using debian container. Ensures correct GCC version is used."
 workspace = false
 script = '''
-docker run --rm --volume $(pwd):/code --workdir /code -it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container cargo build -p cli
+docker run \
+	--rm \
+	--user $(id -u):$(id -g) \
+	--volume $(pwd):/code \
+	--workdir /code \
+	--volume $HOME/.cargo:/cargo \
+	--env CARGO_HOME=/cargo \
+	-it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container \
+	cargo build -p cli
 '''
 
 [tasks.build-kind]
