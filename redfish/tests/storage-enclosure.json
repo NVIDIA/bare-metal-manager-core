@@ -1,0 +1,28 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#Systems/Members/1/SmartStorage/ArrayControllers/Members/1/StorageEnclosures/Members/$entity",
+    "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/StorageEnclosures/0/",
+    "@odata.type": "#HpSmartStorageStorageEnclosure.1.1.0.HpSmartStorageStorageEnclosure",
+    "Description": "HP Smart Storage Enclosure View",
+    "DriveBayCount": 12,
+    "FirmwareVersion": {
+        "Current": {
+            "VersionString": "1.25"
+        }
+    },
+    "Id": "0",
+    "Location": "1I:1",
+    "LocationFormat": "Controller:Box",
+    "Model": "Apollo",
+    "Name": "HpSmartStorageEnclosure",
+    "SerialNumber": "PESZP0ARH9G0A3",
+    "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+    },
+    "Type": "HpSmartStorageStorageEnclosure.1.1.0",
+    "links": {
+        "self": {
+            "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/StorageEnclosures/0/"
+        }
+    }
+}
