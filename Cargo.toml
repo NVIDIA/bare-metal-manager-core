@@ -9,7 +9,6 @@ members = [
   "forge_credentials",
   "host-support",
   "pxe",
-  "redfish",
   "rpc",
 ]
 

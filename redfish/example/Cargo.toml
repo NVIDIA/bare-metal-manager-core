@@ -1,9 +1,0 @@
-[package]
-name = "test"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-libredfish = { path = ".." }
-getopts = "0.2.21"
-reqwest = {version = "~0.11", features = ["blocking", "json"] }

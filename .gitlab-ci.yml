@@ -93,6 +93,17 @@ build-container-arm:
 
 # if you modify this, you must keep it in sync with ${PROJECT_ROOT}/dev/deployment/Dockerfile or you will notice post-merge build failures.
 build-cargo:
+  before_script:
+    # Setup SSH access so that api/Cargo.toml can git clone nvmetal/libredfish
+    - 'command -v ssh-agent >/dev/null || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    # SSH_PRIVATE_KEY is defined via in Settings / CI/CD / Variables
+    # The public part is in Settings / Repository / Deploy Keys
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -p 12051 gitlab-master.nvidia.com >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
   stage: build
   image:
     name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
@@ -155,6 +166,16 @@ license-checks:
   before_script:
     - /bin/bash -l -c "CARGO_HOME=/root/.cargo rustup toolchain uninstall stable-x86_64-unknown-linux-gnu"
     - /bin/bash -l -c "CARGO_HOME=/root/.cargo rustup toolchain install stable-x86_64-unknown-linux-gnu"
+    # Setup SSH access so that api/Cargo.toml can git clone nvmetal/libredfish
+    - 'command -v ssh-agent >/dev/null || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    # SSH_PRIVATE_KEY is defined via in Settings / CI/CD / Variables
+    # The public part is in Settings / Repository / Deploy Keys
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -p 12051 gitlab-master.nvidia.com >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
   rules:
     - changes:
         - Cargo.lock
