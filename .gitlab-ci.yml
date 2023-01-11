@@ -87,9 +87,7 @@ build-container-arm:
     - prepare-ci
   tags:
     - aarch64
-  rules:
-    - changes:
-        - $CI_PROJECT_DIR/dev/docker/Dockerfile.build-container-arm
+  when: manual
 
 # if you modify this, you must keep it in sync with ${PROJECT_ROOT}/dev/deployment/Dockerfile or you will notice post-merge build failures.
 build-cargo:
