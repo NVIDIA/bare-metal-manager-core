@@ -2294,7 +2294,6 @@ checksum = "c0f80d65747a3e43d1596c7c5492d95d5edddaabd45a7fcdb02b95f644164966"
 [[package]]
 name = "libredfish"
 version = "0.1.1"
-source = "git+ssh://git@gitlab-master.nvidia.com:12051/nvmetal/libredfish.git?rev=ccd6d3cd#ccd6d3cde7d81cbf0afe01ef16065ccc82a417ce"
 dependencies = [
  "log",
  "reqwest",

@@ -1,0 +1,16 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#Systems/Members/1/SmartStorage/ArrayControllers/Members/1/LogicalDrives",
+    "@odata.id": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/LogicalDrives/",
+    "@odata.type": "#HpSmartStorageLogicalDriveCollection.HpSmartStorageLogicalDriveCollection",
+    "Description": "HP Smart Storage Logical Drives View",
+    "MemberType": "HpSmartStorageLogicalDrive.1",
+    "Members@odata.count": 0,
+    "Name": "HpSmartStorageLogicalDrives",
+    "Total": 0,
+    "Type": "Collection.1.0.0",
+    "links": {
+        "self": {
+            "href": "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/1/LogicalDrives/"
+        }
+    }
+}
