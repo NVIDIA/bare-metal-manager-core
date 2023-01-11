@@ -10,6 +10,9 @@
 [env]
 REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_PROJECT_DIR"], env_not_set = ["REPO_ROOT"]}}
 
+FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
+FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
+
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04"
 BFB_NAME = "DOCA_1.5.1_BSP_3.9.3_Ubuntu_20.04-4.2211-LTS.signed.bfb"
 
@@ -71,7 +74,7 @@ dependencies = [
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
-	"${REPO_ROOT}/dev/forge_prodroot.pem",
+	"${FORGE_CA_PATH}",
 	"mkosi.extra/carbide/",
 ]
 
@@ -219,21 +222,21 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Build the x86_64 Legacy BIOS iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe" ]
+args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH}"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-x86_64]
 category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
+args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH}"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
-args = [ "bin-arm64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
+args = [ "bin-arm64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH}"]
 cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
@@ -336,7 +339,7 @@ category = "iPXE Kernel"
 description = "Add the forge root CA to the bfb"
 command = "cp"
 args = [
-	"${REPO_ROOT}/dev/forge_prodroot.pem",
+	"${FORGE_CA_PATH}",
 	"/tmp/bfb-dump/initramfs-tmp",
 ]
 
@@ -426,6 +429,18 @@ description = "Copy the BFB root fs on aarch64 gitlab runner"
 command = "cp"
 args = [ "/tmp/bfb-dump/dump-initramfs-v0", "carbide.root"]
 cwd = "static/blobs/internal/aarch64"
+
+[tasks.container-boot-artifacts-x86_64-ci]
+categroy = "iPXE Kernel"
+description = "Pacakge x86_64 EFI ipxe kernel and rootdisk"
+command = "docker"
+args = ["-t", "boot-artifacts-${FORGE_CA}-x86_64:${CI_BUILD_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
+
+[tasks.container-boot-artifacts-aarch64-ci]
+categroy = "iPXE Kernel"
+description = "Pacakge aarch64 EFI ipxe kernel and rootdisk"
+command = "docker"
+args = ["-t", "boot-artifacts-${FORGE_CA}-aarch64:${CI_BUILD_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
 
 [tasks.package-boot-artifacts-x86_64]
 category = "iPXE Kernel"

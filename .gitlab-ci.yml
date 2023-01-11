@@ -124,6 +124,8 @@ build-cargo:
     - cargo clean
 
 build-boot-artifacts-x86_64:
+  variables:
+    FORGE_CA: "prod"
   before_script:
     - mkdir -p ~/.jfrog
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
@@ -139,6 +141,8 @@ build-boot-artifacts-x86_64:
   when: manual
 
 build-boot-artifacts-aarch64:
+  variables:
+    FORGE_CA: "prod"
   before_script:
     - mkdir ~/.jfrog
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
@@ -150,6 +154,152 @@ build-boot-artifacts-aarch64:
   tags:
     - aarch64
   when: manual
+ 
+build-boot-artifacts-stg-x86_64:
+  before_script:
+    - mkdir -p ~/.jfrog
+    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
+  stage: build
+  tags:
+    - shell
+  image:
+    name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
+  script:
+    - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
+  after_script:
+    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
+  when: manual
+
+build-boot-artifacts-stg-aarch64:
+  before_script:
+    - mkdir ~/.jfrog
+    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
+  stage: build
+  image:
+    name: $BUILD_CONTAINER_IMAGE_NAME_ARM
+  script:
+    - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
+  tags:
+    - aarch64
+  when: manual
+
+build-push-boot-artifacts-container-aarch64-stg:
+  stage: build
+  image:
+    name: "$TOOLS_IMAGE_REPO"
+  variables:
+    VAULT_JWT_ROLE: forge-ci
+    VAULT_ADDR: https://prod.vault.nvidia.com
+    VAULT_NAMESPACE: ngc
+    VAULT_JWT_PATH: auth/gitlab/login
+    DOCKER_FILE: "pxe/Dockerfile"
+    GIT_TERMINAL_PROMPT: 1
+    GOPRIVATE: gitlab-master.nvidia.com
+    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide/forge-boot-artifacts
+  before_script:
+  - "./${CI_SCRIPTS_LOCATION}/scripts/get-docker-json.sh"
+  - printf "machine gitlab-master.nvidia.com\n  login gitlab-ci-token\n  password
+    %s\n" ${CI_JOB_TOKEN} > /root/.netrc
+  - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
+  script:
+  - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE
+    jwt=$CI_JOB_JWT)"
+  - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
+  - PUSH_TO_NVCR_STG_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
+  tags:
+  - aarch64
+  needs:
+    - build-boot-artifacts-stg-aarch64
+  when: manual
+
+build-push-boot-artifacts-container-x86_64-stg:
+  stage: build
+  image:
+    name: "$TOOLS_IMAGE_REPO"
+  variables:
+    VAULT_JWT_ROLE: forge-ci
+    VAULT_ADDR: https://prod.vault.nvidia.com
+    VAULT_NAMESPACE: ngc
+    VAULT_JWT_PATH: auth/gitlab/login
+    DOCKER_FILE: "pxe/Dockerfile"
+    GIT_TERMINAL_PROMPT: 1
+    GOPRIVATE: gitlab-master.nvidia.com
+    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide/forge-boot-artifacts
+  before_script:
+  - "./${CI_SCRIPTS_LOCATION}/scripts/get-docker-json.sh"
+  - printf "machine gitlab-master.nvidia.com\n  login gitlab-ci-token\n  password
+    %s\n" ${CI_JOB_TOKEN} > /root/.netrc
+  - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
+  script:
+  - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE
+    jwt=$CI_JOB_JWT)"
+  - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
+  - PUSH_TO_NVCR_STG_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
+  tags:
+  - x86_64
+  needs:
+    - build-boot-artifacts-stg-x86_64
+  when: manual
+
+build-push-boot-artifacts-container-aarch64:
+  stage: build
+  image:
+    name: "$TOOLS_IMAGE_REPO"
+  variables:
+    VAULT_JWT_ROLE: forge-ci
+    VAULT_ADDR: https://prod.vault.nvidia.com
+    VAULT_NAMESPACE: ngc
+    VAULT_JWT_PATH: auth/gitlab/login
+    DOCKER_FILE: "pxe/Dockerfile"
+    GIT_TERMINAL_PROMPT: 1
+    GOPRIVATE: gitlab-master.nvidia.com
+    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide/forge-boot-artifacts
+  before_script:
+  - "./${CI_SCRIPTS_LOCATION}/scripts/get-docker-json.sh"
+  - printf "machine gitlab-master.nvidia.com\n  login gitlab-ci-token\n  password
+    %s\n" ${CI_JOB_TOKEN} > /root/.netrc
+  - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
+  script:
+  - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE
+    jwt=$CI_JOB_JWT)"
+  - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
+  - PUSH_TO_NVCR_PROD_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
+  tags:
+  - aarch64
+  needs:
+    - build-boot-artifacts-aarch64
+  when: manual
+
+build-push-boot-artifacts-container-x86_64:
+  stage: build
+  image:
+    name: "$TOOLS_IMAGE_REPO"
+  variables:
+    VAULT_JWT_ROLE: forge-ci
+    VAULT_ADDR: https://prod.vault.nvidia.com
+    VAULT_NAMESPACE: ngc
+    VAULT_JWT_PATH: auth/gitlab/login
+    DOCKER_FILE: "pxe/Dockerfile"
+    GIT_TERMINAL_PROMPT: 1
+    GOPRIVATE: gitlab-master.nvidia.com
+    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide/forge-boot-artifacts
+  before_script:
+  - "./${CI_SCRIPTS_LOCATION}/scripts/get-docker-json.sh"
+  - printf "machine gitlab-master.nvidia.com\n  login gitlab-ci-token\n  password
+    %s\n" ${CI_JOB_TOKEN} > /root/.netrc
+  - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
+  script:
+  - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE
+    jwt=$CI_JOB_JWT)"
+  - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
+  - PUSH_TO_NVCR_PROD_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
+  tags:
+  - x86_64
+  needs:
+    - build-boot-artifacts-x86_64
+  when: manual
+
+
 
 license-checks:
   before_script:

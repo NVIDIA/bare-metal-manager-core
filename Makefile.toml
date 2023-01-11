@@ -12,6 +12,9 @@ CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 REPO_ROOT = { script = ["echo ${REPO_ROOT}"], condition = {env_not_set = ["CI_PROJECT_DIR"]} }
 REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_PROJECT_DIR"]}}
 CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = ["CARBIDE_ENVIRONMENT"] } }
+FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
+FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
+
 
 [tasks.book]
 workspace = false
@@ -51,28 +54,6 @@ docker run \
 	-it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container \
 	cargo build -p cli
 '''
-
-[tasks.build-kind]
-category = "Kind"
-description = "Build carbide container and upload to KinD cluster"
-workspace=false
-dependencies = [
-  {name = "config-kind-ci", path="include/Makefile-kind.toml"},
-  {name = "create-kind-cluster", path="include/Makefile-kind.toml"},
-  {name = "carbide-container", path="include/Makefile-kind.toml"},
-  {name = "load-carbide-container", path="include/Makefile-kind.toml"},
-  {name = "build-vpc-container", path="include/Makefile-vpc.toml"},
-  {name = "load-vpc-container", path="include/Makefile-kind.toml"},
-  {name = "configure_kind", path="include/Makefile-kind.toml"}
-]
-cwd="${REPO_ROOT}"
-
-[tasks.kind]
-category = "Kind"
-description = "Build carbide container and upload to KinD cluster"
-workspace=false
-run_task = "build-kind"
-cwd="${REPO_ROOT}"
 
 [tasks.build-x86-build-container]
 category = "Kind"
