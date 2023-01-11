@@ -13,6 +13,7 @@ RUN apt update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install -y c
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly
 RUN /root/.cargo/bin/rustup component add rustfmt
 RUN /root/.cargo/bin/cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache && /root/.cargo/bin/cargo cache -r registry-index,registry-sources
+RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
 RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
 RUN mkdir -p /opt/protobuf && \
   rm -rf /tmp/protobuf && \
