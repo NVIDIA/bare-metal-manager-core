@@ -169,6 +169,9 @@ build-boot-artifacts-stg-x86_64:
   after_script:
     - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   when: manual
+  artifacts:
+    when: always
+    expire_in: 1 day
 
 build-boot-artifacts-stg-aarch64:
   before_script:
@@ -236,7 +239,7 @@ build-push-boot-artifacts-container-x86_64-stg:
   - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
   - PUSH_TO_NVCR_STG_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
   tags:
-    - shell
+    - x86_64
   dependencies:
     - build-boot-artifacts-stg-x86_64
   when: manual
@@ -294,7 +297,7 @@ build-push-boot-artifacts-container-x86_64:
   - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
   - PUSH_TO_NVCR_PROD_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
   tags:
-    - shell
+    - x86_64
   dependencies:
     - build-boot-artifacts-x86_64
   when: manual
