@@ -1,6 +1,7 @@
 mkosi.output/
 mkosi.cache/
 mkosi.extra/carbide/carbide-cli
+mkosi.extra/carbide/forge_*.pem
 mkosi/builddir/
 .mkosi-*/
 static/blobs/*
