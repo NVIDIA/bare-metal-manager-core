@@ -131,7 +131,7 @@ build-boot-artifacts-x86_64:
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
   tags:
-    - x86_64
+    - shell
   image:
     name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
   script:
@@ -161,7 +161,7 @@ build-boot-artifacts-stg-x86_64:
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
   tags:
-    - x86_64
+    - shell
   image:
     name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
   script:
@@ -236,7 +236,7 @@ build-push-boot-artifacts-container-x86_64-stg:
   - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
   - PUSH_TO_NVCR_STG_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
   tags:
-    - x86_64
+    - shell
   dependencies:
     - build-boot-artifacts-stg-x86_64
   when: manual
@@ -294,7 +294,7 @@ build-push-boot-artifacts-container-x86_64:
   - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
   - PUSH_TO_NVCR_PROD_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
   tags:
-    - x86_64
+    - shell
   dependencies:
     - build-boot-artifacts-x86_64
   when: manual
