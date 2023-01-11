@@ -184,7 +184,7 @@ build-boot-artifacts-stg-aarch64:
   when: manual
 
 build-push-boot-artifacts-container-aarch64-stg:
-  stage: build
+  stage: publish
   image:
     name: "$TOOLS_IMAGE_REPO"
   variables:
@@ -213,7 +213,7 @@ build-push-boot-artifacts-container-aarch64-stg:
   when: manual
 
 build-push-boot-artifacts-container-x86_64-stg:
-  stage: build
+  stage: publish
   image:
     name: "$TOOLS_IMAGE_REPO"
   variables:
@@ -242,7 +242,7 @@ build-push-boot-artifacts-container-x86_64-stg:
   when: manual
 
 build-push-boot-artifacts-container-aarch64:
-  stage: build
+  stage: publish
   image:
     name: "$TOOLS_IMAGE_REPO"
   variables:
@@ -271,7 +271,7 @@ build-push-boot-artifacts-container-aarch64:
   when: manual
 
 build-push-boot-artifacts-container-x86_64:
-  stage: build
+  stage: publish
   image:
     name: "$TOOLS_IMAGE_REPO"
   variables:
