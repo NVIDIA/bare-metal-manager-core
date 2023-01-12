@@ -2293,7 +2293,9 @@ checksum = "c0f80d65747a3e43d1596c7c5492d95d5edddaabd45a7fcdb02b95f644164966"
 
 [[package]]
 name = "libredfish"
-version = "0.1.1"
+version = "0.1.2"
+source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
+checksum = "da12bb017e51616d3d8718a834c427d5c962698ea055b599cc88362f441cd60b"
 dependencies = [
  "log",
  "reqwest",
