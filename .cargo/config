@@ -1,2 +1,5 @@
 [target.'cfg(all())']
 rustflags = ["-D", "warnings"]
+
+[registries]
+sw-ngc-forge-cargo-local = { index = "https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git" }
