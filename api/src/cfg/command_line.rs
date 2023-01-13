@@ -60,6 +60,21 @@ pub struct Daemon {
     /// env variable, or have a different env variable which supports multiple servers.
     #[clap(long, multiple_values(true), env = "CARBIDE_DHCP_SERVER")]
     pub dhcp_server: Vec<String>,
+
+    // TODO: cfg this out for release builds?
+    /// Enable permissive mode in the authorization enforcer (for development).
+    #[clap(
+        long,
+        require_equals(true),
+        takes_value(true),
+        default_value = "false",
+        env = "AUTH_PERMISSIVE_MODE"
+    )]
+    pub auth_permissive_mode: bool,
+
+    /// The Casbin policy file (in CSV format).
+    #[clap(long, require_equals(true), env = "CASBIN_POLICY_FILE")]
+    pub casbin_policy_file: std::path::PathBuf,
 }
 
 #[derive(Parser)]

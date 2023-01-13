@@ -49,3 +49,5 @@ COPY api/migrations/ /opt/carbide/migrations/
 COPY pxe/templates/*  /opt/carbide/pxe/templates/
 COPY pxe/Rocket.toml /opt/carbide/
 COPY pxe/artifacts.json /opt/carbide/
+COPY api/casbin-policy.csv /opt/carbide/
+ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv

@@ -9,11 +9,235 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::path::Path;
+use std::sync::Arc;
+
 use http::{header, HeaderMap, Request, Response};
 use serde::{Deserialize, Serialize};
 use tower_http::auth::AuthorizeRequest;
 
 pub use jwt::{Algorithm, DecodingKey, KeySpec};
+
+// Principal: something like an account, service, address, or other
+// identity that we can treat as the "subject" in a subject-action-object
+// construction.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub enum Principal {
+    CertificateIdentity(String),
+    // JWT(Claims),
+    // ClientAddress(IPAddr),
+
+    // Anonymous is more like the absence of any principal, but it's convenient
+    // to be able to represent it explicitly.
+    Anonymous,
+}
+
+impl Principal {
+    pub fn as_identifier(&self) -> String {
+        match self {
+            Principal::CertificateIdentity(identity) => format!("certificate-identity/{identity}"),
+            Principal::Anonymous => "anonymous".into(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug)]
+pub enum Action {
+    Create,
+    Read,
+    Update,
+    Delete,
+}
+
+impl Action {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Action::Create => "create",
+            Action::Read => "read",
+            Action::Update => "update",
+            Action::Delete => "delete",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Object {
+    Instance,
+}
+
+impl Object {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Object::Instance => "instance",
+        }
+    }
+}
+
+pub trait PrincipalExtractor {
+    // Extract all useful principals from a request.
+    fn principals(&self) -> Vec<Principal>;
+}
+
+impl<T> PrincipalExtractor for tonic::Request<T> {
+    fn principals(&self) -> Vec<Principal> {
+        let _certs = self.peer_certs();
+        // TODO: extract 1 or more Principal::CertIdentity from certs
+        Vec::default()
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct Authorization {
+    principal: Principal,
+    action: Action,
+    object: Object,
+}
+
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum AuthorizationError {
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+}
+
+impl From<AuthorizationError> for tonic::Status {
+    fn from(e: AuthorizationError) -> Self {
+        log::info!("Request was denied: {e}");
+        tonic::Status::permission_denied("Not authorized")
+    }
+}
+
+// A PolicyEngine is anything that can enforce whether a request is allowed.
+pub trait PolicyEngine {
+    fn authorize(
+        &self,
+        principals: &[Principal],
+        action: Action,
+        object: Object,
+    ) -> Result<Authorization, AuthorizationError>;
+}
+
+pub type PolicyEngineObject = (dyn PolicyEngine + Send + Sync);
+
+mod casbin_engine;
+
+pub use casbin_engine::CasbinEngine;
+
+#[derive(Clone)]
+pub struct Authorizer {
+    policy_engine: Arc<PolicyEngineObject>,
+}
+
+impl Authorizer {
+    pub fn new(policy_engine: Arc<PolicyEngineObject>) -> Self {
+        Self { policy_engine }
+    }
+
+    pub fn authorize<R: PrincipalExtractor>(
+        &self,
+        req: &R,
+        action: Action,
+        object: Object,
+    ) -> Result<Authorization, AuthorizationError> {
+        let principals = req.principals();
+        let engine = self.policy_engine.clone();
+        log::debug!(
+            "Checking authorization with (object={object:?}, action={action:?}, \
+            principals={principals:?})"
+        );
+        engine.authorize(&principals, action, object)
+    }
+
+    // TODO: config this out in release mode?
+    fn enable_permissive(&mut self) {
+        let inner_engine = self.policy_engine.clone();
+        let permissive_engine: Arc<PolicyEngineObject> =
+            Arc::new(PermissiveWrapper::new(inner_engine));
+        self.policy_engine = permissive_engine;
+    }
+
+    pub async fn build_casbin(
+        policy_path: &Path,
+        permissive_mode: bool,
+    ) -> Result<Self, AuthorizerError> {
+        let engine = CasbinEngine::new(casbin_engine::ModelType::BasicAcl, policy_path)
+            .await
+            .map_err(|e| AuthorizerError::InitializationError(e.to_string()))?;
+        let engine_object: Arc<PolicyEngineObject> = Arc::new(engine);
+        let mut authorizer = Self::new(engine_object);
+        // TODO: config this out in release mode?
+        if permissive_mode {
+            authorizer.enable_permissive();
+        }
+        Ok(authorizer)
+    }
+}
+
+#[derive(thiserror::Error, Clone, Debug)]
+pub enum AuthorizerError {
+    #[error("Initialization error: {0}")]
+    InitializationError(String),
+}
+
+struct PermissiveWrapper {
+    inner: Arc<PolicyEngineObject>,
+}
+
+impl PermissiveWrapper {
+    fn new(inner: Arc<PolicyEngineObject>) -> Self {
+        Self { inner }
+    }
+}
+
+impl PolicyEngine for PermissiveWrapper {
+    fn authorize(
+        &self,
+        principals: &[Principal],
+        action: Action,
+        object: Object,
+    ) -> Result<Authorization, AuthorizationError> {
+        let result = self.inner.authorize(principals, action, object);
+        result.or_else(|e| {
+            log::warn!(
+                "The policy engine denied this request, but \
+                --auth-permissive-mode overrides it. The policy engine error \
+                message follows:"
+            );
+            log::warn!("{e}");
+
+            // FIXME: Strictly speaking, it's not true that Anonymous is
+            // authorized to do this. Maybe define a different principal
+            // to use here? "Development"?
+            let authorization = Authorization {
+                principal: Principal::Anonymous,
+                action,
+                object,
+            };
+            Ok(authorization)
+        })
+    }
+}
+
+pub struct NoopEngine {}
+
+impl PolicyEngine for NoopEngine {
+    fn authorize(
+        &self,
+        _principals: &[Principal],
+        action: Action,
+        object: Object,
+    ) -> Result<Authorization, AuthorizationError> {
+        // FIXME: same problem again as the PermissiveWrapper implementation.
+        // Figure out a name for this use case, and use that instead.
+        Ok(Authorization {
+            principal: Principal::Anonymous,
+            action,
+            object,
+        })
+    }
+}
 
 // This is intended to be hooked into tower-http's
 // RequireAuthorizationLayer::custom() middleware layer.
@@ -24,6 +248,7 @@ pub struct CarbideAuth {
 }
 
 impl CarbideAuth {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let jwt_validator = jwt::TokenValidator::new();
         let permissive_mode = false;

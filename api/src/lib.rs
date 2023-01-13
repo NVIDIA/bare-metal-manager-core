@@ -27,7 +27,7 @@ use tonic::Status;
 use ::rstest_reuse;
 
 pub mod api;
-mod auth;
+pub mod auth;
 pub mod bg;
 pub mod cfg;
 pub mod credentials;

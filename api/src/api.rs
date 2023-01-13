@@ -27,8 +27,7 @@ use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
 use crate::{
-    auth::CarbideAuth,
-    cfg,
+    auth, cfg,
     credentials::UpdateCredentials,
     db::{
         auth::SshKeyValidationRequest,
@@ -75,6 +74,7 @@ const DPU_ADMIN_USERNAME: &str = "forge";
 pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
     credential_provider: Arc<C>,
+    authorizer: auth::Authorizer,
 }
 
 #[tonic::async_trait]
@@ -530,6 +530,10 @@ where
         &self,
         request: Request<rpc::InstanceSearchQuery>,
     ) -> Result<Response<rpc::InstanceList>, Status> {
+        let _auth =
+            self.authorizer
+                .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
+
         let mut txn = self
             .database_connection
             .begin()
@@ -574,6 +578,10 @@ where
         &self,
         request: Request<rpc::Uuid>,
     ) -> Result<Response<InstanceList>, Status> {
+        let _auth =
+            self.authorizer
+                .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1377,10 +1385,15 @@ impl<C> Api<C>
 where
     C: CredentialProvider + 'static,
 {
-    pub fn new(credential_provider: Arc<C>, database_connection: sqlx::PgPool) -> Self {
+    pub fn new(
+        credential_provider: Arc<C>,
+        database_connection: sqlx::PgPool,
+        authorizer: auth::Authorizer,
+    ) -> Self {
         Self {
             database_connection,
             credential_provider,
+            authorizer,
         }
     }
 
@@ -1410,27 +1423,17 @@ where
         });
 
         let conn_clone = database_connection.clone();
+        let authorizer = auth::Authorizer::build_casbin(
+            &daemon_config.casbin_policy_file,
+            daemon_config.auth_permissive_mode,
+        )
+        .await?;
 
         let api_service = Arc::new(Self::new(
             credential_provider.clone(),
             database_connection.clone(),
+            authorizer,
         ));
-
-        let mut authenticator = CarbideAuth::new();
-
-        // FIXME: Don't ship with this enabled. Should it be a config option?
-        authenticator.set_permissive_mode(true);
-
-        // Example code just to show usage. Do not actually use this!
-        /*
-        authenticator.add_jwt_key(
-            auth::Algorithm::RS256,
-            auth::KeySpec::KeyID(String::from("wow this is a great key ID!")),
-            auth::DecodingKey::from_base64_secret("dWggb2g=").unwrap(),
-        );
-        */
-
-        let auth_layer = tower_http::auth::RequireAuthorizationLayer::custom(authenticator);
 
         let reflection_service = Builder::configure()
             .register_encoded_file_descriptor_set(::rpc::REFLECTION_SERVICE_DESCRIPTOR)
@@ -1480,7 +1483,6 @@ where
 
         tonic::transport::Server::builder()
             //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
-            .layer(auth_layer)
             .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
             .add_service(reflection_service)
             .serve(daemon_config.listen[0])
