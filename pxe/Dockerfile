@@ -7,8 +7,8 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
-FROM scratch
+FROM carbide-runtime:latest
 
-WORKDIR /
+WORKDIR /app/code
 
-COPY static/blobs/internal/ .
+EXPOSE 1080
