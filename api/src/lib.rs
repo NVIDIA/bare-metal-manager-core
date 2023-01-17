@@ -203,6 +203,9 @@ pub enum CarbideError {
 
     #[error("DPU Reachability Error: {0}")]
     ReachabilityError(#[from] ReachabilityError),
+
+    #[error("More than one leaf exist referring to the same loopback IP: {0}")]
+    DuplicateLoopbackIPError(IpAddr),
 }
 
 impl From<CarbideError> for tonic::Status {
