@@ -102,17 +102,10 @@ fn convert_property_to_string<'a>(
 
 fn convert_sysattr_to_string<'a>(
     name: &'a str,
-    default_value: &'a str,
     device: &'a Device,
 ) -> Result<&'a str, HardwareEnumerationError> {
     match device.attribute_value(name) {
-        None => match default_value.is_empty() {
-            true => Err(HardwareEnumerationError::GenericError(format!(
-                "Could not find attribute {}",
-                name
-            ))),
-            false => Ok(default_value),
-        },
+        None => Ok(""),
         Some(p) => p.to_str().map(|s| s.trim()).ok_or_else(|| {
             HardwareEnumerationError::GenericError(format!(
                 "Could not transform os string to string for attribute {}",
@@ -395,9 +388,8 @@ pub fn enumerate_hardware(
             .is_some()
         {
             nvmes.push(rpc_discovery::NvmeDevice {
-                model: convert_sysattr_to_string("model", "NO_MODEL", &device)?.to_string(),
-                firmware_rev: convert_sysattr_to_string("firmware_rev", "NO_REVISION", &device)?
-                    .to_string(),
+                model: convert_sysattr_to_string("model", &device)?.to_string(),
+                firmware_rev: convert_sysattr_to_string("firmware_rev", &device)?.to_string(),
             });
         }
     }
@@ -424,20 +416,12 @@ pub fn enumerate_hardware(
             .is_some()
         {
             dmis.push(rpc_discovery::DmiDevice {
-                board_name: convert_sysattr_to_string("board_name", "NO_BOARD_NAME", &device)?
-                    .to_string(),
-                board_version: convert_sysattr_to_string(
-                    "board_version",
-                    "NO_BOARD_VERSION",
-                    &device,
-                )?
-                .to_string(),
-                bios_version: convert_sysattr_to_string(
-                    "bios_version",
-                    "NO_BIOS_VERSION",
-                    &device,
-                )?
-                .to_string(),
+                board_name: convert_sysattr_to_string("board_name", &device)?.to_string(),
+                board_version: convert_sysattr_to_string("board_version", &device)?.to_string(),
+                bios_version: convert_sysattr_to_string("bios_version", &device)?.to_string(),
+                product_serial: convert_sysattr_to_string("product_serial", &device)?.to_string(),
+                board_serial: convert_sysattr_to_string("board_serial", &device)?.to_string(),
+                chassis_serial: convert_sysattr_to_string("chassis_serial", &device)?.to_string(),
             });
         }
     }
