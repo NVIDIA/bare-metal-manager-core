@@ -58,13 +58,16 @@ impl VpcResourceLeaf {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         ip_address: IpAddr,
     ) -> CarbideResult<Option<VpcResourceLeaf>> {
-        let result =
+        let mut result =
             sqlx::query_as("SELECT * from vpc_resource_leafs WHERE loopback_ip_address = $1")
                 .bind(ip_address)
-                .fetch_optional(&mut *txn)
+                .fetch_all(&mut *txn)
                 .await?;
 
-        Ok(result)
+        match result.len() {
+            0 | 1 => Ok(result.pop()),
+            _ => Err(CarbideError::DuplicateLoopbackIPError(ip_address)),
+        }
     }
 
     pub async fn update_loopback_ip_address(
