@@ -71,15 +71,26 @@ pub struct BlockDevice {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NvmeDevice {
+    #[serde(default)]
     pub model: String,
+    #[serde(default)]
     pub firmware_rev: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DmiDevice {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub board_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub board_version: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub bios_version: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub product_serial: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub board_serial: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub chassis_serial: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,6 +244,9 @@ impl TryFrom<rpc::machine_discovery::DmiDevice> for DmiDevice {
             board_name: dev.board_name,
             board_version: dev.board_version,
             bios_version: dev.bios_version,
+            product_serial: dev.product_serial,
+            board_serial: dev.board_serial,
+            chassis_serial: dev.chassis_serial,
         })
     }
 }
@@ -245,6 +259,9 @@ impl TryFrom<DmiDevice> for rpc::machine_discovery::DmiDevice {
             board_name: dev.board_name,
             board_version: dev.board_version,
             bios_version: dev.bios_version,
+            product_serial: dev.product_serial,
+            board_serial: dev.board_serial,
+            chassis_serial: dev.chassis_serial,
         })
     }
 }
