@@ -77,6 +77,7 @@ fn setup() {
 async fn test_crud_instance(pool: sqlx::PgPool) {
     let api = create_test_api(pool.clone());
     prepare_machine(&pool).await;
+
     let parsed_relay = "192.168.0.1".parse::<IpAddr>().unwrap();
     let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
     let mut txn = pool

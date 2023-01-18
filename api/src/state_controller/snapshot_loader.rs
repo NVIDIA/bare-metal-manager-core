@@ -16,13 +16,14 @@ use crate::{
             config::network::load_instance_network_config,
             status::network::load_instance_network_status_observation, Instance,
         },
+        machine::Machine,
         machine_topology::MachineTopology,
     },
     model::{
         instance::{
             config::InstanceConfig, snapshot::InstanceSnapshot, status::InstanceStatusObservations,
         },
-        machine::{CurrentMachineState, MachineConfig, MachineStateSnapshot},
+        machine::{CurrentMachineState, MachineStateSnapshot},
     },
 };
 
@@ -59,6 +60,8 @@ pub enum SnapshotLoaderError {
     MissingHardwareInfo(uuid::Uuid),
     #[error("Instance with ID {0} was not found")]
     InstanceNotFound(uuid::Uuid),
+    #[error("Machine with ID {0} was not found.")]
+    MachineNotFound(uuid::Uuid),
     // TODO: This should be replaced - but requires downstream errors to migrate
     // off from CarbideError
     #[error("Unable to load snapshot: {0}")]
@@ -89,11 +92,18 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             None => None,
         };
 
+        let machine = Machine::find_one(txn, machine_id)
+            .await
+            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
+            .ok_or(SnapshotLoaderError::MachineNotFound(machine_id))?;
+
         let snapshot = MachineStateSnapshot {
             machine_id,
             hardware_info: info.topology().discovery_data.info.clone(),
-            current: CurrentMachineState {},
-            config: MachineConfig {},
+            current: CurrentMachineState {
+                state: machine.current_state(),
+                version: machine.current_version(),
+            },
             instance: instance_snapshot,
         };
 

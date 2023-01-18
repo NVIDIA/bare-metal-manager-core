@@ -10,11 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 use crate::model::hardware_info::HardwareInfo;
 
-use super::instance::snapshot::InstanceSnapshot;
+use super::{config_version::ConfigVersion, instance::snapshot::InstanceSnapshot};
 
 pub const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 pub const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
@@ -26,10 +28,6 @@ pub struct MachineStateSnapshot {
     pub machine_id: uuid::Uuid,
     /// Hardware Information that was discovered about this Machine
     pub hardware_info: HardwareInfo,
-    /// Machine configuration. This represents the desired state of the Machine
-    /// The machine might not yet be in that state, but work would be underway
-    /// to get the Machine into this state
-    pub config: MachineConfig,
     /// Desired state of the machine
     pub current: CurrentMachineState,
     /// If there is an instance provisioned on top of the machine, this holds
@@ -39,10 +37,38 @@ pub struct MachineStateSnapshot {
 
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CurrentMachineState {}
+pub struct CurrentMachineState {
+    pub state: MachineState,
+    pub version: ConfigVersion,
+}
 
-/// Machine configuration. This represents the desired state of the Machine
-/// The machine might not yet be in that state, but work would be underway
-/// to get the Machine into this state
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MachineConfig {}
+/// Possible Machine state-machine implementation
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum MachineState {
+    Init,
+    Adopted,
+    Ready,
+    Assigned,
+    Reset,
+    Cleanedup,
+    Broken,
+    Decommissioned,
+    Removed,
+}
+
+impl Display for MachineState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            MachineState::Init => write!(f, "init"),
+            MachineState::Adopted => write!(f, "adopt"),
+            MachineState::Ready => write!(f, "ready"),
+            MachineState::Assigned => write!(f, "assigned"),
+            MachineState::Reset => write!(f, "reset"),
+            MachineState::Cleanedup => write!(f, "cleanup"),
+            MachineState::Broken => write!(f, "broken"),
+            MachineState::Decommissioned => write!(f, "decommissioned"),
+            MachineState::Removed => write!(f, "removed"),
+        }
+    }
+}

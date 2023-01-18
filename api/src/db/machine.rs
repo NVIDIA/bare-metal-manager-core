@@ -19,22 +19,19 @@ use chrono::prelude::*;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use rust_fsm::StateMachine;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use ::rpc::forge as rpc;
-use ::rpc::MachineStateMachine;
-use ::rpc::MachineStateMachineInput;
 
-use crate::db::machine_action::MachineAction;
 use crate::db::machine_event::MachineEvent;
 use crate::db::machine_interface::MachineInterface;
-use crate::db::machine_state::MachineState;
 use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
+use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::MachineState;
 use crate::{CarbideError, CarbideResult};
 
 use super::UuidKeyedObjectFilter;
@@ -62,7 +59,7 @@ pub struct Machine {
     deployed: Option<DateTime<Utc>>,
 
     /// The current state of the machine
-    state: MachineState,
+    state: Versioned<MachineState>,
 
     /// A list of [MachineEvent][event]s that this machine has experienced
     ///
@@ -82,13 +79,19 @@ pub struct Machine {
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let controller_state_version_str: &str = row.try_get("controller_state_version")?;
+        let controller_state_version = controller_state_version_str
+            .parse()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let controller_state: sqlx::types::Json<MachineState> = row.try_get("controller_state")?;
+
         Ok(Machine {
             id: row.try_get("id")?,
             vpc_leaf_id: row.try_get("vpc_leaf_id")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
-            state: MachineState::Unknown,
+            state: Versioned::new(controller_state.0, controller_state_version),
             events: Vec::new(),
             interfaces: Vec::new(),
             hardware_info: None,
@@ -116,7 +119,7 @@ impl From<Machine> for rpc::Machine {
             created: Some(machine.created.into()),
             updated: Some(machine.updated.into()),
             deployed: machine.deployed.map(|ts| ts.into()),
-            state: machine.state.to_string(),
+            state: machine.state.value.to_string(),
             events: machine
                 .events
                 .into_iter()
@@ -179,24 +182,14 @@ impl Machine {
                     Err(x) => Err(x),
                 }?;
 
-                match machine.current_state(&mut *txn).await? {
+                match machine.current_state() {
                     MachineState::Init => {
                         interface
                             .associate_interface_with_machine(txn, &machine.id)
                             .await?;
                         // Add the initial state
-                        machine
-                            .advance(txn, &MachineStateMachineInput::Discover)
-                            .await?;
-                        machine
-                            .advance(txn, &MachineStateMachineInput::Adopt)
-                            .await?;
-                        machine
-                            .advance(txn, &MachineStateMachineInput::Test)
-                            .await?;
-                        machine
-                            .advance(txn, &MachineStateMachineInput::Commission)
-                            .await?;
+                        machine.advance(txn, MachineState::Adopted).await?;
+                        machine.advance(txn, MachineState::Ready).await?;
                     }
                     rest => {
                         return Err(CarbideError::GenericError(format!(
@@ -212,16 +205,14 @@ impl Machine {
             Some(x) => {
                 log::info!("Machine already exists, returning machine {}", x);
                 let machine = Machine::find_one(&mut *txn, x).await?.unwrap();
-                match machine.current_state(&mut *txn).await? {
+                match machine.current_state() {
                     MachineState::Reset => {
                         log::warn!(
                             "Discover call received in valid {} state for machine: {}",
                             MachineState::Decommissioned,
                             machine.id()
                         );
-                        machine
-                            .advance(txn, &MachineStateMachineInput::Cleanup)
-                            .await?;
+                        machine.advance(txn, MachineState::Cleanedup).await?;
                     }
                     rest => {
                         log::info!(
@@ -321,37 +312,22 @@ impl Machine {
         &self.vpc_leaf_id
     }
 
-    /// Return the current state of the machine based on the sequence of events the machine has
-    /// experienced.
-    ///
-    /// This object does not store the current state, but calculates it from the actions that have
-    /// been performed on the machines.
+    /// Return the current state of the machine.
     ///
     /// Arguments:
+    /// None
     ///
-    /// * `txn` - A reference to a currently open database transaction
-    ///
-    pub async fn current_state(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<MachineState> {
-        let events = MachineEvent::for_machine(txn, &self.id).await?;
-        let state_machine = self.state_machine(&events)?;
-        Ok(MachineState::from(state_machine.state()))
+    pub fn current_state(&self) -> MachineState {
+        self.state.value.clone()
     }
 
-    fn state_machine(
-        &self,
-        events: &[MachineEvent],
-    ) -> CarbideResult<StateMachine<MachineStateMachine>> {
-        let mut machine: StateMachine<MachineStateMachine> = StateMachine::new();
-        events
-            .iter()
-            .map(|event| machine.consume(&MachineStateMachineInput::from(&event.action)))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(CarbideError::InvalidState)?;
-
-        Ok(machine)
+    /// Return the current version of state of the machine.
+    ///
+    /// Arguments:
+    /// None
+    ///
+    pub fn current_version(&self) -> ConfigVersion {
+        self.state.version
     }
 
     /// Perform an arbitrary action to a Machine and advance it to the next state given the last
@@ -360,29 +336,26 @@ impl Machine {
     /// Arguments:
     ///
     /// * `txn` - A reference to a currently open database transaction
-    /// * `action` - A reference to a MachineAction enum
+    /// * `state` - A reference to a MachineState enum
     ///
     pub async fn advance(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        action: &MachineStateMachineInput,
+        state: MachineState,
     ) -> CarbideResult<bool> {
-        // first validate the state change by getting the current state in the db
-        let events = MachineEvent::for_machine(txn, &self.id).await?;
-        let mut state_machine = self.state_machine(&events)?;
-        state_machine
-            .consume(action)
-            .map_err(CarbideError::InvalidState)?;
+        // Get current version
 
-        let id: (i64,) = sqlx::query_as(
-            "INSERT INTO machine_events (machine_id, action) VALUES ($1::uuid, $2) RETURNING id",
+        let version = self.state.version;
+        let new_version = version.increment();
+
+        let _id: (uuid::Uuid,) = sqlx::query_as(
+            "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
         )
+        .bind(new_version.to_version_string())
+        .bind(sqlx::types::Json(state))
         .bind(self.id())
-        .bind(MachineAction::from(action))
         .fetch_one(txn)
         .await?;
-
-        log::info!("Event ID is {}", id.0);
 
         Ok(true)
     }
@@ -481,10 +454,6 @@ impl Machine {
             if machine.hardware_info.is_none() {
                 log::warn!("Machine {0} has no associated discovery data", &machine.id);
             }
-
-            machine.state = machine
-                .state_machine(&machine.events)
-                .map_or(MachineState::Unknown, |m| MachineState::from(m.state()));
         });
 
         Ok(all_machines)
