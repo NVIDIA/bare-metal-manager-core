@@ -1,5 +1,5 @@
 #!/bin/bash
-set -ux pipefail
+set -ue pipefail
 
 BUILDDATE="'$(date '+%FT%T%z' | sed -E -n 's/(\+[0-9]{2})([0-9]{2})$/\1:\2/p')'" # rfc 3339 date
 
