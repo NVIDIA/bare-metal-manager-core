@@ -12,7 +12,6 @@
 
 use std::collections::HashMap;
 
-use rpc::MachineStateMachineInput;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -22,7 +21,6 @@ use crate::{
         instance_address::InstanceAddress,
         machine::Machine,
         machine_interface::MachineInterface,
-        machine_state::MachineState,
         network_segment::NetworkSegment,
     },
     dhcp::allocation::DhcpError,
@@ -33,6 +31,7 @@ use crate::{
             config::{network::InterfaceFunctionId, InstanceConfig},
             snapshot::InstanceSnapshot,
         },
+        machine::MachineState,
         ConfigValidationError, RpcDataConversionError,
     },
     state_controller::snapshot_loader::{
@@ -133,12 +132,10 @@ pub async fn allocate_instance(
         MachineInterface::get_machine_interface_primary(machine_id, &mut txn).await?;
 
     // A new instance can be created only in Ready state.
-    match machine.current_state(&mut txn).await? {
+    match machine.current_state() {
         MachineState::Ready => {
             // Blindly march forward to ready
-            machine
-                .advance(&mut txn, &MachineStateMachineInput::Assign)
-                .await?;
+            machine.advance(&mut txn, MachineState::Assigned).await?;
         }
         rest => {
             return Err(CarbideError::InvalidArgument(format!(

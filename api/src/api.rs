@@ -17,7 +17,6 @@ use std::sync::Arc;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::InstanceList;
 use ::rpc::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
-use ::rpc::MachineStateMachineInput;
 use color_eyre::Report;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use mac_address::MacAddress;
@@ -26,6 +25,7 @@ use tonic_reflection::server::Builder;
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
+use crate::model::machine::MachineState;
 use crate::{
     auth, cfg,
     credentials::UpdateCredentials,
@@ -42,7 +42,6 @@ use crate::{
         ipmi::BmcMetaDataUpdateRequest,
         machine::Machine,
         machine_interface::MachineInterface,
-        machine_state::MachineState,
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NewNetworkSegment},
         resource_record::DnsQuestion,
@@ -642,11 +641,9 @@ where
         };
 
         // After deleted instance, machine should be moved to Decommissioned state.
-        match machine.current_state(&mut txn).await? {
+        match machine.current_state() {
             MachineState::Assigned => {
-                machine
-                    .advance(&mut txn, &MachineStateMachineInput::Unassign)
-                    .await?;
+                machine.advance(&mut txn, MachineState::Reset).await?;
             }
             rest => {
                 return Err(Status::invalid_argument(format!(

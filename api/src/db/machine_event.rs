@@ -17,8 +17,43 @@ use sqlx::{FromRow, Postgres, Transaction};
 
 use ::rpc::forge as rpc;
 
-use crate::db::machine_action::MachineAction;
 use crate::CarbideResult;
+
+/// Possible Events for Machine state-machine implementation
+#[derive(Debug, Clone, sqlx::Type)]
+#[sqlx(type_name = "machine_action")]
+#[sqlx(rename_all = "lowercase")]
+pub enum MachineAction {
+    Discover,
+    Commission,
+    Assign,
+    Unassign,
+    Fail,
+    Recommission,
+    Decommission,
+    Release,
+}
+
+impl From<MachineAction> for rpc::MachineAction {
+    fn from(src: MachineAction) -> Self {
+        match src {
+            MachineAction::Discover => rpc::MachineAction::Discover,
+            MachineAction::Commission => rpc::MachineAction::Commission,
+            MachineAction::Assign => rpc::MachineAction::Assign,
+            MachineAction::Unassign => rpc::MachineAction::Unassign,
+            MachineAction::Fail => rpc::MachineAction::Fail,
+            MachineAction::Recommission => rpc::MachineAction::Recommission,
+            MachineAction::Decommission => rpc::MachineAction::Decommission,
+            MachineAction::Release => rpc::MachineAction::Release,
+        }
+    }
+}
+
+impl std::fmt::Display for MachineAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
 
 /// Representation of an event (state transition) on a machine.
 ///
@@ -95,5 +130,20 @@ impl MachineEvent {
                 .fetch_all(&mut *txn)
                 .await?,
         )
+    }
+
+    // Store each event for debugging purpose.
+    pub async fn persist(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &uuid::Uuid,
+        action: MachineAction,
+    ) -> CarbideResult<Self> {
+        Ok(sqlx::query_as::<_, Self>(
+            "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING *",
+        )
+        .bind(machine_id)
+        .bind(action)
+        .fetch_one(&mut *txn)
+        .await?)
     }
 }

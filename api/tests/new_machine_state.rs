@@ -11,8 +11,7 @@
  */
 use log::LevelFilter;
 
-use carbide::db::machine::Machine;
-use carbide::db::machine_state::MachineState;
+use carbide::{db::machine::Machine, model::machine::MachineState};
 
 const FIXTURE_CREATED_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
 
@@ -36,7 +35,7 @@ async fn test_new_machine_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     assert!(matches!(
         machine,
-        Some(x) if x.current_state(&mut txn).await? == MachineState::Init));
+        Some(x) if x.current_state() == MachineState::Init));
 
     txn.commit().await?;
 

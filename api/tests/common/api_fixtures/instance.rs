@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use super::TestApi;
-use carbide::db::machine::Machine;
-use rpc::{forge::forge_server::Forge, InstanceReleaseRequest, MachineStateMachineInput};
+use carbide::{db::machine::Machine, model::machine::MachineState};
+use rpc::{forge::forge_server::Forge, InstanceReleaseRequest};
 
 pub const FIXTURE_X86_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd99");
 pub const FIXTURE_CIRCUIT_ID: &str = "vlan_100";
@@ -23,20 +23,13 @@ pub async fn prepare_machine(pool: &sqlx::PgPool) {
         .await
         .unwrap()
         .unwrap();
+    assert!(matches!(machine.current_state(), MachineState::Init));
     machine
-        .advance(&mut txn, &MachineStateMachineInput::Discover)
+        .advance(&mut txn, MachineState::Adopted)
         .await
         .unwrap();
     machine
-        .advance(&mut txn, &MachineStateMachineInput::Adopt)
-        .await
-        .unwrap();
-    machine
-        .advance(&mut txn, &MachineStateMachineInput::Test)
-        .await
-        .unwrap();
-    machine
-        .advance(&mut txn, &MachineStateMachineInput::Commission)
+        .advance(&mut txn, MachineState::Ready)
         .await
         .unwrap();
     txn.commit().await.unwrap();

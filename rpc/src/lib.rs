@@ -24,7 +24,6 @@ use std::str::FromStr;
 
 use mac_address::{MacAddress, MacParseError};
 use prost::Message;
-use rust_fsm::*;
 
 pub use crate::protos::forge::{
     self, machine_credentials_update_request::CredentialPurpose,
@@ -238,21 +237,6 @@ impl MachineInterface {
     pub fn parsed_mac_address(&self) -> Result<Option<MacAddress>, MacParseError> {
         Ok(Some(MacAddress::from_str(&self.mac_address)?))
     }
-}
-
-state_machine! {
-    derive(Debug)
-    pub MachineStateMachine(Init)
-
-    Init(Discover) => New,
-    New => {Adopt => Adopted, Fail => Broken,},
-    Adopted => {Test => Tested, Fail => Broken,},
-    Tested => {Commission => Ready, Fail => Broken,},
-    Ready => {Assign => Assigned, Decommission => Decommissioned, Fail => Broken,},
-    Assigned => {Unassign => Reset, Fail => Broken},
-    Reset => {Cleanup => Ready, Fail => Broken},
-    Broken(Recommission) => Tested,
-    Decommissioned => {Recommission => Tested, Release => New},
 }
 
 #[cfg(test)]

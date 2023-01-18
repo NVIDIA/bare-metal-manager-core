@@ -51,6 +51,7 @@ pub struct Instance {
     pub tenant_config: TenantConfig,
     pub ssh_keys: Vec<String>,
     pub use_custom_pxe_on_boot: bool,
+    pub deleted: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +93,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             tenant_config,
             ssh_keys: Vec::new(),
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
+            deleted: row.try_get("deleted")?,
         })
     }
 }
