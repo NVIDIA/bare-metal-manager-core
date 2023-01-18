@@ -184,6 +184,8 @@ build-boot-artifacts-aarch64:
     name: $BUILD_CONTAINER_IMAGE_NAME_ARM
   script:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
+  after_script:
+    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   tags:
     - aarch64
   rules:
@@ -223,6 +225,8 @@ build-boot-artifacts-nonprod-aarch64:
     name: $BUILD_CONTAINER_IMAGE_NAME_ARM
   script:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
+  after_script:
+    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   tags:
     - aarch64
   artifacts:
