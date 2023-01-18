@@ -85,6 +85,10 @@ description = "Brings up a full Carbide stack"
 workspace = false
 command = "docker-compose"
 args = ["up", "-d", "--build"]
+dependencies = [
+  { name = "mkdir-static-x86_64", path = "${REPO_ROOT}/pxe"},
+  { name = "mkdir-static-aarch64", path = "${REPO_ROOT}/pxe"}
+]
 
 [tasks.fullstack-down]
 category = "Docker Compose"
