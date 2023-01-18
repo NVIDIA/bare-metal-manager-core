@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+FROM alpine:latest
+
+ENV HELM_VERSION=3.10.3
+ENV HELM_URL=https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz
+ENV HELM_HOME=/root/.helm
+
+# kubectl (possibly in gcloud?)
+ENV KUBECTL_VERSION=1.23.15
+ENV KUBECTL_URL=https://storage.googleapis.com/kubernetes-release/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl
+
+# Install dependencies
+RUN apk --no-cache add -U openssl curl tar gzip bash ca-certificates git \
+  && mkdir -p /opt
+
+# Install kubectl
+RUN curl -L -o /usr/local/bin/kubectl ${KUBECTL_URL} \
+  && chmod +x /usr/local/bin/kubectl \
+  && kubectl version --client
+
+# Install Helm
+RUN wget -q -O - ${HELM_URL} | tar zxf - \
+    && mv linux-amd64/helm /usr/bin/ \
+    && chmod +x /usr/bin/helm \
+    && helm version --client
+
+# Install kubeval and cm-push
+RUN mkdir -p $HELM_HOME/plugins && \
+    helm plugin install https://github.com/instrumenta/helm-kubeval && \
+    helm plugin install https://github.com/chartmuseum/helm-push
+
