@@ -150,21 +150,24 @@ build-deployment-container:
     - x86_64
   when: manual
 
-build-boot-artifacts-x86_64:
-  variables:
-    FORGE_CA: "prod"
+.build-boot-artifacts:
+  stage: build
   before_script:
     - mkdir -p ~/.jfrog
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
-  stage: build
+  after_script:
+    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
+ 
+build-boot-artifacts-x86_64:
+  extends: .build-boot-artifacts
+  variables:
+    FORGE_CA: "prod"
   tags:
     - shell
   image:
     name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
   script:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
-  after_script:
-    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   artifacts:
     paths:
       - pxe/static/blobs/internal/x86_64/
@@ -174,38 +177,26 @@ build-boot-artifacts-x86_64:
     - if: $CI_COMMIT_TAG
 
 build-boot-artifacts-aarch64:
+  extends: .build-boot-artifacts
   variables:
     FORGE_CA: "prod"
-  before_script:
-    - mkdir ~/.jfrog
-    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
-  stage: build
   image:
     name: $BUILD_CONTAINER_IMAGE_NAME_ARM
   script:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
-  after_script:
-    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   tags:
     - aarch64
   rules:
     - if: $CI_COMMIT_TAG
 
 build-boot-artifacts-nonprod-x86_64:
-  variables:
-    BUILDTITLE: forge-boot-artifacts
-  before_script:
-    - mkdir -p ~/.jfrog
-    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
-  stage: build
+  extends: .build-boot-artifacts
   tags:
     - shell
   image:
     name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
   script:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
-  after_script:
-    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   artifacts:
     paths: 
       - pxe/static/blobs/internal/x86_64/
@@ -215,18 +206,11 @@ build-boot-artifacts-nonprod-x86_64:
     - if: '$CI_COMMIT_BRANCH == "trunk"'
 
 build-boot-artifacts-nonprod-aarch64:
-  variables:
-    BUILDTITLE: forge-boot-artifacts
-  before_script:
-    - mkdir -p ~/.jfrog
-    - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
-  stage: build
+  extends: .build-boot-artifacts
   image:
     name: $BUILD_CONTAINER_IMAGE_NAME_ARM
   script:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
-  after_script:
-    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   tags:
     - aarch64
   artifacts:
@@ -237,14 +221,13 @@ build-boot-artifacts-nonprod-aarch64:
   rules:
     - if: '$CI_COMMIT_BRANCH == "trunk"'
 
-prepare-ci-build-push-boot-artifacts-aarch64:
+.prepare-boot-artifacts-ci:
   stage: .pre
   image:
     name: alpine:latest
   variables:
     AUTH_FILE: ${CI_PROJECT_DIR}/kaniko/.docker/config.json
     BUILDTITLE: "forge-boot-artifacts"
-    CPU_ARCH: aarch64
   before_script:
     - apk add jq curl bash git
   script:
@@ -258,41 +241,32 @@ prepare-ci-build-push-boot-artifacts-aarch64:
   rules:
     - if: '$CI_COMMIT_BRANCH == "trunk"'
     - if: $CI_COMMIT_TAG
+
+prepare-ci-build-push-boot-artifacts-aarch64:
+  extends: .prepare-boot-artifacts-ci
+  variables:
+    CPU_ARCH: aarch64
 
 prepare-ci-build-push-boot-artifacts-x86_64:
-  stage: .pre
-  image:
-    name: alpine:latest
-  variables:
-    AUTH_FILE: ${CI_PROJECT_DIR}/kaniko/.docker/config.json
-    BUILDTITLE: "forge-boot-artifacts"
-  before_script:
-    - apk add jq curl bash git
-  script:
-    - ./dev/prep-build-containers-ci.sh
-  artifacts:
-    paths:
-      - kaniko/
-    reports:
-      dotenv: environment.env
-    expire_in: 30 minutes
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "trunk"'
-    - if: $CI_COMMIT_TAG
+  extends: .prepare-boot-artifacts-ci
 
-build-push-boot-artifacts-container-nonprod-aarch64:
+.build-push-boot-artifacts-container:
   stage: publish
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.boot-artifacts
-    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-aarch64
   before_script:
     - cp -r ${CI_PROJECT_DIR}/kaniko/.docker /kaniko
   script: |
     set -xeuo pipefail
     /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
+ 
+build-push-boot-artifacts-container-nonprod-aarch64:
+  extends: .build-push-boot-artifacts-container
+  variables:
+    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-aarch64
   needs:
     - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-nonprod-aarch64
@@ -305,18 +279,9 @@ build-push-boot-artifacts-container-nonprod-aarch64:
     - if: '$CI_COMMIT_BRANCH == "trunk"'
 
 build-push-boot-artifacts-container-aarch64:
-  stage: publish
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
+  extends: .build-push-boot-artifacts-container
   variables:
-    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.boot-artifacts
     DOCKER_IMAGE: nvcr.io/nvidian/forge/boot-artifacts-aarch64
-  before_script:
-    - cp -r ${CI_PROJECT_DIR}/kaniko/.docker /kaniko
-  script: |
-    set -xeuo pipefail
-    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
   needs:
     - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-aarch64
@@ -329,18 +294,9 @@ build-push-boot-artifacts-container-aarch64:
     - if: $CI_COMMIT_TAG
 
 build-push-boot-artifacts-container-x86_64:
-  stage: publish
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
+  extends: .build-push-boot-artifacts-container
   variables:
-    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.boot-artifacts
     DOCKER_IMAGE: nvcr.io/nvidian/forge/boot-artifacts-x86_64
-  before_script:
-    - cp -r ${CI_PROJECT_DIR}/kaniko/.docker /kaniko
-  script: |
-    set -xeuo pipefail
-    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
   tags:
     - x86_64
   needs:
@@ -353,18 +309,9 @@ build-push-boot-artifacts-container-x86_64:
     - if: $CI_COMMIT_TAG
 
 build-push-boot-artifacts-container-nonprod-x86_64:
-  stage: publish
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
+  extends: .build-push-boot-artifacts-container
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.boot-artifacts
-    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-x86_64
-  before_script:
-    - cp -r ${CI_PROJECT_DIR}/kaniko/.docker /kaniko
-  script: |
-    set -xeuo pipefail
-    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
   needs:
     - build-boot-artifacts-nonprod-x86_64
     - prepare-ci-build-push-boot-artifacts-x86_64
@@ -375,7 +322,6 @@ build-push-boot-artifacts-container-nonprod-x86_64:
     - prepare-ci-build-push-boot-artifacts-x86_64
   rules:
     - if: '$CI_COMMIT_BRANCH == "trunk"'
-
 
 license-checks:
   before_script:
