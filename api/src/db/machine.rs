@@ -212,7 +212,7 @@ impl Machine {
                             MachineState::Decommissioned,
                             machine.id()
                         );
-                        machine.advance(txn, MachineState::Cleanedup).await?;
+                        machine.advance(txn, MachineState::Ready).await?;
                     }
                     rest => {
                         log::info!(
