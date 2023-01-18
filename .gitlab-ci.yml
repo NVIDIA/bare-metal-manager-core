@@ -1,4 +1,5 @@
 variables:
+
   NSPECT_ID: NSPECT-K66V-JJ0K
   APPLICATION_DOCKERFILE: dev/deployment/Dockerfile
   KUSTOMIZE_LOCATION: dev/kube
@@ -23,8 +24,8 @@ variables:
   NEED_HELM: "yes"
 
   # pull new versions from https://urm.nvidia.com/artifactory/swngc-ngcc-docker-local/forge/carbide/
-  BUILD_CONTAINER_IMAGE_NAME_ARM: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:v0.0.1-206-gf23904ca"
-  BUILD_CONTAINER_IMAGE_NAME_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v0.0.1-470-g80a16ba9"
+  BUILD_CONTAINER_IMAGE_NAME_ARM: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:v0.0.1-512-g3475afc9"
+  BUILD_CONTAINER_IMAGE_NAME_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v0.0.1-512-g3475afc9"
   BINARY_FILES: "binaries/carbide-api binaries/carbide-dns binaries/carbide binaries/carbide-admin-cli"
 
 stages:
@@ -87,7 +88,9 @@ build-container-arm:
     - prepare-ci
   tags:
     - aarch64
-  when: manual
+  rules:
+    - changes:
+        - dev/docker/Dockerfile.build-container-arm
 
 # if you modify this, you must keep it in sync with ${PROJECT_ROOT}/dev/deployment/Dockerfile or you will notice post-merge build failures.
 build-cargo:
@@ -162,7 +165,13 @@ build-boot-artifacts-x86_64:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
   after_script:
     - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
-  when: manual
+  artifacts:
+    paths:
+      - pxe/static/blobs/internal/x86_64/
+    when: always
+    expire_in: 1 day
+  rules:
+    - if: $CI_COMMIT_TAG
 
 build-boot-artifacts-aarch64:
   variables:
@@ -177,9 +186,12 @@ build-boot-artifacts-aarch64:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
   tags:
     - aarch64
-  when: manual
+  rules:
+    - if: $CI_COMMIT_TAG
 
-build-boot-artifacts-stg-x86_64:
+build-boot-artifacts-nonprod-x86_64:
+  variables:
+    BUILDTITLE: forge-boot-artifacts
   before_script:
     - mkdir -p ~/.jfrog
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
@@ -190,17 +202,21 @@ build-boot-artifacts-stg-x86_64:
     name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
   script:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
-    - ls -ltr
   after_script:
     - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
-  when: manual
   artifacts:
+    paths: 
+      - pxe/static/blobs/internal/x86_64/
     when: always
     expire_in: 1 day
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_NAME == "trunk"'
 
-build-boot-artifacts-stg-aarch64:
+build-boot-artifacts-nonprod-aarch64:
+  variables:
+    BUILDTITLE: forge-boot-artifacts
   before_script:
-    - mkdir ~/.jfrog
+    - mkdir -p ~/.jfrog
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   stage: build
   image:
@@ -209,125 +225,152 @@ build-boot-artifacts-stg-aarch64:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
   tags:
     - aarch64
-  when: manual
+  artifacts:
+    paths:
+      - pxe/static/blobs/internal/aarch64/
+    when: always
+    expire_in: 1 day
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_NAME == "trunk"'
 
-build-push-boot-artifacts-container-aarch64-stg:
+prepare-ci-build-push-boot-artifacts-aarch64:
+  stage: .pre
+  image:
+    name: alpine:latest
+  variables:
+    AUTH_FILE: ${CI_PROJECT_DIR}/kaniko/.docker/config.json
+    BUILDTITLE: "forge-boot-artifacts"
+    CPU_ARCH: aarch64
+  before_script:
+    - apk add jq curl bash git
+  script:
+    - ./dev/prep-build-containers-ci.sh
+  artifacts:
+    paths:
+      - kaniko/
+    reports:
+      dotenv: environment.env
+    expire_in: 30 minutes
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_NAME == "trunk"'
+    - if: $CI_COMMIT_TAG
+
+prepare-ci-build-push-boot-artifacts-x86_64:
+  stage: .pre
+  image:
+    name: alpine:latest
+  variables:
+    AUTH_FILE: ${CI_PROJECT_DIR}/kaniko/.docker/config.json
+    BUILDTITLE: "forge-boot-artifacts"
+  before_script:
+    - apk add jq curl bash git
+  script:
+    - ./dev/prep-build-containers-ci.sh
+  artifacts:
+    paths:
+      - kaniko/
+    reports:
+      dotenv: environment.env
+    expire_in: 30 minutes
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_BRANCH == "trunk"'
+    - if: $CI_COMMIT_TAG
+
+build-push-boot-artifacts-container-nonprod-aarch64:
   stage: publish
   image:
-    name: "$TOOLS_IMAGE_REPO"
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
   variables:
-    VAULT_JWT_ROLE: forge-ci
-    VAULT_ADDR: https://prod.vault.nvidia.com
-    VAULT_NAMESPACE: ngc
-    VAULT_JWT_PATH: auth/gitlab/login
-    DOCKER_FILE: "pxe/Dockerfile"
-    GIT_TERMINAL_PROMPT: 1
-    GOPRIVATE: gitlab-master.nvidia.com
-    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide/forge-boot-artifacts
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.boot-artifacts
+    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-aarch64
   before_script:
-  - "./${CI_SCRIPTS_LOCATION}/scripts/get-docker-json.sh"
-  - printf "machine gitlab-master.nvidia.com\n  login gitlab-ci-token\n  password
-    %s\n" ${CI_JOB_TOKEN} > /root/.netrc
-  - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
-  script:
-  - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE
-    jwt=$CI_JOB_JWT)"
-  - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
-  - PUSH_TO_NVCR_STG_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
+    - cp -r ${CI_PROJECT_DIR}/kaniko/.docker /kaniko
+  script: |
+    set -xeuo pipefail
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
+  needs:
+    - prepare-ci-build-push-boot-artifacts-aarch64
+    - build-boot-artifacts-nonprod-aarch64
   tags:
     - aarch64
   dependencies:
-    - build-boot-artifacts-stg-aarch64
-  when: manual
-
-build-push-boot-artifacts-container-x86_64-stg:
-  stage: publish
-  image:
-    name: "$TOOLS_IMAGE_REPO"
-  variables:
-    VAULT_JWT_ROLE: forge-ci
-    VAULT_ADDR: https://prod.vault.nvidia.com
-    VAULT_NAMESPACE: ngc
-    VAULT_JWT_PATH: auth/gitlab/login
-    DOCKER_FILE: "pxe/Dockerfile"
-    GIT_TERMINAL_PROMPT: 1
-    GOPRIVATE: gitlab-master.nvidia.com
-    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide/forge-boot-artifacts
-  before_script:
-  - ls -ltr
-  - "./${CI_SCRIPTS_LOCATION}/scripts/get-docker-json.sh"
-  - printf "machine gitlab-master.nvidia.com\n  login gitlab-ci-token\n  password
-    %s\n" ${CI_JOB_TOKEN} > /root/.netrc
-  - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
-  script:
-  - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE
-    jwt=$CI_JOB_JWT)"
-  - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
-  - PUSH_TO_NVCR_STG_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
-  tags:
-    - x86_64
-  dependencies:
-    - build-boot-artifacts-stg-x86_64
-  when: manual
+    - prepare-ci-build-push-boot-artifacts-aarch64
+    - build-boot-artifacts-nonprod-aarch64
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_BRANCH == "trunk"'
 
 build-push-boot-artifacts-container-aarch64:
   stage: publish
   image:
-    name: "$TOOLS_IMAGE_REPO"
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
   variables:
-    VAULT_JWT_ROLE: forge-ci
-    VAULT_ADDR: https://prod.vault.nvidia.com
-    VAULT_NAMESPACE: ngc
-    VAULT_JWT_PATH: auth/gitlab/login
-    DOCKER_FILE: "pxe/Dockerfile"
-    GIT_TERMINAL_PROMPT: 1
-    GOPRIVATE: gitlab-master.nvidia.com
-    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide/forge-boot-artifacts
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.boot-artifacts
+    DOCKER_IMAGE: nvcr.io/nvidian/forge/boot-artifacts-aarch64
   before_script:
-  - "./${CI_SCRIPTS_LOCATION}/scripts/get-docker-json.sh"
-  - printf "machine gitlab-master.nvidia.com\n  login gitlab-ci-token\n  password
-    %s\n" ${CI_JOB_TOKEN} > /root/.netrc
-  - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
-  script:
-  - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE
-    jwt=$CI_JOB_JWT)"
-  - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
-  - PUSH_TO_NVCR_PROD_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
+    - cp -r ${CI_PROJECT_DIR}/kaniko/.docker /kaniko
+  script: |
+    set -xeuo pipefail
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
+  needs:
+    - prepare-ci-build-push-boot-artifacts-aarch64
+    - build-boot-artifacts-aarch64
   tags:
     - aarch64
   dependencies:
+    - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-aarch64
-  when: manual
+  rules:
+    - if: $CI_COMMIT_TAG
 
 build-push-boot-artifacts-container-x86_64:
   stage: publish
   image:
-    name: "$TOOLS_IMAGE_REPO"
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
   variables:
-    VAULT_JWT_ROLE: forge-ci
-    VAULT_ADDR: https://prod.vault.nvidia.com
-    VAULT_NAMESPACE: ngc
-    VAULT_JWT_PATH: auth/gitlab/login
-    DOCKER_FILE: "pxe/Dockerfile"
-    GIT_TERMINAL_PROMPT: 1
-    GOPRIVATE: gitlab-master.nvidia.com
-    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide/forge-boot-artifacts
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.boot-artifacts
+    DOCKER_IMAGE: nvcr.io/nvidian/forge/boot-artifacts-x86_64
   before_script:
-  - "./${CI_SCRIPTS_LOCATION}/scripts/get-docker-json.sh"
-  - printf "machine gitlab-master.nvidia.com\n  login gitlab-ci-token\n  password
-    %s\n" ${CI_JOB_TOKEN} > /root/.netrc
-  - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
-  script:
-  - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE
-    jwt=$CI_JOB_JWT)"
-  - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
-  - PUSH_TO_NVCR_PROD_ONLY='true' ./${CI_SCRIPTS_LOCATION}/scripts/build-push-container-image.sh
+    - cp -r ${CI_PROJECT_DIR}/kaniko/.docker /kaniko
+  script: |
+    set -xeuo pipefail
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
+  tags:
+    - x86_64
+  needs:
+    - build-boot-artifacts-x86_64
+    - prepare-ci-build-push-boot-artifacts-x86_64
+  dependencies:
+    - build-boot-artifacts-x86_64
+    - prepare-ci-build-push-boot-artifacts-x86_64
+  rules:
+    - if: $CI_COMMIT_TAG
+
+build-push-boot-artifacts-container-nonprod-x86_64:
+  stage: publish
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.boot-artifacts
+    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-x86_64
+  before_script:
+    - cp -r ${CI_PROJECT_DIR}/kaniko/.docker /kaniko
+  script: |
+    set -xeuo pipefail
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
+  needs:
+    - build-boot-artifacts-nonprod-x86_64
+    - prepare-ci-build-push-boot-artifacts-x86_64
   tags:
     - x86_64
   dependencies:
-    - build-boot-artifacts-x86_64
-  when: manual
-
+    - build-boot-artifacts-nonprod-x86_64
+    - prepare-ci-build-push-boot-artifacts-x86_64
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_BRANCH == "trunk"'
 
 
 license-checks:
