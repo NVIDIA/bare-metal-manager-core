@@ -92,6 +92,25 @@ build-container-arm:
     - changes:
         - dev/docker/Dockerfile.build-container-arm
 
+build-container-helm:
+  stage: .pre
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  before_script: |
+    mkdir -p /kaniko/.docker
+    echo "$DOCKER_AUTH_CONFIG" > /kaniko/.docker/config.json
+  script: |
+    set -xeuo pipefail
+
+    /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $CI_PROJECT_DIR/dev/docker/Dockerfile.helm --destination urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86_64/forge-helm:$VERSION
+  needs:
+    - prepare-ci
+  rules:
+    - changes:
+        - dev/docker/Dockerfile.helm
+
+
 # if you modify this, you must keep it in sync with ${PROJECT_ROOT}/dev/deployment/Dockerfile or you will notice post-merge build failures.
 build-cargo:
   stage: build
@@ -311,7 +330,7 @@ build-push-boot-artifacts-container-x86_64:
 build-push-boot-artifacts-container-nonprod-x86_64:
   extends: .build-push-boot-artifacts-container
   variables:
-    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.boot-artifacts
+    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-x86_64
   needs:
     - build-boot-artifacts-nonprod-x86_64
     - prepare-ci-build-push-boot-artifacts-x86_64
