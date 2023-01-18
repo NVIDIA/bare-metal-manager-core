@@ -9,17 +9,14 @@
 # its affiliates is strictly prohibited.
 [env]
 REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_PROJECT_DIR"], env_not_set = ["REPO_ROOT"]}}
-
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
-
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04"
 BFB_NAME = "DOCA_1.5.1_BSP_3.9.3_Ubuntu_20.04-4.2211-LTS.signed.bfb"
 
 [tasks.build-boot-artifacts-x86_64]
-#dependencies = [
-
 dependencies = [
+        "mkdir-static-x86_64",
         { name = "build-carbide-cli", path = "${REPO_ROOT}" },
         "build",
         "create-ephemeral-image-x86_64-ci",
@@ -28,6 +25,7 @@ dependencies = [
 
 [tasks.build-boot-artifacts-x86_64-ci]
 dependencies = [
+        "mkdir-static-x86_64",
         { name = "build-carbide-cli-ci", path = "${REPO_ROOT}" },
         "build",
         "create-ephemeral-image-x86_64-ci",
@@ -36,6 +34,7 @@ dependencies = [
 
 [tasks.build-boot-artifacts-aarch64]
 dependencies = [
+        "mkdir-static-aarch64",
 	{ name = "build-carbide-cli", path = "${REPO_ROOT}" },
 	"bfb-aarch64",
 	"ipxe-aarch64",
@@ -43,6 +42,7 @@ dependencies = [
 
 [tasks.build-boot-artifacts-aarch64-ci]
 dependencies = [
+        "mkdir-static-aarch64",
 	{ name = "build-carbide-cli-ci", path = "${REPO_ROOT}" },
 	"bfb-aarch64-ci",
 	"ipxe-aarch64",
@@ -69,6 +69,19 @@ dependencies = [
 	"mkosi-build-image-x86_64-ci",
 	"mkosi-remove-unnecessary-files",
 ]
+
+[tasks.mkdir-static-aarch64]
+category = "ipxe"
+script = '''
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/aarch64"
+'''
+
+[tasks.mkdir-static-x86_64]
+category = "ipxe"
+script = '''
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/x86_64"
+'''
+
 
 [tasks.copy-forge-root-ca]
 category = "Copy Forge Root CA"
@@ -159,7 +172,7 @@ dependencies = [
 	"ipxe-install-pcbios-x86_64",
 	"ipxe-install-efi-x86_64",
     "package-boot-artifacts-x86_64",
-    "upload-boot-artifacts-x86_64",
+    "upload-boot-artifacts-x86_64"
 ]
 
 [tasks.ipxe-config]
@@ -431,13 +444,13 @@ args = [ "/tmp/bfb-dump/dump-initramfs-v0", "carbide.root"]
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.container-boot-artifacts-x86_64-ci]
-categroy = "iPXE Kernel"
+category = "iPXE Kernel"
 description = "Pacakge x86_64 EFI ipxe kernel and rootdisk"
 command = "docker"
 args = ["-t", "boot-artifacts-${FORGE_CA}-x86_64:${CI_BUILD_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
 
 [tasks.container-boot-artifacts-aarch64-ci]
-categroy = "iPXE Kernel"
+category = "iPXE Kernel"
 description = "Pacakge aarch64 EFI ipxe kernel and rootdisk"
 command = "docker"
 args = ["-t", "boot-artifacts-${FORGE_CA}-aarch64:${CI_BUILD_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
