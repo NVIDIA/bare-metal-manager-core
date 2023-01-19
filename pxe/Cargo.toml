@@ -2,7 +2,7 @@
 name = "carbide-pxe"
 version = "0.0.1"
 edition.workspace = true
-license-file = "LICENSE"
+license = "LicenseRef-NvidiaProprietary"
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
 authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 

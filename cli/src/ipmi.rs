@@ -15,13 +15,12 @@ use std::fmt;
 use std::process::{Command, ExitStatus};
 use std::time::Instant;
 
-use rand::Rng;
-use regex::Regex;
-use tokio::time::{sleep, Duration};
-
 use ::rpc::forge as rpc;
 use cli::CarbideClientError;
 use cli::CarbideClientResult;
+use rand::Rng;
+use regex::Regex;
+use tokio::time::{sleep, Duration};
 
 use crate::IN_QEMU_VM;
 
@@ -224,9 +223,9 @@ impl IpmiUserRecord {
 
         let id = row[0].to_string();
         let name = row[1].to_string();
-        let callin = humanbool::parse(row[2]).unwrap_or_default();
-        let link_auth = humanbool::parse(row[3]).unwrap_or_default();
-        let ipmi_msg = humanbool::parse(row[4]).unwrap_or_default();
+        let callin = as_bool(row[2]);
+        let link_auth = as_bool(row[3]);
+        let ipmi_msg = as_bool(row[4]);
         let privilege_level = row[5].to_string();
 
         Self {
@@ -423,6 +422,14 @@ async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
         "Max timout ({} seconds) is elapsed and still ipmitool is failed.",
         MAX_TIMEOUT.as_secs(),
     )))
+}
+
+fn as_bool(s: &str) -> bool {
+    match s {
+        "1" | "y" | "yes" | "on" | "t" | "true" => true,
+        "0" | "n" | "no" | "off" | "f" | "false" => false,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
