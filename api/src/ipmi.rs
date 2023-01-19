@@ -13,17 +13,16 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ::rpc::forge as rpc;
+use ::rpc::forge::instance_power_request::Operation as rpcOperation;
 use async_trait::async_trait;
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+use libredfish::manager::OemDellBootDevices;
+use libredfish::system::SystemPowerControl;
 use serde::{Deserialize, Serialize};
 use sqlx::{self, PgPool};
 use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
 use uuid::Uuid;
-
-use ::rpc::forge as rpc;
-use ::rpc::forge::instance_power_request::Operation as rpcOperation;
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
-use libredfish::manager::OemDellBootDevices;
-use libredfish::system::SystemPowerControl;
 
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::dpu_machine::DpuMachine;
@@ -164,7 +163,11 @@ async fn observe_dpu_state_and_reboot_host(
     // Reboot host now. Raise it as separate task. It will give some breathing time to DPU.
     let machine_power_request = MachineBmcRequest::new(cmd.machine_id, Operation::Reset, true);
     let task_id = machine_power_request.invoke_bmc_command(pool).await?;
-    log::info!("Spawned job to reboot host with id: {}", task_id);
+    log::info!(
+        "observe: Spawned task {} to reboot host {}",
+        task_id,
+        cmd.machine_id
+    );
     Ok(())
 }
 

@@ -12,22 +12,20 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
+use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use ::rpc::forge as rpc;
-
+use super::UuidKeyedObjectFilter;
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::NetworkSegment;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::{CarbideError, CarbideResult};
-
-use super::UuidKeyedObjectFilter;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
@@ -392,6 +390,17 @@ impl MachineInterface {
 
     pub fn primary_interface(&self) -> bool {
         self.primary_interface
+    }
+
+    // Convenience function to load the machine which owns this interface
+    pub async fn load_machine(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<Option<Machine>> {
+        match self.machine_id {
+            Some(machine_id) => Machine::find_one(txn, machine_id).await,
+            None => Ok(None),
+        }
     }
 
     async fn find_by<'a>(

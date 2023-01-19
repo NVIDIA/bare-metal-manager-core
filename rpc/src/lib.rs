@@ -26,7 +26,7 @@ use mac_address::{MacAddress, MacParseError};
 use prost::Message;
 
 pub use crate::protos::forge::{
-    self, machine_credentials_update_request::CredentialPurpose,
+    self, forge_agent_control_response, machine_credentials_update_request::CredentialPurpose,
     machine_discovery_info::DiscoveryData, Domain, DomainList, Instance, InstanceAllocationRequest,
     InstanceConfig, InstanceInterfaceConfig, InstanceInterfaceStatus,
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
@@ -168,6 +168,8 @@ impl prost::Message for Timestamp {
 #[derive(Debug, Clone, Copy)]
 pub struct DiscriminantError(i32);
 
+impl std::error::Error for DiscriminantError {}
+
 impl TryFrom<i32> for CredentialPurpose {
     type Error = DiscriminantError;
 
@@ -177,6 +179,12 @@ impl TryFrom<i32> for CredentialPurpose {
             x if x == Self::LoginUser as i32 => Ok(Self::LoginUser),
             _ => Err(DiscriminantError(value)),
         }
+    }
+}
+
+impl std::fmt::Display for DiscriminantError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Invalid enum value: {}", self.0)
     }
 }
 
@@ -198,6 +206,20 @@ impl TryFrom<i32> for MachineAction {
             x if x == MachineAction::Release as i32 => Ok(MachineAction::Release),
             x if x == MachineAction::Cleanup as i32 => Ok(MachineAction::Cleanup),
             _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<i32> for forge_agent_control_response::Action {
+    type Error = DiscriminantError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            x if x == Self::Nop as i32 => Ok(Self::Nop),
+            x if x == Self::Reset as i32 => Ok(Self::Reset),
+            x if x == Self::Discovery as i32 => Ok(Self::Discovery),
+            x if x == Self::Rebuild as i32 => Ok(Self::Rebuild),
+            _ => Err(DiscriminantError(value)),
         }
     }
 }

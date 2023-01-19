@@ -15,6 +15,7 @@
 use std::convert::From;
 use std::net::IpAddr;
 
+use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
@@ -23,8 +24,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use ::rpc::forge as rpc;
-
+use super::UuidKeyedObjectFilter;
 use crate::db::machine_event::MachineEvent;
 use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_topology::MachineTopology;
@@ -33,8 +33,6 @@ use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::MachineState;
 use crate::{CarbideError, CarbideResult};
-
-use super::UuidKeyedObjectFilter;
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
@@ -159,29 +157,40 @@ impl Machine {
         }
     }
 
-    /// Create a machine object in the database
+    /// Load a Machine object matching an interface, creating it if not already present.
     ///
     /// Arguments:
     ///
     /// * `txn` - A reference to a currently open database transaction
+    /// * `interface` - Network interface of the machine
     ///
-    pub async fn create(
+    pub async fn get_or_create(
         txn: &mut Transaction<'_, Postgres>,
         mut interface: MachineInterface,
     ) -> CarbideResult<Self> {
         match interface.machine_id {
+            // GET
+            Some(machine_id) => match Machine::find_one(&mut *txn, machine_id).await? {
+                Some(machine) => Ok(machine),
+                None => {
+                    log::warn!(
+                        "Interface ID {} refers to missing machine {machine_id}",
+                        interface.id()
+                    );
+                    Err(CarbideError::NotFoundError(machine_id))
+                }
+            },
+            // CREATE
             None => {
                 let row: (Uuid,) =
                     sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
                         .fetch_one(&mut *txn)
                         .await?;
-
                 let machine = match Machine::find_one(&mut *txn, row.0).await {
                     Ok(Some(x)) => Ok(x),
                     Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),
                     Err(x) => Err(x),
                 }?;
-
                 match machine.current_state() {
                     MachineState::Init => {
                         interface
@@ -199,29 +208,6 @@ impl Machine {
                         )));
                     }
                 }
-
-                Ok(machine)
-            }
-            Some(x) => {
-                log::info!("Machine already exists, returning machine {}", x);
-                let machine = Machine::find_one(&mut *txn, x).await?.unwrap();
-                match machine.current_state() {
-                    MachineState::Reset => {
-                        log::warn!(
-                            "Discover call received in valid {} state for machine: {}",
-                            MachineState::Decommissioned,
-                            machine.id()
-                        );
-                        machine.advance(txn, MachineState::Ready).await?;
-                    }
-                    rest => {
-                        log::info!(
-                            "Discover call received in Invalid {} state for machine: {}",
-                            rest,
-                            machine.id()
-                        );
-                    }
-                };
                 Ok(machine)
             }
         }

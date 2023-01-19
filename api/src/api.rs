@@ -798,7 +798,7 @@ where
             .map_err(CarbideError::from)?;
 
         let interface_id = match &machine_discovery_info.machine_interface_id {
-            Some(id) => match uuid::Uuid::try_from(id) {
+            Some(id) => match Uuid::try_from(id) {
                 Ok(uuid) => uuid,
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
@@ -815,7 +815,7 @@ where
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
 
-        let machine = Machine::create(&mut txn, interface)
+        let machine = Machine::get_or_create(&mut txn, interface)
             .await
             .map(rpc::Machine::from)?;
 
@@ -824,7 +824,7 @@ where
                 Ok(uuid) => uuid,
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
-                        "Created machine did not return an proper UUID : {}",
+                        "Created machine did not return a proper UUID : {}",
                         err
                     )));
                 }
@@ -855,17 +855,74 @@ where
         response
     }
 
+    // Transitions the machine to Ready state.
+    // Called by 'carbide-cli discovery' once cleanup succeeds.
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn cleanup_machine_completed(
         &self,
         request: Request<rpc::MachineCleanupInfo>,
     ) -> Result<Response<rpc::MachineCleanupResult>, Status> {
-        let response = Ok(Response::new(rpc::MachineCleanupResult {}));
-        log::info!("MachineCleanupInfo {:?}", request);
+        let cleanup_info = request.into_inner();
+        log::info!("cleanup_machine_completed {:?}", cleanup_info);
 
-        response
+        // Extract and check UUID
+        let machine_id = match &cleanup_info.machine_id {
+            Some(id) => match Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Did not supply a valid machine_id. Value was: {}. Err: {}",
+                        id, err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("A machine UUID is required"));
+            }
+        };
+
+        // Load machine from DB
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+        let machine = match Machine::find_one(&mut txn, machine_id).await {
+            Err(err) => {
+                log::warn!("loading machine for {machine_id}: {err}.");
+                return Err(Status::invalid_argument("err loading machine"));
+            }
+            Ok(None) => {
+                log::info!("no machine for interface {machine_id}");
+                return Err(Status::not_found("missing machine"));
+            }
+            Ok(Some(m)) => m,
+        };
+
+        // TODO Cleanup event moves state to Ready
+        // TODO machine.advance(&mut txn, MachineState::Cleanedup).await?;
+        // (Abishek): Cleanedup state is not implemented yet. Machine can be moved to Ready state for now.
+        machine.advance(&mut txn, MachineState::Ready).await?; // temp
+
+        // Ask it to reboot
+        // TODO: Commented out for now, we are not ready for this yet.
+        // The fix is for forge_agent_control not to return the Discovery action in the Ready state,
+        // but that is a bigger change which would require us not to create the machine directly
+        // in the Ready state.
+        //let machine_power_request = MachineBmcRequest::new(machine_id, Operation::Reset, true);
+        //let task_id = machine_power_request
+        //    .invoke_bmc_command(self.database_connection.clone())
+        //    .await?;
+        //log::info!(
+        //    "cleanup: Spawned task {} to reboot host {}",
+        //    task_id,
+        //    machine_id,
+        //);
+
+        Ok(Response::new(rpc::MachineCleanupResult {}))
     }
 
+    /*
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn done(&self, request: Request<rpc::Uuid>) -> Result<Response<rpc::Machine>, Status> {
         let mut txn = self
@@ -899,6 +956,7 @@ where
 
         response
     }
+    */
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn discover_dhcp(
@@ -1375,6 +1433,68 @@ where
         txn.commit().await.map_err(CarbideError::from)?;
 
         Ok(Response::new(rpc::PxeInstructions { pxe_script }))
+    }
+
+    // Called on x86 boot by 'carbide-cli discovery --uuid=<uuid>'. Tells it whether to discover or
+    // cleanup based on current machine state.
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn forge_agent_control(
+        &self,
+        request: Request<rpc::ForgeAgentControlRequest>,
+    ) -> Result<Response<rpc::ForgeAgentControlResponse>, Status> {
+        use ::rpc::forge_agent_control_response::Action;
+
+        // Convert Option<rpc::Uuid> into uuid::Uuid
+        let machine_id = match request.into_inner().machine_id {
+            Some(rpc_uuid) => match Uuid::try_from(&rpc_uuid) {
+                Ok(uuid) => uuid,
+                Err(_) => {
+                    log::warn!("forge agent control: invalid uuid '{rpc_uuid}'");
+                    return Err(Status::invalid_argument("invalid uuid"));
+                }
+            },
+            None => {
+                log::warn!("forge agent control: missing uuid");
+                return Err(Status::invalid_argument("Missing machine UUID"));
+            }
+        };
+
+        // Load the machine from db
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+        let machine = match Machine::find_one(&mut txn, machine_id).await? {
+            None => {
+                log::warn!("forge agent control: missing machine {machine_id}");
+                return Err(Status::not_found("Missing machine"));
+            }
+            Some(m) => m,
+        };
+
+        // Respond based on machine current state
+        let state = machine.current_state();
+        let action = match state {
+            MachineState::Ready => Action::Discovery,
+            MachineState::Reset => Action::Reset,
+            _ => {
+                // Later this might go to site admin dashboard for manual intervention
+                log::info!(
+                    "forge agent control: Machine '{}' in invalid state '{state}'",
+                    machine.id()
+                );
+                Action::Nop
+            }
+        };
+        log::info!(
+            "forge agent control: machine {} action {:?}",
+            machine.id(),
+            action
+        );
+        Ok(Response::new(rpc::ForgeAgentControlResponse {
+            action: action as i32,
+        }))
     }
 }
 

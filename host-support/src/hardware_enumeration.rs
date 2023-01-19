@@ -16,10 +16,9 @@ use std::{
     str::{FromStr, Utf8Error},
 };
 
+use ::rpc::machine_discovery as rpc_discovery;
 use libudev::Device;
 use uname::uname;
-
-use ::rpc::machine_discovery as rpc_discovery;
 
 mod tpm;
 
@@ -150,8 +149,7 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> Result<i32, HardwareEnu
     }
 }
 
-pub fn enumerate_hardware(
-) -> Result<(rpc_discovery::DiscoveryInfo, CpuArchitecture), HardwareEnumerationError> {
+pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
     let context = libudev::Context::new()?;
 
     // uname to detect type
@@ -444,16 +442,13 @@ pub fn enumerate_hardware(
         log::debug!("TPM EK certificate (base64): {}", cert);
     }
 
-    Ok((
-        rpc_discovery::DiscoveryInfo {
-            network_interfaces: nics,
-            cpus,
-            block_devices: disks,
-            nvme_devices: nvmes,
-            dmi_devices: dmis,
-            machine_type: info.machine.as_str().to_owned(),
-            tpm_ek_certificate,
-        },
-        arch,
-    ))
+    Ok(rpc_discovery::DiscoveryInfo {
+        network_interfaces: nics,
+        cpus,
+        block_devices: disks,
+        nvme_devices: nvmes,
+        dmi_devices: dmis,
+        machine_type: info.machine.as_str().to_owned(),
+        tpm_ek_certificate,
+    })
 }

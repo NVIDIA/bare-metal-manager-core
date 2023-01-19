@@ -9,13 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
-
 use carbide::db::{
     address_selection_strategy::AddressSelectionStrategy, machine::Machine,
     machine_interface::MachineInterface, network_segment::NetworkSegment,
 };
 use carbide::CarbideError;
+use log::LevelFilter;
 
 pub mod common;
 use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
@@ -54,7 +53,7 @@ async fn prevent_duplicate_mac_addresses(
     )
     .await?;
 
-    let _new_machine = Machine::create(&mut txn, new_interface).await?;
+    let _new_machine = Machine::get_or_create(&mut txn, new_interface).await?;
 
     let duplicate_interface = MachineInterface::create(
         &mut txn,

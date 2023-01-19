@@ -37,6 +37,9 @@ pub enum CarbideClientError {
 
     #[error("Hardware enumeration error: {0}")]
     RegistrationError(#[from] forge_host_support::registration::RegistrationError),
+
+    #[error("Invalid gRPC enum value: {0}")]
+    DiscriminantError(#[from] rpc::DiscriminantError),
 }
 
 pub type CarbideClientResult<T> = Result<T, CarbideClientError>;

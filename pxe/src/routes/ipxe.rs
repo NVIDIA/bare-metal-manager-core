@@ -12,10 +12,9 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
+use ::rpc::forge as rpc;
 use rocket::{get, routes, Route};
 use rocket_dyn_templates::Template;
-
-use ::rpc::forge as rpc;
 
 use crate::routes::RpcContext;
 use crate::{Machine, RuntimeConfig};
@@ -133,7 +132,7 @@ pub async fn boot(contents: Machine, config: RuntimeConfig) -> Result<Template, 
     context.insert("pxe_url".to_string(), config.pxe_url.clone());
 
     let instructions = match contents.machine {
-        None => boot_into_discovery(arch, machine_interface_id, config),
+        None => boot_forge_host_image(arch, machine_interface_id, config),
         Some(m) => determine_boot_from_state(m, machine_interface_id, config, arch).await,
     };
 
@@ -154,11 +153,13 @@ async fn determine_boot_from_state(
             rpc::MachineArchitecture::Arm => "exit 1".to_string(),
             // X86 does not install OS in disk. It boots fresh everytime with carbide.efi.
             rpc::MachineArchitecture::X86 => {
-                boot_into_discovery(arch, machine_interface_id, config)
+                boot_forge_host_image(arch, machine_interface_id, config)
             }
         },
-        "reset" => boot_into_discovery(rpc::MachineArchitecture::X86, machine_interface_id, config),
-        "assigned" => boot_tenant_config(machine, config).await,
+        "reset" => {
+            boot_forge_host_image(rpc::MachineArchitecture::X86, machine_interface_id, config)
+        }
+        "assigned" => boot_tenant_image(machine, config).await,
         // any unrecognized state will cause ipxe to stop working with this message
         invalid_status => format!(
             r#"
@@ -171,7 +172,7 @@ exit ||
     }
 }
 
-async fn boot_tenant_config(machine: rpc::Machine, config: RuntimeConfig) -> String {
+async fn boot_tenant_image(machine: rpc::Machine, config: RuntimeConfig) -> String {
     let machine_id = match machine.id {
         Some(id) => id,
         //TODO: Need a better way to deal with missing id.
@@ -184,7 +185,7 @@ async fn boot_tenant_config(machine: rpc::Machine, config: RuntimeConfig) -> Str
             eprintln!("{}", err);
             format!(
                 r#"
-echo Failed to fetch custome_ipxe: {} || 
+echo Failed to fetch custome_ipxe: {} ||
 exit 101 ||
 "#,
                 err
@@ -192,7 +193,8 @@ exit 101 ||
         })
 }
 
-fn boot_into_discovery(
+// Boot host with our discovery and reset image
+fn boot_forge_host_image(
     arch: rpc::MachineArchitecture,
     machine_interface_id: uuid::Uuid,
     config: RuntimeConfig,
