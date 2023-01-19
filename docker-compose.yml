@@ -79,6 +79,7 @@ services:
         ipv4_address: 172.20.0.14
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
+      - $HOME/docker_forge_root:/opt/forge
       - .:/app/code
       - ca-certificate:/identity
     # add '-dd' for trace/debug mode:
@@ -90,6 +91,7 @@ services:
       --casbin-policy-file=/app/code/api/casbin-policy.csv
       --auth-permissive-mode=true"
     ports:
+      - 1078:1078
       - 1079:1079
     environment:
       - CARGO_HOME=/docker_cargo_home

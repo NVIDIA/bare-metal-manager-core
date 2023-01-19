@@ -18,3 +18,6 @@ pub mod forge;
 #[allow(unknown_lints, clippy::all)]
 #[rustfmt::skip]
 pub mod machine_discovery;
+#[allow(unknown_lints, clippy::all)]
+#[rustfmt::skip]
+pub mod bootstrap;

@@ -5,7 +5,7 @@ After=network-online.target
 [Service]
 Type=idle
 Environment=RUST_BACKTRACE=full
-ExecStart=/carbide/run.sh
+ExecStart=/opt/forge/run.sh
 
 [Install]
 WantedBy=multi-user.target

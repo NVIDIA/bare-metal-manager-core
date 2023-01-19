@@ -19,7 +19,7 @@ dependencies = [
         "mkdir-static-x86_64",
         { name = "build-carbide-cli", path = "${REPO_ROOT}" },
         "build",
-        "create-ephemeral-image-x86_64-ci",
+        "create-ephemeral-image-x86_64",
         "ipxe-x86_64",
 ]
 
@@ -48,7 +48,7 @@ dependencies = [
 	"ipxe-aarch64",
 ]
 
-[tasks.create-ephemeral-image]
+[tasks.create-ephemeral-image-x86_64]
 category = "Ephemeral Image"
 dependencies = [
 	"mkosi-generate-zipapp",
@@ -87,8 +87,9 @@ script = '''
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
+    "-f",
 	"${FORGE_CA_PATH}",
-	"mkosi.extra/carbide/",
+	"mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-debug-artifacts]
@@ -96,7 +97,7 @@ category = "Copy Debug Artifacts"
 command = "cp"
 args = [
 	"${REPO_ROOT}/target/debug/carbide-cli",
-	"mkosi.extra/carbide/",
+	"mkosi.extra/opt/forge/",
 ]
 
 # We don't need the Disk image it creates yet
@@ -263,7 +264,7 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-cli-to-bfb",
-	"bfb-add-forge-root-ca-to-bfb",
+	"bfb-add-forge-prod-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",
@@ -353,7 +354,7 @@ description = "Add the forge root CA to the bfb"
 command = "cp"
 args = [
 	"${FORGE_CA_PATH}",
-	"/tmp/bfb-dump/initramfs-tmp",
+	"/tmp/bfb-dump/initramfs-tmp/forge_root.pem",
 ]
 
 [tasks.bfb-add-cli-to-bfb]
