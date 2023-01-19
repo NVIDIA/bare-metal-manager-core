@@ -395,11 +395,13 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     // Dmi
     let mut enumerator = libudev::Enumerator::new(&context)?;
     enumerator.match_subsystem("dmi")?;
-    let devices = enumerator.scan_devices()?;
+    let mut devices = enumerator.scan_devices()?;
 
-    let mut dmis: Vec<rpc_discovery::DmiDevice> = Vec::new();
-
-    for device in devices {
+    let mut dmi = rpc_discovery::DmiData::default();
+    // We only enumerate the first set of dmi data
+    // There is only expected to be a single set, and we don't want to
+    // accidentally overwrite it with other data
+    if let Some(device) = devices.next() {
         log::debug!("{:?}", device.syspath());
         for p in device.properties() {
             log::debug!("{:?} - {:?}", p.name(), p.value());
@@ -413,14 +415,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             })?
             .is_some()
         {
-            dmis.push(rpc_discovery::DmiDevice {
-                board_name: convert_sysattr_to_string("board_name", &device)?.to_string(),
-                board_version: convert_sysattr_to_string("board_version", &device)?.to_string(),
-                bios_version: convert_sysattr_to_string("bios_version", &device)?.to_string(),
-                product_serial: convert_sysattr_to_string("product_serial", &device)?.to_string(),
-                board_serial: convert_sysattr_to_string("board_serial", &device)?.to_string(),
-                chassis_serial: convert_sysattr_to_string("chassis_serial", &device)?.to_string(),
-            });
+            dmi.board_name = convert_sysattr_to_string("board_name", &device)?.to_string();
+            dmi.board_version = convert_sysattr_to_string("board_version", &device)?.to_string();
+            dmi.bios_version = convert_sysattr_to_string("bios_version", &device)?.to_string();
+            dmi.product_serial = convert_sysattr_to_string("product_serial", &device)?.to_string();
+            dmi.board_serial = convert_sysattr_to_string("board_serial", &device)?.to_string();
+            dmi.chassis_serial = convert_sysattr_to_string("chassis_serial", &device)?.to_string();
         }
     }
 
@@ -436,7 +436,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     log::debug!("Discovered CPUs: {:?}", cpus);
     log::debug!("Discovered NICS: {:?}", nics);
     log::debug!("Discovered NVMES: {:?}", nvmes);
-    log::debug!("Discovered DMIS: {:?}", dmis);
+    log::debug!("Discovered DMI: {:?}", dmi);
     log::debug!("Discovered Machine Architecture: {}", info.machine.as_str());
     if let Some(cert) = tpm_ek_certificate.as_ref() {
         log::debug!("TPM EK certificate (base64): {}", cert);
@@ -447,7 +447,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         cpus,
         block_devices: disks,
         nvme_devices: nvmes,
-        dmi_devices: dmis,
+        dmi_data: Some(dmi),
         machine_type: info.machine.as_str().to_owned(),
         tpm_ek_certificate,
     })

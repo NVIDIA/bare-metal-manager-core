@@ -16,8 +16,7 @@ use carbide::{
         network_segment::NetworkSegment,
     },
     model::hardware_info::{
-        BlockDevice, Cpu, DmiDevice, HardwareInfo, NetworkInterface, NvmeDevice,
-        PciDeviceProperties,
+        BlockDevice, Cpu, DmiData, HardwareInfo, NetworkInterface, NvmeDevice, PciDeviceProperties,
     },
     state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     CarbideResult,
@@ -111,14 +110,14 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
             model: "test_nvme_model".to_string(),
             firmware_rev: "test_nvme_firmware_rev.1.0".to_string(),
         }],
-        dmi_devices: vec![DmiDevice {
+        dmi_data: Some(DmiData {
             board_name: "test_dmi_model".to_string(),
             board_version: "test_board_version.1.0".to_string(),
             bios_version: "test_bios_version.1.0".to_string(),
             product_serial: "p12345".to_string(),
             board_serial: "b23456".to_string(),
             chassis_serial: "c34567".to_string(),
-        }],
+        }),
         tpm_ek_certificate: None,
     };
 

@@ -37,7 +37,7 @@ pub use crate::protos::forge::{
     TenantState, Uuid,
 };
 pub use crate::protos::machine_discovery::{
-    self, BlockDevice, Cpu, DiscoveryInfo, DmiDevice, NetworkInterface, NvmeDevice,
+    self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
 };
 

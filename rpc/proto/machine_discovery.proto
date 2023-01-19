@@ -21,12 +21,16 @@ message DiscoveryInfo {
   // Enumerates NVMe devices on the host
   repeated NvmeDevice nvme_devices = 5;
 
-  // Enumerates dmi devices on the host
-  repeated DmiDevice dmi_devices = 6;
+  // Replaced with option 8: A single field with DmiData
+  // // Enumerates dmi devices on the host
+  // repeated DmiDevice dmi_devices = 6;
 
   // The machines TPM Endorsement Key certificate in base64 format
   // An absent values means the endorsement key could not be read
   optional string tpm_ek_certificate = 7;
+
+  // Values that are provided by DMI (Desktop Management Interface)
+  DmiData dmi_data = 8;
 }
 
 message NetworkInterface {
@@ -55,7 +59,7 @@ message NvmeDevice {
   string firmware_rev = 2;
 }
 
-message DmiDevice {
+message DmiData {
   string board_name = 1;
   string board_version = 2;
   string bios_version = 3;
