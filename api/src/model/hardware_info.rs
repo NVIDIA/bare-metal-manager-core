@@ -30,7 +30,7 @@ pub struct HardwareInfo {
     #[serde(default)]
     pub nvme_devices: Vec<NvmeDevice>,
     #[serde(default)]
-    pub dmi_devices: Vec<DmiDevice>,
+    pub dmi_data: Option<DmiData>,
     pub tpm_ek_certificate: Option<TpmEkCertificate>,
 }
 
@@ -78,7 +78,7 @@ pub struct NvmeDevice {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DmiDevice {
+pub struct DmiData {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub board_name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -236,32 +236,32 @@ impl TryFrom<NvmeDevice> for rpc::machine_discovery::NvmeDevice {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::DmiDevice> for DmiDevice {
+impl TryFrom<rpc::machine_discovery::DmiData> for DmiData {
     type Error = RpcDataConversionError;
 
-    fn try_from(dev: rpc::machine_discovery::DmiDevice) -> Result<Self, Self::Error> {
+    fn try_from(data: rpc::machine_discovery::DmiData) -> Result<Self, Self::Error> {
         Ok(Self {
-            board_name: dev.board_name,
-            board_version: dev.board_version,
-            bios_version: dev.bios_version,
-            product_serial: dev.product_serial,
-            board_serial: dev.board_serial,
-            chassis_serial: dev.chassis_serial,
+            board_name: data.board_name,
+            board_version: data.board_version,
+            bios_version: data.bios_version,
+            product_serial: data.product_serial,
+            board_serial: data.board_serial,
+            chassis_serial: data.chassis_serial,
         })
     }
 }
 
-impl TryFrom<DmiDevice> for rpc::machine_discovery::DmiDevice {
+impl TryFrom<DmiData> for rpc::machine_discovery::DmiData {
     type Error = RpcDataConversionError;
 
-    fn try_from(dev: DmiDevice) -> Result<Self, Self::Error> {
+    fn try_from(data: DmiData) -> Result<Self, Self::Error> {
         Ok(Self {
-            board_name: dev.board_name,
-            board_version: dev.board_version,
-            bios_version: dev.bios_version,
-            product_serial: dev.product_serial,
-            board_serial: dev.board_serial,
-            chassis_serial: dev.chassis_serial,
+            board_name: data.board_name,
+            board_version: data.board_version,
+            bios_version: data.bios_version,
+            product_serial: data.product_serial,
+            board_serial: data.board_serial,
+            chassis_serial: data.chassis_serial,
         })
     }
 }
@@ -349,7 +349,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             block_devices: try_convert_vec(info.block_devices)?,
             machine_type: info.machine_type,
             nvme_devices: try_convert_vec(info.nvme_devices)?,
-            dmi_devices: try_convert_vec(info.dmi_devices)?,
+            dmi_data: info.dmi_data.map(DmiData::try_from).transpose()?,
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
         })
     }
@@ -365,7 +365,10 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
             block_devices: try_convert_vec(info.block_devices)?,
             machine_type: info.machine_type,
             nvme_devices: try_convert_vec(info.nvme_devices)?,
-            dmi_devices: try_convert_vec(info.dmi_devices)?,
+            dmi_data: info
+                .dmi_data
+                .map(rpc::machine_discovery::DmiData::try_from)
+                .transpose()?,
             tpm_ek_certificate: info
                 .tpm_ek_certificate
                 .map(|cert| base64::encode(cert.into_bytes())),

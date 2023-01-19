@@ -126,7 +126,7 @@ pub fn create_dpu_discovery_data() -> DiscoveryData {
         ],
         machine_type: "aarch64".to_string(),
         nvme_devices: Vec::new(),
-        dmi_devices: Vec::new(),
+        dmi_data: None,
         tpm_ek_certificate: None,
     })
 }
