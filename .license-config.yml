@@ -41,3 +41,44 @@
     :why: Included in the automatic approvals listed in https://confluence.nvidia.com/display/LEG/Open+Source+Software+Requests
     :versions: []
     :when: 2021-06-04 12:27:56.175691000 Z
+- - :permit
+  - ISC
+  - :who: NGC DevOps
+    :why: Included in the automatic approvals listed in https://confluence.nvidia.com/display/LEG/Open+Source+Software+Requests
+    :versions: []
+    :when: 2023-01-19 00:42:11.778331688 Z
+- - :permit
+  - LicenseRef-NvidiaProprietary
+  - :who: NVIDIA Forge Engineering
+    :why: Our internal license
+    :versions: []
+    :when: 2023-01-19 00:38:56.694920133 Z
+- - :permit
+  - Mozilla Public License 2.0
+  - :who: NVIDIA Forge Engineering
+    :versions: []
+    :when: 2023-01-19 00:38:56.694920133 Z
+- - :permit
+  - MPL-2.0+
+  - :who: NVIDIA Forge Engineering
+    :why: Alias of Mozilla Public License 2.0
+    :versions: []
+    :when: 2023-01-19 00:38:56.694920133 Z
+- - :approve
+  - core-foundation
+  - :who: NVIDIA Forge Engineering
+    :why: MIT but has spaces which license_finder does not handle
+    :versions: []
+    :when: 2023-01-19 00:59:20.578121873 Z
+- - :approve
+  - core-foundation-sys
+  - :who: NVIDIA Forge Engineering
+    :why: MIT but has spaces which license_finder does not handle
+    :versions: []
+    :when: 2023-01-19 00:59:26.787647506 Z
+- - :approve
+  - fnv
+  - :who: NVIDIA Forge Engineering
+    :why: MIT but has spaces which license_finder does not handle
+    :versions: []
+    :when: 2023-01-19 00:59:38.232051800 Z
