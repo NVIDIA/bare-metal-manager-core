@@ -35,26 +35,11 @@ pub(crate) struct Options {
 pub(crate) enum Command {
     #[clap(about = "Run discovery")]
     Discovery(Discovery),
-    #[clap(about = "Done provisioning")]
-    Done(Done),
-    #[clap(about = "Reset (deprovisioning)")]
-    Reset(Reset),
 }
 
 #[derive(Parser)]
 pub struct Discovery {
-    #[clap(short, long, multiple_values(false), require_equals(true))]
-    pub uuid: uuid::Uuid,
-}
-
-#[derive(Parser)]
-pub struct Done {
-    #[clap(short, long, multiple_values(false), require_equals(true))]
-    pub uuid: uuid::Uuid,
-}
-
-#[derive(Parser)]
-pub struct Reset {
+    // This is a machine_INTERFACE_id, not a machine_id
     #[clap(short, long, multiple_values(false), require_equals(true))]
     pub uuid: uuid::Uuid,
 }

@@ -1,4 +1,9 @@
+use std::str::FromStr;
+
+use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::dpu_machine::DpuMachine;
+use carbide::db::machine::Machine;
+use carbide::db::machine_interface::MachineInterface;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -11,16 +16,11 @@ use carbide::db::dpu_machine::DpuMachine;
  * its affiliates is strictly prohibited.
  */
 use carbide::db::network_segment::NetworkSegment;
+use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
+use carbide::CarbideError;
 use log::LevelFilter;
 use mac_address::MacAddress;
 use sqlx::{Connection, Postgres};
-use std::str::FromStr;
-
-use carbide::db::address_selection_strategy::AddressSelectionStrategy;
-use carbide::db::machine::Machine;
-use carbide::db::machine_interface::MachineInterface;
-use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
-use carbide::CarbideError;
 
 pub mod common;
 use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
@@ -69,7 +69,7 @@ async fn only_one_primary_interface_per_machine(
     )
     .await?;
 
-    let new_machine = Machine::create(&mut txn, new_interface)
+    let new_machine = Machine::get_or_create(&mut txn, new_interface)
         .await
         .expect("Unable to create machine");
 

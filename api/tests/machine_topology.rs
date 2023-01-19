@@ -9,8 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
-
 use carbide::{
     db::{
         machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
@@ -21,6 +19,7 @@ use carbide::{
         PciDeviceProperties, TpmEkCertificate,
     },
 };
+use log::LevelFilter;
 use mac_address::MacAddress;
 
 pub mod common;
@@ -61,7 +60,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await
     .unwrap();
-    let machine = Machine::create(&mut txn, iface).await.unwrap();
+    let machine = Machine::get_or_create(&mut txn, iface).await.unwrap();
 
     txn.commit().await?;
 

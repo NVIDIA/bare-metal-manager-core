@@ -63,7 +63,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
     )
     .await
     .unwrap();
-    let machine = Machine::create(&mut txn, iface).await.unwrap();
+    let machine = Machine::get_or_create(&mut txn, iface).await.unwrap();
 
     txn.commit().await?;
 

@@ -9,17 +9,19 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use cfg::{Command, Options};
+use cli::CarbideClientResult;
 use log::LevelFilter;
 use once_cell::sync::Lazy;
+use rpc::forge as rpc_forge;
+use rpc::forge::forge_agent_control_response::Action;
 use tokio::sync::RwLock;
-
-use cfg::{Command, Options};
 
 mod cfg;
 mod deprovision;
 mod discovery;
-mod done;
 mod ipmi;
+mod register;
 mod users;
 
 struct DevEnv {
@@ -69,25 +71,43 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     match config.subcmd {
         Command::Discovery(d) => {
-            // TODO: It might be possible to set the Machine ID directly in the args
-            // let machine_interface_id = uuid::Uuid::parse_str(&d.uuid)
-            // .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+            let machine_id = register::run(&config.api, d.uuid).await?;
 
-            discovery::Discovery::run(&config.api, d.uuid).await?;
-
-            // TODO: This might be broken - the command seems expects a machine_id - not a machine_interface_id
-            // We could get it as return value from `Discovery::run` - but it's
-            // unclear what deprovision actually expects.
-            deprovision::Deprovision::run(&config.api, d.uuid).await?;
-        }
-        Command::Done(d) => {
-            done::Done::run(config.api, d.uuid).await?;
-        }
-        Command::Reset(d) => {
-            // TODO: This might be broken. It seems undefined on whether
-            // the input parameter here is a machine ID or a machine interface ID
-            deprovision::Deprovision::run(&config.api, d.uuid).await?;
+            match query_api(&config.api, machine_id).await? {
+                Action::Discovery => {
+                    discovery::run(&config.api, d.uuid).await?;
+                }
+                Action::Reset => {
+                    deprovision::run(&config.api, machine_id).await?;
+                }
+                Action::Rebuild => {
+                    unimplemented!("Rebuild not written yet");
+                }
+                Action::Nop => {}
+            }
         }
     }
     Ok(())
+}
+
+// Ask API if we need to do anything after discovery.
+async fn query_api(forge_api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<Action> {
+    let query = rpc_forge::ForgeAgentControlRequest {
+        machine_id: Some(machine_id.into()),
+    };
+    let request = tonic::Request::new(query);
+    let mut client = rpc_forge::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
+    let response = client
+        .forge_agent_control(request)
+        .await
+        .map_err(|err| {
+            log::error!(
+                "Error while executing discovery_control gRPC call: {}",
+                err.to_string()
+            );
+            err
+        })?
+        .into_inner();
+    let action = Action::try_from(response.action)?;
+    Ok(action)
 }

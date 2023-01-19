@@ -9,17 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::IN_QEMU_VM;
+use std::fs;
+use std::str::FromStr;
+
+use ::rpc::forge as rpc;
+use cli::CarbideClientResult;
 use procfs::Meminfo;
 use regex::Regex;
 use rlimit::Resource;
-use std::fs;
-use std::str::FromStr;
 use uname::uname;
 
 use crate::deprovision::cmdrun;
-use ::rpc::forge as rpc;
-use cli::CarbideClientResult;
+use crate::IN_QEMU_VM;
 
 /*
 
@@ -301,18 +302,14 @@ fn is_host() -> bool {
     true
 }
 
-pub struct Deprovision {}
-
-impl Deprovision {
-    pub async fn run(api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
-        if !is_host() {
-            //do not send API cleanup_machine_completed
-            return Ok(());
-        }
-        let info = do_cleanup(machine_id).await?;
-        let mut client = rpc::forge_client::ForgeClient::connect(api.to_string()).await?;
-        let request = tonic::Request::new(info);
-        client.cleanup_machine_completed(request).await?;
-        Ok(())
+pub async fn run(api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
+    if !is_host() {
+        //do not send API cleanup_machine_completed
+        return Ok(());
     }
+    let info = do_cleanup(machine_id).await?;
+    let mut client = rpc::forge_client::ForgeClient::connect(api.to_string()).await?;
+    let request = tonic::Request::new(info);
+    client.cleanup_machine_completed(request).await?;
+    Ok(())
 }
