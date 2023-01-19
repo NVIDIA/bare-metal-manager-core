@@ -82,3 +82,15 @@
     :why: MIT but has spaces which license_finder does not handle
     :versions: []
     :when: 2023-01-19 00:59:38.232051800 Z
+- - :approve
+  - ring
+  - :who: NVIDIA Forge Engineering
+    :why: ISC equivalent
+    :versions: []
+    :when: 2023-01-19 02:22:06.059801711 Z
+- - :approve
+  - webpki
+  - :who: NVIDIA Forge Engineering
+    :why: ISC equivalent
+    :versions: []
+    :when: 2023-01-19 02:22:44.179874764 Z
