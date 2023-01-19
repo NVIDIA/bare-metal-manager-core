@@ -10,22 +10,33 @@
  * its affiliates is strictly prohibited.
  */
 use std::convert::TryFrom;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::forge::InstanceList;
-use ::rpc::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
 use color_eyre::Report;
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use mac_address::MacAddress;
+use tokio::net::TcpListener;
+use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 use uuid::Uuid;
 
-use self::rpc::forge_server::Forge;
-use crate::model::machine::MachineState;
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::bootstrap::bootstrap_service_server::{
+    BootstrapService, BootstrapServiceServer,
+};
+use ::rpc::protos::bootstrap::{EchoRequest, EchoResponse};
+use ::rpc::protos::forge::InstanceList;
+use ::rpc::protos::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+use hyper::server::conn::Http;
+use tokio_rustls::{
+    rustls::{Certificate, PrivateKey, ServerConfig},
+    TlsAcceptor,
+};
+use tower_http::ServiceBuilderExt;
+
 use crate::{
     auth, cfg,
     credentials::UpdateCredentials,
@@ -54,6 +65,7 @@ use crate::{
     kubernetes::{bgkubernetes_handler, delete_managed_resource, VpcApi, VpcApiImpl, VpcApiSim},
     model::{
         hardware_info::HardwareInfo, instance::status::network::InstanceNetworkStatusObservation,
+        machine::MachineState,
     },
     state_controller::{
         controller::StateController,
@@ -67,6 +79,8 @@ use crate::{
     CarbideError,
 };
 
+use self::rpc::forge_server::Forge;
+
 // Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
 
@@ -74,6 +88,26 @@ pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
     credential_provider: Arc<C>,
     authorizer: auth::Authorizer,
+}
+
+#[tonic::async_trait]
+impl<C> BootstrapService for Api<C>
+where
+    C: CredentialProvider + 'static,
+{
+    async fn echo(&self, request: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
+        let conn_info = request.extensions().get::<Arc<ConnInfo>>().unwrap();
+        println!(
+            "Got a request from: {:?} with certs: {:?}, request: {:?}",
+            conn_info.addr, conn_info.certificates, request,
+        );
+
+        let reply = EchoResponse {
+            message: request.into_inner().message,
+        };
+
+        Ok(Response::new(reply))
+    }
 }
 
 #[tonic::async_trait]
@@ -1498,6 +1532,158 @@ where
     }
 }
 
+#[tracing::instrument(skip_all)]
+async fn api_handler<C>(api_service: Arc<Api<C>>, listen_port: SocketAddr) -> Result<(), Report>
+where
+    C: CredentialProvider + 'static,
+{
+    log::info!("Starting API server on {:?}", listen_port);
+
+    let api_reflection_service = Builder::configure()
+        .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
+        .build()?;
+
+    Server::builder()
+        //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
+        .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
+        .add_service(api_reflection_service)
+        .serve(listen_port)
+        .await
+        .map_err(|err| err.into())
+}
+
+const FORGE_ROOT_PEMFILE_PATH: &str = "/opt/forge/forge_root.pem";
+const FORGE_ROOT_KEYFILE_PATH: &str = "/opt/forge/forge_root.key";
+
+///
+/// this function blocks, don't use it in a raw async context
+fn get_tls_acceptor() -> Option<TlsAcceptor> {
+    let certs = {
+        let fd = match std::fs::File::open(FORGE_ROOT_PEMFILE_PATH) {
+            Ok(fd) => fd,
+            Err(_) => return None,
+        };
+        let mut buf = std::io::BufReader::new(&fd);
+        match rustls_pemfile::certs(&mut buf) {
+            Ok(certs) => certs.into_iter().map(Certificate).collect(),
+            Err(error) => {
+                log::error!("Rustls error reading certs: {:?}", error);
+                return None;
+            }
+        }
+    };
+    let key = {
+        let fd = match std::fs::File::open(FORGE_ROOT_KEYFILE_PATH) {
+            Ok(fd) => fd,
+            Err(_) => return None,
+        };
+        let mut buf = std::io::BufReader::new(&fd);
+        match rustls_pemfile::pkcs8_private_keys(&mut buf) {
+            Ok(keys) => {
+                if let Some(key) = keys.into_iter().map(PrivateKey).next() {
+                    key
+                } else {
+                    log::error!("Rustls error reading key: no keys?");
+                    return None;
+                }
+            }
+            Err(error) => {
+                log::error!("Rustls error reading key: {:?}", error);
+                return None;
+            }
+        }
+    };
+
+    match ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+    {
+        Ok(mut tls) => {
+            tls.alpn_protocols = vec![b"h2".to_vec()];
+            Some(TlsAcceptor::from(Arc::new(tls)))
+        }
+        Err(error) => {
+            log::error!("Rustls error building server config: {:?}", error);
+            None
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ConnInfo {
+    addr: SocketAddr,
+    certificates: Vec<Certificate>,
+}
+
+#[tracing::instrument(skip_all)]
+async fn bootstrap_handler<C>(
+    api_service: Arc<Api<C>>,
+    listen_port: SocketAddr,
+) -> Result<(), Report>
+where
+    C: CredentialProvider + 'static,
+{
+    let bootstrap_reflection_service = Builder::configure()
+        .register_encoded_file_descriptor_set(::rpc::REFLECTION_BOOTSTRAP_SERVICE_DESCRIPTOR)
+        .build()?;
+
+    let tls_acceptor = tokio::task::spawn_blocking(get_tls_acceptor).await?;
+
+    let listener = TcpListener::bind(listen_port).await?;
+    let mut http = Http::new();
+    http.http2_only(true);
+
+    let svc = Server::builder()
+        .add_service(BootstrapServiceServer::from_arc(api_service))
+        .add_service(bootstrap_reflection_service)
+        .into_service();
+
+    loop {
+        let (conn, addr) = match listener.accept().await {
+            Ok(incoming) => incoming,
+            Err(e) => {
+                log::error!("Error accepting connection: {}", e);
+                continue;
+            }
+        };
+        let http = http.clone();
+        let tls_acceptor = tls_acceptor.clone();
+        let svc = svc.clone();
+
+        tokio::spawn(async move {
+            if let Some(tls_acceptor) = tls_acceptor {
+                let mut certificates = Vec::new();
+
+                match tls_acceptor
+                    .accept_with(conn, |info| {
+                        if let Some(certs) = info.peer_certificates() {
+                            for cert in certs {
+                                certificates.push(cert.clone());
+                            }
+                        }
+                    })
+                    .await
+                {
+                    Ok(conn) => {
+                        let svc = tower::ServiceBuilder::new()
+                            .add_extension(Arc::new(ConnInfo { addr, certificates }))
+                            .service(svc);
+                        if let Err(error) = http.serve_connection(conn, svc).await {
+                            log::debug!("error servicing http connection: {:?}", error);
+                        }
+                    }
+                    Err(error) => {
+                        log::error!("error accepting tls connection: {:?}", error);
+                    }
+                }
+            } else if let Err(error) = http.serve_connection(conn, svc).await {
+                log::debug!("error servicing http connection: {:?}", error);
+            }
+        });
+    }
+}
+
 impl<C> Api<C>
 where
     C: CredentialProvider + 'static,
@@ -1519,8 +1705,6 @@ where
         daemon_config: &cfg::Daemon,
         credential_provider: Arc<C>,
     ) -> Result<(), Report> {
-        log::info!("Starting API server on {:?}", daemon_config.listen[0]);
-
         let service_config = if daemon_config.kubernetes {
             ServiceConfig::default()
         } else {
@@ -1551,10 +1735,6 @@ where
             database_connection.clone(),
             authorizer,
         ));
-
-        let reflection_service = Builder::configure()
-            .register_encoded_file_descriptor_set(::rpc::REFLECTION_SERVICE_DESCRIPTOR)
-            .build()?;
 
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
         let _handle = ipmi_handler(
@@ -1598,14 +1778,25 @@ where
                 .build()
                 .expect("Unable to build NetworkSegmentController");
 
-        tonic::transport::Server::builder()
-            //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
-            .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
-            .add_service(reflection_service)
-            .serve(daemon_config.listen[0])
-            .await?;
+        // we split the api into the main grpc service and the bootstrap service because
+        // tonic can't handle "per service" TLS configurations.
+        let listen_port = daemon_config.listen[0];
+        let api_service_clone = api_service.clone();
+        let api_grpc_handle = tokio::spawn(api_handler(api_service_clone, listen_port));
 
-        Ok(())
+        let bootstrap_listen_port = daemon_config.bootstrap_listen[0];
+        let api_service_clone = api_service.clone();
+        let api_bootstrap_handle =
+            tokio::spawn(bootstrap_handler(api_service_clone, bootstrap_listen_port));
+
+        match tokio::try_join!(api_grpc_handle, api_bootstrap_handle) {
+            Ok(tuple) => match tuple {
+                (Err(api_error), _) => Err(api_error),
+                (_, Err(bootstrap_err)) => Err(bootstrap_err),
+                _ => Ok(()),
+            },
+            Err(join_err) => Err(join_err.into()),
+        }
     }
 
     // Map any of a UUID, IPv4, MAC or hostname to the UUID of a DPU machine, by querying the

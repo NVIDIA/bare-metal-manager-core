@@ -47,6 +47,15 @@ pub struct Daemon {
     )]
     pub listen: Vec<std::net::SocketAddr>,
 
+    #[clap(
+        short,
+        long,
+        multiple_values(true),
+        require_equals(true),
+        default_value = "[::]:1078"
+    )]
+    pub bootstrap_listen: Vec<std::net::SocketAddr>,
+
     #[clap(long, require_equals(true), env = "DATABASE_URL")]
     pub datastore: String,
 

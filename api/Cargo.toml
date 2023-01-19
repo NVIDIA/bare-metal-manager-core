@@ -23,6 +23,7 @@ clap = { version = "~3", features = ["derive", "env"] }
 color-eyre = "0.5.11"
 futures = "0.3"
 http = "0.2"
+hyper = "0.14"
 ipnetwork = { version = "^0.19.0", features = ["serde"] }
 itertools = "*"
 jsonwebtoken = { version = "8.1", default-features = false }
@@ -43,11 +44,13 @@ sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "mac_address", "ip
 sqlxmq = { version = "0.4", default-features = false, features = ["runtime-tokio-rustls"] }
 thiserror = "1.0"
 tokio = { workspace = true }
+tokio-rustls = "0.23"
+rustls-pemfile = "1.0"
 tokio-stream = "*"
 tonic = { version = "0.8.0", features = ["tls"] }
 tonic-reflection = "0.5.0"
 tower = "0.4"
-tower-http = { version = "0.3", features = ["auth"] }
+tower-http = { version = "0.3", features = ["add-extension", "auth"] }
 tower-layer = "0.3"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }

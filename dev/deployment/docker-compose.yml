@@ -25,11 +25,12 @@ services:
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
       - POSTGRES_DB=${DBNAME:-carbide_development}
     ports:
+      - 1078:1078
       - 1079:1079
     depends_on:
       - postgresql
       - carbide-db-migrations
-    command: ["wait-for-carbide-migrations", "postgresql", "/opt/carbide", "4", "./carbide-api", "run", "--listen=0.0.0.0:1079", "--datastore=postgresql://carbide_development:notforprod@postgresql"]
+    command: ["wait-for-carbide-migrations", "postgresql", "/opt/carbide", "4", "./carbide-api", "run", "--listen=0.0.0.0:1079", "--bootstrap_listen=0.0.0.0:1078", "--datastore=postgresql://carbide_development:notforprod@postgresql"]
   carbide-pxe:
     image: carbide:latest
     ports:

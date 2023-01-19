@@ -176,7 +176,7 @@ build-deployment-container:
     - echo "${JFROG_CONFIG}" > ~/.jfrog/jfrog-cli.conf.v5
   after_script:
     - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
- 
+
 build-boot-artifacts-x86_64:
   extends: .build-boot-artifacts
   variables:
@@ -217,7 +217,7 @@ build-boot-artifacts-nonprod-x86_64:
   script:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
   artifacts:
-    paths: 
+    paths:
       - pxe/static/blobs/internal/x86_64/
     when: always
     expire_in: 1 day
@@ -281,7 +281,7 @@ prepare-ci-build-push-boot-artifacts-x86_64:
   script: |
     set -xeuo pipefail
     /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
- 
+
 build-push-boot-artifacts-container-nonprod-aarch64:
   extends: .build-push-boot-artifacts-container
   variables:

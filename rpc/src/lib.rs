@@ -43,11 +43,12 @@ pub use crate::protos::machine_discovery::{
 
 pub mod protos;
 
-pub const REFLECTION_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("protos/forge.bin");
+pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("protos/forge.bin");
+pub const REFLECTION_BOOTSTRAP_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("protos/bootstrap.bin");
 
 pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
     let mut expected = Vec::new();
-    prost_types::FileDescriptorSet::decode(REFLECTION_SERVICE_DESCRIPTOR)
+    prost_types::FileDescriptorSet::decode(REFLECTION_API_SERVICE_DESCRIPTOR)
         .expect("decode reflection service file descriptor set")
         .file[0]
         .encode(&mut expected)

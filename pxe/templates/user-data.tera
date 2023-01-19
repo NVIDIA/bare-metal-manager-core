@@ -13,6 +13,7 @@ mkdir -p /mnt/opt/forge
 mv /carbide-cli /mnt/opt/forge
 mv /forge-dpu_1.0-1.deb /mnt/opt/forge
 mv /doca_container_configs_1.5.0.zip /mnt/opt/forge
+mv /forge_root.pem /mnt/opt/forge
 
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
