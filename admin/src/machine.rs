@@ -13,7 +13,6 @@ use std::fmt::Write;
 
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
-use serde_json;
 
 use super::cfg::carbide_options::ShowMachine;
 use super::{default_uuid, rpc, CarbideCliResult};

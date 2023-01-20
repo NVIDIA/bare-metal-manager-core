@@ -9,13 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::cfg::carbide_options::ShowInstance;
-use super::{default_uuid, rpc, CarbideCliResult};
-use crate::carbide_admin_cli::CarbideCliError;
+use std::fmt::Write;
+
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
-use serde_json;
-use std::fmt::Write;
+
+use super::cfg::carbide_options::ShowInstance;
+use super::{default_uuid, rpc, CarbideCliResult};
+use crate::CarbideCliError;
 
 fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,

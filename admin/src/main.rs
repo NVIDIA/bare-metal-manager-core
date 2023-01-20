@@ -9,15 +9,21 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-mod carbide_admin_cli;
-
 use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use carbide_admin_cli::cfg::carbide_options::{
+mod cfg;
+mod domain;
+mod instance;
+mod machine;
+mod network;
+mod rpc;
+
+use ::rpc::forge as forgerpc;
+use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, NetworkSegment,
 };
 use log::LevelFilter;
@@ -26,6 +32,32 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 struct Config {
     carbide_api_url: Option<String>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum CarbideCliError {
+    #[error("Unable to connect to carbide API: {0}")]
+    ApiConnectFailed(String),
+
+    #[error("Error while writing into string: {0}")]
+    StringWriteError(#[from] std::fmt::Error),
+
+    #[error("Generic Error: {0}")]
+    GenericError(String),
+
+    #[error("Segment not found.")]
+    SegmentNotFound,
+
+    #[error("Domain not found.")]
+    DomainNotFound,
+}
+
+pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
+
+pub fn default_uuid() -> forgerpc::Uuid {
+    forgerpc::Uuid {
+        value: "00000000-0000-0000-0000-000000000000".to_string(),
+    }
 }
 
 fn get_carbide_api_url(carbide_api: Option<String>, config: Option<Config>) -> String {
@@ -89,11 +121,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match config.commands {
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
-                carbide_admin_cli::machine::handle_show(machine, config.json, carbide_api).await?
+                machine::handle_show(machine, config.json, carbide_api).await?
             }
             Machine::DpuSshCredentials(query) => {
-                let cred = carbide_admin_cli::rpc::get_dpu_ssh_credential(query.query, carbide_api)
-                    .await?;
+                let cred = rpc::get_dpu_ssh_credential(query.query, carbide_api).await?;
                 if config.json {
                     println!("{}", serde_json::to_string_pretty(&cred).unwrap());
                 } else {
@@ -103,18 +134,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         },
         CarbideCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {
-                carbide_admin_cli::instance::handle_show(instance, config.json, carbide_api).await?
+                instance::handle_show(instance, config.json, carbide_api).await?
             }
         },
         CarbideCommand::NetworkSegment(network) => match network {
             NetworkSegment::Show(network) => {
-                carbide_admin_cli::network::handle_show(network, config.json, carbide_api).await?
+                network::handle_show(network, config.json, carbide_api).await?
             }
         },
         CarbideCommand::Domain(domain) => match domain {
-            Domain::Show(domain) => {
-                carbide_admin_cli::domain::handle_show(domain, config.json, carbide_api).await?
-            }
+            Domain::Show(domain) => domain::handle_show(domain, config.json, carbide_api).await?,
         },
     }
 
