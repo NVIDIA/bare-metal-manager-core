@@ -12,22 +12,17 @@
 use std::{fmt::Display, str::FromStr};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum MachineClientClass {
-    PXEClient,
-    HTTPClient,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum MachineArchitecture {
     BiosX86,
     EfiX64,
     Arm64,
 }
 
-#[derive(Debug, Copy, Clone)]
+// DHCP Option 60 vendor-class-identifier
+#[derive(Debug, Clone)]
 pub struct VendorClass {
-    pub client_type: MachineClientClass,
-    pub client_architecture: MachineArchitecture,
+    pub id: String,
+    pub arch: MachineArchitecture,
 }
 
 #[derive(Debug)]
@@ -61,22 +56,18 @@ impl FromStr for MachineArchitecture {
     }
 }
 
-impl Display for MachineClientClass {
+impl Display for VendorClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}",
-            match self {
-                Self::PXEClient => "PXE Client",
-                Self::HTTPClient => "HTTP Client",
+            "{} ({})",
+            self.arch,
+            if self.is_netboot() {
+                "netboot"
+            } else {
+                "basic"
             }
         )
-    }
-}
-
-impl Display for VendorClass {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} ({})", self.client_architecture, self.client_type)
     }
 }
 
@@ -94,18 +85,6 @@ impl Display for MachineArchitecture {
     }
 }
 
-impl FromStr for MachineClientClass {
-    type Err = VendorClassParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "PXEClient" => Ok(Self::PXEClient),
-            "HTTPClient" => Ok(Self::HTTPClient),
-            "nvidia-bluefield-dpu" => Ok(Self::PXEClient),
-            _ => Err(VendorClassParseError::UnsupportedClientType),
-        }
-    }
-}
 ///
 /// Convert a string of the form A:B:C:D... to Self
 ///
@@ -113,14 +92,14 @@ impl FromStr for VendorClass {
     type Err = VendorClassParseError;
 
     fn from_str(vendor_class: &str) -> Result<Self, Self::Err> {
-        match vendor_class {
+        let out = match vendor_class {
             // this is the UEFI version
             colon if colon.contains(':') => {
                 let parts: Vec<&str> = vendor_class.split(':').collect();
                 match parts.len() {
                     5 => Ok(VendorClass {
-                        client_type: parts[0].parse()?,
-                        client_architecture: parts[2].parse()?,
+                        id: parts[0].to_string(),
+                        arch: parts[2].parse()?,
                     }),
                     _ => Err(VendorClassParseError::InvalidFormat),
                 }
@@ -130,28 +109,33 @@ impl FromStr for VendorClass {
                 let parts: Vec<&str> = vendor_class.split(' ').collect();
                 match parts.len() {
                     2 => Ok(VendorClass {
-                        client_type: parts[0].parse()?,
-                        client_architecture: parts[1].parse()?,
+                        id: parts[0].to_string(),
+                        arch: parts[1].parse()?,
                     }),
                     _ => Err(VendorClassParseError::InvalidFormat),
                 }
             }
-            // Some older BF2 cards OR iPxe response
-            "BF2Client" | "PXEClient" => Ok(VendorClass {
-                client_type: MachineClientClass::PXEClient,
-                client_architecture: MachineArchitecture::Arm64,
+            // BF2Client is older BF2 cards, PXEClient without colon is iPxe response
+            vc @ ("NVIDIA/BF/OOB" | "BF2Client" | "PXEClient") => Ok(VendorClass {
+                id: vc.to_string(),
+                arch: MachineArchitecture::Arm64,
             }),
             // x86 DELL BMC OR x86 HP iLo BMC
-            "iDRAC" | "CPQRIB3" => Ok(VendorClass {
-                client_type: MachineClientClass::PXEClient,
-                client_architecture: MachineArchitecture::EfiX64,
-            }),
-            "NVIDIA/BF/OOB" => Ok(VendorClass {
-                client_type: MachineClientClass::HTTPClient,
-                client_architecture: MachineArchitecture::Arm64,
+            vc @ ("iDRAC" | "CPQRIB3") => Ok(VendorClass {
+                id: vc.to_string(),
+                arch: MachineArchitecture::EfiX64,
             }),
             _ => Err(VendorClassParseError::InvalidFormat),
-        }
+        };
+        log::info!("XXX VendorClass IN {vendor_class} OUT {out:?}");
+        out
+    }
+}
+
+impl VendorClass {
+    // Currently only HTTPClient vendor class uses HTTP netboot
+    pub fn is_netboot(&self) -> bool {
+        self.id == "HTTPClient"
     }
 }
 
@@ -160,43 +144,29 @@ mod tests {
     use super::*;
 
     impl VendorClass {
-        pub fn pxe(&self) -> bool {
-            self.client_type == MachineClientClass::PXEClient
-        }
-
-        pub fn http(&self) -> bool {
-            self.client_type == MachineClientClass::HTTPClient
-        }
-
         pub fn arm(&self) -> bool {
-            self.client_architecture == MachineArchitecture::Arm64
+            self.arch == MachineArchitecture::Arm64
         }
 
         pub fn x64(&self) -> bool {
-            self.client_architecture == MachineArchitecture::EfiX64
+            self.arch == MachineArchitecture::EfiX64
         }
 
         pub fn is_it_modern(&self) -> bool {
-            self.http() && self.arm()
+            self.is_netboot() && self.arm()
         }
     }
 
     #[test]
     fn it_is_pxe_capable() {
         let vc: VendorClass = "PXEClient:Arch:00007:UNDI:003000".parse().unwrap();
-
-        assert!(vc.pxe());
-        assert!(!vc.http());
+        assert!(!vc.is_netboot());
 
         let vc: VendorClass = "iDRAC".parse().unwrap();
-
-        assert!(vc.pxe());
-        assert!(!vc.http());
+        assert!(!vc.is_netboot());
 
         let vc: VendorClass = "PXEClient".parse().unwrap();
-
-        assert!(vc.pxe());
-        assert!(!vc.http());
+        assert!(!vc.is_netboot());
     }
 
     #[test]
@@ -227,24 +197,23 @@ mod tests {
     }
 
     #[test]
-    fn it_is_http_capable() {
+    fn it_is_netboot_capable() {
         let vc: VendorClass = "HTTPClient:Arch:00016:UNDI:003001".parse().unwrap();
-        assert!(vc.http());
-        assert!(!vc.pxe());
+        assert!(vc.is_netboot());
     }
 
     #[test]
-    fn it_is_http_and_not_arm() {
+    fn it_is_netboot_and_not_arm() {
         let vc: VendorClass = "HTTPClient:Arch:00016:UNDI:003001".parse().unwrap();
-        assert!(vc.http());
+        assert!(vc.is_netboot());
         assert!(vc.x64());
     }
 
     #[test]
-    fn it_fails_on_unknown_client() {
+    fn it_handles_basic_for_all_clients() {
         let vc: Result<VendorClass, VendorClassParseError> =
-            "NothingClient:Arch:00007:UNDI:X".parse();
-        assert!(matches!(vc, Err(_)));
+            "NothingClient:Arch:00011:UNDI:X".parse();
+        assert_eq!(vc.unwrap().to_string(), "ARM 64-bit UEFI (basic)");
     }
 
     #[test]
@@ -254,20 +223,20 @@ mod tests {
     }
 
     #[test]
-    fn it_formats_the_parser_armuefi() {
+    fn it_formats_the_parser_armuefi_netboot() {
         let vc: VendorClass = "HTTPClient:Arch:00011:UNDI:003000".parse().unwrap();
-        assert_eq!(vc.to_string(), "ARM 64-bit UEFI (HTTP Client)");
+        assert_eq!(vc.to_string(), "ARM 64-bit UEFI (netboot)");
     }
 
     #[test]
     fn it_detects_nvidia_bf_oob_as_arm() {
         let vc: VendorClass = "NVIDIA/BF/OOB".parse().unwrap();
-        assert_eq!(vc.to_string(), "ARM 64-bit UEFI (HTTP Client)");
+        assert_eq!(vc.to_string(), "ARM 64-bit UEFI (basic)");
     }
 
     #[test]
     fn it_formats_the_parser_legacypxe() {
         let vc: VendorClass = "PXEClient:Arch:00000:UNDI:003000".parse().unwrap();
-        assert_eq!(vc.to_string(), "x86 BIOS (PXE Client)");
+        assert_eq!(vc.to_string(), "x86 BIOS (basic)");
     }
 }

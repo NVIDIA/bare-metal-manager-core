@@ -17,6 +17,7 @@ use derive_builder::Builder;
 use mac_address::MacAddress;
 
 use crate::machine::Machine;
+use crate::vendor_class::VendorClass;
 use crate::CONFIG;
 use crate::{cache, CarbideDhcpContext};
 
@@ -294,9 +295,25 @@ unsafe fn discovery_fetch_machine_at(
                 .unwrap_or(discovery.relay_address),
         );
 
-        if let Some(cache_entry) = cache::get(mac_address, addr_for_dhcp, &circuit_id) {
+        // try to parse request vendor class identifier
+        let vendor_class = match discovery.vendor_class {
+            Some(ref vendor_class) => match vendor_class.parse::<VendorClass>() {
+                Ok(vc) => Some(vc),
+                Err(err) => {
+                    log::warn!("error parsing vendor class: {} {:?}", vendor_class, err);
+                    return DiscoveryBuilderResult::InvalidVendorClass;
+                }
+            },
+            None => None,
+        };
+        let vendor_id = match &vendor_class {
+            Some(vc) => vc.id.as_str(),
+            None => "",
+        };
+
+        if let Some(cache_entry) = cache::get(mac_address, addr_for_dhcp, &circuit_id, vendor_id) {
             log::info!(
-                "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?})"
+                "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})"
             );
             *machine_ptr_out = Box::into_raw(Box::new(cache_entry.machine));
             return DiscoveryBuilderResult::Success;
@@ -309,9 +326,15 @@ unsafe fn discovery_fetch_machine_at(
         //
         let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
 
-        match runtime.block_on(Machine::try_fetch(discovery, url)) {
+        match runtime.block_on(Machine::try_fetch(discovery, url, vendor_class.clone())) {
             Ok(machine) => {
-                cache::put(mac_address, addr_for_dhcp, circuit_id, machine.clone());
+                cache::put(
+                    mac_address,
+                    addr_for_dhcp,
+                    circuit_id,
+                    machine.clone(),
+                    vendor_id,
+                );
                 *machine_ptr_out = Box::into_raw(Box::new(machine));
                 DiscoveryBuilderResult::Success
             }

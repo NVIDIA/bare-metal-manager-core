@@ -301,6 +301,9 @@ impl Kea {
                     }]
                 }
             ],
+            "user-context": {
+                "comment": "Change severity below to DEBUG and run 'cargo test -- --nocapture' for verbose test output",
+            },
             "loggers": [
                 {
                     "name": "kea-dhcp4",
