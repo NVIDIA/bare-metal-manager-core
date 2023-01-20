@@ -15,7 +15,9 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
-    #[clap(long, default_value = "/etc/forge-dpu-agent.conf")]
+    /// The path to the forge agent configuration file
+    /// This file will hold data in the `AgentConfig` format
+    #[clap(long, default_value = "/etc/forge/config.toml")]
     pub config_path: PathBuf,
 }
 

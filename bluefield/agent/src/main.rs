@@ -12,15 +12,24 @@
 
 mod command_line;
 
-use forge_host_support::hardware_enumeration::enumerate_hardware;
+use forge_host_support::{agent_config::AgentConfig, hardware_enumeration::enumerate_hardware};
 use std::time::Duration;
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
-    let _config = command_line::Options::load();
+    let config = command_line::Options::load();
 
     pretty_env_logger::formatted_timed_builder().init();
+
+    match AgentConfig::load_from(&config.config_path) {
+        Ok(config) => {
+            log::info!("Successfully loaded agent configuration {:?}", config);
+        }
+        Err(e) => {
+            log::error!("Error loading agent configuration: {:?}", e);
+        }
+    }
 
     let _hardware_info = enumerate_hardware()?;
 

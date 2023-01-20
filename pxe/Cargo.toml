@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 async-compression = { version = "0.3.14", features = ["tokio", "gzip"] }
+base64 = "0.13"
 clap = { version = "~3", features = ["derive"]}
 eui48 = "0.4.0"
 futures = "0.3.24"
@@ -40,6 +41,7 @@ tonic-build = "0.8.0"
 [dev-dependencies]
 rand = "*"
 rstest = "*"
+toml = "0.5.10"
 
 [dependencies.rocket_dyn_templates]
 version = "0.1.0-rc.1"
