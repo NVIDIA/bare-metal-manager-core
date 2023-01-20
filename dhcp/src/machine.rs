@@ -18,7 +18,7 @@ use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
 
 use crate::discovery::Discovery;
-use crate::vendor_class::{MachineArchitecture, MachineClientClass, VendorClass};
+use crate::vendor_class::{MachineArchitecture, VendorClass};
 use crate::CONFIG;
 
 /// Machine: a machine that's currently trying to boot something
@@ -34,17 +34,11 @@ pub struct Machine {
 }
 
 impl Machine {
-    pub async fn try_fetch(discovery: Discovery, url: &str) -> Result<Self, String> {
-        // First, see if we can parse the vendor class
-        let vendor_class = match discovery.vendor_class {
-            Some(ref vendor_class) => Some(
-                vendor_class
-                    .parse::<VendorClass>()
-                    .map_err(|e| format!("error parsing vendor class: {} {:?}", vendor_class, e))?,
-            ),
-            None => None,
-        };
-
+    pub async fn try_fetch(
+        discovery: Discovery,
+        url: &str,
+        vendor_class: Option<VendorClass>,
+    ) -> Result<Self, String> {
         let url = url.to_owned();
 
         match rpc::forge_client::ForgeClient::connect(url).await {
@@ -179,6 +173,15 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
 pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
+    let arch = match &machine.vendor_class {
+        None => {
+            return ptr::null();
+        }
+        Some(v) if !v.is_netboot() => {
+            return ptr::null();
+        }
+        Some(VendorClass { arch, .. }) => arch,
+    };
 
     let url = if let Some(next_server) = CONFIG
         .read()
@@ -190,49 +193,19 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
         "127.0.0.1".to_string()
     };
 
-    let arm_http_client = format!("http://{}:8080/public/blobs/internal/aarch64/ipxe.efi", url);
-    let x86_http_client = format!("http://{}:8080/public/blobs/internal/x86_64/ipxe.efi", url);
-
-    let fqdn = if let Some(vendor_class) = &machine.vendor_class {
-        let filename = match vendor_class {
-            VendorClass {
-                client_architecture: MachineArchitecture::EfiX64,
-                client_type: MachineClientClass::PXEClient,
-            } => "/blobs/internal/x86_64/grub.efi",
-            VendorClass {
-                client_architecture: MachineArchitecture::Arm64,
-                client_type: MachineClientClass::PXEClient,
-            } => "/blobs/internal/x86_64/grub.efi",
-            VendorClass {
-                client_architecture: MachineArchitecture::BiosX86,
-                client_type: MachineClientClass::PXEClient,
-            } => "/blobs/internal/x86_64/grub.kpxe",
-            VendorClass {
-                client_architecture: MachineArchitecture::EfiX64,
-                client_type: MachineClientClass::HTTPClient,
-            } => x86_http_client.as_str(),
-            VendorClass {
-                client_architecture: MachineArchitecture::Arm64,
-                client_type: MachineClientClass::HTTPClient,
-            } => arm_http_client.as_str(),
-            VendorClass {
-                client_architecture: MachineArchitecture::BiosX86,
-                client_type: MachineClientClass::HTTPClient,
-            } => unreachable!(), // BIOS never supports HTTPClient
-        };
-
-        Some(CString::new(filename).unwrap())
-    } else {
-        None
+    use MachineArchitecture::*;
+    let fqdn = match arch {
+        EfiX64 => format!("http://{}:8080/public/blobs/internal/x86_64/ipxe.efi", url),
+        Arm64 => format!("http://{}:8080/public/blobs/internal/aarch64/ipxe.efi", url),
+        BiosX86 => unreachable!(), // BIOS never supports HTTPClient
     };
-
-    fqdn.map(|f| f.into_raw()).unwrap_or(ptr::null_mut())
+    CString::new(fqdn).unwrap().into_raw()
 }
 
+// IPv4 address of next-server (siaddr) as big endian int 32.
 #[no_mangle]
 pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-
     let ip_addr = if let Some(next_server) = CONFIG
         .read()
         .unwrap() // TODO(ajf): don't unwrap
@@ -264,17 +237,10 @@ pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_cha
 pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
-
-    let vendor_class = if let Some(vendor_class) = &machine.vendor_class {
-        let display = match vendor_class.client_type {
-            MachineClientClass::PXEClient => "PXEClient",
-            MachineClientClass::HTTPClient => "HTTPClient",
-        };
-        CString::new(display).unwrap()
-    } else {
-        CString::new("").unwrap()
+    let vendor_class = match &machine.vendor_class {
+        None => CString::new("").unwrap(),
+        Some(vc) => CString::new(vc.id.clone()).unwrap(),
     };
-
     vendor_class.into_raw()
 }
 

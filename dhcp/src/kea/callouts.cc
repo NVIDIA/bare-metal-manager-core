@@ -22,6 +22,7 @@ void CDHCPOptionsHandler<Option>::resetOption(boost::any param) {
     machine_free_fqdn(hostname);
   } break;
   case DHO_BOOT_FILE_NAME: {
+	// if client does not support netboot we get a null pointer
     const char *filename =
         machine_get_filename(boost::any_cast<Machine *>(param));
     if (filename) {
