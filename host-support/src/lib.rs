@@ -13,5 +13,6 @@
 //! forge-host-support is a library that is used by applications that run on
 //! Forge managed hosts
 
+pub mod agent_config;
 pub mod hardware_enumeration;
 pub mod registration;

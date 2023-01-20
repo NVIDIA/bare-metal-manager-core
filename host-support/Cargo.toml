@@ -12,8 +12,10 @@ base64 = "0.13"
 libudev = "0.3"
 log = "0.4"
 procfs = "0.14"
+serde = { version = "1.0", features = ["derive"] }
 thiserror = "1"
 tokio = { workspace = true }
+toml = "0.5.10"
 tonic = "0.8"
 uname = "0.1"
 uuid = "1.0"

@@ -144,6 +144,10 @@ write_files:
       Name=*_sf_r
       [Link]
       MTUBytes=9216
+  - path: /etc/forge/config.toml
+    encoding: b64
+    permissions: '0644'
+    content: {{ forge_agent_config_b64 }}
 runcmd:
   - [ date, -s , '@{{ seconds_since_epoch }}' ]
   - [ hwclock, --systohc ]

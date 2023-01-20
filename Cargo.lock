@@ -548,6 +548,7 @@ name = "carbide-pxe"
 version = "0.0.1"
 dependencies = [
  "async-compression",
+ "base64",
  "clap",
  "eui48",
  "futures",
@@ -570,6 +571,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tar",
+ "toml",
  "tonic",
  "tonic-build",
  "uuid 1.1.2",
@@ -1469,8 +1471,10 @@ dependencies = [
  "log",
  "procfs",
  "rpc",
+ "serde",
  "thiserror",
  "tokio",
+ "toml",
  "tonic",
  "uname",
  "uuid 1.1.2",
@@ -4852,9 +4856,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.5.9"
+version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d82e1a7758622a465f8cee077614c73484dac5b836c02ff6a40d5d1010324d7"
+checksum = "1333c76748e868a4d9d1017b5ab53171dfd095f70c712fdb4653a406547f598f"
 dependencies = [
  "serde",
 ]

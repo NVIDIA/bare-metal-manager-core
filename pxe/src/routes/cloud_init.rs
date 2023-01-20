@@ -65,20 +65,26 @@ async fn user_data_handler_in_assigned(
 }
 
 async fn user_data_handler(
-    uuid: uuid::Uuid,
+    machine_interface_id: uuid::Uuid,
     machine: Machine,
     config: RuntimeConfig,
 ) -> (String, HashMap<String, String>) {
+    let forge_agent_config = generate_forge_agent_config(machine_interface_id, &machine, &config);
+
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine.interface.mac_address);
     context.insert(
         "hostname".to_string(),
         format!("{}.{}", machine.interface.hostname, machine.domain.name),
     );
-    context.insert("interface_id".to_string(), uuid.to_string());
+    context.insert("interface_id".to_string(), machine_interface_id.to_string());
     context.insert("api_url".to_string(), config.api_url);
     context.insert("pxe_url".to_string(), config.pxe_url);
     context.insert("ntp_server".to_string(), config.ntp_server);
+    context.insert(
+        "forge_agent_config_b64".to_string(),
+        base64::encode(forge_agent_config),
+    );
 
     let start = SystemTime::now();
     let seconds_since_epoch = start
@@ -92,6 +98,44 @@ async fn user_data_handler(
     );
 
     ("user-data".to_string(), context)
+}
+
+/// Generates the content of the /etc/forge/config.toml file
+fn generate_forge_agent_config(
+    machine_interface_id: uuid::Uuid,
+    machine: &Machine,
+    config: &RuntimeConfig,
+) -> String {
+    let api_url = config.api_url.as_str();
+    let pxe_url = config.pxe_url.as_str();
+    let ntp_server = config.ntp_server.as_str();
+
+    let mac_address = machine.interface.mac_address.clone();
+    let hostname = format!("{}.{}", machine.interface.hostname, machine.domain.name);
+
+    let content = format!(
+        "
+        [forge-system]
+        api-server = \"{api_url}\"
+        pxe-server = \"{pxe_url}\"
+        ntp-server = \"{ntp_server}\"
+        
+        [machine]
+        interface-id = \"{machine_interface_id}\"
+        mac-address = \"{mac_address}\"
+        hostname = \"{hostname}\""
+    );
+
+    let mut lines: Vec<&str> = content.split('\n').map(|line| line.trim_start()).collect();
+    while let Some(line) = lines.first() {
+        if line.is_empty() {
+            lines.remove(0);
+        } else {
+            break;
+        }
+    }
+
+    lines.join("\n")
 }
 
 #[get("/<uuid>/user-data")]
@@ -127,4 +171,124 @@ pub async fn vendor_data(uuid: uuid::Uuid) -> Template {
 
 pub fn routes() -> Vec<Route> {
     routes![user_data, meta_data, vendor_data]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forge_agent_config() {
+        let interface_id = "91609f10-c91d-470d-a260-6293ea0c1234".to_string();
+
+        let interface = rpc::forge::MachineInterface {
+            id: Some(rpc::Uuid {
+                value: interface_id.clone(),
+            }),
+            attached_dpu_machine_id: Some(rpc::Uuid {
+                value: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
+            }),
+            machine_id: Some(rpc::Uuid {
+                value: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
+            }),
+            segment_id: None,
+            hostname: "abc".to_string(),
+            domain_id: None,
+            primary_interface: true,
+            mac_address: "01:02:03:AA:BB:CC".to_string(),
+            address: vec!["192.123.184.244".to_string()],
+        };
+
+        let machine = Machine {
+            architecture: Some(rpc::forge::MachineArchitecture::Arm),
+            interface: interface.clone(),
+            domain: rpc::Domain {
+                id: None,
+                name: "myforge.com".to_string(),
+                created: None,
+                updated: None,
+                deleted: None,
+            },
+            machine: Some(rpc::forge::Machine {
+                id: Some(rpc::Uuid {
+                    value: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
+                }),
+                created: None,
+                updated: None,
+                deployed: None,
+                state: "ready".to_string(),
+                events: Vec::new(),
+                interfaces: vec![interface],
+                discovery_info: None,
+            }),
+        };
+
+        let runtime_config = RuntimeConfig {
+            api_url: "https://127.0.0.1:8001".to_string(),
+            pxe_url: "http://127.0.0.1:8080".to_string(),
+            ntp_server: "127.0.0.2".to_string(),
+        };
+
+        let interface_id: uuid::Uuid = interface_id.parse().unwrap();
+
+        let config = generate_forge_agent_config(interface_id, &machine, &runtime_config);
+
+        let data: toml::Value = config.parse().unwrap();
+
+        assert_eq!(
+            data.get("forge-system")
+                .unwrap()
+                .get("api-server")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "https://127.0.0.1:8001"
+        );
+        assert_eq!(
+            data.get("forge-system")
+                .unwrap()
+                .get("pxe-server")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "http://127.0.0.1:8080"
+        );
+        assert_eq!(
+            data.get("forge-system")
+                .unwrap()
+                .get("ntp-server")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "127.0.0.2"
+        );
+
+        assert_eq!(
+            data.get("machine")
+                .unwrap()
+                .get("interface-id")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "91609f10-c91d-470d-a260-6293ea0c1234"
+        );
+        assert_eq!(
+            data.get("machine")
+                .unwrap()
+                .get("mac-address")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "01:02:03:AA:BB:CC"
+        );
+        assert_eq!(
+            data.get("machine")
+                .unwrap()
+                .get("hostname")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "abc.myforge.com"
+        );
+    }
 }
