@@ -22,15 +22,7 @@ use uname::uname;
 use crate::deprovision::cmdrun;
 use crate::IN_QEMU_VM;
 
-/*
-
-#list namespaces:
-nvme list-ns /dev/nvme0
-
-#clear data on nvme. NS_ID namespace id:
-nvme format /dev/nvme0 -n NS_ID
-
-*/
+use serde::Deserialize;
 
 fn check_memory_overwrite_efi_var() -> Result<(), String> {
     let name = match efivar::efi::VariableName::from_str(
@@ -58,28 +50,145 @@ fn check_memory_overwrite_efi_var() -> Result<(), String> {
     }
 }
 
+static NVME_CLI_PROG: &str = "/usr/sbin/nvme";
+
+#[derive(Deserialize, Debug)]
+struct NvmeParams {
+    // size of NVME drive in bytes
+    tnvmcap: u64,
+
+    // controller ID
+    cntlid: u64,
+
+    // Optional Admin Command Support (OACS)
+    oacs: u64,
+
+    // serial number
+    sn: String,
+
+    // manufacturer
+    mn: String,
+
+    // firmware version
+    fr: String,
+}
+
+fn get_nvme_params(nvmename: &String) -> Result<NvmeParams, String> {
+    let nvme_params_lines =
+        match cmdrun::run_prog(format!("{} id-ctrl {} -o json", NVME_CLI_PROG, nvmename)) {
+            Ok(o) => o,
+            Err(e) => return Err(format!("nvme id-ctrl error: {}", e)),
+        };
+    let nvme_drive_params = match serde_json::from_str(&nvme_params_lines) {
+        Ok(o) => o,
+        Err(e) => return Err(format!("nvme id-ctrl parse error: {}", e)),
+    };
+    Ok(nvme_drive_params)
+}
+
 fn clean_this_nvme(nvmename: &String) -> Result<(), String> {
     log::debug!("cleaning {}", nvmename);
-    let nvme_ns_re = match Regex::new(r"\[.*\]:(0x[0-9]+)") {
+    let nvme_ns_re = match Regex::new(r".*:(0x[0-9]+)") {
         Ok(o) => o,
         Err(e) => return Err(e.to_string()),
     };
-    //test: let nvmens_output = match cmdrun::run_prog(format!("cat /tmp/nvmelisttest")){
-    let nvmens_output = match cmdrun::run_prog(format!("/usr/sbin/nvme list-ns {}", nvmename)) {
+    let nvme_nsid_re = match Regex::new(r".*nsid:([0-9]+)") {
+        Ok(o) => o,
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let nvme_drive_params = match get_nvme_params(nvmename) {
+        Ok(o) => o,
+        Err(e) => return Err(format!("nvme cant get drive params {}", e)),
+    };
+
+    let namespaces_supported = nvme_drive_params.oacs & 0x8 == 0x8;
+
+    log::debug!(
+        "nvme: device={} size={} cntlid={} oacs={} namespaces_supported={} sn={} mn={} fr={}",
+        nvmename,
+        nvme_drive_params.tnvmcap,
+        nvme_drive_params.cntlid,
+        nvme_drive_params.oacs,
+        namespaces_supported,
+        nvme_drive_params.sn,
+        nvme_drive_params.mn,
+        nvme_drive_params.fr
+    );
+
+    // list all namespaces
+    let nvmens_output = match cmdrun::run_prog(format!("{} list-ns {} -a", NVME_CLI_PROG, nvmename))
+    {
         Ok(o) => o,
         Err(e) => return Err(format!("nvme list-ns error: {}", e)),
     };
+
+    // iterate over namespaces
     for nsline in nvmens_output.lines() {
         let caps = match nvme_ns_re.captures(nsline) {
             Some(o) => o,
             None => continue,
         };
         let nsid = caps.get(1).map_or("", |m| m.as_str());
-        match cmdrun::run_prog(format!("/usr/sbin/nvme format {} -n {}", nvmename, nsid)) {
+        log::debug!("namespace {}", nsid);
+
+        // format with "-s2" is secure erase
+        match cmdrun::run_prog(format!(
+            "{} format {} -s2 -f -n {}",
+            NVME_CLI_PROG, nvmename, nsid
+        )) {
             Ok(_) => (),
-            Err(e) => return Err(format!("nvme format error: {}", e)),
+            Err(e) => {
+                if namespaces_supported {
+                    // format can fail if there is a wrong params for namespace. We delete it anyway.
+                    log::debug!("nvme format error: {}", e);
+                } else {
+                    return Err(format!("nvme format error: {}", e));
+                }
+            }
+        }
+        if namespaces_supported {
+            // delete namespace
+            match cmdrun::run_prog(format!(
+                "{} delete-ns {} -n {}",
+                NVME_CLI_PROG, nvmename, nsid
+            )) {
+                Ok(_) => (),
+                Err(e) => return Err(format!("nvme delete-ns error: {}", e)),
+            }
         }
     }
+
+    if namespaces_supported {
+        let sectors = nvme_drive_params.tnvmcap / 512;
+        // creating new namespace with all available sectors
+        log::debug!("Creating namespace on {}", nvmename);
+        let line_created_ns_id = match cmdrun::run_prog(format!(
+            "{} create-ns {} --nsze={} --ncap={} --flbas 0 --dps=0",
+            NVME_CLI_PROG, nvmename, sectors, sectors
+        )) {
+            Ok(o) => o,
+            Err(e) => return Err(format!("nvme create-ns error: {}", e)),
+        };
+        let nsid = match nvme_nsid_re.captures(&line_created_ns_id) {
+            Some(o) => o.get(1).map_or("", |m| m.as_str()),
+            None => {
+                return Err(format!(
+                    "nvme cant get nsid after create-ns {}",
+                    line_created_ns_id
+                ))
+            }
+        };
+        // attaching namespace to controller
+        match cmdrun::run_prog(format!(
+            "{} attach-ns {} -n {} -c {}",
+            NVME_CLI_PROG, nvmename, nsid, nvme_drive_params.cntlid
+        )) {
+            Ok(_) => (),
+            Err(e) => return Err(format!("nvme cant attach nsid: {}", e)),
+        }
+    }
+    log::debug!("Cleanup completed for nvme device {}", nvmename);
     Ok(())
 }
 
@@ -151,7 +260,7 @@ fn get_os_mem_info() -> Result<StructOsMemInfo, String> {
 }
 
 fn memclr(msize: u64) -> i64 {
-    //Allocate all available memory and fill it with 1
+    // Allocate all available memory and fill it with 1
 
     let orig_brk = unsafe { libc::sbrk(0) };
     let new_brk = unsafe { orig_brk.offset(msize as isize) };
@@ -222,7 +331,7 @@ async fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineC
         result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
     };
 
-    //do nvme cleanup only if stdin is /dev/null. This is because we afraid to cleanum someone's nvme drive.
+    // do nvme cleanup only if stdin is /dev/null. This is because we afraid to cleanum someone's nvme drive.
     let stdin_link = match fs::read_link("/proc/self/fd/0") {
         Ok(o) => o.to_string_lossy().to_string(),
         Err(_) => "None".to_string(),
@@ -304,7 +413,7 @@ fn is_host() -> bool {
 
 pub async fn run(api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
     if !is_host() {
-        //do not send API cleanup_machine_completed
+        // do not send API cleanup_machine_completed
         return Ok(());
     }
     let info = do_cleanup(machine_id).await?;
