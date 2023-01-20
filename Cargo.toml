@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+  "admin",
   "api",
   "bluefield/agent",
   "cli",
