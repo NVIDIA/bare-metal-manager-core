@@ -14,4 +14,3 @@ dev/kube/overlays/local/forge/override_api_image.json
 dev/kube/kind/ci/*
 .local_envrc
 .*.swp
-**/*.tgz
