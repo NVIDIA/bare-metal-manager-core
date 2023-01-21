@@ -1,0 +1,151 @@
+default:
+  image: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86_64/forge-helm:v0.0.1-522-g8bf72e19 
+
+
+variables:
+  VAULT_JWT_ROLE: forge-ci
+  VAULT_ADDR: https://prod.vault.nvidia.com
+  VAULT_NAMESPACE: ngc
+  VAULT_JWT_PATH: auth/gitlab/login
+  NAME_SPACE: forge-system
+  HELM_NGC: https://helm.ngc.nvidia.com/nvidian/forge
+  HELM_NGC_STG: https://stg.helm.ngc.nvidia.com/nvidia/nvforge
+  SAST_EXCLUDED_PATHS: "/doc,/examples,/spec,README*"
+  HELM_CACHE_HOME: ${CI_PROJECT_DIR}/helm/.cache
+  HELM_CONFIG_HOME: ${CI_PROJECT_DIR}/helm/.config
+  HELM_DATA_HOME: ${CI_PROJECT_DIR}/helm/.local
+  HELM_PLUGINS: ${CI_PROJECT_DIR}/helm/.local/plugins
+  HELM_REGISTRY_CONFIG: ${CI_PROJECT_DIR}/helm/.config/regitry
+  HELM_REPOSITORY_CACHE: ${CI_PROJECT_DIR}/helm/.cache/respository
+  HELM_REPOSITORY_CONFIG: ${CI_PROJECT_DIR}/helm/.config/repository.yaml
+
+
+include:
+  - template: Jobs/Secret-Detection.latest.gitlab-ci.yml
+  - template: Jobs/SAST-IaC.latest.gitlab-ci.yml
+secret_detection:
+  needs: []
+  before_script: []
+iac-sast:
+  needs: []
+  before_script: []
+
+.changes:
+  stage: .pre
+  before_script:
+    - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
+  artifacts:
+    paths:
+      - CHANGES.txt
+ 
+generate_changes_for_mr:
+  extends: .changes
+  script:
+    - .gitlab/changes_mr.sh
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+
+generate_changes_for_merged_mr:
+  extends: .changes
+  script:
+    - .gitlab/changes_merged_mr.sh
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+
+prep:
+  variables:
+    ENV_FILE_NAME: "environment.env"
+  stage: .pre
+  before_script:
+    - echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
+    - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$CI_JOB_JWT)"
+    - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
+    - export NVCR_PASS=$(vault kv get -field nvcr secrets/forge/tokens)
+    - export STG_NVCR_PASS=$(vault kv get -field stg_nvcr secrets/forge/tokens)
+  script: |
+     ${CI_PROJECT_DIR}/.gitlab/get-version.sh > environment.env
+     helm env
+     echo "VAULT_TOKEN=${VAULT_TOKEN}" >> environment.env
+     echo "NVCR_PASS=${NVCR_PASS}" >> environment.env
+     echo "STG_NVCR_PASS=${STG_NVCR_PASS}" >> environment.env
+     echo "HELM_CACHE_HOME=${HELM_CACHE_HOME}" >> environment.env
+     echo "HELM_CONFIG_HOME=${HELM_CONFIG_HOME}" >> environment.env
+     echo "HELM_DATA_HOME=${HELM_DATA_HOME}" >> environment.env
+     echo "HELM_PLUGINS=/root/.local/share/helm/plugins" >> environment.env
+     echo "HELM_REGISTRY_CONFIG=${HELM_REGISTRY_CONFIG}" >> environment.env
+     echo "HELM_REPOSITORY_CACHE=${HELM_REPOSITORY_CACHE}" >> environment.env
+     echo "HELM_REPOSITORY_CONFIG=${HELM_REPOSITORY_CONFIG}" >> environment.env
+     helm repo add ngc $HELM_NGC  --username=\$oauthtoken --password=$NVCR_PASS
+     helm repo add stgngc $HELM_NGC_STG --username=\$oauthtoken --password=$STG_NVCR_PASS
+     helm repo update
+     #- environment.env
+  artifacts:
+    reports:
+      dotenv: environment.env
+    paths:
+      - ${CI_PROJECT_DIR}/helm
+
+generate_pipelines:
+  stage: .pre
+  when: always
+  variables:
+    CHILD_JOB_IMAGE: ${CI_JOB_IMAGE}
+    PARENT_PIPELINE_ID: $CI_PIPELINE_ID
+    PARENT_COMMIT_BRANCH: ${CI_COMMIT_BRANCH}
+    PARENT_DEFAULT_BRANCH: ${CI_DEFAULT_BRANCH}
+    PARENT_CI_PIPELINE_SOURCE: ${CI_PIPELINE_SOURCE}
+    PARENT_CI_COMMIT_REF_NAME: ${CI_COMMIT_REF_NAME}
+    PARENT_CI_MERGE_REQUEST_SOURCE_BRANCH_NAME: ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}
+    PARENT_CI_COMMIT_TAG: ${CI_COMMIT_TAG}
+    VAULT_TOKEN: ${VAULT_TOKEN}
+    NVCR_PASS: ${NVCR_PASS}
+    STG_NVCR_PASS: ${STG_NVCR_PASS}
+    HELM_CACHE_HOME: ${HELM_CACHE_HOME}
+    HELM_CONFIG_HOME: ${HELM_CONFIG_HOME}
+    HELM_DATA_HOME: ${HELM_DATA_HOME}
+    HELM_PLUGINS: ${HELM_PLUGINS}
+    HELM_REGISTRY_CONFIG: ${HELM_REGISTRY_CONFIG}
+    HELM_REPOSITORY_CACHE: ${HELM_REPOSITORY_CACHE}
+    HELM_REPOSITORY_CONFIG: ${HELM_REPOSITORY_CONFIG}
+  script:
+    - .gitlab/generate_pipelines.sh
+  artifacts:
+    paths:
+      - "${CI_PROJECT_DIR}/pipeline.yml"
+  needs:
+    - job: generate_changes_for_mr
+      optional: true
+    - job: generate_changes_for_merged_mr
+      optional: true
+    - prep
+
+trigger:generate_pipelines:
+  stage: .pre
+  trigger:
+    include:
+      - artifact: "pipeline.yml"
+        job: generate_pipelines
+    strategy: depend
+  needs:
+    - generate_pipelines
+
+      #.publish_chart_package:
+      #  stage: package
+      #  script:
+      #    - EXTRACTED_VERSION=$(awk '/^version/ {print $2}' Chart.yaml)
+      #    - VERSION=${VERSION:-${EXTRACTED_VERSION}}
+      #    - echo "Packaging ${VERSION}${VERSION_SUFFIX} for ${CHANNEL}"
+      #    - helm package --version=${VERSION}${VERSION_SUFFIX} .
+      #    - chart_file=$(ls -l *.tgz | head -n 1 | awk '{print $NF}')
+      #      #    - helm cm-push 
+      #      #- curl --request POST --user gitlab-ci-token:$CI_JOB_TOKEN --form "chart=@${chart_file}" "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/helm/api/${CHANNEL}/charts"
+      #
+      #publish_tagged_package:
+      #  extends: .publish_chart_package
+      #  variables:
+      #    CHANNEL: "stable"
+      #  rules:
+      #    - if: $CI_COMMIT_TAG
+
+
