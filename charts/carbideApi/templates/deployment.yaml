@@ -1,0 +1,237 @@
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ template "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: carbide-api
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.container.autoscaling.enabled }}
+  replicas: {{ .Values.container.replicaCount }}
+  {{- end }}
+  {{- if .Values.container.updateStrategy }}
+  strategy: {{- toYaml .Values.container.updateStrategy | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: carbide-api
+  template:
+    metadata:
+      {{- if .Values.container.podAnnotations }}
+      annotations: {{- include "common.tplvalues.render" (dict "value" .Values.container.podAnnotations "context" $) | nindent 8 }}
+      {{- end }}
+      labels: {{- include "common.labels.standard" . | nindent 8 }}
+        app.kubernetes.io/component: carbide-api
+        {{- if .Values.container.podLabels }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.container.podLabels "context" $) | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ template "container.serviceAccountName" . }}
+      {{- include "container.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.container.hostAliases }}
+      hostAliases: {{- include "common.tplvalues.render" (dict "value" .Values.container.hostAliases "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.container.affinity }}
+      affinity: {{- include "common.tplvalues.render" ( dict "value" .Values.container.affinity "context" $) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" (dict "type" .Values.container.podAffinityPreset "component" "carbide-api" "context" $) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" (dict "type" .Values.container.podAntiAffinityPreset "component" "carbide-api" "context" $) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" (dict "type" .Values.container.nodeAffinityPreset.type "key" .Values.container.nodeAffinityPreset.key "values" .Values.container.nodeAffinityPreset.values) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.container.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" ( dict "value" .Values.container.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.container.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.container.tolerations "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.container.priorityClassName }}
+      priorityClassName: {{ .Values.container.priorityClassName | quote }}
+      {{- end }}
+      {{- if .Values.container.schedulerName }}
+      schedulerName: {{ .Values.container.schedulerName | quote }}
+      {{- end }}
+      {{- if .Values.container.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- include "common.tplvalues.render" (dict "value" .Values.container.topologySpreadConstraints "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.container.podSecurityContext.enabled }}
+      securityContext: {{- omit .Values.container.podSecurityContext "enabled" | toYaml | nindent 8 }}
+      {{- end }}
+      {{- if .Values.container.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ .Values.container.terminationGracePeriodSeconds }}
+      {{- end }}
+      initContainers:
+        {{- if and .Values.volumePermissions.enabled .Values.persistence.enabled }}
+        - name: volume-permissions
+          image: {{ include "container.volumePermissions.image" . }}
+          imagePullPolicy: {{ .Values.volumePermissions.image.pullPolicy | quote }}
+          command:
+            - /sbin/foo-bare
+          securityContext: {{- include "common.tplvalues.render" (dict "value" .Values.volumePermissions.containerSecurityContext "context" $) | nindent 12 }}
+          {{- if .Values.volumePermissions.resources }}
+          resources: {{- toYaml .Values.volumePermissions.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: persistence
+              mountPath: {{ .Values.persistence.mountPath }}
+              {{- if .Values.persistence.subPath }}
+              subPath: {{ .Values.persistence.subPath }}
+              {{- end }}
+        {{- end }}
+        {{- if .Values.container.initContainers }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.container.initContainers "context" $) | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: carbide-api
+          image: {{ template "container.image" . }}
+          imagePullPolicy: {{ .Values.container.image.pullPolicy }}
+          {{- if .Values.container.containerSecurityContext.enabled }}
+          securityContext: {{- omit .Values.container.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if .Values.diagnosticMode.enabled }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.command "context" $) | nindent 12 }}
+          {{- else if .Values.container.command }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.container.command "context" $) | nindent 12 }}
+          {{- end }}
+          command:
+            - /bin/sh
+            - -c
+            - /opt/carbide/carbide-api run --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}" --kubernetes
+          {{- if .Values.diagnosticMode.enabled }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
+          {{- else if .Values.container.args }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.container.args "context" $) | nindent 12 }}
+          {{- end }}
+          env:
+            - name: VAULT_ROLE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: carbide-vault-approle-tokens
+                  key: VAULT_ROLE_ID
+                  optional: true
+            - name: VAULT_SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: carbide-vault-approle-tokens
+                  key: VAULT_SECRET_ID
+                  optional: true
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: carbide-vault-token
+                  key: token
+            - name: VAULT_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: vault-cluster-info
+                  key: VAULT_SERVICE
+            - name: VAULT_MOUNT_LOCATION
+              valueFrom:
+                configMapKeyRef:
+                  name: vault-cluster-info
+                  key: FORGE_VAULT_MOUNT
+            - name: DATASTORE_USER
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: {{ tpl .Values.postgresSecretRef . }}
+            - name: DATASTORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: {{ tpl .Values.postgresSecretRef . }}
+            - name: DATASTORE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ tpl .Values.postgresConfigMapName . }}
+                  key: DB_HOST
+            - name: DATASTORE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ tpl .Values.postgresConfigMapName . }}
+                  key: DB_PORT
+            - name: DATASTORE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ tpl .Values.postgresConfigMapName . }}
+                  key: DB_NAME
+            - name: CARBIDE_DHCP_SERVER
+              valueFrom:
+                configMapKeyRef:
+                  name: carbide-api-config
+                  key: carbide_dhcp_server
+            - name: BITNAMI_DEBUG
+              value: {{ ternary "true" "false" (or .Values.container.image.debug .Values.diagnosticMode.enabled) | quote }}
+            {{- if .Values.container.extraEnvVars }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.container.extraEnvVars "context" $) | nindent 12 }}
+            {{- end }}
+          envFrom:
+            {{- if .Values.container.extraEnvVarsCM }}
+            - configMapRef:
+                name: {{ include "common.tplvalues.render" (dict "value" .Values.container.extraEnvVarsCM "context" $) }}
+            {{- end }}
+            {{- if .Values.container.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ include "common.tplvalues.render" (dict "value" .Values.container.extraEnvVarsSecret "context" $) }}
+            {{- end }}
+          {{- if .Values.container.resources }}
+          resources: {{- toYaml .Values.container.resources | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.container.containerPorts.grpc }}
+          {{- if not .Values.diagnosticMode.enabled }}
+          {{- if .Values.container.customLivenessProbe }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.container.customLivenessProbe "context" $) | nindent 12 }}
+          {{- else if .Values.container.livenessProbe.enabled }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.container.livenessProbe "enabled") "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.container.customReadinessProbe }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.container.customReadinessProbe "context" $) | nindent 12 }}
+          {{- else if .Values.container.readinessProbe.enabled }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.container.readinessProbe "enabled") "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.container.customStartupProbe }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.container.customStartupProbe "context" $) | nindent 12 }}
+          {{- else if .Values.container.startupProbe.enabled }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.container.startupProbe "enabled") "context" $) | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- if .Values.container.lifecycleHooks }}
+          lifecycle: {{- include "common.tplvalues.render" (dict "value" .Values.container.lifecycleHooks "context" $) | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: persistence
+              mountPath: {{ .Values.persistence.mountPath }}
+              {{- if .Values.persistence.subPath }}
+              subPath: {{ .Values.persistence.subPath }}
+              {{- end }}
+            - name: spiffe
+              mountPath: "/var/run/secrets/spiffe.io"
+          {{- if .Values.container.extraVolumeMounts }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.container.extraVolumeMounts "context" $) | nindent 12 }}
+          {{- end }}
+        {{- if .Values.container.sidecars }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.container.sidecars "context" $) | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: persistence
+        {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default (include "common.names.fullname" .) .Values.persistence.existingClaim }}
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+        - name: spiffe
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+        {{- if .Values.container.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.container.extraVolumes "context" $) | nindent 8 }}
+        {{- end }}

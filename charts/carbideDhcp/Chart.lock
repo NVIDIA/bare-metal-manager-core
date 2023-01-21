@@ -1,0 +1,6 @@
+dependencies:
+- name: common
+  repository: https://helm.ngc.nvidia.com/nvidian/forge
+  version: 2.2.1
+digest: sha256:6f77113291a8c474ae9b4f204addacfa9c6138165767100fc86163ce37c7e83f
+generated: "2022-12-12T07:31:28.507193345-08:00"
