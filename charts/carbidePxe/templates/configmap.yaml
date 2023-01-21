@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "common.names.fullname" . }}-config
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: carbide-pxe
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+data:
+
+  Rocket.toml: |
+    [default]
+    address = "0.0.0.0"
+    {{ if eq .Values.carbideApiUrl "-" -}}
+    carbide_api_url = "{{ ternary "https" "http" (.Values.useTLS) }}://carbide-api.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}:1079"
+    {{- else }}
+    carbide_api_url = {{ .Values.carbideApiUrl | quote }}
+    {{- end }}
+    carbide_pxe_url = "{{ ternary "https" "http" (.Values.useTLS) }}://carbide-pxe.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}:{{ ternary .Values.container.containerPorts.https .Values.container.containerPorts.http (.Values.useTLS )}}"
+    carbide_ntp_server = {{ join "," .Values.ntpServerIp | quote }}
+    {{- if .Values.useTLS }}
+    port = {{ .Values.service.ports.https }}
+    {{- else }}
+    port = {{ .Values.service.ports.http }}
+    {{- end }}
+
+    [development]
+    template_dir = {{ .Values.templateDir | quote }}
+
+    [production]
+    template_dir = {{ .Values.templateDir | quote }}
+  artifacts.json: |
+    {
+      "__comment": "note that if you touch any of the artifact URLs, you should also touch all of the checksums that changed checksums are just the result from `shasum -a 256 <filename>` if all of the checksum files are not present with valid checksums, the code will nuke the artifact and re-download each time",
+      "forge-boot-artifact-aarch64": {
+        "url": "https://urm.nvidia.com/artifactory/swngc-ngcc-generic-local/nvmetal/boot-artifacts/aarch64/forge-boot-artifacts-44820713.tar.gz",
+        "architecture": "Aarch64",
+        "checksums": {
+          "carbide.root": "6c3cb3c5699d4a8a85502d68ac6dd772c762e152958ea779e4a1e5f037e120b2",
+          "carbide.efi": "6d335998660c18729f9e481e1678d3c2399f875bf5cfd22e853247c46b6c2519",
+          "ipxe.efi": "d466650bfcf5e1f46d5c885849246c5334b59c5bf3bc9dd94161356d64996ba6"
+        }
+      },
+      "forge-user-data-artifact-aarch64": {
+        "url": "https://urm.nvidia.com/artifactory/swngc-ngcc-generic-local/nvmetal/user-data-artifacts/aarch64/forge-user-data-artifacts-44820714.tar.gz",
+        "architecture": "Aarch64",
+        "checksums": {
+          "carbide-cli": "0fcc6780b5d495541c4b515613a6b07478b7749295c124aeb36b4492592374de",
+          "doca_container_configs_1.4.0.zip": "2f4007a7e79ce10917674ac0cc1becf88b9bb3289238a5e324077a83c20f569c"
+        }
+      },
+      "forge-boot-artifact-x86-64": {
+        "url": "https://urm.nvidia.com/artifactory/swngc-ngcc-generic-local/nvmetal/boot-artifacts/x86_64/forge-boot-artifacts-46757336.tar.gz",
+        "architecture": "X86_64",
+        "checksums": {
+          "carbide.root": "2e4d5126836afd0a98d610edd472be1ab16c60e7869c76b7f7d7eea11ccc5f37",
+          "carbide.efi": "d75a1ab4a6711bb05074cb93b3519141167c95259173df6ce1d7af28ee2ccf5f",
+          "ipxe.efi": "1168d34e45df39bf24a61d5dc009555012df60a64c01cd60ac407d2db102227b",
+          "ipxe.kpxe": "f88e4a419cadb2886400a0a6f163749dc1b1a1e54d53a9100cc9cee2ee05147f"
+        }
+      },
+      "__TODO": "we also need to add the x86 files to this scheme somehow?  For now I'm ignoring that."
+    }
+
+
+  # Config file
