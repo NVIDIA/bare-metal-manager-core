@@ -12,27 +12,15 @@ FROM alpine:latest
 
 ENV HELM_VERSION=3.10.3
 ENV HELM_URL=https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz
+ENV HELM_HOME=/root/.helm
 
 # kubectl (possibly in gcloud?)
 ENV KUBECTL_VERSION=1.23.15
 ENV KUBECTL_URL=https://storage.googleapis.com/kubernetes-release/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl
 
 # Install dependencies
-RUN apk --no-cache add -U openssl curl tar gzip bash ca-certificates git go vault ruby nodejs yarn npm python3 \
+RUN apk --no-cache add -U openssl curl tar gzip bash ca-certificates git \
   && mkdir -p /opt
-
-# Install semver-tool
-RUN curl -L -o /usr/local/bin/semver https://raw.githubusercontent.com/fsaintjacques/semver-tool/master/src/semver \
-  && chmod +x /usr/local/bin/semver
-
-# Install helm-docs
-RUN wget -q -O - https://github.com/norwoodj/helm-docs/releases/download/v1.11.0/helm-docs_1.11.0_Linux_x86_64.tar.gz | tar -zxf - \
-  && mv helm-docs /usr/local/bin \
-  && chmod +x /usr/local/bin/helm-docs
-
-RUN wget -q -O - https://github.com/mikefarah/yq/releases/download/v4.30.8/yq_linux_amd64.tar.gz | tar -zxf - \
-  && mv yq_linux_amd64 /usr/local/bin/yq \
-  && chmod +x /usr/local/bin/yq
 
 # Install kubectl
 RUN curl -L -o /usr/local/bin/kubectl ${KUBECTL_URL} \
@@ -50,9 +38,3 @@ RUN mkdir -p $HELM_HOME/plugins && \
     helm plugin install https://github.com/instrumenta/helm-kubeval && \
     helm plugin install https://github.com/chartmuseum/helm-push
 
-RUN gem install --no-document danger danger-prose danger-gitlab danger-yamlint gitlab bundler
-RUN yarn global add alex@9 && yarn cache clean
-
-RUN wget -q -O - https://github.com/errata-ai/vale/releases/download/v2.15.4/vale_2.15.4_Linux_64-bit.tar.gz | tar -zxf - \
-  && mv vale /usr/local/bin \
-  && chmod +x /usr/local/bin/vale
