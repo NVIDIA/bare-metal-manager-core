@@ -1,0 +1,80 @@
+{{ $ns := include "common.names.namespace" . }}
+{{ $pxeservice := lookup "v1" "Service" "forge-system" "carbide-pxe" }}
+{{ $dnsservice := lookup "v1" "Service" "forge-system" "carbide-dns" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "common.names.fullname" . }}-config
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: carbide-dhcp
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+data:
+  kea_config.json: |
+    {
+      "Dhcp4": {
+        "interfaces-config": {
+          "interfaces": [
+            "eth0"
+          ],
+          "dhcp-socket-type": "udp"
+        },
+        "lease-database": {
+          "type": "memfile",
+          "lfc-interval": 3600
+        },
+        "renew-timer": 900,
+        "rebind-timer": 1800,
+        "valid-lifetime": 3600,
+        "hooks-libraries": [
+          {
+            "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
+            "parameters": {
+              {{- if eq .Values.carbideApiUrl "-" }}
+              "carbide-api-url": "{{ ternary "https" "http" (.Values.useTLS) }}://carbide-api.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}:1079",
+              {{ else -}}
+              "carbide-api-url": {{ .Values.carbideApiUrl | quote }},
+              {{ end -}}
+              {{ if $dnsservice -}}
+              "carbide-nameservers": {{ $dnsservice.spec.clusterIP | quote }},
+              {{ else -}}
+              "carbide-nameservers": {{ join "," .Values.carbideDnsServerIPs | quote }},
+              {{ end -}}
+              {{ if $pxeservice -}}
+              "carbide-provisioning-server-ipv4": {{ $pxeservice.spec.clusterIP | quote }}
+              {{ else -}}
+              "carbide-provisioning-server-ipv4": {{ .Values.carbidePxeIpAddress | quote }}
+              {{ end -}}
+            }
+          }
+        ],
+        "subnet4": [
+          {
+            "subnet": "0.0.0.0/0",
+            "pools": [
+              {
+                "pool": "0.0.0.0-255.255.255.255"
+              }
+            ]
+          }
+        ],
+        "loggers": [
+          {
+            "name": "*",
+            "output_options": [
+              {
+                "output": "stdout"
+              }
+            ],
+            "severity": {{ .Values.loglevel | upper | quote }},
+            "debuglevel": 10
+          }
+        ]
+      }
+    }
+
