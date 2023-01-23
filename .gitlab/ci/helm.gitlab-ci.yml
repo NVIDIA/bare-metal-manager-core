@@ -37,6 +37,10 @@ iac-sast:
   artifacts:
     paths:
       - CHANGES.txt
+  rules:
+    changes:
+      paths:
+        - "charts/**/*"
  
 generate_changes_for_mr:
   extends: .changes
@@ -98,6 +102,7 @@ generate_pipelines:
     PARENT_CI_COMMIT_REF_NAME: ${CI_COMMIT_REF_NAME}
     PARENT_CI_MERGE_REQUEST_SOURCE_BRANCH_NAME: ${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}
     PARENT_CI_COMMIT_TAG: ${CI_COMMIT_TAG}
+    PARENT_CI_OPEN_MERGE_REQUESTS: ${CI_OPEN_MERGE_REQUESTS}
     VAULT_TOKEN: ${VAULT_TOKEN}
     NVCR_PASS: ${NVCR_PASS}
     STG_NVCR_PASS: ${STG_NVCR_PASS}
@@ -129,23 +134,4 @@ trigger:generate_pipelines:
     strategy: depend
   needs:
     - generate_pipelines
-
-      #.publish_chart_package:
-      #  stage: package
-      #  script:
-      #    - EXTRACTED_VERSION=$(awk '/^version/ {print $2}' Chart.yaml)
-      #    - VERSION=${VERSION:-${EXTRACTED_VERSION}}
-      #    - echo "Packaging ${VERSION}${VERSION_SUFFIX} for ${CHANNEL}"
-      #    - helm package --version=${VERSION}${VERSION_SUFFIX} .
-      #    - chart_file=$(ls -l *.tgz | head -n 1 | awk '{print $NF}')
-      #      #    - helm cm-push 
-      #      #- curl --request POST --user gitlab-ci-token:$CI_JOB_TOKEN --form "chart=@${chart_file}" "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/helm/api/${CHANNEL}/charts"
-      #
-      #publish_tagged_package:
-      #  extends: .publish_chart_package
-      #  variables:
-      #    CHANNEL: "stable"
-      #  rules:
-      #    - if: $CI_COMMIT_TAG
-
-
+  allow_failure: true
