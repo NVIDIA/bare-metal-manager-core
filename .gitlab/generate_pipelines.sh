@@ -65,7 +65,7 @@ workflow:
     - if: $PARENT_CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $PARENT_COMMIT_BRANCH && $PARENT_CI_OPEN_MERGE_REQUESTS && $PARENT_CI_PIPELINE_SOURCE == "push"
       when: never
-    - if: $PARENT_COMMIT_BRANCH == $PARENT_DEFAULT_BRANCH &&  $PARENT_CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $PARENT_COMMIT_BRANCH == $PARENT_DEFAULT_BRANCH && $PARENT_CI_PIPELINE_SOURCE == 'merge_request_event'
       when: never
     - if: $PARENT_COMMIT_BRANCH
     - if: $PARENT_CI_COMMIT_TAG
@@ -124,7 +124,7 @@ lint:${base}:
      job: prep
   rules:
     - changes:
-        paths:
+        paths: 
           - "charts/**/*"
     - when: never
 
@@ -162,7 +162,7 @@ lint:${base}:
     - lint:${base}
   rules:
     - changes:
-        paths:
+        paths: 
           - "charts/**/*"
     - when: never
 
@@ -216,6 +216,7 @@ package:${base}:
       job: prep
     - version:${base}
   rules:
+    - if: \$PARENT_CI_COMMIT_BRANCH == \$PARENT_DEFAULT_BRANCH && \$PARENT_CI_PIPELINE_SOURCE == 'merge_request_event'
     - if: \$PARENT_CI_PIPELINE_SOURCE == "push" && \$PARENT_CI_COMMIT_REF_NAME == \$PARENT_DEFAULT_BRANCH
     - if: \$PARENT_CI_COMMIT_TAG
 
@@ -302,7 +303,7 @@ no_helm_work:
   script: |
     echo "No Helm chart work to check"
   rules:
-    - if: \$CHART_CHANGES == "0"
+    - if: \$PARENT_CI_PIPELINE_SOURCE == "merge_request_event" && \$CHART_CHANGES == "0"
     - when: never
 EOF
 
