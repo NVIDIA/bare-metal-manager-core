@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::forge as rpc;
 use cli::CarbideClientError;
 use forge_host_support::hardware_enumeration::{CpuArchitecture, HardwareEnumerationError};
 use uname::uname; // wrapper for libc::uname()
@@ -28,5 +29,14 @@ pub async fn run(forge_api: &str, machine_id: uuid::Uuid) -> Result<(), CarbideC
             log::error!("Error while setting up IPMI. {}", err.to_string());
         }
     }
+    Ok(())
+}
+
+pub async fn completed(forge_api: &str, machine_id: uuid::Uuid) -> Result<(), CarbideClientError> {
+    let mut client = rpc::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
+    let request = tonic::Request::new(rpc::MachineDiscoveryCompletedRequest {
+        machine_id: Some(machine_id.into()),
+    });
+    client.discovery_completed(request).await?;
     Ok(())
 }

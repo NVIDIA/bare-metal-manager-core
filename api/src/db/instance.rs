@@ -15,12 +15,12 @@ use std::{
     net::IpAddr,
 };
 
+use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
-use ::rpc::forge as rpc;
-
+use super::UuidKeyedObjectFilter;
 use crate::{
     db::instance_address::InstanceAddress,
     model::{
@@ -35,8 +35,6 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
-
-use super::UuidKeyedObjectFilter;
 
 pub mod config;
 pub mod status;
@@ -183,10 +181,10 @@ impl Instance {
         relay: IpAddr,
     ) -> CarbideResult<Option<Instance>> {
         Ok(sqlx::query_as(
-            r#"select i.* from instances i 
-            INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id 
-            INNER JOIN machines s ON s.id = m.attached_dpu_machine_id 
-            INNER JOIN vpc_resource_leafs v ON v.id = s.vpc_leaf_id 
+            r#"select i.* from instances i
+            INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id
+            INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
+            INNER JOIN vpc_resource_leafs v ON v.id = s.vpc_leaf_id
             WHERE v.loopback_ip_address=$1"#,
         )
         .bind(relay)
@@ -248,7 +246,7 @@ impl DeleteInstance {
     ) -> CarbideResult<Instance> {
         if Instance::find(&mut *txn, UuidKeyedObjectFilter::One(self.instance_id))
             .await
-            .map_err(|_| CarbideError::NotFoundError(self.instance_id))?
+            .map_err(|_| CarbideError::NotFoundError("instance".to_string(), self.instance_id))?
             .is_empty()
         {
             return Err(CarbideError::FindOneReturnedNoResultsError(

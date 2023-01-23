@@ -216,7 +216,7 @@ impl TryFrom<i32> for forge_agent_control_response::Action {
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
-            x if x == Self::Nop as i32 => Ok(Self::Nop),
+            x if x == Self::Noop as i32 => Ok(Self::Noop),
             x if x == Self::Reset as i32 => Ok(Self::Reset),
             x if x == Self::Discovery as i32 => Ok(Self::Discovery),
             x if x == Self::Rebuild as i32 => Ok(Self::Rebuild),

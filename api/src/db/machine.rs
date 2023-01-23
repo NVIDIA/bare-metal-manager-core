@@ -177,7 +177,10 @@ impl Machine {
                         "Interface ID {} refers to missing machine {machine_id}",
                         interface.id()
                     );
-                    Err(CarbideError::NotFoundError(machine_id))
+                    Err(CarbideError::NotFoundError(
+                        "machine".to_string(),
+                        machine_id,
+                    ))
                 }
             },
             // CREATE
@@ -196,9 +199,6 @@ impl Machine {
                         interface
                             .associate_interface_with_machine(txn, &machine.id)
                             .await?;
-                        // Add the initial state
-                        machine.advance(txn, MachineState::Adopted).await?;
-                        machine.advance(txn, MachineState::Ready).await?;
                     }
                     rest => {
                         return Err(CarbideError::GenericError(format!(

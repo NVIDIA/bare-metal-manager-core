@@ -11,6 +11,8 @@
  */
 use std::net::IpAddr;
 
+#[cfg(test)]
+use ::rstest_reuse;
 use dhcp::allocation::DhcpError;
 use mac_address::MacAddress;
 use model::{
@@ -22,9 +24,6 @@ use rust_fsm::TransitionImpossibleError;
 use sqlx::postgres::PgDatabaseError;
 use state_controller::snapshot_loader::SnapshotLoaderError;
 use tonic::Status;
-
-#[cfg(test)]
-use ::rstest_reuse;
 
 pub mod api;
 pub mod auth;
@@ -78,8 +77,8 @@ pub enum CarbideError {
     #[error("Uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
 
-    #[error("Uuid was not found: {0}")]
-    NotFoundError(uuid::Uuid),
+    #[error("Uuid not found: {0}:{1}")]
+    NotFoundError(String, uuid::Uuid),
 
     #[error("Argument is missing in input: {0}")]
     MissingArgument(&'static str),
@@ -217,6 +216,9 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
             CarbideError::MissingArgument(msg) => Status::invalid_argument(msg),
             CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
+            CarbideError::NotFoundError(kind, uuid) => {
+                Status::not_found(format!("missing {kind} {uuid}"))
+            }
             error @ CarbideError::ConcurrentModificationError(_, _) => {
                 Status::failed_precondition(error.to_string())
             }
