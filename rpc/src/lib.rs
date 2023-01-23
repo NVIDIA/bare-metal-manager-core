@@ -44,7 +44,6 @@ pub use crate::protos::machine_discovery::{
 pub mod protos;
 
 pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("protos/forge.bin");
-pub const REFLECTION_BOOTSTRAP_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("protos/bootstrap.bin");
 
 pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
     let mut expected = Vec::new();

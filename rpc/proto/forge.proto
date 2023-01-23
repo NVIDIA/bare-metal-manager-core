@@ -109,8 +109,16 @@ service Forge {
   rpc ListSecurityGroupBinds(SecurityGroupBindQuery) returns(SecurityGroupBindList);
 
   rpc GetPxeInstructions(UUID) returns (PxeInstructions);
+  rpc Echo(EchoRequest) returns (EchoResponse);
 }
 
+message EchoRequest {
+  string message = 1;
+}
+
+message EchoResponse {
+  string message = 1;
+}
 message DNSMessage {
 
   message DNSQuestion {
