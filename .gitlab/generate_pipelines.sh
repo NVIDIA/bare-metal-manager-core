@@ -32,6 +32,7 @@ variables:
   PARENT_CI_PIPELINE_SOURCE: "${PARENT_CI_PIPELINE_SOURCE}"
   PARENT_CI_COMMIT_REF_NAME: "${PARENT_CI_COMMIT_REF_NAME}"
   PARENT_CI_OPEN_MERGE_REQUESTS: "${PARENT_CI_OPEN_MERGE_REQUESTS}"
+  PARENT_CI_COMMIT_TAG: ${PARENT_CI_COMMIT_TAG}
 
 .helm:
   script: |
@@ -100,6 +101,7 @@ lint:${base}:
     HELM_REPOSITORY_CACHE: "${HELM_REPOSITORY_CACHE}"
     HELM_REPOSITORY_CONFIG: "${HELM_REPOSITORY_CONFIG}"
     CHART_CHANGES: "${CHART_CHANGES}"
+    PARENT_CI_PIPELINE_SOURCE: "${PARENT_CI_PIPELINE_SOURCE}"
 
   image: ${CHILD_JOB_IMAGE}
   stage: lint
@@ -123,9 +125,9 @@ lint:${base}:
    - pipeline: "${PARENT_PIPELINE_ID}"
      job: prep
   rules:
-    - changes:
-        paths: 
-          - "charts/**/*"
+    - if: \$PARENT_CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - "charts/**/*"
     - when: never
 
 "test:${base}_Validates_Kubernetes_1.23.16":
@@ -139,6 +141,7 @@ lint:${base}:
     HELM_REPOSITORY_CACHE: "${HELM_REPOSITORY_CACHE}"
     HELM_REPOSITORY_CONFIG: "${HELM_REPOSITORY_CONFIG}"
     HELM_PLUGINS: "${HELM_PLUGINS}"
+    PARENT_CI_PIPELINE_SOURCE: "${PARENT_CI_PIPELINE_SOURCE}"
     KUBE_VERSION: 1.23.16
     KUBEVAL_SCHEMA_LOCATION: "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/"
 
@@ -161,12 +164,18 @@ lint:${base}:
       job: prep
     - lint:${base}
   rules:
-    - changes:
-        paths: 
-          - "charts/**/*"
+    - if: \$PARENT_CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - "charts/**/*"
     - when: never
 
 version:${base}:
+  variables:
+    PARENT_CI_PIPELINE_SOURCE: "${PARENT_CI_PIPELINE_SOURCE}"
+    PARENT_CI_COMMIT_REF_NAME: "${PARENT_CI_COMMIT_REF_NAME}"
+    PARENT_DEFAULT_BRANCH: "${PARENT_DEFAULT_BRANCH}"
+    PARENT_CI_COMMIT_TAG: ${PARENT_CI_COMMIT_TAG}
+    PARENT_COMMIT_BRANCH: "${PARENT_COMMIT_BRANCH}"
   stage: versioning
   image: ${CHILD_JOB_IMAGE}
   tags:
@@ -196,6 +205,11 @@ package:${base}:
     HELM_REPOSITORY_CACHE: "${HELM_REPOSITORY_CACHE}"
     HELM_REPOSITORY_CONFIG: "${HELM_REPOSITORY_CONFIG}"
     HELM_PLUGINS: "${HELM_PLUGINS}"
+    PARENT_CI_PIPELINE_SOURCE: "${PARENT_CI_PIPELINE_SOURCE}"
+    PARENT_CI_COMMIT_REF_NAME: "${PARENT_CI_COMMIT_REF_NAME}"
+    PARENT_DEFAULT_BRANCH: "${PARENT_DEFAULT_BRANCH}"
+    PARENT_CI_COMMIT_TAG: ${PARENT_CI_COMMIT_TAG}
+    PARENT_COMMIT_BRANCH: "${PARENT_COMMIT_BRANCH}"
   stage: package
   image: ${CHILD_JOB_IMAGE}
   tags:
@@ -232,6 +246,11 @@ dev_publish:${base}:
     HELM_REPOSITORY_CACHE: "${HELM_REPOSITORY_CACHE}"
     HELM_REPOSITORY_CONFIG: "${HELM_REPOSITORY_CONFIG}"
     HELM_PLUGINS: "${HELM_PLUGINS}"
+    PARENT_CI_PIPELINE_SOURCE: "${PARENT_CI_PIPELINE_SOURCE}"
+    PARENT_CI_COMMIT_REF_NAME: "${PARENT_CI_COMMIT_REF_NAME}"
+    PARENT_DEFAULT_BRANCH: "${PARENT_DEFAULT_BRANCH}"
+    PARENT_CI_COMMIT_TAG: ${PARENT_CI_COMMIT_TAG}
+    PARENT_COMMIT_BRANCH: "${PARENT_COMMIT_BRANCH}"
   stage: publish
   image: ${CHILD_JOB_IMAGE}
   tags:
@@ -267,6 +286,11 @@ prod_publish:${base}:
     HELM_REPOSITORY_CACHE: "${HELM_REPOSITORY_CACHE}"
     HELM_REPOSITORY_CONFIG: "${HELM_REPOSITORY_CONFIG}"
     HELM_PLUGINS: "${HELM_PLUGINS}"
+    PARENT_CI_PIPELINE_SOURCE: "${PARENT_CI_PIPELINE_SOURCE}"
+    PARENT_CI_COMMIT_REF_NAME: "${PARENT_CI_COMMIT_REF_NAME}"
+    PARENT_DEFAULT_BRANCH: "${PARENT_DEFAULT_BRANCH}"
+    PARENT_CI_COMMIT_TAG: ${PARENT_CI_COMMIT_TAG}
+    PARENT_COMMIT_BRANCH: "${PARENT_COMMIT_BRANCH}"
   stage: publish
   image: ${CHILD_JOB_IMAGE}
   tags:
@@ -296,6 +320,7 @@ cat >> ${CI_PROJECT_DIR}/finalize.yml <<-EOF
 no_helm_work:
   variables:
     CHART_CHANGES: "${CHART_CHANGES}"
+    PARENT_CI_PIPELINE_SOURCE: "${PARENT_CI_PIPELINE_SOURCE}"
   stage: lint
   image: ${CHILD_JOB_IMAGE}
   tags:

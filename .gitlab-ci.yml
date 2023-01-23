@@ -44,9 +44,6 @@ include:
     file:
       - defaults.gitlab-ci.yml
   - local: .gitlab/ci/helm.gitlab-ci.yml
-    rules:
-      changes:
-        - "charts/*"
 
 nightly_tests:
   stage: e2e-test
