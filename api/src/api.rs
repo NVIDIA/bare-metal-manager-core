@@ -14,29 +14,31 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::bootstrap::bootstrap_service_server::{
-    BootstrapService, BootstrapServiceServer,
-};
-use ::rpc::protos::bootstrap::{EchoRequest, EchoResponse};
-use ::rpc::protos::forge::InstanceList;
-use ::rpc::protos::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
 use color_eyre::Report;
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+use futures_util::future::BoxFuture;
+use http::header::USER_AGENT;
+use http::{header::AUTHORIZATION, StatusCode};
 use hyper::server::conn::Http;
+use hyper::{Request as HyperRequest, Response as HyperResponse};
 use mac_address::MacAddress;
 use tokio::net::TcpListener;
 use tokio_rustls::{
     rustls::{Certificate, PrivateKey, ServerConfig},
     TlsAcceptor,
 };
+use tonic::body::BoxBody;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
-use tower_http::ServiceBuilderExt;
+use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use uuid::Uuid;
 
-use self::rpc::forge_server::Forge;
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::InstanceList;
+use ::rpc::protos::forge::{EchoRequest, EchoResponse};
+use ::rpc::protos::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+
 use crate::ipmi::Operation;
 use crate::CarbideResult;
 use crate::{
@@ -81,6 +83,8 @@ use crate::{
     CarbideError,
 };
 
+use self::rpc::forge_server::Forge;
+
 // Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
 
@@ -88,26 +92,6 @@ pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
     credential_provider: Arc<C>,
     authorizer: auth::Authorizer,
-}
-
-#[tonic::async_trait]
-impl<C> BootstrapService for Api<C>
-where
-    C: CredentialProvider + 'static,
-{
-    async fn echo(&self, request: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
-        let conn_info = request.extensions().get::<Arc<ConnInfo>>().unwrap();
-        println!(
-            "Got a request from: {:?} with certs: {:?}, request: {:?}",
-            conn_info.addr, conn_info.certificates, request,
-        );
-
-        let reply = EchoResponse {
-            message: request.into_inner().message,
-        };
-
-        Ok(Response::new(reply))
-    }
 }
 
 #[tonic::async_trait]
@@ -819,10 +803,34 @@ where
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn echo(&self, request: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
+        let conn_info = request.extensions().get::<ConnInfo>().unwrap();
+        println!(
+            "Got a request from: {:?} with authorization_type: {:?}, request: {:?}",
+            conn_info.addr, conn_info.authorization_type, request,
+        );
+
+        let reply = EchoResponse {
+            message: request.into_inner().message,
+        };
+
+        Ok(Response::new(reply))
+    }
+
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn discover_machine(
         &self,
         request: Request<rpc::MachineDiscoveryInfo>,
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
+        if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
+            log::info!(
+                "Got a request from: {:?} with authorization_type: {:?}, request: {:?}",
+                conn_info.addr,
+                conn_info.authorization_type,
+                request,
+            );
+        }
+
         let machine_discovery_info = request.into_inner();
 
         let mut txn = self
@@ -1446,26 +1454,6 @@ where
     }
 }
 
-#[tracing::instrument(skip_all)]
-async fn api_handler<C>(api_service: Arc<Api<C>>, listen_port: SocketAddr) -> Result<(), Report>
-where
-    C: CredentialProvider + 'static,
-{
-    log::info!("Starting API server on {:?}", listen_port);
-
-    let api_reflection_service = Builder::configure()
-        .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
-        .build()?;
-
-    Server::builder()
-        //            .tls_config(ServerTlsConfig::new().identity( Identity::from_pem(&cert, &key) ))?
-        .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
-        .add_service(api_reflection_service)
-        .serve(listen_port)
-        .await
-        .map_err(|err| err.into())
-}
-
 const FORGE_ROOT_PEMFILE_PATH: &str = "/opt/forge/forge_root.pem";
 const FORGE_ROOT_KEYFILE_PATH: &str = "/opt/forge/forge_root.key";
 
@@ -1524,22 +1512,134 @@ fn get_tls_acceptor() -> Option<TlsAcceptor> {
     }
 }
 
+async fn check_auth<B>(
+    request: &HyperRequest<B>,
+    peer_certs: Arc<Vec<Certificate>>,
+) -> AuthorizationType {
+    if let Some(peer_cert) = peer_certs.first() {
+        //TODO: actually check that this cert is in some way "valid".  Also, check more than just the first one in the list?
+        return AuthorizationType::Certificate(peer_cert.clone());
+    } else if let Some(header) = request.headers().get(AUTHORIZATION) {
+        //TODO: validate that the token is an encoded, valid JWT
+        return AuthorizationType::Jwt(
+            header
+                .to_str()
+                .expect("header not a valid utf8 string?")
+                .to_string(),
+        );
+    } else if request
+        .uri()
+        .to_string()
+        .to_lowercase()
+        .contains("discovermachine")
+        || request.uri().to_string().to_lowercase().contains("echo")
+    //TODO: using this to test, delete the "echo" check once discover machine is tested
+    {
+        return AuthorizationType::TrustedHardwareIdentifier(None);
+    } else if request
+        .uri()
+        .to_string()
+        .to_lowercase()
+        .contains("reflection")
+    {
+        if let Some(user_agent) = request.headers().get(USER_AGENT) {
+            if user_agent
+                .to_str()
+                .expect("header not a valid utf8 string?")
+                .to_lowercase()
+                .contains("grpc")
+            {
+                // grpc needs this to function, allow it
+                return AuthorizationType::TrustedHardwareIdentifier(None);
+            }
+        }
+    }
+
+    log::error!(
+        "failed to authorize request.  Peer certs: {:?}.  Headers: {:?}. URI: {:?}",
+        peer_certs,
+        request.headers(),
+        request.uri()
+    );
+    AuthorizationType::Unauthorized
+}
+
+#[derive(Debug)]
+enum AuthorizationType {
+    Certificate(Certificate),
+    Jwt(
+        String, /*TODO: type this as some kind of proper JWT struct not just a string*/
+    ),
+    TrustedHardwareIdentifier(
+        Option<String>, /*TODO: make this not optional once we require TPMs*/
+    ),
+    Unauthorized,
+}
+
+#[derive(Debug, Clone)]
+struct MiddlewareAuth {
+    addr: SocketAddr,
+    peer_certs: Arc<Vec<Certificate>>,
+}
+
+impl<B> AsyncAuthorizeRequest<B> for MiddlewareAuth
+where
+    B: Send + Sync + 'static,
+{
+    type RequestBody = B;
+    type ResponseBody = BoxBody;
+    type Future = BoxFuture<'static, Result<HyperRequest<B>, HyperResponse<Self::ResponseBody>>>;
+
+    fn authorize(&mut self, mut request: HyperRequest<B>) -> Self::Future {
+        let peer_certs = self.peer_certs.clone();
+        let addr = self.addr;
+        Box::pin(async move {
+            let authorization_type = check_auth(&request, peer_certs).await;
+
+            match authorization_type {
+                AuthorizationType::Unauthorized => {
+                    let boxed = BoxBody::default();
+                    let unauthorized_response = HyperResponse::builder()
+                        .status(StatusCode::UNAUTHORIZED)
+                        .body(boxed)
+                        .unwrap();
+                    let _unused_error_response: Result<
+                        HyperRequest<B>,
+                        HyperResponse<Self::ResponseBody>,
+                    > = Err(unauthorized_response); // TODO: the explicit type is only needed because it's unused, we can delete the type hint when we use the error.
+
+                    request.extensions_mut().insert(ConnInfo {
+                        addr,
+                        authorization_type: AuthorizationType::Unauthorized,
+                    }); //TODO: this is only necessary because we're not erroring out, delete the entire line when we reject unauthorized requests
+                    Ok(request) //TODO: remove this and return the previous error to reject unauthorized requests
+                }
+                authorized_request_type => {
+                    request.extensions_mut().insert(ConnInfo {
+                        addr,
+                        authorization_type: authorized_request_type,
+                    });
+
+                    Ok(request)
+                }
+            }
+        })
+    }
+}
+
 #[derive(Debug)]
 struct ConnInfo {
     addr: SocketAddr,
-    certificates: Vec<Certificate>,
+    authorization_type: AuthorizationType,
 }
 
 #[tracing::instrument(skip_all)]
-async fn bootstrap_handler<C>(
-    api_service: Arc<Api<C>>,
-    listen_port: SocketAddr,
-) -> Result<(), Report>
+async fn api_handler<C>(api_service: Arc<Api<C>>, listen_port: SocketAddr) -> Result<(), Report>
 where
     C: CredentialProvider + 'static,
 {
-    let bootstrap_reflection_service = Builder::configure()
-        .register_encoded_file_descriptor_set(::rpc::REFLECTION_BOOTSTRAP_SERVICE_DESCRIPTOR)
+    let api_reflection_service = Builder::configure()
+        .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
         .build()?;
 
     let tls_acceptor = tokio::task::spawn_blocking(get_tls_acceptor).await?;
@@ -1549,8 +1649,8 @@ where
     http.http2_only(true);
 
     let svc = Server::builder()
-        .add_service(BootstrapServiceServer::from_arc(api_service))
-        .add_service(bootstrap_reflection_service)
+        .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
+        .add_service(api_reflection_service)
         .into_service();
 
     loop {
@@ -1580,8 +1680,12 @@ where
                     .await
                 {
                     Ok(conn) => {
+                        let auth = MiddlewareAuth {
+                            addr,
+                            peer_certs: Arc::new(certificates),
+                        };
                         let svc = tower::ServiceBuilder::new()
-                            .add_extension(Arc::new(ConnInfo { addr, certificates }))
+                            .layer(AsyncRequireAuthorizationLayer::new(auth))
                             .service(svc);
                         if let Err(error) = http.serve_connection(conn, svc).await {
                             log::debug!("error servicing http connection: {:?}", error);
@@ -1692,25 +1796,8 @@ where
                 .build()
                 .expect("Unable to build NetworkSegmentController");
 
-        // we split the api into the main grpc service and the bootstrap service because
-        // tonic can't handle "per service" TLS configurations.
         let listen_port = daemon_config.listen[0];
-        let api_service_clone = api_service.clone();
-        let api_grpc_handle = tokio::spawn(api_handler(api_service_clone, listen_port));
-
-        let bootstrap_listen_port = daemon_config.bootstrap_listen[0];
-        let api_service_clone = api_service.clone();
-        let api_bootstrap_handle =
-            tokio::spawn(bootstrap_handler(api_service_clone, bootstrap_listen_port));
-
-        match tokio::try_join!(api_grpc_handle, api_bootstrap_handle) {
-            Ok(tuple) => match tuple {
-                (Err(api_error), _) => Err(api_error),
-                (_, Err(bootstrap_err)) => Err(bootstrap_err),
-                _ => Ok(()),
-            },
-            Err(join_err) => Err(join_err.into()),
-        }
+        api_handler(api_service, listen_port).await
     }
 
     // Map any of a UUID, IPv4, MAC or hostname to the UUID of a DPU machine, by querying the
