@@ -1,15 +1,16 @@
-use pwhash::sha512_crypt;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
+use std::path::Path;
 
 use ::rpc::forge::{
     forge_client::ForgeClient, machine_credentials_update_request::CredentialPurpose,
     machine_credentials_update_request::Credentials,
 };
 use cli::CarbideClientResult;
+use pwhash::sha512_crypt;
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 
 pub async fn create_users(forge_api: String, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
     let login_user_creds = create_login_user().await?;
@@ -68,10 +69,14 @@ async fn create_login_user() -> CarbideClientResult<Credentials> {
         .status()
         .await?;
 
-    let mut sudo_include_file = File::create("/etc/sudoers.d/99_sudo_include_file").await?;
-    let sudoers_line = format!("{} ALL=(ALL) NOPASSWD:ALL\n", SSH_USERNAME);
-    sudo_include_file.write_all(sudoers_line.as_bytes()).await?;
-    sudo_include_file.flush().await?;
+    let sudoersd = Path::new("/etc/sudoersd");
+    if sudoersd.exists() {
+        // QEMU hosts don't have sudo at all
+        let mut sudo_include_file = File::create(sudoersd.join("99_sudo_include_file")).await?;
+        let sudoers_line = format!("{} ALL=(ALL) NOPASSWD:ALL\n", SSH_USERNAME);
+        sudo_include_file.write_all(sudoers_line.as_bytes()).await?;
+        sudo_include_file.flush().await?;
+    }
 
     Ok(Credentials {
         user: SSH_USERNAME.to_string(),

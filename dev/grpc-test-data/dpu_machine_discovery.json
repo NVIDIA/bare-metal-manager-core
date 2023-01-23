@@ -75,7 +75,6 @@
                 "frequency": "400.00"
             }
         ],
-        "dmi_devices": [],
         "machine_type": "aarch64",
         "nvme_devices": [],
         "block_devices": [

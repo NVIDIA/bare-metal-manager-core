@@ -54,11 +54,12 @@ service Forge {
   /* Power Control */
   rpc InvokeInstancePower(InstancePowerRequest) returns (InstancePowerResult);
 
+  rpc ForgeAgentControl(ForgeAgentControlRequest) returns (ForgeAgentControlResponse);
   // PRIVILEGED: Creates a new machine from nothing
   rpc DiscoverMachine(MachineDiscoveryInfo) returns (MachineDiscoveryResult);
+  rpc DiscoveryCompleted(MachineDiscoveryCompletedRequest) returns (MachineDiscoveryCompletedResponse);
   rpc CleanupMachineCompleted(MachineCleanupInfo) returns (MachineCleanupResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
-  rpc ForgeAgentControl(ForgeAgentControlRequest) returns (ForgeAgentControlResponse);
 
   // PRIVILEGED: Get a single machine
   rpc GetMachine(UUID) returns (Machine);
@@ -816,7 +817,7 @@ message ForgeAgentControlRequest {
 
 message ForgeAgentControlResponse {
 	enum Action {
-		NOP = 0;        // Do nothing
+		NOOP = 0;       // No operation. Do nothing
 		RESET = 1;      // Wipe the machine, prepare for next tenant
 		DISCOVERY = 2;  // Run full discovery
 		REBUILD = 3;    // Future thingy
@@ -829,6 +830,10 @@ message MachineDiscoveryInfo {
   oneof discovery_data {
     machine_discovery.DiscoveryInfo info = 2;
   }
+}
+
+message MachineDiscoveryCompletedRequest {
+	UUID machine_id = 1;
 }
 
 message MachineCleanupInfo {
@@ -858,6 +863,8 @@ message MachineDiscoveryResult {
   // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
   UUID machine_id = 1;
 }
+
+message MachineDiscoveryCompletedResponse { }
 
 message MachineCleanupResult {
   // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.

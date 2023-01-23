@@ -14,14 +14,6 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use color_eyre::Report;
-use mac_address::MacAddress;
-use tokio::net::TcpListener;
-use tonic::transport::Server;
-use tonic::{Request, Response, Status};
-use tonic_reflection::server::Builder;
-use uuid::Uuid;
-
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::bootstrap::bootstrap_service_server::{
     BootstrapService, BootstrapServiceServer,
@@ -29,14 +21,24 @@ use ::rpc::protos::bootstrap::bootstrap_service_server::{
 use ::rpc::protos::bootstrap::{EchoRequest, EchoResponse};
 use ::rpc::protos::forge::InstanceList;
 use ::rpc::protos::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
+use color_eyre::Report;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use hyper::server::conn::Http;
+use mac_address::MacAddress;
+use tokio::net::TcpListener;
 use tokio_rustls::{
     rustls::{Certificate, PrivateKey, ServerConfig},
     TlsAcceptor,
 };
+use tonic::transport::Server;
+use tonic::{Request, Response, Status};
+use tonic_reflection::server::Builder;
 use tower_http::ServiceBuilderExt;
+use uuid::Uuid;
 
+use self::rpc::forge_server::Forge;
+use crate::ipmi::Operation;
+use crate::CarbideResult;
 use crate::{
     auth, cfg,
     credentials::UpdateCredentials,
@@ -78,8 +80,6 @@ use crate::{
     },
     CarbideError,
 };
-
-use self::rpc::forge_server::Forge;
 
 // Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -151,7 +151,7 @@ where
 
         // TODO(jdg): Move this out into a function and share it with delete
         let uuid = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
+            Some(id) => match Uuid::try_from(id) {
                 Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
@@ -206,7 +206,7 @@ where
 
         // load from find from domain.rs
         let uuid = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
+            Some(id) => match Uuid::try_from(id) {
                 Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
@@ -261,7 +261,7 @@ where
         let domains = match (id, name) {
             (Some(id), _) => {
                 let id = id;
-                let uuid = match uuid::Uuid::try_from(id) {
+                let uuid = match Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                     Err(err) => {
                         return Err(Status::invalid_argument(format!(
@@ -369,7 +369,7 @@ where
         let vpcs = match (id, name) {
             (Some(id), _) => {
                 let id = id;
-                let uuid = match uuid::Uuid::try_from(id) {
+                let uuid = match Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                     Err(err) => {
                         return Err(Status::invalid_argument(format!(
@@ -410,7 +410,7 @@ where
         let rpc::NetworkSegmentQuery { id, .. } = request.into_inner();
 
         let uuid_filter = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
+            Some(id) => match Uuid::try_from(id) {
                 Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
@@ -474,7 +474,7 @@ where
         let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 
         let uuid = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
+            Some(id) => match Uuid::try_from(id) {
                 Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
@@ -520,7 +520,7 @@ where
         let rpc::VpcSearchQuery { id, .. } = request.into_inner();
 
         let _uuid = match id {
-            Some(id) => match uuid::Uuid::try_from(id) {
+            Some(id) => match Uuid::try_from(id) {
                 Ok(uuid) => uuid,
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
@@ -579,7 +579,7 @@ where
         let raw_instances = match id {
             Some(id) => {
                 let id = id;
-                let uuid = match uuid::Uuid::try_from(id) {
+                let uuid = match Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                     Err(err) => {
                         return Err(Status::invalid_argument(format!(
@@ -621,7 +621,7 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+        let uuid = Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
         let instance_id = Instance::find_id_by_machine_id(&mut txn, uuid)
             .await
             .map_err(CarbideError::from)?;
@@ -709,7 +709,7 @@ where
         request: Request<rpc::InstanceNetworkStatusObservation>,
     ) -> Result<Response<rpc::ObservedInstanceNetworkStatusRecordResult>, tonic::Status> {
         let request = request.into_inner();
-        let instance_id = uuid::Uuid::try_from(
+        let instance_id = Uuid::try_from(
             request
                 .instance_id
                 .clone()
@@ -832,16 +832,7 @@ where
             .map_err(CarbideError::from)?;
 
         let interface_id = match &machine_discovery_info.machine_interface_id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Did not supply a valid discovery machine_interface_id. Value was: {}. Err: {}",
-                        id,
-                        err
-                    )));
-                }
-            },
+            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
             None => {
                 return Err(Status::invalid_argument("An interface UUID is required"));
             }
@@ -854,19 +845,9 @@ where
             .map(rpc::Machine::from)?;
 
         let uuid = match &machine.id {
-            Some(id) => match uuid::Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Created machine did not return a proper UUID : {}",
-                        err
-                    )));
-                }
-            },
+            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
             None => {
-                return Err(Status::invalid_argument(
-                    "No ID was associated with the machine",
-                ));
+                return Err(Status::not_found("Missing machine"));
             }
         };
 
@@ -889,6 +870,45 @@ where
         response
     }
 
+    // Host has completed discovery
+    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
+    async fn discovery_completed(
+        &self,
+        request: Request<rpc::MachineDiscoveryCompletedRequest>,
+    ) -> Result<Response<rpc::MachineDiscoveryCompletedResponse>, Status> {
+        let req = request.into_inner();
+
+        // Extract and check UUID
+        let machine_id = match &req.machine_id {
+            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::invalid_argument("A machine UUID is required"));
+            }
+        };
+
+        let (machine, mut txn) = self.load_machine(machine_id).await?;
+
+        match machine.current_state() {
+            // new machine
+            MachineState::Init => {
+                machine.advance(&mut txn, MachineState::Adopted).await?;
+                machine.advance(&mut txn, MachineState::Ready).await?;
+            }
+            // after de-provision
+            MachineState::Cleanedup => {
+                machine.advance(&mut txn, MachineState::Ready).await?;
+            }
+            // all other states are invalid
+            x => {
+                log::warn!("discovery_completed {machine_id} in invalid state {x}");
+                return Err(Status::failed_precondition(format!("invalid state {x}")));
+            }
+        }
+        log::info!("discovery_completed: {machine_id}");
+
+        Ok(Response::new(rpc::MachineDiscoveryCompletedResponse {}))
+    }
+
     // Transitions the machine to Ready state.
     // Called by 'carbide-cli discovery' once cleanup succeeds.
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -901,96 +921,22 @@ where
 
         // Extract and check UUID
         let machine_id = match &cleanup_info.machine_id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Did not supply a valid machine_id. Value was: {}. Err: {}",
-                        id, err
-                    )));
-                }
-            },
+            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
             None => {
                 return Err(Status::invalid_argument("A machine UUID is required"));
             }
         };
 
-        // Load machine from DB
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-        let machine = match Machine::find_one(&mut txn, machine_id).await {
-            Err(err) => {
-                log::warn!("loading machine for {machine_id}: {err}.");
-                return Err(Status::invalid_argument("err loading machine"));
-            }
-            Ok(None) => {
-                log::info!("no machine for interface {machine_id}");
-                return Err(Status::not_found("missing machine"));
-            }
-            Ok(Some(m)) => m,
-        };
+        let (machine, mut txn) = self.load_machine(machine_id).await?;
+        machine.advance(&mut txn, MachineState::Cleanedup).await?;
 
-        // TODO Cleanup event moves state to Ready
-        // TODO machine.advance(&mut txn, MachineState::Cleanedup).await?;
-        // (Abishek): Cleanedup state is not implemented yet. Machine can be moved to Ready state for now.
-        machine.advance(&mut txn, MachineState::Ready).await?; // temp
-
-        // Ask it to reboot
-        // TODO: Commented out for now, we are not ready for this yet.
-        // The fix is for forge_agent_control not to return the Discovery action in the Ready state,
-        // but that is a bigger change which would require us not to create the machine directly
-        // in the Ready state.
-        //let machine_power_request = MachineBmcRequest::new(machine_id, Operation::Reset, true);
-        //let task_id = machine_power_request
-        //    .invoke_bmc_command(self.database_connection.clone())
-        //    .await?;
-        //log::info!(
-        //    "cleanup: Spawned task {} to reboot host {}",
-        //    task_id,
-        //    machine_id,
-        //);
+        let mpr = MachineBmcRequest::new(machine_id, Operation::DisableLockdown, true);
+        mpr.invoke_bmc_command(self.database_connection.clone())
+            .await?;
+        log::info!("Requested disable lockdown and power reset for machine: {machine_id}");
 
         Ok(Response::new(rpc::MachineCleanupResult {}))
     }
-
-    /*
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
-    async fn done(&self, request: Request<rpc::Uuid>) -> Result<Response<rpc::Machine>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let machine_interface_id =
-            uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
-
-        let interface = MachineInterface::find_one(&mut txn, machine_interface_id).await?;
-
-        let maybe_machine = match interface.machine_id {
-            Some(machine_id) => Machine::find_one(&mut txn, machine_id).await?,
-            None => {
-                return Err(Status::invalid_argument(format!(
-                    "Machine interface has no machine id UUID: {}",
-                    machine_interface_id
-                )));
-            }
-        };
-
-        let response = match maybe_machine {
-            None => Err(CarbideError::NotFoundError(machine_interface_id).into()),
-            Some(machine) => Ok(rpc::Machine::from(machine)),
-        }
-        .map(Response::new);
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
-    }
-    */
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn discover_dhcp(
@@ -1005,23 +951,9 @@ where
         &self,
         request: Request<rpc::Uuid>,
     ) -> Result<Response<rpc::Machine>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let uuid = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
-
-        let response = match Machine::find_one(&mut txn, uuid).await? {
-            None => Err(CarbideError::NotFoundError(uuid).into()),
-            Some(machine) => Ok(rpc::Machine::from(machine)),
-        }
-        .map(Response::new);
-
-        txn.commit().await.map_err(CarbideError::from)?;
-
-        response
+        let machine_id = Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+        let (machine, _) = self.load_machine(machine_id).await?;
+        Ok(Response::new(rpc::Machine::from(machine)))
     }
 
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
@@ -1039,7 +971,7 @@ where
         let machines = match (id, fqdn) {
             (Some(id), _) => {
                 let id = id;
-                let uuid = match uuid::Uuid::try_from(id) {
+                let uuid = match Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                     Err(err) => {
                         return Err(Status::invalid_argument(format!(
@@ -1078,7 +1010,7 @@ where
         let rpc::InterfaceSearchQuery { id, .. } = request.into_inner();
 
         let response = match id {
-            Some(id) if id.value.chars().count() > 0 => match uuid::Uuid::try_from(id) {
+            Some(id) if id.value.chars().count() > 0 => match Uuid::try_from(id) {
                 Ok(uuid) => Ok(rpc::InterfaceList {
                     interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
                 }),
@@ -1335,7 +1267,7 @@ where
             .await
             .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
                 Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
-                    CarbideError::NotFoundError(uuid)
+                    CarbideError::NotFoundError("dpu-ssh-cred".to_string(), uuid)
                 }
                 Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
                 Err(err) => CarbideError::GenericError(format!(
@@ -1451,7 +1383,7 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let machine_id = uuid::Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+        let machine_id = Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
 
         let instance = Instance::find_by_machine_id(&mut txn, machine_id)
             .await?
@@ -1480,37 +1412,19 @@ where
 
         // Convert Option<rpc::Uuid> into uuid::Uuid
         let machine_id = match request.into_inner().machine_id {
-            Some(rpc_uuid) => match Uuid::try_from(&rpc_uuid) {
-                Ok(uuid) => uuid,
-                Err(_) => {
-                    log::warn!("forge agent control: invalid uuid '{rpc_uuid}'");
-                    return Err(Status::invalid_argument("invalid uuid"));
-                }
-            },
+            Some(rpc_uuid) => Uuid::try_from(&rpc_uuid).map_err(CarbideError::from)?,
             None => {
                 log::warn!("forge agent control: missing uuid");
                 return Err(Status::invalid_argument("Missing machine UUID"));
             }
         };
 
-        // Load the machine from db
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
-        let machine = match Machine::find_one(&mut txn, machine_id).await? {
-            None => {
-                log::warn!("forge agent control: missing machine {machine_id}");
-                return Err(Status::not_found("Missing machine"));
-            }
-            Some(m) => m,
-        };
+        let (machine, _) = self.load_machine(machine_id).await?;
 
         // Respond based on machine current state
         let state = machine.current_state();
         let action = match state {
-            MachineState::Ready => Action::Discovery,
+            MachineState::Init | MachineState::Cleanedup => Action::Discovery,
             MachineState::Reset => Action::Reset,
             _ => {
                 // Later this might go to site admin dashboard for manual intervention
@@ -1518,7 +1432,7 @@ where
                     "forge agent control: Machine '{}' in invalid state '{state}'",
                     machine.id()
                 );
-                Action::Nop
+                Action::Noop
             }
         };
         log::info!(
@@ -1846,6 +1760,34 @@ where
                 "Hostname '{query}' did not match any machines: {err}"
             ))),
         }
+    }
+
+    async fn load_machine(
+        &self,
+        machine_id: uuid::Uuid,
+    ) -> CarbideResult<(Machine, sqlx::Transaction<'_, sqlx::Postgres>)> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(CarbideError::from)?;
+        let machine = match Machine::find_one(&mut txn, machine_id).await {
+            Err(err) => {
+                log::warn!("loading machine for {machine_id}: {err}.");
+                return Err(CarbideError::InvalidArgument(
+                    "err loading machine".to_string(),
+                ));
+            }
+            Ok(None) => {
+                log::info!("no machine for {machine_id}");
+                return Err(CarbideError::NotFoundError(
+                    "machine".to_string(),
+                    machine_id,
+                ));
+            }
+            Ok(Some(m)) => m,
+        };
+        Ok((machine, txn))
     }
 }
 

@@ -76,6 +76,7 @@ async fn main() -> Result<(), color_eyre::Report> {
             match query_api(&config.api, machine_id).await? {
                 Action::Discovery => {
                     discovery::run(&config.api, d.uuid).await?;
+                    discovery::completed(&config.api, machine_id).await?;
                 }
                 Action::Reset => {
                     deprovision::run(&config.api, machine_id).await?;
@@ -83,7 +84,7 @@ async fn main() -> Result<(), color_eyre::Report> {
                 Action::Rebuild => {
                     unimplemented!("Rebuild not written yet");
                 }
-                Action::Nop => {}
+                Action::Noop => {}
             }
         }
     }

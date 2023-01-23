@@ -468,7 +468,7 @@ impl MachineInterface {
         MachineInterface::find_by_machine_ids(txn, &[machine_id])
             .await?
             .remove(&machine_id)
-            .ok_or(CarbideError::NotFoundError(machine_id))?
+            .ok_or_else(|| CarbideError::NotFoundError("interface".to_string(), machine_id))?
             .into_iter()
             .filter(|m_intf| m_intf.primary_interface())
             .collect::<Vec<MachineInterface>>()

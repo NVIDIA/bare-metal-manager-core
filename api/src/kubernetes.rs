@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -18,6 +19,7 @@ use std::time::{Instant, SystemTime};
 
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use kube::api::ListParams;
 use kube::runtime::wait::{await_condition, Condition};
 use kube::{
@@ -43,8 +45,6 @@ use crate::vpc_resources::{
     leaf, managed_resource, resource_group, BlueFieldInterface, VpcResource, VpcResourceStatus,
 };
 use crate::{CarbideError, CarbideResult};
-use ipnetwork::{IpNetwork, Ipv4Network};
-use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LeafData {
@@ -502,14 +502,12 @@ async fn delete_managed_resource_handler(
     // TODO: Machine should be moved to FAILED state.
     wait_for_hbn_to_configure(leaf_name, client.clone(), &current_job, &start_time).await?;
 
-    // Reboot host
-    let task_id =
-        disable_lockdown_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+    let task_id = request_reboot(data.machine_id, current_job.pool().clone()).await?;
     update_status(
         &current_job,
         3,
         format!(
-            "Machine reset task spawned for machine_id {}, task: {}, elapsed: {:?}",
+            "Machine reboot task spawned for machine_id {}, task: {}, elapsed: {:?}",
             data.machine_id,
             task_id,
             start_time.elapsed(),
@@ -517,8 +515,20 @@ async fn delete_managed_resource_handler(
         TaskState::Finished,
     )
     .await;
+
     let _ = current_job.complete().await.map_err(CarbideError::from);
     Ok(())
+}
+
+async fn request_reboot(machine_id: uuid::Uuid, db_conn: PgPool) -> CarbideResult<uuid::Uuid> {
+    let machine_power_request = MachineBmcRequest::new(machine_id, Operation::Reset, true);
+    let task_id = machine_power_request.invoke_bmc_command(db_conn).await?;
+    log::info!(
+        "cleanup: Spawned task {} to reboot host {}",
+        task_id,
+        machine_id,
+    );
+    Ok(task_id)
 }
 
 #[derive(Clone)]
@@ -985,16 +995,6 @@ pub async fn enable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> Ca
         machine_id
     );
     let mpr = MachineBmcRequest::new(machine_id, Operation::EnableLockdown, true);
-    mpr.invoke_bmc_command(pool).await
-}
-
-// This function will create a background task under IPMI handler to disable lockdown and reset.
-pub async fn disable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
-    log::info!(
-        "Sending disable lockdown and power reset command for machine: {}",
-        machine_id
-    );
-    let mpr = MachineBmcRequest::new(machine_id, Operation::DisableLockdown, true);
     mpr.invoke_bmc_command(pool).await
 }
 
