@@ -5,10 +5,12 @@ CHART_ROOTDIR=${CI_PROJECT_DIR}/charts
 
 
 FORMATTED_CHANGES=($(awk '/charts/' ${CI_PROJECT_DIR}/CHANGES.txt | cut -d '/' -f1-2 | uniq)) 
-
+# To prevent the job trigger:generate_pipelines from failing, we set CHART_CHANGES based on
+# actual helm code changes.  If there are no actual changes then we will create a bogus job which
+# always succeeds
 if [[ "${#FORMATTED_CHANGES[@]}" -ne 0 ]]; then
   CHART_CHANGES="1"
-  CHARTS=$FORMATTED_CHANGES
+  CHARTS=($(find charts/ -mindepth 1 -maxdepth 1 -type d))
 else
   CHART_CHANGES="0"
   CHARTS=($(find charts/ -mindepth 1 -maxdepth 1 -type d))
@@ -225,6 +227,9 @@ package:${base}:
      cd ${CI_PROJECT_DIR}/charts/${base}
      helm dep build
      helm package .
+  artifacts:
+    paths:
+      - ${CI_PROJECT_DIR}
   needs:
     - pipeline: "${PARENT_PIPELINE_ID}"
       job: prep
