@@ -4,13 +4,14 @@ use ::rpc::forge::{
     forge_client::ForgeClient, machine_credentials_update_request::CredentialPurpose,
     machine_credentials_update_request::Credentials,
 };
-use cli::CarbideClientResult;
 use pwhash::sha512_crypt;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+
+use crate::CarbideClientResult;
 
 pub async fn create_users(forge_api: String, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
     let login_user_creds = create_login_user().await?;

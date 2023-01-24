@@ -918,7 +918,7 @@ where
     }
 
     // Transitions the machine to Ready state.
-    // Called by 'carbide-cli discovery' once cleanup succeeds.
+    // Called by 'forge-scout discovery' once cleanup succeeds.
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn cleanup_machine_completed(
         &self,
@@ -1409,7 +1409,7 @@ where
         Ok(Response::new(rpc::PxeInstructions { pxe_script }))
     }
 
-    // Called on x86 boot by 'carbide-cli discovery --uuid=<uuid>'. Tells it whether to discover or
+    // Called on x86 boot by 'forge-scout discovery --uuid=<uuid>'. Tells it whether to discover or
     // cleanup based on current machine state.
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn forge_agent_control(

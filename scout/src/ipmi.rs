@@ -16,12 +16,12 @@ use std::process::{Command, ExitStatus};
 use std::time::Instant;
 
 use ::rpc::forge as rpc;
-use cli::CarbideClientError;
-use cli::CarbideClientResult;
 use rand::Rng;
 use regex::Regex;
 use tokio::time::{sleep, Duration};
 
+use crate::CarbideClientError;
+use crate::CarbideClientResult;
 use crate::IN_QEMU_VM;
 
 const PASSWORD_LEN: usize = 16;
@@ -169,7 +169,7 @@ impl Cmd {
 fn get_lan_print() -> CarbideClientResult<String> {
     if cfg!(test) {
         std::fs::read_to_string("test/lan_print.txt")
-            .map_err(|x| cli::CarbideClientError::GenericError(x.to_string()))
+            .map_err(|x| CarbideClientError::GenericError(x.to_string()))
     } else {
         Cmd::default().args(vec!["lan", "print"]).output()
     }

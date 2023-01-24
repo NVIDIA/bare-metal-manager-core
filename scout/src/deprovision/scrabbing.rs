@@ -13,16 +13,15 @@ use std::fs;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use cli::CarbideClientResult;
 use procfs::Meminfo;
 use regex::Regex;
 use rlimit::Resource;
+use serde::Deserialize;
 use uname::uname;
 
 use crate::deprovision::cmdrun;
+use crate::CarbideClientResult;
 use crate::IN_QEMU_VM;
-
-use serde::Deserialize;
 
 fn check_memory_overwrite_efi_var() -> Result<(), String> {
     let name = match efivar::efi::VariableName::from_str(

@@ -11,9 +11,11 @@
  */
 
 use ::rpc::forge as rpc;
-use cli::CarbideClientError;
 use forge_host_support::hardware_enumeration::{CpuArchitecture, HardwareEnumerationError};
-use uname::uname; // wrapper for libc::uname()
+// wrapper for libc::uname()
+use uname::uname;
+
+use crate::CarbideClientError;
 
 pub async fn run(forge_api: &str, machine_id: uuid::Uuid) -> Result<(), CarbideClientError> {
     if let Err(err) = crate::users::create_users(forge_api.to_string(), machine_id).await {
