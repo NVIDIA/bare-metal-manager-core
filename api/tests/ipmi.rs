@@ -18,7 +18,9 @@ use tokio::time;
 use uuid::Uuid;
 
 use carbide::bg::{Status, TaskState};
-use carbide::db::ipmi::{BmcMetaDataUpdateRequest, BmcMetadataItem, UserRoles};
+use carbide::db::ipmi::{
+    BmcMetaDataGetRequest, BmcMetaDataUpdateRequest, BmcMetadataItem, UserRoles,
+};
 use carbide::ipmi::{ipmi_handler, IpmiCommand, IpmiCommandHandler, IpmiTask};
 use carbide::CarbideResult;
 use forge_credentials::CredentialProvider;
@@ -67,7 +69,24 @@ async fn test_ipmi_cred(pool: PgPool) {
     .await
     .unwrap();
 
-    txn.commit().await.unwrap();
+    let _result = txn.commit().await;
+
+    let mut txn = pool.begin().await.unwrap();
+
+    for d in &DATA {
+        let ipmi_req = BmcMetaDataGetRequest {
+            machine_id,
+            role: d.0,
+        };
+
+        let response = ipmi_req
+            .get_bmc_meta_data(&mut txn, &credentials_provider)
+            .await
+            .unwrap();
+        assert_eq!(response.ip, "127.0.0.2".to_string());
+        assert_eq!(response.user, d.1.to_string());
+        assert_eq!(response.password, d.2.to_string());
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

@@ -89,6 +89,7 @@ service Forge {
   rpc GetDpuSSHCredential(CredentialRequest) returns (CredentialResponse);
 
   // IPMI handling
+  rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
   rpc UpdateBMCMetaData(BMCMetaDataUpdateRequest) returns (BMCMetaDataUpdateResponse);
 
   // User Credential handling.
@@ -785,6 +786,18 @@ message CredentialResponse {
 enum BMCRequestType {
     IPMI = 0;
     REDFISH = 1;
+}
+
+message BMCMetaDataGetRequest {
+    UUID machine_id = 1;
+    UserRoles role = 2;
+    BMCRequestType request_type = 3;
+}
+
+message BMCMetaDataGetResponse {
+    string ip = 1;
+    string user = 2;
+    string password = 3;
 }
 
 message BMCMetaDataUpdateRequest {

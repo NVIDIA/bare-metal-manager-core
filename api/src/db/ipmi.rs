@@ -109,7 +109,59 @@ impl FromStr for UserRoles {
     }
 }
 
+impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
+    type Error = CarbideError;
+
+    fn try_from(value: rpc::BmcMetaDataGetRequest) -> Result<Self, Self::Error> {
+        let uuid = value
+            .machine_id
+            .ok_or_else(|| CarbideError::GenericError("Machine id is null".to_string()))?;
+        Ok(BmcMetaDataGetRequest {
+            machine_id: Uuid::try_from(uuid)?,
+            role: UserRoles::from(match rpc::UserRoles::from_i32(value.role) {
+                Some(x) => x,
+                None => {
+                    return Err(CarbideError::GenericError(
+                        "Invalid role found.".to_string(),
+                    ));
+                }
+            }),
+        })
+    }
+}
+
 impl BmcMetaDataGetRequest {
+    pub async fn get_bmc_meta_data<C>(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        credential_provider: &C,
+    ) -> CarbideResult<rpc::BmcMetaDataGetResponse>
+    where
+        C: CredentialProvider + ?Sized,
+    {
+        let address = self.get_bmc_host_ip(txn).await?;
+
+        let credentials = credential_provider
+            .get_credentials(CredentialKey::Bmc {
+                machine_id: self.machine_id.to_string(),
+                user_role: self.role.to_string(),
+            })
+            .await
+            .map_err(|err| {
+                CarbideError::GenericError(format!("Error getting credentials for BMC: {:?}", err))
+            })?;
+
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        Ok(rpc::BmcMetaDataGetResponse {
+            ip: address,
+            user: username,
+            password,
+        })
+    }
+
     pub async fn get_bmc_host_ip(
         &self,
         txn: &mut Transaction<'_, Postgres>,
