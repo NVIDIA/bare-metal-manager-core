@@ -54,7 +54,7 @@ generate_changes_for_merged_mr:
   script:
     - .gitlab/changes_merged_mr.sh
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == 'merge_request_event'
 
 
 prep:
