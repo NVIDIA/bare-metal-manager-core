@@ -4,13 +4,13 @@ members = [
   "admin",
   "api",
   "bluefield/agent",
-  "cli",
   "dhcp",
   "dns",
   "forge_credentials",
   "host-support",
   "pxe",
   "rpc",
+  "scout",
 ]
 
 [workspace.package]

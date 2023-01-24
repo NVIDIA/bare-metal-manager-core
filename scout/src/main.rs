@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 use cfg::{Command, Options};
-use cli::CarbideClientResult;
 use log::LevelFilter;
 use once_cell::sync::Lazy;
 use rpc::forge as rpc_forge;
 use rpc::forge::forge_agent_control_response::Action;
+pub use scout::{CarbideClientError, CarbideClientResult};
 use tokio::sync::RwLock;
 
 mod cfg;

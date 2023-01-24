@@ -31,17 +31,17 @@ command = "mermerd" # not a typo. go install github.com/KarnerTh/mermerd@latest
 args = ['-c', "${DATABASE_URL}", '-s', 'public', '--useAllTables', '--showAllConstraints', '--encloseWithMermaidBackticks', '-o', 'book/src/development/schema.md']
 
 
-[tasks.build-carbide-cli-ci]
+[tasks.build-cli-ci]
 category = "Build"
-description = "Build carbide-cli in CI"
+description = "Build forge-scout in CI"
 workspace = false
 script = '''
-cargo build -p cli -p admin
+cargo build -p scout -p admin
 '''
 
-[tasks.build-carbide-cli]
+[tasks.build-cli]
 category = "Build"
-description = "Build carbide-cli locally using debian container. Ensures correct GCC version is used."
+description = "Build forge-scout locally using debian container. Ensures correct GCC version is used."
 workspace = false
 script = '''
 docker run \
@@ -52,7 +52,7 @@ docker run \
 	--volume $HOME/.cargo:/cargo \
 	--env CARGO_HOME=/cargo \
 	-it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container \
-	cargo build -p cli -p admin
+	cargo build -p scout -p admin
 '''
 
 [tasks.build-x86-build-container]

@@ -749,35 +749,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cli"
-version = "0.0.1"
-dependencies = [
- "base64",
- "clap",
- "color-eyre 0.6.2",
- "efivar",
- "forge-host-support",
- "forge_credentials",
- "libc",
- "log",
- "once_cell",
- "pretty_env_logger",
- "procfs",
- "pwhash",
- "rand",
- "regex",
- "rlimit",
- "rpc",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tonic",
- "uname",
- "uuid 1.1.2",
-]
-
-[[package]]
 name = "color-eyre"
 version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3940,6 +3911,35 @@ name = "scopeguard"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
+
+[[package]]
+name = "scout"
+version = "0.0.1"
+dependencies = [
+ "base64",
+ "clap",
+ "color-eyre 0.6.2",
+ "efivar",
+ "forge-host-support",
+ "forge_credentials",
+ "libc",
+ "log",
+ "once_cell",
+ "pretty_env_logger",
+ "procfs",
+ "pwhash",
+ "rand",
+ "regex",
+ "rlimit",
+ "rpc",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tonic",
+ "uname",
+ "uuid 1.1.2",
+]
 
 [[package]]
 name = "sct"

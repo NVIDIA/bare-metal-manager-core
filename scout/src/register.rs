@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use cli::CarbideClientError;
 use forge_host_support::{
     hardware_enumeration::enumerate_hardware, registration::register_machine,
 };
+
+use crate::CarbideClientError;
 
 pub async fn run(
     forge_api: &str,
