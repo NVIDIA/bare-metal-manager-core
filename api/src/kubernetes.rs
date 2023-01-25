@@ -1134,7 +1134,7 @@ impl VpcApi for VpcApiImpl {
             }),
             network_implementation_type: None,
             overlay_ip_pool: None,
-            tenant_identifier: None,
+            tenant_identifier: Some(resource_name.clone()),
         };
         let resource_group =
             resource_group::ResourceGroup::new(&resource_name, resource_group_spec);
