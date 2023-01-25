@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use cfg::{Command, Options};
+use cfg::{AutoDetect, Command, Discovery, Options};
 use log::LevelFilter;
 use once_cell::sync::Lazy;
 use rpc::forge as rpc_forge;
@@ -70,15 +70,15 @@ async fn main() -> Result<(), color_eyre::Report> {
         .init();
 
     match config.subcmd {
-        Command::Discovery(d) => {
-            let machine_id = register::run(&config.api, d.uuid).await?;
+        Command::Discovery(Discovery { uuid }) | Command::AutoDetect(AutoDetect { uuid }) => {
+            let machine_id = register::run(&config.api, uuid).await?;
 
             match query_api(&config.api, machine_id).await? {
                 Action::Discovery => {
                     //This is temporary. All cleanup must be done when API call Reset.
                     deprovision::run_no_api();
 
-                    discovery::run(&config.api, d.uuid).await?;
+                    discovery::run(&config.api, uuid).await?;
                     discovery::completed(&config.api, machine_id).await?;
                 }
                 Action::Reset => {
