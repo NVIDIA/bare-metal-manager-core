@@ -12,6 +12,7 @@
 use std::convert::TryFrom;
 use std::net::IpAddr;
 
+use ::rpc::forge as rpc;
 use ::rpc::protos::common::forge::TenantState;
 use chrono::prelude::*;
 use futures::StreamExt;
@@ -22,21 +23,19 @@ use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
-use ::rpc::forge as rpc;
-
 use crate::{
     db::{
         instance_address::InstanceAddress,
         machine_interface::MachineInterface,
         network_prefix::{NetworkPrefix, NewNetworkPrefix},
-        UuidKeyedObjectFilter,
+        DatabaseError, UuidKeyedObjectFilter,
     },
     model::{
         config_version::{ConfigVersion, Versioned},
         network_segment::NetworkSegmentControllerState,
     },
-    CarbideError, CarbideResult,
 };
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
@@ -205,12 +204,22 @@ impl NewNetworkSegment {
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<NetworkSegment> {
+    ) -> Result<NetworkSegment, DatabaseError> {
         let version = ConfigVersion::initial();
         let version_string = version.to_version_string();
         let controller_state = NetworkSegmentControllerState::Provisioning;
 
-        let mut segment: NetworkSegment = sqlx::query_as("INSERT INTO network_segments (name, subdomain_id, vpc_id, mtu, version, controller_state_version, controller_state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *")
+        let query = "INSERT INTO network_segments (
+                name,
+                subdomain_id,
+                vpc_id,
+                mtu,
+                version,
+                controller_state_version,
+                controller_state)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING *";
+        let mut segment: NetworkSegment = sqlx::query_as(query)
             .bind(&self.name)
             .bind(self.subdomain_id)
             .bind(self.vpc_id)
@@ -218,7 +227,9 @@ impl NewNetworkSegment {
             .bind(&version_string)
             .bind(&version_string)
             .bind(sqlx::types::Json(&controller_state))
-            .fetch_one(&mut *txn).await?;
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         segment.prefixes = NetworkPrefix::create_for(txn, &segment.id, &self.prefixes).await?;
         segment.update_prefix_state(&mut *txn).await?;
@@ -231,12 +242,14 @@ impl NetworkSegment {
     pub async fn for_vpc(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         vpc_id: uuid::Uuid,
-    ) -> CarbideResult<Vec<Self>> {
+    ) -> Result<Vec<Self>, DatabaseError> {
         let results: Vec<NetworkSegment> = {
-            sqlx::query_as("SELECT * FROM network_segments WHERE vpc_id=$1::uuid")
+            let query = "SELECT * FROM network_segments WHERE vpc_id=$1::uuid";
+            sqlx::query_as(query)
                 .bind(vpc_id)
                 .fetch_all(&mut *txn)
-                .await?
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         };
 
         Ok(results)
@@ -246,12 +259,15 @@ impl NetworkSegment {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         relay: IpAddr,
     ) -> CarbideResult<Option<Self>> {
-        let mut results = sqlx::query_as(
-            r#"SELECT network_segments.* FROM network_segments INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id WHERE $1::inet <<= network_prefixes.prefix"#,
-        )
+        let query = r#"SELECT network_segments.*
+            FROM network_segments
+            INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id
+            WHERE $1::inet <<= network_prefixes.prefix"#;
+        let mut results = sqlx::query_as(query)
             .bind(IpNetwork::from(relay))
             .fetch_all(&mut *txn)
-            .await?;
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         match results.len() {
             0 => Ok(None),
@@ -259,11 +275,14 @@ impl NetworkSegment {
                 let mut segment: NetworkSegment = results.remove(0);
 
                 // NOTE(jdg): results shouldn't include any deleted segments, so we can ignore checks against deleted segments in prefixes for the following section
-                segment.prefixes =
-                    sqlx::query_as(r#"SELECT * FROM network_prefixes WHERE segment_id=$1::uuid"#)
-                        .bind(segment.id())
-                        .fetch_all(&mut *txn)
-                        .await?;
+                let query = "SELECT * FROM network_prefixes WHERE segment_id=$1::uuid";
+                segment.prefixes = sqlx::query_as(query)
+                    .bind(segment.id())
+                    .fetch_all(&mut *txn)
+                    .await
+                    .map_err(|e| {
+                        CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
+                    })?;
                 segment.update_prefix_state(&mut *txn).await?;
 
                 Ok(Some(segment))
@@ -278,12 +297,12 @@ impl NetworkSegment {
     ///
     pub async fn list_segment_ids(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<Uuid>, sqlx::Error> {
+    ) -> Result<Vec<Uuid>, DatabaseError> {
+        let query = "SELECT id FROM network_segments";
         let mut results = Vec::new();
-        let mut segment_id_stream =
-            sqlx::query_as::<_, NetworkSegmentId>("SELECT id FROM network_segments").fetch(txn);
+        let mut segment_id_stream = sqlx::query_as::<_, NetworkSegmentId>(query).fetch(txn);
         while let Some(maybe_id) = segment_id_stream.next().await {
-            let id = maybe_id?;
+            let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id.into());
         }
 
@@ -294,32 +313,31 @@ impl NetworkSegment {
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
-    ) -> CarbideResult<Vec<Self>> {
+    ) -> Result<Vec<Self>, DatabaseError> {
         let base_query = "SELECT * FROM network_segments {where}".to_owned();
 
         let mut all_records: Vec<NetworkSegment> = match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, NetworkSegment>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments All", e))?
             }
 
-            UuidKeyedObjectFilter::List(uuids) => {
-                sqlx::query_as::<_, NetworkSegment>(
-                    &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
-                )
-                .bind(uuids)
-                .fetch_all(&mut *txn)
-                .await?
-            }
-            UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as::<_, NetworkSegment>(
-                    &base_query.replace("{where}", "WHERE network_segments.id=$1"),
-                )
-                .bind(uuid)
-                .fetch_all(&mut *txn)
-                .await?
-            }
+            UuidKeyedObjectFilter::List(uuids) => sqlx::query_as::<_, NetworkSegment>(
+                &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
+            )
+            .bind(uuids)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments List", e))?,
+            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, NetworkSegment>(
+                &base_query.replace("{where}", "WHERE network_segments.id=$1"),
+            )
+            .bind(uuid)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments One", e))?,
         };
 
         let all_uuids = all_records
@@ -357,25 +375,24 @@ impl NetworkSegment {
         segment_id: uuid::Uuid,
         expected_version: ConfigVersion,
         new_state: &NetworkSegmentControllerState,
-    ) -> Result<bool, sqlx::Error> {
+    ) -> Result<bool, DatabaseError> {
         let expected_version_str = expected_version.to_version_string();
         let next_version = expected_version.increment();
         let next_version_str = next_version.to_version_string();
 
-        let query_result: Result<NetworkSegmentId, _> = sqlx::query_as(
-            "UPDATE network_segments SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id",
-        )
-        .bind(&next_version_str)
-        .bind(sqlx::types::Json(new_state))
-        .bind(segment_id)
-        .bind(&expected_version_str)
-        .fetch_one(txn)
-        .await;
+        let query = "UPDATE network_segments SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
+        let query_result: Result<NetworkSegmentId, _> = sqlx::query_as(query)
+            .bind(&next_version_str)
+            .bind(sqlx::types::Json(new_state))
+            .bind(segment_id)
+            .bind(&expected_version_str)
+            .fetch_one(txn)
+            .await;
 
         match query_result {
             Ok(_) => Ok(true),
             Err(sqlx::Error::RowNotFound) => Ok(false),
-            Err(e) => Err(e),
+            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
         }
     }
 
@@ -390,7 +407,7 @@ impl NetworkSegment {
     pub async fn update_prefix_state(
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let prefixes =
             NetworkPrefix::find_by_segment(&mut *txn, UuidKeyedObjectFilter::One(self.id)).await?;
         let prefixes = prefixes.iter().filter(|x| x.prefix.is_ipv4()).collect_vec();
@@ -421,12 +438,13 @@ impl NetworkSegment {
             ));
         }
 
-        let segment: NetworkSegment = sqlx::query_as(
-            "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
-        )
-        .bind(self.id)
-        .fetch_one(&mut *txn)
-        .await?;
+        let query =
+            "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
+        let segment: NetworkSegment = sqlx::query_as(query)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         // TODO: We also can't delete network segments while there are instances
         // attached. Or at least we can't full remove it from the DB, and just it's
@@ -438,14 +456,15 @@ impl NetworkSegment {
     pub async fn force_delete(
         segment_id: uuid::Uuid,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<uuid::Uuid, sqlx::Error> {
+    ) -> Result<uuid::Uuid, DatabaseError> {
         NetworkPrefix::delete_for_segment(segment_id, txn).await?;
 
-        let segment: NetworkSegmentId =
-            sqlx::query_as("DELETE FROM network_segments WHERE id=$1::uuid RETURNING id")
-                .bind(segment_id)
-                .fetch_one(&mut *txn)
-                .await?;
+        let query = "DELETE FROM network_segments WHERE id=$1::uuid RETURNING id";
+        let segment: NetworkSegmentId = sqlx::query_as(query)
+            .bind(segment_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(segment.0)
     }
@@ -454,17 +473,21 @@ impl NetworkSegment {
         &self,
 
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<NetworkSegment> {
-        let mut segment: NetworkSegment = sqlx::query_as(
-            "UPDATE network_segments SET name=$1, subdomain_id=$2, vpc_id=$3, mtu=$4, updated=NOW() WHERE id=$5 RETURNING *",
-        )
-        .bind(&self.name)
-        .bind(self.subdomain_id)
-        .bind(self.vpc_id)
-        .bind(self.mtu)
-        .bind(self.id)
-        .fetch_one(&mut *txn)
-        .await?;
+    ) -> Result<NetworkSegment, DatabaseError> {
+        let query = "
+UPDATE network_segments
+SET name=$1, subdomain_id=$2, vpc_id=$3, mtu=$4, updated=NOW()
+WHERE id=$5
+RETURNING *";
+        let mut segment: NetworkSegment = sqlx::query_as(query)
+            .bind(&self.name)
+            .bind(self.subdomain_id)
+            .bind(self.vpc_id)
+            .bind(self.mtu)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         segment.update_prefix_state(&mut *txn).await?;
 
@@ -474,15 +497,16 @@ impl NetworkSegment {
     pub async fn find_by_circuit_id(
         txn: &mut Transaction<'_, Postgres>,
         circuit_id: String,
-    ) -> CarbideResult<Self> {
-        Ok(sqlx::query_as(
-            r#"SELECT network_segments.* FROM network_segments 
-            INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id 
-            WHERE network_prefixes.circuit_id=$1"#,
-        )
-        .bind(circuit_id)
-        .fetch_one(&mut *txn)
-        .await?)
+    ) -> Result<Self, DatabaseError> {
+        let query = "
+SELECT network_segments.* FROM network_segments
+INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id
+WHERE network_prefixes.circuit_id=$1";
+        sqlx::query_as(query)
+            .bind(circuit_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 

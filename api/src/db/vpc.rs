@@ -17,6 +17,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
+use super::DatabaseError;
 use crate::db::UuidKeyedObjectFilter;
 use crate::model::config_version::ConfigVersion;
 use crate::{CarbideError, CarbideResult};
@@ -77,18 +78,22 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
 }
 
 impl NewVpc {
-    pub async fn persist(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vpc> {
+    pub async fn persist(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Vpc, DatabaseError> {
         let version = ConfigVersion::initial();
         let version_string = version.to_version_string();
 
-        Ok(sqlx::query_as(
-            "INSERT INTO vpcs (name, organization_id, version) VALUES ($1, $2, $3) RETURNING *",
-        )
-        .bind(&self.name)
-        .bind(&self.organization)
-        .bind(&version_string)
-        .fetch_one(&mut *txn)
-        .await?)
+        let query =
+            "INSERT INTO vpcs (name, organization_id, version) VALUES ($1, $2, $3) RETURNING *";
+        sqlx::query_as(query)
+            .bind(&self.name)
+            .bind(&self.organization)
+            .bind(&version_string)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 
@@ -96,24 +101,30 @@ impl Vpc {
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
-    ) -> CarbideResult<Vec<Vpc>> {
+    ) -> Result<Vec<Vpc>, DatabaseError> {
         let results: Vec<Vpc> = match filter {
             UuidKeyedObjectFilter::All => {
-                sqlx::query_as("SELECT * FROM vpcs WHERE deleted is NULL")
+                let query = "SELECT * FROM vpcs WHERE deleted is NULL";
+                sqlx::query_as(query)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
             UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as("SELECT * FROM vpcs WHERE id = $1 and deleted is NULL")
+                let query = "SELECT * FROM vpcs WHERE id = $1 and deleted is NULL";
+                sqlx::query_as(query)
                     .bind(uuid)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
             UuidKeyedObjectFilter::List(list) => {
-                sqlx::query_as("select * from vpcs WHERE id = ANY($1) and deleted is NULL")
+                let query = "select * from vpcs WHERE id = ANY($1) and deleted is NULL";
+                sqlx::query_as(query)
                     .bind(list)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
         };
 
@@ -122,13 +133,13 @@ impl Vpc {
     pub async fn find_by_name(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         name: String,
-    ) -> CarbideResult<Vec<Vpc>> {
-        Ok(
-            sqlx::query_as("SELECT * FROM vpcs WHERE name = $1 and deleted is NULL")
-                .bind(name)
-                .fetch_all(&mut *txn)
-                .await?,
-        )
+    ) -> Result<Vec<Vpc>, DatabaseError> {
+        let query = "SELECT * FROM vpcs WHERE name = $1 and deleted is NULL";
+        sqlx::query_as(query)
+            .bind(name)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 
@@ -215,16 +226,18 @@ impl UpdateVpc {
         let next_version_str = next_version.to_version_string();
 
         // TODO check number of changed rows
-        let query_result = sqlx::query_as(
-            "UPDATE vpcs SET name=$1, organization_id=$2, version=$3, updated=NOW() WHERE id=$4 AND version=$5 RETURNING *",
-        )
-        .bind(&self.name)
-        .bind(&self.organization)
-        .bind(&next_version_str)
-        .bind(self.id)
-        .bind(&current_version_str)
-        .fetch_one(&mut *txn)
-        .await;
+        let query = "UPDATE vpcs
+            SET name=$1, organization_id=$2, version=$3, updated=NOW()
+            WHERE id=$4 AND version=$5
+            RETURNING *";
+        let query_result = sqlx::query_as(query)
+            .bind(&self.name)
+            .bind(&self.organization)
+            .bind(&next_version_str)
+            .bind(self.id)
+            .bind(&current_version_str)
+            .fetch_one(&mut *txn)
+            .await;
 
         match query_result {
             Ok(r) => Ok(r),
@@ -236,19 +249,27 @@ impl UpdateVpc {
                     current_version,
                 ))
             }
-            Err(e) => Err(e.into()),
+            Err(e) => Err(CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                query,
+                e,
+            ))),
         }
     }
 }
 
 impl DeleteVpc {
-    pub async fn delete(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vpc> {
+    pub async fn delete(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Vpc, DatabaseError> {
         // TODO: Should this update the version?
-        Ok(
-            sqlx::query_as("UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *")
-                .bind(self.id)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+        let query = "UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
+        sqlx::query_as(query)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }

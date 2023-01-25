@@ -16,15 +16,16 @@ use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
-use crate::model::network_segment::NetworkSegmentControllerState;
-use crate::model::ConfigValidationError;
-use crate::{model::instance::config::network::InstanceNetworkConfig, CarbideError, CarbideResult};
-
+use super::DatabaseError;
 use super::{
     address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
     UuidKeyedObjectFilter,
 };
+use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::model::network_segment::NetworkSegmentControllerState;
+use crate::model::ConfigValidationError;
+use crate::CarbideResult;
+use crate::{model::instance::config::network::InstanceNetworkConfig, CarbideError};
 
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceSegmentAddress {
@@ -52,31 +53,32 @@ impl InstanceAddress {
     pub async fn find_for_instance(
         txn: &mut Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
-    ) -> CarbideResult<HashMap<Uuid, Vec<InstanceAddress>>> {
+    ) -> Result<HashMap<Uuid, Vec<InstanceAddress>>, DatabaseError> {
         let base_query = "SELECT * FROM instance_addresses isa {where}".to_owned();
 
         Ok(match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, InstanceAddress>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| {
+                        DatabaseError::new(file!(), line!(), "instance_addresses All", e)
+                    })?
             }
-            UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as::<_, InstanceAddress>(
-                    &base_query.replace("{where}", "WHERE isa.instance_id=$1"),
-                )
-                .bind(uuid)
-                .fetch_all(&mut *txn)
-                .await?
-            }
-            UuidKeyedObjectFilter::List(list) => {
-                sqlx::query_as::<_, InstanceAddress>(
-                    &base_query.replace("{where}", "WHERE isa.instance_id=ANY($1)"),
-                )
-                .bind(list)
-                .fetch_all(&mut *txn)
-                .await?
-            }
+            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, InstanceAddress>(
+                &base_query.replace("{where}", "WHERE isa.instance_id=$1"),
+            )
+            .bind(uuid)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "instance_addresses One", e))?,
+            UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, InstanceAddress>(
+                &base_query.replace("{where}", "WHERE isa.instance_id=ANY($1)"),
+            )
+            .bind(list)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "instance_addresses List", e))?,
         }
         .into_iter()
         .into_group_map_by(|address| address.instance_id))
@@ -85,30 +87,31 @@ impl InstanceAddress {
     async fn get_allocated_address(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: uuid::Uuid,
-    ) -> CarbideResult<Vec<InstanceSegmentAddress>> {
-        Ok(query_as(
-            r"
-            SELECT network_segments.id as segment_id, instance_addresses.address as address 
-            FROM instance_addresses
-            INNER JOIN network_prefixes ON network_prefixes.circuit_id = instance_addresses.circuit_id
-            INNER JOIN network_segments ON network_segments.id = network_prefixes.segment_id
-            WHERE instance_addresses.instance_id = $1::uuid",
-            )
+    ) -> Result<Vec<InstanceSegmentAddress>, DatabaseError> {
+        let query = "
+SELECT network_segments.id as segment_id, instance_addresses.address as address
+FROM instance_addresses
+INNER JOIN network_prefixes ON network_prefixes.circuit_id = instance_addresses.circuit_id
+INNER JOIN network_segments ON network_segments.id = network_prefixes.segment_id
+WHERE instance_addresses.instance_id = $1::uuid";
+        query_as(query)
             .bind(instance_id)
             .fetch_all(&mut *txn)
-            .await?)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn delete(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: uuid::Uuid,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         // Lock MUST be taken by calling function.
-        let _: Vec<(uuid::Uuid,)> =
-            sqlx::query_as("DELETE FROM instance_addresses WHERE instance_id=$1 RETURNING id")
-                .bind(instance_id)
-                .fetch_all(&mut *txn)
-                .await?;
+        let query = "DELETE FROM instance_addresses WHERE instance_id=$1 RETURNING id";
+        let _: Vec<(uuid::Uuid,)> = sqlx::query_as(query)
+            .bind(instance_id)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
 
@@ -161,17 +164,17 @@ impl InstanceAddress {
     pub async fn count_by_segment_id(
         txn: &mut Transaction<'_, Postgres>,
         segment_id: uuid::Uuid,
-    ) -> Result<usize, sqlx::Error> {
-        let (address_count, ): (i64,) = query_as(
-            r"
-            SELECT count(*)
-            FROM instance_addresses
-            INNER JOIN network_prefixes ON network_prefixes.circuit_id = instance_addresses.circuit_id
-            WHERE network_prefixes.segment_id = $1::uuid",
-            )
+    ) -> Result<usize, DatabaseError> {
+        let query = "
+SELECT count(*)
+FROM instance_addresses
+INNER JOIN network_prefixes ON network_prefixes.circuit_id = instance_addresses.circuit_id
+WHERE network_prefixes.segment_id = $1::uuid";
+        let (address_count,): (i64,) = query_as(query)
             .bind(segment_id)
             .fetch_one(txn)
-            .await?;
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(address_count.max(0) as usize)
     }
@@ -183,7 +186,10 @@ impl InstanceAddress {
     ) -> CarbideResult<Vec<InstanceSegmentAddress>> {
         // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
         // We're potentially about to insert a couple rows, so create a savepoint.
-        let mut inner_txn = txn.begin().await?;
+        let mut inner_txn = txn
+            .begin()
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), "begin", e)))?;
 
         let segments = NetworkSegment::find(
             &mut inner_txn,
@@ -199,9 +205,11 @@ impl InstanceAddress {
 
         InstanceAddress::validate(&segments, instance_network)?;
 
-        sqlx::query("LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE")
+        let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
+        sqlx::query(query)
             .execute(&mut inner_txn)
-            .await?;
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         // Assign all addresses in one shot.
         for iface in &instance_network.interfaces {
@@ -249,18 +257,29 @@ impl InstanceAddress {
             )
             .await?;
 
+            let query = "INSERT INTO instance_addresses (instance_id, circuit_id, address)
+                         VALUES ($1::uuid, $2, $3::inet)";
             for address in allocated_addresses {
-                sqlx::query("INSERT INTO instance_addresses (instance_id, circuit_id, address) VALUES ($1::uuid, $2, $3::inet)")
-                .bind(instance_id)
-                .bind(circuit_id.to_owned())
-                .bind(address?)
-                .fetch_all(&mut *inner_txn).await?;
+                sqlx::query(query)
+                    .bind(instance_id)
+                    .bind(circuit_id.to_owned())
+                    .bind(address?)
+                    .fetch_all(&mut *inner_txn)
+                    .await
+                    .map_err(|e| {
+                        CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
+                    })?;
             }
         }
 
-        inner_txn.commit().await?;
+        inner_txn
+            .commit()
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), "commit", e)))?;
 
-        InstanceAddress::get_allocated_address(&mut *txn, instance_id).await
+        InstanceAddress::get_allocated_address(&mut *txn, instance_id)
+            .await
+            .map_err(CarbideError::from)
     }
 }
 
@@ -273,18 +292,17 @@ impl UsedIpResolver for UsedOverlayNetworkIpResolver {
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<(IpNetwork,)>> {
-        let query: &str = r"
-             SELECT address FROM instance_addresses
-             INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
-             INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
-             WHERE network_segments.id = $1::uuid";
-
+    ) -> Result<Vec<(IpNetwork,)>, DatabaseError> {
+        let query: &str = "
+SELECT address FROM instance_addresses
+INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
+INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
+WHERE network_segments.id = $1::uuid";
         sqlx::query_as(query)
             .bind(self.segment_id)
             .fetch_all(&mut *txn)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 
@@ -292,14 +310,13 @@ impl UsedIpResolver for UsedOverlayNetworkIpResolver {
 mod tests {
     use chrono::Utc;
 
+    use super::*;
     use crate::model::{
         config_version::ConfigVersion,
         instance::config::network::{
             InstanceInterfaceConfig, InterfaceFunctionId, INTERFACE_VFID_MAX,
         },
     };
-
-    use super::*;
 
     fn create_valid_validation_data() -> Vec<NetworkSegment> {
         let vpc_id = uuid::uuid!("11609f10-c11d-1101-3261-6293ea0c0100");

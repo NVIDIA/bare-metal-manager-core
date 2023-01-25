@@ -39,7 +39,9 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
     ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
-        Ok(crate::db::network_segment::NetworkSegment::list_segment_ids(txn).await?)
+        NetworkSegment::list_segment_ids(txn)
+            .await
+            .map_err(SnapshotLoaderError::from)
     }
 
     /// Loads a state snapshot from the database
@@ -48,19 +50,10 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         segment_id: &Self::ObjectId,
     ) -> Result<Self::State, SnapshotLoaderError> {
-        let mut segments = crate::db::network_segment::NetworkSegment::find(
-            txn,
-            UuidKeyedObjectFilter::One(*segment_id),
-        )
-        .await
-        .map_err(|e| {
-            SnapshotLoaderError::GenericError(anyhow::anyhow!(
-                "Unable to load network segment state: {:?}",
-                e
-            ))
-        })?;
+        let mut segments =
+            NetworkSegment::find(txn, UuidKeyedObjectFilter::One(*segment_id)).await?;
         if segments.len() != 1 {
-            return Err(SnapshotLoaderError::GenericError(anyhow::anyhow!(
+            return Err(SnapshotLoaderError::InvalidResult(format!(
                 "Searching for NetworkSegment {} returned zero or multiple results",
                 segment_id
             )));

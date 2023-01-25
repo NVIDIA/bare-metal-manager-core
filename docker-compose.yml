@@ -98,6 +98,7 @@ services:
       - VAULT_MOUNT_LOCATION=secret
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
+      - RUST_BACKTRACE=1
 
   carbide-pxe:
     depends_on:

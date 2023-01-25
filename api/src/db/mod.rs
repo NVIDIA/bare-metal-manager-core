@@ -33,6 +33,9 @@ pub mod tags;
 pub mod vpc;
 pub mod vpc_resource_leaf;
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
 ///
 /// A parameter to find() to filter machines by Uuid;
 ///
@@ -45,4 +48,47 @@ pub enum UuidKeyedObjectFilter<'a> {
 
     /// Retrieve a single machine
     One(uuid::Uuid),
+}
+
+///
+/// Wraps a sqlx::Error and records location and query
+///
+#[derive(Debug)]
+pub struct DatabaseError {
+    file: &'static str,
+    line: u32,
+    query: &'static str,
+    pub source: sqlx::Error,
+}
+
+impl DatabaseError {
+    pub fn new(
+        file: &'static str,
+        line: u32,
+        query: &'static str,
+        source: sqlx::Error,
+    ) -> DatabaseError {
+        DatabaseError {
+            file,
+            line,
+            query,
+            source,
+        }
+    }
+}
+
+impl Display for DatabaseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Database Error: {} file={} line={} query={}.",
+            self.source, self.file, self.line, self.query,
+        )
+    }
+}
+
+impl Error for DatabaseError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.source)
+    }
 }

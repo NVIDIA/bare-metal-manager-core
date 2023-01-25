@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row};
 
-use crate::{CarbideError, CarbideResult};
-
 use super::machine_interface::MachineInterface;
+use super::DatabaseError;
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct VpcResourceLeaf {
@@ -45,24 +45,25 @@ impl VpcResourceLeaf {
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         dpu_machine_id: uuid::Uuid,
-    ) -> CarbideResult<VpcResourceLeaf> {
-        Ok(
-            sqlx::query_as("SELECT * from vpc_resource_leafs WHERE id = $1")
-                .bind(dpu_machine_id)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+    ) -> Result<VpcResourceLeaf, DatabaseError> {
+        let query = "SELECT * from vpc_resource_leafs WHERE id = $1";
+        sqlx::query_as(query)
+            .bind(dpu_machine_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_loopback_ip(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         ip_address: IpAddr,
     ) -> CarbideResult<Option<VpcResourceLeaf>> {
-        let mut result =
-            sqlx::query_as("SELECT * from vpc_resource_leafs WHERE loopback_ip_address = $1")
-                .bind(ip_address)
-                .fetch_all(&mut *txn)
-                .await?;
+        let query = "SELECT * from vpc_resource_leafs WHERE loopback_ip_address = $1";
+        let mut result = sqlx::query_as(query)
+            .bind(ip_address)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         match result.len() {
             0 | 1 => Ok(result.pop()),
@@ -74,19 +75,20 @@ impl VpcResourceLeaf {
         &mut self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
         ip_address: IpAddr,
-    ) -> CarbideResult<VpcResourceLeaf> {
+    ) -> Result<VpcResourceLeaf, DatabaseError> {
         log::info!(
             "Updating vpc_resource_leaf {} loopback_ip_address to: {ip_address}",
             &self.id
         );
 
-        let leaf = sqlx::query_as(
-            "UPDATE vpc_resource_leafs SET loopback_ip_address=$1::inet where id=$2::uuid RETURNING *",
-        )
+        let query =
+            "UPDATE vpc_resource_leafs SET loopback_ip_address=$1::inet where id=$2::uuid RETURNING *";
+        let leaf = sqlx::query_as(query)
             .bind(ip_address)
             .bind(self.id)
             .fetch_one(&mut *txn)
-            .await?;
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         self.loopback_ip_address = Some(ip_address);
         Ok(leaf)
@@ -105,16 +107,17 @@ impl VpcResourceLeaf {
     pub async fn find_associated_dpu_machine_interface(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         ip_address: IpAddr,
-    ) -> CarbideResult<MachineInterface> {
-        Ok(sqlx::query_as(
-            r#"SELECT machine_interfaces.* from machine_interfaces 
-            INNER JOIN machines ON machines.id = machine_interfaces.machine_id 
-            INNER JOIN vpc_resource_leafs ON vpc_resource_leafs.id = machines.vpc_leaf_id 
-            WHERE vpc_resource_leafs.loopback_ip_address = $1"#,
-        )
-        .bind(ip_address)
-        .fetch_one(&mut *txn)
-        .await?)
+    ) -> Result<MachineInterface, DatabaseError> {
+        let query = "
+SELECT machine_interfaces.* from machine_interfaces
+INNER JOIN machines ON machines.id = machine_interfaces.machine_id
+INNER JOIN vpc_resource_leafs ON vpc_resource_leafs.id = machines.vpc_leaf_id
+WHERE vpc_resource_leafs.loopback_ip_address = $1";
+        sqlx::query_as(query)
+            .bind(ip_address)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 
@@ -126,11 +129,12 @@ impl NewVpcResourceLeaf {
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<VpcResourceLeaf> {
-        sqlx::query_as("INSERT INTO vpc_resource_leafs (id) VALUES($1::uuid) returning *")
+    ) -> Result<VpcResourceLeaf, DatabaseError> {
+        let query = "INSERT INTO vpc_resource_leafs (id) VALUES($1::uuid) returning *";
+        sqlx::query_as(query)
             .bind(self.dpu_machine_id)
             .fetch_one(&mut *txn)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }

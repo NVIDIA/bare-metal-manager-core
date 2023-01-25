@@ -11,12 +11,12 @@
  */
 use std::convert::TryFrom;
 
+use ::rpc::forge as rpc;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
-use ::rpc::forge as rpc;
-
+use super::DatabaseError;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Clone, Debug)]
@@ -117,44 +117,56 @@ impl<'r> sqlx::FromRow<'r, PgRow> for TagAssociation {
 }
 
 impl Tag {
-    pub async fn persist(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Tag> {
-        sqlx::query_as("INSERT INTO tags (slug, name) VALUES ($1, $2) RETURNING *")
+    pub async fn persist(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Tag, DatabaseError> {
+        let query = "INSERT INTO tags (slug, name) VALUES ($1, $2) RETURNING *";
+        sqlx::query_as(query)
             .bind(&self.slug)
             .bind(&self.name)
             .fetch_one(&mut *txn)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn delete(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Tag> {
-        sqlx::query_as("DELETE from tags WHERE slug=$1 RETURNING *")
+    pub async fn delete(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Tag, DatabaseError> {
+        let query = "DELETE from tags WHERE slug=$1 RETURNING *";
+        sqlx::query_as(query)
             .bind(&self.slug)
             .fetch_one(&mut *txn)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn find_all(txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vec<Tag>> {
-        sqlx::query_as("SELECT * FROM tags")
+    pub async fn find_all(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Vec<Tag>, DatabaseError> {
+        let query = "SELECT * FROM tags";
+        sqlx::query_as(query)
             .fetch_all(&mut *txn)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_one(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         slug: String,
-    ) -> CarbideResult<Vec<Tag>> {
-        sqlx::query_as("SELECT * FROM tags where slug=$1")
+    ) -> Result<Vec<Tag>, DatabaseError> {
+        let query = "SELECT * FROM tags where slug=$1";
+        sqlx::query_as(query)
             .bind(slug)
             .fetch_all(&mut *txn)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn list_all(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<rpc::TagsListResult> {
+    ) -> Result<rpc::TagsListResult, DatabaseError> {
         Ok(rpc::TagsListResult {
             tags: Tag::find_all(txn)
                 .await?
@@ -321,14 +333,14 @@ impl TagAssociation {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         target: Uuid,
         target_kind: TagTargetKind,
-    ) -> CarbideResult<rpc::TagResult> {
+    ) -> Result<rpc::TagResult, DatabaseError> {
         let table_name = get_table_name(target_kind);
         let query = "DELETE FROM {table} WHERE target_id=$1 RETURNING *";
         sqlx::query_as::<_, TagAssociation>(&query.replace("{table}", table_name.as_str()))
             .bind(target)
             .fetch_optional(&mut *txn)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(rpc::TagResult { result: true })
     }
@@ -355,7 +367,7 @@ impl TagAssociation {
             .bind(self.target)
             .fetch_one(&mut *txn)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         Ok(rpc::TagResult { result: true })
     }
@@ -383,7 +395,7 @@ impl TagAssociation {
             .bind(self.target)
             .fetch_optional(&mut *txn)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         Ok(rpc::TagResult { result: true })
     }

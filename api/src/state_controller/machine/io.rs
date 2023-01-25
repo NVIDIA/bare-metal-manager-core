@@ -12,6 +12,7 @@
 
 //! State Controller IO implementation for Machines
 
+use crate::db::machine::Machine;
 use crate::{
     model::{
         config_version::{ConfigVersion, Versioned},
@@ -43,7 +44,7 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
     ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
-        Ok(crate::db::machine::Machine::list_active_machine_ids(txn).await?)
+        Ok(Machine::list_active_machine_ids(txn).await?)
     }
 
     /// Loads a state snapshot from the database

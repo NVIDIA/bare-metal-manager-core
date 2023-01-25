@@ -109,9 +109,13 @@ async fn observe_dpu_state_and_reboot_host(
     pool: sqlx::PgPool,
     cmd: &IpmiCommand,
 ) -> CarbideResult<()> {
-    let mut txn = pool.begin().await.map_err(CarbideError::from)?;
+    let mut txn = pool.begin().await.map_err(|e| {
+        CarbideError::DatabaseError(file!(), "begin observe_dpu_state_and_reboot_host", e)
+    })?;
     let dpu = DpuMachine::find_by_host_machine_id(&mut txn, &cmd.machine_id).await?;
-    txn.commit().await?;
+    txn.commit().await.map_err(|e| {
+        CarbideError::DatabaseError(file!(), "commit observe_dpu_state_and_reboot_host", e)
+    })?;
 
     log::info!(
         "Observing DPU with id {} attached to host {}.",
@@ -394,7 +398,10 @@ async fn command_handler(
     match result {
         Ok(s) => {
             update_status(&current_job, 4, s, TaskState::Finished).await;
-            let _ = current_job.complete().await.map_err(CarbideError::from);
+            let _ = current_job
+                .complete()
+                .await
+                .map_err(|e| CarbideError::DatabaseError(file!(), "complete", e));
             Ok(())
         }
         Err(e) => {
@@ -446,7 +453,7 @@ impl IpmiCommand {
             .set_json(&json)?
             .spawn(&pool)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| CarbideError::DatabaseError(file!(), "command_handler", e))
     }
 }
 
@@ -529,7 +536,7 @@ where
         .set_channel_names(&["ipmi_handler"])
         .run()
         .await
-        .map_err(CarbideError::from)
+        .map_err(|e| CarbideError::DatabaseError(file!(), "ipmi_handler", e))
 }
 
 #[derive(Debug)]
@@ -598,10 +605,14 @@ impl MachineBmcRequest {
             &mut *txn,
         )
         .await
+        .map_err(CarbideError::from)
     }
 
     pub async fn invoke_bmc_command(&self, pool: sqlx::PgPool) -> CarbideResult<Uuid> {
-        let mut txn = pool.begin().await.map_err(CarbideError::from)?;
+        let mut txn = pool
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin invoke_bmc_command", e))?;
 
         let role = UserRoles::Administrator;
         let ip = BmcMetaDataGetRequest {
@@ -611,7 +622,9 @@ impl MachineBmcRequest {
         .get_bmc_host_ip(&mut txn)
         .await?;
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit invoke_bmc_command", e))?;
 
         let ipmi_command = IpmiCommand::new(ip, self.machine_id, role);
 

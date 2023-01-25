@@ -19,7 +19,7 @@ use carbide::{
         BlockDevice, Cpu, DmiData, HardwareInfo, NetworkInterface, NvmeDevice, PciDeviceProperties,
     },
     state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
-    CarbideResult,
+    CarbideError, CarbideResult,
 };
 use mac_address::MacAddress;
 use sqlx::Executor;
@@ -32,7 +32,10 @@ const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures")
 
 #[sqlx::test]
 async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
-    let mut txn = pool.begin().await?;
+    let mut txn = pool
+        .begin()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
 
     // Workaround to make the fixtures work from a different directory
     for fixture in &["create_domain", "create_vpc", "create_network_segment"] {
@@ -64,9 +67,14 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
     .unwrap();
     let machine = Machine::get_or_create(&mut txn, iface).await.unwrap();
 
-    txn.commit().await?;
+    txn.commit()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = pool
+        .begin()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
 
     let hardware_info = HardwareInfo {
         block_devices: vec![
@@ -122,9 +130,14 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
     };
 
     MachineTopology::create(&mut txn, machine.id(), &hardware_info).await?;
-    txn.commit().await?;
+    txn.commit()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = pool
+        .begin()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
 
     let snapshot_loader = DbSnapshotLoader::default();
     let snapshot = snapshot_loader

@@ -11,13 +11,12 @@
  */
 use std::collections::HashMap;
 
+use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
 
-use ::rpc::forge as rpc;
-
-use crate::CarbideResult;
+use super::DatabaseError;
 
 /// Possible Events for Machine state-machine implementation
 #[derive(Debug, Clone, sqlx::Type)]
@@ -109,27 +108,27 @@ impl MachineEvent {
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
         ids: &[uuid::Uuid],
-    ) -> CarbideResult<HashMap<uuid::Uuid, Vec<Self>>> {
-        Ok(
-            sqlx::query_as::<_, Self>("SELECT * FROM machine_events WHERE machine_id=ANY($1)")
-                .bind(ids)
-                .fetch_all(&mut *txn)
-                .await?
-                .into_iter()
-                .into_group_map_by(|event| event.machine_id),
-        )
+    ) -> Result<HashMap<uuid::Uuid, Vec<Self>>, DatabaseError> {
+        let query = "SELECT * FROM machine_events WHERE machine_id=ANY($1)";
+        Ok(sqlx::query_as::<_, Self>(query)
+            .bind(ids)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+            .into_iter()
+            .into_group_map_by(|event| event.machine_id))
     }
 
     pub async fn for_machine(
         txn: &mut Transaction<'_, Postgres>,
         id: &uuid::Uuid,
-    ) -> CarbideResult<Vec<Self>> {
-        Ok(
-            sqlx::query_as::<_, Self>("SELECT * FROM machine_events WHERE machine_id=$1::uuid;")
-                .bind(id)
-                .fetch_all(&mut *txn)
-                .await?,
-        )
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let query = "SELECT * FROM machine_events WHERE machine_id=$1::uuid";
+        sqlx::query_as::<_, Self>(query)
+            .bind(id)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     // Store each event for debugging purpose.
@@ -137,13 +136,13 @@ impl MachineEvent {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &uuid::Uuid,
         action: MachineAction,
-    ) -> CarbideResult<Self> {
-        Ok(sqlx::query_as::<_, Self>(
-            "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING *",
-        )
-        .bind(machine_id)
-        .bind(action)
-        .fetch_one(&mut *txn)
-        .await?)
+    ) -> Result<Self, DatabaseError> {
+        let query = "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING *";
+        sqlx::query_as::<_, Self>(query)
+            .bind(machine_id)
+            .bind(action)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }

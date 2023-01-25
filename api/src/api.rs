@@ -14,7 +14,12 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::InstanceList;
+use ::rpc::protos::forge::{EchoRequest, EchoResponse};
+use ::rpc::protos::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
 use color_eyre::Report;
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use futures_util::future::BoxFuture;
 use http::header::USER_AGENT;
 use http::{header::AUTHORIZATION, StatusCode};
@@ -33,12 +38,8 @@ use tonic_reflection::server::Builder;
 use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use uuid::Uuid;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::forge::InstanceList;
-use ::rpc::protos::forge::{EchoRequest, EchoResponse};
-use ::rpc::protos::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
-
+use self::rpc::forge_server::Forge;
+use crate::db::DatabaseError;
 use crate::ipmi::Operation;
 use crate::CarbideResult;
 use crate::{
@@ -83,8 +84,6 @@ use crate::{
     CarbideError,
 };
 
-use self::rpc::forge_server::Forge;
-
 // Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
 
@@ -108,14 +107,16 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_domain", e))?;
 
         let response = Ok(NewDomain::try_from(request.into_inner())?
             .persist(&mut txn)
             .await
             .map(rpc::Domain::from)
             .map(Response::new)?);
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_domain", e))?;
 
         response
     }
@@ -129,7 +130,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin update_domain", e))?;
 
         let rpc::Domain { id, name, .. } = request.into_inner();
 
@@ -151,7 +152,9 @@ where
             }
         };
 
-        let mut domains = Domain::find(&mut txn, uuid).await?;
+        let mut domains = Domain::find(&mut txn, uuid)
+            .await
+            .map_err(CarbideError::from)?;
 
         let mut dom = match domains.len() {
             0 => return Err(Status::not_found("domain not found")),
@@ -167,10 +170,13 @@ where
         let response = Ok(dom
             .update(&mut txn)
             .await
+            .map_err(CarbideError::from)
             .map(rpc::Domain::from)
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit update_domain", e))?;
 
         response
     }
@@ -184,7 +190,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin delete_domain", e))?;
 
         let rpc::DomainDeletion { id, .. } = request.into_inner();
 
@@ -204,7 +210,9 @@ where
             }
         };
 
-        let mut domains = Domain::find(&mut txn, uuid).await?;
+        let mut domains = Domain::find(&mut txn, uuid)
+            .await
+            .map_err(CarbideError::from)?;
 
         let dom = match domains.len() {
             0 => return Err(Status::not_found("domain not found")),
@@ -222,10 +230,13 @@ where
         let response = Ok(dom
             .delete(&mut txn)
             .await
+            .map_err(CarbideError::from)
             .map(|_| rpc::DomainDeletionResult {})
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_domain", e))?;
 
         response
     }
@@ -239,7 +250,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_domain", e))?;
 
         let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
         let domains = match (id, name) {
@@ -279,15 +290,18 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_vpc", e))?;
 
         let response = Ok(NewVpc::try_from(request.into_inner())?
             .persist(&mut txn)
             .await
+            .map_err(CarbideError::from)
             .map(rpc::Vpc::from)
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_vpc", e))?;
 
         response
     }
@@ -301,13 +315,15 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin update_vpc", e))?;
 
         UpdateVpc::try_from(request.into_inner())?
             .update(&mut txn)
             .await?;
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit update_vpc", e))?;
 
         Ok(Response::new(rpc::VpcUpdateResult {}))
     }
@@ -321,7 +337,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin delete_vpc", e))?;
 
         // TODO: This needs to validate that nothing references the VPC anymore
         // (like NetworkSegments)
@@ -329,10 +345,13 @@ where
         let response = Ok(DeleteVpc::try_from(request.into_inner())?
             .delete(&mut txn)
             .await
+            .map_err(CarbideError::from)
             .map(rpc::VpcDeletionResult::from)
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_vpc", e))?;
 
         response
     }
@@ -346,7 +365,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_vpcs", e))?;
 
         let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
 
@@ -385,11 +404,10 @@ where
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
         log::debug!("Fetching database transaction");
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin find_network_segments", e)
+            })?;
 
         let rpc::NetworkSegmentQuery { id, .. } = request.into_inner();
 
@@ -406,7 +424,9 @@ where
             None => UuidKeyedObjectFilter::All,
         };
 
-        let results = NetworkSegment::find(&mut txn, uuid_filter).await?;
+        let results = NetworkSegment::find(&mut txn, uuid_filter)
+            .await
+            .map_err(CarbideError::from)?;
         let mut network_segments = Vec::with_capacity(results.len());
 
         for result in results {
@@ -420,18 +440,20 @@ where
         &self,
         request: Request<rpc::NetworkSegmentCreationRequest>,
     ) -> Result<Response<rpc::NetworkSegment>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin create_network_segment", e)
+            })?;
 
         let response = NewNetworkSegment::try_from(request.into_inner())?
             .persist(&mut txn)
-            .await;
+            .await
+            .map_err(CarbideError::from);
 
         let response = Ok(Response::new(response?.try_into()?));
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "commit create_network_segment", e)
+        })?;
 
         response
     }
@@ -449,11 +471,10 @@ where
         &self,
         request: Request<rpc::NetworkSegmentDeletionRequest>,
     ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin delete_network_segment", e)
+            })?;
 
         let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 
@@ -472,7 +493,9 @@ where
             }
         };
 
-        let mut segments = NetworkSegment::find(&mut txn, uuid).await?;
+        let mut segments = NetworkSegment::find(&mut txn, uuid)
+            .await
+            .map_err(CarbideError::from)?;
 
         let segment = match segments.len() {
             1 => segments.remove(0),
@@ -485,7 +508,9 @@ where
             .map(|_| rpc::NetworkSegmentDeletionResult {})
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "commit delete_network_segment", e)
+        })?;
 
         response
     }
@@ -495,11 +520,9 @@ where
         &self,
         request: Request<rpc::VpcSearchQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin network_segments_for_vpc", e)
+        })?;
 
         let rpc::VpcSearchQuery { id, .. } = request.into_inner();
 
@@ -518,7 +541,9 @@ where
             }
         };
 
-        let results = NetworkSegment::for_vpc(&mut txn, _uuid).await?;
+        let results = NetworkSegment::for_vpc(&mut txn, _uuid)
+            .await
+            .map_err(CarbideError::from)?;
 
         let mut network_segments = Vec::with_capacity(results.len());
 
@@ -555,7 +580,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_instances", e))?;
 
         let rpc::InstanceSearchQuery { id, .. } = request.into_inner();
         // TODO: We load more information here than necessary - Instance::find()
@@ -572,9 +597,13 @@ where
                         )));
                     }
                 };
-                Instance::find(&mut txn, uuid).await
+                Instance::find(&mut txn, uuid)
+                    .await
+                    .map_err(CarbideError::from)
             }
-            None => Instance::find(&mut txn, UuidKeyedObjectFilter::All).await,
+            None => Instance::find(&mut txn, UuidKeyedObjectFilter::All)
+                .await
+                .map_err(CarbideError::from),
         }?;
 
         let loader = DbSnapshotLoader::default();
@@ -599,11 +628,14 @@ where
             self.authorizer
                 .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_instance_by_machine_id",
+                e,
+            ))
+        })?;
 
         let uuid = Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
         let instance_id = Instance::find_id_by_machine_id(&mut txn, uuid)
@@ -623,7 +655,14 @@ where
             instances: vec![snapshot.try_into().map_err(CarbideError::from)?],
         });
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit find_instance_by_machine_id",
+                e,
+            ))
+        })?;
 
         Ok(response)
     }
@@ -633,11 +672,14 @@ where
         &self,
         request: Request<rpc::InstanceReleaseRequest>,
     ) -> Result<Response<rpc::InstanceReleaseResult>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin release_instance",
+                e,
+            ))
+        })?;
 
         let delete_instance = DeleteInstance::try_from(request.into_inner())?;
         let instance_network_config =
@@ -648,7 +690,10 @@ where
         let instance = delete_instance.delete(&mut txn).await?;
 
         // Change state to Decommissioned
-        let machine = match Machine::find_one(&mut txn, instance.machine_id).await? {
+        let machine = match Machine::find_one(&mut txn, instance.machine_id)
+            .await
+            .map_err(CarbideError::from)?
+        {
             None => {
                 return Err(Status::invalid_argument(format!(
                     "Supplied invalid UUID: {}",
@@ -661,7 +706,10 @@ where
         // After deleted instance, machine should be moved to Decommissioned state.
         match machine.current_state() {
             MachineState::Assigned => {
-                machine.advance(&mut txn, MachineState::Reset).await?;
+                machine
+                    .advance(&mut txn, MachineState::Reset)
+                    .await
+                    .map_err(CarbideError::from)?;
             }
             rest => {
                 return Err(Status::invalid_argument(format!(
@@ -671,7 +719,9 @@ where
             }
         };
 
-        let dpu = DpuMachine::find_by_host_machine_id(&mut txn, &instance.machine_id).await?;
+        let dpu = DpuMachine::find_by_host_machine_id(&mut txn, &instance.machine_id)
+            .await
+            .map_err(CarbideError::from)?;
         delete_managed_resource(
             &mut txn,
             instance.machine_id,
@@ -680,7 +730,14 @@ where
             instance.id,
         )
         .await?;
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit release_instance",
+                e,
+            ))
+        })?;
 
         // Machine will be rebooted once managed resource deletion successful.
 
@@ -707,15 +764,19 @@ where
             .validate()
             .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin record_observed_instance_network_status", e)
+        })?;
         update_instance_network_status_observation(&mut txn, instance_id, &observation)
             .await
             .map_err(CarbideError::from)?;
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(
+                file!(),
+                "commit record_observed_instance_network_status",
+                e,
+            )
+        })?;
 
         Ok(Response::new(
             rpc::ObservedInstanceNetworkStatusRecordResult {},
@@ -731,7 +792,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin lookup_record", e))?;
 
         let rpc::dns_message::DnsQuestion {
             q_name,
@@ -773,16 +834,20 @@ where
         &self,
         request: Request<rpc::InstancePowerRequest>,
     ) -> Result<Response<rpc::InstancePowerResult>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin invoke_instance_power",
+                e,
+            ))
+        })?;
 
         let machine_power_request = MachineBmcRequest::try_from(request.into_inner())?;
 
-        let instance =
-            Instance::find_by_machine_id(&mut txn, machine_power_request.machine_id).await?;
+        let instance = Instance::find_by_machine_id(&mut txn, machine_power_request.machine_id)
+            .await
+            .map_err(CarbideError::from)?;
         if instance.is_none() {
             return Err(Status::invalid_argument(format!(
                 "Supplied invalid UUID: {}",
@@ -793,7 +858,14 @@ where
         machine_power_request
             .set_custom_pxe_on_next_boot(&mut txn)
             .await?;
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit invoke_instance_power",
+                e,
+            ))
+        })?;
 
         let _ = machine_power_request
             .invoke_bmc_command(self.database_connection.clone())
@@ -837,7 +909,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin discover_machine", e))?;
 
         let interface_id = match &machine_discovery_info.machine_interface_id {
             Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
@@ -873,7 +945,9 @@ where
             machine_id: machine.id,
         }));
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit discover_machine", e))?;
 
         response
     }
@@ -899,12 +973,21 @@ where
         match machine.current_state() {
             // new machine
             MachineState::Init => {
-                machine.advance(&mut txn, MachineState::Adopted).await?;
-                machine.advance(&mut txn, MachineState::Ready).await?;
+                machine
+                    .advance(&mut txn, MachineState::Adopted)
+                    .await
+                    .map_err(CarbideError::from)?;
+                machine
+                    .advance(&mut txn, MachineState::Ready)
+                    .await
+                    .map_err(CarbideError::from)?;
             }
             // after de-provision
             MachineState::Cleanedup => {
-                machine.advance(&mut txn, MachineState::Ready).await?;
+                machine
+                    .advance(&mut txn, MachineState::Ready)
+                    .await
+                    .map_err(CarbideError::from)?;
             }
             // all other states are invalid
             x => {
@@ -936,7 +1019,10 @@ where
         };
 
         let (machine, mut txn) = self.load_machine(machine_id).await?;
-        machine.advance(&mut txn, MachineState::Cleanedup).await?;
+        machine
+            .advance(&mut txn, MachineState::Cleanedup)
+            .await
+            .map_err(CarbideError::from)?;
 
         let mpr = MachineBmcRequest::new(machine_id, Operation::DisableLockdown, true);
         mpr.invoke_bmc_command(self.database_connection.clone())
@@ -973,7 +1059,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_machines", e))?;
 
         let rpc::MachineSearchQuery { id, fqdn, .. } = request.into_inner();
         let machines = match (id, fqdn) {
@@ -1013,7 +1099,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_interfaces", e))?;
 
         let rpc::InterfaceSearchQuery { id, .. } = request.into_inner();
 
@@ -1041,19 +1127,21 @@ where
         &self,
         request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin create_instance_type", e)
+            })?;
 
         let response = Ok(NewInstanceType::try_from(request.into_inner())?
             .persist(&mut txn)
             .await
+            .map_err(CarbideError::from)
             .map(rpc::InstanceType::from)
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_instance_type", e))?;
 
         response
     }
@@ -1063,19 +1151,21 @@ where
         &self,
         request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin update_instance_type", e)
+            })?;
 
         let response = Ok(UpdateInstanceType::try_from(request.into_inner())?
             .update(&mut txn)
             .await
+            .map_err(CarbideError::from)
             .map(rpc::InstanceType::from)
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit update_instance_type", e))?;
 
         response
     }
@@ -1085,19 +1175,21 @@ where
         &self,
         request: Request<rpc::InstanceTypeDeletion>,
     ) -> Result<Response<rpc::InstanceTypeDeletionResult>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin delete_instance_type", e)
+            })?;
 
         let response = Ok(DeactivateInstanceType::try_from(request.into_inner())?
             .deactivate(&mut txn)
             .await
+            .map_err(CarbideError::from)
             .map(rpc::InstanceTypeDeletionResult::from)
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_instance_type", e))?;
 
         response
     }
@@ -1111,14 +1203,16 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_tag", e))?;
 
         let response = Ok(TagCreate::try_from(request.into_inner())?
             .create(&mut txn)
             .await
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_tag", e))?;
 
         response
     }
@@ -1132,14 +1226,16 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin delete_tag", e))?;
 
         let response = Ok(TagDelete::try_from(request.into_inner())?
             .delete(&mut txn)
             .await
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_tag", e))?;
 
         response
     }
@@ -1153,11 +1249,16 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin list_tags", e))?;
 
-        let response = Ok(Tag::list_all(&mut txn).await.map(Response::new)?);
+        let response = Ok(Tag::list_all(&mut txn)
+            .await
+            .map_err(CarbideError::from)
+            .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit list_tags", e))?;
 
         response
     }
@@ -1171,14 +1272,16 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin assign_tag", e))?;
 
         let response = Ok(TagAssociation::try_from(request.into_inner())?
             .assign(&mut txn)
             .await
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit assign_tag", e))?;
 
         response
     }
@@ -1192,14 +1295,16 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin remove_tag", e))?;
 
         let response = Ok(TagAssociation::try_from(request.into_inner())?
             .remove(&mut txn)
             .await
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit remove_tag", e))?;
 
         response
     }
@@ -1213,14 +1318,16 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin set_tags", e))?;
 
         let response = Ok(TagsList::try_from(request.into_inner())?
             .assign(&mut txn)
             .await
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit set_tags", e))?;
 
         response
     }
@@ -1230,18 +1337,20 @@ where
         &self,
         request: Request<rpc::SshKeyValidationRequest>,
     ) -> Result<Response<rpc::SshKeyValidationResponse>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin validate_user_ssh_key", e)
+            })?;
 
-        let response = Ok(SshKeyValidationRequest::try_from(request.into_inner())?
+        let response = Ok(SshKeyValidationRequest::from(request.into_inner())
             .verify_user(&mut txn)
             .await
+            .map_err(CarbideError::from)
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit validate_user_ssh_key", e))?;
 
         response
     }
@@ -1309,14 +1418,16 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_bmc_meta_data", e))?;
 
         let response = Ok(BmcMetaDataGetRequest::try_from(request.into_inner())?
             .get_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
             .await
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit get_bmc_meta_data", e))?;
 
         response
     }
@@ -1326,18 +1437,19 @@ where
         &self,
         request: Request<rpc::BmcMetaDataUpdateRequest>,
     ) -> Result<Response<rpc::BmcMetaDataUpdateResponse>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin update_bmc_meta_data", e)
+            })?;
 
         let response = Ok(BmcMetaDataUpdateRequest::try_from(request.into_inner())?
             .update_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
             .await
             .map(Response::new)?);
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit update_bmc_meta_data", e))?;
 
         response
     }
@@ -1406,26 +1518,30 @@ where
         &self,
         request: Request<rpc::Uuid>,
     ) -> Result<Response<rpc::PxeInstructions>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin get_pxe_instructions", e)
+            })?;
 
         let machine_id = Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
 
         let instance = Instance::find_by_machine_id(&mut txn, machine_id)
-            .await?
+            .await
+            .map_err(CarbideError::from)?
             .ok_or(CarbideError::FindOneReturnedNoResultsError(machine_id))?;
 
         let pxe_script = if instance.use_custom_pxe_on_boot {
-            Instance::use_custom_ipxe_on_next_boot(machine_id, false, &mut txn).await?;
+            Instance::use_custom_ipxe_on_next_boot(machine_id, false, &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
             instance.tenant_config.custom_ipxe
         } else {
             "exit".to_string()
         };
 
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit get_pxe_instructions", e))?;
 
         Ok(Response::new(rpc::PxeInstructions { pxe_script }))
     }
@@ -1828,11 +1944,9 @@ where
             return Ok(uuid);
         }
         if let Ok(ip) = Ipv4Addr::from_str(query) {
-            let mut txn = self
-                .database_connection
-                .begin()
-                .await
-                .map_err(CarbideError::from)?;
+            let mut txn = self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin find_dpu_machine_uuid", e)
+            })?;
             match DpuMachine::find_by_ip(&mut txn, &ip).await {
                 Ok(machine) => return Ok(*machine.machine_id()),
                 Err(err) => {
@@ -1843,11 +1957,9 @@ where
             }
         }
         if let Ok(mac) = MacAddress::from_str(query) {
-            let mut txn = self
-                .database_connection
-                .begin()
-                .await
-                .map_err(CarbideError::from)?;
+            let mut txn = self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin find_dpu_machine_uuid 2", e)
+            })?;
             match DpuMachine::find_by_mac_address(&mut txn, &mac).await {
                 Ok(machine) => return Ok(*machine.machine_id()),
                 Err(err) => {
@@ -1857,11 +1969,9 @@ where
                 }
             }
         }
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(CarbideError::from)?;
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin find_dpu_machine_uuid 3", e)
+        })?;
         match DpuMachine::find_by_hostname(&mut txn, query).await {
             Ok(machine) => Ok(*machine.machine_id()),
             Err(err) => Err(Status::not_found(format!(
@@ -1878,7 +1988,7 @@ where
             .database_connection
             .begin()
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin load_machine", e))?;
         let machine = match Machine::find_one(&mut txn, machine_id).await {
             Err(err) => {
                 log::warn!("loading machine for {machine_id}: {err}.");

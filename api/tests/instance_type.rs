@@ -9,12 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
-
 use carbide::db::instance_type::{
     DeactivateInstanceType, InstanceType, NewInstanceType, UpdateInstanceType,
 };
-use carbide::CarbideResult;
+use log::LevelFilter;
 
 #[ctor::ctor]
 fn setup() {
@@ -30,7 +28,7 @@ async fn test_instance_type_crud(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let segment: CarbideResult<InstanceType> = NewInstanceType {
+    let segment: Result<InstanceType, _> = NewInstanceType {
         short_name: "integration_test".to_string(),
         description: "integration_test_description".to_string(),
         active: true,

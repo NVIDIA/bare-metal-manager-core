@@ -12,6 +12,7 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
+pub use ::rpc::forge as rpc;
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
 
@@ -27,7 +28,6 @@ use crate::{
     dhcp::allocation::DhcpError,
     kubernetes, CarbideError, CarbideResult,
 };
-pub use ::rpc::forge as rpc;
 
 async fn handle_dhcp_for_instance(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -81,7 +81,7 @@ pub async fn discover_dhcp(
     let mut txn = database_connection
         .begin()
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(|e| CarbideError::DatabaseError(file!(), "begin discover_dhcp", e))?;
 
     let rpc::DhcpDiscovery {
         mac_address,
@@ -104,14 +104,17 @@ pub async fn discover_dhcp(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let existing_machine =
-        Machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay).await?;
+    let existing_machine = Machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay)
+        .await
+        .map_err(CarbideError::from)?;
 
     // Instance handling. None means no instance found matching with dhcp request.
     if let Some(response) =
         handle_dhcp_for_instance(&mut txn, relay_ip, circuit_id, parsed_mac).await?
     {
-        txn.commit().await.map_err(CarbideError::from)?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit discover_dhcp", e))?;
         return Ok(response);
     }
 
@@ -140,16 +143,19 @@ pub async fn discover_dhcp(
         }
     }
 
-    txn.commit().await.map_err(CarbideError::from)?;
+    txn.commit()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "commit discover_dhcp", e))?;
 
     let mut txn = database_connection
         .begin()
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(|e| CarbideError::DatabaseError(file!(), "begin discover_dhcp 2", e))?;
 
     let record: rpc::DhcpRecord =
         DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id())
-            .await?
+            .await
+            .map_err(CarbideError::from)?
             .into();
 
     if newly_created_interface {
@@ -157,7 +163,9 @@ pub async fn discover_dhcp(
             .await?;
     }
 
-    txn.commit().await.map_err(CarbideError::from)?;
+    txn.commit()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "commit discover_dhcp 2", e))?;
     Ok(Response::new(record))
 }
 

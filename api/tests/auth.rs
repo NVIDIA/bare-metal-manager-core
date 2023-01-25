@@ -11,7 +11,7 @@
  */
 use ::rpc::forge as rpc;
 use carbide::db::auth::SshKeyValidationRequest;
-use carbide::CarbideError;
+use carbide::db::DatabaseError;
 
 #[sqlx::test(fixtures("user_ssh_key"))]
 async fn test_auth(pool: sqlx::PgPool) -> sqlx::Result<()> {
@@ -64,5 +64,5 @@ async fn test_auth_fail_no_user(pool: sqlx::PgPool) {
     };
     let response = uauth.verify_user(&mut txn).await;
 
-    assert!(matches!(response, Err(CarbideError::DatabaseError(_))));
+    assert!(matches!(response, Err(DatabaseError { .. })));
 }
