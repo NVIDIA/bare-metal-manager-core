@@ -13,3 +13,4 @@ mod cmdrun;
 mod scrabbing;
 pub use cmdrun::run_prog;
 pub use scrabbing::run;
+pub use scrabbing::run_no_api;
