@@ -35,10 +35,19 @@ pub(crate) struct Options {
 pub(crate) enum Command {
     #[clap(about = "Run discovery")]
     Discovery(Discovery),
+    #[clap(about = "Run deprovision")]
+    Deprovision(Deprovision),
 }
 
 #[derive(Parser)]
 pub struct Discovery {
+    // This is a machine_INTERFACE_id, not a machine_id
+    #[clap(short, long, multiple_values(false), require_equals(true))]
+    pub uuid: uuid::Uuid,
+}
+
+#[derive(Parser)]
+pub struct Deprovision {
     // This is a machine_INTERFACE_id, not a machine_id
     #[clap(short, long, multiple_values(false), require_equals(true))]
     pub uuid: uuid::Uuid,

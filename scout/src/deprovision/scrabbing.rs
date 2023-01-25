@@ -354,7 +354,7 @@ async fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineC
             }
         }
     } else {
-        log::debug!("stdin == {}. Skip nvme cleanup.", stdin_link);
+        log::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
     }
 
     match check_memory_overwrite_efi_var() {
@@ -411,6 +411,7 @@ fn is_host() -> bool {
 }
 
 pub async fn run(api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
+    log::info!("full deprovision starts.");
     if !is_host() {
         // do not send API cleanup_machine_completed
         return Ok(());
@@ -420,4 +421,22 @@ pub async fn run(api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
     let request = tonic::Request::new(info);
     client.cleanup_machine_completed(request).await?;
     Ok(())
+}
+
+pub fn run_no_api() {
+    log::info!("no_api deprovision starts.");
+    let stdin_link = match fs::read_link("/proc/self/fd/0") {
+        Ok(o) => o.to_string_lossy().to_string(),
+        Err(_) => "None".to_string(),
+    };
+    log::info!("stdin is {}", stdin_link);
+
+    if stdin_link == "/dev/null" {
+        match all_nvme_cleanup() {
+            Ok(_) => log::debug!("nvme cleanup OK"),
+            Err(e) => log::error!("nvme cleanup error: {}", e),
+        }
+    } else {
+        log::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
+    }
 }

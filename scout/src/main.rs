@@ -75,6 +75,9 @@ async fn main() -> Result<(), color_eyre::Report> {
 
             match query_api(&config.api, machine_id).await? {
                 Action::Discovery => {
+                    //This is temporary. All cleanup must be done when API call Reset.
+                    deprovision::run_no_api();
+
                     discovery::run(&config.api, d.uuid).await?;
                     discovery::completed(&config.api, machine_id).await?;
                 }
@@ -86,6 +89,11 @@ async fn main() -> Result<(), color_eyre::Report> {
                 }
                 Action::Noop => {}
             }
+        }
+
+        Command::Deprovision(d) => {
+            let machine_id = register::run(&config.api, d.uuid).await?;
+            deprovision::run(&config.api, machine_id).await?;
         }
     }
     Ok(())
