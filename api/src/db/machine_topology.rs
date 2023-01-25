@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
+use super::DatabaseError;
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::machine::Machine;
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
@@ -25,7 +26,7 @@ use crate::kubernetes::{leaf_name, LeafData, VpcResourceActions};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
 use crate::vpc_resources::{host_interfaces, leaf};
-use crate::CarbideResult;
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Deserialize)]
 pub struct MachineTopology {
@@ -89,11 +90,13 @@ impl MachineTopology {
     pub async fn is_discovered(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &uuid::Uuid,
-    ) -> CarbideResult<bool> {
-        let res = sqlx::query("SELECT * from machine_topologies WHERE machine_id=$1::uuid")
+    ) -> Result<bool, DatabaseError> {
+        let query = "SELECT * from machine_topologies WHERE machine_id=$1::uuid";
+        let res = sqlx::query(query)
             .bind(machine_id)
             .fetch_optional(&mut *txn)
-            .await?;
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         match res {
             None => {
@@ -122,13 +125,13 @@ impl MachineTopology {
                 },
             };
 
-            let res = sqlx::query_as(
-                "INSERT INTO machine_topologies VALUES ($1::uuid, $2::json) RETURNING *",
-            )
-            .bind(machine_id)
-            .bind(sqlx::types::Json(&topology_data))
-            .fetch_one(&mut *txn)
-            .await?;
+            let query = "INSERT INTO machine_topologies VALUES ($1::uuid, $2::json) RETURNING *";
+            let res = sqlx::query_as(query)
+                .bind(machine_id)
+                .bind(sqlx::types::Json(&topology_data))
+                .fetch_one(&mut *txn)
+                .await
+                .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
             if hardware_info.is_dpu() {
                 let new_leaf = NewVpcResourceLeaf::new(*machine_id)
@@ -188,7 +191,10 @@ impl MachineTopology {
 
                 log::info!("Leafspec sent to kubernetes: {:?}", leaf_spec);
 
-                let db_conn = txn.acquire().await?;
+                let db_conn = txn
+                    .acquire()
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "acquire", e))?;
 
                 VpcResourceActions::CreateLeaf(LeafData {
                     leaf: leaf_spec,
@@ -203,7 +209,7 @@ impl MachineTopology {
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
         machine_ids: &[uuid::Uuid],
-    ) -> Result<HashMap<uuid::Uuid, Vec<Self>>, sqlx::Error> {
+    ) -> Result<HashMap<uuid::Uuid, Vec<Self>>, DatabaseError> {
         // TODO: Actually this shouldn't be able to return multiple entries,
         // since there  is a check in create that for existing interfaces
         // But due to race conditions we can likely still have multiple of those interfaces
@@ -211,7 +217,8 @@ impl MachineTopology {
         let topologies = sqlx::query_as(query)
             .bind(machine_ids)
             .fetch_all(&mut *txn)
-            .await?
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .into_iter()
             .into_group_map_by(|t: &Self| t.machine_id);
         Ok(topologies)
@@ -220,7 +227,7 @@ impl MachineTopology {
     pub async fn find_latest_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
         machine_ids: &[uuid::Uuid],
-    ) -> Result<HashMap<uuid::Uuid, Self>, sqlx::Error> {
+    ) -> Result<HashMap<uuid::Uuid, Self>, DatabaseError> {
         // TODO: So far this just moved code around
         // This way of doing fetching the latest topology is inefficient, because it will still fetch all
         // information. We can change the query - however if we store information

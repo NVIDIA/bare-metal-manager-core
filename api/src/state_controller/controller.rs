@@ -173,7 +173,7 @@ impl<IO: StateControllerIO> StateController<IO> {
             );
             return Err(IterationError::LockError);
         }
-        tracing::info!("State controller acquired the lock {}", IO::db_lock_name());
+        tracing::debug!("State controller acquired the lock {}", IO::db_lock_name());
 
         handle_controller_iteration::<IO>(
             &self.io,

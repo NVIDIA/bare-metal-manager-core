@@ -12,6 +12,7 @@
 
 use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 
+use crate::db::DatabaseError;
 use crate::model::{config_version::Versioned, instance::config::network::InstanceNetworkConfig};
 
 /// Loads the network configuration for an instance
@@ -21,7 +22,7 @@ use crate::model::{config_version::Versioned, instance::config::network::Instanc
 pub async fn load_instance_network_config(
     txn: &mut Transaction<'_, Postgres>,
     instance_id: uuid::Uuid,
-) -> Result<Versioned<InstanceNetworkConfig>, sqlx::Error> {
+) -> Result<Versioned<InstanceNetworkConfig>, DatabaseError> {
     impl<'r> sqlx::FromRow<'r, PgRow> for Versioned<InstanceNetworkConfig> {
         fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
             let network_config_version_str: &str = row.try_get("network_config_version")?;
@@ -36,10 +37,10 @@ pub async fn load_instance_network_config(
         }
     }
 
-    sqlx::query_as(
-        "SELECT network_config, network_config_version FROM instances where id = $1::uuid",
-    )
-    .bind(instance_id)
-    .fetch_one(&mut *txn)
-    .await
+    let query = "SELECT network_config, network_config_version FROM instances where id = $1::uuid";
+    sqlx::query_as(query)
+        .bind(instance_id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }

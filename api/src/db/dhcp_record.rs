@@ -9,18 +9,17 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
-use ::rpc::forge as rpc;
-
+use super::instance::Instance;
+use super::DatabaseError;
 use crate::{
     dhcp::allocation::DhcpError, model::instance::config::network::InterfaceFunctionId,
     CarbideError, CarbideResult,
 };
-
-use super::instance::Instance;
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
@@ -66,11 +65,14 @@ impl DhcpRecord {
         txn: &mut Transaction<'_, Postgres>,
         mac_address: &MacAddress,
         segment_id: &uuid::Uuid,
-    ) -> CarbideResult<DhcpRecord> {
-        Ok(sqlx::query_as("SELECT * FROM machine_dhcp_records WHERE mac_address = $1::macaddr AND segment_id = $2::uuid")
+    ) -> Result<DhcpRecord, DatabaseError> {
+        let query = "SELECT * FROM machine_dhcp_records WHERE mac_address = $1::macaddr AND segment_id = $2::uuid";
+        sqlx::query_as(query)
             .bind(mac_address)
             .bind(segment_id)
-            .fetch_one(&mut *txn).await?)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub fn address(&self) -> IpNetwork {
@@ -162,10 +164,17 @@ impl InstanceDhcpRecord {
         circuit_id: String,
         instance: Instance,
     ) -> CarbideResult<InstanceDhcpRecord> {
-        let mut record: InstanceDhcpRecord = sqlx::query_as("SELECT * FROM instance_dhcp_records WHERE machine_id=$1::uuid AND circuit_id=$2 AND family(prefix) = 4")
+        let query = "
+SELECT * FROM instance_dhcp_records
+WHERE machine_id=$1::uuid
+    AND circuit_id=$2
+    AND family(prefix) = 4";
+        let mut record: InstanceDhcpRecord = sqlx::query_as(query)
             .bind(instance.machine_id)
             .bind(circuit_id.clone())
-            .fetch_one(&mut *txn).await?;
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         record.update_mac(mac_address);
         let function_id =

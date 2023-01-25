@@ -13,6 +13,7 @@
 use std::sync::Arc;
 
 use crate::{
+    db::DatabaseError,
     kubernetes::{VpcApi, VpcApiError},
     state_controller::snapshot_loader::SnapshotLoaderError,
 };
@@ -128,6 +129,8 @@ pub enum StateHandlerError {
     TransactionError(#[from] sqlx::Error),
     #[error("Failed interaction with VPC: {0}")]
     VpcApiError(#[from] VpcApiError),
+    #[error("{0}")]
+    DBError(#[from] DatabaseError),
 }
 
 /// A `StateHandler` implementation which does nothing

@@ -12,7 +12,9 @@
 
 use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 
-use crate::model::instance::status::network::InstanceNetworkStatusObservation;
+use crate::{
+    db::DatabaseError, model::instance::status::network::InstanceNetworkStatusObservation,
+};
 
 /// Loads the latest network status observation for an instance
 ///
@@ -21,7 +23,7 @@ use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 pub async fn load_instance_network_status_observation(
     txn: &mut Transaction<'_, Postgres>,
     instance_id: uuid::Uuid,
-) -> Result<Option<InstanceNetworkStatusObservation>, sqlx::Error> {
+) -> Result<Option<InstanceNetworkStatusObservation>, DatabaseError> {
     /// This is wrapper to allow implementing FromRow on the Option
     #[derive(serde::Deserialize)]
     struct OptionalObservation(Option<InstanceNetworkStatusObservation>);
@@ -34,11 +36,12 @@ pub async fn load_instance_network_status_observation(
         }
     }
 
-    let observation: OptionalObservation =
-        sqlx::query_as("SELECT network_status_observation FROM instances where id = $1::uuid")
-            .bind(instance_id)
-            .fetch_one(&mut *txn)
-            .await?;
+    let query = "SELECT network_status_observation FROM instances where id = $1::uuid";
+    let observation: OptionalObservation = sqlx::query_as(query)
+        .bind(instance_id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
     Ok(observation.0)
 }
@@ -48,23 +51,38 @@ pub async fn update_instance_network_status_observation(
     txn: &mut Transaction<'_, Postgres>,
     instance_id: uuid::Uuid,
     status: &InstanceNetworkStatusObservation,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DatabaseError> {
     // TODO: This might rather belong into the API layer
     // We will move move it there once that code is in place
     status.validate().map_err(|e| {
+        DatabaseError::new(
+            file!(),
+            line!(),
+            "ioerror",
+            sqlx::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    /*
+        map_err(|e| {
         sqlx::Error::Io(std::io::Error::new(
             std::io::ErrorKind::Other,
             e.to_string(),
         ))
     })?;
+    */
 
-    let (_,): (uuid::Uuid,) = sqlx::query_as(
-        "UPDATE instances SET network_status_observation=$1::json where id = $2::uuid returning id",
-    )
-    .bind(sqlx::types::Json(status))
-    .bind(instance_id)
-    .fetch_one(&mut *txn)
-    .await?;
+    let query =
+        "UPDATE instances SET network_status_observation=$1::json where id = $2::uuid returning id";
+    let (_,): (uuid::Uuid,) = sqlx::query_as(query)
+        .bind(sqlx::types::Json(status))
+        .bind(instance_id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
     Ok(())
 }

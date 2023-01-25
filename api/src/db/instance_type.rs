@@ -11,14 +11,14 @@
  */
 use std::convert::{TryFrom, TryInto};
 
+use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use sqlx::postgres::PgRow;
 use sqlx::{Error, Postgres, Row};
 use uuid::Uuid;
 
-use ::rpc::forge as rpc;
-
-use crate::{CarbideError, CarbideResult};
+use super::DatabaseError;
+use crate::CarbideError;
 
 #[derive(Clone, Debug)]
 pub struct InstanceType {
@@ -135,12 +135,18 @@ impl NewInstanceType {
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<InstanceType> {
-        Ok(sqlx::query_as("INSERT INTO instance_types (short_name, description, active, created, updated) VALUES ($1, $2, $3, now(), now()) RETURNING *")
+    ) -> Result<InstanceType, DatabaseError> {
+        let query = "
+INSERT INTO instance_types (short_name, description, active, created, updated)
+VALUES ($1, $2, $3, now(), now())
+RETURNING *";
+        sqlx::query_as(query)
             .bind(&self.short_name)
             .bind(&self.description)
             .bind(self.active)
-            .fetch_one(&mut *txn).await?)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 
@@ -148,13 +154,20 @@ impl UpdateInstanceType {
     pub async fn update(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<InstanceType> {
-        Ok(sqlx::query_as("UPDATE instance_types SET short_name=$1, description=$2, active=$3, updated=now() WHERE id=$4 RETURNING *")
+    ) -> Result<InstanceType, DatabaseError> {
+        let query = "
+UPDATE instance_types
+SET short_name=$1, description=$2, active=$3, updated=now()
+WHERE id=$4
+RETURNING *";
+        sqlx::query_as(query)
             .bind(&self.short_name)
             .bind(&self.description)
             .bind(self.active)
             .bind(self.id)
-            .fetch_one(&mut *txn).await?)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 
@@ -162,12 +175,12 @@ impl DeactivateInstanceType {
     pub async fn deactivate(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<InstanceType> {
-        Ok(sqlx::query_as(
-            "UPDATE instance_types SET active=false, updated=now() WHERE id=$1 RETURNING *",
-        )
-        .bind(self.id)
-        .fetch_one(&mut *txn)
-        .await?)
+    ) -> Result<InstanceType, DatabaseError> {
+        let query = "UPDATE instance_types SET active=false, updated=now() WHERE id=$1 RETURNING *";
+        sqlx::query_as(query)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }

@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::backtrace::{Backtrace, BacktraceStatus};
 use std::net::IpAddr;
 
 #[cfg(test)]
@@ -21,7 +22,6 @@ use model::{
 };
 use reachability::ReachabilityError;
 use rust_fsm::TransitionImpossibleError;
-use sqlx::postgres::PgDatabaseError;
 use state_controller::snapshot_loader::SnapshotLoaderError;
 use tonic::Status;
 
@@ -40,14 +40,6 @@ pub mod model;
 mod reachability;
 pub mod state_controller;
 pub mod vpc_resources;
-
-/// Special user-defined code for PostgreSQL level state transition violation
-///
-/// This error code is generated when we attempt to move a machine to a new desired state that is
-/// an invalid transition (e.g. transitioning from `adopted` to `allocated` is impossible because
-/// it requires hardware testing and validation first)
-///
-const SQL_STATE_TRANSITION_VIOLATION_CODE: &str = "T0100";
 
 /// Represents various Errors that can occur throughout the system.
 ///
@@ -86,8 +78,13 @@ pub enum CarbideError {
     #[error("Arguemnt is invalid: {0}")]
     InvalidArgument(String),
 
-    #[error("Database Query Error: {0}")]
-    DatabaseError(sqlx::Error),
+    // OLD, use DBError instead
+    #[error("Database Error: {2}. context={0}, query={1}.")]
+    DatabaseError(&'static str, &'static str, #[source] sqlx::Error),
+
+    // NEW
+    #[error("{0}")]
+    DBError(#[from] db::DatabaseError),
 
     #[error("Could not transition across states in the state machine: {0}")]
     InvalidState(TransitionImpossibleError),
@@ -209,12 +206,35 @@ pub enum CarbideError {
 
 impl From<CarbideError> for tonic::Status {
     fn from(from: CarbideError) -> Self {
+        // If env RUST_BACKTRACE is set extract handler and err location
+        // If it's not set `Backtrace::capture()` is very cheap to call
+        let mut printed = false;
+        let b = Backtrace::capture();
+        if b.status() == BacktraceStatus::Captured {
+            let b_str = b.to_string();
+            let f = b_str
+                .lines()
+                .skip(1)
+                .skip_while(|l| !l.contains("carbide"))
+                .take(2)
+                .collect::<Vec<&str>>();
+            if f.len() == 2 {
+                let handler = f[0].trim();
+                let location = f[1].trim().replace("at ", "");
+                log::error!("{from} location={location} handler='{handler}'");
+                printed = true;
+            }
+        }
+        if !printed {
+            log::error!("{from}");
+        }
+
         // TODO: There's many more mapped to `Status::internal` which are likely
         // user errors instead
-        match from {
+        match &from {
             CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
             CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
-            CarbideError::MissingArgument(msg) => Status::invalid_argument(msg),
+            CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
             CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
             CarbideError::NotFoundError(kind, uuid) => {
                 Status::not_found(format!("missing {kind} {uuid}"))
@@ -235,29 +255,6 @@ impl From<CarbideError> for tonic::Status {
 impl From<kube::Error> for CarbideError {
     fn from(err: kube::Error) -> CarbideError {
         Self::KubeClientError(err)
-    }
-}
-
-/// Convert a sqlx::Error to a CarbideError
-///
-/// This conversion will intercept an SQL State code of T0100 to catch the invalid state change of
-/// a machine instead of just returning a raw SqlError.  This requires not deriving `from` for the
-/// enum variant.
-///
-impl From<sqlx::Error> for CarbideError {
-    fn from(error: sqlx::Error) -> CarbideError {
-        log::info!("Error: {:?}", error);
-
-        if let Some(sql_error) = error.as_database_error() {
-            let postgres_error: &PgDatabaseError = sql_error.downcast_ref();
-            if postgres_error.code() == SQL_STATE_TRANSITION_VIOLATION_CODE {
-                return Self::MachineStateTransitionViolation(
-                    postgres_error.message().to_string(),
-                    postgres_error.hint().map(String::from),
-                );
-            }
-        }
-        Self::DatabaseError(error)
     }
 }
 

@@ -105,7 +105,9 @@ pub struct Db(sqlx::PgPool);
 
 impl Db {
     pub async fn new(url: &str) -> CarbideResult<Self> {
-        Ok(Db(sqlx::PgPool::connect(url).await?))
+        Ok(Db(sqlx::PgPool::connect(url).await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "connect", e)
+        })?))
     }
 }
 
@@ -124,7 +126,7 @@ impl VpcResourceActions {
             .set_json(&json)?
             .spawn(pool)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| CarbideError::DatabaseError(file!(), "vpc_reconcile_handler", e))
     }
 
     pub async fn reconcile(&self, pool: &mut PgConnection) -> CarbideResult<Uuid> {
@@ -342,7 +344,10 @@ async fn create_managed_resource_handler(
         TaskState::Finished,
     )
     .await;
-    let _ = current_job.complete().await.map_err(CarbideError::from);
+    let _ = current_job
+        .complete()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "sqlmx complete", e));
     Ok(())
 }
 
@@ -516,7 +521,9 @@ async fn delete_managed_resource_handler(
     )
     .await;
 
-    let _ = current_job.complete().await.map_err(CarbideError::from);
+    current_job.complete().await.map_err(|e| {
+        CarbideError::DatabaseError(file!(), "complete delete_managed_resource_handler", e)
+    })?;
     Ok(())
 }
 
@@ -580,7 +587,9 @@ pub async fn vpc_reconcile_handler(
                     "Leaf space name mismatch"
                 );
 
-                let mut vpc_txn = current_job.pool().begin().await?;
+                let mut vpc_txn = current_job.pool().begin().await.map_err(|e| {
+                    CarbideError::DatabaseError(file!(), "begin vpc_reconcile_handler 1", e)
+                })?;
 
                 let leafs: Api<leaf::Leaf> = Api::namespaced(client.to_owned(), namespace);
 
@@ -622,7 +631,9 @@ pub async fn vpc_reconcile_handler(
                                 })?;
                         let newly_created_leaf = leafs.get_status(&spec.name()).await?;
 
-                        let mut last_txn = current_job.pool().begin().await?;
+                        let mut last_txn = current_job.pool().begin().await.map_err(|e| {
+                            CarbideError::DatabaseError(file!(), "begin vpc_reconcile_handler 2", e)
+                        })?;
 
                         log::info!("VPC Status Object: {:?}", newly_created_leaf.status);
 
@@ -653,7 +664,13 @@ pub async fn vpc_reconcile_handler(
                             todo!("no status this is bad -- we waited for it to be ready so it can't not have this")
                         }
 
-                        last_txn.commit().await?;
+                        last_txn.commit().await.map_err(|e| {
+                            CarbideError::DatabaseError(
+                                file!(),
+                                "commit vpc_reconcile_handler 2",
+                                e,
+                            )
+                        })?;
 
                         update_status(
                             &current_job,
@@ -667,7 +684,13 @@ pub async fn vpc_reconcile_handler(
                         )
                         .await;
 
-                        let _ = current_job.complete().await.map_err(CarbideError::from);
+                        let _ = current_job.complete().await.map_err(|e| {
+                            CarbideError::DatabaseError(
+                                file!(),
+                                "complete vpc_reconcile_handler",
+                                e,
+                            )
+                        });
                         log::info!("Jobs done - {}", &current_job.id())
                     }
 
@@ -701,7 +724,10 @@ pub async fn vpc_reconcile_handler(
                     TaskState::Finished,
                 )
                 .await;
-                let _ = current_job.complete().await.map_err(CarbideError::from);
+                let _ = current_job
+                    .complete()
+                    .await
+                    .map_err(|e| CarbideError::DatabaseError(file!(), "complete", e));
             }
             VpcResourceActions::UpdateLeaf(leaf_data) => {
                 let spec_name = leaf_name(leaf_data.dpu_machine_id);
@@ -731,7 +757,10 @@ pub async fn vpc_reconcile_handler(
                         .await;
 
                         log::info!("Updated leaf: {updated_leaf:?}");
-                        let _ = current_job.complete().await.map_err(CarbideError::from);
+                        let _ = current_job
+                            .complete()
+                            .await
+                            .map_err(|e| CarbideError::DatabaseError(file!(), "complete", e));
                     }
                     Err(error) => {
                         log::error!("Error updating leaf: {error}");
@@ -852,7 +881,7 @@ pub async fn bgkubernetes_handler(
         .set_channel_names(&["vpc_reconcile_handler"])
         .run()
         .await
-        .map_err(CarbideError::from)
+        .map_err(|e| CarbideError::DatabaseError(file!(), "bgkubernetes_handler", e))
 }
 
 /// Generates the kubernetes name of a Leaf CRD - based on the Forge dpu_machine_id
@@ -926,7 +955,10 @@ pub async fn create_managed_resource(
         managed_resources,
     );
 
-    let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+    let db_conn = txn
+        .acquire()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "acquire create_managed_resource", e))?;
     VpcResourceActions::CreateManagedResource(ManagedResourceData::new(
         machine_id,
         dpu_machine_id,
@@ -973,7 +1005,10 @@ pub async fn delete_managed_resource(
         machine_id
     );
 
-    let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+    let db_conn = txn
+        .acquire()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "acquire delete_managed_resource", e))?;
     VpcResourceActions::DeleteManagedResource(ManagedResourceData::new(
         machine_id,
         dpu_machine_id,
@@ -1014,7 +1049,10 @@ pub async fn update_leaf(
         host_admin_ip_address_string,
     )]));
 
-    let db_conn = txn.acquire().await.map_err(CarbideError::from)?;
+    let db_conn = txn
+        .acquire()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "acquire update_leaf", e))?;
 
     VpcResourceActions::UpdateLeaf(UpdateLeafData {
         dpu_machine_id,

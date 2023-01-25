@@ -24,7 +24,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use super::UuidKeyedObjectFilter;
+use super::{DatabaseError, UuidKeyedObjectFilter};
 use crate::db::machine_event::MachineEvent;
 use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_topology::MachineTopology;
@@ -149,7 +149,7 @@ impl Machine {
     pub async fn exists(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
-    ) -> CarbideResult<bool> {
+    ) -> Result<bool, DatabaseError> {
         let machine = Machine::find_one(&mut *txn, machine_id).await?;
         match machine {
             None => Ok(false),
@@ -185,14 +185,18 @@ impl Machine {
             },
             // CREATE
             None => {
+                let query = "INSERT INTO machines DEFAULT VALUES RETURNING id";
                 let row: (Uuid,) =
-                    sqlx::query_as("INSERT INTO machines DEFAULT VALUES RETURNING id")
+                    sqlx::query_as(query)
                         .fetch_one(&mut *txn)
-                        .await?;
+                        .await
+                        .map_err(|e| {
+                            CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
+                        })?;
                 let machine = match Machine::find_one(&mut *txn, row.0).await {
                     Ok(Some(x)) => Ok(x),
                     Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),
-                    Err(x) => Err(x),
+                    Err(x) => Err(x.into()),
                 }?;
                 match machine.current_state() {
                     MachineState::Init => {
@@ -217,22 +221,20 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
         vpc_leaf_id: uuid::Uuid,
-    ) -> CarbideResult<Machine> {
-        Ok(
-            sqlx::query_as(
-                "UPDATE machines SET vpc_leaf_id=$1::uuid where id=$2::uuid RETURNING *",
-            )
+    ) -> Result<Machine, DatabaseError> {
+        let query = "UPDATE machines SET vpc_leaf_id=$1::uuid where id=$2::uuid RETURNING *";
+        sqlx::query_as(query)
             .bind(vpc_leaf_id)
             .bind(machine_id)
             .fetch_one(&mut *txn)
-            .await?,
-        )
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_one(
         txn: &mut Transaction<'_, Postgres>,
         uuid: uuid::Uuid,
-    ) -> CarbideResult<Option<Self>> {
+    ) -> Result<Option<Self>, DatabaseError> {
         Ok(Machine::find(txn, UuidKeyedObjectFilter::One(uuid))
             .await?
             .pop())
@@ -246,27 +248,27 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
         relay: IpAddr,
-    ) -> CarbideResult<Option<(Uuid,)>> {
-        let sql = r#"
-        SELECT m.id FROM
-            machines m
-            INNER JOIN machine_interfaces mi
-                ON m.id = mi.machine_id
-            INNER JOIN network_segments ns
-                ON mi.segment_id = ns.id
-            INNER JOIN network_prefixes np
-                ON np.segment_id = ns.id
-            WHERE
-                mi.mac_address = $1::macaddr
-                AND
-                $2::inet <<= np.prefix;
-        "#;
+    ) -> Result<Option<(Uuid,)>, DatabaseError> {
+        let query = "
+SELECT m.id FROM
+    machines m
+    INNER JOIN machine_interfaces mi
+        ON m.id = mi.machine_id
+    INNER JOIN network_segments ns
+        ON mi.segment_id = ns.id
+    INNER JOIN network_prefixes np
+        ON np.segment_id = ns.id
+    WHERE
+        mi.mac_address = $1::macaddr
+        AND
+        $2::inet <<= np.prefix";
 
-        Ok(sqlx::query_as(sql)
+        sqlx::query_as(query)
             .bind(macaddr)
             .bind(IpNetwork::from(relay))
             .fetch_optional(&mut *txn)
-            .await?)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     /// Returns the UUID of the machine object
@@ -328,20 +330,20 @@ impl Machine {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         state: MachineState,
-    ) -> CarbideResult<bool> {
+    ) -> Result<bool, DatabaseError> {
         // Get current version
 
         let version = self.state.version;
         let new_version = version.increment();
 
-        let _id: (uuid::Uuid,) = sqlx::query_as(
-            "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
-        )
-        .bind(new_version.to_version_string())
-        .bind(sqlx::types::Json(state))
-        .bind(self.id())
-        .fetch_one(txn)
-        .await?;
+        let query = "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id";
+        let _id: (uuid::Uuid,) = sqlx::query_as(query)
+            .bind(new_version.to_version_string())
+            .bind(sqlx::types::Json(state))
+            .bind(self.id())
+            .fetch_one(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(true)
     }
@@ -353,21 +355,15 @@ impl Machine {
     ///
     pub async fn list_active_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<Uuid>, sqlx::Error> {
+    ) -> Result<Vec<Uuid>, DatabaseError> {
         // TODO: Since the state is not directly part of the database and might move,
         // we currently assume all machines as active
 
-        // TODO 2: This method returns a `sqlx::Error` instead of the `CarbideError` most
-        // other methods return. The challenge with `CarbideError` is that if we would
-        // use this function in another subcomponent of the project, it would also be forced
-        // to use `CarbideError`, which gives callers not an option to have a finer grained
-        // error type.
-
+        let query = "SELECT id FROM machines";
         let mut results = Vec::new();
-        let mut machine_id_stream =
-            sqlx::query_as::<_, MachineId>("SELECT id FROM machines").fetch(txn);
+        let mut machine_id_stream = sqlx::query_as::<_, MachineId>(query).fetch(txn);
         while let Some(maybe_id) = machine_id_stream.next().await {
-            let id = maybe_id?;
+            let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id.into());
         }
 
@@ -386,26 +382,29 @@ impl Machine {
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
-    ) -> CarbideResult<Vec<Machine>> {
+    ) -> Result<Vec<Machine>, DatabaseError> {
         let base_query = "SELECT * FROM machines m {where} GROUP BY m.id".to_owned();
 
         let mut all_machines: Vec<Machine> = match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "machines All", e))?
             }
             UuidKeyedObjectFilter::One(uuid) => {
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=$1"))
                     .bind(uuid)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "machines One", e))?
             }
             UuidKeyedObjectFilter::List(list) => {
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
                     .bind(list)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "machines List", e))?
             }
         };
 
@@ -448,13 +447,13 @@ impl Machine {
     pub async fn find_by_fqdn(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         fqdn: String,
-    ) -> CarbideResult<Vec<Machine>> {
-        Ok(
-            sqlx::query_as("SELECT * FROM machines WHERE fqdn= $1 and deleted is NULL")
-                .bind(fqdn)
-                .fetch_all(&mut *txn)
-                .await?,
-        )
+    ) -> Result<Vec<Machine>, DatabaseError> {
+        let query = "SELECT * FROM machines WHERE fqdn= $1 and deleted is NULL";
+        sqlx::query_as(query)
+            .bind(fqdn)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 

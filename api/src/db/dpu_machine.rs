@@ -21,7 +21,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use crate::CarbideResult;
+use super::DatabaseError;
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
@@ -79,61 +79,64 @@ impl DpuMachine {
     pub async fn find_by_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &uuid::Uuid,
-    ) -> CarbideResult<Self> {
-        Ok(
-            sqlx::query_as("SELECT * FROM dpu_machines WHERE machine_id = $1::uuid")
-                .bind(dpu_machine_id)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+    ) -> Result<Self, DatabaseError> {
+        let query = "SELECT * FROM dpu_machines WHERE machine_id = $1::uuid";
+        sqlx::query_as(query)
+            .bind(dpu_machine_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_host_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &uuid::Uuid,
-    ) -> CarbideResult<Self> {
-        Ok(
-            sqlx::query_as("SELECT dm.* From dpu_machines dm JOIN machine_interfaces mi on dm.machine_id = mi.attached_dpu_machine_id WHERE mi.machine_id=$1::uuid")
-                .bind(machine_id)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+    ) -> Result<Self, DatabaseError> {
+        let query = "
+SELECT dm.* FROM dpu_machines dm
+JOIN machine_interfaces mi on dm.machine_id = mi.attached_dpu_machine_id
+WHERE mi.machine_id=$1::uuid";
+        sqlx::query_as(query)
+            .bind(machine_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_ip(
         txn: &mut Transaction<'_, Postgres>,
-        query: &Ipv4Addr,
-    ) -> CarbideResult<Self> {
-        Ok(
-            sqlx::query_as("SELECT * FROM dpu_machines WHERE address = $1::inet")
-                .bind(query.to_string())
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+        ip: &Ipv4Addr,
+    ) -> Result<Self, DatabaseError> {
+        let query = "SELECT * FROM dpu_machines WHERE address = $1::inet";
+        sqlx::query_as(query)
+            .bind(ip.to_string())
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_hostname(
         txn: &mut Transaction<'_, Postgres>,
-        query: &str,
-    ) -> CarbideResult<Self> {
-        Ok(
-            sqlx::query_as("SELECT * FROM dpu_machines WHERE hostname = $1")
-                .bind(query)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+        hostname: &str,
+    ) -> Result<Self, DatabaseError> {
+        let query = "SELECT * FROM dpu_machines WHERE hostname = $1";
+        sqlx::query_as(query)
+            .bind(hostname)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_mac_address(
         txn: &mut Transaction<'_, Postgres>,
-        query: &MacAddress,
-    ) -> CarbideResult<Self> {
-        Ok(
-            sqlx::query_as("SELECT * FROM dpu_machines WHERE mac_address = $1::macaddr")
-                .bind(query)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+        mac_address: &MacAddress,
+    ) -> Result<Self, DatabaseError> {
+        let query = "SELECT * FROM dpu_machines WHERE mac_address = $1::macaddr";
+        sqlx::query_as(query)
+            .bind(mac_address)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 

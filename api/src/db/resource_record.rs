@@ -9,13 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
-use ::rpc::forge as rpc;
-
-use crate::CarbideResult;
+use super::DatabaseError;
 
 #[derive(Debug, Clone)]
 pub struct ResourceRecord {
@@ -92,18 +91,18 @@ impl DnsQuestion {
     pub async fn find_record(
         txn: &mut Transaction<'_, Postgres>,
         question: DnsQuestion,
-    ) -> CarbideResult<DnsResponse> {
+    ) -> Result<DnsResponse, DatabaseError> {
         let mut response = DnsResponse::default();
 
         log::info!("{:?}", question);
         match question.query_type {
             Some(1) => {
-                let result = sqlx::query_as::<_, ResourceRecord>(
-                    "SELECT resource_record from dns_records WHERE q_name=$1 AND family(resource_record) = 4;",
-                )
+                let query = "SELECT resource_record from dns_records WHERE q_name=$1 AND family(resource_record) = 4;";
+                let result = sqlx::query_as::<_, ResourceRecord>(query)
                     .bind(Some(question.query_name))
                     .fetch_one(&mut *txn)
-                    .await?;
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
                 log::info!("{:?}", result);
                 let rr = DnsResourceRecord {
                     record_data: Some(result),

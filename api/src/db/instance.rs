@@ -20,7 +20,7 @@ use chrono::prelude::*;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
-use super::UuidKeyedObjectFilter;
+use super::{DatabaseError, UuidKeyedObjectFilter};
 use crate::{
     db::instance_address::InstanceAddress,
     model::{
@@ -113,26 +113,29 @@ impl Instance {
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
-    ) -> CarbideResult<Vec<Instance>> {
+    ) -> Result<Vec<Instance>, DatabaseError> {
         let base_query = "SELECT * FROM instances m {where} GROUP BY m.id".to_owned();
 
         let all_instances: Vec<Instance> = match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, Instance>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "instances All", e))?
             }
             UuidKeyedObjectFilter::One(uuid) => {
                 sqlx::query_as::<_, Instance>(&base_query.replace("{where}", "WHERE m.id=$1"))
                     .bind(uuid)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "instances One", e))?
             }
             UuidKeyedObjectFilter::List(list) => {
                 sqlx::query_as::<_, Instance>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
                     .bind(list)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?
             }
         };
 
@@ -146,17 +149,18 @@ impl Instance {
     pub async fn find_id_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
-    ) -> Result<Option<uuid::Uuid>, sqlx::Error> {
+    ) -> Result<Option<uuid::Uuid>, DatabaseError> {
         #[derive(Debug, Clone, Copy, FromRow)]
         pub struct InstanceId(uuid::Uuid);
 
         // TODO: This won't work anymore if instances are not hard deleted on user delete.
         // Multiple instances will map to the same machine. We would need to get the active one.
-        let instance_id =
-            sqlx::query_as::<_, InstanceId>("SELECT id from instances WHERE machine_id = $1::uuid")
-                .bind(machine_id)
-                .fetch_optional(&mut *txn)
-                .await?;
+        let query = "SELECT id from instances WHERE machine_id = $1::uuid";
+        let instance_id = sqlx::query_as::<_, InstanceId>(query)
+            .bind(machine_id)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(instance_id.map(|id| id.0))
     }
@@ -164,12 +168,13 @@ impl Instance {
     pub async fn find_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
-    ) -> CarbideResult<Option<Instance>> {
-        let instance =
-            sqlx::query_as::<_, Instance>("SELECT * from instances WHERE machine_id = $1::uuid")
-                .bind(machine_id)
-                .fetch_optional(&mut *txn)
-                .await?;
+    ) -> Result<Option<Instance>, DatabaseError> {
+        let query = "SELECT * from instances WHERE machine_id = $1::uuid";
+        let instance = sqlx::query_as::<_, Instance>(query)
+            .bind(machine_id)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         // TODO handle more than one subnet assignment on an instance
         // has network_segment_id
@@ -179,24 +184,25 @@ impl Instance {
     pub async fn find_by_relay_ip(
         txn: &mut Transaction<'_, Postgres>,
         relay: IpAddr,
-    ) -> CarbideResult<Option<Instance>> {
-        Ok(sqlx::query_as(
-            r#"select i.* from instances i
-            INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id
-            INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
-            INNER JOIN vpc_resource_leafs v ON v.id = s.vpc_leaf_id
-            WHERE v.loopback_ip_address=$1"#,
-        )
-        .bind(relay)
-        .fetch_optional(&mut *txn)
-        .await?)
+    ) -> Result<Option<Instance>, DatabaseError> {
+        let query = "
+SELECT i.* from instances i
+INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id
+INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
+INNER JOIN vpc_resource_leafs v ON v.id = s.vpc_leaf_id
+WHERE v.loopback_ip_address=$1";
+        sqlx::query_as(query)
+            .bind(relay)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn use_custom_ipxe_on_next_boot(
         machine_id: uuid::Uuid,
         boot_with_custom_ipxe: bool,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query =
             "UPDATE instances SET use_custom_pxe_on_boot=$1::bool WHERE machine_id=$2::uuid RETURNING machine_id";
         // Fetch one to make sure atleast one row is updated.
@@ -204,7 +210,8 @@ impl Instance {
             .bind(boot_with_custom_ipxe)
             .bind(machine_id)
             .fetch_one(&mut *txn)
-            .await?;
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(())
     }
@@ -214,28 +221,37 @@ impl<'a> NewInstance<'a> {
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<Instance> {
+    ) -> Result<Instance, DatabaseError> {
         let network_version_string = self.network_config.version.to_version_string();
         // None means we haven't observed any network status from the DPU via VPC yet
         // The first report from the networking subsytem will set the field
         let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
 
-        Ok(
-            sqlx::query_as(concat!(
-                "INSERT INTO instances (machine_id, user_data, custom_ipxe, tenant_org, ssh_keys, use_custom_pxe_on_boot, network_config, network_config_version, network_status_observation) ",
-                "VALUES ($1::uuid, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json) RETURNING *"),
-            )
-                .bind(self.machine_id)
-                .bind(&self.tenant_config.user_data)
-                .bind(&self.tenant_config.custom_ipxe)
-                .bind(self.tenant_config.tenant_org.as_str())
-                .bind(&self.ssh_keys)
-                .bind(sqlx::types::Json(&self.network_config.value))
-                .bind(&network_version_string)
-                .bind(sqlx::types::Json(network_status_observation))
-                .fetch_one(&mut *txn)
-                .await?
-        )
+        let query = "INSERT INTO instances (
+                        machine_id,
+                        user_data,
+                        custom_ipxe,
+                        tenant_org,
+                        ssh_keys,
+                        use_custom_pxe_on_boot,
+                        network_config,
+                        network_config_version,
+                        network_status_observation
+                    )
+                    VALUES ($1::uuid, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json)
+                    RETURNING *";
+        sqlx::query_as(query)
+            .bind(self.machine_id)
+            .bind(&self.tenant_config.user_data)
+            .bind(&self.tenant_config.custom_ipxe)
+            .bind(self.tenant_config.tenant_org.as_str())
+            .bind(&self.ssh_keys)
+            .bind(sqlx::types::Json(&self.network_config.value))
+            .bind(&network_version_string)
+            .bind(sqlx::types::Json(network_status_observation))
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 
@@ -256,11 +272,11 @@ impl DeleteInstance {
 
         InstanceAddress::delete(&mut *txn, self.instance_id).await?;
 
-        Ok(
-            sqlx::query_as("DELETE FROM instances where id=$1::uuid RETURNING *")
-                .bind(self.instance_id)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+        let query = "DELETE FROM instances where id=$1::uuid RETURNING *";
+        sqlx::query_as(query)
+            .bind(self.instance_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 }

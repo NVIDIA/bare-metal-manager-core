@@ -18,6 +18,7 @@ use crate::{
         },
         machine::Machine,
         machine_topology::MachineTopology,
+        DatabaseError,
     },
     model::{
         instance::{
@@ -53,19 +54,19 @@ pub trait InstanceSnapshotLoader: Send + Sync + std::fmt::Debug {
 #[derive(Debug, thiserror::Error)]
 pub enum SnapshotLoaderError {
     #[error("Unable to perform database transaction: {0}")]
-    TransactionError(#[from] sqlx::Error),
+    TransactionError(#[from] DatabaseError),
     #[error("Unable to load Hardware information: {0}")]
     HardwareInfoSqlError(sqlx::Error),
     #[error("Hardware information for Machine {0} is missing")]
     MissingHardwareInfo(uuid::Uuid),
     #[error("Instance with ID {0} was not found")]
     InstanceNotFound(uuid::Uuid),
+    #[error("Invalid result: {0}")]
+    InvalidResult(String),
     #[error("Machine with ID {0} was not found.")]
     MachineNotFound(uuid::Uuid),
-    // TODO: This should be replaced - but requires downstream errors to migrate
-    // off from CarbideError
-    #[error("Unable to load snapshot: {0}")]
-    GenericError(anyhow::Error),
+    #[error("Expected 1 instance with id {0} found {1}")]
+    MultipleInstances(uuid::Uuid, usize),
 }
 
 /// Load a machine state snapshot from a postgres database
@@ -81,7 +82,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
     ) -> Result<MachineStateSnapshot, SnapshotLoaderError> {
         let mut hardware_infos = MachineTopology::find_latest_by_machine_ids(txn, &[machine_id])
             .await
-            .map_err(SnapshotLoaderError::HardwareInfoSqlError)?;
+            .map_err(|e| SnapshotLoaderError::HardwareInfoSqlError(e.source))?;
         let info = hardware_infos
             .remove(&machine_id)
             .ok_or(SnapshotLoaderError::MissingHardwareInfo(machine_id))?;
@@ -93,8 +94,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
         };
 
         let machine = Machine::find_one(txn, machine_id)
-            .await
-            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
+            .await?
             .ok_or(SnapshotLoaderError::MachineNotFound(machine_id))?;
 
         let snapshot = MachineStateSnapshot {
@@ -118,16 +118,15 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         instance_id: uuid::Uuid,
     ) -> Result<InstanceSnapshot, SnapshotLoaderError> {
-        let mut instances = Instance::find(txn, crate::db::UuidKeyedObjectFilter::One(instance_id))
-            .await
-            .map_err(|e| SnapshotLoaderError::GenericError(e.into()))?;
+        let mut instances =
+            Instance::find(txn, crate::db::UuidKeyedObjectFilter::One(instance_id)).await?;
         if instances.is_empty() {
             return Err(SnapshotLoaderError::InstanceNotFound(instance_id));
         } else if instances.len() != 1 {
-            return Err(SnapshotLoaderError::GenericError(anyhow::anyhow!(
-                "Multiple instances with UUID {} have been found",
-                instance_id
-            )));
+            return Err(SnapshotLoaderError::MultipleInstances(
+                instance_id,
+                instances.len(),
+            ));
         }
         let instance = instances.pop().unwrap();
 

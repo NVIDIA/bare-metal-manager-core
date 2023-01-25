@@ -92,7 +92,10 @@ pub async fn allocate_instance(
     // like `machine_id` or any `network_segments`.
     request.config.validate()?;
 
-    let mut txn = database.begin().await?;
+    let mut txn = database
+        .begin()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "begin allocate_instance", e))?;
 
     let tenant_config = request
         .config
@@ -178,7 +181,9 @@ pub async fn allocate_instance(
         .load_instance_snapshot(&mut txn, instance.id)
         .await?;
 
-    txn.commit().await.map_err(CarbideError::from)?;
+    txn.commit()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "commit allocate_instance", e))?;
 
     Ok(snapshot)
 }

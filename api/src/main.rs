@@ -13,12 +13,12 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide::cfg::{Command, Options};
+use color_eyre::eyre::Context;
+use forge_credentials::ForgeVaultClient;
 use sqlx::PgPool;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
-
-use carbide::cfg::{Command, Options};
-use forge_credentials::ForgeVaultClient;
 
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::Report> {
@@ -42,6 +42,7 @@ async fn main() -> Result<(), color_eyre::Report> {
             }
             .into(),
         )
+        .add_directive("sqlxmq::runner=warn".parse()?)
         .add_directive("sqlx::query=warn".parse()?)
         .add_directive("h2::codec=warn".parse()?);
 
@@ -57,9 +58,10 @@ async fn main() -> Result<(), color_eyre::Report> {
             carbide::db::migrations::migrate(&pool).await?;
         }
         Command::Run(ref config) => {
-            let vault_token = env::var("VAULT_TOKEN")?;
-            let vault_addr = env::var("VAULT_ADDR")?;
-            let vault_mount_location = env::var("VAULT_MOUNT_LOCATION")?;
+            let vault_token = env::var("VAULT_TOKEN").wrap_err("VAULT_TOKEN")?;
+            let vault_addr = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
+            let vault_mount_location =
+                env::var("VAULT_MOUNT_LOCATION").wrap_err("VAULT_MOUNT_LOCATION")?;
 
             let vault_client_settings = VaultClientSettingsBuilder::default()
                 .address(vault_addr)

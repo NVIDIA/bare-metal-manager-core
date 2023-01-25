@@ -11,13 +11,13 @@
  */
 use std::convert::TryFrom;
 
+use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use sqlx::types::uuid;
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
-use ::rpc::forge as rpc;
-
+use super::DatabaseError;
 use crate::db::UuidKeyedObjectFilter;
 use crate::{CarbideError, CarbideResult};
 
@@ -86,7 +86,8 @@ impl NewDomain {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Domain> {
-        sqlx::query_as("INSERT INTO domains (name) VALUES ($1) returning *")
+        let query = "INSERT INTO domains (name) VALUES ($1) returning *";
+        sqlx::query_as(query)
             .bind(&self.name)
             .fetch_one(&mut *txn)
             .await
@@ -101,7 +102,7 @@ impl NewDomain {
                 {
                     CarbideError::InvalidDomainName(String::from(&self.name))
                 }
-                _ => CarbideError::from(err),
+                e => CarbideError::from(DatabaseError::new(file!(), line!(), query, e)),
             })
     }
 }
@@ -121,25 +122,31 @@ impl Domain {
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
-    ) -> CarbideResult<Vec<Domain>> {
+    ) -> Result<Vec<Domain>, DatabaseError> {
         // TODO(jdg):  Add a deleted option to find
         let results: Vec<Domain> = match filter {
             UuidKeyedObjectFilter::All => {
-                sqlx::query_as("SELECT * FROM domains WHERE deleted is NULL")
+                let query = "SELECT * FROM domains WHERE deleted is NULL";
+                sqlx::query_as(query)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
             UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as("SELECT * FROM domains WHERE id = $1 AND deleted is NULL")
+                let query = "SELECT * FROM domains WHERE id = $1 AND deleted is NULL";
+                sqlx::query_as(query)
                     .bind(uuid)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
             UuidKeyedObjectFilter::List(list) => {
-                sqlx::query_as("select * from domains WHERE id = ANY($1) AND deleted is NULL")
+                let query = "select * from domains WHERE id = ANY($1) AND deleted is NULL";
+                sqlx::query_as(query)
                     .bind(list)
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
         };
 
@@ -162,64 +169,74 @@ impl Domain {
     /// * `txn` - A reference to a currently open database transaction
     /// * `name` - The name of the Domain. e.g. mydomain.com
     ///
-    pub async fn create(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Self> {
-        Ok(
-            sqlx::query_as("INSERT INTO domains (name) VALUES ($1) RETURNING name")
-                .bind(&self.name)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+    pub async fn create(&self, txn: &mut Transaction<'_, Postgres>) -> Result<Self, DatabaseError> {
+        let query = "INSERT INTO domains (name) VALUES ($1) RETURNING name";
+        sqlx::query_as(query)
+            .bind(&self.name)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_vpc(
         txn: &mut Transaction<'_, Postgres>,
         vpc_id: uuid::Uuid, // aka projects for now 4/7/2022
-    ) -> CarbideResult<Vec<Self>> {
-        let results: Vec<Self> = sqlx::query_as("SELECT * FROM domains where project_id = $1")
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let query = "SELECT * FROM domains where project_id = $1";
+        let results: Vec<Self> = sqlx::query_as(query)
             .bind(vpc_id)
             .fetch_all(&mut *txn)
-            .await?;
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(results)
     }
 
     pub async fn find_by_name(
         txn: &mut Transaction<'_, Postgres>,
         name: String,
-    ) -> CarbideResult<Vec<Self>> {
-        Ok(
-            sqlx::query_as("SELECT * FROM domains WHERE name= $1 and deleted is NULL")
-                .bind(name)
-                .fetch_all(&mut *txn)
-                .await?,
-        )
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let query = "SELECT * FROM domains WHERE name= $1 and deleted is NULL";
+        sqlx::query_as(query)
+            .bind(name)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
     pub async fn find_by_uuid(
         txn: &mut Transaction<'_, Postgres>,
         uuid: Uuid,
-    ) -> CarbideResult<Option<Self>> {
-        Ok(sqlx::query_as("SELECT * FROM domains WHERE id = $1::uuid")
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = "SELECT * FROM domains WHERE id = $1::uuid";
+        sqlx::query_as(query)
             .bind(uuid)
             .fetch_optional(&mut *txn)
-            .await?)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Domain> {
-        Ok(sqlx::query_as(
-            "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *",
-        )
-        .bind(self.id)
-        .fetch_one(&mut *txn)
-        .await?)
+    pub async fn delete(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Domain, DatabaseError> {
+        let query = "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
+        sqlx::query_as(query)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn update(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Domain> {
-        Ok(
-            sqlx::query_as("UPDATE domains SET name=$1, updated=NOW() WHERE id=$2 RETURNING *")
-                .bind(&self.name)
-                .bind(self.id)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+    pub async fn update(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Domain, DatabaseError> {
+        let query = "UPDATE domains SET name=$1, updated=NOW() WHERE id=$2 RETURNING *";
+        sqlx::query_as(query)
+            .bind(&self.name)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub fn id(&self) -> &uuid::Uuid {

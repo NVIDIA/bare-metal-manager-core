@@ -16,7 +16,10 @@ use patricia_tree::PatriciaMap;
 use sqlx::{self, Postgres, Transaction};
 
 use crate::{
-    db::{address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment},
+    db::{
+        address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
+        DatabaseError,
+    },
     CarbideError, CarbideResult,
 };
 
@@ -26,7 +29,7 @@ pub trait UsedIpResolver {
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<(IpNetwork,)>>;
+    ) -> Result<Vec<(IpNetwork,)>, DatabaseError>;
 }
 
 #[derive(thiserror::Error, Debug)]

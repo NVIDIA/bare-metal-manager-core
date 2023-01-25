@@ -11,7 +11,7 @@
  */
 use sqlx::{FromRow, Postgres, Transaction};
 
-use crate::CarbideResult;
+use super::DatabaseError;
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
@@ -28,25 +28,28 @@ impl DhcpEntry {
     pub async fn find_by_interface_id(
         txn: &mut Transaction<'_, Postgres>,
         machine_interface_id: &uuid::Uuid,
-    ) -> CarbideResult<Vec<DhcpEntry>> {
-        Ok(
-            sqlx::query_as("SELECT * FROM dhcp_entries WHERE machine_interface_id = $1::uuid")
-                .bind(machine_interface_id)
-                .fetch_all(&mut *txn)
-                .await?,
-        )
+    ) -> Result<Vec<DhcpEntry>, DatabaseError> {
+        let query = "SELECT * FROM dhcp_entries WHERE machine_interface_id = $1::uuid";
+        sqlx::query_as(query)
+            .bind(machine_interface_id)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<DhcpEntry> {
-        Ok(
-            sqlx::query_as("INSERT INTO dhcp_entries (machine_interface_id, vendor_string) VALUES ($1::uuid, $2::varchar) RETURNING *")
-                .bind(self.machine_interface_id)
-                .bind(&self.vendor_class)
-                .fetch_one(&mut *txn)
-                .await?,
-        )
+    ) -> Result<DhcpEntry, DatabaseError> {
+        let query = "
+INSERT INTO dhcp_entries (machine_interface_id, vendor_string)
+VALUES ($1::uuid, $2::varchar)
+RETURNING *";
+        sqlx::query_as(query)
+            .bind(self.machine_interface_id)
+            .bind(&self.vendor_class)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }

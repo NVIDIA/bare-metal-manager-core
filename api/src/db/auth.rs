@@ -9,14 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::convert::TryFrom;
 
+use ::rpc::forge as rpc;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 
-use ::rpc::forge as rpc;
-
-use crate::{db::ipmi::UserRoles, CarbideError, CarbideResult};
+use super::DatabaseError;
+use crate::db::ipmi::UserRoles;
 
 #[derive(Clone, Debug)]
 pub struct SshKeyValidationRequest {
@@ -30,14 +29,12 @@ struct SshPublicKeys {
     pubkeys: Vec<String>,
 }
 
-impl TryFrom<rpc::SshKeyValidationRequest> for SshKeyValidationRequest {
-    type Error = CarbideError;
-
-    fn try_from(value: rpc::SshKeyValidationRequest) -> Result<Self, Self::Error> {
-        Ok(SshKeyValidationRequest {
+impl From<rpc::SshKeyValidationRequest> for SshKeyValidationRequest {
+    fn from(value: rpc::SshKeyValidationRequest) -> Self {
+        SshKeyValidationRequest {
             user: value.user,
             pubkey: value.pubkey,
-        })
+        }
     }
 }
 
@@ -54,13 +51,13 @@ impl SshKeyValidationRequest {
     pub async fn verify_user(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<rpc::SshKeyValidationResponse> {
-        let user_info: SshPublicKeys =
-            sqlx::query_as("SELECT role, pubkeys from ssh_public_keys WHERE username=$1")
-                .bind(&self.user)
-                .fetch_one(&mut *txn)
-                .await
-                .map_err(CarbideError::from)?;
+    ) -> Result<rpc::SshKeyValidationResponse, DatabaseError> {
+        let query = "SELECT role, pubkeys from ssh_public_keys WHERE username=$1";
+        let user_info: SshPublicKeys = sqlx::query_as(query)
+            .bind(&self.user)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         // the key is normally formatted like "<algorith> <key>"
         if let Some(actual_key) = self.pubkey.split_ascii_whitespace().last() {

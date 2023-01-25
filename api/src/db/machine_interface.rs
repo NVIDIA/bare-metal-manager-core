@@ -19,7 +19,7 @@ use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use super::UuidKeyedObjectFilter;
+use super::{DatabaseError, UuidKeyedObjectFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
@@ -115,14 +115,14 @@ impl MachineInterface {
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
         new_hostname: &str,
-    ) -> CarbideResult<&MachineInterface> {
-        let (hostname,) = sqlx::query_as(
-            "UPDATE machine_interfaces SET hostname=$1 WHERE id=$2 RETURNING hostname",
-        )
-        .bind(new_hostname)
-        .bind(self.id())
-        .fetch_one(txn)
-        .await?;
+    ) -> Result<&MachineInterface, DatabaseError> {
+        let query = "UPDATE machine_interfaces SET hostname=$1 WHERE id=$2 RETURNING hostname";
+        let (hostname,) = sqlx::query_as(query)
+            .bind(new_hostname)
+            .bind(self.id())
+            .fetch_one(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         self.hostname = hostname;
 
@@ -133,17 +133,15 @@ impl MachineInterface {
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &uuid::Uuid,
-    ) -> CarbideResult<Self> {
-        sqlx::query_as(
-            "UPDATE machine_interfaces SET attached_dpu_machine_id=$1::uuid where id=$2::uuid RETURNING *",
-        )
+    ) -> Result<Self, DatabaseError> {
+        let query =
+            "UPDATE machine_interfaces SET attached_dpu_machine_id=$1::uuid where id=$2::uuid RETURNING *";
+        sqlx::query_as(query)
             .bind(dpu_machine_id)
             .bind(self.id)
             .fetch_one(&mut *txn)
             .await
-            .map_err(|err: sqlx::Error| {
-                CarbideError::from(err)
-            })
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn associate_interface_with_machine(
@@ -151,21 +149,21 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &uuid::Uuid,
     ) -> CarbideResult<Self> {
-        sqlx::query_as(
-            "UPDATE machine_interfaces SET machine_id=$1::uuid where id=$2::uuid RETURNING *",
-        )
-        .bind(machine_id)
-        .bind(self.id)
-        .fetch_one(&mut *txn)
-        .await
-        .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::Database(e)
-                if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
-            {
-                CarbideError::OnePrimaryInterface
-            }
-            _ => CarbideError::from(err),
-        })
+        let query =
+            "UPDATE machine_interfaces SET machine_id=$1::uuid where id=$2::uuid RETURNING *";
+        sqlx::query_as(query)
+            .bind(machine_id)
+            .bind(self.id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|err: sqlx::Error| match err {
+                sqlx::Error::Database(e)
+                    if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
+                {
+                    CarbideError::OnePrimaryInterface
+                }
+                _ => CarbideError::from(DatabaseError::new(file!(), line!(), query, err)),
+            })
     }
 
     /// Returns the UUID of the machine object
@@ -184,21 +182,19 @@ impl MachineInterface {
     pub async fn find_by_mac_address(
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
-    ) -> CarbideResult<Vec<MachineInterface>> {
-        Ok(
-            sqlx::query_as(
-                "SELECT * FROM machine_interfaces mi WHERE mi.mac_address = $1::macaddr",
-            )
+    ) -> Result<Vec<MachineInterface>, DatabaseError> {
+        let query = "SELECT * FROM machine_interfaces mi WHERE mi.mac_address = $1::macaddr";
+        sqlx::query_as(query)
             .bind(macaddr)
             .fetch_all(txn)
-            .await?,
-        )
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
         machine_ids: &[uuid::Uuid],
-    ) -> CarbideResult<HashMap<uuid::Uuid, Vec<MachineInterface>>> {
+    ) -> Result<HashMap<uuid::Uuid, Vec<MachineInterface>>, DatabaseError> {
         Ok(
             MachineInterface::find_by(txn, UuidKeyedObjectFilter::List(machine_ids), "machine_id")
                 .await?
@@ -210,12 +206,13 @@ impl MachineInterface {
     pub async fn count_by_segment_id(
         txn: &mut Transaction<'_, Postgres>,
         segment_id: &uuid::Uuid,
-    ) -> Result<usize, sqlx::Error> {
-        let (address_count,): (i64,) =
-            sqlx::query_as("SELECT count(*) FROM machine_interfaces WHERE segment_id = $1")
-                .bind(segment_id)
-                .fetch_one(txn)
-                .await?;
+    ) -> Result<usize, DatabaseError> {
+        let query = "SELECT count(*) FROM machine_interfaces WHERE segment_id = $1";
+        let (address_count,): (i64,) = sqlx::query_as(query)
+            .bind(segment_id)
+            .fetch_one(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(address_count.max(0) as usize)
     }
@@ -225,7 +222,9 @@ impl MachineInterface {
         interface_id: uuid::Uuid,
     ) -> CarbideResult<MachineInterface> {
         let mut interfaces =
-            MachineInterface::find_by(txn, UuidKeyedObjectFilter::One(interface_id), "id").await?;
+            MachineInterface::find_by(txn, UuidKeyedObjectFilter::One(interface_id), "id")
+                .await
+                .map_err(CarbideError::from)?;
         match interfaces.len() {
             0 => Err(CarbideError::FindOneReturnedNoResultsError(interface_id)),
             1 => Ok(interfaces.remove(0)),
@@ -335,10 +334,15 @@ impl MachineInterface {
         addresses: AddressSelectionStrategy<'_>,
     ) -> CarbideResult<Self> {
         // We're potentially about to insert a couple rows, so create a savepoint.
-        let mut inner_txn = txn.begin().await?;
-        sqlx::query("LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE")
+        let mut inner_txn = txn
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
+        let query = "LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE";
+        sqlx::query(query)
             .execute(&mut *inner_txn)
-            .await?;
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         let dhcp_handler = UsedAdminNetworkIpResolver {
             segment_id: segment.id,
@@ -348,29 +352,44 @@ impl MachineInterface {
         let allocated_addresses =
             IpAllocator::new(&mut inner_txn, segment, &dhcp_handler, addresses).await?;
 
-        let interface_id: (Uuid, ) = sqlx::query_as("INSERT INTO machine_interfaces (segment_id, mac_address, hostname, domain_id, primary_interface) VALUES ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id")
+        let query = "INSERT INTO machine_interfaces
+            (segment_id, mac_address, hostname, domain_id, primary_interface)
+            VALUES
+            ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id";
+        let interface_id: (Uuid,) = sqlx::query_as(query)
             .bind(segment.id())
             .bind(macaddr)
             .bind(hostname)
             .bind(domain_id)
             .bind(primary_interface)
-            .fetch_one(&mut *inner_txn).await
-            .map_err(|err: sqlx::Error| {
-                match err {
-                    sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr),
-                    sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) => CarbideError::OnePrimaryInterface,
-                    _ => CarbideError::from(err)
+            .fetch_one(&mut *inner_txn)
+            .await
+            .map_err(|err: sqlx::Error| match err {
+                sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
+                    CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr)
                 }
+                sqlx::Error::Database(e)
+                    if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
+                {
+                    CarbideError::OnePrimaryInterface
+                }
+                _ => CarbideError::from(DatabaseError::new(file!(), line!(), query, err)),
             })?;
 
+        let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
         for address in allocated_addresses {
-            sqlx::query("INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)")
+            sqlx::query(query)
                 .bind(interface_id.0)
                 .bind(address?)
-                .fetch_all(&mut *inner_txn).await?;
+                .fetch_all(&mut *inner_txn)
+                .await
+                .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
         }
 
-        inner_txn.commit().await?;
+        inner_txn
+            .commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;
 
         Ok(
             MachineInterface::find_by(txn, UuidKeyedObjectFilter::One(interface_id.0), "id")
@@ -396,7 +415,7 @@ impl MachineInterface {
     pub async fn load_machine(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Option<Machine>> {
+    ) -> Result<Option<Machine>, DatabaseError> {
         match self.machine_id {
             Some(machine_id) => Machine::find_one(txn, machine_id).await,
             None => Ok(None),
@@ -407,35 +426,36 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
         column: &'a str,
-    ) -> CarbideResult<Vec<MachineInterface>> {
+    ) -> Result<Vec<MachineInterface>, DatabaseError> {
         let base_query = "SELECT * FROM machine_interfaces mi {where}".to_owned();
 
         let mut interfaces = match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, MachineInterface>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
-                    .await?
+                    .await
+                    .map_err(|e| {
+                        DatabaseError::new(file!(), line!(), "machine_interfaces All", e)
+                    })?
             }
-            UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as::<_, MachineInterface>(
-                    &base_query
-                        .replace("{where}", "WHERE mi.{column}=$1")
-                        .replace("{column}", column),
-                )
-                .bind(uuid)
-                .fetch_all(&mut *txn)
-                .await?
-            }
-            UuidKeyedObjectFilter::List(list) => {
-                sqlx::query_as::<_, MachineInterface>(
-                    &base_query
-                        .replace("{where}", "WHERE mi.{column}=ANY($1)")
-                        .replace("{column}", column),
-                )
-                .bind(list)
-                .fetch_all(&mut *txn)
-                .await?
-            }
+            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, MachineInterface>(
+                &base_query
+                    .replace("{where}", "WHERE mi.{column}=$1")
+                    .replace("{column}", column),
+            )
+            .bind(uuid)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces One", e))?,
+            UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, MachineInterface>(
+                &base_query
+                    .replace("{where}", "WHERE mi.{column}=ANY($1)")
+                    .replace("{column}", column),
+            )
+            .bind(list)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces List", e))?,
         };
 
         let mut addresses_for_interfaces = MachineInterfaceAddress::find_for_interface(
@@ -487,17 +507,17 @@ impl UsedIpResolver for UsedAdminNetworkIpResolver {
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<(IpNetwork,)>> {
-        let query: &str = r"
-             SELECT address FROM machine_interface_addresses
-             INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
-             INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id
-             WHERE network_segments.id = $1::uuid";
+    ) -> Result<Vec<(IpNetwork,)>, DatabaseError> {
+        let query: &str = "
+SELECT address FROM machine_interface_addresses
+INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
+INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id
+WHERE network_segments.id = $1::uuid";
 
         sqlx::query_as(query)
             .bind(self.segment_id)
             .fetch_all(&mut *txn)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }

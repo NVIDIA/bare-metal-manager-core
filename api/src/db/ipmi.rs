@@ -13,14 +13,14 @@ use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use ::rpc::forge as rpc;
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use ::rpc::forge as rpc;
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
-
+use super::DatabaseError;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
@@ -165,14 +165,14 @@ impl BmcMetaDataGetRequest {
     pub async fn get_bmc_host_ip(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<String> {
+    ) -> Result<String, DatabaseError> {
         let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address
             FROM machine_topologies WHERE machine_id=$1"#;
         sqlx::query_as::<_, MachineHostInformation>(query)
             .bind(self.machine_id)
             .fetch_one(txn)
             .await
-            .map_err(CarbideError::from)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
             .map(|machine_host_information| machine_host_information.address)
     }
 }
@@ -242,20 +242,21 @@ impl BmcMetaDataUpdateRequest {
     async fn update_ipmi_ip_into_topologies(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         // A entry with same machine id is already created by discover_machine call.
         // Just update json by adding a ipmi_ip entry.
-        let query = r#"UPDATE machine_topologies 
-                       SET topology = jsonb_set(topology, '{ipmi_ip}', $1, true) 
-                       WHERE machine_id=$2
-                       RETURNING machine_id"#;
+        let query = "
+UPDATE machine_topologies
+SET topology = jsonb_set(topology, '{ipmi_ip}', $1, true)
+WHERE machine_id=$2
+RETURNING machine_id";
 
         let _: Option<(Uuid,)> = sqlx::query_as(query)
             .bind(&json!(self.ip))
             .bind(self.machine_id)
             .fetch_optional(&mut *txn)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
 
