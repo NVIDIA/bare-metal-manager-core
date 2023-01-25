@@ -204,14 +204,14 @@ fn boot_forge_host_image(
             String::from(
                 InstructionGenerator::Arm {
                     kernel: "${base-url}/internal/aarch64/carbide.efi".to_string(),
-                    command_line: format!("console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=discovery bfnet=oob_net0:dhcp bfks=${{cloudinit-url}}/user-data machine_id={uuid} server_uri={api_url} ", uuid = machine_interface_id, api_url = config.api_url),
+                    command_line: format!("console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=auto-detect bfnet=oob_net0:dhcp bfks=${{cloudinit-url}}/user-data machine_id={uuid} server_uri={api_url} ", uuid = machine_interface_id, api_url = config.api_url),
                     initrd: "${base-url}/internal/aarch64/carbide.root".to_string(),
             })
         }
         rpc::MachineArchitecture::X86 => {
             String::from( InstructionGenerator::X86 {
                     kernel: "${base-url}/internal/x86_64/carbide.efi".to_string(),
-                    command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp cli_cmd=discovery machine_id={uuid} server_uri={api_url} ", uuid = machine_interface_id, api_url = config.api_url),
+                    command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp cli_cmd=auto-detect machine_id={uuid} server_uri={api_url} ", uuid = machine_interface_id, api_url = config.api_url),
             })
         }
     }

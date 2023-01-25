@@ -1430,8 +1430,8 @@ where
         Ok(Response::new(rpc::PxeInstructions { pxe_script }))
     }
 
-    // Called on x86 boot by 'forge-scout discovery --uuid=<uuid>'. Tells it whether to discover or
-    // cleanup based on current machine state.
+    /// Called on x86 boot by 'forge-scout auto-detect --uuid=<uuid>'.
+    /// Tells it whether to discover or cleanup based on current machine state.
     #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn forge_agent_control(
         &self,

@@ -33,10 +33,19 @@ pub(crate) struct Options {
 
 #[derive(Parser)]
 pub(crate) enum Command {
+    #[clap(about = "Fetch command from Forge API server")]
+    AutoDetect(AutoDetect),
     #[clap(about = "Run discovery")]
     Discovery(Discovery),
     #[clap(about = "Run deprovision")]
     Deprovision(Deprovision),
+}
+
+#[derive(Parser)]
+pub struct AutoDetect {
+    // This is a machine_INTERFACE_id, not a machine_id
+    #[clap(short, long, multiple_values(false), require_equals(true))]
+    pub uuid: uuid::Uuid,
 }
 
 #[derive(Parser)]
