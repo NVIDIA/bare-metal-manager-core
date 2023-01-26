@@ -39,9 +39,7 @@ use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
-use crate::db::DatabaseError;
-use crate::ipmi::Operation;
-use crate::CarbideResult;
+
 use crate::{
     auth, cfg,
     credentials::UpdateCredentials,
@@ -63,11 +61,12 @@ use crate::{
         resource_record::DnsQuestion,
         tags::{Tag, TagAssociation, TagCreate, TagDelete, TagsList},
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
-        UuidKeyedObjectFilter,
+        DatabaseError, UuidKeyedObjectFilter,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
-    ipmi::{ipmi_handler, MachineBmcRequest, RealIpmiCommandHandler},
+    ipmi::{ipmi_handler, MachineBmcRequest, Operation, RealIpmiCommandHandler},
     kubernetes::{bgkubernetes_handler, delete_managed_resource, VpcApi, VpcApiImpl, VpcApiSim},
+    logging::api_logs::LogLayer,
     model::{
         hardware_info::HardwareInfo, instance::status::network::InstanceNetworkStatusObservation,
         machine::MachineState,
@@ -81,7 +80,7 @@ use crate::{
         },
         snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
     },
-    CarbideError,
+    CarbideError, CarbideResult,
 };
 
 // Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
@@ -98,11 +97,12 @@ impl<C> Forge for Api<C>
 where
     C: CredentialProvider + 'static,
 {
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_domain(
         &self,
         request: Request<rpc::Domain>,
     ) -> Result<Response<rpc::Domain>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -121,11 +121,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_domain(
         &self,
         request: Request<rpc::Domain>,
     ) -> Result<Response<rpc::Domain>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -181,11 +182,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_domain(
         &self,
         request: Request<rpc::DomainDeletion>,
     ) -> Result<Response<rpc::DomainDeletionResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -241,11 +243,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_domain(
         &self,
         request: Request<rpc::DomainSearchQuery>,
     ) -> Result<Response<rpc::DomainList>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -281,11 +284,12 @@ where
         Ok(result)
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_vpc(
         &self,
         request: Request<rpc::VpcCreationRequest>,
     ) -> Result<Response<rpc::Vpc>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -306,11 +310,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_vpc(
         &self,
         request: Request<rpc::VpcUpdateRequest>,
     ) -> Result<Response<rpc::VpcUpdateResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -328,11 +333,12 @@ where
         Ok(Response::new(rpc::VpcUpdateResult {}))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_vpc(
         &self,
         request: Request<rpc::VpcDeletionRequest>,
     ) -> Result<Response<rpc::VpcDeletionResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -356,11 +362,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_vpcs(
         &self,
         request: Request<rpc::VpcSearchQuery>,
     ) -> Result<Response<rpc::VpcList>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -397,11 +404,12 @@ where
         Ok(result)
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_network_segments(
         &self,
         request: Request<rpc::NetworkSegmentQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+        log_request_data(&request);
+
         log::debug!("Fetching database transaction");
 
         let mut txn =
@@ -435,11 +443,12 @@ where
         Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_network_segment(
         &self,
         request: Request<rpc::NetworkSegmentCreationRequest>,
     ) -> Result<Response<rpc::NetworkSegment>, Status> {
+        log_request_data(&request);
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin create_network_segment", e)
@@ -458,19 +467,21 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn update_network_segment(
         &self,
-        _request: Request<rpc::NetworkSegmentUpdateRequest>,
+        request: Request<rpc::NetworkSegmentUpdateRequest>,
     ) -> Result<Response<rpc::NetworkSegmentUpdateResult>, Status> {
+        log_request_data(&request);
+
         return Err(Status::unimplemented("not implemented"));
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_network_segment(
         &self,
         request: Request<rpc::NetworkSegmentDeletionRequest>,
     ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
+        log_request_data(&request);
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin delete_network_segment", e)
@@ -515,11 +526,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn network_segments_for_vpc(
         &self,
         request: Request<rpc::VpcSearchQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+        log_request_data(&request);
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin network_segments_for_vpc", e)
         })?;
@@ -554,11 +566,12 @@ where
         Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn allocate_instance(
         &self,
         request: Request<rpc::InstanceAllocationRequest>,
     ) -> Result<Response<rpc::Instance>, Status> {
+        log_request_data(&request);
+
         let request = InstanceAllocationRequest::try_from(request.into_inner())?;
         let instance_snapshot = allocate_instance(request, &self.database_connection).await?;
 
@@ -567,11 +580,12 @@ where
         ))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_instances(
         &self,
         request: Request<rpc::InstanceSearchQuery>,
     ) -> Result<Response<rpc::InstanceList>, Status> {
+        log_request_data(&request);
+
         let _auth =
             self.authorizer
                 .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
@@ -619,11 +633,12 @@ where
         Ok(Response::new(InstanceList { instances }))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_instance_by_machine_id(
         &self,
         request: Request<rpc::Uuid>,
     ) -> Result<Response<InstanceList>, Status> {
+        log_request_data(&request);
+
         let _auth =
             self.authorizer
                 .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
@@ -667,11 +682,12 @@ where
         Ok(response)
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn release_instance(
         &self,
         request: Request<rpc::InstanceReleaseRequest>,
     ) -> Result<Response<rpc::InstanceReleaseResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -744,11 +760,12 @@ where
         Ok(Response::new(rpc::InstanceReleaseResult {}))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn record_observed_instance_network_status(
         &self,
         request: Request<rpc::InstanceNetworkStatusObservation>,
     ) -> Result<Response<rpc::ObservedInstanceNetworkStatusRecordResult>, tonic::Status> {
+        log_request_data(&request);
+
         let request = request.into_inner();
         let instance_id = Uuid::try_from(
             request
@@ -783,11 +800,12 @@ where
         ))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn lookup_record(
         &self,
         request: Request<rpc::dns_message::DnsQuestion>,
     ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -829,11 +847,12 @@ where
         Ok(results)
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn invoke_instance_power(
         &self,
         request: Request<rpc::InstancePowerRequest>,
     ) -> Result<Response<rpc::InstancePowerResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -874,8 +893,9 @@ where
         Ok(Response::new(rpc::InstancePowerResult {}))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn echo(&self, request: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
+        log_request_data(&request);
+
         let conn_info = request.extensions().get::<ConnInfo>().unwrap();
         println!(
             "Got a request from: {:?} with authorization_type: {:?}, request: {:?}",
@@ -889,11 +909,12 @@ where
         Ok(Response::new(reply))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn discover_machine(
         &self,
         request: Request<rpc::MachineDiscoveryInfo>,
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
+        log_request_data(&request);
+
         if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
             log::info!(
                 "Got a request from: {:?} with authorization_type: {:?}, request: {:?}",
@@ -953,11 +974,12 @@ where
     }
 
     // Host has completed discovery
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn discovery_completed(
         &self,
         request: Request<rpc::MachineDiscoveryCompletedRequest>,
     ) -> Result<Response<rpc::MachineDiscoveryCompletedResponse>, Status> {
+        log_request_data(&request);
+
         let req = request.into_inner();
 
         // Extract and check UUID
@@ -1002,11 +1024,12 @@ where
 
     // Transitions the machine to Ready state.
     // Called by 'forge-scout discovery' once cleanup succeeds.
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn cleanup_machine_completed(
         &self,
         request: Request<rpc::MachineCleanupInfo>,
     ) -> Result<Response<rpc::MachineCleanupResult>, Status> {
+        log_request_data(&request);
+
         let cleanup_info = request.into_inner();
         log::info!("cleanup_machine_completed {:?}", cleanup_info);
 
@@ -1032,29 +1055,32 @@ where
         Ok(Response::new(rpc::MachineCleanupResult {}))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn discover_dhcp(
         &self,
         request: Request<rpc::DhcpDiscovery>,
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
+        log_request_data(&request);
+
         crate::dhcp::discover::discover_dhcp(&self.database_connection, request).await
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn get_machine(
         &self,
         request: Request<rpc::Uuid>,
     ) -> Result<Response<rpc::Machine>, Status> {
+        log_request_data(&request);
+
         let machine_id = Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
         let (machine, _) = self.load_machine(machine_id).await?;
         Ok(Response::new(rpc::Machine::from(machine)))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_machines(
         &self,
         request: Request<rpc::MachineSearchQuery>,
     ) -> Result<Response<rpc::MachineList>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1090,11 +1116,12 @@ where
         Ok(result)
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn find_interfaces(
         &self,
         request: Request<rpc::InterfaceSearchQuery>,
     ) -> Result<Response<rpc::InterfaceList>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1122,11 +1149,12 @@ where
         response.map(Response::new)
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_instance_type(
         &self,
         request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
+        log_request_data(&request);
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin create_instance_type", e)
@@ -1146,11 +1174,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_instance_type(
         &self,
         request: Request<rpc::InstanceType>,
     ) -> Result<Response<rpc::InstanceType>, Status> {
+        log_request_data(&request);
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin update_instance_type", e)
@@ -1170,11 +1199,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_instance_type(
         &self,
         request: Request<rpc::InstanceTypeDeletion>,
     ) -> Result<Response<rpc::InstanceTypeDeletionResult>, Status> {
+        log_request_data(&request);
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin delete_instance_type", e)
@@ -1194,11 +1224,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn create_tag(
         &self,
         request: Request<rpc::TagCreate>,
     ) -> Result<Response<rpc::TagResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1217,11 +1248,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn delete_tag(
         &self,
         request: Request<rpc::TagDelete>,
     ) -> Result<Response<rpc::TagResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1240,11 +1272,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn list_tags(
         &self,
-        _request: Request<rpc::TagVoid>,
+        request: Request<rpc::TagVoid>,
     ) -> Result<Response<rpc::TagsListResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1263,11 +1296,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn assign_tag(
         &self,
         request: Request<rpc::TagAssign>,
     ) -> Result<Response<rpc::TagResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1286,11 +1320,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn remove_tag(
         &self,
         request: Request<rpc::TagRemove>,
     ) -> Result<Response<rpc::TagResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1309,11 +1344,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn set_tags(
         &self,
         request: Request<rpc::TagsList>,
     ) -> Result<Response<rpc::TagResult>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1332,11 +1368,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn validate_user_ssh_key(
         &self,
         request: Request<rpc::SshKeyValidationRequest>,
     ) -> Result<Response<rpc::SshKeyValidationResponse>, Status> {
+        log_request_data(&request);
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin validate_user_ssh_key", e)
@@ -1366,11 +1403,12 @@ where
     //  grpcurl -d '{"host_id": "neptune-bravo"}' -plaintext 127.0.0.1:1079 forge.Forge/GetDpuSSHCredential | jq -r -j ".password"
     // That should evaluate to exactly the password, ready for inclusion in a script.
     //
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn get_dpu_ssh_credential(
         &self,
         request: Request<rpc::CredentialRequest>,
     ) -> Result<Response<rpc::CredentialResponse>, Status> {
+        log_request_data(&request);
+
         let query = request.into_inner().host_id;
 
         let uuid = self.find_dpu_machine_uuid(&query).await?;
@@ -1409,11 +1447,12 @@ where
         }))
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn get_bmc_meta_data(
         &self,
         request: Request<rpc::BmcMetaDataGetRequest>,
     ) -> Result<Response<rpc::BmcMetaDataGetResponse>, Status> {
+        log_request_data(&request);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -1432,11 +1471,12 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_bmc_meta_data(
         &self,
         request: Request<rpc::BmcMetaDataUpdateRequest>,
     ) -> Result<Response<rpc::BmcMetaDataUpdateResponse>, Status> {
+        log_request_data(&request);
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin update_bmc_meta_data", e)
@@ -1454,70 +1494,80 @@ where
         response
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn update_machine_credentials(
         &self,
         request: Request<MachineCredentialsUpdateRequest>,
     ) -> Result<Response<MachineCredentialsUpdateResponse>, Status> {
+        // Note that we don't log the request here via `log_request_data`.
+        // Doing that would make credentials show up in the log stream
+        tracing::Span::current().record("request", "MachineCredentialsUpdateRequest { }");
+
         Ok(UpdateCredentials::try_from(request.into_inner())?
             .update(self.credential_provider.as_ref())
             .await
             .map(Response::new)?)
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn update_security_group_policy(
         &self,
-        _request: Request<rpc::SecurityGroupPolicy>,
+        request: Request<rpc::SecurityGroupPolicy>,
     ) -> Result<Response<rpc::SecurityGroupPolicy>, Status> {
+        log_request_data(&request);
+
         return Err(Status::unimplemented("not implemented"));
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn delete_security_group_policy(
         &self,
-        _request: Request<rpc::SecurityGroupPolicyDeletion>,
+        request: Request<rpc::SecurityGroupPolicyDeletion>,
     ) -> Result<Response<()>, Status> {
+        log_request_data(&request);
+
         return Err(Status::unimplemented("not implemented"));
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn bind_security_group(
         &self,
-        _request: Request<rpc::SecurityGroupBind>,
+        request: Request<rpc::SecurityGroupBind>,
     ) -> Result<Response<()>, Status> {
+        log_request_data(&request);
+
         return Err(Status::unimplemented("not implemented"));
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn unbind_security_group(
         &self,
-        _request: Request<rpc::SecurityGroupBind>,
+        request: Request<rpc::SecurityGroupBind>,
     ) -> Result<Response<()>, Status> {
+        log_request_data(&request);
+
         return Err(Status::unimplemented("not implemented"));
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn list_security_group_policies(
         &self,
-        _request: Request<rpc::SecurityGroupPolicyQuery>,
+        request: Request<rpc::SecurityGroupPolicyQuery>,
     ) -> Result<Response<rpc::SecurityGroupPolicyList>, Status> {
+        log_request_data(&request);
+
         return Err(Status::unimplemented("not implemented"));
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?_request.get_ref()))]
     async fn list_security_group_binds(
         &self,
-        _request: Request<rpc::SecurityGroupBindQuery>,
+        request: Request<rpc::SecurityGroupBindQuery>,
     ) -> Result<Response<rpc::SecurityGroupBindList>, Status> {
+        log_request_data(&request);
+
         return Err(Status::unimplemented("not implemented"));
     }
 
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn get_pxe_instructions(
         &self,
         request: Request<rpc::Uuid>,
     ) -> Result<Response<rpc::PxeInstructions>, Status> {
+        log_request_data(&request);
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin get_pxe_instructions", e)
@@ -1548,11 +1598,12 @@ where
 
     /// Called on x86 boot by 'forge-scout auto-detect --uuid=<uuid>'.
     /// Tells it whether to discover or cleanup based on current machine state.
-    #[tracing::instrument(skip_all, fields(request = ?request.get_ref()))]
     async fn forge_agent_control(
         &self,
         request: Request<rpc::ForgeAgentControlRequest>,
     ) -> Result<Response<rpc::ForgeAgentControlResponse>, Status> {
+        log_request_data(&request);
+
         use ::rpc::forge_agent_control_response::Action;
 
         // Convert Option<rpc::Uuid> into uuid::Uuid
@@ -1786,6 +1837,7 @@ where
     http.http2_only(true);
 
     let svc = Server::builder()
+        .layer(LogLayer::default())
         .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
         .add_service(api_reflection_service)
         .into_service();
@@ -1837,6 +1889,10 @@ where
             }
         });
     }
+}
+
+fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
+    tracing::Span::current().record("request", format!("{:?}", request.get_ref()));
 }
 
 impl<C> Api<C>
