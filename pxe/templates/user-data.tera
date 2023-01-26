@@ -167,7 +167,6 @@ runcmd:
   - [ ip, vrf, exec, mgmt, /bin/bash, hbn-dpu-setup.sh ]
   - [ cp, /opt/hbn_installer/configs/1.5.0/doca_hbn.yaml, /etc/kubelet.d/ ]
   - [ cp, /opt/hbn_installer/configs/1.5.0/doca_telemetry.yaml, /etc/kubelet.d/ ]
-  - [ ip, vrf, exec, mgmt, /opt/forge/forge-scout, --api={{ api_url }}, done, --uuid={{ interface_id }} ]
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
   - [ /usr/sbin/reboot ]
 EOF
