@@ -78,7 +78,7 @@ async fn main() -> Result<(), color_eyre::Report> {
                     //This is temporary. All cleanup must be done when API call Reset.
                     deprovision::run_no_api();
 
-                    discovery::run(&config.api, uuid).await?;
+                    discovery::run(&config.api, machine_id).await?;
                     discovery::completed(&config.api, machine_id).await?;
                 }
                 Action::Reset => {
