@@ -1,6 +1,6 @@
 [Unit]
 Description=Forge DPU agent service
-After=network
+After=networking.service
 
 [Service]
 Type=simple
