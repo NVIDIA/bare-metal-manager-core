@@ -70,10 +70,12 @@ async fn create_login_user() -> CarbideClientResult<Credentials> {
         .status()
         .await?;
 
-    let sudoersd = Path::new("/etc/sudoersd");
-    if sudoersd.exists() {
+    //this is not a typo, the directory is *called* sudoers.d
+    let sudoers_dot_d = Path::new("/etc/sudoers.d");
+    if sudoers_dot_d.exists() {
         // QEMU hosts don't have sudo at all
-        let mut sudo_include_file = File::create(sudoersd.join("99_sudo_include_file")).await?;
+        let mut sudo_include_file =
+            File::create(sudoers_dot_d.join("99_sudo_include_file")).await?;
         let sudoers_line = format!("{} ALL=(ALL) NOPASSWD:ALL\n", SSH_USERNAME);
         sudo_include_file.write_all(sudoers_line.as_bytes()).await?;
         sudo_include_file.flush().await?;
