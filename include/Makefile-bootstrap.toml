@@ -19,7 +19,7 @@ psql -t -c "UPDATE vpc_resource_leafs SET loopback_ip_address='$RELAY_ADDRESS' W
 
 echo "Waiting for the network segment to become ready"
 echo "If this step fails, run /dev/grpc-test-data/discover_host.sh manually"
-while [ $(grpcurl -plaintext 127.0.0.1:1079 forge.Forge/FindNetworkSegments | jq ".networkSegments[0].state") != '"READY"' ]; do
+while [ $(grpcurl -d "{\"id\": {\"value\": \"$segment\"}}" -plaintext 127.0.0.1:1079 forge.Forge/FindNetworkSegments | jq ".networkSegments[0].state") != '"READY"' ]; do
 	echo -n '.'
 	sleep 1
 done
