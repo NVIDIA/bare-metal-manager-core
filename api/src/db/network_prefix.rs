@@ -88,7 +88,6 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
 
 impl NetworkPrefix {
     // Search for specific prefix
-    #[tracing::instrument(skip(txn))]
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
         uuid: uuid::Uuid,
@@ -103,7 +102,6 @@ impl NetworkPrefix {
     /*
      * Return a list of `NetworkPrefix`es for a segment.
      */
-    #[tracing::instrument(skip(filter))]
     pub async fn find_by_segment(
         txn: &mut Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,

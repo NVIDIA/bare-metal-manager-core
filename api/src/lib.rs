@@ -36,6 +36,7 @@ mod human_hash;
 pub mod instance;
 pub mod ipmi;
 pub mod kubernetes;
+pub mod logging;
 pub mod model;
 mod reachability;
 pub mod state_controller;
