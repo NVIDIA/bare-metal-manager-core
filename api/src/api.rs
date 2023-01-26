@@ -2104,7 +2104,7 @@ impl ServiceConfig {
         Self {
             network_segment_drain_time: chrono::Duration::seconds(60),
             machine_state_controller_iteration_time: std::time::Duration::from_secs(30),
-            network_segment_state_controller_iteration_time: std::time::Duration::from_secs(10),
+            network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
             max_db_connections: 1000,
             db_stats_interval: std::time::Duration::from_secs(60),
         }
