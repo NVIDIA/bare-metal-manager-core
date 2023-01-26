@@ -1,5 +1,5 @@
 default:
-  image: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86_64/forge-helm:v0.0.1-522-g8bf72e19 
+  image: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86_64/forge-helm:v0.0.1-557-g73b8cf2e
 
 
 variables:
@@ -134,4 +134,3 @@ trigger:generate_pipelines:
     strategy: depend
   needs:
     - generate_pipelines
-  allow_failure: true
