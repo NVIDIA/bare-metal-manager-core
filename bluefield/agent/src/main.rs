@@ -20,7 +20,7 @@ fn main() -> color_eyre::Result<()> {
 
     let config = command_line::Options::load();
 
-    pretty_env_logger::formatted_timed_builder().init();
+    pretty_env_logger::init_timed();
 
     match AgentConfig::load_from(&config.config_path) {
         Ok(config) => {
