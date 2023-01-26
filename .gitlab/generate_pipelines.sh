@@ -118,6 +118,7 @@ lint:${base}:
     cd ${CI_PROJECT_DIR}/${c}
     helm dep build
     helm lint .
+    yamllint  --config-file ${CI_PROJECT_DIR}/.gitlab/ci/yamllint.yaml values.yaml
   artifacts:
     paths: 
       - ${CI_PROJECT_DIR}
@@ -131,7 +132,6 @@ lint:${base}:
       changes:
         - "charts/**/*"
     - when: never
-
 "test:${base}_Validates_Kubernetes_1.23.16":
   variables:
     NVCR_PASS: "${NVCR_PASS}"
@@ -170,6 +170,41 @@ lint:${base}:
       changes:
         - "charts/**/*"
     - when: never
+
+test:${base}_KubeLint:
+  variables:
+    HELM_CACHE_HOME: "${HELM_CACHE_HOME}"
+    HELM_CONFIG_HOME: "${HELM_CONFIG_HOME}"
+    HELM_DATA_HOME: "${HELM_DATA_HOME}"
+    HELM_REGISTRY_CONFIG: "${HELM_REGISTRY_CONFIG}"
+    HELM_REPOSITORY_CACHE: "${HELM_REPOSITORY_CACHE}"
+    HELM_REPOSITORY_CONFIG: "${HELM_REPOSITORY_CONFIG}"
+    HELM_PLUGINS: "${HELM_PLUGINS}"
+    PARENT_CI_PIPELINE_SOURCE: "${PARENT_CI_PIPELINE_SOURCE}"
+  stage: test
+  image: ${CHILD_JOB_IMAGE}
+  tags:
+    - x86_64
+  script: |
+    export HELM_CACHE_HOME="${HELM_CACHE_HOME}"
+    export HELM_CONFIG_HOME="${HELM_CONFIG_HOME}"
+    export HELM_DATA_HOME="${HELM_DATA_HOME}"
+    export HELM_REGISTRY_CONFIG="${HELM_REGISTRY_CONFIG}"
+    export HELM_REPOSITORY_CACHE="${HELM_REPOSITORY_CACHE}"
+    export HELM_REPOSITORY_CONFIG="${HELM_REPOSITORY_CONFIG}"
+    export HELM_PLUGINS="${HELM_PLUGINS}"
+    cd ${CI_PROJECT_DIR}/charts/${base}
+    kube-linter --with-color lint .
+  needs:
+    - pipeline: "${PARENT_PIPELINE_ID}"
+      job: prep
+    - lint:${base}
+  rules:
+    - if: \$PARENT_CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - "charts/**/*"
+    - when: never
+  allow_failure: true
 
 version:${base}:
   variables:
