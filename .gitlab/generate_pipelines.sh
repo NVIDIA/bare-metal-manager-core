@@ -227,8 +227,6 @@ version:${base}:
   needs:
     - pipeline: "${PARENT_PIPELINE_ID}"
       job: prep  
-    - pipeline: "${PARENT_PIPELINE_ID}"
-      job: build-push-container
   rules:
     - if: \$PARENT_CI_PIPELINE_SOURCE == "push" && \$PARENT_CI_COMMIT_REF_NAME == \$PARENT_DEFAULT_BRANCH
     - if: \$PARENT_CI_COMMIT_TAG
@@ -270,8 +268,6 @@ package:${base}:
   needs:
     - pipeline: "${PARENT_PIPELINE_ID}"
       job: prep
-    - pipeline: "${PARENT_PIPELINE_ID}"
-      job: build-push-container
     - version:${base}
   rules:
     - if: \$PARENT_CI_COMMIT_BRANCH == \$PARENT_DEFAULT_BRANCH && \$PARENT_CI_PIPELINE_SOURCE == 'merge_request_event'
@@ -314,8 +310,6 @@ dev_publish:${base}:
   needs:
     - pipeline: "${PARENT_PIPELINE_ID}"
       job: prep
-    - pipeline: "${PARENT_PIPELINE_ID}"
-      job: build-push-container
     - package:${base}
   rules:
     - if: \$PARENT_CI_PIPELINE_SOURCE == "push" && \$PARENT_CI_COMMIT_REF_NAME == \$PARENT_DEFAULT_BRANCH
@@ -356,8 +350,6 @@ prod_publish:${base}:
   needs:
     - pipeline: "${PARENT_PIPELINE_ID}"
       job: prep
-    - pipeline: "${PARENT_PIPELINE_ID}"
-      job: build-push-container
     - package:${base}
   rules:
     - if: \$PARENT_CI_COMMIT_TAG
