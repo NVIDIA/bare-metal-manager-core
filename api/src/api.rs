@@ -1017,7 +1017,11 @@ where
                 return Err(Status::failed_precondition(format!("invalid state {x}")));
             }
         }
-        log::info!("discovery_completed: {machine_id}");
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit discovery_completed", e))?;
+
+        log::info!("discovery_completed_success: {machine_id}");
 
         Ok(Response::new(rpc::MachineDiscoveryCompletedResponse {}))
     }
@@ -1475,7 +1479,16 @@ where
         &self,
         request: Request<rpc::BmcMetaDataUpdateRequest>,
     ) -> Result<Response<rpc::BmcMetaDataUpdateResponse>, Status> {
-        log_request_data(&request);
+        //Note: Be *careful* when logging this request: do not log the password!
+        tracing::Span::current().record(
+            "request",
+            format!(
+                "BmcMetadataUpdateRequest machine_id: {:?} ip: {:?} request_type: {:?}",
+                request.get_ref().machine_id,
+                request.get_ref().ip,
+                request.get_ref().request_type
+            ),
+        );
 
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
