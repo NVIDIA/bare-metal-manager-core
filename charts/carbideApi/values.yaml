@@ -44,6 +44,8 @@ postgresSecretRef: '{{ include "common.names.namespace" . }}.carbide.{{ tpl .Val
 # postgresSecretRef -- As part of the database creation a secret is created which stores a the credentials for connecting to postgres
 dhcpServerIp: ""
 # dhcpserver -- IP Address of DHCP server
+authPermissiveMode: false
+# authPermissiveMode -- Override the auth engine when it denies a request, and permit anything.
 
 diagnosticMode:
   enabled: false

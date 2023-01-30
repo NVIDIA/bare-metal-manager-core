@@ -21,7 +21,11 @@ data:
     {{- else }}
     carbide_api_url = {{ .Values.carbideApiUrl | quote }}
     {{- end }}
+    {{ if eq .Values.carbidePxeUrl "-" -}}
     carbide_pxe_url = "{{ ternary "https" "http" (.Values.useTLS) }}://carbide-pxe.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}:{{ ternary .Values.container.containerPorts.https .Values.container.containerPorts.http (.Values.useTLS )}}"
+    {{- else }}
+    carbide_pxe_url = {{ .Values.carbidePxeUrl | quote }}
+    {{- end }}
     carbide_ntp_server = {{ join "," .Values.ntpServerIp | quote }}
     {{- if .Values.useTLS }}
     port = {{ .Values.service.ports.https }}

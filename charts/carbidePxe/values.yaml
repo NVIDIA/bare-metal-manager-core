@@ -30,6 +30,8 @@ extraDeploy: []
 # extraDeploy -- Array of extra objects to deploy with the release
 carbideApiUrl: "-"
 # carbideApiUrl -- When set to "-" Helm will automatically attempt to determine the correct service name of carbide-api
+carbidePxeUrl: "-"
+# carbidePxeUrl -- When set to "-" Helm will automatically attempt to determine the correct service name of carbide-pxe
 ntpServerIP: ""
 # ntpServerIP -- IP address of working NTP server
 useTLS: false
@@ -92,7 +94,7 @@ container:
   replicaCount: 1
   # carbidePxe.replicaCount -- Number of carbide replicas to deploy
   containerPorts:
-    http: 8088
+    http: 8080
     # carbidePxe.containerPorts.http -- HTTP container port
     https: 8443
     # carbidePxe.containerPorts.https -- HTTPS container port
@@ -113,7 +115,7 @@ container:
     successThreshold: 1
     # livenessProbe.successThreshold -- Success threshold for livenessProbe
     tcpSocket:
-      port: 8088
+      port: 8080
 
   readinessProbe:
     enabled: false

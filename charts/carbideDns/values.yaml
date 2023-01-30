@@ -291,12 +291,12 @@ container:
 ##
 
 service:
-  type: ClusterIP
+  type: NodePort
   # service.type -- carbide service type
   ports:
-    udp: 1053
+    udp: 53
     # service.ports.http -- carbide service HTTP port
-    tcp: 1053
+    tcp: 53
     # service.ports.https -- carbide service HTTPS port
   nodePorts:
     # service.nodePorts -- Node ports to expose
