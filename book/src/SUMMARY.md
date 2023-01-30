@@ -20,6 +20,7 @@
 - [Contributing](contributing.md)
 - [Codebase Overview](codebase_overview.md)
 - [Bootable Artifacts](bootable_artifacts.md)
+- [Bootstrap New Cluster](kubernetes/bootstrap.md)
 - [Local Development](development.md)
   - [Docker](docker/development.md)
   - [Kubernetes](kubernetes/development.md)
@@ -29,6 +30,8 @@
 - [DPU/Bluefield](dpu-operations.md)
 - [iPXE](ipxe/development.md)
 - [Baby Forge](babyforge.md)
+- [TLS](kubernetes/tls.md)
+- [Helm](kubernetes/helm.md)
 
 # Environments
 
