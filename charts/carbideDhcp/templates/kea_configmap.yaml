@@ -1,5 +1,4 @@
 {{ $ns := include "common.names.namespace" . }}
-{{ $pxeservice := lookup "v1" "Service" "forge-system" "carbide-pxe" }}
 {{ $dnsservice := lookup "v1" "Service" "forge-system" "carbide-dns" }}
 apiVersion: v1
 kind: ConfigMap
@@ -45,11 +44,7 @@ data:
               {{ else -}}
               "carbide-nameservers": {{ join "," .Values.carbideDnsServerIPs | quote }},
               {{ end -}}
-              {{ if $pxeservice -}}
-              "carbide-provisioning-server-ipv4": {{ $pxeservice.spec.clusterIP | quote }}
-              {{ else -}}
               "carbide-provisioning-server-ipv4": {{ .Values.carbidePxeIpAddress | quote }}
-              {{ end -}}
             }
           }
         ],
