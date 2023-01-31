@@ -239,6 +239,96 @@ impl PolicyEngine for NoopEngine {
     }
 }
 
+pub mod forge_spiffe {
+    use spiffe::spiffe_id::SpiffeId;
+    use x509_parser::prelude::{FromDer, GeneralName, X509Certificate};
+
+    // Validate an X.509 DER certificate against the SPIFFE requirements, and
+    // return a SPIFFE ID.
+    //
+    // https://github.com/spiffe/spiffe/blob/main/standards/X509-SVID.md#5-validation
+    //
+    // Note that this only implements the SPIFFE-specific validation steps. We
+    // assume the X.509 certificate has already been validated to a trusted root.
+    pub fn validate_x509_certificate(
+        der_certificate: &[u8],
+    ) -> Result<SpiffeId, SpiffeValidationError> {
+        use SpiffeValidationError::ValidationError;
+
+        let (_remainder, x509_cert) = X509Certificate::from_der(der_certificate)
+            .map_err(|e| ValidationError(format!("X.509 parse error: {e}")))?;
+
+        // Verify that this is a leaf certificate (i.e. it is not a CA certificate)
+        let is_ca_cert = match x509_cert.basic_constraints() {
+            Ok(None) => Ok(false),
+            Ok(Some(basic_constraints)) => Ok(basic_constraints.value.ca),
+            Err(_) => Err(ValidationError(
+                "More than one X.509 Basic Constraints extension was found".into(),
+            )),
+        }?;
+        if is_ca_cert {
+            return Err(ValidationError(
+                "The X.509 certificate must be a leaf certificate (it must \
+                not have CA=true in the Basic Constraints extension)"
+                    .into(),
+            ));
+        };
+
+        // Verify that keyCertSign and cRLSign are not set in the Key Usage
+        // extension (if any).
+        if let Some(key_usage) = x509_cert.key_usage().map_err(|_e| {
+            ValidationError("More than one X.509 Key Usage extension was found".into())
+        })? {
+            if key_usage.value.key_cert_sign() {
+                return Err(ValidationError(
+                    "keyCertSign must not be set in the X.509 Key Usage extension".into(),
+                ));
+            }
+            if key_usage.value.crl_sign() {
+                return Err(ValidationError(
+                    "cRLSign must not be set in the X.509 Key Usage extension".into(),
+                ));
+            }
+        };
+
+        let subj_alt_name = x509_cert.subject_alternative_name().map_err(|_e| {
+            ValidationError("Multiple X.509 Subject Alternative Name extensions found".into())
+        })?;
+        let subj_alt_name = subj_alt_name.ok_or_else(|| {
+            ValidationError("No X.509 Subject Alternative Name extension found".into())
+        })?;
+
+        // Verify there is exactly one SAN URI
+        let uris = subj_alt_name
+            .value
+            .general_names
+            .iter()
+            .cloned()
+            .filter_map(|n| match n {
+                GeneralName::URI(uri) => Some(uri),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let uri = match (uris.len(), uris.first()) {
+            (1, Some(uri)) => Ok(uri),
+            (n, _) => Err(ValidationError(format!(
+                "The X.509 Subject Alternative Name extension must contain exactly \
+                1 URI (found {n})"
+            ))),
+        }?;
+
+        let spiffe_id = SpiffeId::new(uri)
+            .map_err(|e| ValidationError(format!("Couldn't parse SPIFFE ID: {e}")))?;
+        Ok(spiffe_id)
+    }
+
+    #[derive(thiserror::Error, Debug, Clone)]
+    pub enum SpiffeValidationError {
+        #[error("SPIFFE validation error: {0}")]
+        ValidationError(String),
+    }
+}
+
 // This is intended to be hooked into tower-http's
 // RequireAuthorizationLayer::custom() middleware layer.
 #[derive(Clone)]
