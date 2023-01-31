@@ -40,6 +40,31 @@ impl Principal {
             Principal::Anonymous => "anonymous".into(),
         }
     }
+
+    // Note: no certificate verification is performed here!
+    pub fn try_from_client_certificate(
+        certificate: &tokio_rustls::rustls::Certificate,
+    ) -> Result<Principal, PrincipalError> {
+        let der_bytes = &certificate.0;
+        let spiffe_id = forge_spiffe::validate_x509_certificate(der_bytes.as_slice())?;
+        // FIXME: we shouldn't be making a new one of these every time, better
+        // to pass one in from somewhere so we can reuse it
+        let context = forge_spiffe::ForgeSpiffeContext::new(
+            spiffe::spiffe_id::TrustDomain::new("forge.local").unwrap(),
+            String::from("/ns/forge-system/sa/"),
+        );
+        let service_id = context.extract_service_identifier(&spiffe_id)?;
+        Ok(Principal::CertificateIdentity(service_id))
+    }
+}
+
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum PrincipalError {
+    #[error("SPIFFE validation error: {0}")]
+    SpiffeValidationError(#[from] forge_spiffe::SpiffeValidationError),
+
+    #[error("Unrecognized SPIFFE ID: {0}")]
+    SpiffeRecognitionError(#[from] forge_spiffe::ForgeSpiffeContextError),
 }
 
 #[allow(dead_code)]
