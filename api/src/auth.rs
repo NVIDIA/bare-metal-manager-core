@@ -327,6 +327,59 @@ pub mod forge_spiffe {
         #[error("SPIFFE validation error: {0}")]
         ValidationError(String),
     }
+
+    pub struct ForgeSpiffeContext {
+        trust_domain: spiffe::spiffe_id::TrustDomain,
+        service_base_path: String,
+    }
+
+    impl ForgeSpiffeContext {
+        pub fn new(
+            trust_domain: spiffe::spiffe_id::TrustDomain,
+            service_base_path: String,
+        ) -> Self {
+            ForgeSpiffeContext {
+                trust_domain,
+                service_base_path,
+            }
+        }
+
+        pub fn extract_service_identifier(
+            &self,
+            spiffe_id: &SpiffeId,
+        ) -> Result<String, ForgeSpiffeContextError> {
+            use ForgeSpiffeContextError::*;
+
+            if !spiffe_id.is_member_of(&self.trust_domain) {
+                let id_trust_domain = spiffe_id.trust_domain().id_string();
+                let expected_trust_domain = self.trust_domain.id_string();
+                return Err(ContextError(format!(
+                    "Found a trust domain {id_trust_domain} which is not a \
+                    member of the configured trust domain \
+                    {expected_trust_domain}"
+                )));
+            };
+            let spiffe_id_path = spiffe_id.path();
+            let service_base_path = self.service_base_path.as_str();
+            let path_remainder = spiffe_id_path.strip_prefix(service_base_path);
+            match path_remainder {
+                Some(identifier) if !identifier.is_empty() => Ok(identifier.into()),
+                Some(_empty) => Err(ContextError(
+                    "The service identifier was empty after removing the base prefix".into(),
+                )),
+                None => Err(ContextError(format!(
+                    "The SPIFFE ID path \"{spiffe_id_path}\" does not begin \
+                        with the expected prefix \"{service_base_path}\""
+                ))),
+            }
+        }
+    }
+
+    #[derive(thiserror::Error, Debug, Clone)]
+    pub enum ForgeSpiffeContextError {
+        #[error("{0}")]
+        ContextError(String),
+    }
 }
 
 // This is intended to be hooked into tower-http's
