@@ -23,15 +23,17 @@
 - [Bootstrap New Cluster](kubernetes/bootstrap.md)
 - [Local Development](development.md)
   - [Docker](docker/development.md)
-  - [Kubernetes](kubernetes/development.md)
   - [Running a PXE Client in a VM](development/vm_pxe_client.md)
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
 - [Data Model](development/schema.md)
 - [DPU/Bluefield](dpu-operations.md)
 - [iPXE](ipxe/development.md)
 - [Baby Forge](babyforge.md)
-- [TLS](kubernetes/tls.md)
-- [Helm](kubernetes/helm.md)
+
+# Kubernetes
+  - [Local Development](kubernetes/development.md)
+  - [Helm](kubernetes/helm.md)
+  - [TLS](kubernetes/tls.md)
 
 # Environments
 

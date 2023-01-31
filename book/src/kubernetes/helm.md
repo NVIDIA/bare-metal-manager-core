@@ -6,9 +6,9 @@ directions [here](https://helm.sh/docs/intro/install/)
 
 All of the Helm charts in `Chart.yaml` should use [Nvidia Production Helm Repo](https://helm.ngc.nvidia.com/nvidian/forge)
 or [Nvidia non-prod Helm Repo](https://helm.stg.ngc.nvidia.com).
-You will need to authenticate with a user/pass to pull in dependencies outside of Fleet Command.
+You must authenticate with a user/pass to pull in dependencies outside Fleet Command.
 
-```
+```sh
 helm repo add nvidia-stg https://stg.helm.ngc.nvidia.com/nvidia/forge --username \$oauthtoken --password $NGC_TOKEN
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidian/forge --username \$oauthtoken --password $NGC_TOKEN
 ```

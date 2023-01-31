@@ -15,7 +15,7 @@
 The `CertificateRequest` (which includes the CSR) references a
 `ClusterIssuer` set up during the initial bootstrap of the site. 
 
-The `ClusterIssuer` sends CSR's to Vault for signing using the forgeCA PKI.
+The `ClusterIssuer` sends CSRs to Vault for signing using the forgeCA PKI.
 Before a `CertificateRequest` can be signed, it must be approved.
 
 `cert-manager-csi-driver-spiffe-approver` runs as a `deployment` and is
