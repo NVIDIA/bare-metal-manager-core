@@ -1,5 +1,5 @@
 default:
-  image: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86_64/forge-helm:v0.0.1-557-g73b8cf2e
+  image: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86_64/forge-helm:v0.0.1-562-g9399319c
 
 
 variables:
@@ -18,17 +18,7 @@ variables:
   HELM_REGISTRY_CONFIG: ${CI_PROJECT_DIR}/helm/.config/regitry
   HELM_REPOSITORY_CACHE: ${CI_PROJECT_DIR}/helm/.cache/respository
   HELM_REPOSITORY_CONFIG: ${CI_PROJECT_DIR}/helm/.config/repository.yaml
-
-
-include:
-  - template: Jobs/Secret-Detection.latest.gitlab-ci.yml
-  - template: Jobs/SAST-IaC.latest.gitlab-ci.yml
-secret_detection:
-  needs: []
-  before_script: []
-iac-sast:
-  needs: []
-  before_script: []
+  DEPLOYMENT_GIT_KEY: ${DEPLOYMENT_GIT_KEY}
 
 .changes:
   stage: .pre
@@ -69,6 +59,8 @@ prep:
     - export STG_NVCR_PASS=$(vault kv get -field stg_nvcr secrets/forge/tokens)
   script: |
      ${CI_PROJECT_DIR}/.gitlab/get-version.sh > environment.env
+     vault kv get -field dev2 secrets/forge/kubeconfigs > .kubeconfig
+     vault kv get -field nvcr secrets/forge/imagepullsecret > config.json
      helm env
      echo "VAULT_TOKEN=${VAULT_TOKEN}" >> environment.env
      echo "NVCR_PASS=${NVCR_PASS}" >> environment.env
@@ -80,6 +72,7 @@ prep:
      echo "HELM_REGISTRY_CONFIG=${HELM_REGISTRY_CONFIG}" >> environment.env
      echo "HELM_REPOSITORY_CACHE=${HELM_REPOSITORY_CACHE}" >> environment.env
      echo "HELM_REPOSITORY_CONFIG=${HELM_REPOSITORY_CONFIG}" >> environment.env
+     echo "PARENT_PIPELINE_ID=${CI_PIPELINE_ID}" >> environment.env
      helm repo add ngc $HELM_NGC  --username=\$oauthtoken --password=$NVCR_PASS
      helm repo add stgngc $HELM_NGC_STG --username=\$oauthtoken --password=$STG_NVCR_PASS
      helm repo update
@@ -89,6 +82,8 @@ prep:
       dotenv: environment.env
     paths:
       - ${CI_PROJECT_DIR}/helm
+      - .kubeconfig
+      - .config.json
 
 generate_pipelines:
   stage: .pre
@@ -113,6 +108,8 @@ generate_pipelines:
     HELM_REGISTRY_CONFIG: ${HELM_REGISTRY_CONFIG}
     HELM_REPOSITORY_CACHE: ${HELM_REPOSITORY_CACHE}
     HELM_REPOSITORY_CONFIG: ${HELM_REPOSITORY_CONFIG}
+    PARENT_CI_JOB_TOKEN: ${CI_JOB_TOKEN}
+    CI_ENVIRONMENT_NAME: ${CI_ENVIRONMENT_NAME}
   script:
     - .gitlab/generate_pipelines.sh
   artifacts:
@@ -126,7 +123,11 @@ generate_pipelines:
     - prep
 
 trigger:generate_pipelines:
-  stage: .pre
+  variables:
+    PARENT_PIPELINE_ID: $CI_PIPELINE_ID
+    PARENT_CI_JOB_TOKEN: $CI_JOB_TOKEN
+    DEPLOYMENT_GIT_KEY: $DEPLOYMENT_GIT_KEY
+  stage: test
   trigger:
     include:
       - artifact: "pipeline.yml"
@@ -134,3 +135,5 @@ trigger:generate_pipelines:
     strategy: depend
   needs:
     - generate_pipelines
+    - job: build-cargo
+      artifacts: false
