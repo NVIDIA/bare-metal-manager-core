@@ -18,7 +18,7 @@ ENV KUBECTL_VERSION=1.23.15
 ENV KUBECTL_URL=https://storage.googleapis.com/kubernetes-release/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl
 
 # Install dependencies
-RUN apk --no-cache add -U openssl curl tar gzip bash ca-certificates git go vault ruby nodejs yarn npm python3 py3-pip openssh \
+RUN apk --no-cache add -U openssl curl tar gzip bash ca-certificates git go vault ruby nodejs yarn npm python3 py3-pip \
   && mkdir -p /opt
 
 # Install semver-tool
@@ -66,6 +66,4 @@ RUN wget -q -O - https://github.com/errata-ai/vale/releases/download/v2.15.4/val
   && chmod +x /usr/local/bin/vale
 
 RUN pip3 install yamllint
-RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh && \
-  ssh-keyscan -p 12051 gitlab-master.nvidia.com  >> /root/.ssh/known_hosts
-RUN printf "Host gitlab-master.nvidia.com\n\tPort 12051" > /root/.ssh/config
+
