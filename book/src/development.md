@@ -1,175 +1,178 @@
 # Development
+
 We aim to keep the development environment as self-contained and automated as
-possible.  Each time we on-board new staff we want to enshrine more of each
+possible. Each time we onboard new staff, we want to enshrine more of each
 development cluster bring up into tooling instead of institutional knowledge.
-To that end, we are using docker compose to instantiate a development
+To that end, we are using docker-compose to instantiate a development
 environment.
-
-There are preset environment variables that are used throughout the repo.  `${REPO_ROOT}` is used to represent the top of the forge repo tree.
-
-For a list env vars we predefine look at
-`${REPO_ROOT}/.envrc`
 
 ## Local environment prep
 
-1. Install rust by following directions [here](https://www.rust-lang.org/tools/install).
-    You will need to use the rustup based installation method, in order to be
-    able to use the same Rust compiler that is utilized by the CI toolchain.
-    You can find the target compiler version in [rust-toolchain.toml](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/rust-toolchain.toml). If rustup is installed,
-    you can switch toolchain versions using `rustup toolchain`.
+1. Install rust by following the directions [here](https://www.rust-lang.org/tools/install).
+   You will need to use the rustup based installation method to use the same Rust compiler utilized by the CI toolchain.
+   You can find the target compiler version in
+   [rust-toolchain.toml](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/rust-toolchain.toml).
+   If rustup is installed, you can switch toolchain versions using `rustup toolchain`.
 
-    Make sure you have a C++ compiler:
+   Make sure you have a C++ compiler:
 
-    Arch - ```sudo pacman -S base-devel```
+   Arch - `sudo pacman -S base-devel`
 
-    Debian - ```sudo apt-get -y install build-essential```
+   Debian - `sudo apt-get -y install build-essential`
 
-    Fedora - ```sudo dnf -y install gcc-c++ systemd-devel``` (systemd-devel needed for libudev-devel)
+   Fedora - `sudo dnf -y install gcc-c++ systemd-devel` (systemd-devel needed for libudev-devel)
 
 2. Install additional cargo utilities
 
-    ```cargo install cargo-watch cargo-make sccache mdbook mdbook-mermaid```
-3. Install docker following these [directions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), then add yourself to the docker group: `sudo usermod -aG docker $USER` (otherwise you have to always `sudo docker`).
+   `cargo install cargo-watch cargo-make sccache mdbook mdbook-mermaid`
+
+3. Install docker following these [directions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), then add yourself to the docker group: `sudo usermod -aG docker $USER` (otherwise, you must always `sudo` docker`).
 4. Install docker-compose using your system package manager
 
-    Arch - ```sudo pacman -S docker-compose```
+   Arch - `sudo pacman -S docker-compose`
 
-    Debian - ```sudo apt-get install -y docker-compose```
+   Debian - `sudo apt-get install -y docker-compose`
 
-    Fedora - ```sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-compose```
+   Fedora - `sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-compose`
 
-5. Install [KinD](https://kind.sigs.k8s.io/docs/user/quick-start#installing-from-release-binaries)
-6. Install [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
-7. Install ISC kea using your system package manager
+5. Install ISC kea using your system package manager
 
-    Arch - ```sudo pacman -S kea```
+   Arch - `sudo pacman -S kea`
 
-    Debian
-    - Add the KEA package source, just [as our build container does](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/243203db10f883376c933ed57b6f43a3861c4752/dev/docker/Dockerfile.build-container#L14-15)
-      ```
-      cp dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
-      cp dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
-      ```
-    - Install kea from the this source
-      ```
-      sudo apt-get update && apt-get install -y isc-kea-dhcp4-server isc-kea-dev
-      ```
+   Debian
 
-    Fedora - ```sudo dnf install -y kea kea-devel kea-libs```
+   - Add the KEA package source, just [as our build container does](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/243203db10f883376c933ed57b6f43a3861c4752/dev/docker/Dockerfile.build-container#L14-15)
+     ```
+     cp dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
+     cp dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
+     ```
+   - Install kea from source
+     ```
+     sudo apt-get update && apt-get install -y isc-kea-dhcp4-server isc-kea-dev
+     ```
 
-8. You can install PostgreSQL locally, but it might be easier to start a docker container when you need to. This is especially useful when running `cargo test` manually.
-    ```docker run -e POSTGRES_PASSWORD="admin" -p "5432:5432" postgres:14.1-alpine```
+   Fedora - `sudo dnf install -y kea kea-devel kea-libs`
 
-    a. Postgresql CLI utilities should be installed locally
+6. You can install PostgreSQL locally, but it might be easier to start a
+   docker container when you need to. The docker container is handy when running `cargo test` manually.
+   `docker run -e POSTGRES_PASSWORD="admin" -p "5432:5432" postgres:14.1-alpine`
 
-    Arch - ```sudo pacman -S postgresql-client```
+   a. Postgresql CLI utilities should be installed locally
 
-    Debian - ```sudo apt-get install -y postgresql-client```
+   Arch - `sudo pacman -S postgresql-client`
 
-    Fedora - ```sudo dnf install -y postgresql```
+   Debian - `sudo apt-get install -y postgresql-client`
 
-9. Install qemu and ovmf firmware for starting VM's to simulate PXE clients
+   Fedora - `sudo dnf install -y postgresql`
 
-     Arch - ```sudo pacman -S qemu edk2-omvf```
+7. Install qemu and ovmf firmware for starting VM's to simulate PXE clients
 
-     Debian - ```apt-get install -y qemu qemu-kvm ovmf```
+   Arch - `sudo pacman -S qemu edk2-omvf`
 
-     Fedora - ```sudo dnf -y install bridge-utils libvirt virt-install qemu-kvm```
+   Debian - `apt-get install -y qemu qemu-kvm ovmf`
 
-10. Install `direnv` using your package manager and then in repo root run: `direnv allow`
+   Fedora - `sudo dnf -y install bridge-utils libvirt virt-install qemu-kvm`
 
-    Arch - ```sudo pacman -S direnv```
+8. Install `direnv` using your package manager
+   
+   It would be bestto install `direnv` on your host. Once you
+   clone the `carbide` repo, run `direnv allow` in your local copy.
+   Running `direnv allow` exports the necessary environmental variables
 
-    Debian - ```sudo apt-get install -y direnv```
+   There are preset environment variables that are used throughout the repo. `${REPO_ROOT}` represents the top of the forge repo tree.
 
-    Fedora - ```sudo dnf install -y direnv```
+   For a list environment variables, we predefine look in:
+   `${REPO_ROOT}/.envrc`
+   
+   Arch - `sudo pacman -S direnv`
 
-11. Install golang using whatever method is most convient for you.  `forge-vpc` (which is in a subtree of the `forge-provisioner` repo uses golang)
-12. Install GRPC client `grpcurl`.
+   Debian - `sudo apt-get install -y direnv`
 
-    Arch - ```sudo pacman -S grpcurl```
+   Fedora - `sudo dnf install -y direnv`
+
+9. Install golang using whatever method is most convenient for you. `forge-vpc` (which is in a subtree of the `forge-provisioner` repo uses golang)
+10. Install GRPC client `grpcurl`.
+
+    Arch - `sudo pacman -S grpcurl`
 
     Debian/Ubuntu/Others - [Get latest release from github](https://github.com/fullstorydev/grpcurl/releases)
 
-    Fedora - ```sudo dnf install grpcurl```
+    Fedora - `sudo dnf install grpcurl`
 
-13. Additionally, ```prost-build``` needs access to the protobuf compiler to parse proto files (it doesn't implement it's own parser).
+11. Additionally, `prost-build` needs access to the protobuf compiler to parse proto files (it doesn't implement its own parser).
 
-    Arch - ```sudo pacman -S protobuf```
+    Arch - `sudo pacman -S protobuf`
 
-    Debian - ```sudo apt-get install -y protobuf-compiler```
+    Debian - `sudo apt-get install -y protobuf-compiler`
 
-    Fedora - ```sudo dnf install -y protobuf protobuf-devel```
+    Fedora - `sudo dnf install -y protobuf protobuf-devel`
 
-14. Install 'jq' from system package manager
+12. Install 'jq' from system package manager
 
-    Arch - ```sudo pacman -S jq```
+    Arch - `sudo pacman -S jq`
 
-    Debian - ```sudo apt-get install -y jq```
+    Debian - `sudo apt-get install -y jq`
 
-    Fedora - ```sudo dnf install -y jq```
+    Fedora - `sudo dnf install -y jq`
 
-15. Install 'mkosi' and 'debootstrap' from system package manager
+13. Install 'mkosi' and 'debootstrap' from system package manager
 
-    Debian - ```sudo apt-get install -y mkosi debootstrap```
+    Debian - `sudo apt-get install -y mkosi debootstrap`
 
-    Fedora - ```sudo dnf install -y mkosi debootstrap```
+    Fedora - `sudo dnf install -y mkosi debootstrap`
 
-16. Install `liblzma-dev` from system package manager
+14. Install `liblzma-dev` from system package manager
 
-    Debian - ```sudo apt-get install -y liblzma-dev```
+    Debian - `sudo apt-get install -y liblzma-dev`
 
-    Fedora - ```sudo dnf install -y xz-devel```
+    Fedora - `sudo dnf install -y xz-devel`
 
-17. Install `swtpm` and `swtpm-tools` from system package manager
+15. Install `swtpm` and `swtpm-tools` from system package manager
 
-    Debian - ```sudo apt-get install -y swtpm swtpm-tools```
+    Debian - `sudo apt-get install -y swtpm swtpm-tools`
 
-    Fedora - ```sudo dnf install -y swtpm swtpm-tools```
+    Fedora - `sudo dnf install -y swtpm swtpm-tools`
 
-18. Login to gitlab Docker registry. You will need to be authenticated to fetch our build container, which some `cargo make` commands use.
+16. Build the `build-container` locally
 
-    Create a gitlab [Personal Access Token](https://gitlab-master.nvidia.com/-/profile/personal_access_tokens) at that link with 'api'
-    scope (less might work).
+    `cargo make build-x86-build-container`
 
-    From the command line: `docker login gitlab-master.nvidia.com:5005`. Use your NVIDIA username and the access token as password.
+17. Build the book locally
 
-19. Build the book locally
-
-    ```cargo make book```
+    `cargo make book`
 
     Then bookmark `file:///$REPO_ROOT/public/index.html`.
 
 ## Checking your setup / Running Unit Tests
 
-To quickly set up your environment to run unit tests, you'll need an initialized PSQL service locally on your system to connect to. The docker-compose workflow
-handles this for you, but if you're just trying to set up a simple env to run unit tests run the following.
+To quickly set up your environment to run unit tests, you'll need an initialized PSQL service locally on your system. The docker-compose workflow
+handles this for you, but if you're trying to set up a simple env to run unit tests run the following.
 
 Start docker daemon:
 
-```sudo systemctl start docker```
+`sudo systemctl start docker`
 
 Start database container:
 
-```docker run --rm -di -e POSTGRES_PASSWORD="admin" -p "5432:5432" --name pgdev postgres:14.1-alpine```
+`docker run --rm -di -e POSTGRES_PASSWORD="admin" -p "5432:5432" --name pgdev postgres:14.1-alpine`
 
 Init the database:
 
-```cd dev/terraform; docker run -v ${PWD}:/junk --rm hashicorp/terraform -chdir=/junk init```
+`cd dev/terraform; docker run -v ${PWD}:/junk --rm hashicorp/terraform -chdir=/junk init`
 
 Test!
 
-```cargo test```
+`cargo test`
 
-If the tests don't pass ask in Slack #swngc-forge-dev .
+If the tests don't pass ask in Slack #swngc-forge-dev.
 
 Cleanup, otherwise docker-compose won't work later:
 
-```docker ps; docker stop <container ID>```
+`docker ps; docker stop <container ID>`
 
 ## IDE
 
-Recommended IDE for Rust development in the Carbide project is CLion, IntelliJ works as well but includes a lot of extra components that you don't need.  There are plenty
+Recommended IDE for Rust development in the Carbide project is CLion, IntelliJ works as well but includes a lot of extra components that you don't need. There are plenty
 of options (VS Code, NeoVim etc), but CLion/IntelliJ is widely used.
 
 One thing to note regardless of what IDE you choose: if you're running on Linux DO NOT USE Snap or Flatpak versions of the software packages. These builds inroduce a number
@@ -177,17 +180,11 @@ of complications in the C lib linking between the IDE and your system and frankl
 
 ## Next steps
 
-Setup a full local environment with docker-compose:
+Setup a complete local environment with docker-compose:
+
 - [Docker workflow](docker/development.md)
 
 Setup a QEMU host for your docker-compose services to manager:
-1. [Build iPXE image](ipxe/development.md)
+
+1. [Build iPXE and bootable artifacts image](bootable_artifacts.md)
 1. [Start QEMU server](vm_pxe_client.html)
-
-## Other Workflows
-
-If you are just getting started on Carbide you don't need these yet.
-
-[Kubernetes workflow](kubernetes/development.md) (STILL WIP but functional)
-
-[iPXE and bootable artifacts](bootable_artifacts.md) (a bit broken, skip)
