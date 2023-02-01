@@ -25,11 +25,9 @@ where
 {
     let client = rpc::forge_client::ForgeClient::connect(server)
         .await
-        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+        .map_err(CarbideCliError::ApiConnectFailed)?;
 
-    callback(client)
-        .await
-        .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))
+    callback(client).await
 }
 
 pub async fn get_machine(id: String, server: String) -> CarbideCliResult<rpc::Machine> {
@@ -39,7 +37,7 @@ pub async fn get_machine(id: String, server: String) -> CarbideCliResult<rpc::Ma
             .get_machine(request)
             .await
             .map(|response| response.into_inner())
-            .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+            .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(machine_details)
     })
@@ -56,7 +54,7 @@ pub async fn get_all_machines(server: String) -> CarbideCliResult<rpc::MachineLi
             .find_machines(request)
             .await
             .map(|response| response.into_inner())
-            .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+            .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(machine_details)
     })
@@ -75,7 +73,7 @@ pub async fn get_instances(
             .find_instances(request)
             .await
             .map(|response| response.into_inner())
-            .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+            .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(instance_details)
     })
@@ -92,7 +90,7 @@ pub async fn get_instances_by_machine_id(
             .find_instance_by_machine_id(request)
             .await
             .map(|response| response.into_inner())
-            .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+            .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(instance_details)
     })
@@ -109,7 +107,7 @@ pub async fn get_segments(
             .find_network_segments(request)
             .await
             .map(|response| response.into_inner())
-            .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+            .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(networks)
     })
@@ -126,7 +124,7 @@ pub async fn get_domains(
             .find_domain(request)
             .await
             .map(|response| response.into_inner())
-            .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+            .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(networks)
     })
@@ -143,7 +141,7 @@ pub async fn get_dpu_ssh_credential(
             .get_dpu_ssh_credential(request)
             .await
             .map(|response| response.into_inner())
-            .map_err(|x| CarbideCliError::ApiConnectFailed(x.to_string()))?;
+            .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(cred)
     })
