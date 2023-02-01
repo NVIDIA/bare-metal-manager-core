@@ -1056,6 +1056,10 @@ where
             .await?;
         log::info!("Requested disable lockdown and power reset for machine: {machine_id}");
 
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "commit cleanup_machine_completed", e)
+        })?;
+
         Ok(Response::new(rpc::MachineCleanupResult {}))
     }
 
