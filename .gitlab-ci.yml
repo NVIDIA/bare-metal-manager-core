@@ -45,6 +45,7 @@ include:
       - defaults.gitlab-ci.yml
   - local: .gitlab/ci/helm.gitlab-ci.yml
 
+
 nightly_tests:
   stage: e2e-test
   image:
@@ -381,50 +382,6 @@ pages:
       - public
   only:
     - trunk
-
-build-push-helm:
-  variables:
-    PUSH_TO_NVCR: "true"
-    HELM_FILE_NAME: "${CI_PROJECT_NAME}-${HELM_VERSION}"
-  before_script:
-    - apt-get update
-    - apt-get install -y gettext-base
-    - export LOCALBIN=$PWD/"ci/bin"
-    - mkdir -p $LOCALBIN
-    - GOBIN=$LOCALBIN go install github.com/vinodchitraliNVIDIA/helmify/cmd/helmify@v0.0.1
-    - GOBIN=$LOCALBIN go install sigs.k8s.io/kustomize/kustomize/v4@v4.5.7
-    - $LOCALBIN/kustomize build dev/kube/overlays/helm | $LOCALBIN/helmify $CI_PROJECT_NAME
-    - yq -i '.carbideApiDeployment.carbideApi.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbideApiDeployment.carbideApi.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbideDnsDeployment.carbideDns.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbideDnsDeployment.carbideDns.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbidePxeDeployment.carbidePxe.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbidePxeDeployment.carbidePxe.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.keaDhcpDeployment.keaDhcp.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.keaDhcpDeployment.keaDhcp.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbideApiDeployment.envoy.image.tag = "35f8d59b1172a85f02dd119791a9ef42c728cfa8"' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbideApiDeployment.envoy.image.repository = "nvcr.io/nvidian/forge/envoy-dev"' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbidePxeDeployment.envoy.image.tag = "35f8d59b1172a85f02dd119791a9ef42c728cfa8"' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbidePxeDeployment.envoy.image.repository = "nvcr.io/nvidian/forge/envoy-dev"' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.version = env(HELM_VERSION)' $CI_PROJECT_NAME/Chart.yaml
-    - yq -i '.carbide-db-migrations.image.repository = "nvcr.io/nvidian/forge/nvmetal-carbide"' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.carbide-db-migrations.image.tag = env(VERSION)' $CI_PROJECT_NAME/values.yaml
-    - export URM_USERNAME=$(devopsctl credentials get forge/urm username)
-    - export URM_PASSWORD=$(devopsctl credentials get forge/urm password)
-    - yq -i '.artifactsCreds.artifactToken = env(URM_PASSWORD)' $CI_PROJECT_NAME/values.yaml
-    - yq -i '.artifactsCreds.artifactUser = env(URM_USERNAME)' $CI_PROJECT_NAME/values.yaml
-    - sed -i 's|quay.io/nvidia/nvmetal-carbide:latest|{{ index .Values "carbide-db-migrations" "image" "repository" }}:{{ index .Values "carbide-db-migrations" "image" "tag" }}|g' $CI_PROJECT_NAME/templates/carbide-db-migrations.yaml
-    - |
-      sed -i 's/name: artifacts-creds/name: {{ include "carbide.fullname" . }}-artifacts-creds/g' $CI_PROJECT_NAME/templates/deployment.yaml
-      sed -i '/^spec:/a \ \ imagePullSecrets:\n \ \- name: imagepullsecret' $CI_PROJECT_NAME/templates/postgres.yaml
-      sed -i 's/carbide-postgres-pguser-carbide-postgres/{{ .Release.Name }}-postgres-pguser-{{ .Release.Name }}-postgres/g' $CI_PROJECT_NAME/templates/*
-      sed -i 's/secretName: forge-provisioner-cert/secretName: {{ include "carbide.fullname" . }}-forge-provisioner-cert/g' $CI_PROJECT_NAME/templates/*
-      sed -i 's/nvcr\.io\/nvidian\/forge\/crunchy-pgbackrest:ubi8-2\.38-0/{{ .Values.postGresBt.image }}/g' $CI_PROJECT_NAME/templates/postgres.yaml
-      sed -i 's/nvcr\.io\/nvidian\/forge\/crunchy-postgres:ubi8-14\.2-1/{{ .Values.postGres.image }}/g' $CI_PROJECT_NAME/templates/postgres.yaml
-      yq -i '.postGresBt.image = "nvcr.io/nvidian/forge/crunchy-pgbackrest:ubi8-2.38-0"' $CI_PROJECT_NAME/values.yaml
-      yq -i '.postGres.image = "nvcr.io/nvidian/forge/crunchy-postgres:ubi8-14.2-1"' $CI_PROJECT_NAME/values.yaml
-      sed -i 's/@type/"@type"/g' $CI_PROJECT_NAME/templates/*
-      helm package $CI_PROJECT_NAME/
 
 deploy_dev1:
   extends: .deploy_kustomize
