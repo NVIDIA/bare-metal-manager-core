@@ -27,14 +27,14 @@
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
 - [Data Model](development/schema.md)
 - [DPU/Bluefield](dpu-operations.md)
-- [iPXE](ipxe/development.md)
 - [Baby Forge](babyforge.md)
 
 # Kubernetes
-  - [Local Development](kubernetes/development.md)
-  - [Helm](kubernetes/helm.md)
-  - [TLS](kubernetes/tls.md)
-  - [kubectl cheatsheat for Forge deployments](kubernetes/kubectl.md)
+
+- [Local Development](kubernetes/development.md)
+- [Helm](kubernetes/helm.md)
+- [TLS](kubernetes/tls.md)
+- [kubectl cheatsheat for Forge deployments](kubernetes/kubectl.md)
 
 # Environments
 
