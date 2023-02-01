@@ -37,7 +37,10 @@ struct Config {
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideCliError {
     #[error("Unable to connect to carbide API: {0}")]
-    ApiConnectFailed(String),
+    ApiConnectFailed(tonic::transport::Error),
+
+    #[error("The API call to the Forge API server returned {0}")]
+    ApiInvocationError(tonic::Status),
 
     #[error("Error while writing into string: {0}")]
     StringWriteError(#[from] std::fmt::Error),
