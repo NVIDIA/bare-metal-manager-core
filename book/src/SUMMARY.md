@@ -34,6 +34,7 @@
   - [Local Development](kubernetes/development.md)
   - [Helm](kubernetes/helm.md)
   - [TLS](kubernetes/tls.md)
+  - [kubectl cheatsheat for Forge deployments](kubernetes/kubectl.md)
 
 # Environments
 
