@@ -12,26 +12,70 @@
 
 //! A logging middleware for carbide API server requests
 
-use std::task::{Context, Poll};
+use std::{
+    sync::Arc,
+    task::{Context, Poll},
+};
 
+use opentelemetry::{
+    metrics::{Histogram, Meter, Unit},
+    KeyValue,
+};
 use tracing::Instrument;
 
 /// A tower Layer which creates a `LogService` for every request
-#[derive(Debug, Default, Clone)]
-pub struct LogLayer {}
+#[derive(Debug, Clone)]
+pub struct LogLayer {
+    /// Captures metrics in server requests
+    /// This is an `Arc` because it will be shared with every request handler
+    metrics: Arc<RequestMetrics>,
+}
+
+impl LogLayer {
+    pub fn new(meter: Meter) -> Self {
+        // The metrics here loosly follow
+        // https://opentelemetry.io/docs/reference/specification/metrics/semantic_conventions/http-metrics/#http-server
+        // We include the service name here for extra discoverability,
+        // and the unit since setting it on the metric does not seem to have any
+        // impact on the prometheus export. On prometheus the metric shows up
+        // unitless - which makes the user guess
+        let request_times = meter
+            .f64_histogram("carbide-api.grpc.server.duration.ms")
+            .with_description("Processing time for a request on the carbide API server")
+            .with_unit(Unit::new("ms"))
+            .init();
+
+        let metrics = Arc::new(RequestMetrics {
+            _meter: meter,
+            request_times,
+        });
+
+        Self { metrics }
+    }
+}
 
 impl<S> tower::Layer<S> for LogLayer {
     type Service = LogService<S>;
 
     fn layer(&self, service: S) -> Self::Service {
-        LogService { service }
+        LogService {
+            service,
+            metrics: self.metrics.clone(),
+        }
     }
+}
+
+#[derive(Debug, Clone)]
+struct RequestMetrics {
+    _meter: Meter,
+    request_times: Histogram<f64>,
 }
 
 // This service implements the Forge API server logging behavior
 #[derive(Clone, Debug)]
 pub struct LogService<S> {
     service: S,
+    metrics: Arc<RequestMetrics>,
 }
 
 impl<S, RequestBody, ResponseBody> tower::Service<http::Request<RequestBody>> for LogService<S>
@@ -54,6 +98,7 @@ where
 
     fn call(&mut self, request: http::Request<RequestBody>) -> Self::Future {
         let mut service = self.service.clone();
+        let metrics = self.metrics.clone();
 
         Box::pin(async move {
             // Start a span which tracks the API request
@@ -95,13 +140,13 @@ where
                 }
             }
 
-            if let Some(service) = grpc_service {
+            if let Some(service) = &grpc_service {
                 request_span.record(
                     opentelemetry_semantic_conventions::trace::RPC_SERVICE.as_str(),
                     service,
                 );
             }
-            if let Some(method) = grpc_method {
+            if let Some(method) = &grpc_method {
                 request_span.record(
                     opentelemetry_semantic_conventions::trace::RPC_METHOD.as_str(),
                     method,
@@ -116,8 +161,12 @@ where
 
             // Holds the overall outcome of the request as a single log message
             let mut outcome: Result<(), String> = Ok(());
+            let mut http_code = None;
+            let mut grpc_status = None;
+
             match &result {
                 Ok(result) => {
+                    http_code = Some(result.status());
                     request_span.record(
                         opentelemetry_semantic_conventions::trace::HTTP_STATUS_CODE.as_str(),
                         result.status().as_u16(),
@@ -137,6 +186,7 @@ where
                                 tonic::Code::Ok
                             }
                         };
+                        grpc_status = Some(code);
                         let message = result
                             .headers()
                             .get("grpc-message")
@@ -186,6 +236,36 @@ where
                 // Writing this field will set the span status to error
                 // Therefore we only write it on errors
                 request_span.record("otel.status_message", e);
+            }
+
+            // Fetch the opentelemetry context from the tracing span which
+            // creates a `Context`
+            {
+                let _entered = request_span.enter();
+                let cx = opentelemetry::Context::current();
+
+                // The attributes follow
+                // https://opentelemetry.io/docs/reference/specification/metrics/semantic_conventions/http-metrics/#attributes
+                let attributes = vec![
+                    KeyValue::new(
+                        "grpc.method",
+                        grpc_method.unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                    KeyValue::new(
+                        "http.status_code",
+                        http_code
+                            .map(|status| status.as_str().to_string())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                    KeyValue::new(
+                        "grpc.status_code",
+                        grpc_status.map(|code| code as i64).unwrap_or(499),
+                    ),
+                ];
+
+                metrics
+                    .request_times
+                    .record(&cx, elapsed.as_secs_f64() * 1000.0, &attributes);
             }
 
             result

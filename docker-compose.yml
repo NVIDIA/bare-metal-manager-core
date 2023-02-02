@@ -92,9 +92,11 @@ services:
       --auth-permissive-mode=true"
     ports:
       - 1079:1079
+      - 1080:1080
     environment:
       - CARGO_HOME=/docker_cargo_home
       - CARBIDE_DHCP_SERVER="172.20.0.12"
+      - CARBIDE_METRICS_ENDPOINT=[::0]:1080
       - VAULT_MOUNT_LOCATION=secret
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
@@ -229,8 +231,48 @@ services:
     command: cargo watch -C ipmi/console -x "run --target-dir /tmp/ipmi-console -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem' --listen='0.0.0.0:2222' --api-endpoint='http://172.20.0.14:1079'"
     ports:
       - 2222:2222
+
+  prometheus:
+    image: prom/prometheus:v2.41.0
+    container_name: prometheus
+    volumes:
+      - ./dev/prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    networks:
+      carbide:
+        ipv4_address: 172.20.0.22
+
+  grafana:
+    image: grafana/grafana:9.3.2
+    container_name: grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./dev/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=forge
+      - GF_SECURITY_ADMIN_PASSWORD=forge
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    networks:
+      carbide:
+        ipv4_address: 172.20.0.23
+
 volumes:
-  db-data: {}
   ca-certificate: {}
-  vault-data: {}
+  db-data: {}
+  grafana-data: {}
+  prometheus-data: {}
   terraform-state: {}
+  vault-data: {}
