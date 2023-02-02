@@ -66,6 +66,9 @@ message DmiData {
   string product_serial = 4;
   string board_serial = 5;
   string chassis_serial = 6;
+  string bios_date = 7;
+  string product_name = 8;
+  string sys_vendor = 9;
 }
 
 message PciDeviceProperties{

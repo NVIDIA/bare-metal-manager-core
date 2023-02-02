@@ -122,9 +122,12 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
             board_name: "test_dmi_model".to_string(),
             board_version: "test_board_version.1.0".to_string(),
             bios_version: "test_bios_version.1.0".to_string(),
+            bios_date: "01/01/1970".to_string(),
             product_serial: "p12345".to_string(),
             board_serial: "b23456".to_string(),
             chassis_serial: "c34567".to_string(),
+            product_name: "Forge Server".to_string(),
+            sys_vendor: "Forge".to_string(),
         }),
         tpm_ek_certificate: None,
     };

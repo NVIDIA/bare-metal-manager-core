@@ -86,11 +86,17 @@ pub struct DmiData {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub bios_version: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bios_date: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub product_serial: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub board_serial: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub chassis_serial: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub product_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sys_vendor: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -244,9 +250,12 @@ impl TryFrom<rpc::machine_discovery::DmiData> for DmiData {
             board_name: data.board_name,
             board_version: data.board_version,
             bios_version: data.bios_version,
+            bios_date: data.bios_date,
             product_serial: data.product_serial,
             board_serial: data.board_serial,
             chassis_serial: data.chassis_serial,
+            product_name: data.product_name,
+            sys_vendor: data.sys_vendor,
         })
     }
 }
@@ -259,9 +268,12 @@ impl TryFrom<DmiData> for rpc::machine_discovery::DmiData {
             board_name: data.board_name,
             board_version: data.board_version,
             bios_version: data.bios_version,
+            bios_date: data.bios_date,
             product_serial: data.product_serial,
             board_serial: data.board_serial,
             chassis_serial: data.chassis_serial,
+            product_name: data.product_name,
+            sys_vendor: data.sys_vendor,
         })
     }
 }
