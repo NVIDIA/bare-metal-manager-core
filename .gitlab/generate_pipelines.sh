@@ -131,8 +131,6 @@ lint:${base}:
      job: prep
   rules:
     - if: \$PARENT_CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - "charts/**/*"
     - when: never
 "test:${base}_Validates_Kubernetes_1.23.16":
   variables:
@@ -169,8 +167,6 @@ lint:${base}:
     - lint:${base}
   rules:
     - if: \$PARENT_CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - "charts/**/*"
     - when: never
 
 test:${base}_KubeLint:
@@ -203,8 +199,6 @@ test:${base}_KubeLint:
     - lint:${base}
   rules:
     - if: \$PARENT_CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - "charts/**/*"
     - when: never
   allow_failure: true
 
