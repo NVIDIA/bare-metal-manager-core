@@ -156,9 +156,10 @@ async fn determine_boot_from_state(
                 boot_forge_host_image(arch, machine_interface_id, config)
             }
         },
-        "reset" => {
+        "reset" | "cleanup" => {
             boot_forge_host_image(rpc::MachineArchitecture::X86, machine_interface_id, config)
         }
+
         "assigned" => boot_tenant_image(machine, config).await,
         // any unrecognized state will cause ipxe to stop working with this message
         invalid_status => format!(
