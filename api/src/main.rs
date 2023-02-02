@@ -15,12 +15,15 @@ use std::time::Duration;
 
 use carbide::{
     cfg::{Command, Options},
-    logging::otel_stdout_exporter::OtelStdoutExporter,
+    logging::{
+        metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
+        otel_stdout_exporter::OtelStdoutExporter,
+    },
 };
 use color_eyre::eyre::Context;
 use forge_credentials::ForgeVaultClient;
 use opentelemetry::{
-    sdk::{self},
+    sdk::{self, export::metrics::aggregation, metrics},
     trace::TracerProvider,
 };
 use opentelemetry_semantic_conventions as semcov;
@@ -34,15 +37,18 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     let config = Options::load();
 
+    // This defines attributes that are set on the exported logs **and** metrics
+    let service_telemetry_attributes = sdk::Resource::new(vec![
+        semcov::resource::SERVICE_NAME.string("carbide-api"),
+        semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
+    ]);
+
     // Set up an OpenTelemetry tracer with an exporter to StdOut
     // Note: This doesn't yet make any logs get pushed to the OpenTelemetry library
     // The binding happens later once we initialize tracing_opentelemetry and configure
     // it to forward log events from the `tracing` framework.
     // The application internally only uses `tracing` events.
-    let trace_config = sdk::trace::config().with_resource(sdk::Resource::new(vec![
-        semcov::resource::SERVICE_NAME.string("carbide-api"),
-        semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
-    ]));
+    let trace_config = sdk::trace::config().with_resource(service_telemetry_attributes.clone());
 
     let tracer = {
         let exporter = OtelStdoutExporter::new(std::io::stdout());
@@ -52,8 +58,7 @@ async fn main() -> Result<(), color_eyre::Report> {
         provider_builder = provider_builder.with_config(trace_config);
         let provider = provider_builder.build();
 
-        let tracer =
-            provider.versioned_tracer("opentelemetry", Some(env!("CARGO_PKG_VERSION")), None);
+        let tracer = provider.tracer("carbide-api");
         let _ = opentelemetry::global::set_tracer_provider(provider);
 
         tracer
@@ -104,6 +109,44 @@ async fn main() -> Result<(), color_eyre::Report> {
             carbide::db::migrations::migrate(&pool).await?;
         }
         Command::Run(ref config) => {
+            // Set up OpenTelemetry metrics export via prometheus
+            // TODO: The configuration here is copy&pasted from
+            // https://github.com/open-telemetry/opentelemetry-rust/blob/main/examples/hyper-prometheus/src/main.rs
+            // and should likely be fine-tuned.
+            // One particular challenge seems that these histogram buckets are used for all histograms
+            // created by the library. But we might want different buckets for e.g. request timings
+            // than for e.g. data sizes
+            let metrics_controller = metrics::controllers::basic(metrics::processors::factory(
+                metrics::selectors::simple::histogram([
+                    0.01, 0.05, 0.09, 0.1, 0.5, 0.9, 1.0, 5.0, 9.0, 10.0, 50.0, 90.0, 100.0, 500.0,
+                    900.0, 1000.0,
+                ]),
+                aggregation::cumulative_temporality_selector(),
+            ))
+            .with_resource(service_telemetry_attributes)
+            .build();
+
+            // This sets the global meter provider
+            // After this call `global::meter()` will be available
+            let metrics_exporter =
+                Arc::new(opentelemetry_prometheus::exporter(metrics_controller).init());
+
+            let meter = opentelemetry::global::meter("carbide-api");
+
+            // Spin up the webserver which servers `/metrics` requests
+            if let Some(metrics_address) = config.metrics_endpoint {
+                tokio::spawn(async move {
+                    if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
+                        address: metrics_address,
+                        exporter: metrics_exporter,
+                    })
+                    .await
+                    {
+                        tracing::error!("Metrics endpoint failed with error: {}", e);
+                    }
+                });
+            }
+
             let vault_token = env::var("VAULT_TOKEN").wrap_err("VAULT_TOKEN")?;
             let vault_addr = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
             let vault_mount_location =
@@ -118,7 +161,7 @@ async fn main() -> Result<(), color_eyre::Report> {
             let vault_client = VaultClient::new(vault_client_settings)?;
             let forge_vault_client = ForgeVaultClient::new(vault_client, vault_mount_location);
             let forge_vault_client = Arc::new(forge_vault_client);
-            carbide::api::Api::run(config, forge_vault_client).await?
+            carbide::api::Api::run(config, forge_vault_client, meter).await?
         }
     }
     Ok(())

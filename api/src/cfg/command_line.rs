@@ -38,6 +38,7 @@ pub enum Command {
 
 #[derive(Parser)]
 pub struct Daemon {
+    /// The socket address that is used for the gRPC API server
     #[clap(
         short,
         long,
@@ -47,6 +48,12 @@ pub struct Daemon {
     )]
     pub listen: Vec<std::net::SocketAddr>,
 
+    /// The socket address that is used for the HTTP server which serves
+    /// prometheus metrics under /metrics
+    #[clap(long, env = "CARBIDE_METRICS_ENDPOINT")]
+    pub metrics_endpoint: Option<std::net::SocketAddr>,
+
+    /// A connection string for the utilized postgres database
     #[clap(long, require_equals(true), env = "DATABASE_URL")]
     pub datastore: String,
 

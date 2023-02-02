@@ -26,6 +26,7 @@ use http::{header::AUTHORIZATION, StatusCode};
 use hyper::server::conn::Http;
 use hyper::{Request as HyperRequest, Response as HyperResponse};
 use mac_address::MacAddress;
+use opentelemetry::metrics::Meter;
 use tokio::net::TcpListener;
 use tokio_rustls::{
     rustls::{Certificate, PrivateKey, ServerConfig},
@@ -66,7 +67,10 @@ use crate::{
     instance::{allocate_instance, InstanceAllocationRequest},
     ipmi::{ipmi_handler, MachineBmcRequest, Operation, RealIpmiCommandHandler},
     kubernetes::{bgkubernetes_handler, delete_managed_resource, VpcApi, VpcApiImpl, VpcApiSim},
-    logging::api_logs::LogLayer,
+    logging::{
+        api_logs::LogLayer,
+        service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
+    },
     model::{
         hardware_info::HardwareInfo, instance::status::network::InstanceNetworkStatusObservation,
         machine::MachineState,
@@ -409,8 +413,6 @@ where
         request: Request<rpc::NetworkSegmentQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
         log_request_data(&request);
-
-        log::debug!("Fetching database transaction");
 
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
@@ -1835,7 +1837,11 @@ struct ConnInfo {
 }
 
 #[tracing::instrument(skip_all)]
-async fn api_handler<C>(api_service: Arc<Api<C>>, listen_port: SocketAddr) -> Result<(), Report>
+async fn api_handler<C>(
+    api_service: Arc<Api<C>>,
+    listen_port: SocketAddr,
+    meter: Meter,
+) -> Result<(), Report>
 where
     C: CredentialProvider + 'static,
 {
@@ -1850,7 +1856,7 @@ where
     http.http2_only(true);
 
     let svc = Server::builder()
-        .layer(LogLayer::default())
+        .layer(LogLayer::new(meter))
         .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
         .add_service(api_reflection_service)
         .into_service();
@@ -1928,6 +1934,7 @@ where
     pub async fn run(
         daemon_config: &cfg::Daemon,
         credential_provider: Arc<C>,
+        meter: opentelemetry::metrics::Meter,
     ) -> Result<(), Report> {
         let service_config = if daemon_config.kubernetes {
             ServiceConfig::default()
@@ -1940,6 +1947,13 @@ where
             .connect(&daemon_config.datastore)
             .await?;
         let stats_pool = database_connection.clone();
+        let health_pool = database_connection.clone();
+
+        start_export_service_health_metrics(ServiceHealthContext {
+            meter: meter.clone(),
+            database_pool: health_pool,
+        });
+
         tokio::spawn(async move {
             loop {
                 log::info!("Active DB connections: {}", stats_pool.size());
@@ -2003,7 +2017,7 @@ where
                 .expect("Unable to build NetworkSegmentController");
 
         let listen_port = daemon_config.listen[0];
-        api_handler(api_service, listen_port).await
+        api_handler(api_service, listen_port, meter).await
     }
 
     // Map any of a UUID, IPv4, MAC or hostname to the UUID of a DPU machine, by querying the
