@@ -71,6 +71,15 @@ pub struct Machine {
 
     /// The Hardware information that was discoverd for this machine
     hardware_info: Option<HardwareInfo>,
+
+    /// Last time when machine came up.
+    last_reboot_time: Option<DateTime<Utc>>,
+
+    /// Last time when cleanup was performed successfully.
+    last_cleanup_time: Option<DateTime<Utc>>,
+
+    /// Last time when discovery finished.
+    last_discovery_time: Option<DateTime<Utc>>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -93,6 +102,9 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             events: Vec::new(),
             interfaces: Vec::new(),
             hardware_info: None,
+            last_reboot_time: row.try_get("last_reboot_time")?,
+            last_cleanup_time: row.try_get("last_cleanup_time")?,
+            last_discovery_time: row.try_get("last_discovery_time")?,
         })
     }
 }
@@ -454,6 +466,90 @@ SELECT m.id FROM
             .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    pub fn last_reboot_time(&self) -> Option<DateTime<Utc>> {
+        self.last_reboot_time
+    }
+
+    pub fn last_cleanup_time(&self) -> Option<DateTime<Utc>> {
+        self.last_cleanup_time
+    }
+
+    pub fn last_discovery_time(&self) -> Option<DateTime<Utc>> {
+        self.last_discovery_time
+    }
+
+    pub async fn update_reboot_time(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<()> {
+        let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING *";
+        let _id = sqlx::query_as::<_, Self>(query)
+            .bind(self.id())
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
+    pub async fn update_cleanup_time(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<()> {
+        let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING *";
+        let _id = sqlx::query_as::<_, Self>(query)
+            .bind(self.id())
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn update_discovery_time(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<()> {
+        let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING *";
+        let _id = sqlx::query_as::<_, Self>(query)
+            .bind(self.id())
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn find_host_by_dpu_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        dpu_machine_id: &uuid::Uuid,
+    ) -> CarbideResult<Option<Self>> {
+        let query = r#"SELECT m.* From machines m 
+                INNER JOIN machine_interfaces mi 
+                  ON m.id = mi.machine_id 
+                WHERE mi.attached_dpu_machine_id=$1::uuid 
+                    AND mi.attached_dpu_machine_id != mi.machine_id"#;
+        Ok(sqlx::query_as(query)
+            .bind(dpu_machine_id)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
+    }
+
+    pub async fn find_dpu_by_host_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        host_machine_id: &uuid::Uuid,
+    ) -> CarbideResult<Option<Self>> {
+        let query = r#"SELECT m.* From machines m 
+                INNER JOIN machine_interfaces mi 
+                  ON m.id = mi.attached_dpu_machine_id 
+                WHERE mi.machine_id=$1::uuid"#;
+        Ok(sqlx::query_as(query)
+            .bind(host_machine_id)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
     }
 }
 
