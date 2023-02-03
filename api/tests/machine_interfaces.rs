@@ -1,9 +1,3 @@
-use std::str::FromStr;
-
-use carbide::db::address_selection_strategy::AddressSelectionStrategy;
-use carbide::db::dpu_machine::DpuMachine;
-use carbide::db::machine::Machine;
-use carbide::db::machine_interface::MachineInterface;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -15,12 +9,19 @@ use carbide::db::machine_interface::MachineInterface;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide::db::network_segment::NetworkSegment;
-use carbide::db::vpc_resource_leaf::VpcResourceLeaf;
-use carbide::CarbideError;
+
+use carbide::{
+    db::{
+        address_selection_strategy::AddressSelectionStrategy, dpu_machine::DpuMachine,
+        machine::Machine, machine_interface::MachineInterface, network_segment::NetworkSegment,
+        vpc_resource_leaf::VpcResourceLeaf,
+    },
+    CarbideError,
+};
 use log::LevelFilter;
 use mac_address::MacAddress;
 use sqlx::{Connection, Postgres};
+use std::str::FromStr;
 
 pub mod common;
 use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;

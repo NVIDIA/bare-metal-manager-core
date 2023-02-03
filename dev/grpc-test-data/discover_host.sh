@@ -22,6 +22,11 @@ echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
 # Simulate the Machine discovery request of a x86 host
 DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' "$REPO_ROOT/dev/grpc-test-data/dpu_machine_discovery.json")
 DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//aarch64/x86_64}
+DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//Dpu123/Host123}
+DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuBoard123/HostBoard123}
+DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuChassis123/HostChassis123}
+DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuProductName234/HostProductName234}
+DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuSysVendor234/HostSysVendor234}
 
 RESULT=$(echo "$DISCOVER_MACHINE_REQUEST" | grpcurl -d @ -plaintext 127.0.0.1:1079 forge.Forge/DiscoverMachine)
 HOST_MACHINE_ID=$(echo "$RESULT" | jq ".machineId.value" | tr -d '"')
