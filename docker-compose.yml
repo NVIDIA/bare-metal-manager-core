@@ -101,6 +101,8 @@ services:
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
       - RUST_BACKTRACE=1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   carbide-pxe:
     depends_on:

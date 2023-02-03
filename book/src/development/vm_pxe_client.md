@@ -75,6 +75,26 @@ If you see "No network segment defined for relay address: 172.20.0.11" in the ca
 
 ## Start the VM
 
+Make sure you have libvirt installed.
+
+- Create it (once): `virsh define dev/libvirt_host.xml`
+- Start it: `virsh start ManagedHost`
+- Look at the console (not in tmux!): `virsh console ManagedHost`
+- Stop it `virsh destroy ManagedHost`
+
+You can also use graphical interface `virt-manager`.
+
+The virtual machine should fail to PXE boot from IPv4 (but gets an IP address) and IPv6, and then succeed from "HTTP boot IPv4", getting both an IP address and a boot image.
+
+This should boot you into the prexec image. The user is `root` and password
+is specified in the [mkosi.default](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/pxe/mkosi.default) file.
+
+In order to exit out of console use `ctrl-a x`
+
+virsh is part of libvirt. Libvirt is a user-friendly layer on top of QEMU (see next section to use it directly). QEMU is a hypervisor, it runs the virtual machine. QEMU uses kernel module KVM, which uses the CPU's virtualization instructions (Intel-VT or AMD-V).
+
+## Start the VM (older, manual)
+
 Do **not** do this step in `tmux` or `screen`. The QEMU escape sequence is Ctrl-a.
 
 With TPM:
@@ -102,14 +122,6 @@ sudo qemu-system-x86_64 -boot n -nographic -display none \
 ```
 
 On Fedora change the `-bios` line to `-bios /usr/share/OVMF/OVMF_CODE.fd`.
-
-The virtual machine should fail to PXE boot from IPv4 (but gets an IP address) and IPv6, and then succeed from "HTTP boot IPv4",
-getting both an IP address and a boot image.
-
-This should boot you into the prexec image. The user is `root` and password
-is specified in the [mkosi.default](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/pxe/mkosi.default) file.
-
-In order to exit out of console use `ctrl-a x`
 
 **Note**: As of a prior commit, there is a bug that will cause the ipxe dhcp to fail the first time it is run. Wait for it to fail,
 and in the EFI Shell just type `reset` and it will restart the whole pxe process and it will run the ipxe image properly the second time.
