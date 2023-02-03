@@ -12,11 +12,13 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Instant, SystemTime};
 
+use forge_credentials::CredentialKey;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -35,6 +37,7 @@ use uuid::Uuid;
 
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::constants::FORGE_KUBE_NAMESPACE;
+use crate::db::dpu_machine::DpuMachine;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipmi::{MachineBmcRequest, Operation};
@@ -1069,6 +1072,8 @@ pub async fn update_leaf(
 pub enum VpcApiError {
     #[error("Kube API returned {0:?}")]
     KubeError(Box<kube::Error>),
+    #[error("Kube returned malformed IP {0}")]
+    MalformedIpError(String),
     #[error(
         "A VPC object with the same name {0} but different spec already exists. \
     The object will not be deleted automatically. \
@@ -1127,6 +1132,15 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
         &self,
         network_prefix_id: uuid::Uuid,
     ) -> Result<Poll<()>, VpcApiError>;
+
+    /// Trys to create a resource group on Forge VPC
+    ///
+    /// Will return
+    /// - Ok(Poll::Ready(result)) if the creation succeeded
+    /// - Ok(Poll::Pending) if the creation is in progress. The method should
+    ///   be called again later to retrieve the final result.
+    /// - Err if the creation attempt failed
+    async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError>;
 }
 
 /// Implementation of the VPC API which makes "real kubernetes API calls"
@@ -1288,6 +1302,58 @@ impl VpcApi for VpcApiImpl {
             Err(e) => Err(VpcApiError::KubeError(Box::new(e))),
         }
     }
+
+    async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
+        let resource_name = dpu.machine_id().to_string();
+        let api: Api<leaf::Leaf> = Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
+
+        let fetch_existing_result = api.get(&resource_name).await;
+        tracing::info!(
+            "Fetching a potential existing leaf with name {} yielded: {:?}",
+            resource_name,
+            fetch_existing_result
+        );
+
+        match fetch_existing_result {
+            Ok(state) => {
+                return leaf_creation_result_from_state(&state);
+            }
+            Err(_) => {
+                log::info!("Creating leaf with name {}", resource_name);
+            }
+        }
+
+        let leaf_spec = leaf::Leaf::new(
+            &leaf_name(*dpu.machine_id()),
+            leaf::LeafSpec {
+                control: Some(leaf::LeafControl {
+                    maintenance_mode: Some(false),
+                    management_ip: Some(dpu.address().ip().to_string()),
+                    ssh_credential_kv_path: Some(
+                        CredentialKey::DpuSsh {
+                            machine_id: resource_name,
+                        }
+                        .to_key_str(),
+                    ),
+                    //it's also required for us to pass an HBN kv path but apparently that's not setup in schema yet.
+                    vendor: Some("DPU".to_string()),
+                }),
+                host_admin_i_ps: Some(BTreeMap::from([(
+                    DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
+                    "".to_string(),
+                )])),
+                host_interfaces: Some(crate::vpc_resources::host_interfaces(dpu.machine_id())),
+            },
+        );
+
+        log::info!("Leafspec sent to kubernetes: {:?}", leaf_spec);
+        let result = api
+            .create(&PostParams::default(), &leaf_spec)
+            .await
+            .map_err(|e| VpcApiError::KubeError(Box::new(e)))?;
+
+        return leaf_creation_result_from_state(&result);
+    }
 }
 
 fn resource_group_creation_result_from_state(
@@ -1302,6 +1368,21 @@ fn resource_group_creation_result_from_state(
             Poll::Ready(VpcApiCreateResourceGroupResult { circuit_id })
         }
         _ => Poll::Pending,
+    }
+}
+
+fn leaf_creation_result_from_state(state: &leaf::Leaf) -> Result<Poll<IpAddr>, VpcApiError> {
+    match state.status() {
+        Some(status) if status.is_ready() => {
+            let Some(ip_addr) = status.loopback_ip.as_ref() else {
+                // This is validated in is_ready. It can not be err.
+                return Err(VpcApiError::MalformedIpError("Unknown".to_string()));
+            };
+            let loopback_ip = IpAddr::from_str(ip_addr)
+                .map_err(|_| VpcApiError::MalformedIpError(ip_addr.to_string()))?;
+            Ok(Poll::Ready(loopback_ip))
+        }
+        _ => Ok(Poll::Pending),
     }
 }
 
@@ -1422,5 +1503,19 @@ impl VpcApi for VpcApiSim {
         } else {
             Ok(Poll::Ready(()))
         }
+    }
+
+    async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
+        let _dpu_id = dpu
+            .machine_id()
+            .to_string()
+            .chars()
+            .last()
+            .unwrap()
+            .to_digit(16)
+            .unwrap();
+        Ok(Poll::Ready(IpAddr::V4(Ipv4Addr::new(
+            172, 20, 0, 2, //dpu_id as u8,
+        ))))
     }
 }

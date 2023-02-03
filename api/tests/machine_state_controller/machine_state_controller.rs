@@ -11,6 +11,7 @@
  */
 
 use std::{
+    net::{IpAddr, Ipv4Addr},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -20,7 +21,7 @@ use std::{
 };
 
 use carbide::{
-    db::machine_topology::MachineTopology,
+    db::{dpu_machine::DpuMachine, machine_topology::MachineTopology},
     kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError},
     model::{hardware_info::HardwareInfo, machine::MachineStateSnapshot},
     state_controller::{
@@ -85,6 +86,10 @@ impl VpcApi for MockVpcApi {
         _network_prefix_id: uuid::Uuid,
     ) -> Result<Poll<()>, VpcApiError> {
         Ok(Poll::Ready(()))
+    }
+
+    async fn try_create_leaf(&self, _dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
+        Ok(Poll::Ready(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))))
     }
 }
 

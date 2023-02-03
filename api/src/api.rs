@@ -993,6 +993,7 @@ where
         };
 
         let (machine, mut txn) = self.load_machine(machine_id).await?;
+        machine.update_discovery_time(&mut txn).await?;
 
         match machine.current_state() {
             // new machine
@@ -1048,6 +1049,7 @@ where
         };
 
         let (machine, mut txn) = self.load_machine(machine_id).await?;
+        machine.update_cleanup_time(&mut txn).await?;
         machine
             .advance(&mut txn, MachineState::Cleanedup)
             .await
@@ -1634,7 +1636,10 @@ where
             }
         };
 
-        let (machine, _) = self.load_machine(machine_id).await?;
+        let (machine, mut txn) = self.load_machine(machine_id).await?;
+
+        // Treat this message as signal from machine that reboot is finished. Update reboot time.
+        machine.update_reboot_time(&mut txn).await?;
 
         // Respond based on machine current state
         let state = machine.current_state();
@@ -1655,6 +1660,9 @@ where
             machine.id(),
             action
         );
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit forge_agent_control", e))?;
         Ok(Response::new(rpc::ForgeAgentControlResponse {
             action: action as i32,
         }))
