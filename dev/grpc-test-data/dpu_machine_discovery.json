@@ -104,6 +104,17 @@
                 "revision": "NO_REVISION"
             }
         ],
+        "dmi_data": {
+            "board_name": "",
+            "board_version": "",
+            "bios_version": "",
+            "bios_date": "01/01/1971",
+            "product_serial": "Dpu123",
+            "board_serial": "DpuBoard123",
+            "chassis_serial": "DpuChassis123",
+            "product_name": "DpuProductName234",
+            "sys_vendor": "DpuSysVendor234"
+        },
         "network_interfaces": [
             {
                 "mac_address": "02: 52:e9:bc: 01: 91",

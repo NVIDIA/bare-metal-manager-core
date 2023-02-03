@@ -12,15 +12,14 @@
 
 //! Contains DPU related fixtures
 
+use carbide::model::hardware_info::HardwareInfo;
 use rpc::{
     forge::{forge_server::Forge, DhcpDiscovery},
-    MachineDiscoveryInfo,
+    DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
 use tonic::Request;
 
 use super::TestApi;
-
-mod dpu_discovery_data;
 
 /// MAC address that is used by the DPU that is created by the fixture
 pub const FIXTURE_DPU_MAC_ADDRESS: &str = "01:11:21:31:41:51";
@@ -60,11 +59,27 @@ pub async fn dpu_discover_machine(api: &TestApi, machine_interface_id: rpc::Uuid
     let response = api
         .discover_machine(Request::new(MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
-            discovery_data: Some(dpu_discovery_data::create_dpu_discovery_data()),
+            discovery_data: Some(DiscoveryData::Info(
+                DiscoveryInfo::try_from(create_dpu_hardware_info()).unwrap(),
+            )),
         }))
         .await
         .unwrap()
         .into_inner();
 
     response.machine_id.expect("machine_id must be set")
+}
+
+const TEST_DATA_DIR: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/model/hardware_info/test_data"
+);
+
+/// Creates a `HardwareInfo` object which represents a DPU
+pub fn create_dpu_hardware_info() -> HardwareInfo {
+    let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
+    let data = std::fs::read(path).unwrap();
+    let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+    assert!(info.is_dpu());
+    info
 }

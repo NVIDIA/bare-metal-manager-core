@@ -11,19 +11,24 @@
  */
 
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     task::Poll,
     time::Duration,
 };
 
+use crate::common::api_fixtures::{
+    create_test_api,
+    dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
+};
 use carbide::{
-    db::{dpu_machine::DpuMachine, machine_topology::MachineTopology},
+    db::dpu_machine::DpuMachine,
     kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError},
-    model::{hardware_info::HardwareInfo, machine::MachineStateSnapshot},
+    model::machine::MachineStateSnapshot,
     state_controller::{
         controller::StateController,
         machine::io::MachineStateControllerIO,
@@ -33,13 +38,16 @@ use carbide::{
     },
 };
 use ipnetwork::IpNetwork;
+use rpc::{forge::forge_server::Forge, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use sqlx::Executor;
+use tonic::Request;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestMachineStateHandler {
+    /// The total count for the handler
     pub count: Arc<AtomicUsize>,
-    /// We count for every start digit of a machine ID how often
-    /// the handler was called
-    pub start_digit_count: [Arc<AtomicUsize>; 10],
+    /// We count for every machine ID how often the handler was called
+    pub counts_per_id: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 #[async_trait::async_trait]
@@ -58,10 +66,10 @@ impl StateHandler for TestMachineStateHandler {
     ) -> Result<(), StateHandlerError> {
         assert_eq!(state.machine_id, *machine_id);
         self.count.fetch_add(1, Ordering::SeqCst);
-        let id = state.machine_id.to_string();
-        let start_digit = id.as_bytes()[0];
-        let idx = start_digit - b'0';
-        self.start_digit_count[idx as usize].fetch_add(1, Ordering::SeqCst);
+        {
+            let mut guard = self.counts_per_id.lock().unwrap();
+            *guard.entry(machine_id.to_string()).or_default() += 1;
+        }
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(())
     }
@@ -93,47 +101,58 @@ impl VpcApi for MockVpcApi {
     }
 }
 
+const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
+
 #[sqlx::test]
 async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
-    // Insert some machines
-    // TODO: This should use API functions
-    let mut txn = pool.begin().await.unwrap();
-    let machine_ids = &[
-        "52dfecb4-8070-4f4b-ba95-f66d0f51fd98",
-        "72dfecb4-8070-4f4b-ba95-f66d0f51fd98",
-        "92dfecb4-8070-4f4b-ba95-f66d0f51fd98",
-        "93dfecb4-8070-4f4b-ba95-f66d0f51fd98",
-    ];
-    for id in &machine_ids[..] {
-        sqlx::query(&format!(
-            "INSERT INTO machines (id) VALUES ('{}') RETURNING *",
-            id
-        ))
-        .execute(&mut txn)
-        .await
-        .unwrap();
+    let mut txn = pool.begin().await?;
 
-        let hw_info = HardwareInfo {
-            network_interfaces: vec![],
-            cpus: vec![],
-            block_devices: vec![],
-            nvme_devices: vec![],
-            dmi_data: None,
-            machine_type: "x86_64".to_string(),
-            tpm_ek_certificate: None,
-        };
-
-        MachineTopology::create(&mut txn, &uuid::Uuid::try_from(*id).unwrap(), &hw_info)
+    // Workaround to make the fixtures work from a different directory
+    for fixture in &["create_domain", "create_vpc", "create_network_segment"] {
+        let content = std::fs::read(format!("{}/{}.sql", FIXTURE_DIR, fixture)).unwrap();
+        let content = String::from_utf8(content).unwrap();
+        txn.execute(content.as_str())
             .await
-            .unwrap();
+            .unwrap_or_else(|e| panic!("failed to apply test fixture {:?}: {:?}", fixture, e));
     }
-    txn.commit().await.unwrap();
+
+    txn.commit().await?;
+
+    let api = create_test_api(pool.clone());
+
+    // Insert some machines
+    let dpu_macs = &[
+        "11:22:33:44:55:01",
+        "11:22:33:44:55:02",
+        "11:22:33:44:55:03",
+        "11:22:33:44:55:04",
+    ];
+    let mut machine_ids = Vec::new();
+    for mac in &dpu_macs[..] {
+        let interface_id = dpu_discover_dhcp(&api, mac).await;
+
+        let mut hardware_info = create_dpu_hardware_info();
+        hardware_info.dmi_data.as_mut().unwrap().product_serial = format!("DPU_{}", mac);
+        let response = api
+            .discover_machine(Request::new(MachineDiscoveryInfo {
+                machine_interface_id: Some(interface_id),
+                discovery_data: Some(DiscoveryData::Info(
+                    DiscoveryInfo::try_from(hardware_info).unwrap(),
+                )),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let machine_id = response.machine_id.expect("machine_id must be set");
+        machine_ids.push(machine_id);
+    }
 
     let machine_handler = Arc::new(TestMachineStateHandler::default());
     const ITERATION_TIME: Duration = Duration::from_millis(100);
     const TEST_TIME: Duration = Duration::from_secs(10);
     let expected_iterations = (TEST_TIME.as_millis() / ITERATION_TIME.as_millis()) as f64;
-    let expected_total_count = expected_iterations * machine_ids.len() as f64;
+    let expected_total_count = expected_iterations * dpu_macs.len() as f64;
 
     // We build multiple state controllers. But since only one should act at a time,
     // the count should still not increase
@@ -163,29 +182,20 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
         count
     );
 
-    for i in 0..10 {
-        let count = machine_handler.start_digit_count[i].load(Ordering::SeqCst);
-        let occurrences: usize = machine_ids
-            .iter()
-            .map(|id| {
-                let first_char = id.to_string().as_bytes()[0];
-                let idx = (first_char - b'0') as usize;
-                usize::from(i == idx)
-            })
-            .sum();
+    for machine_id in machine_ids {
+        let guard = machine_handler.counts_per_id.lock().unwrap();
+        let count = guard
+            .get(&machine_id.to_string())
+            .cloned()
+            .unwrap_or_default() as f64;
 
-        if occurrences != 0 {
-            let expected_count = expected_iterations * occurrences as f64;
-            assert!(
-                (count as f64) > 0.75 * expected_count && (count as f64) < 1.25 * expected_count,
-                "Expected count of {} for number {}, but got {}",
-                expected_count,
-                i,
-                count
-            );
-        } else {
-            assert_eq!(count, 0, "Expected count of 0, but got {}", count);
-        }
+        assert!(
+            count > 0.75 * (expected_iterations as f64)
+                && count < 1.25 * (expected_iterations as f64),
+            "Expected count of {}, but got {}",
+            expected_iterations,
+            count
+        );
     }
 
     Ok(())

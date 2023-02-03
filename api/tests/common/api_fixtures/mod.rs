@@ -20,6 +20,7 @@ use carbide::auth::{Authorizer, NoopEngine};
 use crate::common::test_credentials::TestCredentialProvider;
 
 pub mod dpu;
+pub mod host;
 pub mod instance;
 pub mod network_segment;
 

@@ -14,16 +14,15 @@ use carbide::{
         machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
-    model::hardware_info::{
-        BlockDevice, Cpu, DmiData, HardwareInfo, NetworkInterface, NvmeDevice, PciDeviceProperties,
-        TpmEkCertificate,
-    },
+    model::hardware_info::HardwareInfo,
 };
 use log::LevelFilter;
 use mac_address::MacAddress;
 
 pub mod common;
-use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
+use common::api_fixtures::{
+    host::create_host_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+};
 
 #[ctor::ctor]
 fn setup() {
@@ -60,67 +59,13 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await
     .unwrap();
+
+    let hardware_info = create_host_hardware_info();
     let machine = Machine::get_or_create(&mut txn, iface).await.unwrap();
 
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
-
-    let hardware_info = HardwareInfo {
-        block_devices: vec![
-            BlockDevice {
-                model: "QEMU_DVD-ROM".to_string(),
-                serial: "QM00003".to_string(),
-                revision: "2.5+".to_string(),
-            },
-            BlockDevice {
-                model: "QEMU_DVD-ROM2".to_string(),
-                serial: "QM00004".to_string(),
-                revision: "2.5+".to_string(),
-            },
-            BlockDevice {
-                model: "NO_MODEL".to_string(),
-                serial: "NO_SERIAL".to_string(),
-                revision: "NO_REVISION".to_string(),
-            },
-        ],
-        cpus: vec![Cpu {
-            core: 0,
-            node: 0,
-            number: 0,
-            socket: 0,
-            vendor: "GenuineIntel".to_string(),
-            model: "Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz".to_string(),
-            frequency: "3503.998".to_string(),
-        }],
-        machine_type: "x86_64".to_string(),
-        network_interfaces: vec![NetworkInterface {
-            mac_address: "52:54:00:12:34:56".to_string(),
-            pci_properties: Some(PciDeviceProperties {
-                path: "/devices/pci0000:00/0000:00:04.0/virtio1/net/ens4".to_string(),
-                description: Some("Virtio network device".to_string()),
-                device: "0x1000".to_string(),
-                numa_node: 2147483647,
-                vendor: "0x1af4".to_string(),
-            }),
-        }],
-        nvme_devices: vec![NvmeDevice {
-            model: "test_nvme_model".to_string(),
-            firmware_rev: "test_nvme_firmware_rev.1.0".to_string(),
-        }],
-        dmi_data: Some(DmiData {
-            board_name: "test_dmi_model".to_string(),
-            board_version: "test_board_version.1.0".to_string(),
-            bios_version: "test_bios_version.1.0".to_string(),
-            bios_date: "01/01/1970".to_string(),
-            product_serial: "p12345".to_string(),
-            board_serial: "b23456".to_string(),
-            chassis_serial: "c34567".to_string(),
-            product_name: "Forge Server".to_string(),
-            sys_vendor: "Forge".to_string(),
-        }),
-        tpm_ek_certificate: Some(TpmEkCertificate::from(b"Some certificate".to_vec())),
-    };
 
     MachineTopology::create(&mut txn, machine.id(), &hardware_info).await?;
 

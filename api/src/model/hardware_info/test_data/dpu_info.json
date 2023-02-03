@@ -80,13 +80,17 @@
             "firmware_rev": "NO_FIRMWARE_REV"
         }
     ],
-    "dmi_devices": [
-        {
-            "board_name": "NO_BOARD_NAME",
-            "board_version": "NO_BOARD_VERSION",
-            "bios_version": "NO_BIOS_VERSION"
-        }
-    ],
+    "dmi_data": {
+        "board_name": "",
+        "board_version": "",
+        "bios_version": "",
+        "bios_date": "02/02/1971",
+        "product_serial": "Dpu123",
+        "board_serial": "DpuBoard123",
+        "chassis_serial": "DpuChassis123",
+        "product_name": "Dpu Product Name",
+        "sys_vendor": "Dpu Sys Vendor"
+    },
     "block_devices": [
         {
             "model": "NO_MODEL",

@@ -656,13 +656,17 @@
             "firmware_rev": "NO_FIRMWARE_REV"
         }
     ],
-    "dmi_devices": [
-        {
-            "board_name": "NO_BOARD_NAME",
-            "board_version": "NO_BOARD_VERSION",
-            "bios_version": "NO_BIOS_VERSION"
-        }
-    ],
+    "dmi_data": {
+        "board_name": "",
+        "board_version": "",
+        "bios_version": "",
+        "bios_date": "01/01/1971",
+        "product_serial": "Host123",
+        "board_serial": "HostBoard123",
+        "chassis_serial": "HostChassis123",
+        "product_name": "Host Product Name",
+        "sys_vendor": "Host Sys Vendor"
+    },
     "block_devices": [
         {
             "model": "DELLBOSS_VD",
