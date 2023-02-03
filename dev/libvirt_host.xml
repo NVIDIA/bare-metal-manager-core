@@ -1,0 +1,24 @@
+<domain type='kvm'>
+	<name>ManagedHost</name>
+	<memory unit='MiB'>4096</memory>
+	<os>
+		<type arch='x86_64'>hvm</type>
+		<loader readonly='yes' secure='no' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+		<boot dev='network'/>
+	</os>
+	<features>
+		<acpi />
+	</features>
+	<devices>
+		<serial type='pty'>
+			<target port='0'/>
+		</serial>
+		<controller type='virtio-serial' index='1'>
+			<address type='pci' domain='0x0000' bus='0x00' slot='0x0a' function='0x0'/>
+		</controller>
+		<interface type='bridge'>
+			<source bridge='carbide0'/>
+			<target dev='carbidevm'/>
+		</interface>
+	</devices>
+</domain>

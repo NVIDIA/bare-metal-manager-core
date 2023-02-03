@@ -4,6 +4,7 @@ members = [
   "admin",
   "api",
   "bluefield/agent",
+  "dev/bmc-mock",
   "dhcp",
   "dns",
   "forge_credentials",
