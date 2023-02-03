@@ -418,9 +418,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             dmi.board_name = convert_sysattr_to_string("board_name", &device)?.to_string();
             dmi.board_version = convert_sysattr_to_string("board_version", &device)?.to_string();
             dmi.bios_version = convert_sysattr_to_string("bios_version", &device)?.to_string();
+            dmi.bios_date = convert_sysattr_to_string("bios_date", &device)?.to_string();
             dmi.product_serial = convert_sysattr_to_string("product_serial", &device)?.to_string();
             dmi.board_serial = convert_sysattr_to_string("board_serial", &device)?.to_string();
             dmi.chassis_serial = convert_sysattr_to_string("chassis_serial", &device)?.to_string();
+            dmi.product_name = convert_sysattr_to_string("product_name", &device)?.to_string();
+            dmi.sys_vendor = convert_sysattr_to_string("sys_vendor", &device)?.to_string();
         }
     }
 
