@@ -127,7 +127,6 @@ impl FromStr for VendorClass {
             }),
             _ => Err(VendorClassParseError::InvalidFormat),
         };
-        log::info!("XXX VendorClass IN {vendor_class} OUT {out:?}");
         out
     }
 }
