@@ -24,26 +24,42 @@ use axum_server::tls_rustls::RustlsConfig;
 use libredfish::common::{ODataId, ODataLinks};
 use libredfish::system::Systems;
 use tracing::{debug, error, info};
+use tracing_subscriber::filter::{EnvFilter, LevelFilter};
+use tracing_subscriber::fmt::Layer;
+use tracing_subscriber::prelude::*;
+
+macro_rules! rf {
+    ($url:literal) => {
+        &format!("/{}/{}", libredfish::REDFISH_ENDPOINT, $url)
+    };
+}
 
 #[tokio::main]
 async fn main() {
-    std::env::set_var("RUST_LOG", "debug");
-    tracing_subscriber::fmt::init();
+    let env_filter = EnvFilter::from_default_env()
+        .add_directive(LevelFilter::DEBUG.into())
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("rustls=warn".parse().unwrap());
+
+    tracing_subscriber::registry()
+        .with(Layer::default().compact())
+        .with(env_filter)
+        .init();
 
     let app = Router::new()
         .route("/", any(handler))
-        .route("/redfish/v1/Systems/", get(get_system_id))
-        .route("/redfish/v1/Managers/", get(get_manager_id))
+        .route(rf!("Managers/"), get(get_manager_id))
         .route(
-            "/redfish/v1/Managers/:manager_id/Attributes",
+            rf!("Managers/:manager_id/Attributes"), // no slash at end
             patch(update_manager_attributes),
         )
+        .route(rf!("Systems/"), get(get_system_id))
         .route(
-            "/redfish/v1/Systems/:manager_id/Bios/Settings/",
+            rf!("Systems/:manager_id/Bios/Settings/"),
             patch(set_bios_attribute),
         )
         .route(
-            "/redfish/v1/Systems/:manager_id/Actions/ComputerSystem.Reset",
+            rf!("Systems/:manager_id/Actions/ComputerSystem.Reset"),
             post(set_system_power),
         );
 
