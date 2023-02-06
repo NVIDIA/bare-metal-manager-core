@@ -941,7 +941,7 @@ pub async fn create_managed_resource(
             state: None,
             dpu_i_ps: None,
             host_interface,
-            host_interface_access: None,
+            host_interface_access: Some("FabricAccessDirect".to_string()),
             host_interface_ip,
             host_interface_mac: None,
             resource_group: Some(prefix.id.to_string()),
