@@ -20,5 +20,12 @@
 			<source bridge='carbide0'/>
 			<target dev='carbidevm'/>
 		</interface>
+		<tpm model='tpm-tis'>
+			<backend type='emulator' version='2.0'>
+				<active_pcr_banks>
+					<sha256/>
+				</active_pcr_banks>
+			</backend>
+		</tpm>
 	</devices>
 </domain>
