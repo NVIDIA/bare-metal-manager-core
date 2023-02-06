@@ -77,10 +77,10 @@ If you see "No network segment defined for relay address: 172.20.0.11" in the ca
 
 Make sure you have libvirt installed.
 
-- Create it (once): `virsh define dev/libvirt_host.xml`
-- Start it: `virsh start ManagedHost`
-- Look at the console (not in tmux!): `virsh console ManagedHost`
-- Stop it `virsh destroy ManagedHost`
+- Create it (once): `virsh define dev/libvirt_host.xml` (to rebuild first `virsh undefine --nvram ManagedHost`).
+- Start it: `virsh start ManagedHost`.
+- Look at the console (not in tmux!): `virsh console ManagedHost`.
+- Stop it `virsh destroy ManagedHost`.
 
 You can also use graphical interface `virt-manager`.
 
