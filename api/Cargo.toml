@@ -62,6 +62,7 @@ tracing-opentelemetry = "0.18.0"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 vaultrs = "0.6.2"
+x509-parser = { version = "0.14", features = ["verify"] }
 
 #only local dependencies here please
 forge_credentials = { path = "../forge_credentials" }
