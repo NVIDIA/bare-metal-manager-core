@@ -166,6 +166,8 @@ spec:
                 configMapKeyRef:
                   name: carbide-api-config
                   key: carbide_dhcp_server
+            - name: CARBIDE_METRICS_ENDPOINT
+              value: {{ printf "\"[::0]:%v\"" .Values.metricsService.targetPorts.http }}
             - name: BITNAMI_DEBUG
               value: {{ ternary "true" "false" (or .Values.container.image.debug .Values.diagnosticMode.enabled) | quote }}
             {{- if .Values.container.extraEnvVars }}
@@ -186,6 +188,8 @@ spec:
           ports:
             - name: grpc
               containerPort: {{ .Values.container.containerPorts.grpc }}
+            - name: metrics
+              containerPort: {{ .Values.metricsService.targetPorts.http }}
           {{- if not .Values.diagnosticMode.enabled }}
           {{- if .Values.container.customLivenessProbe }}
           livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.container.customLivenessProbe "context" $) | nindent 12 }}

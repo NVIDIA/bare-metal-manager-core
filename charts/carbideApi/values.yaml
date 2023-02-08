@@ -310,12 +310,12 @@ service:
   # service.type -- carbide service type
   ports:
     grpc: 1079
-    # service.ports.tcp -- carbide service TCP port
+    # service.ports.grpc -- carbide service grpc port
   nodePorts:
     # service.nodePorts -- Node ports to expose
     # NOTE: choose port between <30000-32767>
     grpc: 31079
-    # service.nodePorts.tcp -- Node port for TCP
+    # service.nodePorts.grpc -- Node port for grpc
   clusterIP: ""
   # service.clusterIP -- carbide service Cluster IP
   # e.g.:
@@ -345,6 +345,14 @@ service:
   # sessionAffinityConfig:
   #   clientIP:
   #     timeoutSeconds: 300
+
+metricsService:
+  ports:
+    http: 1080
+    # metricsService.ports.http -- The port that exposes the /metrics endpoint for carbide-api
+  targetPorts:
+    http: 1080
+    # metricsService.targetPorts.http -- The container port that exposes the /metrics endpoint for carbide-api
 
 ingress:
   # -- ingress parameters
