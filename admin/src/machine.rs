@@ -41,7 +41,7 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
         writeln!(&mut lines, "{:<width$}: {}", key, value)?;
     }
 
-    writeln!(&mut lines, "EVENTS: (Latest 5 only)")?;
+    writeln!(&mut lines, "STATE HISTORY: (Latest 5 only)")?;
     if machine.events.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
@@ -52,9 +52,7 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
                 &mut lines,
                 "\t{:<5} {:15} {}",
                 x.id,
-                forgerpc::MachineAction::try_from(x.event)
-                    .unwrap()
-                    .as_str_name(),
+                x.event,
                 x.time.clone().unwrap_or_default()
             )?;
         }

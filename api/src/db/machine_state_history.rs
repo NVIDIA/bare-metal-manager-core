@@ -14,45 +14,11 @@ use std::collections::HashMap;
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use itertools::Itertools;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+
+use crate::model::{config_version::ConfigVersion, machine::MachineState};
 
 use super::DatabaseError;
-
-/// Possible Events for Machine state-machine implementation
-#[derive(Debug, Clone, sqlx::Type)]
-#[sqlx(type_name = "machine_action")]
-#[sqlx(rename_all = "lowercase")]
-pub enum MachineAction {
-    Discover,
-    Commission,
-    Assign,
-    Unassign,
-    Fail,
-    Recommission,
-    Decommission,
-    Release,
-}
-
-impl From<MachineAction> for rpc::MachineAction {
-    fn from(src: MachineAction) -> Self {
-        match src {
-            MachineAction::Discover => rpc::MachineAction::Discover,
-            MachineAction::Commission => rpc::MachineAction::Commission,
-            MachineAction::Assign => rpc::MachineAction::Assign,
-            MachineAction::Unassign => rpc::MachineAction::Unassign,
-            MachineAction::Fail => rpc::MachineAction::Fail,
-            MachineAction::Recommission => rpc::MachineAction::Recommission,
-            MachineAction::Decommission => rpc::MachineAction::Decommission,
-            MachineAction::Release => rpc::MachineAction::Release,
-        }
-    }
-}
-
-impl std::fmt::Display for MachineAction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
 
 /// Representation of an event (state transition) on a machine.
 ///
@@ -61,8 +27,8 @@ impl std::fmt::Display for MachineAction {
 /// instance, creating an event called `adopt` on a Machine where the last event is `discover` will
 /// result in a MachineState of `adopted`
 ///
-#[derive(Debug, FromRow)]
-pub struct MachineEvent {
+#[derive(Debug)]
+pub struct MachineStateHistory {
     /// The numeric identifier of the event, this should not be exposed to consumers of this API,
     /// it is not secure.
     id: i64,
@@ -72,7 +38,8 @@ pub struct MachineEvent {
     machine_id: uuid::Uuid,
 
     /// The action that was performed
-    pub action: MachineAction,
+    pub state: MachineState,
+    pub state_version: ConfigVersion,
 
     /// The timestamp of the event
     timestamp: DateTime<Utc>,
@@ -80,22 +47,35 @@ pub struct MachineEvent {
 
 /// Conversion from a MachineEvent object into a Protocol buffer representation for transmission
 /// over the wire.
-impl From<MachineEvent> for rpc::MachineEvent {
-    fn from(event: MachineEvent) -> rpc::MachineEvent {
-        let mut proto_event = rpc::MachineEvent {
+impl From<MachineStateHistory> for rpc::MachineEvent {
+    fn from(event: MachineStateHistory) -> rpc::MachineEvent {
+        rpc::MachineEvent {
             id: event.id,
             machine_id: Some(event.machine_id.into()),
             time: Some(event.timestamp.into()),
-            event: 0, // 0 is usually null in protobuf I guess
-        };
-
-        proto_event.set_event(event.action.into());
-
-        proto_event
+            event: event.state.to_string(),
+        }
     }
 }
 
-impl MachineEvent {
+impl<'r> FromRow<'r, PgRow> for MachineStateHistory {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let state_version_str: &str = row.try_get("state_version")?;
+        let state_version = state_version_str
+            .parse()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let state: sqlx::types::Json<MachineState> = row.try_get("state")?;
+        Ok(MachineStateHistory {
+            id: row.try_get("id")?,
+            machine_id: row.try_get("machine_id")?,
+            state: state.0,
+            state_version,
+            timestamp: row.try_get("timestamp")?,
+        })
+    }
+}
+
+impl MachineStateHistory {
     /// Find a list of MachineEvents given a list of machine Uuids.
     ///
     /// It returns a [HashMap][std::collections::HashMap] keyed by the machine Uuid and values of
@@ -109,7 +89,7 @@ impl MachineEvent {
         txn: &mut Transaction<'_, Postgres>,
         ids: &[uuid::Uuid],
     ) -> Result<HashMap<uuid::Uuid, Vec<Self>>, DatabaseError> {
-        let query = "SELECT * FROM machine_events WHERE machine_id=ANY($1)";
+        let query = "SELECT * FROM machine_state_history WHERE machine_id=ANY($1)";
         Ok(sqlx::query_as::<_, Self>(query)
             .bind(ids)
             .fetch_all(&mut *txn)
@@ -123,7 +103,7 @@ impl MachineEvent {
         txn: &mut Transaction<'_, Postgres>,
         id: &uuid::Uuid,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT * FROM machine_events WHERE machine_id=$1::uuid";
+        let query = "SELECT * FROM machine_state_history WHERE machine_id=$1::uuid";
         sqlx::query_as::<_, Self>(query)
             .bind(id)
             .fetch_all(&mut *txn)
@@ -135,12 +115,15 @@ impl MachineEvent {
     pub async fn persist(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &uuid::Uuid,
-        action: MachineAction,
+        state: MachineState,
+        state_version: ConfigVersion,
     ) -> Result<Self, DatabaseError> {
-        let query = "INSERT INTO machine_events (machine_id, action) VALUES ($1, $2) RETURNING *";
+        let query =
+            "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2, $3) RETURNING *";
         sqlx::query_as::<_, Self>(query)
             .bind(machine_id)
-            .bind(action)
+            .bind(sqlx::types::Json(state))
+            .bind(state_version.to_version_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

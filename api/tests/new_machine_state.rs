@@ -11,7 +11,10 @@
  */
 use log::LevelFilter;
 
-use carbide::{db::machine::Machine, model::machine::MachineState};
+use carbide::{
+    db::{machine::Machine, machine_state_history::MachineStateHistory},
+    model::machine::MachineState,
+};
 
 const FIXTURE_CREATED_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
 
@@ -39,5 +42,39 @@ async fn test_new_machine_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     txn.commit().await?;
 
+    Ok(())
+}
+
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_network_segment",
+    "create_machine"
+))]
+async fn test_new_machine_state_history(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let machine = Machine::find_one(&mut txn, FIXTURE_CREATED_MACHINE_ID)
+        .await?
+        .unwrap();
+
+    for _ in 1..300 {
+        machine
+            .advance(&mut txn, MachineState::Ready)
+            .await
+            .unwrap();
+    }
+
+    txn.commit().await?;
+
+    let mut txn = pool.begin().await?;
+    let result = MachineStateHistory::for_machine(&mut txn, &FIXTURE_CREATED_MACHINE_ID)
+        .await
+        .unwrap();
+
+    // Count should not go beyond 250.
+    assert_eq!(result.len(), 250);
     Ok(())
 }

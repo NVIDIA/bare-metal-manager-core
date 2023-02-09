@@ -25,8 +25,8 @@ use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::{DatabaseError, UuidKeyedObjectFilter};
-use crate::db::machine_event::MachineEvent;
 use crate::db::machine_interface::MachineInterface;
+use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::model::config_version::{ConfigVersion, Versioned};
@@ -62,7 +62,7 @@ pub struct Machine {
     /// A list of [MachineEvent][event]s that this machine has experienced
     ///
     /// [event]: crate::db::MachineEvent
-    events: Vec<MachineEvent>,
+    history: Vec<MachineStateHistory>,
 
     /// A list of [MachineInterface][interface]s that this machine owns
     ///
@@ -99,7 +99,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
             state: Versioned::new(controller_state.0, controller_state_version),
-            events: Vec::new(),
+            history: Vec::new(),
             interfaces: Vec::new(),
             hardware_info: None,
             last_reboot_time: row.try_get("last_reboot_time")?,
@@ -131,7 +131,7 @@ impl From<Machine> for rpc::Machine {
             deployed: machine.deployed.map(|ts| ts.into()),
             state: machine.state.value.to_string(),
             events: machine
-                .events
+                .history
                 .into_iter()
                 .map(|event| event.into())
                 .collect(),
@@ -298,9 +298,9 @@ SELECT m.id FROM
         self.updated
     }
 
-    /// Returns the list of Events the machine has experienced
-    pub fn events(&self) -> &Vec<MachineEvent> {
-        &self.events
+    /// Returns the list of History Events the machine has experienced
+    pub fn history(&self) -> &Vec<MachineStateHistory> {
+        &self.history
     }
 
     /// Returns the list of Interfaces this machine owns
@@ -344,9 +344,11 @@ SELECT m.id FROM
         state: MachineState,
     ) -> Result<bool, DatabaseError> {
         // Get current version
-
         let version = self.state.version;
         let new_version = version.increment();
+
+        // Store history of machine state changes.
+        MachineStateHistory::persist(txn, self.id(), state.clone(), new_version).await?;
 
         let query = "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id";
         let _id: (uuid::Uuid,) = sqlx::query_as(query)
@@ -422,8 +424,8 @@ SELECT m.id FROM
 
         let all_uuids = all_machines.iter().map(|m| m.id).collect::<Vec<Uuid>>();
 
-        let mut events_for_machine =
-            MachineEvent::find_by_machine_ids(&mut *txn, &all_uuids).await?;
+        let mut history_for_machine =
+            MachineStateHistory::find_by_machine_ids(&mut *txn, &all_uuids).await?;
 
         let mut interfaces_for_machine =
             MachineInterface::find_by_machine_ids(&mut *txn, &all_uuids).await?;
@@ -432,8 +434,8 @@ SELECT m.id FROM
             MachineTopology::find_latest_by_machine_ids(&mut *txn, &all_uuids).await?;
 
         all_machines.iter_mut().for_each(|machine| {
-            if let Some(events) = events_for_machine.remove(&machine.id) {
-                machine.events = events;
+            if let Some(history) = history_for_machine.remove(&machine.id) {
+                machine.history = history;
             } else {
                 log::warn!("Machine {0} () has no events", machine.id);
             }
