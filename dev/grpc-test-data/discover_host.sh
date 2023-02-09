@@ -14,6 +14,8 @@ CIRCUIT_ID=$(echo "$RESULT" | jq ".networkSegments | .[0] | .prefixes | .[0] | .
 echo "Circuit ID is $CIRCUIT_ID"
 
 # Simulate the DHCP request of a x86 host
+# IMPORTANT: This only works a single time, because the loopback IP used in this request is hardcoded
+# And that hardcoded IP will only be assigned to the first DPU that is discovered
 HOST_DHCP_REQUEST=$(jq --arg circuit_id "$CIRCUIT_ID" '.circuit_id = $circuit_id' "$REPO_ROOT/dev/grpc-test-data/host_dhcp_discovery.json")
 RESULT=$(echo "$HOST_DHCP_REQUEST" | grpcurl -d @ -plaintext 127.0.0.1:1079 forge.Forge/DiscoverDhcp)
 MACHINE_INTERFACE_ID=$(echo "$RESULT" | jq ".machineInterfaceId.value" | tr -d '"')
