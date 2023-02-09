@@ -31,10 +31,9 @@ pub use crate::protos::forge::{
     InstanceConfig, InstanceInterfaceConfig, InstanceInterfaceStatus,
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
     InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
-    InterfaceFunctionType, Machine, MachineAction, MachineCleanupInfo, MachineDiscoveryInfo,
-    MachineEvent, MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment,
-    NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, SyncState, TenantConfig,
-    TenantState, Uuid,
+    InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
+    MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment, NetworkSegmentList,
+    ObservedInstanceNetworkStatusRecordResult, SyncState, TenantConfig, TenantState, Uuid,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
@@ -185,28 +184,6 @@ impl TryFrom<i32> for CredentialPurpose {
 impl std::fmt::Display for DiscriminantError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "Invalid enum value: {}", self.0)
-    }
-}
-
-impl TryFrom<i32> for MachineAction {
-    type Error = ();
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            x if x == MachineAction::Unknown as i32 => Ok(MachineAction::Unknown),
-            x if x == MachineAction::Discover as i32 => Ok(MachineAction::Discover),
-            x if x == MachineAction::Adopt as i32 => Ok(MachineAction::Adopt),
-            x if x == MachineAction::Test as i32 => Ok(MachineAction::Test),
-            x if x == MachineAction::Commission as i32 => Ok(MachineAction::Commission),
-            x if x == MachineAction::Assign as i32 => Ok(MachineAction::Assign),
-            x if x == MachineAction::Fail as i32 => Ok(MachineAction::Fail),
-            x if x == MachineAction::Decommission as i32 => Ok(MachineAction::Decommission),
-            x if x == MachineAction::Recommission as i32 => Ok(MachineAction::Recommission),
-            x if x == MachineAction::Unassign as i32 => Ok(MachineAction::Unassign),
-            x if x == MachineAction::Release as i32 => Ok(MachineAction::Release),
-            x if x == MachineAction::Cleanup as i32 => Ok(MachineAction::Cleanup),
-            _ => Err(()),
-        }
     }
 }
 

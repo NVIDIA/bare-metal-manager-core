@@ -646,7 +646,7 @@ message MachineEvent {
   int64 id = 1;
   UUID  machine_id = 2;
 
-  MachineAction event = 3;
+  string event = 3;
 
   google.protobuf.Timestamp time = 4;
 }
@@ -665,21 +665,6 @@ message MachineInterface {
   string mac_address = 8;
 
   repeated string address = 9;
-}
-
-enum MachineAction {
-  UNKNOWN = 0;
-  DISCOVER = 1;
-  ADOPT = 2;
-  TEST = 3;
-  COMMISSION = 4;
-  ASSIGN = 5;
-  FAIL = 6;
-  DECOMMISSION = 7;
-  RECOMMISSION = 8;
-  UNASSIGN = 9;
-  RELEASE = 10;
-  CLEANUP = 11;
 }
 
 message DhcpDiscovery {
