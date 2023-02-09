@@ -27,9 +27,7 @@ pub async fn run(forge_api: &str, machine_id: uuid::Uuid) -> Result<(), CarbideC
     let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
     let architecture: CpuArchitecture = info.machine.parse()?;
     if architecture == CpuArchitecture::X86_64 {
-        if let Err(err) = crate::ipmi::update_ipmi_creds(forge_api.to_string(), machine_id).await {
-            log::error!("Error while setting up IPMI. {}", err.to_string());
-        }
+        crate::ipmi::update_ipmi_creds(forge_api.to_string(), machine_id).await?;
     }
     Ok(())
 }
