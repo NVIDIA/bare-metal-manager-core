@@ -11,6 +11,7 @@
  */
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
@@ -1080,6 +1081,8 @@ pub enum VpcApiError {
     Please review the configuration and delete the object manually"
     )]
     ObjectExistsWithDifferentSpec(String),
+    #[error("VPC API simulation is out of loopback IPs")]
+    VpiApiSimLoopbackIpsExhausted,
 }
 
 /// The result of trying to delete an object in VPC
@@ -1141,6 +1144,15 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
     ///   be called again later to retrieve the final result.
     /// - Err if the creation attempt failed
     async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError>;
+
+    /// Trys to delete a leaf on Forge VPC
+    ///
+    /// Will return
+    /// - Ok(Poll::Ready(())) if the deletion has succeeded
+    /// - Ok(Poll::Pending) if the deletion is in progress. The method should
+    ///   be called again later to retrieve the final result.
+    /// - Err if the deletion attempt failed
+    async fn try_delete_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError>;
 }
 
 /// Implementation of the VPC API which makes "real kubernetes API calls"
@@ -1270,81 +1282,45 @@ impl VpcApi for VpcApiImpl {
         network_prefix_id: uuid::Uuid,
     ) -> Result<Poll<()>, VpcApiError> {
         let resource_name = resource_group_name(network_prefix_id);
-
-        let resource: Api<resource_group::ResourceGroup> =
-            Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
-        let result = resource
-            .delete(&resource_name, &DeleteParams::default())
-            .await;
-        tracing::info!(
-            "Result of deleting resource group {} is: {:?}",
-            resource_name,
-            result
-        );
-
-        match result {
-            Ok(result) if result.is_left() => Ok(Poll::Pending),
-            Ok(_) => {
-                // Note: In testing this never showed up - we get from a `Left` (Pending)
-                // to a 404 error
-                // TODO: If the status isn't a 200 (deleted) or 400 (not found),
-                // we should probably not use deleted as a result
-                Ok(Poll::Ready(()))
-            }
-            Err(kube::Error::Api(api_error)) if api_error.code == 404 => {
-                // Object not found means it is deleted
-                Ok(Poll::Ready(()))
-            }
-            Err(kube::Error::Api(api_error)) if api_error.code == 404 => {
-                // Object not found means it is deleted
-                Ok(Poll::Ready(()))
-            }
-            Err(e) => Err(VpcApiError::KubeError(Box::new(e))),
-        }
+        try_delete_k8s_resource::<resource_group::ResourceGroup>(
+            &self.client,
+            "resource group",
+            &resource_name,
+        )
+        .await
     }
 
     async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
-        let resource_name = dpu.machine_id().to_string();
+        let leaf_name = leaf_name(*dpu.machine_id());
+        let spec = leaf_spec_from_dpu_machine(&dpu);
+
         let api: Api<leaf::Leaf> = Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
 
-        let fetch_existing_result = api.get(&resource_name).await;
+        let fetch_existing_result = api.get(&leaf_name).await;
         tracing::info!(
             "Fetching a potential existing leaf with name {} yielded: {:?}",
-            resource_name,
+            leaf_name,
             fetch_existing_result
         );
 
         match fetch_existing_result {
-            Ok(state) => {
-                return leaf_creation_result_from_state(&state);
+            Ok(existing_leaf) => {
+                // This comparison exists because the VPC definitions don't implement PartialEq :'(
+                // TODO: We don't check equality for `leaf_control`
+                if existing_leaf.spec.host_admin_i_ps != spec.host_admin_i_ps
+                    || existing_leaf.spec.host_interfaces != spec.host_interfaces
+                {
+                    return Err(VpcApiError::ObjectExistsWithDifferentSpec(leaf_name));
+                }
+
+                return leaf_creation_result_from_state(&existing_leaf);
             }
             Err(_) => {
-                log::info!("Creating leaf with name {}", resource_name);
+                log::info!("Creating leaf with name {}", leaf_name);
             }
         }
 
-        let leaf_spec = leaf::Leaf::new(
-            &leaf_name(*dpu.machine_id()),
-            leaf::LeafSpec {
-                control: Some(leaf::LeafControl {
-                    maintenance_mode: Some(false),
-                    management_ip: Some(dpu.address().ip().to_string()),
-                    ssh_credential_kv_path: Some(
-                        CredentialKey::DpuSsh {
-                            machine_id: resource_name,
-                        }
-                        .to_key_str(),
-                    ),
-                    //it's also required for us to pass an HBN kv path but apparently that's not setup in schema yet.
-                    vendor: Some("DPU".to_string()),
-                }),
-                host_admin_i_ps: Some(BTreeMap::from([(
-                    DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
-                    "".to_string(),
-                )])),
-                host_interfaces: Some(crate::vpc_resources::host_interfaces(dpu.machine_id())),
-            },
-        );
+        let leaf_spec = leaf::Leaf::new(&leaf_name, spec);
 
         log::info!("Leafspec sent to kubernetes: {:?}", leaf_spec);
         let result = api
@@ -1353,6 +1329,77 @@ impl VpcApi for VpcApiImpl {
             .map_err(|e| VpcApiError::KubeError(Box::new(e)))?;
 
         return leaf_creation_result_from_state(&result);
+    }
+
+    async fn try_delete_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+        let leaf_name = leaf_name(dpu_machine_id);
+
+        try_delete_k8s_resource::<leaf::Leaf>(&self.client, "leaf", &leaf_name).await
+    }
+}
+
+/// Tries to delete a kubernetes CRD
+///
+/// Returns
+/// - `Ok(Poll::Ready(()))` if deletion is done
+/// - `Ok(Poll::Pending)` if deletion is requested, but not finished
+/// - `Err(e)` if deletion failed
+async fn try_delete_k8s_resource<
+    'a,
+    K: kube::Resource + Clone + std::fmt::Debug + serde::de::DeserializeOwned,
+>(
+    client: &'a Client,
+    resource_type: &'static str,
+    resource_id: &'a str,
+) -> Result<Poll<()>, VpcApiError>
+where
+    <K as kube::Resource>::DynamicType: Default,
+{
+    let resource: Api<K> = Api::namespaced(client.clone(), FORGE_KUBE_NAMESPACE);
+    let result = resource.delete(resource_id, &DeleteParams::default()).await;
+    tracing::info!(
+        "Result of deleting {} {} is: {:?}",
+        resource_type,
+        resource_id,
+        result
+    );
+
+    match result {
+        Ok(result) if result.is_left() => Ok(Poll::Pending),
+        Ok(_) => {
+            // Note: In testing this never showed up - we get from a `Left` (Pending)
+            // to a 404 error
+            // TODO: If the status isn't a 200 (deleted) or 400 (not found),
+            // we should probably not use deleted as a result
+            Ok(Poll::Ready(()))
+        }
+        Err(kube::Error::Api(api_error)) if api_error.code == 404 => {
+            // Object not found means it is deleted
+            Ok(Poll::Ready(()))
+        }
+        Err(e) => Err(VpcApiError::KubeError(Box::new(e))),
+    }
+}
+
+fn leaf_spec_from_dpu_machine(dpu: &DpuMachine) -> leaf::LeafSpec {
+    leaf::LeafSpec {
+        control: Some(leaf::LeafControl {
+            maintenance_mode: Some(false),
+            management_ip: Some(dpu.address().ip().to_string()),
+            ssh_credential_kv_path: Some(
+                CredentialKey::DpuSsh {
+                    machine_id: dpu.machine_id().to_string(),
+                }
+                .to_key_str(),
+            ),
+            //it's also required for us to pass an HBN kv path but apparently that's not setup in schema yet.
+            vendor: Some("DPU".to_string()),
+        }),
+        host_admin_i_ps: Some(BTreeMap::from([(
+            DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
+            "".to_string(),
+        )])),
+        host_interfaces: Some(crate::vpc_resources::host_interfaces(dpu.machine_id())),
     }
 }
 
@@ -1406,6 +1453,12 @@ impl VpcApiSim {
 pub struct VpcApiSimConfig {
     pub required_creation_attempts: usize,
     pub required_deletion_attempts: usize,
+    /// The IP address space that is used to allocate Leaf loopback IPs
+    /// The Sim will hand out loopback IPs starting at this address.
+    /// Additional addresses will be in the same /24, which means the first
+    /// 3 bytes are shared with the start address, and the last byte will increase
+    /// up to 255
+    pub leaf_loopback_ip_start_address: [u8; 4],
 }
 
 impl Default for VpcApiSimConfig {
@@ -1413,6 +1466,7 @@ impl Default for VpcApiSimConfig {
         Self {
             required_creation_attempts: 2,
             required_deletion_attempts: 2,
+            leaf_loopback_ip_start_address: [172, 20, 0, 2],
         }
     }
 }
@@ -1420,6 +1474,10 @@ impl Default for VpcApiSimConfig {
 #[derive(Debug, Default)]
 struct VpcApiSimState {
     resource_groups: HashMap<String, VpcApiSimResourceGroupState>,
+    leafs: HashMap<String, VpcApiSimLeafState>,
+    /// Enumerates which IPs we've already allocated for leafs
+    /// At the start it will be none
+    used_loopback_ip_suffixes: HashSet<u8>,
 }
 
 #[derive(Debug)]
@@ -1435,6 +1493,14 @@ struct VpcApiSimResourceGroup {
     network_prefix_id: uuid::Uuid,
     prefix: IpNetwork,
     gateway: Option<IpNetwork>,
+}
+
+#[derive(Debug)]
+struct VpcApiSimLeafState {
+    creation_attempts: usize,
+    deletion_attempts: usize,
+    spec: leaf::LeafSpec,
+    loopback_ip: Ipv4Addr,
 }
 
 #[async_trait::async_trait]
@@ -1506,16 +1572,75 @@ impl VpcApi for VpcApiSim {
     }
 
     async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
-        let _dpu_id = dpu
-            .machine_id()
-            .to_string()
-            .chars()
-            .last()
-            .unwrap()
-            .to_digit(16)
-            .unwrap();
-        Ok(Poll::Ready(IpAddr::V4(Ipv4Addr::new(
-            172, 20, 0, 2, //dpu_id as u8,
-        ))))
+        let leaf_name = leaf_name(*dpu.machine_id());
+        let spec = leaf_spec_from_dpu_machine(&dpu);
+
+        let mut guard = self.state.lock().unwrap();
+
+        if let Some(entry) = guard.leafs.get_mut(&leaf_name) {
+            if entry.spec.host_admin_i_ps != spec.host_admin_i_ps
+                || entry.spec.host_interfaces != spec.host_interfaces
+            {
+                return Err(VpcApiError::ObjectExistsWithDifferentSpec(leaf_name));
+            }
+            entry.creation_attempts += 1;
+            if entry.creation_attempts >= self.config.required_creation_attempts {
+                Ok(Poll::Ready(entry.loopback_ip.into()))
+            } else {
+                Ok(Poll::Pending)
+            }
+        } else {
+            // Find a free loopback IP
+            let mut ip = self.config.leaf_loopback_ip_start_address;
+            loop {
+                if !guard.used_loopback_ip_suffixes.contains(&ip[3]) {
+                    break;
+                }
+                if ip[3] == 255 {
+                    return Err(VpcApiError::VpiApiSimLoopbackIpsExhausted);
+                }
+                ip[3] += 1;
+            }
+
+            let loopback_ip = Ipv4Addr::from(ip);
+
+            guard.used_loopback_ip_suffixes.insert(ip[3]);
+            guard.leafs.insert(
+                leaf_name,
+                VpcApiSimLeafState {
+                    spec,
+                    loopback_ip,
+                    creation_attempts: 1,
+                    deletion_attempts: 0,
+                },
+            );
+            if self.config.required_creation_attempts == 1 {
+                Ok(Poll::Ready(loopback_ip.into()))
+            } else {
+                // We mimic the behavior of real VPC - the status isn't immediately available
+                Ok(Poll::Pending)
+            }
+        }
+    }
+
+    async fn try_delete_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+        let leaf_name = leaf_name(dpu_machine_id);
+
+        let mut guard = self.state.lock().unwrap();
+        if let Some(entry) = guard.leafs.get_mut(&leaf_name) {
+            entry.deletion_attempts += 1;
+            if entry.deletion_attempts >= self.config.required_deletion_attempts {
+                let loopback_ip = entry.loopback_ip;
+                guard.leafs.remove(&leaf_name);
+                guard
+                    .used_loopback_ip_suffixes
+                    .remove(&(loopback_ip.octets()[3]));
+                Ok(Poll::Ready(()))
+            } else {
+                Ok(Poll::Pending)
+            }
+        } else {
+            Ok(Poll::Ready(()))
+        }
     }
 }

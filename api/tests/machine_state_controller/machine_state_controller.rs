@@ -99,6 +99,10 @@ impl VpcApi for MockVpcApi {
     async fn try_create_leaf(&self, _dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
         Ok(Poll::Ready(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))))
     }
+
+    async fn try_delete_leaf(&self, _dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+        panic!("Not used in this test")
+    }
 }
 
 const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");

@@ -159,6 +159,7 @@ async fn test_network_segment_lifecycle_impl(
     let vpc_sim_config = VpcApiSimConfig {
         required_creation_attempts: if delete_in_ready_state { 2 } else { 1000 }, // never ready
         required_deletion_attempts: 2,
+        ..Default::default()
     };
 
     let vpc_api = Arc::new(VpcApiSim::with_config(vpc_sim_config));
