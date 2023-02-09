@@ -12,7 +12,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsStr;
 use std::fmt;
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 use std::time::Instant;
 
 use ::rpc::forge as rpc;
@@ -127,17 +127,6 @@ impl Cmd {
         self
     }
 
-    fn status(mut self) -> CarbideClientResult<ExitStatus> {
-        if cfg!(test) {
-            use std::os::unix::prelude::ExitStatusExt;
-            return Ok(ExitStatus::from_raw(0));
-        }
-
-        self.command
-            .status()
-            .map_err(|x| CarbideClientError::GenericError(x.to_string()))
-    }
-
     fn output(mut self) -> CarbideClientResult<String> {
         if cfg!(test) {
             return Ok("test string".to_string());
@@ -150,9 +139,10 @@ impl Cmd {
 
         if !output.status.success() {
             return Err(CarbideClientError::GenericError(format!(
-                "Command {:?} with {:?} failed.",
+                "Command {:?} with {:?} failed with message {:?}.",
                 self.command.get_program(),
-                self.command.get_args().collect::<Vec<&OsStr>>()
+                self.command.get_args().collect::<Vec<&OsStr>>(),
+                String::from_utf8_lossy(&output.stderr),
             )));
         }
 
@@ -331,7 +321,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     let idrac_user_str = format!("iDRAC.Users.{id}.Privilege");
     let _ = Cmd::new("racadm")
         .args(["set", idrac_user_str.as_str(), "0x1ff"])
-        .status()?;
+        .output()?;
 
     Ok(())
 }
