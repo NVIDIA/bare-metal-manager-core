@@ -11,26 +11,29 @@
  */
 use std::process::Command;
 
-pub fn run_prog(cmd: String) -> Result<String, String> {
+use scout::CarbideClientError;
+
+pub fn run_prog(cmd: String) -> Result<String, CarbideClientError> {
     let mut cmdpar = cmd.split(' ');
-    let mut runcmd = Command::new(cmdpar.next().unwrap());
+    let mut command = Command::new(cmdpar.next().unwrap());
     for par in cmdpar {
-        runcmd.arg(par);
+        command.arg(par);
     }
-    let stdout = match runcmd.output() {
-        Ok(output) => {
-            if output.status.success() {
-                output.stdout
-            } else {
-                return Err(format!(
-                    "Bad exit code: CMD=\"{}\" ERROR=\"{}\"",
-                    cmd, output.status
-                ));
-            }
-        }
-        Err(errmsg) => {
-            return Err(format!("Cant run: CMD=\"{}\" ERROR=\"{}\"", cmd, errmsg));
-        }
-    };
-    Ok(String::from_utf8_lossy(&stdout).to_string())
+
+    let output = command.output().map_err(|e| {
+        CarbideClientError::SubprocessError(
+            command.get_program().to_string_lossy().to_string(),
+            command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+            format!("Failed to spawn process: {}", e),
+        )
+    })?;
+
+    if !output.status.success() {
+        return Err(CarbideClientError::subprocess_error(&command, &output));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
