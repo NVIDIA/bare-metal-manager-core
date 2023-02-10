@@ -42,10 +42,12 @@ postgresClusterName: forge-pg-cluster
 # postgresClusterName -- Name of the postgres cluster (not the database name)
 postgresSecretRef: '{{ include "common.names.namespace" . }}.carbide.{{ tpl .Values.postgresClusterName . }}.credentials.postgresql.acid.zalan.do'
 # postgresSecretRef -- As part of the database creation a secret is created which stores a the credentials for connecting to postgres
-dhcpServerIp: ""
+dhcpServerIp: "169.254.254.254"
 # dhcpserver -- IP Address of DHCP server
 authPermissiveMode: false
 # authPermissiveMode -- Override the auth engine when it denies a request, and permit anything.
+trustDomain: forge.local
+# trustDomain -- spiffe trust domain
 
 diagnosticMode:
   enabled: false

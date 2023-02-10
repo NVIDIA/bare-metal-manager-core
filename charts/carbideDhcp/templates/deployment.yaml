@@ -155,6 +155,7 @@ spec:
               mountPath: {{ .Values.configDirPath }}
             - name: spiffe
               mountPath: "/var/run/secrets/spiffe.io"
+              readOnly: true
           {{- if .Values.container.extraVolumeMounts }}
           {{- include "common.tplvalues.render" (dict "value" .Values.container.extraVolumeMounts "context" $) | nindent 12 }}
           {{- end }}
@@ -173,9 +174,8 @@ spec:
           configMap:
             name: carbide-dhcp-config
         - name: spiffe
-          csi:
-            driver: spiffe.csi.cert-manager.io
-            readOnly: true
+          secret:
+            secretName: {{ template "common.names.fullname" . }}-certificate
         {{- if .Values.container.extraVolumes }}
       {{- include "common.tplvalues.render" (dict "value" .Values.container.extraVolumes "context" $) | nindent 8 }}:
         {{- end }}

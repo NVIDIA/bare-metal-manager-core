@@ -1,6 +1,6 @@
 # carbidePxe
 
-![Version: 0.0.8](https://img.shields.io/badge/Version-0.0.8-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
+![Version: 0.0.13](https://img.shields.io/badge/Version-0.0.13-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
 
 A Helm chart for Forge carbide-pxe component
 
@@ -14,7 +14,13 @@ A Helm chart for Forge carbide-pxe component
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| bootArtifactsContainer.container.image.baseRepository | string | `"nvidian/forge/boot-artifacts"` |  |
+| bootArtifactsContainer.container.image.pullPolicy | string | `"IfNotPresent"` |  |
+| bootArtifactsContainer.container.image.registry | string | `"nvcr.io"` |  |
+| bootArtifactsContainer.container.image.tag | string | `"latest"` |  |
+| bootArtifactsContainer.enabled | bool | `false` |  |
 | carbideApiUrl | string | `"-"` | When set to "-" Helm will automatically attempt to determine the correct service name of carbide-api |
+| carbidePxeUrl | string | `"-"` | When set to "-" Helm will automatically attempt to determine the correct service name of carbide-pxe |
 | clusterDomain | string | `"cluster.local"` | Kubernetes cluster domain name |
 | commonAnnotations | object | `{}` | Annotations to add to all deployed objects |
 | commonLabels | object | `{}` | Labels to add to all deployed objects |
@@ -27,7 +33,7 @@ A Helm chart for Forge carbide-pxe component
 | container.autoscaling.targetCPU | string | `""` |  |
 | container.autoscaling.targetMemory | string | `""` |  |
 | container.command[0] | string | `"/opt/carbide/carbide"` |  |
-| container.containerPorts.http | int | `8088` |  |
+| container.containerPorts.http | int | `8080` |  |
 | container.containerPorts.https | int | `8443` |  |
 | container.containerSecurityContext.enabled | bool | `false` | Configure Container Security Context ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-container |
 | container.containerSecurityContext.readOnlyRootFilesystem | bool | `false` |  |
@@ -40,11 +46,8 @@ A Helm chart for Forge carbide-pxe component
 | container.extraEnvVars | list | `[]` |  |
 | container.extraEnvVarsCM | string | `""` |  |
 | container.extraEnvVarsSecret | string | `""` |  |
-| container.extraVolumeMounts[0].mountPath | string | `"/forge-boot-artifacts"` |  |
-| container.extraVolumeMounts[0].name | string | `"boot-artifacts"` |  |
-| container.extraVolumes[0].hostPath.path | string | `"/srv/forge-boot-artifacts"` |  |
-| container.extraVolumes[0].hostPath.type | string | `"Directory"` |  |
-| container.extraVolumes[0].name | string | `"boot-artifacts"` |  |
+| container.extraVolumeMounts | list | `[]` |  |
+| container.extraVolumes | list | `[]` |  |
 | container.hostAliases | list | `[]` |  |
 | container.image.debug | bool | `false` |  |
 | container.image.digest | string | `""` |  |
@@ -60,7 +63,7 @@ A Helm chart for Forge carbide-pxe component
 | container.livenessProbe.initialDelaySeconds | int | `20` |  |
 | container.livenessProbe.periodSeconds | int | `10` |  |
 | container.livenessProbe.successThreshold | int | `1` |  |
-| container.livenessProbe.tcpSocket.port | int | `8088` |  |
+| container.livenessProbe.tcpSocket.port | int | `8080` |  |
 | container.livenessProbe.timeoutSeconds | int | `5` |  |
 | container.nodeAffinityPreset.key | string | `""` |  |
 | container.nodeAffinityPreset.type | string | `""` | Node carbidePxe.affinity preset ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity |
@@ -158,6 +161,7 @@ A Helm chart for Forge carbide-pxe component
 | serviceAccount.create | bool | `true` | Specifies whether a ServiceAccount should be created |
 | serviceAccount.name | string | `"carbide-pxe"` | The name of the ServiceAccount to use. If not set and create is true, a name is generated using the common.names.fullname template |
 | templateDir | string | `"/opt/carbide/pxe/templates"` | location of ipxe templates in container |
+| trustDomain | string | `"forge.local"` | spiffe trust domain |
 | useTLS | bool | `false` | Listen on HTTPS for incoming connections NOTE container will fail to start if certificate is not present |
 | volumePermissions.containerSecurityContext.runAsUser | int | `0` | Set init container's Security Context runAsUser NOTE: when runAsUser is set to special value "auto", init container will try to chown the   data folder to auto-determined user&group, using commands: `id -u`:`id -G | cut -d" " -f2`   "auto" is especially useful for OpenShift which has scc with dynamic user ids (and 0 is not allowed) |
 | volumePermissions.enabled | bool | `false` | Enable init container that changes the owner/group of the PV mount point to `runAsUser:fsGroup` |
