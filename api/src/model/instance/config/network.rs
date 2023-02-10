@@ -65,6 +65,20 @@ pub enum InterfaceFunctionId {
 }
 
 impl InterfaceFunctionId {
+    /// Returns an iterator that yields all valid InterfaceFunctionIds
+    ///
+    /// The first returned item is the `PhysicalFunctionId`.
+    /// Then the list of `VirtualFunctionId`s will follow
+    pub fn iter_all() -> impl Iterator<Item = InterfaceFunctionId> {
+        (0..=INTERFACE_VFID_MAX).map(|idx| {
+            if idx == 0 {
+                InterfaceFunctionId::PhysicalFunctionId {}
+            } else {
+                InterfaceFunctionId::VirtualFunctionId { id: idx as u8 }
+            }
+        })
+    }
+
     // Returns String that will be used to represent FunctionId in kubernetes.
     pub fn kube_representation(&self) -> String {
         match self {
@@ -283,6 +297,22 @@ pub const INTERFACE_VFID_MAX: usize = 16;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn iterate_function_ids() {
+        let func_ids: Vec<InterfaceFunctionId> = InterfaceFunctionId::iter_all().collect();
+        assert_eq!(func_ids.len(), 2 + INTERFACE_VFID_MAX - INTERFACE_VFID_MIN);
+
+        assert_eq!(func_ids[0], InterfaceFunctionId::PhysicalFunctionId {});
+        for (i, func_id) in func_ids[1..].iter().enumerate() {
+            assert_eq!(
+                *func_id,
+                InterfaceFunctionId::VirtualFunctionId {
+                    id: (INTERFACE_VFID_MIN + i) as u8
+                }
+            );
+        }
+    }
 
     #[test]
     fn serialize_function_id() {
