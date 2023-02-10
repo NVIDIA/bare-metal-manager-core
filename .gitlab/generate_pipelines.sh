@@ -156,7 +156,7 @@ lint:${base}:
     export HELM_REPOSITORY_CONFIG="${HELM_REPOSITORY_CONFIG}"
     export HELM_PLUGINS="${HELM_PLUGINS}"
     cd ${CI_PROJECT_DIR}/charts/${base}
-    helm kubeval . --force-color --strict --kube-version  \$KUBE_VERSION \$HELM_EXTRAS --skip-kinds "CustomResourceDefinition" -s \${KUBEVAL_SCHEMA_LOCATION}
+    helm kubeval . --force-color --strict --kube-version  \$KUBE_VERSION \$HELM_EXTRAS --skip-kinds "CustomResourceDefinition,Certificate" -s \${KUBEVAL_SCHEMA_LOCATION}
   stage: test
   image: ${CHILD_JOB_IMAGE}
   tags:

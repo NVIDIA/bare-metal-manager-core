@@ -8,7 +8,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-FROM scratch
+FROM alpine:latest
 
 WORKDIR /
 COPY pxe/static/blobs/internal/ /
+CMD exec /bin/sh -c "trap : TERM INT; sleep 9999999999d & wait"

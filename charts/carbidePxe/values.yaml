@@ -45,6 +45,8 @@ rocketEnv: production
 # rocketEnv -- What environment is this running in
 rocketTemplateDir: /opt/carbide/pxe/templates
 # rocketTemplateDir -- Where to search for templates
+trustDomain: forge.local
+# trustDomain -- spiffe trust domain
 
 diagnosticMode:
   enabled: false

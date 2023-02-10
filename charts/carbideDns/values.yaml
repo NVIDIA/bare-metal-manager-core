@@ -32,6 +32,8 @@ carbideApiUrl: "-"
 # carbideApiUrl -- When set to "-" Helm will try to determine the carbide-api service name
 useTLS: false
 # useTLS -- Use TLS when attempting to connect to carbide-api
+trustDomain: forge.local
+# trustDomain -- spiffe trust domain
 
 diagnosticMode:
   enabled: false

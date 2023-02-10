@@ -89,7 +89,7 @@ spec:
         {{- end }}
       containers:
       {{- if .Values.bootArtifactsContainer.enabled }}
-        - name: boot-artifacts-x86_64
+        - name: boot-artifacts-x86-64
           image: {{ .Values.bootArtifactsContainer.container.image.registry }}/{{ .Values.bootArtifactsContainer.container.image.baseRepository }}-x86_64:{{.Values.bootArtifactsContainer.container.image.tag }}
           imagePullPolicy: {{ .Values.bootArtifactsContainer.container.image.pullPolicy }}
         - name: boot-artifacts-aarch64
@@ -174,6 +174,7 @@ spec:
               mountPath: /tmp/carbide
             - name: spiffe
               mountPath: "/var/run/secrets/spiffe.io"
+              readOnly: true
         {{- if eq (.Values.bootArtifactsContainer.enabled | toString) "false" }}
             - name: boot-artifacts
               mountPath: /forge-boot-artifacts
@@ -199,9 +200,8 @@ spec:
               - key: Rocket.toml
                 path: Rocket.toml
         - name: spiffe
-          csi:
-            driver: spiffe.csi.cert-manager.io
-            readOnly: true
+          secret:
+            secretName: {{ template "common.names.fullname" . }}-certificate
       {{- if eq (.Values.bootArtifactsContainer.enabled | toString) "false" }}
         - name: boot-artifacts
           hostPath:

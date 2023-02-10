@@ -1,6 +1,6 @@
 # carbideDns
 
-![Version: 0.0.8](https://img.shields.io/badge/Version-0.0.8-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
+![Version: 0.0.10](https://img.shields.io/badge/Version-0.0.10-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
 
 A Helm chart for carbide-dns
 
@@ -141,15 +141,16 @@ A Helm chart for carbide-dns
 | service.nodePorts | object | `{"tcp":31053,"udp":31053}` | Node ports to expose NOTE: choose port between <30000-32767> |
 | service.nodePorts.tcp | int | `31053` | Node port for DNS TCP |
 | service.nodePorts.udp | int | `31053` | Node port for DNS UDP |
-| service.ports.tcp | int | `1053` |  |
-| service.ports.udp | int | `1053` |  |
+| service.ports.tcp | int | `53` |  |
+| service.ports.udp | int | `53` |  |
 | service.sessionAffinity | string | `"None"` | Control where client requests go, to the same pod or round-robin Values: ClientIP or None ref: https://kubernetes.io/docs/user-guide/services/ |
 | service.sessionAffinityConfig | object | `{}` | Additional settings for the sessionAffinity sessionAffinityConfig:   clientIP:     timeoutSeconds: 300 |
-| service.type | string | `"ClusterIP"` | carbide service type |
+| service.type | string | `"NodePort"` | carbide service type |
 | serviceAccount.annotations | object | `{}` | Additional Service Account annotations (evaluated as a template) |
 | serviceAccount.automountServiceAccountToken | bool | `true` |  |
 | serviceAccount.create | bool | `true` | Specifies whether a ServiceAccount should be created |
 | serviceAccount.name | string | `"carbide-dns"` | The name of the ServiceAccount to use. If not set and create is true, a name is generated using the common.names.fullname template |
+| trustDomain | string | `"forge.local"` | spiffe trust domain |
 | useTLS | bool | `false` | Use TLS when attempting to connect to carbide-api |
 | volumePermissions.containerSecurityContext.runAsUser | int | `0` | Set init container's Security Context runAsUser NOTE: when runAsUser is set to special value "auto", init container will try to chown the   data folder to auto-determined user&group, using commands: `id -u`:`id -G | cut -d" " -f2`   "auto" is especially useful for OpenShift which has scc with dynamic user ids (and 0 is not allowed) |
 | volumePermissions.enabled | bool | `false` | Enable init container that changes the owner/group of the PV mount point to `runAsUser:fsGroup` |

@@ -41,6 +41,8 @@ loglevel: INFO
 # loglevel -- loglevel of KEA
 useTLS: false
 # useTLS -- attempt to connect to carbide-api using TLS
+trustDomain: forge.local
+# trustDomain -- spiffe trust domain
 
 diagnosticMode:
   enabled: false

@@ -1,6 +1,6 @@
 # carbideDhcp
 
-![Version: 0.0.13](https://img.shields.io/badge/Version-0.0.13-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
+![Version: 0.0.15](https://img.shields.io/badge/Version-0.0.15-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
 
 A Helm chart for carbide-dhcp and Kea components
 
@@ -151,6 +151,7 @@ A Helm chart for carbide-dhcp and Kea components
 | serviceAccount.automountServiceAccountToken | bool | `true` |  |
 | serviceAccount.create | bool | `true` | Specifies whether a ServiceAccount should be created |
 | serviceAccount.name | string | `"carbide-dhcp"` | The name of the ServiceAccount to use. If not set and create is true, a name is generated using the common.names.fullname template |
+| trustDomain | string | `"forge.local"` | spiffe trust domain |
 | useTLS | bool | `false` | attempt to connect to carbide-api using TLS |
 | volumePermissions.containerSecurityContext.runAsUser | int | `0` | Set init container's Security Context runAsUser NOTE: when runAsUser is set to special value "auto", init container will try to chown the   data folder to auto-determined user&group, using commands: `id -u`:`id -G | cut -d" " -f2`   "auto" is especially useful for OpenShift which has scc with dynamic user ids (and 0 is not allowed) |
 | volumePermissions.enabled | bool | `false` | Enable init container that changes the owner/group of the PV mount point to `runAsUser:fsGroup` |

@@ -1,6 +1,6 @@
 # carbideApi
 
-![Version: 0.0.17](https://img.shields.io/badge/Version-0.0.17-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
+![Version: 0.0.19](https://img.shields.io/badge/Version-0.0.19-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
 
 A Helm chart for nvidia forge component carbide-api
 
@@ -14,6 +14,7 @@ A Helm chart for nvidia forge component carbide-api
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| authPermissiveMode | bool | `false` | Override the auth engine when it denies a request, and permit anything. |
 | clusterDomain | string | `"cluster.local"` | Kubernetes cluster domain name |
 | commonAnnotations | object | `{}` | Annotations to add to all deployed objects |
 | commonLabels | object | `{}` | Labels to add to all deployed objects |
@@ -93,7 +94,7 @@ A Helm chart for nvidia forge component carbide-api
 | container.topologySpreadConstraints | list | `[]` |  |
 | container.updateStrategy.type | string | `"RollingUpdate"` |  |
 | databaseName | string | `"{{ include \"common.names.namespace\" . | replace \"-\" \"_\" }}_carbide"` |  |
-| dhcpServerIp | string | `""` |  |
+| dhcpServerIp | string | `"169.254.254.254"` |  |
 | diagnosticMode.args | list | `["infinity"]` | Args to override all containers in the deployment |
 | diagnosticMode.command | list | `["sleep"]` | Command to override all containers in the deployment |
 | diagnosticMode.enabled | bool | `false` | Enable diagnostic mode (all probes will be disabled and the command will be overridden) |
@@ -118,6 +119,8 @@ A Helm chart for nvidia forge component carbide-api
 | ingress.tls | bool | `false` | Enable TLS configuration for the host defined at `ingress.hostname` parameter TLS certificates will be retrieved from a TLS secret with name: `{{- printf "%s-tls" .Values.ingress.hostname }}` You can:   - Use the `ingress.secrets` parameter to create this TLS secret   - Rely on cert-manager to create it by setting the corresponding annotations   - Rely on Helm to create self-signed certificates by setting `ingress.selfSigned=true` |
 | kubeVersion | string | `""` | Override Kubernetes version |
 | listenAddress | string | `"0.0.0.0"` | What IP address to bind and listen on |
+| metricsService.ports.http | int | `1080` | The port that exposes the /metrics endpoint for carbide-api |
+| metricsService.targetPorts.http | int | `1080` | The container port that exposes the /metrics endpoint for carbide-api |
 | nameOverride | string | `"carbide-api"` | String to partially override common.names.name |
 | namespaceOverride | string | `""` | String to fully override common.names.namespace |
 | persistence.accessModes | list | `["ReadWriteOnce"]` | Persistent Volume Access Modes |
@@ -142,7 +145,8 @@ A Helm chart for nvidia forge component carbide-api
 | service.loadBalancerIP | string | `""` | carbide service Load Balancer IP ref: https://kubernetes.io/docs/concepts/services-networking/service/#type-loadbalancer |
 | service.loadBalancerSourceRanges | list | `[]` | carbide service Load Balancer sources ref: https://kubernetes.io/docs/tasks/access-application-cluster/configure-cloud-provider-firewall/#restrict-access-for-loadbalancer-service e.g: loadBalancerSourceRanges:   - 10.10.10.0/24 |
 | service.nodePorts | object | `{"grpc":31079}` | Node ports to expose NOTE: choose port between <30000-32767> |
-| service.ports.grpc | int | `1079` |  |
+| service.nodePorts.grpc | int | `31079` | Node port for grpc |
+| service.ports.grpc | int | `1079` | carbide service grpc port |
 | service.sessionAffinity | string | `"None"` | Control where client requests go, to the same pod or round-robin Values: ClientIP or None ref: https://kubernetes.io/docs/user-guide/services/ |
 | service.sessionAffinityConfig | object | `{}` | Additional settings for the sessionAffinity sessionAffinityConfig:   clientIP:     timeoutSeconds: 300 |
 | service.type | string | `"ClusterIP"` | carbide service type |
@@ -150,6 +154,7 @@ A Helm chart for nvidia forge component carbide-api
 | serviceAccount.automountServiceAccountToken | bool | `true` |  |
 | serviceAccount.create | bool | `true` | Specifies whether a ServiceAccount should be created |
 | serviceAccount.name | string | `"carbide-api"` | The name of the ServiceAccount to use. If not set and create is true, a name is generated using the common.names.fullname template |
+| trustDomain | string | `"forge.local"` | spiffe trust domain |
 | useTLS | bool | `false` | Enable TLS for incoming connections to GRPC endpoint NOTE container will fail to start if certificate is not present |
 | volumePermissions.containerSecurityContext.runAsUser | int | `0` | Set init container's Security Context runAsUser NOTE: when runAsUser is set to special value "auto", init container will try to chown the   data folder to auto-determined user&group, using commands: `id -u`:`id -G | cut -d" " -f2`   "auto" is especially useful for OpenShift which has scc with dynamic user ids (and 0 is not allowed) |
 | volumePermissions.enabled | bool | `false` | Enable init container that changes the owner/group of the PV mount point to `runAsUser:fsGroup` |
