@@ -356,7 +356,22 @@ fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String)> {
 
     // once we have the user, we set the password and privileges.
     let password = set_ipmi_password(&forge_admin_user.id)?;
-    set_ipmi_props(&forge_admin_user.id, IpmitoolRoles::Administrator)?;
+
+    // The password set sometimes takes a few seconds before the user can be modified
+    // This ensures that if a failure occurs during the set, it will be tried again.
+    for attempt in 0..3 {
+        match set_ipmi_props(&forge_admin_user.id, IpmitoolRoles::Administrator) {
+            Ok(_) => break,
+            Err(x) => {
+                if attempt == 2 {
+                    return Err(x);
+                } else {
+                    log::error!("retrying ipmi calls due to: {:?}", x);
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
 
     Ok((
         IpmiInfo {
