@@ -138,12 +138,7 @@ impl Cmd {
             .map_err(|x| CarbideClientError::GenericError(x.to_string()))?;
 
         if !output.status.success() {
-            return Err(CarbideClientError::GenericError(format!(
-                "Command {:?} with {:?} failed with message {:?}.",
-                self.command.get_program(),
-                self.command.get_args().collect::<Vec<&OsStr>>(),
-                String::from_utf8_lossy(&output.stderr),
-            )));
+            return Err(CarbideClientError::subprocess_error(&self.command, &output));
         }
 
         String::from_utf8(output.stdout).map_err(|_| {

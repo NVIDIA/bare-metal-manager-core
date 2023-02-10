@@ -99,24 +99,14 @@ async fn main() -> Result<(), color_eyre::Report> {
     Ok(())
 }
 
-// Ask API if we need to do anything after discovery.
+/// Ask API if we need to do anything after discovery.
 async fn query_api(forge_api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<Action> {
     let query = rpc_forge::ForgeAgentControlRequest {
         machine_id: Some(machine_id.into()),
     };
     let request = tonic::Request::new(query);
     let mut client = rpc_forge::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
-    let response = client
-        .forge_agent_control(request)
-        .await
-        .map_err(|err| {
-            log::error!(
-                "Error while executing discovery_control gRPC call: {}",
-                err.to_string()
-            );
-            err
-        })?
-        .into_inner();
+    let response = client.forge_agent_control(request).await?.into_inner();
     let action = Action::try_from(response.action)?;
     Ok(action)
 }

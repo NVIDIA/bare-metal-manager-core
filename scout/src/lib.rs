@@ -40,6 +40,27 @@ pub enum CarbideClientError {
 
     #[error("Invalid gRPC enum value: {0}")]
     DiscriminantError(#[from] rpc::DiscriminantError),
+
+    #[error("Subprocess {0} with arguments {1:?} failed with output: {2}")]
+    SubprocessError(String, Vec<String>, String),
+}
+
+impl CarbideClientError {
+    /// Constructs a `CarbideClientError::SubprocessError` from the result
+    /// of a subprocess invocation
+    pub fn subprocess_error(
+        command: &std::process::Command,
+        output: &std::process::Output,
+    ) -> Self {
+        return Self::SubprocessError(
+            command.get_program().to_string_lossy().to_string(),
+            command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        );
+    }
 }
 
 pub type CarbideClientResult<T> = Result<T, CarbideClientError>;

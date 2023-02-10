@@ -16,6 +16,7 @@ use ::rpc::forge as rpc;
 use procfs::Meminfo;
 use regex::Regex;
 use rlimit::Resource;
+use scout::CarbideClientError;
 use serde::Deserialize;
 use uname::uname;
 
@@ -23,12 +24,17 @@ use crate::deprovision::cmdrun;
 use crate::CarbideClientResult;
 use crate::IN_QEMU_VM;
 
-fn check_memory_overwrite_efi_var() -> Result<(), String> {
+fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
     let name = match efivar::efi::VariableName::from_str(
         "MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829",
     ) {
         Ok(o) => o,
-        Err(e) => return Err(e.to_string()),
+        Err(e) => {
+            return Err(CarbideClientError::GenericError(format!(
+                "Can not build EFI variable name: {}",
+                e
+            )))
+        }
     };
     let s = efivar::system();
     let mut buffer = [0u8; 1];
@@ -37,19 +43,25 @@ fn check_memory_overwrite_efi_var() -> Result<(), String> {
             if o.0 == 1 && buffer[0] == 1 {
                 return Ok(());
             }
-            Err(format!(
+            Err(CarbideClientError::GenericError(format!(
                 "Invalid result when reading MemoryOverwriteRequestControl efivar size={} value={}",
                 o.0, buffer[0]
-            ))
+            )))
         }
-        Err(e) => Err(format!(
+        Err(e) => Err(CarbideClientError::GenericError(format!(
             "Failed to read MemoryOverwriteRequestControl efivar: {}",
             e
-        )),
+        ))),
     }
 }
 
 static NVME_CLI_PROG: &str = "/usr/sbin/nvme";
+
+lazy_static::lazy_static! {
+    static ref NVME_NS_RE: Regex = Regex::new(r".*:(0x[0-9]+)").unwrap();
+    static ref NVME_NSID_RE: Regex = Regex::new(r".*nsid:([0-9]+)").unwrap();
+    static ref NVME_DEV_RE: Regex = Regex::new(r"/dev/nvme[0-9]+$").unwrap();
+}
 
 #[derive(Deserialize, Debug)]
 struct NvmeParams {
@@ -72,34 +84,25 @@ struct NvmeParams {
     fr: String,
 }
 
-fn get_nvme_params(nvmename: &String) -> Result<NvmeParams, String> {
+fn get_nvme_params(nvmename: &String) -> Result<NvmeParams, CarbideClientError> {
     let nvme_params_lines =
-        match cmdrun::run_prog(format!("{} id-ctrl {} -o json", NVME_CLI_PROG, nvmename)) {
-            Ok(o) => o,
-            Err(e) => return Err(format!("nvme id-ctrl error: {}", e)),
-        };
+        cmdrun::run_prog(format!("{} id-ctrl {} -o json", NVME_CLI_PROG, nvmename))?;
     let nvme_drive_params = match serde_json::from_str(&nvme_params_lines) {
         Ok(o) => o,
-        Err(e) => return Err(format!("nvme id-ctrl parse error: {}", e)),
+        Err(e) => {
+            return Err(CarbideClientError::GenericError(format!(
+                "nvme id-ctrl parse error: {}",
+                e
+            )))
+        }
     };
     Ok(nvme_drive_params)
 }
 
-fn clean_this_nvme(nvmename: &String) -> Result<(), String> {
+fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     log::debug!("cleaning {}", nvmename);
-    let nvme_ns_re = match Regex::new(r".*:(0x[0-9]+)") {
-        Ok(o) => o,
-        Err(e) => return Err(e.to_string()),
-    };
-    let nvme_nsid_re = match Regex::new(r".*nsid:([0-9]+)") {
-        Ok(o) => o,
-        Err(e) => return Err(e.to_string()),
-    };
 
-    let nvme_drive_params = match get_nvme_params(nvmename) {
-        Ok(o) => o,
-        Err(e) => return Err(format!("nvme cant get drive params {}", e)),
-    };
+    let nvme_drive_params = get_nvme_params(nvmename)?;
 
     let namespaces_supported = nvme_drive_params.oacs & 0x8 == 0x8;
 
@@ -116,15 +119,11 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), String> {
     );
 
     // list all namespaces
-    let nvmens_output = match cmdrun::run_prog(format!("{} list-ns {} -a", NVME_CLI_PROG, nvmename))
-    {
-        Ok(o) => o,
-        Err(e) => return Err(format!("nvme list-ns error: {}", e)),
-    };
+    let nvmens_output = cmdrun::run_prog(format!("{} list-ns {} -a", NVME_CLI_PROG, nvmename))?;
 
     // iterate over namespaces
     for nsline in nvmens_output.lines() {
-        let caps = match nvme_ns_re.captures(nsline) {
+        let caps = match NVME_NS_RE.captures(nsline) {
             Some(o) => o,
             None => continue,
         };
@@ -142,19 +141,16 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), String> {
                     // format can fail if there is a wrong params for namespace. We delete it anyway.
                     log::debug!("nvme format error: {}", e);
                 } else {
-                    return Err(format!("nvme format error: {}", e));
+                    return Err(e);
                 }
             }
         }
         if namespaces_supported {
             // delete namespace
-            match cmdrun::run_prog(format!(
+            cmdrun::run_prog(format!(
                 "{} delete-ns {} -n {}",
                 NVME_CLI_PROG, nvmename, nsid
-            )) {
-                Ok(_) => (),
-                Err(e) => return Err(format!("nvme delete-ns error: {}", e)),
-            }
+            ))?;
         }
     }
 
@@ -162,41 +158,30 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), String> {
         let sectors = nvme_drive_params.tnvmcap / 512;
         // creating new namespace with all available sectors
         log::debug!("Creating namespace on {}", nvmename);
-        let line_created_ns_id = match cmdrun::run_prog(format!(
+        let line_created_ns_id = cmdrun::run_prog(format!(
             "{} create-ns {} --nsze={} --ncap={} --flbas 0 --dps=0",
             NVME_CLI_PROG, nvmename, sectors, sectors
-        )) {
-            Ok(o) => o,
-            Err(e) => return Err(format!("nvme create-ns error: {}", e)),
-        };
-        let nsid = match nvme_nsid_re.captures(&line_created_ns_id) {
+        ))?;
+        let nsid = match NVME_NSID_RE.captures(&line_created_ns_id) {
             Some(o) => o.get(1).map_or("", |m| m.as_str()),
             None => {
-                return Err(format!(
+                return Err(CarbideClientError::GenericError(format!(
                     "nvme cant get nsid after create-ns {}",
                     line_created_ns_id
-                ))
+                )))
             }
         };
         // attaching namespace to controller
-        match cmdrun::run_prog(format!(
+        cmdrun::run_prog(format!(
             "{} attach-ns {} -n {} -c {}",
             NVME_CLI_PROG, nvmename, nsid, nvme_drive_params.cntlid
-        )) {
-            Ok(_) => (),
-            Err(e) => return Err(format!("nvme cant attach nsid: {}", e)),
-        }
+        ))?;
     }
     log::debug!("Cleanup completed for nvme device {}", nvmename);
     Ok(())
 }
 
-fn all_nvme_cleanup() -> Result<(), String> {
-    let nvme_re = match Regex::new(r"/dev/nvme[0-9]+$") {
-        Ok(o) => o,
-        Err(e) => return Err(e.to_string()),
-    };
-
+fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
     let mut err_vec: Vec<String> = Vec::new();
 
     if let Ok(paths) = fs::read_dir("/dev") {
@@ -210,7 +195,7 @@ fn all_nvme_cleanup() -> Result<(), String> {
             }
 
             let nvmename = path.to_string_lossy().to_string();
-            if nvme_re.is_match(&nvmename) {
+            if NVME_DEV_RE.is_match(&nvmename) {
                 match clean_this_nvme(&nvmename) {
                     Ok(_) => (),
                     Err(e) => err_vec.push(format!("NVME_CLEAN_ERROR:{}:{}", &nvmename, e)),
@@ -219,7 +204,7 @@ fn all_nvme_cleanup() -> Result<(), String> {
         }
     }
     if !err_vec.is_empty() {
-        return Err(err_vec.join("\n"));
+        return Err(CarbideClientError::GenericError(err_vec.join("\n")));
     }
     Ok(())
 }
@@ -233,7 +218,7 @@ struct StructOsMemInfo {
     mem_cached: u64,
 }
 
-fn get_os_mem_info() -> Result<StructOsMemInfo, String> {
+fn get_os_mem_info() -> Result<StructOsMemInfo, CarbideClientError> {
     let mut meminfo = StructOsMemInfo {
         mem_total: 0,
         mem_free: 0,
@@ -243,11 +228,20 @@ fn get_os_mem_info() -> Result<StructOsMemInfo, String> {
     };
 
     let rust_meminfo = match Meminfo::new() {
-        Err(e) => return Err(e.to_string()),
+        Err(e) => {
+            return Err(CarbideClientError::GenericError(format!(
+                "Failed to retrieve memory information: {}",
+                e
+            )))
+        }
         Ok(o) => o,
     };
     meminfo.mem_available = match rust_meminfo.mem_available {
-        None => return Err("mem_available is not available".to_string()),
+        None => {
+            return Err(CarbideClientError::GenericError(
+                "mem_available is not available".to_string(),
+            ))
+        }
         Some(s) => s,
     };
     meminfo.mem_total = rust_meminfo.mem_total;
@@ -283,15 +277,15 @@ fn memclr(msize: u64) -> i64 {
     0
 }
 
-fn cleanup_ram() -> Result<(), String> {
+fn cleanup_ram() -> Result<(), CarbideClientError> {
     if let Err(e) = Resource::AS.set(libc::RLIM_INFINITY, libc::RLIM_INFINITY) {
-        return Err(e.to_string());
+        return Err(CarbideClientError::GenericError(format!(
+            "Failed to set rlimit: {}",
+            e
+        )));
     }
 
-    let meminfo = match get_os_mem_info() {
-        Ok(o) => o,
-        Err(e) => return Err(e),
-    };
+    let meminfo = get_os_mem_info()?;
 
     log::debug!(
         "Preparing to cleanup {} bytes of RAM",
@@ -300,22 +294,29 @@ fn cleanup_ram() -> Result<(), String> {
     let mut mem_clr_res: i64;
 
     mem_clr_res = memclr(meminfo.mem_available);
-    let meminfo2 = match get_os_mem_info() {
-        Ok(o) => o,
-        Err(e) => return Err(e),
-    };
+    let meminfo2 = get_os_mem_info()?;
 
     if mem_clr_res != 0 {
-        return Err("Mem cleanup failed1".to_string());
+        return Err(CarbideClientError::GenericError(format!(
+            "Mem cleanup failed with code {}",
+            mem_clr_res
+        )));
     }
 
     if meminfo.mem_free >= meminfo2.mem_free {
-        return Err("Not complete memory cleanup.".to_string());
+        return Err(CarbideClientError::GenericError(
+            format!("Incomplete memory cleanup. Memory free before cleanup: {}. Memory free after cleanup: {}.",
+            meminfo.mem_free,
+            meminfo2.mem_free
+        )));
     }
 
     mem_clr_res = memclr(meminfo2.mem_available);
     if mem_clr_res != 0 {
-        return Err("Mem cleanup failed2".to_string());
+        return Err(CarbideClientError::GenericError(format!(
+            "Mem cleanup 2 failed with code {}",
+            mem_clr_res
+        )));
     }
 
     Ok(())
@@ -348,7 +349,7 @@ async fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineC
                 log::error!("{}", e);
                 cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
                     result: rpc::machine_cleanup_info::CleanupResult::Error as _,
-                    message: e,
+                    message: e.to_string(),
                 });
                 cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
             }
@@ -368,7 +369,7 @@ async fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineC
             log::error!("{}", e);
             cleanup_result.mem_overwrite = Some(rpc::machine_cleanup_info::CleanupStepResult {
                 result: rpc::machine_cleanup_info::CleanupResult::Error as _,
-                message: e,
+                message: e.to_string(),
             });
             if !IN_QEMU_VM.read().await.in_qemu {
                 cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
@@ -387,13 +388,15 @@ async fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineC
             log::error!("{}", e);
             cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
                 result: rpc::machine_cleanup_info::CleanupResult::Error as _,
-                message: e,
+                message: e.to_string(),
             });
             cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
         }
     }
+
     Ok(cleanup_result)
 }
+
 fn is_host() -> bool {
     // this is temporary fix. We should not run scrabbing on DPU.
     // we need cleanup only on x86_64

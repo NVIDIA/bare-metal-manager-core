@@ -4142,6 +4142,7 @@ dependencies = [
  "efivar",
  "forge-host-support",
  "forge_credentials",
+ "lazy_static",
  "libc",
  "log",
  "once_cell",
