@@ -103,6 +103,21 @@ impl VpcApi for MockVpcApi {
     async fn try_delete_leaf(&self, _dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
         panic!("Not used in this test")
     }
+
+    async fn try_update_leaf(
+        &self,
+        _dpu_machine_id: uuid::Uuid,
+        _host_admin_ip: Ipv4Addr,
+    ) -> Result<Poll<()>, VpcApiError> {
+        panic!("Not used in this test")
+    }
+
+    async fn try_delete_managed_resources(
+        &self,
+        _instance_id: uuid::Uuid,
+    ) -> Result<Poll<()>, VpcApiError> {
+        panic!("Not used in this test")
+    }
 }
 
 const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");

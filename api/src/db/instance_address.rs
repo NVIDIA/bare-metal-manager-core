@@ -313,15 +313,14 @@ mod tests {
     use super::*;
     use crate::model::{
         config_version::ConfigVersion,
-        instance::config::network::{
-            InstanceInterfaceConfig, InterfaceFunctionId, INTERFACE_VFID_MAX,
-        },
+        instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
     };
 
     fn create_valid_validation_data() -> Vec<NetworkSegment> {
         let vpc_id = uuid::uuid!("11609f10-c11d-1101-3261-6293ea0c0100");
-        let network_segments: Vec<NetworkSegment> = (0..=INTERFACE_VFID_MAX)
-            .map(|idx| {
+        let network_segments: Vec<NetworkSegment> = InterfaceFunctionId::iter_all()
+            .enumerate()
+            .map(|(idx, _function_id)| {
                 let id = format!("91609f10-c91d-470d-a260-6293ea0c00{:02}", idx);
                 let version = ConfigVersion::initial();
                 NetworkSegment {
@@ -349,14 +348,9 @@ mod tests {
 
     const BASE_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c0000");
     fn create_valid_network_config() -> InstanceNetworkConfig {
-        let interfaces: Vec<InstanceInterfaceConfig> = (0..=INTERFACE_VFID_MAX)
-            .map(|idx| {
-                let function_id = if idx == 0 {
-                    InterfaceFunctionId::PhysicalFunctionId {}
-                } else {
-                    InterfaceFunctionId::VirtualFunctionId { id: idx as u8 }
-                };
-
+        let interfaces: Vec<InstanceInterfaceConfig> = InterfaceFunctionId::iter_all()
+            .enumerate()
+            .map(|(idx, function_id)| {
                 let network_segment_id = Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + idx as u128);
                 InstanceInterfaceConfig {
                     function_id,

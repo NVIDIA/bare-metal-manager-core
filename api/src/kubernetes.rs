@@ -1083,6 +1083,13 @@ pub enum VpcApiError {
     ObjectExistsWithDifferentSpec(String),
     #[error("VPC API simulation is out of loopback IPs")]
     VpiApiSimLoopbackIpsExhausted,
+    #[error(
+        "Leaf with name {0} has an invalid existing configuration and \
+        and therefore new Host Admin IPs can't be configured"
+    )]
+    InvalidLeafSpecForHostAdminIpUpdate(String),
+    #[error("Leaf with identifier {0} was not found")]
+    LeafNotFound(String),
 }
 
 /// The result of trying to delete an object in VPC
@@ -1145,6 +1152,14 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
     /// - Err if the creation attempt failed
     async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError>;
 
+    /// Updates a Leaf CRD with the admin IP that was allocated for the
+    /// host that is attached to the DPU
+    async fn try_update_leaf(
+        &self,
+        dpu_machine_id: uuid::Uuid,
+        host_admin_ip: Ipv4Addr,
+    ) -> Result<Poll<()>, VpcApiError>;
+
     /// Trys to delete a leaf on Forge VPC
     ///
     /// Will return
@@ -1153,6 +1168,18 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
     ///   be called again later to retrieve the final result.
     /// - Err if the deletion attempt failed
     async fn try_delete_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError>;
+
+    /// Trys to delete all managed resources that are associated with an instance
+    ///
+    /// Will return
+    /// - Ok(Poll::Ready(())) if the deletion of all resources has succeeded
+    /// - Ok(Poll::Pending) if the deletion is in progress. The method should
+    ///   be called again later to retrieve the final result.
+    /// - Err if the deletion attempt failed
+    async fn try_delete_managed_resources(
+        &self,
+        instance_id: uuid::Uuid,
+    ) -> Result<Poll<()>, VpcApiError>;
 }
 
 /// Implementation of the VPC API which makes "real kubernetes API calls"
@@ -1335,6 +1362,111 @@ impl VpcApi for VpcApiImpl {
         let leaf_name = leaf_name(dpu_machine_id);
 
         try_delete_k8s_resource::<leaf::Leaf>(&self.client, "leaf", &leaf_name).await
+    }
+
+    async fn try_update_leaf(
+        &self,
+        dpu_machine_id: uuid::Uuid,
+        host_admin_ip: Ipv4Addr,
+    ) -> Result<Poll<()>, VpcApiError> {
+        let leaf_name = leaf_name(dpu_machine_id);
+
+        let api: Api<leaf::Leaf> = Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
+        let mut leaf = api
+            .get(&leaf_name)
+            .await
+            .map_err(|e| VpcApiError::KubeError(Box::new(e)))?;
+
+        let admin_ips =
+            leaf.spec.host_admin_i_ps.as_mut().ok_or_else(|| {
+                VpcApiError::InvalidLeafSpecForHostAdminIpUpdate(leaf_name.clone())
+            })?;
+
+        // Update the admin IP
+        // If a previous IP is configured and it equals the IP we are trying to set,
+        // then there is nothing else to do.
+        // TODO: Should we error if there was previously a different host admin IP assigned?
+        if let Some(old_ip) = admin_ips.insert(
+            DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
+            host_admin_ip.to_string(),
+        ) {
+            if old_ip == host_admin_ip.to_string() {
+                tracing::info!(
+                    "Leaf {} IP {} is already up to date. Skipping update",
+                    leaf_name,
+                    old_ip
+                );
+                return Ok(Poll::Ready(()));
+            }
+        }
+
+        tracing::info!("Updating Leaf to new spec - {leaf:?}");
+
+        let _updated_leaf = api
+            .replace(&leaf_name, &PostParams::default(), &leaf)
+            .await
+            .map_err(|e| VpcApiError::KubeError(Box::new(e)))?;
+
+        // TODO: We don't wait here for a ready status
+        // Maybe we should, but currently the system just waits for the next
+        // calls from the host in order to continue
+
+        Ok(Poll::Ready(()))
+    }
+
+    async fn try_delete_managed_resources(
+        &self,
+        instance_id: uuid::Uuid,
+    ) -> Result<Poll<()>, VpcApiError> {
+        let api: Api<managed_resource::ManagedResource> =
+            Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
+
+        // We try deleting each interface once before reporting the state
+        // That means we would at least already enqueue all the delete operations
+        // to kubernetes in one handler iteration, and not wait to delete the
+        // 2nd managed resource only after the first succeeded
+        let mut all_ready = true;
+        let mut first_error = None;
+        for function_id in InterfaceFunctionId::iter_all() {
+            let resource_id = managed_resource_name(instance_id, &function_id);
+
+            let result = api.delete(&resource_id, &DeleteParams::default()).await;
+            tracing::info!(
+                "Result of deleting managed_resource {} is: {:?}",
+                resource_id,
+                result
+            );
+
+            match result {
+                Ok(result) if result.is_left() => {
+                    // Delete was accepted but hasn't finished
+                    all_ready = false;
+                }
+                Ok(_) => {
+                    // This branch should mean the object was deleted
+                    // Note: In testing this never showed up - we get from a `Left` (Pending)
+                    // to a 404 error
+                    // TODO: If the status isn't a 200 (deleted) or 400 (not found),
+                    // we should probably not use deleted as a result
+                }
+                Err(kube::Error::Api(api_error)) if api_error.code == 404 => {
+                    // Object not found means it is deleted
+                }
+                Err(e) => {
+                    if first_error.is_none() {
+                        first_error = Some(VpcApiError::KubeError(Box::new(e)));
+                    }
+                }
+            }
+        }
+
+        if let Some(err) = first_error {
+            return Err(err);
+        }
+        if !all_ready {
+            return Ok(Poll::Pending);
+        }
+        Ok(Poll::Ready(()))
     }
 }
 
@@ -1642,5 +1774,39 @@ impl VpcApi for VpcApiSim {
         } else {
             Ok(Poll::Ready(()))
         }
+    }
+
+    async fn try_update_leaf(
+        &self,
+        dpu_machine_id: uuid::Uuid,
+        host_admin_ip: Ipv4Addr,
+    ) -> Result<Poll<()>, VpcApiError> {
+        let leaf_name = leaf_name(dpu_machine_id);
+
+        let mut guard = self.state.lock().unwrap();
+
+        let leaf = guard
+            .leafs
+            .get_mut(&leaf_name)
+            .ok_or_else(|| VpcApiError::LeafNotFound(leaf_name.clone()))?;
+
+        let admin_ips =
+            leaf.spec.host_admin_i_ps.as_mut().ok_or_else(|| {
+                VpcApiError::InvalidLeafSpecForHostAdminIpUpdate(leaf_name.clone())
+            })?;
+
+        admin_ips.insert(
+            DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
+            host_admin_ip.to_string(),
+        );
+
+        Ok(Poll::Ready(()))
+    }
+
+    async fn try_delete_managed_resources(
+        &self,
+        _instance_id: uuid::Uuid,
+    ) -> Result<Poll<()>, VpcApiError> {
+        todo!("Not implemented because we don't create anything yet")
     }
 }

@@ -11,9 +11,7 @@
  */
 use std::time::SystemTime;
 
-use crate::model::instance::config::network::{
-    InterfaceFunctionId, INTERFACE_VFID_MAX, INTERFACE_VFID_MIN,
-};
+use crate::model::instance::config::network::InterfaceFunctionId;
 use crate::model::machine::{
     DPU_PHYSICAL_NETWORK_INTERFACE, DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER,
 };
@@ -215,13 +213,9 @@ pub fn host_interfaces(dpu_machine_id: &uuid::Uuid) -> BTreeMap<String, String> 
     // Virtual interfaces start from 1 to 16.
     let mut interface_map = BlueFieldInterfaceMap::new(dpu_machine_id.to_owned());
 
-    // PF Interface entry
-    interface_map.insert(InterfaceFunctionId::PhysicalFunctionId {});
-
-    // VF Interface entries
-    (INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).for_each(|id| {
-        interface_map.insert(InterfaceFunctionId::VirtualFunctionId { id: id as u8 });
-    });
+    for function_id in InterfaceFunctionId::iter_all() {
+        interface_map.insert(function_id);
+    }
 
     interface_map.interfaces
 }
