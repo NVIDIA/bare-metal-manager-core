@@ -85,9 +85,6 @@ service Forge {
   // Auth Requests
   rpc ValidateUserSSHKey(SSHKeyValidationRequest) returns (SSHKeyValidationResponse);
 
-  // PRIVILEGED: Query Vault for the DPU's SSH admin password
-  rpc GetDpuSSHCredential(CredentialRequest) returns (CredentialResponse);
-
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
   rpc UpdateBMCMetaData(BMCMetaDataUpdateRequest) returns (BMCMetaDataUpdateResponse);
@@ -111,6 +108,25 @@ service Forge {
 
   rpc GetPxeInstructions(UUID) returns (PxeInstructions);
   rpc Echo(EchoRequest) returns (EchoResponse);
+
+  // Admin CLI actions
+
+  // Query Vault for the DPU's SSH admin password
+  rpc GetDpuSSHCredential(CredentialRequest) returns (CredentialResponse);
+
+  // Force deletes a Machine and the associated DPU from Forge databases,
+  // with the intention of rediscovering the host later on.
+  // The command will not stop a running tenant instance. Only a reboot that forces
+  // the Forge PXE boot process again would stop the image and run the discovery
+  // process again.
+  //
+  // Due to the not well defined state that hosts are in after calling this command,
+  // it should not be used by Tenants or Site Providers to release instances. Those
+  // should use customer-facing commands like `ReleaseInstance`.
+  //
+  // AdminForceDeleteMachine is a lower level admin tool for cases where there is no
+  // appropriate customer-facing workflow available or where those workflows fail.
+  rpc AdminForceDeleteMachine(AdminForceDeleteMachineRequest) returns (AdminForceDeleteMachineResponse);
 }
 
 message EchoRequest {
@@ -760,12 +776,35 @@ message SSHKeyValidationResponse {
 }
 
 message CredentialRequest {
-	string host_id = 1;  // UUID, IP address, host name or MAC address
+    string host_id = 1;  // UUID, IP address, host name or MAC address
 }
 
 message CredentialResponse {
-	string username = 1;
-	string password = 2;
+    string username = 1;
+    string password = 2;
+}
+
+message AdminForceDeleteMachineRequest {
+    // UUID, IP address, host name or MAC address of either the host or DPU to force delete
+    string host_query = 1;
+}
+
+// Response to AdminForceDeleteMachine call
+// Describes which resources have been released
+message AdminForceDeleteMachineResponse {
+    bool all_done = 1;
+
+    string managed_host_machine_id = 11;
+    string managed_host_machine_interface_id = 12;
+    string dpu_machine_id = 13;
+    string dpu_machine_interface_id = 14;
+    string instance_id = 15;
+
+    string managed_host_bmc_ip = 21;
+    string dpu_bmc_ip = 22;
+
+    uint32 deleted_managed_resources = 31;
+    uint32 deleted_leafs = 32;
 }
 
 enum BMCRequestType {

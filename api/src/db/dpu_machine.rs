@@ -13,8 +13,6 @@
 //! Machine - represents a database-backed Machine object
 //!
 
-use std::net::Ipv4Addr;
-
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
@@ -98,42 +96,6 @@ JOIN machine_interfaces mi on dm.machine_id = mi.attached_dpu_machine_id
 WHERE mi.machine_id=$1::uuid";
         sqlx::query_as(query)
             .bind(machine_id)
-            .fetch_one(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
-    pub async fn find_by_ip(
-        txn: &mut Transaction<'_, Postgres>,
-        ip: &Ipv4Addr,
-    ) -> Result<Self, DatabaseError> {
-        let query = "SELECT * FROM dpu_machines WHERE address = $1::inet";
-        sqlx::query_as(query)
-            .bind(ip.to_string())
-            .fetch_one(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
-    pub async fn find_by_hostname(
-        txn: &mut Transaction<'_, Postgres>,
-        hostname: &str,
-    ) -> Result<Self, DatabaseError> {
-        let query = "SELECT * FROM dpu_machines WHERE hostname = $1";
-        sqlx::query_as(query)
-            .bind(hostname)
-            .fetch_one(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
-    pub async fn find_by_mac_address(
-        txn: &mut Transaction<'_, Postgres>,
-        mac_address: &MacAddress,
-    ) -> Result<Self, DatabaseError> {
-        let query = "SELECT * FROM dpu_machines WHERE mac_address = $1::macaddr";
-        sqlx::query_as(query)
-            .bind(mac_address)
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

@@ -71,10 +71,11 @@ pub struct DiscoveryData {
 pub struct TopologyData {
     /// Stores the hardware information that was fetched during discovery
     pub discovery_data: DiscoveryData,
-    // Note that there was also originally stored a `machine_id` field as part
-    // of the database schema - which did not identify the machine, but actually
-    // a machine_interface_id. Since we do not read this value it is no longer
-    // loaded here, and will not be stored for newly discovery machines.
+    /// The BMC IP of the machine
+    /// Note that this field is currently side-injected via the
+    /// `crate::crate::db::ipmi::BmcMetaDataUpdateRequest::update_bmc_meta_data`
+    /// Therefore no `write` function can be found here.
+    pub ipmi_ip: Option<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -123,6 +124,7 @@ impl MachineTopology {
                 discovery_data: DiscoveryData {
                     info: hardware_info.clone(),
                 },
+                ipmi_ip: None,
             };
 
             let query = "INSERT INTO machine_topologies VALUES ($1::uuid, $2::json) RETURNING *";

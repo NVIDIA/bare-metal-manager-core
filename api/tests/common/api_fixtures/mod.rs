@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use carbide::api::Api;
 use carbide::auth::{Authorizer, NoopEngine};
+use carbide::kubernetes::VpcApiSim;
 
 use crate::common::test_credentials::TestCredentialProvider;
 
@@ -30,9 +31,14 @@ pub type TestApi = Api<TestCredentialProvider>;
 pub const FIXTURE_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
 
 pub fn create_test_api(pool: sqlx::PgPool) -> TestApi {
+    // TODO: Some tests might require a shared VpcApiSim with the state machine
+    // for consistency. This means we need to create the sim upfront and share it
+    // here. We will change this in a follow-up, since it requires touching a lot
+    // of tests
     carbide::api::Api::new(
         Arc::new(TestCredentialProvider::new()),
         pool,
         Authorizer::new(Arc::new(NoopEngine {})),
+        Arc::new(VpcApiSim::default()),
     )
 }

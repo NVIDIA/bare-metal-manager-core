@@ -35,7 +35,7 @@ HOST_MACHINE_ID=$(echo "$RESULT" | jq ".machineId.value" | tr -d '"')
 grpcurl -d "{\"machine_id\": {\"value\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ForgeAgentControl
 
 # Give it a BMC IP and credentials
-grpcurl -d "{\"machine_id\": {\"value\": \"$HOST_MACHINE_ID\"}, \"ip\": \"host.docker.internal:1266\", \"data\": [{\"user\": \"forge\", \"password\": \"notforprod\", \"role\": 1}], \"request_type\": 1 }" -plaintext 127.0.0.1:1079 forge.Forge/UpdateBMCMetaData
+grpcurl -d "{\"machine_id\": {\"value\": \"$HOST_MACHINE_ID\"}, \"ip\": \"host.docker.internal:1266\", \"data\": [{\"user\": \"forge_admin\", \"password\": \"notforprod\", \"role\": 1}], \"request_type\": 1 }" -plaintext 127.0.0.1:1079 forge.Forge/UpdateBMCMetaData
 echo "Created HOST Machine with ID $HOST_MACHINE_ID"
 
 # Mark discovery complete
