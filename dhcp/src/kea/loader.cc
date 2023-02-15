@@ -56,7 +56,7 @@ extern "C" {
 		ConstElementPtr api_endpoint = handle->getParameter("carbide-api-url");
 		if (api_endpoint) {
 			if(api_endpoint->getType() != Element::string) {
-				// TODO(ajf): handle invalid data type for carbide-api-url
+				// TODO: handle invalid data type for carbide-api-url
 				return (1);
 			} else {
 				// TOOD: proper logging
@@ -64,10 +64,21 @@ extern "C" {
 			}
 		}
 
+        ConstElementPtr ntpserver = handle->getParameter("carbide-ntpserver");
+        if (ntpserver) {
+            if(ntpserver->getType() != Element::string) {
+                // TODO: handle invalid data type for ntpserver
+                return (1);
+            } else {
+                // TOOD: proper logging
+                carbide_set_config_ntp(ntpserver->stringValue().c_str());
+            }
+        }
+
         ConstElementPtr nameservers = handle->getParameter("carbide-nameservers");
         if (nameservers) {
             if(nameservers->getType() != Element::string) {
-                // TODO(ajf): handle invalid data type for carbide-api-url
+                // TODO: handle invalid data type for nameservers
                 return (1);
             } else {
                 // TOOD: proper logging

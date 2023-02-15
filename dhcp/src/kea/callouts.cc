@@ -69,6 +69,10 @@ void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
     response4_ptr->addOption(OptionPtr(new Option4AddrLst(
         option, getAddresses(boost::any_cast<std::string>(param)))));
     break;
+  case DHO_NTP_SERVERS:
+    response4_ptr->addOption(OptionPtr(new Option4AddrLst(
+        option, getAddresses(boost::any_cast<std::string>(param)))));
+    break;
   case DHO_SUBNET_MASK:
   case DHO_BROADCAST_ADDRESS:
   case DHO_HOST_NAME:
@@ -226,6 +230,12 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr,
   update_option<Option>(handle, response4_ptr, DHO_DOMAIN_NAME_SERVERS,
                         nameservers);
   machine_free_nameservers(machine_nameservers);
+
+  // NTP server
+  char *machine_ntpservers = machine_get_ntpservers(machine);
+  std::string ntpservers(machine_ntpservers);
+  update_option<Option>(handle, response4_ptr, DHO_NTP_SERVERS, ntpservers);
+  machine_free_nameservers(machine_ntpservers);
 
   // Set Interface MTU
   update_option<OptionUint16>(handle, response4_ptr, DHO_INTERFACE_MTU, 1500);

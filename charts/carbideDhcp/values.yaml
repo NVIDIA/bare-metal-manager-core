@@ -37,6 +37,8 @@ carbideDnsServerIPs:
 # carbideDnsServerIPs -- List of carbide dns server IP addresses
 carbidePxeIpAddress: 127.0.0.1
 # carbidePxeIpAddress -- IP Address of carbidePxe service
+carbideNtpIpAddress: 127.0.0.1
+# carbideNtpIpAddress -- IP Address of NTP service
 loglevel: INFO
 # loglevel -- loglevel of KEA
 useTLS: false

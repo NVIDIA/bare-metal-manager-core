@@ -36,6 +36,7 @@ static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 pub struct CarbideDhcpContext {
     api_endpoint: String,
     nameservers: String,
+    ntpserver: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
     _provisioning_server_ipv6: Option<Ipv6Addr>,
 }
@@ -45,6 +46,7 @@ impl Default for CarbideDhcpContext {
         Self {
             api_endpoint: "https://[::1]:1079".to_string(),
             nameservers: "1.1.1.1".to_string(),
+            ntpserver: "172.20.0.24".to_string(), // local ntp server
             provisioning_server_ipv4: None,
             _provisioning_server_ipv6: None,
         }
@@ -97,4 +99,17 @@ pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_c
     let nameserver_str = CStr::from_ptr(nameservers).to_str().unwrap().to_owned();
 
     CONFIG.write().unwrap().nameservers = nameserver_str;
+}
+
+/// Take the NTP servers for configuring NTP in the dhcp responses
+///
+/// # Safety
+/// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
+/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
+///
+#[no_mangle]
+pub unsafe extern "C" fn carbide_set_config_ntp(ntpserver: *const c_char) {
+    let ntp_str = CStr::from_ptr(ntpserver).to_str().unwrap().to_owned();
+
+    CONFIG.write().unwrap().ntpserver = ntp_str;
 }
