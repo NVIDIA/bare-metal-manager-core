@@ -13,7 +13,8 @@
 //! Machine - represents a database-backed Machine object
 //!
 use std::convert::From;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
@@ -72,6 +73,9 @@ pub struct Machine {
     /// The Hardware information that was discoverd for this machine
     hardware_info: Option<HardwareInfo>,
 
+    /// The BMC IP for this machine
+    bmc_ip: Option<String>,
+
     /// Last time when machine came up.
     last_reboot_time: Option<DateTime<Utc>>,
 
@@ -102,6 +106,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             history: Vec::new(),
             interfaces: Vec::new(),
             hardware_info: None,
+            bmc_ip: None,
             last_reboot_time: row.try_get("last_reboot_time")?,
             last_cleanup_time: row.try_get("last_cleanup_time")?,
             last_discovery_time: row.try_get("last_discovery_time")?,
@@ -158,6 +163,24 @@ impl From<Machine> for rpc::Machine {
 }
 
 impl Machine {
+    /// Returns whether the Machine is a DPU, based on the attached HardwareInfo
+    ///
+    /// If no HardwareInfo is loaded, this will return `false` even if the Machine is a DPU
+    pub fn is_dpu(&self) -> bool {
+        // TODO: With new MachineIds, this can just check the ID
+        // Another appraoch is also to check the `attached_dpu_machine_id` - but this
+        // requires interface information being loaded
+        match &self.hardware_info {
+            Some(info) => info.is_dpu(),
+            None => false,
+        }
+    }
+
+    /// The BMC IP for this machine
+    pub fn bmc_ip(&self) -> Option<&str> {
+        self.bmc_ip.as_deref()
+    }
+
     pub async fn exists(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
@@ -430,7 +453,7 @@ SELECT m.id FROM
         let mut interfaces_for_machine =
             MachineInterface::find_by_machine_ids(&mut *txn, &all_uuids).await?;
 
-        let mut topologies_for_machine =
+        let topologies_for_machine =
             MachineTopology::find_latest_by_machine_ids(&mut *txn, &all_uuids).await?;
 
         all_machines.iter_mut().for_each(|machine| {
@@ -446,9 +469,10 @@ SELECT m.id FROM
                 log::warn!("Machine {0} () has no interfaces", machine.id);
             }
 
-            machine.hardware_info = topologies_for_machine
-                .get_mut(&machine.id)
-                .map(|topo| topo.topology().discovery_data.info.clone());
+            if let Some(topo) = topologies_for_machine.get(&machine.id) {
+                machine.hardware_info = Some(topo.topology().discovery_data.info.clone());
+                machine.bmc_ip = topo.topology().ipmi_ip.clone();
+            }
 
             if machine.hardware_info.is_none() {
                 log::warn!("Machine {0} has no associated discovery data", &machine.id);
@@ -458,16 +482,141 @@ SELECT m.id FROM
         Ok(all_machines)
     }
 
+    async fn load_related_data(
+        &mut self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let history = MachineStateHistory::for_machine(&mut *txn, &self.id).await?;
+        if !history.is_empty() {
+            self.history = history;
+        }
+
+        let mut interfaces = MachineInterface::find_by_machine_ids(&mut *txn, &[self.id]).await?;
+        if let Some(interfaces) = interfaces.remove(&self.id) {
+            self.interfaces = interfaces;
+        }
+
+        let mut topologies =
+            MachineTopology::find_latest_by_machine_ids(&mut *txn, &[self.id]).await?;
+        if let Some(topology) = topologies.remove(&self.id) {
+            self.hardware_info = Some(topology.topology().discovery_data.info.clone());
+            self.bmc_ip = topology.topology().ipmi_ip.clone();
+        }
+
+        Ok(())
+    }
+
+    pub async fn find_by_ip(
+        txn: &mut Transaction<'_, Postgres>,
+        ip: &Ipv4Addr,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = r#"SELECT m.* FROM machines m
+            JOIN machine_interfaces mi ON m.id = mi.machine_id
+            INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
+            WHERE mia.address = $1::inet"#;
+        let machine: Option<Self> = sqlx::query_as(query)
+            .bind(ip.to_string())
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let mut machine = match machine {
+            Some(machine) => machine,
+            None => return Ok(None),
+        };
+
+        machine.load_related_data(txn).await?;
+        Ok(Some(machine))
+    }
+
+    pub async fn find_by_hostname(
+        txn: &mut Transaction<'_, Postgres>,
+        hostname: &str,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = r#"SELECT m.* FROM machines m
+            JOIN machine_interfaces mi ON m.id = mi.machine_id
+            WHERE mi.hostname = $1"#;
+        let machine: Option<Self> = sqlx::query_as(query)
+            .bind(hostname)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        let mut machine = match machine {
+            Some(machine) => machine,
+            None => return Ok(None),
+        };
+
+        machine.load_related_data(txn).await?;
+        Ok(Some(machine))
+    }
+
+    pub async fn find_by_mac_address(
+        txn: &mut Transaction<'_, Postgres>,
+        mac_address: &MacAddress,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = r#"SELECT m.* FROM machines m
+            JOIN machine_interfaces mi ON m.id = mi.machine_id
+            WHERE mi.mac_address = $1::macaddr"#;
+        let machine: Option<Self> = sqlx::query_as(query)
+            .bind(mac_address)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        let mut machine = match machine {
+            Some(machine) => machine,
+            None => return Ok(None),
+        };
+
+        machine.load_related_data(txn).await?;
+        Ok(Some(machine))
+    }
+
     pub async fn find_by_fqdn(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        fqdn: String,
+        fqdn: &str,
     ) -> Result<Vec<Machine>, DatabaseError> {
-        let query = "SELECT * FROM machines WHERE fqdn= $1 and deleted is NULL";
-        sqlx::query_as(query)
+        let query = "SELECT machine_id FROM machine_dhcp_records WHERE fqdn = $1";
+
+        let machine_id: Option<MachineId> = sqlx::query_as(query)
             .bind(fqdn)
-            .fetch_all(&mut *txn)
+            .fetch_optional(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let machine_id = match machine_id {
+            Some(id) => id,
+            None => return Ok(Vec::new()),
+        };
+
+        match Self::find_one(txn, machine_id.0).await? {
+            Some(machine) => Ok(vec![machine]),
+            None => Ok(vec![]),
+        }
+    }
+
+    /// Finds a machine by a query
+    ///
+    /// - If the query looks like a MachineId, it will try to load the information based on the MachineId
+    /// - If the query looks like an IP address, it will try to look up the machine based on it's admin IP address
+    /// - If the query looks like a MAC address, it will look up the machine by MAC address
+    /// - Otherwise, it will try to look up the Machine by hostname
+    pub async fn find_by_query(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        query: &str,
+    ) -> Result<Option<Self>, DatabaseError> {
+        if let Ok(uuid) = Uuid::parse_str(query) {
+            return Self::find_one(txn, uuid).await;
+        }
+
+        if let Ok(ip) = Ipv4Addr::from_str(query) {
+            return Self::find_by_ip(txn, &ip).await;
+        }
+
+        if let Ok(mac) = MacAddress::from_str(query) {
+            return Self::find_by_mac_address(txn, &mac).await;
+        }
+
+        Self::find_by_hostname(txn, query).await
     }
 
     pub fn last_reboot_time(&self) -> Option<DateTime<Utc>> {
@@ -532,11 +681,20 @@ SELECT m.id FROM
                   ON m.id = mi.machine_id 
                 WHERE mi.attached_dpu_machine_id=$1::uuid 
                     AND mi.attached_dpu_machine_id != mi.machine_id"#;
-        Ok(sqlx::query_as(query)
+        let machine: Option<Self> = sqlx::query_as(query)
             .bind(dpu_machine_id)
             .fetch_optional(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        let mut machine = match machine {
+            Some(machine) => machine,
+            None => return Ok(None),
+        };
+
+        machine.load_related_data(txn).await?;
+
+        Ok(Some(machine))
     }
 
     pub async fn find_dpu_by_host_machine_id(
@@ -547,11 +705,40 @@ SELECT m.id FROM
                 INNER JOIN machine_interfaces mi 
                   ON m.id = mi.attached_dpu_machine_id 
                 WHERE mi.machine_id=$1::uuid"#;
-        Ok(sqlx::query_as(query)
+        let machine: Option<Self> = sqlx::query_as(query)
             .bind(host_machine_id)
             .fetch_optional(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        let mut machine = match machine {
+            Some(machine) => machine,
+            None => return Ok(None),
+        };
+
+        machine.load_related_data(txn).await?;
+
+        Ok(Some(machine))
+    }
+
+    /// Force cleans all tables related to a Machine - except MachineInterfaces
+    ///
+    /// DO NOT USE OUTSIDE OF ADMIN CLI
+    pub async fn force_cleanup(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: uuid::Uuid,
+    ) -> Result<(), DatabaseError> {
+        // Note: It might be nicer to actually write the full query here so we can
+        // report more results.
+        // But this way we at least unit-test the stored procedure and make sure
+        // it stays up to date.
+        let query = r#"call cleanup_machine_by_id($1)"#;
+        let _query_result = sqlx::query(query)
+            .bind(machine_id)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
     }
 }
 

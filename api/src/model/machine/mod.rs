@@ -55,6 +55,9 @@ pub enum MachineState {
     Broken,
     Decommissioned,
     Removed,
+    /// A forced deletion process has been triggered by the admin CLI
+    /// State controller will no longer manage the Machine
+    ForceDeletion,
 }
 
 impl Display for MachineState {
@@ -69,6 +72,7 @@ impl Display for MachineState {
             MachineState::Broken => write!(f, "broken"),
             MachineState::Decommissioned => write!(f, "decommissioned"),
             MachineState::Removed => write!(f, "removed"),
+            MachineState::ForceDeletion => write!(f, "force_deletion"),
         }
     }
 }

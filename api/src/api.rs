@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use std::convert::TryFrom;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
+use std::net::SocketAddr;
 use std::sync::Arc;
+use std::task::Poll;
 
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::InstanceList;
@@ -25,7 +25,6 @@ use http::header::USER_AGENT;
 use http::{header::AUTHORIZATION, StatusCode};
 use hyper::server::conn::Http;
 use hyper::{Request as HyperRequest, Response as HyperResponse};
-use mac_address::MacAddress;
 use opentelemetry::metrics::Meter;
 use tokio::net::TcpListener;
 use tokio_rustls::{
@@ -94,6 +93,7 @@ pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
     credential_provider: Arc<C>,
     authorizer: auth::Authorizer,
+    vpc_api: Arc<dyn VpcApi>,
 }
 
 #[tonic::async_trait]
@@ -1114,7 +1114,7 @@ where
                 };
                 Machine::find(&mut txn, uuid).await
             }
-            (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, fqdn).await,
+            (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, &fqdn).await,
             (None, None) => Machine::find(&mut txn, UuidKeyedObjectFilter::All).await,
         };
 
@@ -1423,7 +1423,34 @@ where
 
         let query = request.into_inner().host_id;
 
-        let uuid = self.find_dpu_machine_uuid(&query).await?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin get_dpu_ssh_credential", e)
+            })?;
+        let uuid = match Machine::find_by_query(&mut txn, &query)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            Some(machine) => {
+                if !machine.is_dpu() {
+                    return Err(Status::not_found(format!(
+                        "Searching for machine {} was found for '{query}', but it is not a DPU",
+                        machine.id()
+                    )));
+                }
+                *machine.id()
+            }
+            None => {
+                return Err(Status::not_found(format!(
+                    "Searching for machine '{query}' did not yield any results"
+                )));
+            }
+        };
+
+        // We don't need this transaction
+        let _ = txn.rollback().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "rollback get_dpu_ssh_credential", e)
+        })?;
 
         // Load credentials from Vault
         let credentials = self
@@ -1666,6 +1693,197 @@ where
         Ok(Response::new(rpc::ForgeAgentControlResponse {
             action: action as i32,
         }))
+    }
+
+    async fn admin_force_delete_machine(
+        &self,
+        request: Request<rpc::AdminForceDeleteMachineRequest>,
+    ) -> Result<Response<rpc::AdminForceDeleteMachineResponse>, Status> {
+        log_request_data(&request);
+
+        let query = request.into_inner().host_query;
+
+        let mut response = rpc::AdminForceDeleteMachineResponse {
+            all_done: true,
+            ..Default::default()
+        };
+        // This is the default
+        // If we can't delete something in one go - we will reset it
+        response.all_done = true;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin investigate admin_force_delete_machine", e)
+        })?;
+
+        let machine = match Machine::find_by_query(&mut txn, &query)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            Some(machine) => machine,
+            None => {
+                // If the machine was already deleted, then there is nothing to do
+                // and this is a success
+                return Ok(Response::new(response));
+            }
+        };
+
+        // TODO: This should maybe just use the snapshot loading functionality that the
+        // state controller will use - which already contains the combined state
+        let host_machine;
+        let dpu_machine;
+        if machine.is_dpu() {
+            host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, machine.id()).await?;
+            log::info!(
+                "Found host Machine {:?}",
+                host_machine.as_ref().map(|m| m.id().to_string())
+            );
+            dpu_machine = Some(machine);
+        } else {
+            dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, machine.id()).await?;
+            log::info!(
+                "Found dpu Machine {:?}",
+                dpu_machine.as_ref().map(|m| m.id().to_string())
+            );
+            host_machine = Some(machine);
+        }
+
+        let mut instance_id = None;
+        if let Some(host_machine) = &host_machine {
+            instance_id = Instance::find_id_by_machine_id(&mut txn, *host_machine.id())
+                .await
+                .map_err(CarbideError::from)?;
+        }
+
+        if let Some(host_machine) = &host_machine {
+            response.managed_host_machine_id = host_machine.id().to_string();
+            if let Some(iface) = host_machine.interfaces().get(0) {
+                response.managed_host_machine_interface_id = iface.id().to_string();
+            }
+            if let Some(ip) = host_machine.bmc_ip() {
+                response.managed_host_bmc_ip = ip.to_string();
+            }
+        }
+        if let Some(dpu_machine) = &dpu_machine {
+            response.dpu_machine_id = dpu_machine.id().to_string();
+            if let Some(iface) = dpu_machine.interfaces().get(0) {
+                response.dpu_machine_interface_id = iface.id().to_string();
+            }
+            if let Some(ip) = dpu_machine.bmc_ip() {
+                response.dpu_bmc_ip = ip.to_string();
+            }
+        }
+        if let Some(instance_id) = &instance_id {
+            response.instance_id = instance_id.to_string();
+        }
+
+        // So far we only inspected state - now we start the deletion process
+        // TODO: In the new model we might just need to move one Machine to this state
+        if let Some(host_machine) = &host_machine {
+            host_machine
+                .advance(&mut txn, MachineState::ForceDeletion)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+        if let Some(dpu_machine) = &dpu_machine {
+            dpu_machine
+                .advance(&mut txn, MachineState::ForceDeletion)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "commit admin_force_delete_machine", e)
+        })?;
+
+        // We start a new transaction
+        // This makeas the ForceDeletion state visible to other consumers
+
+        // Note: The following deletion steps are all ordered in an idempotent fashion
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(
+                file!(),
+                "begin delete host and instance in admin_force_delete_machine",
+                e,
+            )
+        })?;
+
+        if let Some(instance_id) = instance_id {
+            match self
+                .vpc_api
+                .try_delete_managed_resources(instance_id)
+                .await
+                .map_err(CarbideError::from)?
+            {
+                Poll::Ready(()) => {
+                    // TODO: Get the actual number back and set it
+                    response.deleted_managed_resources = 1;
+                }
+                Poll::Pending => {
+                    response.all_done = false;
+                    return Ok(Response::new(response));
+                }
+            }
+
+            // Delete the instance and allocated address
+            // TODO: This might need some changes with the new state machine
+            let delete_instance = DeleteInstance { instance_id };
+            let _instance = delete_instance.delete(&mut txn).await?;
+        }
+
+        if let Some(machine) = &host_machine {
+            Machine::force_cleanup(&mut txn, *machine.id())
+                .await
+                .map_err(CarbideError::from)?;
+        }
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(
+                file!(),
+                "end delete host and instance in admin_force_delete_machine",
+                e,
+            )
+        })?;
+
+        if let Some(dpu_machine) = &dpu_machine {
+            match self
+                .vpc_api
+                .try_delete_leaf(*dpu_machine.id())
+                .await
+                .map_err(CarbideError::from)?
+            {
+                Poll::Ready(()) => {
+                    // TODO: Get the actual number back and set it
+                    response.deleted_leafs = 1;
+                }
+                Poll::Pending => {
+                    response.all_done = false;
+                    return Ok(Response::new(response));
+                }
+            }
+
+            let mut txn = self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(
+                    file!(),
+                    "begin delete dpu in admin_force_delete_machine",
+                    e,
+                )
+            })?;
+
+            Machine::force_cleanup(&mut txn, *dpu_machine.id())
+                .await
+                .map_err(CarbideError::from)?;
+
+            txn.commit().await.map_err(|e| {
+                CarbideError::DatabaseError(
+                    file!(),
+                    "end delete dpu in admin_force_delete_machine",
+                    e,
+                )
+            })?;
+        }
+
+        Ok(Response::new(response))
     }
 }
 
@@ -1934,11 +2152,13 @@ where
         credential_provider: Arc<C>,
         database_connection: sqlx::PgPool,
         authorizer: auth::Authorizer,
+        vpc_api: Arc<dyn VpcApi>,
     ) -> Self {
         Self {
             database_connection,
             credential_provider,
             authorizer,
+            vpc_api,
         }
     }
 
@@ -1973,6 +2193,13 @@ where
             }
         });
 
+        let vpc_api: Arc<dyn VpcApi> = if daemon_config.kubernetes {
+            let client = kube::Client::try_default().await?;
+            Arc::new(VpcApiImpl::new(client, daemon_config.dhcp_server.clone()))
+        } else {
+            Arc::new(VpcApiSim::default())
+        };
+
         let conn_clone = database_connection.clone();
         let authorizer = auth::Authorizer::build_casbin(
             &daemon_config.casbin_policy_file,
@@ -1984,6 +2211,7 @@ where
             credential_provider.clone(),
             database_connection.clone(),
             authorizer,
+            vpc_api.clone(),
         ));
 
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
@@ -1993,13 +2221,6 @@ where
             credential_provider.clone(),
         )
         .await?;
-
-        let vpc_api: Arc<dyn VpcApi> = if daemon_config.kubernetes {
-            let client = kube::Client::try_default().await?;
-            Arc::new(VpcApiImpl::new(client, daemon_config.dhcp_server.clone()))
-        } else {
-            Arc::new(VpcApiSim::default())
-        };
 
         let _kube_handle = bgkubernetes_handler(
             daemon_config.kubernetes,
@@ -2030,49 +2251,6 @@ where
 
         let listen_port = daemon_config.listen[0];
         api_handler(api_service, listen_port, meter).await
-    }
-
-    // Map any of a UUID, IPv4, MAC or hostname to the UUID of a DPU machine, by querying the
-    // database.
-    async fn find_dpu_machine_uuid(&self, query: &str) -> Result<Uuid, tonic::Status> {
-        if let Ok(uuid) = Uuid::parse_str(query) {
-            return Ok(uuid);
-        }
-        if let Ok(ip) = Ipv4Addr::from_str(query) {
-            let mut txn = self.database_connection.begin().await.map_err(|e| {
-                CarbideError::DatabaseError(file!(), "begin find_dpu_machine_uuid", e)
-            })?;
-            match DpuMachine::find_by_ip(&mut txn, &ip).await {
-                Ok(machine) => return Ok(*machine.machine_id()),
-                Err(err) => {
-                    return Err(Status::not_found(format!(
-                        "IP address '{ip}' did not match any machines: {err}"
-                    )));
-                }
-            }
-        }
-        if let Ok(mac) = MacAddress::from_str(query) {
-            let mut txn = self.database_connection.begin().await.map_err(|e| {
-                CarbideError::DatabaseError(file!(), "begin find_dpu_machine_uuid 2", e)
-            })?;
-            match DpuMachine::find_by_mac_address(&mut txn, &mac).await {
-                Ok(machine) => return Ok(*machine.machine_id()),
-                Err(err) => {
-                    return Err(Status::not_found(format!(
-                        "MAC address '{mac}' did not match any machines: {err}"
-                    )));
-                }
-            }
-        }
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "begin find_dpu_machine_uuid 3", e)
-        })?;
-        match DpuMachine::find_by_hostname(&mut txn, query).await {
-            Ok(machine) => Ok(*machine.machine_id()),
-            Err(err) => Err(Status::not_found(format!(
-                "Hostname '{query}' did not match any machines: {err}"
-            ))),
-        }
     }
 
     async fn load_machine(

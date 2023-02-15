@@ -1717,6 +1717,11 @@ impl VpcApi for VpcApiSim {
             }
             entry.creation_attempts += 1;
             if entry.creation_attempts >= self.config.required_creation_attempts {
+                tracing::info!(
+                    "Finalized creating leaf with name {} found for DPU {}",
+                    leaf_name,
+                    dpu.machine_id()
+                );
                 Ok(Poll::Ready(entry.loopback_ip.into()))
             } else {
                 Ok(Poll::Pending)
@@ -1736,9 +1741,14 @@ impl VpcApi for VpcApiSim {
 
             let loopback_ip = Ipv4Addr::from(ip);
 
+            tracing::info!(
+                "Started creating leaf with name {} found for DPU {}",
+                leaf_name,
+                dpu.machine_id()
+            );
             guard.used_loopback_ip_suffixes.insert(ip[3]);
             guard.leafs.insert(
-                leaf_name,
+                leaf_name.clone(),
                 VpcApiSimLeafState {
                     spec,
                     loopback_ip,
@@ -1747,6 +1757,11 @@ impl VpcApi for VpcApiSim {
                 },
             );
             if self.config.required_creation_attempts == 1 {
+                tracing::info!(
+                    "Finalized creating leaf with name {} found for DPU {}",
+                    leaf_name,
+                    dpu.machine_id()
+                );
                 Ok(Poll::Ready(loopback_ip.into()))
             } else {
                 // We mimic the behavior of real VPC - the status isn't immediately available
@@ -1761,17 +1776,33 @@ impl VpcApi for VpcApiSim {
         let mut guard = self.state.lock().unwrap();
         if let Some(entry) = guard.leafs.get_mut(&leaf_name) {
             entry.deletion_attempts += 1;
+            tracing::info!(
+                "Leaf with name {} found for DPU {}. Deletion attempts: {}",
+                leaf_name,
+                dpu_machine_id,
+                entry.deletion_attempts
+            );
             if entry.deletion_attempts >= self.config.required_deletion_attempts {
                 let loopback_ip = entry.loopback_ip;
                 guard.leafs.remove(&leaf_name);
                 guard
                     .used_loopback_ip_suffixes
                     .remove(&(loopback_ip.octets()[3]));
+                tracing::info!(
+                    "Leaf with name {} found for DPU {}. Deleted",
+                    leaf_name,
+                    dpu_machine_id
+                );
                 Ok(Poll::Ready(()))
             } else {
                 Ok(Poll::Pending)
             }
         } else {
+            tracing::info!(
+                "Leaf with name {} not found for DPU {}. Returning",
+                leaf_name,
+                dpu_machine_id
+            );
             Ok(Poll::Ready(()))
         }
     }

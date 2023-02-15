@@ -15,6 +15,7 @@ use std::net::IpAddr;
 #[cfg(test)]
 use ::rstest_reuse;
 use dhcp::allocation::DhcpError;
+use kubernetes::VpcApiError;
 use mac_address::MacAddress;
 use model::{
     config_version::{ConfigVersion, ParseConfigVersionError},
@@ -203,6 +204,9 @@ pub enum CarbideError {
 
     #[error("More than one leaf exist referring to the same loopback IP: {0}")]
     DuplicateLoopbackIPError(IpAddr),
+
+    #[error("Failed interaction with VPC: {0}")]
+    VpcApiError(#[from] VpcApiError),
 }
 
 impl From<CarbideError> for tonic::Status {

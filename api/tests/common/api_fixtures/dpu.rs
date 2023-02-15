@@ -14,7 +14,12 @@
 
 use carbide::model::hardware_info::HardwareInfo;
 use rpc::{
-    forge::{forge_server::Forge, DhcpDiscovery},
+    forge::{
+        forge_server::Forge,
+        machine_credentials_update_request::{CredentialPurpose, Credentials},
+        BmcMetaDataUpdateRequest, DhcpDiscovery, MachineCredentialsUpdateRequest,
+        MachineDiscoveryCompletedRequest,
+    },
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
 use tonic::Request;
@@ -24,13 +29,48 @@ use super::TestApi;
 /// MAC address that is used by the DPU that is created by the fixture
 pub const FIXTURE_DPU_MAC_ADDRESS: &str = "01:11:21:31:41:51";
 
+/// IP Address that is used for the DPU BMC
+/// TODO: There exists no equivalent MachineInterfaceAddress entry for this one,
+/// and it supports only a single DPU Machine
+/// We might need a more extensive BMC simulation for this
+pub const FIXTURE_DPU_BMC_IP_ADDRESS: &str = "233.233.233.2";
+
+pub const FIXTURE_DPU_BMC_ADMIN_USER_NAME: &str = "forge_admin";
+
+pub const FIXTURE_DPU_SSH_USERNAME: &str = "forge";
+pub const FIXTURE_DPU_SSH_PASSWORD: &str = "asdhjkf";
+
+pub const FIXTURE_DPU_HBN_USERNAME: &str = "cumulus";
+pub const FIXTURE_DPU_HBN_PASSWORD: &str = "a9123";
+
 /// Creates a Machine Interface and Machine for a DPU
 ///
 /// Returns the ID of the created machine
 pub async fn create_dpu_machine(api: &TestApi) -> rpc::Uuid {
     let machine_interface_id = dpu_discover_dhcp(api, FIXTURE_DPU_MAC_ADDRESS).await;
-    dpu_discover_machine(api, machine_interface_id).await
-    // TODO: Call the steps for submitting credentials if necessary
+    let dpu_machine_id = dpu_discover_machine(api, machine_interface_id).await;
+
+    // Simulate the ForgeAgentControl request of the DPU
+    let agent_control_response = api
+        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
+            machine_id: Some(dpu_machine_id.clone()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        agent_control_response.action,
+        rpc::forge_agent_control_response::Action::Discovery as i32
+    );
+
+    update_dpu_machine_credentials(api, dpu_machine_id.clone()).await;
+
+    // TODO: This it not really happening in the current version of forge-scout.
+    // But it's in the test setup to verify reading back submitted credentials
+    update_dpu_bmc_metadata(api, dpu_machine_id.clone(), FIXTURE_DPU_BMC_IP_ADDRESS).await;
+
+    dpu_discovery_completed(api, dpu_machine_id.clone()).await;
+    dpu_machine_id
 }
 
 /// Uses the `discover_dhcp` API to discover a DPU with a certain MAC address
@@ -68,6 +108,62 @@ pub async fn dpu_discover_machine(api: &TestApi, machine_interface_id: rpc::Uuid
         .into_inner();
 
     response.machine_id.expect("machine_id must be set")
+}
+
+/// Emulates the `UpdateBmcMetaData` request of a DPU
+pub async fn update_dpu_bmc_metadata(
+    api: &TestApi,
+    dpu_machine_id: rpc::Uuid,
+    dpu_bmc_ip_address: &str,
+) {
+    let _response = api
+        .update_bmc_meta_data(Request::new(BmcMetaDataUpdateRequest {
+            machine_id: Some(dpu_machine_id),
+            ip: dpu_bmc_ip_address.to_string(),
+            data: vec![rpc::forge::bmc_meta_data_update_request::DataItem {
+                user: FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
+                password: "notforprod".to_string(),
+                role: rpc::forge::UserRoles::Administrator as i32,
+            }],
+            request_type: rpc::forge::BmcRequestType::Redfish as i32,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+}
+
+/// Emulates the `UpdateMachineCredentials` request of a DPU
+pub async fn update_dpu_machine_credentials(api: &TestApi, dpu_machine_id: rpc::Uuid) {
+    let _response = api
+        .update_machine_credentials(Request::new(MachineCredentialsUpdateRequest {
+            machine_id: Some(dpu_machine_id),
+            credentials: vec![
+                Credentials {
+                    user: FIXTURE_DPU_SSH_USERNAME.to_string(),
+                    password: FIXTURE_DPU_SSH_PASSWORD.to_string(),
+                    credential_purpose: CredentialPurpose::LoginUser as i32,
+                },
+                Credentials {
+                    user: FIXTURE_DPU_HBN_USERNAME.to_string(),
+                    password: FIXTURE_DPU_HBN_PASSWORD.to_string(),
+                    credential_purpose: CredentialPurpose::Hbn as i32,
+                },
+            ],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+}
+
+/// Emulates the `DiscoveryCompleted` request of a DPU
+pub async fn dpu_discovery_completed(api: &TestApi, dpu_machine_id: rpc::Uuid) {
+    let _response = api
+        .discovery_completed(Request::new(MachineDiscoveryCompletedRequest {
+            machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
 }
 
 const TEST_DATA_DIR: &str = concat!(
