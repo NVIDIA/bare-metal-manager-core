@@ -1718,7 +1718,8 @@ impl VpcApi for VpcApiSim {
             entry.creation_attempts += 1;
             if entry.creation_attempts >= self.config.required_creation_attempts {
                 tracing::info!(
-                    "Finalized creating leaf with name {} found for DPU {}",
+                    "Finalized creating leaf after {} creation attempts with name {} found for DPU {}",
+                    entry.creation_attempts,
                     leaf_name,
                     dpu.machine_id()
                 );
@@ -1758,7 +1759,7 @@ impl VpcApi for VpcApiSim {
             );
             if self.config.required_creation_attempts == 1 {
                 tracing::info!(
-                    "Finalized creating leaf with name {} found for DPU {}",
+                    "Finalized creating leaf immediately with name {} found for DPU {}",
                     leaf_name,
                     dpu.machine_id()
                 );
