@@ -44,6 +44,7 @@ data:
               {{ else -}}
               "carbide-nameservers": {{ join "," .Values.carbideDnsServerIPs | quote }},
               {{ end -}}
+              "carbide-ntpserver": {{ .Values.carbideNtpIpAddress | quote }},
               "carbide-provisioning-server-ipv4": {{ .Values.carbidePxeIpAddress | quote }}
             }
           }

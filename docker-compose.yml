@@ -176,6 +176,16 @@ services:
     cap_add:
       - net_bind_service
 
+  ntp:
+    image: cturra/ntp
+    networks:
+      carbide:
+        ipv4_address: 172.20.0.24
+    ports:
+      - "123:123/udp"
+    cap_add:
+      - net_bind_service
+
   vault:
     image: vault:latest
     networks:

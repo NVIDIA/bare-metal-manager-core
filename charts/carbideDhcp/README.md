@@ -17,6 +17,7 @@ A Helm chart for carbide-dhcp and Kea components
 | carbideApiUrl | string | `"-"` | URL to carbide-api service. Set to "-" to automatically create/reference a generated service name |
 | carbideDnsServerIPs | list | `["127.0.0.1"]` | List of carbide dns server IP addresses |
 | carbidePxeIpAddress | string | `"127.0.0.1"` | IP Address of carbidePxe service |
+| carbideNtpIpAddress | string | `"127.0.0.1"` | IP Address of NTP service |
 | clusterDomain | string | `"cluster.local"` | Kubernetes cluster domain name |
 | commonAnnotations | object | `{}` | Annotations to add to all deployed objects |
 | commonLabels | object | `{}` | Labels to add to all deployed objects |

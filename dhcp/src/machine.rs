@@ -234,6 +234,16 @@ pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_cha
 }
 
 #[no_mangle]
+pub extern "C" fn machine_get_ntpservers(ctx: *mut Machine) -> *mut libc::c_char {
+    assert!(!ctx.is_null());
+
+    let ntpservers = CString::new(CONFIG.read().unwrap().ntpserver.clone()).unwrap();
+    log::debug!("Ntp servers are {:?}", ntpservers);
+
+    ntpservers.into_raw()
+}
+
+#[no_mangle]
 pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
@@ -342,6 +352,17 @@ pub extern "C" fn machine_free_nameservers(nameservers: *mut libc::c_char) {
         }
 
         CString::from_raw(nameservers)
+    };
+}
+
+#[no_mangle]
+pub extern "C" fn machine_free_ntpserver(ntpserver: *mut libc::c_char) {
+    unsafe {
+        if ntpserver.is_null() {
+            return;
+        }
+
+        CString::from_raw(ntpserver)
     };
 }
 
