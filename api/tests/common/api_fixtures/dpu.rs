@@ -24,7 +24,7 @@ use rpc::{
 };
 use tonic::Request;
 
-use super::TestApi;
+use super::TestEnv;
 
 /// MAC address that is used by the DPU that is created by the fixture
 pub const FIXTURE_DPU_MAC_ADDRESS: &str = "01:11:21:31:41:51";
@@ -46,12 +46,13 @@ pub const FIXTURE_DPU_HBN_PASSWORD: &str = "a9123";
 /// Creates a Machine Interface and Machine for a DPU
 ///
 /// Returns the ID of the created machine
-pub async fn create_dpu_machine(api: &TestApi) -> rpc::Uuid {
-    let machine_interface_id = dpu_discover_dhcp(api, FIXTURE_DPU_MAC_ADDRESS).await;
-    let dpu_machine_id = dpu_discover_machine(api, machine_interface_id).await;
+pub async fn create_dpu_machine(env: &TestEnv) -> rpc::Uuid {
+    let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
+    let dpu_machine_id = dpu_discover_machine(env, machine_interface_id).await;
 
     // Simulate the ForgeAgentControl request of the DPU
-    let agent_control_response = api
+    let agent_control_response = env
+        .api
         .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
             machine_id: Some(dpu_machine_id.clone()),
         }))
@@ -63,21 +64,22 @@ pub async fn create_dpu_machine(api: &TestApi) -> rpc::Uuid {
         rpc::forge_agent_control_response::Action::Discovery as i32
     );
 
-    update_dpu_machine_credentials(api, dpu_machine_id.clone()).await;
+    update_dpu_machine_credentials(env, dpu_machine_id.clone()).await;
 
     // TODO: This it not really happening in the current version of forge-scout.
     // But it's in the test setup to verify reading back submitted credentials
-    update_dpu_bmc_metadata(api, dpu_machine_id.clone(), FIXTURE_DPU_BMC_IP_ADDRESS).await;
+    update_dpu_bmc_metadata(env, dpu_machine_id.clone(), FIXTURE_DPU_BMC_IP_ADDRESS).await;
 
-    dpu_discovery_completed(api, dpu_machine_id.clone()).await;
+    dpu_discovery_completed(env, dpu_machine_id.clone()).await;
     dpu_machine_id
 }
 
 /// Uses the `discover_dhcp` API to discover a DPU with a certain MAC address
 ///
 /// Returns the created `machine_interface_id`
-pub async fn dpu_discover_dhcp(api: &TestApi, mac_address: &str) -> rpc::Uuid {
-    let response = api
+pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
+    let response = env
+        .api
         .discover_dhcp(Request::new(DhcpDiscovery {
             mac_address: mac_address.to_string(),
             relay_address: "192.0.2.1".to_string(),
@@ -95,8 +97,9 @@ pub async fn dpu_discover_dhcp(api: &TestApi, mac_address: &str) -> rpc::Uuid {
 
 /// Emulates DPU Machine Discovery (submitting hardware information) for the
 /// DPU that uses a certain `machine_interface_id`
-pub async fn dpu_discover_machine(api: &TestApi, machine_interface_id: rpc::Uuid) -> rpc::Uuid {
-    let response = api
+pub async fn dpu_discover_machine(env: &TestEnv, machine_interface_id: rpc::Uuid) -> rpc::Uuid {
+    let response = env
+        .api
         .discover_machine(Request::new(MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(DiscoveryData::Info(
@@ -112,11 +115,12 @@ pub async fn dpu_discover_machine(api: &TestApi, machine_interface_id: rpc::Uuid
 
 /// Emulates the `UpdateBmcMetaData` request of a DPU
 pub async fn update_dpu_bmc_metadata(
-    api: &TestApi,
+    env: &TestEnv,
     dpu_machine_id: rpc::Uuid,
     dpu_bmc_ip_address: &str,
 ) {
-    let _response = api
+    let _response = env
+        .api
         .update_bmc_meta_data(Request::new(BmcMetaDataUpdateRequest {
             machine_id: Some(dpu_machine_id),
             ip: dpu_bmc_ip_address.to_string(),
@@ -133,8 +137,9 @@ pub async fn update_dpu_bmc_metadata(
 }
 
 /// Emulates the `UpdateMachineCredentials` request of a DPU
-pub async fn update_dpu_machine_credentials(api: &TestApi, dpu_machine_id: rpc::Uuid) {
-    let _response = api
+pub async fn update_dpu_machine_credentials(env: &TestEnv, dpu_machine_id: rpc::Uuid) {
+    let _response = env
+        .api
         .update_machine_credentials(Request::new(MachineCredentialsUpdateRequest {
             machine_id: Some(dpu_machine_id),
             credentials: vec![
@@ -156,8 +161,9 @@ pub async fn update_dpu_machine_credentials(api: &TestApi, dpu_machine_id: rpc::
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU
-pub async fn dpu_discovery_completed(api: &TestApi, dpu_machine_id: rpc::Uuid) {
-    let _response = api
+pub async fn dpu_discovery_completed(env: &TestEnv, dpu_machine_id: rpc::Uuid) {
+    let _response = env
+        .api
         .discovery_completed(Request::new(MachineDiscoveryCompletedRequest {
             machine_id: Some(dpu_machine_id),
         }))

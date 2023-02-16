@@ -22,7 +22,7 @@ use ::rpc::forge::{forge_server::Forge, AdminForceDeleteMachineRequest};
 
 pub mod common;
 use common::api_fixtures::{
-    create_test_api,
+    create_test_env,
     dpu::{create_dpu_machine, FIXTURE_DPU_BMC_IP_ADDRESS},
 };
 
@@ -35,9 +35,9 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
-    let api = create_test_api(pool.clone());
+    let env = create_test_env(pool.clone(), Default::default());
 
-    let dpu_machine_id: uuid::Uuid = create_dpu_machine(&api).await.try_into().unwrap();
+    let dpu_machine_id: uuid::Uuid = create_dpu_machine(&env).await.try_into().unwrap();
 
     let mut txn = pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine_id)
@@ -61,7 +61,8 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
         .is_ok());
     txn.rollback().await.unwrap();
 
-    let response = api
+    let response = env
+        .api
         .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
             host_query: dpu_machine_id.to_string(),
         }))
@@ -78,7 +79,8 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     assert_eq!(response.dpu_bmc_ip, FIXTURE_DPU_BMC_IP_ADDRESS);
 
     // The machine should be now be gone in the API
-    let response = api
+    let response = env
+        .api
         .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
             id: Some(dpu_machine_id.into()),
             fqdn: None,

@@ -10,17 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 use std::str::FromStr;
-use std::sync::Arc;
 
 use carbide::db::UuidKeyedObjectFilter;
-use carbide::kubernetes::{VpcApiSim, VpcApiSimConfig};
-use carbide::state_controller::{
-    controller::StateControllerIO,
-    network_segment::{handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO},
-    state_handler::{
-        ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerServices,
-    },
-};
+use carbide::kubernetes::VpcApiSimConfig;
+use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
@@ -31,7 +24,7 @@ use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
 use carbide::db::vpc::Vpc;
 
 pub mod common;
-use common::api_fixtures::{create_test_api, TestApi};
+use common::api_fixtures::{create_test_env, TestApi, TestEnvConfig};
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
@@ -91,50 +84,20 @@ async fn get_segment_state(api: &TestApi, segment_id: uuid::Uuid) -> rpc::forge:
     segment.state()
 }
 
-async fn run_controller_iteration(
-    pool: &sqlx::PgPool,
-    segment_id: uuid::Uuid,
-    handler: &NetworkSegmentStateHandler,
-    handler_ctx: &mut StateHandlerContext<'_>,
-) {
-    let io = NetworkSegmentStateControllerIO::default();
-    let mut txn = pool.begin().await.unwrap();
-
-    let mut db_segment = io.load_object_state(&mut txn, &segment_id).await.unwrap();
-    let mut controller_state = io
-        .load_controller_state(&mut txn, &segment_id, &db_segment)
-        .await
-        .unwrap();
-    let mut holder = ControllerStateReader::new(&mut controller_state.value);
-    handler
-        .handle_object_state(
-            &segment_id,
-            &mut db_segment,
-            &mut holder,
-            &mut txn,
-            handler_ctx,
-        )
-        .await
-        .unwrap();
-    io.persist_controller_state(
-        &mut txn,
-        &segment_id,
-        controller_state.version,
-        controller_state.value,
-    )
-    .await
-    .unwrap();
-    txn.commit().await.unwrap();
-}
-
 async fn test_network_segment_lifecycle_impl(
     pool: sqlx::PgPool,
     delete_in_ready_state: bool,
     use_subdomain: bool,
     use_vpc: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = create_test_api(pool.clone());
-    let segment = create_network_segment_with_api(&api, use_subdomain, use_vpc).await;
+    let vpc_sim_config = VpcApiSimConfig {
+        required_creation_attempts: if delete_in_ready_state { 2 } else { 1000 }, // never ready
+        required_deletion_attempts: 2,
+        ..Default::default()
+    };
+    let env = create_test_env(pool.clone(), TestEnvConfig { vpc_sim_config });
+
+    let segment = create_network_segment_with_api(&env.api, use_subdomain, use_vpc).await;
     assert!(segment.created.is_some());
     assert!(segment.deleted.is_none());
     assert_eq!(segment.state(), rpc::forge::TenantState::Provisioning);
@@ -151,33 +114,21 @@ async fn test_network_segment_lifecycle_impl(
 
     // The TenantState only switches after the state controller recognized the update
     assert_eq!(
-        get_segment_state(&api, segment_id).await,
+        get_segment_state(&env.api, segment_id).await,
         rpc::forge::TenantState::Provisioning
     );
 
     let state_handler = NetworkSegmentStateHandler::new(chrono::Duration::milliseconds(500));
-    let vpc_sim_config = VpcApiSimConfig {
-        required_creation_attempts: if delete_in_ready_state { 2 } else { 1000 }, // never ready
-        required_deletion_attempts: 2,
-        ..Default::default()
-    };
 
-    let vpc_api = Arc::new(VpcApiSim::with_config(vpc_sim_config));
-    let handler_services = StateHandlerServices {
-        pool: pool.clone(),
-        vpc_api: vpc_api.clone(),
-    };
-    let mut handler_ctx = StateHandlerContext {
-        services: &Arc::new(handler_services),
-    };
-
-    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
-    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
 
     if delete_in_ready_state {
         // After 2 controller iterations, the segment should be ready
         assert_eq!(
-            get_segment_state(&api, segment_id).await,
+            get_segment_state(&env.api, segment_id).await,
             rpc::forge::TenantState::Ready
         );
 
@@ -191,34 +142,40 @@ async fn test_network_segment_lifecycle_impl(
     } else {
         // The segment won't be ready, because VPC won't acknowledge creation
         assert_eq!(
-            get_segment_state(&api, segment_id).await,
+            get_segment_state(&env.api, segment_id).await,
             rpc::forge::TenantState::Provisioning
         );
     }
 
-    api.delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
-        id: segment.id.clone(),
-    }))
-    .await
-    .expect("expect deletion to succeed");
+    env.api
+        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+            id: segment.id.clone(),
+        }))
+        .await
+        .expect("expect deletion to succeed");
 
     // After the API request, the segment should show up as deleting
     assert_eq!(
-        get_segment_state(&api, segment_id).await,
+        get_segment_state(&env.api, segment_id).await,
         rpc::forge::TenantState::Terminating
     );
     // Make the controller aware about termination too
-    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
 
     // Wait for the drain period
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     // 3 controller iterations, one moves us into the Vpc deletion state, one tries
     // to delete the VPC, the third succeeds in deleting the VPC and cleans up the DB
-    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
-    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
-    run_controller_iteration(&pool, segment_id, &state_handler, &mut handler_ctx).await;
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
 
-    let mut segments = api
+    let mut segments = env
+        .api
         .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
             id: segment.id.clone(),
         }))
@@ -344,7 +301,7 @@ async fn test_advance_network_prefix_state(
 async fn test_network_segment_delete_fails_with_associated_machine_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = create_test_api(pool.clone());
+    let api = create_test_env(pool.clone(), Default::default()).api;
     let segment = create_network_segment_with_api(&api, false, false).await;
 
     let mut txn = pool.begin().await?;
