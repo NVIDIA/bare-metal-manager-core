@@ -142,7 +142,7 @@ fn now() -> DateTime<Utc> {
     let round = now.as_nanos() % 1000;
     now -= Duration::from_nanos(round as _);
 
-    let naive = NaiveDateTime::from_timestamp(now.as_secs() as i64, now.subsec_nanos() as u32);
+    let naive = NaiveDateTime::from_timestamp(now.as_secs() as i64, now.subsec_nanos());
     DateTime::from_utc(naive, Utc)
 }
 
