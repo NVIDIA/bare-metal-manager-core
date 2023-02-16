@@ -134,6 +134,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!("{}:{}", cred.username, cred.password);
                 }
             }
+            Machine::Reboot(bmc_config) => {
+                let conf = libredfish::NetworkConfig {
+                    endpoint: bmc_config.address.clone(),
+                    port: bmc_config.port,
+                    user: bmc_config.username,
+                    password: bmc_config.password,
+                    ..Default::default()
+                };
+                // libredfish uses reqwest in blocking mode, which cannot run be run in async context
+                std::thread::spawn(move || {
+                    let redfish =
+                        libredfish::new(conf).expect("err initialize libredfish from BMC");
+                    redfish
+                        .boot_once(libredfish::Boot::Pxe)
+                        .expect("err boot_once");
+                    redfish
+                        .power(libredfish::SystemPowerControl::ForceRestart)
+                        .expect("err requesting force restart");
+                    println!("Reboot to PXE requested for {}", bmc_config.address);
+                })
+                .join()
+                .expect("libredfish thread failed");
+            }
         },
         CarbideCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {
