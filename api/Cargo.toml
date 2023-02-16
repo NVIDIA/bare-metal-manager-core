@@ -51,6 +51,7 @@ thiserror = "1.0"
 tokio = { workspace = true }
 tokio-rustls = "0.23"
 rustls-pemfile = "1.0"
+spiffe = "0.2"
 tokio-stream = "*"
 tonic = { version = "0.8.0", features = ["tls"] }
 tonic-reflection = "0.5.0"
@@ -62,6 +63,7 @@ tracing-opentelemetry = "0.18.0"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 vaultrs = "0.6.2"
+x509-parser = { version = "0.14", features = ["verify"] }
 
 #only local dependencies here please
 forge_credentials = { path = "../forge_credentials" }

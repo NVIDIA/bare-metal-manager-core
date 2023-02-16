@@ -40,6 +40,31 @@ impl Principal {
             Principal::Anonymous => "anonymous".into(),
         }
     }
+
+    // Note: no certificate verification is performed here!
+    pub fn try_from_client_certificate(
+        certificate: &tokio_rustls::rustls::Certificate,
+    ) -> Result<Principal, PrincipalError> {
+        let der_bytes = &certificate.0;
+        let spiffe_id = forge_spiffe::validate_x509_certificate(der_bytes.as_slice())?;
+        // FIXME: we shouldn't be making a new one of these every time, better
+        // to pass one in from somewhere so we can reuse it
+        let context = forge_spiffe::ForgeSpiffeContext::new(
+            spiffe::spiffe_id::TrustDomain::new("forge.local").unwrap(),
+            String::from("/ns/forge-system/sa/"),
+        );
+        let service_id = context.extract_service_identifier(&spiffe_id)?;
+        Ok(Principal::CertificateIdentity(service_id))
+    }
+}
+
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum PrincipalError {
+    #[error("SPIFFE validation error: {0}")]
+    SpiffeValidationError(#[from] forge_spiffe::SpiffeValidationError),
+
+    #[error("Unrecognized SPIFFE ID: {0}")]
+    SpiffeRecognitionError(#[from] forge_spiffe::ForgeSpiffeContextError),
 }
 
 #[allow(dead_code)]
@@ -236,6 +261,149 @@ impl PolicyEngine for NoopEngine {
             action,
             object,
         })
+    }
+}
+
+pub mod forge_spiffe {
+    use spiffe::spiffe_id::SpiffeId;
+    use x509_parser::prelude::{FromDer, GeneralName, X509Certificate};
+
+    // Validate an X.509 DER certificate against the SPIFFE requirements, and
+    // return a SPIFFE ID.
+    //
+    // https://github.com/spiffe/spiffe/blob/main/standards/X509-SVID.md#5-validation
+    //
+    // Note that this only implements the SPIFFE-specific validation steps. We
+    // assume the X.509 certificate has already been validated to a trusted root.
+    pub fn validate_x509_certificate(
+        der_certificate: &[u8],
+    ) -> Result<SpiffeId, SpiffeValidationError> {
+        use SpiffeValidationError::ValidationError;
+
+        let (_remainder, x509_cert) = X509Certificate::from_der(der_certificate)
+            .map_err(|e| ValidationError(format!("X.509 parse error: {e}")))?;
+
+        // Verify that this is a leaf certificate (i.e. it is not a CA certificate)
+        let is_ca_cert = match x509_cert.basic_constraints() {
+            Ok(None) => Ok(false),
+            Ok(Some(basic_constraints)) => Ok(basic_constraints.value.ca),
+            Err(_) => Err(ValidationError(
+                "More than one X.509 Basic Constraints extension was found".into(),
+            )),
+        }?;
+        if is_ca_cert {
+            return Err(ValidationError(
+                "The X.509 certificate must be a leaf certificate (it must \
+                not have CA=true in the Basic Constraints extension)"
+                    .into(),
+            ));
+        };
+
+        // Verify that keyCertSign and cRLSign are not set in the Key Usage
+        // extension (if any).
+        if let Some(key_usage) = x509_cert.key_usage().map_err(|_e| {
+            ValidationError("More than one X.509 Key Usage extension was found".into())
+        })? {
+            if key_usage.value.key_cert_sign() {
+                return Err(ValidationError(
+                    "keyCertSign must not be set in the X.509 Key Usage extension".into(),
+                ));
+            }
+            if key_usage.value.crl_sign() {
+                return Err(ValidationError(
+                    "cRLSign must not be set in the X.509 Key Usage extension".into(),
+                ));
+            }
+        };
+
+        let subj_alt_name = x509_cert.subject_alternative_name().map_err(|_e| {
+            ValidationError("Multiple X.509 Subject Alternative Name extensions found".into())
+        })?;
+        let subj_alt_name = subj_alt_name.ok_or_else(|| {
+            ValidationError("No X.509 Subject Alternative Name extension found".into())
+        })?;
+
+        // Verify there is exactly one SAN URI
+        let uris = subj_alt_name
+            .value
+            .general_names
+            .iter()
+            .cloned()
+            .filter_map(|n| match n {
+                GeneralName::URI(uri) => Some(uri),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let uri = match (uris.len(), uris.first()) {
+            (1, Some(uri)) => Ok(uri),
+            (n, _) => Err(ValidationError(format!(
+                "The X.509 Subject Alternative Name extension must contain exactly \
+                1 URI (found {n})"
+            ))),
+        }?;
+
+        let spiffe_id = SpiffeId::new(uri)
+            .map_err(|e| ValidationError(format!("Couldn't parse SPIFFE ID: {e}")))?;
+        Ok(spiffe_id)
+    }
+
+    #[derive(thiserror::Error, Debug, Clone)]
+    pub enum SpiffeValidationError {
+        #[error("SPIFFE validation error: {0}")]
+        ValidationError(String),
+    }
+
+    pub struct ForgeSpiffeContext {
+        trust_domain: spiffe::spiffe_id::TrustDomain,
+        service_base_path: String,
+    }
+
+    impl ForgeSpiffeContext {
+        pub fn new(
+            trust_domain: spiffe::spiffe_id::TrustDomain,
+            service_base_path: String,
+        ) -> Self {
+            ForgeSpiffeContext {
+                trust_domain,
+                service_base_path,
+            }
+        }
+
+        pub fn extract_service_identifier(
+            &self,
+            spiffe_id: &SpiffeId,
+        ) -> Result<String, ForgeSpiffeContextError> {
+            use ForgeSpiffeContextError::*;
+
+            if !spiffe_id.is_member_of(&self.trust_domain) {
+                let id_trust_domain = spiffe_id.trust_domain().id_string();
+                let expected_trust_domain = self.trust_domain.id_string();
+                return Err(ContextError(format!(
+                    "Found a trust domain {id_trust_domain} which is not a \
+                    member of the configured trust domain \
+                    {expected_trust_domain}"
+                )));
+            };
+            let spiffe_id_path = spiffe_id.path();
+            let service_base_path = self.service_base_path.as_str();
+            let path_remainder = spiffe_id_path.strip_prefix(service_base_path);
+            match path_remainder {
+                Some(identifier) if !identifier.is_empty() => Ok(identifier.into()),
+                Some(_empty) => Err(ContextError(
+                    "The service identifier was empty after removing the base prefix".into(),
+                )),
+                None => Err(ContextError(format!(
+                    "The SPIFFE ID path \"{spiffe_id_path}\" does not begin \
+                        with the expected prefix \"{service_base_path}\""
+                ))),
+            }
+        }
+    }
+
+    #[derive(thiserror::Error, Debug, Clone)]
+    pub enum ForgeSpiffeContextError {
+        #[error("{0}")]
+        ContextError(String),
     }
 }
 
