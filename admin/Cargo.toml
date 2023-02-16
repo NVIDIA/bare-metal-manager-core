@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "~3", features = ["derive", "env"] }
 color-eyre = "0.6"
+libredfish = { version = "0.3.3", registry = "sw-ngc-forge-cargo-local" }
 log = "0.4"
 pretty_env_logger = "0.4"
 prettytable-rs = "^0.9"

@@ -48,6 +48,23 @@ pub enum Machine {
     Show(ShowMachine),
     #[clap(about = "Print DPU admin SSH username:password")]
     DpuSshCredentials(MachineQuery),
+    #[clap(about = "Reboot a machine")]
+    Reboot(BMCCOnfig),
+}
+
+#[derive(Parser, Debug)]
+pub struct BMCCOnfig {
+    #[clap(long, help = "Hostname or IP of machine BMC")]
+    pub address: String,
+
+    #[clap(long, help = "Port of machine BMC. [443]")]
+    pub port: Option<u16>,
+
+    #[clap(long, help = "Username for machine BMC")]
+    pub username: Option<String>,
+
+    #[clap(long, help = "Password for machine BMC")]
+    pub password: Option<String>,
 }
 
 #[derive(Parser, Debug)]
