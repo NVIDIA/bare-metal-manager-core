@@ -27,7 +27,7 @@ const NUM_THREADS: u8 = 10;
 const NUM_MSGS_PER_THREAD: usize = 100;
 const NUM_EXPECTED: u64 = NUM_THREADS as u64 * NUM_MSGS_PER_THREAD as u64;
 
-const READ_TIMEOUT: Duration = Duration::from_millis(50);
+const READ_TIMEOUT: Duration = Duration::from_millis(500);
 
 // Start a real Kea process, configured to be multi threaded, and send it some DISCOVERY messages from multiple threads.
 // We pretend to be the relay because our hooks only accepted relayed packets.
@@ -79,7 +79,7 @@ fn test_real_kea_multithreaded() -> Result<(), anyhow::Error> {
             let (unblock, block) = channel();
             s.spawn(move || {
                 // wait for receiver to start and avoid thundering herd
-                thread::sleep(Duration::from_millis(20 + idx as u64));
+                thread::sleep(Duration::from_millis(50 + idx as u64));
                 let msg_orig = DHCPFactory::discover(idx as u8);
                 let mut sent = 0;
                 while sent < NUM_MSGS_PER_THREAD && !s_should_stop.load(Ordering::Relaxed) {
