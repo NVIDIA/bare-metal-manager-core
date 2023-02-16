@@ -2689,9 +2689,9 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.2.1"
+version = "0.3.3"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "bf5367e321c816b58525fe632d383c047e056fecd1efc3a78e6dfb160a675cca"
+checksum = "e79979a45dd7db4ae395306afa52bffe7cb73d48b219530e7d0aea3accbe5a6a"
 dependencies = [
  "log",
  "reqwest",
@@ -2699,6 +2699,8 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_with",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -5197,18 +5199,18 @@ checksum = "949517c0cf1bf4ee812e2e07e08ab448e3ae0d23472aee8a06c985f0c8815b16"
 
 [[package]]
 name = "thiserror"
-version = "1.0.35"
+version = "1.0.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c53f98874615aea268107765aa1ed8f6116782501d18e53d08b471733bea6c85"
+checksum = "6a9cd18aa97d5c45c6603caea1da6628790b37f7a34b6ca89522331c5180fed0"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.35"
+version = "1.0.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8b463991b4eab2d801e724172285ec4195c650e8ec79b149e6c2a8e6dd3f783"
+checksum = "1fb327af4685e4d03fa8cbcf1716380da910eeb2bb8be417e7f9fd3fb164f36f"
 dependencies = [
  "proc-macro2",
  "quote",

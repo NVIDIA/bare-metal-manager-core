@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::ErrorKind;
 ///
 /// bmc-mock behaves like a Redfish BMC server
@@ -13,16 +14,13 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Command;
 
-use axum::body::Body;
 use axum::extract::Path as AxumPath;
-use axum::http::{Request, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{any, get, patch, post};
+use axum::routing::{get, patch, post};
 use axum::Json;
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
-use libredfish::common::{ODataId, ODataLinks};
-use libredfish::system::Systems;
 use tracing::{debug, error, info};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt::Layer;
@@ -47,11 +45,14 @@ async fn main() {
         .init();
 
     let app = Router::new()
-        .route("/", any(handler))
+        .route(rf!(""), get(get_root))
         .route(rf!("Managers/"), get(get_manager_id))
         .route(
             rf!("Managers/:manager_id/Attributes"), // no slash at end
             patch(update_manager_attributes),
+        )
+        .route(rf!("Managers/:manager_id/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue"),
+            post(delete_job_queue),
         )
         .route(rf!("Systems/"), get(get_system_id))
         .route(
@@ -76,22 +77,30 @@ async fn main() {
         .unwrap();
 }
 
+/*
 async fn handler(request: Request<Body>) -> &'static str {
     debug!("general handler: {:?}", request);
     "OK"
 }
+*/
+
+async fn get_root() -> impl IntoResponse {
+    let mut out = HashMap::new();
+    out.insert("Vendor", "Dell");
+    (StatusCode::OK, Json(out))
+}
 
 async fn get_system_id() -> impl IntoResponse {
-    let odata = ODataLinks {
-        odata_context: "odata_context".to_string(),
+    let odata = libredfish::model::ODataLinks {
+        odata_context: Some("odata_context".to_string()),
         odata_id: "123".to_string(),
         odata_type: "odata_type".to_string(),
         links: None,
     };
-    let systems = Systems {
+    let systems = libredfish::Systems {
         odata,
         description: "BMC Mock systems for Forge".to_string(),
-        members: vec![ODataId {
+        members: vec![libredfish::model::ODataId {
             odata_id: "123".to_string(),
         }],
         name: "BMC Mock systems".to_string(),
@@ -101,16 +110,16 @@ async fn get_system_id() -> impl IntoResponse {
 }
 
 async fn get_manager_id() -> impl IntoResponse {
-    let odata = ODataLinks {
-        odata_context: "odata_context".to_string(),
+    let odata = libredfish::model::ODataLinks {
+        odata_context: Some("odata_context".to_string()),
         odata_id: "123".to_string(),
         odata_type: "odata_type".to_string(),
         links: None,
     };
-    let managers = Systems {
+    let managers = libredfish::model::Systems {
         odata,
         description: "BMC Mock managers for Forge".to_string(),
-        members: vec![ODataId {
+        members: vec![libredfish::model::ODataId {
             odata_id: "123".to_string(),
         }],
         name: "BMC Mock managers".to_string(),
@@ -124,6 +133,14 @@ async fn update_manager_attributes(
     body: String,
 ) -> impl IntoResponse {
     debug!("update_manager_attributes {manager_id}, body: {body}");
+    StatusCode::OK
+}
+
+async fn delete_job_queue(
+    AxumPath(manager_id): AxumPath<String>,
+    body: String,
+) -> impl IntoResponse {
+    debug!("delete_job_queue {manager_id}, body: {body}");
     StatusCode::OK
 }
 
