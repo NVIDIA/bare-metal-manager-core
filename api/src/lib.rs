@@ -207,6 +207,9 @@ pub enum CarbideError {
 
     #[error("Failed interaction with VPC: {0}")]
     VpcApiError(#[from] VpcApiError),
+
+    #[error("Error in libredfish: {0}")]
+    RedfishError(#[from] libredfish::RedfishError),
 }
 
 impl From<CarbideError> for tonic::Status {

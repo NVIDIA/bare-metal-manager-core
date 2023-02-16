@@ -17,8 +17,6 @@ use ::rpc::forge as rpc;
 use ::rpc::forge::instance_power_request::Operation as rpcOperation;
 use async_trait::async_trait;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
-use libredfish::manager::OemDellBootDevices;
-use libredfish::system::SystemPowerControl;
 use serde::{Deserialize, Serialize};
 use sqlx::{self, PgPool};
 use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
@@ -34,11 +32,11 @@ use crate::{CarbideError, CarbideResult};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum IpmiTask {
     Status,
-    PowerControl(SystemPowerControl),
+    PowerControl(libredfish::SystemPowerControl),
     EnableLockdown,
     DisableLockdown,
     SetupSerialConsole,
-    FirstBootDevice(OemDellBootDevices, bool),
+    FirstBootDevice(libredfish::Boot, bool),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -201,14 +199,11 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        let conf = libredfish::Config {
-            user: Some(username),
+        let conf = libredfish::NetworkConfig {
             endpoint: cmd.host.clone(),
+            user: Some(username),
             password: Some(password),
-            port: None,
-            system: "".to_string(),
-            manager: "".to_string(),
-            vendor: libredfish::Vendor::Unknown,
+            ..Default::default()
         };
 
         let action = cmd.action.clone();
@@ -216,60 +211,32 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
         let result = tokio::task::spawn_blocking(move || {
             let result: CarbideResult<String>;
 
-            let mut redfish = libredfish::Redfish::new(conf);
-
-            match redfish.get_system_id() {
-                Ok(()) => {}
-                Err(e) => {
-                    return Err(CarbideError::GenericError(format!(
-                        "Error getting system id: {:?}",
-                        e.to_string()
-                    )));
-                }
-            }
-            match redfish.get_manager_id() {
-                Ok(()) => {}
-                Err(e) => {
-                    return Err(CarbideError::GenericError(format!(
-                        "Error getting manager id: {:?}",
-                        e.to_string()
-                    )));
-                }
-            }
+            let redfish = libredfish::new(conf)?;
 
             result = match action.unwrap() {
-                IpmiTask::PowerControl(task) => match redfish.set_system_power(task) {
+                IpmiTask::PowerControl(task) => match redfish.power(task) {
                     Ok(()) => Ok("Success".to_string()),
                     Err(e) => {
                         let error_msg = format!("Failed to run power control command {}", e);
                         Err(CarbideError::GenericError(error_msg))
                     }
                 },
-                IpmiTask::Status => match redfish.get_system() {
-                    Ok(status) => Ok(status.power_state),
+                IpmiTask::Status => match redfish.get_power_state() {
+                    Ok(status) => Ok(status.to_string()),
                     Err(e) => {
                         let error_msg = format!("Failed to run status command {}", e);
                         Err(CarbideError::GenericError(error_msg))
                     }
                 },
                 IpmiTask::EnableLockdown => {
-                    match redfish.enable_bios_lockdown() {
+                    match redfish.lockdown(libredfish::EnabledDisabled::Enabled) {
                         Ok(()) => {}
                         Err(e) => {
-                            let error_msg = format!("Failed to enable bios lockdown {}", e);
+                            let error_msg = format!("Failed to enable lockdown {}", e);
                             return Err(CarbideError::GenericError(error_msg));
                         }
                     }
-                    match redfish
-                        .enable_bmc_lockdown(libredfish::manager::OemDellBootDevices::PXE, false)
-                    {
-                        Ok(()) => {}
-                        Err(e) => {
-                            let error_msg = format!("Failed to enable bmc lockdown {}", e);
-                            return Err(CarbideError::GenericError(error_msg));
-                        }
-                    }
-                    match redfish.set_system_power(SystemPowerControl::ForceRestart) {
+                    match redfish.power(libredfish::SystemPowerControl::ForceRestart) {
                         Ok(()) => Ok("Success".to_string()),
                         Err(e) => {
                             let error_msg = format!("Failed to run power control command {}", e);
@@ -278,24 +245,14 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                     }
                 }
                 IpmiTask::DisableLockdown => {
-                    match redfish
-                        .disable_bmc_lockdown(libredfish::manager::OemDellBootDevices::PXE, false)
-                    {
+                    match redfish.lockdown(libredfish::EnabledDisabled::Disabled) {
                         Ok(()) => {}
                         Err(e) => {
                             let error_msg = format!("Failed to disable bmc lockdown {}", e);
                             return Err(CarbideError::GenericError(error_msg));
                         }
                     }
-                    match redfish.disable_bios_lockdown() {
-                        Ok(()) => {}
-                        Err(e) => {
-                            let error_msg =
-                                format!("Failed to run disable bios lockdown command {}", e);
-                            return Err(CarbideError::GenericError(error_msg));
-                        }
-                    }
-                    match redfish.set_system_power(SystemPowerControl::ForceRestart) {
+                    match redfish.power(libredfish::SystemPowerControl::ForceRestart) {
                         Ok(()) => Ok("Success".to_string()),
                         Err(e) => {
                             let error_msg = format!("Failed to run power control command {}", e);
@@ -304,22 +261,14 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                     }
                 }
                 IpmiTask::SetupSerialConsole => {
-                    match redfish.setup_bmc_remote_access() {
-                        Ok(()) => {}
-                        Err(e) => {
-                            let error_msg = format!("Failed to set bmc remote access {}", e);
-                            return Err(CarbideError::GenericError(error_msg));
-                        }
-                    }
                     match redfish.setup_serial_console() {
                         Ok(()) => {}
                         Err(e) => {
-                            let error_msg =
-                                format!("Failed to set bios serial port settings {}", e);
+                            let error_msg = format!("Failed to setup serial console {}", e);
                             return Err(CarbideError::GenericError(error_msg));
                         }
                     }
-                    match redfish.set_system_power(SystemPowerControl::ForceRestart) {
+                    match redfish.power(libredfish::SystemPowerControl::ForceRestart) {
                         Ok(()) => Ok("Success".to_string()),
                         Err(e) => {
                             let error_msg = format!("Failed to run power control command {}", e);
@@ -328,14 +277,12 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                     }
                 }
                 IpmiTask::FirstBootDevice(device, only_once) => {
-                    match redfish.set_boot_first(device, only_once) {
-                        Ok(()) => Ok("Success".to_string()),
-                        Err(e) => {
-                            let error_msg =
-                                format!("Failed to set {} as first boot device, {}", device, e);
-                            Err(CarbideError::GenericError(error_msg))
-                        }
+                    if only_once {
+                        redfish.boot_once(device)?;
+                    } else {
+                        redfish.boot_first(device)?;
                     }
+                    Ok("Success".to_string())
                 }
             };
             result
@@ -418,7 +365,7 @@ async fn command_handler(
 }
 
 impl IpmiCommand {
-    fn update_power_action(mut self, action: SystemPowerControl) -> Self {
+    fn update_power_action(mut self, action: libredfish::SystemPowerControl) -> Self {
         self.action = Some(IpmiTask::PowerControl(action));
         self
     }
@@ -468,22 +415,17 @@ impl IpmiCommand {
     }
 
     pub async fn power_up(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_power_action(SystemPowerControl::On)
+        self.update_power_action(libredfish::SystemPowerControl::On)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_down(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_power_action(SystemPowerControl::GracefulShutdown)
-            .launch_command(pool.clone())
-            .await
-    }
-    pub async fn power_cycle(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_power_action(SystemPowerControl::PowerCycle)
+        self.update_power_action(libredfish::SystemPowerControl::GracefulShutdown)
             .launch_command(pool.clone())
             .await
     }
     pub async fn power_reset(self, pool: &sqlx::PgPool) -> CarbideResult<Uuid> {
-        self.update_power_action(SystemPowerControl::ForceRestart)
+        self.update_power_action(libredfish::SystemPowerControl::ForceRestart)
             .launch_command(pool.clone())
             .await
     }
@@ -544,10 +486,9 @@ pub enum Operation {
     Reset = 0,
     On = 1,
     Off = 2,
-    Cycle = 3,
-    EnableLockdown = 4,
-    DisableLockdown = 5,
-    SetupSerial = 6,
+    EnableLockdown = 3,
+    DisableLockdown = 4,
+    SetupSerial = 5,
 }
 
 impl TryFrom<i32> for Operation {
@@ -632,7 +573,6 @@ impl MachineBmcRequest {
             Operation::Reset => ipmi_command.power_reset(&pool).await?,
             Operation::On => ipmi_command.power_up(&pool).await?,
             Operation::Off => ipmi_command.power_down(&pool).await?,
-            Operation::Cycle => ipmi_command.power_cycle(&pool).await?,
             Operation::EnableLockdown => ipmi_command.enable_lockdown(&pool).await?,
             Operation::DisableLockdown => ipmi_command.disable_lockdown(&pool).await?,
             Operation::SetupSerial => ipmi_command.setup_serial(&pool).await?,
