@@ -22,7 +22,7 @@ use std::{
 };
 
 use crate::common::api_fixtures::{
-    create_test_api,
+    create_test_env,
     dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
 };
 use carbide::{
@@ -137,7 +137,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
     txn.commit().await?;
 
-    let api = create_test_api(pool.clone());
+    let env = create_test_env(pool.clone(), Default::default());
 
     // Insert some machines
     let dpu_macs = &[
@@ -148,11 +148,12 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     ];
     let mut machine_ids = Vec::new();
     for mac in &dpu_macs[..] {
-        let interface_id = dpu_discover_dhcp(&api, mac).await;
+        let interface_id = dpu_discover_dhcp(&env, mac).await;
 
         let mut hardware_info = create_dpu_hardware_info();
         hardware_info.dmi_data.as_mut().unwrap().product_serial = format!("DPU_{}", mac);
-        let response = api
+        let response = env
+            .api
             .discover_machine(Request::new(MachineDiscoveryInfo {
                 machine_interface_id: Some(interface_id),
                 discovery_data: Some(DiscoveryData::Info(

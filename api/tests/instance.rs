@@ -50,7 +50,7 @@ use carbide::{
     },
 };
 use common::api_fixtures::{
-    create_test_api,
+    create_test_env,
     dpu::create_dpu_machine,
     instance::{
         create_instance, delete_instance, prepare_machine, FIXTURE_CIRCUIT_ID,
@@ -75,7 +75,7 @@ fn setup() {
     "create_machine"
 ))]
 async fn test_crud_instance(pool: sqlx::PgPool) {
-    let api = create_test_api(pool.clone());
+    let api = create_test_env(pool.clone(), Default::default()).api;
     prepare_machine(&pool).await;
 
     let parsed_relay = "192.168.0.1".parse::<IpAddr>().unwrap();
@@ -214,7 +214,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     "create_machine"
 ))]
 async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
-    let api = create_test_api(pool.clone());
+    let api = create_test_env(pool.clone(), Default::default()).api;
     prepare_machine(&pool).await;
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
@@ -405,7 +405,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     "create_machine"
 ))]
 async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPool) {
-    let api = create_test_api(pool.clone());
+    let api = create_test_env(pool.clone(), Default::default()).api;
     prepare_machine(&pool).await;
 
     let snapshot_loader = DbSnapshotLoader::default();
@@ -468,9 +468,9 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
-    let api = create_test_api(pool.clone());
+    let env = create_test_env(pool.clone(), Default::default());
 
-    let dpu_machine_id = create_dpu_machine(&api).await;
+    let dpu_machine_id = create_dpu_machine(&env).await;
 
     let request = InstanceAllocationRequest {
         machine_id: dpu_machine_id.try_into().unwrap(),
@@ -505,7 +505,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
     "create_machine"
 ))]
 async fn test_instance_address_creation(pool: sqlx::PgPool) {
-    let api = create_test_api(pool.clone());
+    let api = create_test_env(pool.clone(), Default::default()).api;
     prepare_machine(&pool).await;
     let mut txn = pool
         .clone()

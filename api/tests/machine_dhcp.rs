@@ -52,7 +52,7 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_api(pool.clone());
+    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default()).api;
 
     // Inititially 0 addresses are allocated on the segment
     let mut txn = pool.begin().await?;
@@ -107,7 +107,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn test_multiple_machines_dhcp_with_api(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_api(pool.clone());
+    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default()).api;
 
     // Inititially 0 addresses are allocated on the segment
     let mut txn = pool.begin().await?;
@@ -171,7 +171,7 @@ async fn test_multiple_machines_dhcp_with_api(
 async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_api(pool.clone());
+    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default()).api;
     prepare_machine(&pool).await;
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![
