@@ -152,7 +152,7 @@ impl<'de> Deserialize<'de> for TpmEkCertificate {
         use serde::de::Error;
 
         let str_value = String::deserialize(deserializer)?;
-        let bytes = base64::decode(&str_value).map_err(|err| Error::custom(err.to_string()))?;
+        let bytes = base64::decode(str_value).map_err(|err| Error::custom(err.to_string()))?;
         Ok(Self(bytes))
     }
 }

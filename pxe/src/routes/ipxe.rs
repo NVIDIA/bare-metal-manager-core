@@ -76,7 +76,7 @@ boot ||
 
 #[get("/whoami")]
 pub async fn whoami(machine: Machine) -> Template {
-    Template::render("whoami", &machine)
+    Template::render("whoami", machine)
 }
 
 fn generate_error_template<D1, D2>(error_str: D1, error_code: D2) -> Template

@@ -88,6 +88,7 @@ pub struct DiscoveryBuilderFFI(());
 /// The returned object must either be consumed by calling
 /// `discovery_fetch_machine`, or freed by calling `discovery_builder_free`.
 #[no_mangle]
+#[allow(clippy::box_default)] // the Builder does not and cannot implement default, but clippy wants it to because they named the generated function "default".
 pub extern "C" fn discovery_builder_allocate() -> *mut DiscoveryBuilderFFI {
     Box::into_raw(Box::new(DiscoveryBuilder::default())) as _
 }

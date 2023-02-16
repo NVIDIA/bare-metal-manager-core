@@ -21,10 +21,10 @@ use std::{
     time::Duration,
 };
 
-use crate::common::api_fixtures::{
-    create_test_env,
-    dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
-};
+use ipnetwork::IpNetwork;
+use sqlx::Executor;
+use tonic::Request;
+
 use carbide::{
     db::dpu_machine::DpuMachine,
     kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError},
@@ -37,10 +37,12 @@ use carbide::{
         },
     },
 };
-use ipnetwork::IpNetwork;
 use rpc::{forge::forge_server::Forge, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
-use sqlx::Executor;
-use tonic::Request;
+
+use crate::common::api_fixtures::{
+    create_test_env,
+    dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct TestMachineStateHandler {
@@ -210,8 +212,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             .unwrap_or_default() as f64;
 
         assert!(
-            count > 0.75 * (expected_iterations as f64)
-                && count < 1.25 * (expected_iterations as f64),
+            count > 0.75 * expected_iterations && count < 1.25 * expected_iterations,
             "Expected count of {}, but got {}",
             expected_iterations,
             count

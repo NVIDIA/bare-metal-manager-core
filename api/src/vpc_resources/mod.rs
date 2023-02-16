@@ -265,7 +265,7 @@ mod tests {
             BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {});
         assert_eq!(
             "60cef902-9779-4666-8362-c9bb4b37184f.pf".to_owned(),
-            physical_interface.leaf_interface_id(&tests::DPU_MACHINE_ID,)
+            physical_interface.leaf_interface_id(&DPU_MACHINE_ID,)
         );
     }
 
@@ -279,10 +279,10 @@ mod tests {
             return;
         }
         let virtual_interface =
-            BlueFieldInterface::new(InterfaceFunctionId::VirtualFunctionId { id: id as u8 });
+            BlueFieldInterface::new(InterfaceFunctionId::VirtualFunctionId { id });
         assert_eq!(
             leaf_interface_name,
-            virtual_interface.leaf_interface_id(&tests::DPU_MACHINE_ID,)
+            virtual_interface.leaf_interface_id(&DPU_MACHINE_ID,)
         );
         assert_eq!(interface_name, virtual_interface.interface_name());
     }

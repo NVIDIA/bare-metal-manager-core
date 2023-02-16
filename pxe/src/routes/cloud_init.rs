@@ -147,7 +147,7 @@ pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig
 
         _ => user_data_handler(uuid, machine, config).await,
     };
-    Template::render(template, &context)
+    Template::render(template, context)
 }
 
 #[get("/<uuid>/meta-data")]

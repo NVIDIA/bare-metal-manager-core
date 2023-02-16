@@ -247,9 +247,8 @@ pub struct CarbideAuth {
     permissive_mode: bool,
 }
 
-impl CarbideAuth {
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+impl Default for CarbideAuth {
+    fn default() -> Self {
         let jwt_validator = jwt::TokenValidator::new();
         let permissive_mode = false;
 
@@ -257,6 +256,12 @@ impl CarbideAuth {
             jwt_validator,
             permissive_mode,
         }
+    }
+}
+
+impl CarbideAuth {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn _add_jwt_key(

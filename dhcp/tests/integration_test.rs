@@ -80,7 +80,7 @@ fn test_real_kea_multithreaded() -> Result<(), anyhow::Error> {
             s.spawn(move || {
                 // wait for receiver to start and avoid thundering herd
                 thread::sleep(Duration::from_millis(50 + idx as u64));
-                let msg_orig = DHCPFactory::discover(idx as u8);
+                let msg_orig = DHCPFactory::discover(idx);
                 let mut sent = 0;
                 while sent < NUM_MSGS_PER_THREAD && !s_should_stop.load(Ordering::Relaxed) {
                     let mut msg = msg_orig.clone();
