@@ -134,28 +134,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!("{}:{}", cred.username, cred.password);
                 }
             }
-            Machine::Reboot(bmc_config) => {
-                let conf = libredfish::NetworkConfig {
-                    endpoint: bmc_config.address.clone(),
-                    port: bmc_config.port,
-                    user: bmc_config.username,
-                    password: bmc_config.password,
-                    ..Default::default()
+            Machine::Reboot(c) => {
+                let bmc_auth = match (c.username, c.password, c.machine_id) {
+                    (Some(user), Some(password), _) => rpc::RebootAuth::Direct { user, password },
+                    (_, _, Some(machine_id)) => rpc::RebootAuth::Indirect { machine_id },
+                    _ => {
+                        eprintln!("Provide either --machine-id or both --username and --password");
+                        return Ok(());
+                    }
                 };
-                // libredfish uses reqwest in blocking mode, which cannot run be run in async context
-                std::thread::spawn(move || {
-                    let redfish =
-                        libredfish::new(conf).expect("err initialize libredfish from BMC");
-                    redfish
-                        .boot_once(libredfish::Boot::Pxe)
-                        .expect("err boot_once");
-                    redfish
-                        .power(libredfish::SystemPowerControl::ForceRestart)
-                        .expect("err requesting force restart");
-                    println!("Reboot to PXE requested for {}", bmc_config.address);
-                })
-                .join()
-                .expect("libredfish thread failed");
+                rpc::reboot(carbide_api, c.address, c.port, bmc_auth).await?;
             }
             Machine::ForceDelete(query) => machine::force_delete(query, carbide_api).await?,
         },

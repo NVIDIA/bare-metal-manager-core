@@ -14,9 +14,8 @@ use std::future::Future;
 use ::rpc::forge as rpc;
 use tonic::transport::Channel;
 
-use crate::cfg::carbide_options::ForceDeleteMachineQuery;
-
 use super::{CarbideCliError, CarbideCliResult};
+use crate::cfg::carbide_options::ForceDeleteMachineQuery;
 
 pub async fn with_forge_client<T, F>(
     server: String,
@@ -165,6 +164,42 @@ pub async fn machine_admin_force_delete(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(response)
+    })
+    .await
+}
+
+// How will we find the BMC credentials to perform the reboot?
+pub enum RebootAuth {
+    // User provided them directly on command line
+    Direct { user: String, password: String },
+    // Carbide should look them up in Vault
+    Indirect { machine_id: String },
+}
+
+pub async fn reboot(
+    server: String,
+    ip: String,
+    port: Option<u32>,
+    auth: RebootAuth,
+) -> CarbideCliResult<rpc::AdminRebootResponse> {
+    with_forge_client(server, |mut client| async move {
+        let (user, password, machine_id) = match auth {
+            RebootAuth::Direct { user, password } => (Some(user), Some(password), None),
+            RebootAuth::Indirect { machine_id } => (None, None, Some(machine_id)),
+        };
+        let request = tonic::Request::new(rpc::AdminRebootRequest {
+            ip,
+            port,
+            user,
+            password,
+            machine_id,
+        });
+        let out = client
+            .admin_reboot(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(out)
     })
     .await
 }

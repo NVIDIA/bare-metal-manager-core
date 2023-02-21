@@ -127,6 +127,10 @@ service Forge {
   // AdminForceDeleteMachine is a lower level admin tool for cases where there is no
   // appropriate customer-facing workflow available or where those workflows fail.
   rpc AdminForceDeleteMachine(AdminForceDeleteMachineRequest) returns (AdminForceDeleteMachineResponse);
+
+  // Reboot a machine and boot into PXE
+  rpc AdminReboot(AdminRebootRequest) returns (AdminRebootResponse);
+
 }
 
 message EchoRequest {
@@ -806,6 +810,17 @@ message AdminForceDeleteMachineResponse {
     uint32 deleted_managed_resources = 31;
     uint32 deleted_leafs = 32;
 }
+
+// Must provide either machine_id or user/password pair
+message AdminRebootRequest {
+    string ip = 1;
+    optional uint32 port = 2;
+    optional string user = 3;
+    optional string password = 4;
+    optional string machine_id = 5;
+}
+
+message AdminRebootResponse {}
 
 enum BMCRequestType {
     IPMI = 0;
