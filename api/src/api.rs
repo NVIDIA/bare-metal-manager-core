@@ -39,7 +39,7 @@ use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
-
+use crate::db::ipmi::UserRoles;
 use crate::{
     auth, cfg,
     credentials::UpdateCredentials,
@@ -1484,6 +1484,75 @@ where
             username,
             password,
         }))
+    }
+
+    async fn admin_reboot(
+        &self,
+        request: Request<rpc::AdminRebootRequest>,
+    ) -> Result<Response<rpc::AdminRebootResponse>, Status> {
+        log_request_data(&request);
+
+        let req = request.into_inner();
+        let (user, password) = match (req.user, req.password, req.machine_id) {
+            // User provided username and password
+            (Some(u), Some(p), _) => (u, p),
+
+            // User provided machine_id
+            (_, _, Some(machine_id)) => {
+                // Load credentials from Vault
+                let credentials = self
+                    .credential_provider
+                    .get_credentials(CredentialKey::Bmc {
+                        user_role: UserRoles::Administrator.to_string(),
+                        machine_id: machine_id.clone(),
+                    })
+                    .await
+                    .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
+                        Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
+                            CarbideError::GenericError(format!(
+                                "Vault key not found: bmc-metadata-items for machine_id {}",
+                                machine_id
+                            ))
+                        }
+                        Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
+                        Err(err) => CarbideError::GenericError(format!(
+                            "Error getting credentials for BMC: {:?}",
+                            err
+                        )),
+                    })?;
+                let (username, password) = match credentials {
+                    Credentials::UsernamePassword { username, password } => (username, password),
+                };
+                (username, password)
+            }
+
+            _ => {
+                return Err(Status::invalid_argument(
+                    "Please provider either machine_id, or both user and password",
+                ));
+            }
+        };
+
+        // libredfish uses reqwest in blocking mode, making and dropping a runtime
+        let _ = tokio::task::spawn_blocking(move || -> Result<(), libredfish::RedfishError> {
+            let conf = libredfish::NetworkConfig {
+                user: Some(user),
+                password: Some(password),
+                endpoint: req.ip.clone(),
+                // Option<u32> -> Option<u16> because no uint16 in protobuf
+                port: req.port.map(|p| p as u16),
+                ..Default::default()
+            };
+            let redfish = libredfish::new(conf)?;
+            redfish.boot_once(libredfish::Boot::Pxe)?;
+            redfish.power(libredfish::SystemPowerControl::ForceRestart)?;
+            tracing::info!("Reboot to PXE requested for {}", req.ip);
+            Ok(())
+        })
+        .await
+        .map_err(CarbideError::from)?;
+
+        Ok(Response::new(rpc::AdminRebootResponse {}))
     }
 
     async fn get_bmc_meta_data(

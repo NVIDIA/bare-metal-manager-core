@@ -60,13 +60,16 @@ pub struct BMCCOnfig {
     pub address: String,
 
     #[clap(long, help = "Port of machine BMC. [443]")]
-    pub port: Option<u16>,
+    pub port: Option<u32>,
 
     #[clap(long, help = "Username for machine BMC")]
     pub username: Option<String>,
 
     #[clap(long, help = "Password for machine BMC")]
     pub password: Option<String>,
+
+    #[clap(long, help = "UUID of the machine to reboot")]
+    pub machine_id: Option<String>,
 }
 
 #[derive(Parser, Debug)]
