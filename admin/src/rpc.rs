@@ -14,6 +14,8 @@ use std::future::Future;
 use ::rpc::forge as rpc;
 use tonic::transport::Channel;
 
+use crate::cfg::carbide_options::ForceDeleteMachineQuery;
+
 use super::{CarbideCliError, CarbideCliResult};
 
 pub async fn with_forge_client<T, F>(
@@ -144,6 +146,25 @@ pub async fn get_dpu_ssh_credential(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(cred)
+    })
+    .await
+}
+
+pub async fn machine_admin_force_delete(
+    query: ForceDeleteMachineQuery,
+    server: String,
+) -> CarbideCliResult<::rpc::forge::AdminForceDeleteMachineResponse> {
+    with_forge_client(server, |mut client| async move {
+        let request = tonic::Request::new(::rpc::forge::AdminForceDeleteMachineRequest {
+            host_query: query.machine,
+        });
+        let response = client
+            .admin_force_delete_machine(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(response)
     })
     .await
 }
