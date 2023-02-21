@@ -74,8 +74,8 @@ environment.
    Fedora - `sudo dnf -y install bridge-utils libvirt virt-install qemu-kvm`
 
 8. Install `direnv` using your package manager
-   
-   It would be bestto install `direnv` on your host. Once you
+
+   It would be best to install `direnv` on your host. Once you
    clone the `carbide` repo, run `direnv allow` in your local copy.
    Running `direnv allow` exports the necessary environmental variables
 
@@ -83,7 +83,7 @@ environment.
 
    For a list environment variables, we predefine look in:
    `${REPO_ROOT}/.envrc`
-   
+
    Arch - `sudo pacman -S direnv`
 
    Debian - `sudo apt-get install -y direnv`
@@ -133,11 +133,17 @@ environment.
 
     Fedora - `sudo dnf install -y swtpm swtpm-tools`
 
-16. Build the `build-container` locally
+16. Install `cmake` from the system package manager:
+
+    Debian - `sudo apt-get install -y cmake`
+
+    Fedora - `sudo dnf install -y cmake`
+
+17. Build the `build-container` locally
 
     `cargo make build-x86-build-container`
 
-17. Build the book locally
+18. Build the book locally
 
     `cargo make book`
 
