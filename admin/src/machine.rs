@@ -10,9 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use std::fmt::Write;
+use std::time::Duration;
 
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
+
+use crate::cfg::carbide_options::ForceDeleteMachineQuery;
 
 use super::cfg::carbide_options::ShowMachine;
 use super::{default_uuid, rpc, CarbideCliResult};
@@ -232,6 +235,44 @@ pub async fn handle_show(
         show_all_machines(json, carbide_api).await?;
     } else if let Some(uuid) = args.uuid {
         show_machine_information(uuid, json, carbide_api).await?;
+    }
+
+    Ok(())
+}
+
+pub async fn force_delete(
+    query: ForceDeleteMachineQuery,
+    carbide_api: String,
+) -> CarbideCliResult<()> {
+    const RETRY_TIME: Duration = Duration::from_secs(5);
+    const MAX_WAIT_TIME: Duration = Duration::from_secs(60 * 10);
+
+    let start = std::time::Instant::now();
+
+    loop {
+        let response = rpc::machine_admin_force_delete(query.clone(), carbide_api.clone()).await?;
+        println!(
+            "Force delete response: {}",
+            serde_json::to_string_pretty(&response).unwrap()
+        );
+
+        if response.all_done {
+            println!("Force delete succeeded");
+            break;
+        }
+
+        if start.elapsed() > MAX_WAIT_TIME {
+            return Err(crate::CarbideCliError::GenericError(format!(
+                "Unable to force delete machine after {}s. Exiting",
+                MAX_WAIT_TIME.as_secs()
+            )));
+        }
+
+        println!(
+            "Machine has not been fully deleted. Retrying after {}s",
+            RETRY_TIME.as_secs()
+        );
+        tokio::time::sleep(RETRY_TIME).await;
     }
 
     Ok(())

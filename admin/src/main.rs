@@ -157,6 +157,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .join()
                 .expect("libredfish thread failed");
             }
+            Machine::ForceDelete(query) => machine::force_delete(query, carbide_api).await?,
         },
         CarbideCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {

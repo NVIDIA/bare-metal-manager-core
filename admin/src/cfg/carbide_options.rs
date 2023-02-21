@@ -50,6 +50,8 @@ pub enum Machine {
     DpuSshCredentials(MachineQuery),
     #[clap(about = "Reboot a machine")]
     Reboot(BMCCOnfig),
+    #[clap(about = "Force delete a machine")]
+    ForceDelete(ForceDeleteMachineQuery),
 }
 
 #[derive(Parser, Debug)]
@@ -77,6 +79,17 @@ pub struct MachineQuery {
         help = "UUID, IPv4, MAC or hostnmame of the DPU machine to query"
     )]
     pub query: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct ForceDeleteMachineQuery {
+    #[clap(
+        long,
+        multiple_values(false),
+        require_equals(true),
+        help = "UUID, IPv4, MAC or hostnmame of the host or DPU machine to delete"
+    )]
+    pub machine: String,
 }
 
 #[derive(Parser, Debug)]
