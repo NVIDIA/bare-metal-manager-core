@@ -68,7 +68,7 @@ pub struct BMCCOnfig {
     #[clap(long, help = "Password for machine BMC")]
     pub password: Option<String>,
 
-    #[clap(long, help = "UUID of the machine to reboot")]
+    #[clap(long, help = "ID of the machine to reboot")]
     pub machine_id: Option<String>,
 }
 
@@ -79,7 +79,7 @@ pub struct MachineQuery {
         long,
         multiple_values(false),
         require_equals(true),
-        help = "UUID, IPv4, MAC or hostnmame of the DPU machine to query"
+        help = "ID, IPv4, MAC or hostnmame of the DPU machine to query"
     )]
     pub query: String,
 }
