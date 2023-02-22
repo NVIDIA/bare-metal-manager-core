@@ -1,6 +1,6 @@
 ```mermaid
 erDiagram
-    _sqlx_migrations {
+    sqlx_migrations {
         bigint version PK
         text description 
         timestamp_with_time_zone installed_on 

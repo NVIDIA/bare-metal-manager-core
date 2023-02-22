@@ -4,9 +4,9 @@ There are two distinct workflows to bootstrap a new site and install
 Forge.
 
 If the site is a Fleet Command site, then follow the directions [for
-installing under FleetCommand](#fleet-command-environment)
+installing under Fleet Command](#fleet-command-environment)
 
-If the site is not a FleetCommand site, then follow the directions [for installing using Helm](#helm)
+If the site is not a Fleet Command site, then follow the directions [for installing using Helm](#helm)
 
 # Fleet Command environment
 
@@ -126,7 +126,7 @@ kubectl cert-manager approve -n vault $(kubectl get cr -n vault -ojsonpath='{.it
 ## local-path-provisioner
 ---
 **NOTE**
-> This is sometimes already intalled.  You can confirm an install by
+> This is sometimes already installed.  You can confirm an install by
 > running `kubectl get pods -n local-path-storage` if you see pods
 > running you can safely skip this step
 
@@ -171,7 +171,7 @@ helm upgrade -i -n forge-system carbide --values environments/$environment/fleet
 VPC has three `charts` that are installed and upgraded separately.
 
 1. `vpc-crds` - CRD definitions for VPC.  These are maintained in a separate `chart `  to allow upgrades without impacting VPC itself
-2. `vpc` - The actual softare VPC. 
+2. `vpc` - The actual software VPC. 
 3. `vpc-site` - Site-specific VPC resources such as `administration-resource-group` and  `configurationResourcePool`
 
 ```sh

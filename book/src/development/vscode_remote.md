@@ -143,7 +143,7 @@ json config file:
 
 Those problems might be avoidable by being able to set `remoteUser` in `devcontainer.json`
 to ones alias. However when doing that I wasn't able to build the devcontainer image
-anyore, since it is missing my user alias in `/etc/passwd`.
+anymore, since it is missing my user alias in `/etc/passwd`.
 
 
 ### References

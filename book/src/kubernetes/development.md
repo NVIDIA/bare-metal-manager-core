@@ -27,7 +27,7 @@ In order for this to work -
 
 1. copy `dev/kube/overlays/local/forge/override_api_image.json.example` to
 `dev/kube/overlays/local/forge/override_api_image.json`
-2. change the `value` field in `overide_api_image.json` to a docker container
+2. change the `value` field in `override_api_image.json` to a docker container
 that matches your workstation operating system. (Ubuntu:focal is default)
 
 Once that is set, `cd $REPO_ROOT`
@@ -47,7 +47,7 @@ This will spin up a kind cluster, build and upload the carbide image, and apply
 all the kubernetes primitives to expose carbide services.
 
 When booting the test VM from your local workstation, use the new bridge that
-KinD created for kubernetes.
+Kind created for kubernetes.
 
 To interact with carbide-api use the url `http://127.0.0.1:11079`
 

@@ -1,6 +1,6 @@
 # Codebase overview
 
-api - forge primary entrpoint for GRPC API calls. This component receives all the  GRPC calls
+api/ - forge primary entrypoint for GRPC API calls. This component receives all the  GRPC calls
 
 book/ - architecture of forge book.  aka "the book"
 
@@ -14,7 +14,7 @@ intercepts `DHCPDISCOVER`s from dhcp-relays and passes the info to carbide-api
 
 include/ - contains additional makefiles that are used by `cargo make` - as specified in `Makefile.toml`.
 
-dns/ - provides DNS resolution for assets in forge databse
+dns/ - provides DNS resolution for assets in forge database
 
 ipmi/ - a rust FFI library around FreeIPMI.  This is used for issuing IPMI
 commands to machines

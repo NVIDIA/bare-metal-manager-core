@@ -57,7 +57,7 @@ If you get an error in this step, try the following steps:
 
 ### Start the TPM emulator
 
-Run the following command in seperate terminal to start a software TPM emulation
+Run the following command in separate terminal to start a software TPM emulation
 
 ```
 swtpm socket --tpmstate dir=/tmp/emulated_tpm --ctrl type=unixio,path=/tmp/emulated_tpm/swtpm-sock --log level=20 --tpm2
