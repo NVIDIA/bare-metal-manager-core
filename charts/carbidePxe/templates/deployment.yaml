@@ -92,9 +92,19 @@ spec:
         - name: boot-artifacts-x86-64
           image: {{ .Values.bootArtifactsContainer.container.image.registry }}/{{ .Values.bootArtifactsContainer.container.image.baseRepository }}-x86_64:{{.Values.bootArtifactsContainer.container.image.tag }}
           imagePullPolicy: {{ .Values.bootArtifactsContainer.container.image.pullPolicy }}
+          command: ["/bin/sh"]
+          args: ["-c", "cp -r /x86_64 /forge-boot-artifacts; trap : TERM INT; sleep 9999999999d & wait"]
+          volumeMounts:
+            - name: boot-artifacts
+              mountPath: /forge-boot-artifacts
         - name: boot-artifacts-aarch64
           image: {{ .Values.bootArtifactsContainer.container.image.registry }}/{{ .Values.bootArtifactsContainer.container.image.baseRepository }}-aarch64:{{.Values.bootArtifactsContainer.container.image.tag }}
           imagePullPolicy: {{ .Values.bootArtifactsContainer.container.image.pullPolicy }}
+          command: ["/bin/sh"]
+          args: ["-c", "cp -r /aarch64 /forge-boot-artifacts; trap : TERM INT; sleep 9999999999d & wait"]
+          volumeMounts:
+            - name: boot-artifacts
+              mountPath: /forge-boot-artifacts
       {{- end }}
         - name: carbide-pxe
           image: {{ template "container.image" . }}
@@ -175,10 +185,8 @@ spec:
             - name: spiffe
               mountPath: "/var/run/secrets/spiffe.io"
               readOnly: true
-        {{- if eq (.Values.bootArtifactsContainer.enabled | toString) "false" }}
             - name: boot-artifacts
               mountPath: /forge-boot-artifacts
-        {{- end }}
           {{- if .Values.container.extraVolumeMounts }}
           {{- include "common.tplvalues.render" (dict "value" .Values.container.extraVolumeMounts "context" $) | nindent 12 }}
           {{- end }}
@@ -207,6 +215,9 @@ spec:
           hostPath:
             path: /srv/forge-boot-artifacts
             type: Directory
+      {{- else }}
+        - name: boot-artifacts
+          emptyDir: {}
         {{- end -}}
         {{- if .Values.container.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.container.extraVolumes "context" $) | nindent 8 }}
