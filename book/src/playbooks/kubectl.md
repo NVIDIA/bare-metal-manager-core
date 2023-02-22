@@ -1,6 +1,6 @@
-# kubectl for Forge - cheatsehat
+# kubectl for Forge - cheat sheet
 
-This page lists `kubectl` commands that can be executed on Forge clusters for maintainence tasks
+This page lists `kubectl` commands that can be executed on Forge clusters for maintenance tasks
 
 ## Log viewing
 

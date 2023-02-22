@@ -4,9 +4,9 @@ NVIDIA Forge exists to manage the end-to-end lifecycle of bare-metal machines co
 
 NVIDIA Forge has two major components.  First, a cloud control plane that can manage multiple sites, handles account management, billing and scheduling of hardware and instances to various tenants.  Next is the on-prem control plane that manages the end-to-end lifecycle of individual machines and networks between those machines.
 
-This set of documentation covers only the technical documentation for the on-premesis NVIDIA Forge control plane.  It does not cover the NVIDIA Forge cloud control plane.
+This set of documentation covers only the technical documentation for the on-premises NVIDIA Forge control plane.  It does not cover the NVIDIA Forge cloud control plane.
 
-NVIDIA Forge's responsibility ends at booting the machine into a user-defined Host OS, all further responsibilty is outside the scope of NVIDIA Forge.
+NVIDIA Forge's responsibility ends at booting the machine into a user-defined Host OS, all further responsibility is outside the scope of NVIDIA Forge.
 
 ```mermaid
 flowchart LR

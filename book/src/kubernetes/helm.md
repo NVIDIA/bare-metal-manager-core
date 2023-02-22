@@ -59,7 +59,7 @@ Helm chart changes can be verified using the following steps:
    ```
    helm template . > myChartContent
    ```
-4. You can verifiy the generated helm chart by inspecting the output
+4. You can verify the generated helm chart by inspecting the output
 5. In case template rendering fails with a linting error like
    > [ERROR] templates/deployment.yaml: unable to parse YAML: error converting YAML to JSON: yaml: line 116: did not find expected node content
    

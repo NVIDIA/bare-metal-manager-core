@@ -81,7 +81,7 @@ environment.
 
    There are preset environment variables that are used throughout the repo. `${REPO_ROOT}` represents the top of the forge repo tree.
 
-   For a list environment variables, we predefine look in:
+   For a list environment variables, we predefined look in:
    `${REPO_ROOT}/.envrc`
 
    Arch - `sudo pacman -S direnv`
@@ -107,7 +107,7 @@ environment.
 
     Fedora - `sudo dnf install -y protobuf protobuf-devel`
 
-12. Install 'jq' from system package manager
+12. Install `jq` from system package manager
 
     Arch - `sudo pacman -S jq`
 
@@ -115,7 +115,7 @@ environment.
 
     Fedora - `sudo dnf install -y jq`
 
-13. Install 'mkosi' and 'debootstrap' from system package manager
+13. Install `mkosi` and `debootstrap` from system package manager
 
     Debian - `sudo apt-get install -y mkosi debootstrap`
 
@@ -181,7 +181,7 @@ Cleanup, otherwise docker-compose won't work later:
 Recommended IDE for Rust development in the Carbide project is CLion, IntelliJ works as well but includes a lot of extra components that you don't need. There are plenty
 of options (VS Code, NeoVim etc), but CLion/IntelliJ is widely used.
 
-One thing to note regardless of what IDE you choose: if you're running on Linux DO NOT USE Snap or Flatpak versions of the software packages. These builds inroduce a number
+One thing to note regardless of what IDE you choose: if you're running on Linux DO NOT USE Snap or Flatpak versions of the software packages. These builds introduce a number
 of complications in the C lib linking between the IDE and your system and frankly it's not worth fighting.
 
 ## Next steps

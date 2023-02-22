@@ -125,7 +125,7 @@ spec:
 ### NON-SPIFFE
 
 Some components in Kubernetes cannot use SPIFFE formatted certs
-`ValidatingWebhooks` and `MutatingWebhooks` can not use SPIFFE formated `CertificateRequests`
+`ValidatingWebhooks` and `MutatingWebhooks` can not use SPIFFE formatted `CertificateRequests`
 
 For those resources, there is a separate `ClusterIssuer` that signs `CertificateRequests` which are not SPIFFE formatted.
 
