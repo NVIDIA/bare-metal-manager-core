@@ -34,7 +34,13 @@
 - [Local Development](kubernetes/development.md)
 - [Helm](kubernetes/helm.md)
 - [TLS](kubernetes/tls.md)
-- [kubectl cheatsheat for Forge deployments](kubernetes/kubectl.md)
+
+# Playbooks
+
+- [kubectl cheatsheat for Forge deployments](playbooks/kubectl.md)
+- [forge-admin-cli access on a Forge cluster](playbooks/forge_admin_cli.md)
+- [Force deleting an rebuilding Forge hosts](playbooks/force_delete.md)
+- [Rebooting a machine](playbooks/machine_reboot.md)
 
 # Environments
 
