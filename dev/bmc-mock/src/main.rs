@@ -10,11 +10,12 @@ use std::io::ErrorKind;
 ///  127.0.0.1:1079 forge.Forge/CleanupMachineCompleted`
 ///  where that UUID is a host machine in DB.
 ///
+mod command_line;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Command;
 
-use axum::extract::Path as AxumPath;
+use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
@@ -44,6 +45,9 @@ async fn main() {
         .with(env_filter)
         .init();
 
+    let state = command_line::parse_args();
+    info!("Using qemu: {}", state.use_qemu);
+
     let app = Router::new()
         .route(rf!(""), get(get_root))
         .route(rf!("Managers/"), get(get_manager_id))
@@ -62,7 +66,7 @@ async fn main() {
         .route(
             rf!("Systems/:manager_id/Actions/ComputerSystem.Reset"),
             post(set_system_power),
-        );
+        ).with_state(state);
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let config = RustlsConfig::from_pem_file(root.join("cert.pem"), root.join("key.pem"))
@@ -153,10 +157,15 @@ async fn set_bios_attribute(
 }
 
 async fn set_system_power(
+    State(state): State<command_line::Args>,
     AxumPath(manager_id): AxumPath<String>,
     body: String,
 ) -> impl IntoResponse {
     debug!("set_system_power {manager_id}, body: {body}");
+
+    if !state.use_qemu {
+        return StatusCode::ACCEPTED;
+    }
 
     let reboot_output = match Command::new("virsh")
         .arg("reboot")
