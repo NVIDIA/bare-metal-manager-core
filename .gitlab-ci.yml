@@ -292,7 +292,7 @@ build-push-boot-artifacts-container-nonprod-aarch64:
     - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-nonprod-aarch64
   tags:
-    - aarch64
+    - x86_64
   dependencies:
     - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-nonprod-aarch64
@@ -307,7 +307,7 @@ build-push-boot-artifacts-container-aarch64:
     - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-aarch64
   tags:
-    - aarch64
+    - x86_64
   dependencies:
     - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-aarch64
