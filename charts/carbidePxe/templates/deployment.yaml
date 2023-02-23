@@ -93,18 +93,18 @@ spec:
           image: {{ .Values.bootArtifactsContainer.container.image.registry }}/{{ .Values.bootArtifactsContainer.container.image.baseRepository }}-x86_64:{{.Values.bootArtifactsContainer.container.image.tag }}
           imagePullPolicy: {{ .Values.bootArtifactsContainer.container.image.pullPolicy }}
           command: ["/bin/sh"]
-          args: ["-c", "cp -r /x86_64 /forge-boot-artifacts; trap : TERM INT; sleep 9999999999d & wait"]
+          args: ["-c", "cp -r /x86_64 /forge-boot-artifacts/blobs/internal; trap : TERM INT; sleep 9999999999d & wait"]
           volumeMounts:
             - name: boot-artifacts
-              mountPath: /forge-boot-artifacts
+              mountPath: /forge-boot-artifacts/blobs/internal
         - name: boot-artifacts-aarch64
           image: {{ .Values.bootArtifactsContainer.container.image.registry }}/{{ .Values.bootArtifactsContainer.container.image.baseRepository }}-aarch64:{{.Values.bootArtifactsContainer.container.image.tag }}
           imagePullPolicy: {{ .Values.bootArtifactsContainer.container.image.pullPolicy }}
           command: ["/bin/sh"]
-          args: ["-c", "cp -r /aarch64 /forge-boot-artifacts; trap : TERM INT; sleep 9999999999d & wait"]
+          args: ["-c", "cp -r /aarch64 /forge-boot-artifacts/blobs/internal; trap : TERM INT; sleep 9999999999d & wait"]
           volumeMounts:
             - name: boot-artifacts
-              mountPath: /forge-boot-artifacts
+              mountPath: /forge-boot-artifacts/blobs/internal
       {{- end }}
         - name: carbide-pxe
           image: {{ template "container.image" . }}
@@ -185,8 +185,13 @@ spec:
             - name: spiffe
               mountPath: "/var/run/secrets/spiffe.io"
               readOnly: true
+        {{- if eq (.Values.bootArtifactsContainer.enabled | toString) "false" }}
             - name: boot-artifacts
               mountPath: /forge-boot-artifacts
+        {{- else }}
+            - name: boot-artifacts
+              mountPath: /forge-boot-artifacts/blobs/internal
+          {{- end }}
           {{- if .Values.container.extraVolumeMounts }}
           {{- include "common.tplvalues.render" (dict "value" .Values.container.extraVolumeMounts "context" $) | nindent 12 }}
           {{- end }}
