@@ -13,11 +13,14 @@ use carbide::db::{
     address_selection_strategy::AddressSelectionStrategy, machine::Machine,
     machine_interface::MachineInterface, network_segment::NetworkSegment,
 };
+use carbide::model::machine::machine_id::MachineId;
 use carbide::CarbideError;
 use log::LevelFilter;
 
 pub mod common;
-use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
+use common::api_fixtures::{
+    dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+};
 
 #[ctor::ctor]
 fn setup() {
@@ -53,7 +56,8 @@ async fn prevent_duplicate_mac_addresses(
     )
     .await?;
 
-    let _new_machine = Machine::get_or_create(&mut txn, new_interface).await?;
+    let machine_id = MachineId::from_hardware_info(&create_dpu_hardware_info()).unwrap();
+    let _new_machine = Machine::get_or_create(&mut txn, Some(machine_id), new_interface).await?;
 
     let duplicate_interface = MachineInterface::create(
         &mut txn,

@@ -71,8 +71,9 @@ use crate::{
         service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
     },
     model::{
-        hardware_info::HardwareInfo, instance::status::network::InstanceNetworkStatusObservation,
-        machine::MachineState,
+        hardware_info::HardwareInfo,
+        instance::status::network::InstanceNetworkStatusObservation,
+        machine::{machine_id::MachineId, MachineState},
     },
     state_controller::{
         controller::StateController,
@@ -928,6 +929,19 @@ where
 
         let machine_discovery_info = request.into_inner();
 
+        let discovery_data = machine_discovery_info
+            .discovery_data
+            .map(|data| match data {
+                rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
+            })
+            .ok_or_else(|| Status::invalid_argument("Discovery data is not populated"))?;
+
+        let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
+
+        // Generate a stable Machine ID based on the hardware information
+        // TODO: This should become an error if not enough information is available
+        let stable_machine_id = MachineId::from_hardware_info(&hardware_info);
+
         let mut txn = self
             .database_connection
             .begin()
@@ -943,7 +957,7 @@ where
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
 
-        let machine = Machine::get_or_create(&mut txn, interface)
+        let machine = Machine::get_or_create(&mut txn, stable_machine_id, interface)
             .await
             .map(rpc::Machine::from)?;
 
@@ -954,14 +968,6 @@ where
             }
         };
 
-        let discovery_data = machine_discovery_info
-            .discovery_data
-            .map(|data| match data {
-                rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
-            })
-            .ok_or_else(|| Status::invalid_argument("Discovery data is not populated"))?;
-
-        let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
         MachineTopology::create(&mut txn, &uuid, &hardware_info).await?;
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {

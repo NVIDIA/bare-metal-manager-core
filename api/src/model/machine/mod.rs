@@ -18,6 +18,8 @@ use crate::model::hardware_info::HardwareInfo;
 
 use super::{config_version::ConfigVersion, instance::snapshot::InstanceSnapshot};
 
+pub mod machine_id;
+
 pub const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 pub const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 

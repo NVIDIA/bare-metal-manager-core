@@ -32,7 +32,7 @@ use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::MachineState;
+use crate::model::machine::{machine_id::MachineId as StableMachineId, MachineState};
 use crate::{CarbideError, CarbideResult};
 
 ///
@@ -201,12 +201,18 @@ impl Machine {
     ///
     pub async fn get_or_create(
         txn: &mut Transaction<'_, Postgres>,
+        stable_machine_id: Option<StableMachineId>,
         mut interface: MachineInterface,
     ) -> CarbideResult<Self> {
+        let stable_machine_id_string = stable_machine_id.map(|id| id.to_string());
+
         match interface.machine_id {
             // GET
             Some(machine_id) => match Machine::find_one(&mut *txn, machine_id).await? {
-                Some(machine) => Ok(machine),
+                Some(machine) => {
+                    // TODO: Verify that the Stable Machine ID matches?
+                    Ok(machine)
+                }
                 None => {
                     log::warn!(
                         "Interface ID {} refers to missing machine {machine_id}",
@@ -220,14 +226,14 @@ impl Machine {
             },
             // CREATE
             None => {
-                let query = "INSERT INTO machines DEFAULT VALUES RETURNING id";
-                let row: (Uuid,) =
-                    sqlx::query_as(query)
-                        .fetch_one(&mut *txn)
-                        .await
-                        .map_err(|e| {
-                            CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
-                        })?;
+                let query = "INSERT INTO machines(stable_id) VALUES($1) RETURNING id";
+                let row: (Uuid,) = sqlx::query_as(query)
+                    .bind(&stable_machine_id_string)
+                    .fetch_one(&mut *txn)
+                    .await
+                    .map_err(|e| {
+                        CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
+                    })?;
                 let machine = match Machine::find_one(&mut *txn, row.0).await {
                     Ok(Some(x)) => Ok(x),
                     Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),

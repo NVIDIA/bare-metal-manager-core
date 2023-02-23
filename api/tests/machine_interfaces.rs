@@ -16,6 +16,7 @@ use carbide::{
         machine::Machine, machine_interface::MachineInterface, network_segment::NetworkSegment,
         vpc_resource_leaf::VpcResourceLeaf,
     },
+    model::machine::machine_id::MachineId,
     CarbideError,
 };
 use log::LevelFilter;
@@ -24,7 +25,9 @@ use sqlx::{Connection, Postgres};
 use std::str::FromStr;
 
 pub mod common;
-use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
+use common::api_fixtures::{
+    dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+};
 
 #[ctor::ctor]
 fn setup() {
@@ -70,7 +73,8 @@ async fn only_one_primary_interface_per_machine(
     )
     .await?;
 
-    let new_machine = Machine::get_or_create(&mut txn, new_interface)
+    let machine_id = MachineId::from_hardware_info(&create_dpu_hardware_info()).unwrap();
+    let new_machine = Machine::get_or_create(&mut txn, Some(machine_id), new_interface)
         .await
         .expect("Unable to create machine");
 
