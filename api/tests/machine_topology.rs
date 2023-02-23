@@ -14,7 +14,7 @@ use carbide::{
         machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
-    model::hardware_info::HardwareInfo,
+    model::{hardware_info::HardwareInfo, machine::machine_id::MachineId},
 };
 use log::LevelFilter;
 use mac_address::MacAddress;
@@ -61,7 +61,10 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap();
 
     let hardware_info = create_host_hardware_info();
-    let machine = Machine::get_or_create(&mut txn, iface).await.unwrap();
+    let machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
+    let machine = Machine::get_or_create(&mut txn, Some(machine_id), iface)
+        .await
+        .unwrap();
 
     txn.commit().await?;
 

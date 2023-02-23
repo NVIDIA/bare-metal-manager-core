@@ -15,6 +15,7 @@ use carbide::{
         machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
+    model::machine::machine_id::MachineId,
     state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     CarbideError, CarbideResult,
 };
@@ -64,9 +65,12 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
     )
     .await
     .unwrap();
-    let machine = Machine::get_or_create(&mut txn, iface).await.unwrap();
 
     let hardware_info = create_dpu_hardware_info();
+    let stable_machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
+    let machine = Machine::get_or_create(&mut txn, Some(stable_machine_id), iface)
+        .await
+        .unwrap();
 
     txn.commit()
         .await
