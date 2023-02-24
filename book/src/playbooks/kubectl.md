@@ -10,6 +10,12 @@ This page lists `kubectl` commands that can be executed on Forge clusters for ma
 kubectl logs -n forge-system -l app.kubernetes.io/component=carbide-api --all-containers -f
 ```
 
+### Tail forge VPC logs
+
+```
+kubectl logs -n forge-system -l app.kubernetes.io/component=vpc-controller-manager --all-containers -f
+```
+
 ### Tail logs for all all site controller components (incl PXE, DHCP)
 
 ```
