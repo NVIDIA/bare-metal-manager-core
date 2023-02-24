@@ -11,92 +11,81 @@
  */
 use std::collections::HashMap;
 
-use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
-use crate::model::{config_version::ConfigVersion, machine::MachineState};
+use crate::model::{config_version::ConfigVersion, network_segment::NetworkSegmentControllerState};
 
 use super::DatabaseError;
 
-/// A record of a past state of Machine
+/// A record of a past state of a NetworkSegment
+///
 #[derive(Debug)]
-pub struct MachineStateHistory {
+pub struct NetworkSegmentStateHistory {
     /// The numeric identifier of the state change. This is a global change number
     /// for all states, and therefore not important for consumers
-    id: i64,
+    _id: i64,
 
-    /// The UUID of the machine that experienced the state change
-    machine_id: uuid::Uuid,
+    /// The UUID of the network segment that experienced the state change
+    segment_id: uuid::Uuid,
 
     /// The state that was entered
-    pub state: MachineState,
+    pub state: NetworkSegmentControllerState,
     pub state_version: ConfigVersion,
 
     /// The timestamp of the state change
-    timestamp: DateTime<Utc>,
+    _timestamp: DateTime<Utc>,
 }
 
-/// Conversion from a MachineEvent object into a Protocol buffer representation for transmission
-/// over the wire.
-impl From<MachineStateHistory> for rpc::MachineEvent {
-    fn from(event: MachineStateHistory) -> rpc::MachineEvent {
-        rpc::MachineEvent {
-            id: event.id,
-            machine_id: Some(event.machine_id.into()),
-            time: Some(event.timestamp.into()),
-            event: event.state.to_string(),
-        }
-    }
-}
-
-impl<'r> FromRow<'r, PgRow> for MachineStateHistory {
+impl<'r> FromRow<'r, PgRow> for NetworkSegmentStateHistory {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let state_version_str: &str = row.try_get("state_version")?;
         let state_version = state_version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        let state: sqlx::types::Json<MachineState> = row.try_get("state")?;
-        Ok(MachineStateHistory {
-            id: row.try_get("id")?,
-            machine_id: row.try_get("machine_id")?,
+        let state: sqlx::types::Json<NetworkSegmentControllerState> = row.try_get("state")?;
+        Ok(NetworkSegmentStateHistory {
+            _id: row.try_get("id")?,
+            segment_id: row.try_get("segment_id")?,
             state: state.0,
             state_version,
-            timestamp: row.try_get("timestamp")?,
+            _timestamp: row.try_get("timestamp")?,
         })
     }
 }
 
-impl MachineStateHistory {
-    /// Retrieve the machine state history for a list of Machines
+impl NetworkSegmentStateHistory {
+    /// Retrieve the state history for a list of NetworkSegments
     ///
-    /// It returns a [HashMap][std::collections::HashMap] keyed by the machine Uuid and values of
+    /// It returns a [HashMap][std::collections::HashMap] keyed by the segment ID and values of
     /// all states that have been entered.
     ///
     /// Arguments:
     ///
     /// * `txn` - A reference to an open Transaction
     ///
-    pub async fn find_by_machine_ids(
+    pub async fn find_by_segment_ids(
         txn: &mut Transaction<'_, Postgres>,
         ids: &[uuid::Uuid],
     ) -> Result<HashMap<uuid::Uuid, Vec<Self>>, DatabaseError> {
-        let query = "SELECT * FROM machine_state_history WHERE machine_id=ANY($1) order by id asc";
+        let query =
+            "SELECT * FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
         Ok(sqlx::query_as::<_, Self>(query)
             .bind(ids)
             .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .into_iter()
-            .into_group_map_by(|event| event.machine_id))
+            .into_group_map_by(|event| event.segment_id))
     }
 
-    pub async fn for_machine(
+    pub async fn for_segment(
         txn: &mut Transaction<'_, Postgres>,
         id: &uuid::Uuid,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT * FROM machine_state_history WHERE machine_id=$1::uuid order by id asc";
+        let query =
+            "SELECT * FROM network_segment_state_history WHERE segment_id=$1::uuid ORDER BY ID asc";
         sqlx::query_as::<_, Self>(query)
             .bind(id)
             .fetch_all(&mut *txn)
@@ -107,14 +96,14 @@ impl MachineStateHistory {
     /// Store each state for debugging purpose.
     pub async fn persist(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: &uuid::Uuid,
-        state: MachineState,
+        segment_id: uuid::Uuid,
+        state: &NetworkSegmentControllerState,
         state_version: ConfigVersion,
     ) -> Result<Self, DatabaseError> {
         let query =
-            "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2, $3) RETURNING *";
+            "INSERT INTO network_segment_state_history (segment_id, state, state_version) VALUES ($1, $2, $3) RETURNING *";
         sqlx::query_as::<_, Self>(query)
-            .bind(machine_id)
+            .bind(segment_id)
             .bind(sqlx::types::Json(state))
             .bind(state_version.to_version_string())
             .fetch_one(&mut *txn)

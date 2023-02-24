@@ -13,6 +13,7 @@ use std::str::FromStr;
 
 use carbide::db::UuidKeyedObjectFilter;
 use carbide::kubernetes::VpcApiSimConfig;
+use carbide::model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState};
 use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use log::LevelFilter;
 use mac_address::MacAddress;
@@ -21,6 +22,7 @@ use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::machine_interface::MachineInterface;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
 use carbide::db::vpc::Vpc;
 
 pub mod common;
@@ -184,12 +186,29 @@ async fn test_network_segment_lifecycle_impl(
         .into_inner()
         .network_segments;
 
+    let mut txn = pool.begin().await.unwrap();
     if delete_in_ready_state {
         assert!(segments.is_empty());
+
+        assert_eq!(
+            text_history(&mut txn, segment_id).await,
+            vec![
+                "provisioning".to_string(),
+                "ready".to_string(),
+                "deleting/drain_allocated_ips".to_string(),
+                "deleting/delete_vpc_resource_groups".to_string(),
+            ]
+        );
     } else {
         let segment = segments.remove(0);
         assert_eq!(segment.state(), rpc::forge::TenantState::Terminating);
+
+        assert_eq!(
+            text_history(&mut txn, segment_id).await,
+            vec!["provisioning".to_string()]
+        );
     }
+    txn.commit().await.unwrap();
 
     Ok(())
 }
@@ -339,4 +358,111 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     );
 
     Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_network_segment_max_history_length(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let vpc_sim_config = VpcApiSimConfig {
+        required_creation_attempts: 2,
+        required_deletion_attempts: 2,
+        ..Default::default()
+    };
+    let env = create_test_env(pool.clone(), TestEnvConfig { vpc_sim_config });
+
+    let segment = create_network_segment_with_api(&env.api, true, true).await;
+    let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
+
+    let state_handler = NetworkSegmentStateHandler::new(chrono::Duration::milliseconds(500));
+
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
+
+    assert_eq!(
+        get_segment_state(&env.api, segment_id).await,
+        rpc::forge::TenantState::Ready
+    );
+
+    // Now insert a lot of state changes, and see if the history limit is kept
+    const HISTORY_LIMIT: usize = 250;
+
+    let mut txn = pool.begin().await.unwrap();
+    let mut version = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::One(segment_id))
+        .await
+        .unwrap()[0]
+        .controller_state
+        .version;
+    txn.commit().await.unwrap();
+
+    for _ in 0..HISTORY_LIMIT + 50 {
+        let mut txn = pool.begin().await.unwrap();
+        assert!(NetworkSegment::try_update_controller_state(
+            &mut txn,
+            segment_id,
+            version,
+            &NetworkSegmentControllerState::Deleting {
+                deletion_state: NetworkSegmentDeletionState::DeleteVPCResourceGroups
+            }
+        )
+        .await
+        .unwrap());
+        version = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::One(segment_id))
+            .await
+            .unwrap()[0]
+            .controller_state
+            .version;
+        txn.commit().await.unwrap();
+    }
+
+    let mut txn = pool.begin().await.unwrap();
+    let history = text_history(&mut txn, segment_id).await;
+    assert_eq!(history.len(), HISTORY_LIMIT);
+    for entry in &history {
+        assert_eq!(entry, "deleting/delete_vpc_resource_groups");
+    }
+    txn.rollback().await.unwrap();
+
+    Ok(())
+}
+
+async fn text_history(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    segment_id: uuid::Uuid,
+) -> Vec<String> {
+    let entries = NetworkSegmentStateHistory::for_segment(txn, &segment_id)
+        .await
+        .unwrap();
+
+    // // Check that version numbers are always incrementing by 1
+    if !entries.is_empty() {
+        let mut version = entries[0].state_version.version_nr();
+        for entry in &entries[1..] {
+            assert_eq!(entry.state_version.version_nr(), version + 1);
+            version += 1;
+        }
+    }
+
+    entries
+        .into_iter()
+        .map(|entry| {
+            match entry.state {
+                NetworkSegmentControllerState::Provisioning => "provisioning",
+                NetworkSegmentControllerState::Ready => "ready",
+                NetworkSegmentControllerState::Deleting { deletion_state } => {
+                    match deletion_state {
+                        NetworkSegmentDeletionState::DeleteVPCResourceGroups => {
+                            "deleting/delete_vpc_resource_groups"
+                        }
+                        NetworkSegmentDeletionState::DrainAllocatedIps { .. } => {
+                            "deleting/drain_allocated_ips"
+                        }
+                    }
+                }
+            }
+            .to_string()
+        })
+        .collect()
 }

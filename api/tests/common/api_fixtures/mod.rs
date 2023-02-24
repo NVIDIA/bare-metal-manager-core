@@ -165,13 +165,15 @@ async fn run_state_controller_iteration<IO: StateControllerIO>(
         .await
         .unwrap();
 
-    io.persist_controller_state(
-        &mut txn,
-        &object_id,
-        controller_state.version,
-        controller_state.value,
-    )
-    .await
-    .unwrap();
+    if holder.is_modified() {
+        io.persist_controller_state(
+            &mut txn,
+            &object_id,
+            controller_state.version,
+            controller_state.value,
+        )
+        .await
+        .unwrap();
+    }
     txn.commit().await.unwrap();
 }

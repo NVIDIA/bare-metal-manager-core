@@ -28,6 +28,7 @@ pub mod machine_topology;
 pub mod migrations;
 pub mod network_prefix;
 pub mod network_segment;
+pub mod network_segment_state_history;
 pub mod resource_record;
 pub mod tags;
 pub mod vpc;
