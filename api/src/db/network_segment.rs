@@ -28,6 +28,7 @@ use crate::{
         instance_address::InstanceAddress,
         machine_interface::MachineInterface,
         network_prefix::{NetworkPrefix, NewNetworkPrefix},
+        network_segment_state_history::NetworkSegmentStateHistory,
         DatabaseError, UuidKeyedObjectFilter,
     },
     model::{
@@ -230,9 +231,10 @@ impl NewNetworkSegment {
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
         segment.prefixes = NetworkPrefix::create_for(txn, &segment.id, &self.prefixes).await?;
         segment.update_prefix_state(&mut *txn).await?;
+
+        NetworkSegmentStateHistory::persist(txn, segment.id, &controller_state, version).await?;
 
         Ok(segment)
     }
@@ -385,11 +387,15 @@ impl NetworkSegment {
             .bind(sqlx::types::Json(new_state))
             .bind(segment_id)
             .bind(&expected_version_str)
-            .fetch_one(txn)
+            .fetch_one(&mut *txn)
             .await;
 
         match query_result {
-            Ok(_) => Ok(true),
+            Ok(_segment_id) => {
+                NetworkSegmentStateHistory::persist(&mut *txn, segment_id, new_state, next_version)
+                    .await?;
+                Ok(true)
+            }
             Err(sqlx::Error::RowNotFound) => Ok(false),
             Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
         }
