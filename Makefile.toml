@@ -29,7 +29,8 @@ dependencies = [
 workspace = false
 command = "mermerd" # not a typo. go install github.com/KarnerTh/mermerd@latest
 args = ['-c', "${DATABASE_URL}", '-s', 'public', '--useAllTables', '--showAllConstraints', '--encloseWithMermaidBackticks', '-o', 'book/src/development/schema.md']
-
+# To generate manually in docker-compose workflow:
+# mermerd -c postgresql://carbide_development:REPLACE_WITH_PW@172.20.0.16 -s public --useAllTables --showAllConstraints --encloseWithMermaidBackticks -o book/src/development/schema.md
 
 [tasks.build-cli-ci]
 category = "Build"

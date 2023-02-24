@@ -1,12 +1,27 @@
 ```mermaid
 erDiagram
-    sqlx_migrations {
+    _sqlx_migrations {
         bigint version PK
         text description 
         timestamp_with_time_zone installed_on 
         boolean success 
         bytea checksum 
         bigint execution_time 
+    }
+
+    machines {
+        uuid id PK
+        uuid vpc_leaf_id FK
+        uuid supported_instance_type FK
+        timestamp_with_time_zone created 
+        timestamp_with_time_zone updated 
+        timestamp_with_time_zone deployed 
+        character_varying controller_state_version 
+        jsonb controller_state 
+        timestamp_with_time_zone last_reboot_time 
+        timestamp_with_time_zone last_cleanup_time 
+        timestamp_with_time_zone last_discovery_time 
+        character_varying stable_id 
     }
 
     vpc_resource_leafs {
@@ -24,13 +39,11 @@ erDiagram
         timestamp_with_time_zone updated 
     }
 
-    machines {
-        uuid id PK
-        uuid vpc_leaf_id FK
-        uuid supported_instance_type FK
+    machine_topologies {
+        uuid machine_id PK
+        jsonb topology 
         timestamp_with_time_zone created 
         timestamp_with_time_zone updated 
-        timestamp_with_time_zone deployed 
     }
 
     instances {
@@ -47,36 +60,7 @@ erDiagram
         jsonb network_config 
         jsonb network_status_observation 
         text tenant_org 
-    }
-
-    machine_topologies {
-        uuid machine_id PK
-        jsonb topology 
-        timestamp_with_time_zone created 
-        timestamp_with_time_zone updated 
-    }
-
-    machine_events {
-        bigint id PK
-        uuid machine_id FK
-        machine_action action 
-        timestamp_with_time_zone timestamp 
-    }
-
-    network_segments {
-        uuid id PK
-        character_varying name 
-        uuid subdomain_id FK
-        uuid vpc_id FK
-        integer mtu 
-        character_varying version 
-        timestamp_with_time_zone created 
-        timestamp_with_time_zone updated 
         timestamp_with_time_zone deleted 
-        boolean admin_network 
-        integer vni_id 
-        character_varying controller_state_version 
-        jsonb controller_state 
     }
 
     domains {
@@ -95,6 +79,31 @@ erDiagram
         timestamp_with_time_zone created 
         timestamp_with_time_zone updated 
         timestamp_with_time_zone deleted 
+    }
+
+    network_prefixes {
+        uuid id PK
+        uuid segment_id FK
+        cidr prefix 
+        inet gateway 
+        integer num_reserved 
+        text circuit_id 
+    }
+
+    network_segments {
+        uuid id PK
+        character_varying name 
+        uuid subdomain_id FK
+        uuid vpc_id FK
+        integer mtu 
+        character_varying version 
+        timestamp_with_time_zone created 
+        timestamp_with_time_zone updated 
+        timestamp_with_time_zone deleted 
+        boolean admin_network 
+        integer vni_id 
+        character_varying controller_state_version 
+        jsonb controller_state 
     }
 
     machine_interfaces {
@@ -130,15 +139,6 @@ erDiagram
         uuid target_id FK
     }
 
-    network_prefixes {
-        uuid id PK
-        uuid segment_id FK
-        cidr prefix 
-        inet gateway 
-        integer num_reserved 
-        text circuit_id 
-    }
-
     dhcp_entries {
         uuid machine_interface_id PK
         character_varying vendor_string PK
@@ -148,13 +148,6 @@ erDiagram
         character_varying username 
         user_roles role 
         ARRAY pubkeys 
-    }
-
-    instance_addresses {
-        uuid id 
-        uuid instance_id FK
-        text circuit_id 
-        inet address 
     }
 
     machine_console_metadata {
@@ -194,26 +187,49 @@ erDiagram
         timestamp_with_time_zone last_updated 
     }
 
+    instance_addresses {
+        uuid id 
+        uuid instance_id FK
+        text circuit_id 
+        inet address 
+    }
+
     network_segments_controller_lock {
         uuid id 
     }
 
-    machines }o--|| vpc_resource_leafs : "vpc_leaf_id"
+    machine_state_history {
+        bigint id PK
+        uuid machine_id FK
+        jsonb state 
+        character_varying state_version 
+        timestamp_with_time_zone timestamp 
+    }
+
+    network_segment_state_history {
+        bigint id PK
+        uuid segment_id 
+        jsonb state 
+        character_varying state_version 
+        timestamp_with_time_zone timestamp 
+    }
+
     machines }o--|| instance_types : "supported_instance_type"
+    machines }o--|| vpc_resource_leafs : "vpc_leaf_id"
     instances }o--|| machines : "machine_id"
     machine_topologies |o--|| machines : "machine_id"
-    machine_events }o--|| machines : "machine_id"
     machine_interfaces }o--|| machines : "attached_dpu_machine_id"
     machine_interfaces }o--|| machines : "machine_id"
     tags_machine }o--|| machines : "target_id"
     machine_console_metadata }o--|| machines : "machine_id"
+    machine_state_history }o--|| machines : "machine_id"
     instance_addresses }o--|| instances : "instance_id"
+    machine_interfaces }o--|| domains : "domain_id"
     network_segments }o--|| domains : "subdomain_id"
     network_segments }o--|| vpcs : "vpc_id"
     network_prefixes }o--|| network_segments : "segment_id"
     machine_interfaces }o--|| network_segments : "segment_id"
     tags_networksegment }o--|| network_segments : "target_id"
-    machine_interfaces }o--|| domains : "domain_id"
     machine_interface_addresses }o--|| machine_interfaces : "interface_id"
     dhcp_entries }o--|| machine_interfaces : "machine_interface_id"
     tags_networksegment }o--|| tags : "tag_id"
