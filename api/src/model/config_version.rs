@@ -142,7 +142,8 @@ fn now() -> DateTime<Utc> {
     let round = now.as_nanos() % 1000;
     now -= Duration::from_nanos(round as _);
 
-    let naive = NaiveDateTime::from_timestamp(now.as_secs() as i64, now.subsec_nanos());
+    let naive = NaiveDateTime::from_timestamp_opt(now.as_secs() as i64, now.subsec_nanos())
+        .expect("out-of-range number of seconds and/or invalid nanosecond");
     DateTime::from_utc(naive, Utc)
 }
 
@@ -151,6 +152,8 @@ fn now() -> DateTime<Utc> {
 pub enum ParseConfigVersionError {
     #[error("Invalid version format: {0}")]
     InvalidVersionFormat(String),
+    #[error("Invalid date time: {0}, {1}")]
+    InvalidDateTime(i64, u32),
 }
 
 impl FromStr for ConfigVersion {
@@ -191,10 +194,17 @@ impl FromStr for ConfigVersion {
         let secs = timestamp / 1_000_000;
         let usecs = timestamp % 1_000_000;
 
-        let timestamp = DateTime::from_utc(
-            NaiveDateTime::from_timestamp(secs as i64, (usecs * 1000) as u32),
-            Utc,
-        );
+        let datetime = match NaiveDateTime::from_timestamp_opt(secs as i64, (usecs * 1000) as u32) {
+            Some(ndt) => ndt,
+            None => {
+                return Err(ParseConfigVersionError::InvalidDateTime(
+                    secs as i64,
+                    (usecs * 1000) as u32,
+                ))
+            }
+        };
+
+        let timestamp = DateTime::from_utc(datetime, Utc);
 
         Ok(Self {
             version_nr,
