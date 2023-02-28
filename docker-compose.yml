@@ -226,24 +226,6 @@ services:
       - CARGO_HOME=/docker_cargo_home
     command: cargo watch -C dns -x "run --target-dir /tmp/carbide-dns -- run --carbide-url=http://172.20.0.14:1079"
 
-  ipmi-console:
-    depends_on:
-      - carbide-db-migrations
-      - postgresql
-    build: api
-    networks:
-      carbide:
-        ipv4_address: 172.20.0.21
-    volumes:
-      - $HOME/docker_cargo_home:/docker_cargo_home
-      - .:/app/code
-      - ca-certificate:/identity
-    environment:
-      - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C ipmi/console -x "run --target-dir /tmp/ipmi-console -- run --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem' --listen='0.0.0.0:2222' --api-endpoint='http://172.20.0.14:1079'"
-    ports:
-      - 2222:2222
-
   prometheus:
     image: prom/prometheus:v2.41.0
     container_name: prometheus
