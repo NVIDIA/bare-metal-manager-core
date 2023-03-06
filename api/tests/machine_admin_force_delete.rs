@@ -97,9 +97,9 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
         .unwrap()
         .is_none());
 
-    // The history should be gone
+    // The history should remain in table.
     assert!(
-        MachineStateHistory::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        !MachineStateHistory::find_by_machine_ids(&mut txn, &[dpu_machine_id])
             .await
             .unwrap()
             .is_empty()
