@@ -20,6 +20,7 @@ use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use serde::{Deserialize, Serialize};
 use sqlx::{self, PgPool};
 use sqlxmq::{job, CurrentJob, JobRegistry, OwnedHandle};
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::bg::{CurrentState, Status, TaskState};
@@ -35,7 +36,9 @@ pub enum IpmiTask {
     PowerControl(libredfish::SystemPowerControl),
     EnableLockdown,
     DisableLockdown,
+    LockdownStatus,
     SetupSerialConsole,
+    SerialConsoleStatus,
     FirstBootDevice(libredfish::Boot, bool),
 }
 
@@ -260,6 +263,23 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                         }
                     }
                 }
+                IpmiTask::LockdownStatus => match redfish.lockdown_status() {
+                    Ok(status) => {
+                        let res = if status.is_fully_enabled() {
+                            "Enabled"
+                        } else if status.is_fully_disabled() {
+                            "Disabled"
+                        } else {
+                            debug!("lockdown partially enabled: {}", status.message());
+                            "Partial"
+                        };
+                        Ok(res.to_string())
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Failed to fetch lockdown status: {}", e);
+                        return Err(CarbideError::GenericError(error_msg));
+                    }
+                },
                 IpmiTask::SetupSerialConsole => {
                     match redfish.setup_serial_console() {
                         Ok(()) => {}
@@ -276,6 +296,23 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
                         }
                     }
                 }
+                IpmiTask::SerialConsoleStatus => match redfish.serial_console_status() {
+                    Ok(status) => {
+                        let res = if status.is_fully_enabled() {
+                            "Enabled"
+                        } else if status.is_fully_disabled() {
+                            "Disabled"
+                        } else {
+                            debug!("serial console partially enabled: {}", status.message());
+                            "Partial"
+                        };
+                        Ok(res.to_string())
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Failed to fetch serial console status: {}", e);
+                        return Err(CarbideError::GenericError(error_msg));
+                    }
+                },
                 IpmiTask::FirstBootDevice(device, only_once) => {
                     if only_once {
                         redfish.boot_once(device)?;

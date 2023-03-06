@@ -105,7 +105,9 @@ impl IpmiCommandHandler for TestIpmiCommandHandler {
             IpmiTask::Status => Ok("Status".to_string()),
             IpmiTask::EnableLockdown => Ok("Enable Lockdown".to_string()),
             IpmiTask::DisableLockdown => Ok("Disable Lockdown".to_string()),
+            IpmiTask::LockdownStatus => Ok("Lockdown Status".to_string()),
             IpmiTask::SetupSerialConsole => Ok("Setup Serial Console".to_string()),
+            IpmiTask::SerialConsoleStatus => Ok("Serial Console Status Status".to_string()),
             IpmiTask::FirstBootDevice(_device, _once) => Ok("First Boot Device".to_string()),
         }
     }
