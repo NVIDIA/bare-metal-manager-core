@@ -5,3 +5,4 @@ mkosi.extra/carbide/forge_*.pem
 mkosi/builddir/
 .mkosi-*/
 static/blobs/*
+mkosi.extra/carbide/*
