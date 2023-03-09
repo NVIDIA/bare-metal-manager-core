@@ -31,17 +31,17 @@ DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuProductName234/HostProdu
 DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuSysVendor234/HostSysVendor234}
 
 RESULT=$(echo "$DISCOVER_MACHINE_REQUEST" | grpcurl -d @ -plaintext 127.0.0.1:1079 forge.Forge/DiscoverMachine)
-HOST_MACHINE_ID=$(echo "$RESULT" | jq ".machineId.value" | tr -d '"')
-grpcurl -d "{\"machine_id\": {\"value\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ForgeAgentControl
+HOST_MACHINE_ID=$(echo "$RESULT" | jq ".machineId.id" | tr -d '"')
+grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ForgeAgentControl
 
 # Give it a BMC IP and credentials
-grpcurl -d "{\"machine_id\": {\"value\": \"$HOST_MACHINE_ID\"}, \"ip\": \"host.docker.internal:1266\", \"data\": [{\"user\": \"forge_admin\", \"password\": \"notforprod\", \"role\": 1}], \"request_type\": 1 }" -plaintext 127.0.0.1:1079 forge.Forge/UpdateBMCMetaData
+grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"ip\": \"host.docker.internal:1266\", \"data\": [{\"user\": \"forge_admin\", \"password\": \"notforprod\", \"role\": 1}], \"request_type\": 1 }" -plaintext 127.0.0.1:1079 forge.Forge/UpdateBMCMetaData
 echo "Created HOST Machine with ID $HOST_MACHINE_ID"
 
 # Mark discovery complete
-RESULT=$(grpcurl -d "{\"machine_id\": {\"value\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/DiscoveryCompleted)
+RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/DiscoveryCompleted)
 
 echo "Waiting for machine to process host state to Discovered."
 #sleep 60;
 
-grpcurl -d "{\"machine_id\": {\"value\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ForgeAgentControl
+grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ForgeAgentControl

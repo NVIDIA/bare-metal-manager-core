@@ -38,7 +38,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 ///
-/// A parameter to find() to filter machines by Uuid;
+/// A parameter to find() to filter resources by Uuid;
 ///
 pub enum UuidKeyedObjectFilter<'a> {
     /// Don't filter by uuid
@@ -47,7 +47,7 @@ pub enum UuidKeyedObjectFilter<'a> {
     /// Filter by a list of uuids
     List(&'a [uuid::Uuid]),
 
-    /// Retrieve a single machine
+    /// Retrieve a single resource
     One(uuid::Uuid),
 }
 

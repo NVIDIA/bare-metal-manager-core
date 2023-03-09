@@ -25,7 +25,7 @@ pub struct VpcResourceLeaf {
     loopback_ip_address: Option<IpAddr>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct NewVpcResourceLeaf {
     dpu_machine_id: uuid::Uuid,
 }
@@ -94,7 +94,7 @@ impl VpcResourceLeaf {
         Ok(leaf)
     }
 
-    /// Returns the UUID of the machine object
+    /// Returns the ID of the machine object
     pub fn id(&self) -> &uuid::Uuid {
         &self.id
     }

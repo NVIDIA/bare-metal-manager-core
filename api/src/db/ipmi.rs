@@ -21,6 +21,7 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use super::DatabaseError;
+use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
@@ -113,11 +114,11 @@ impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
     type Error = CarbideError;
 
     fn try_from(value: rpc::BmcMetaDataGetRequest) -> Result<Self, Self::Error> {
-        let uuid = value
+        let machine_id = value
             .machine_id
             .ok_or_else(|| CarbideError::GenericError("Machine id is null".to_string()))?;
         Ok(BmcMetaDataGetRequest {
-            machine_id: Uuid::try_from(uuid)?,
+            machine_id: try_parse_machine_id(&machine_id)?,
             role: UserRoles::from(match rpc::UserRoles::from_i32(value.role) {
                 Some(x) => x,
                 None => {
@@ -179,9 +180,9 @@ impl BmcMetaDataGetRequest {
 
 impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
     type Error = CarbideError;
-    fn try_from(value: rpc::BmcMetaDataUpdateRequest) -> CarbideResult<Self> {
+    fn try_from(request: rpc::BmcMetaDataUpdateRequest) -> CarbideResult<Self> {
         let mut data: Vec<BmcMetadataItem> = Vec::new();
-        for v in value.data {
+        for v in request.data {
             let role = UserRoles::from(rpc::UserRoles::from_i32(v.role).ok_or_else(|| {
                 CarbideError::GenericError(format!("Can't convert role: {:?}", v.role))
             })?);
@@ -193,18 +194,13 @@ impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
         }
 
         Ok(BmcMetaDataUpdateRequest {
-            machine_id: match value.machine_id {
-                Some(x) => match uuid::Uuid::try_from(x) {
-                    Ok(uuid) => uuid,
-                    Err(err) => {
-                        return Err(CarbideError::GenericError(err.to_string()));
-                    }
-                },
+            machine_id: match request.machine_id {
+                Some(id) => try_parse_machine_id(&id)?,
                 _ => {
                     return Err(CarbideError::GenericError("Machine id is null".to_string()));
                 }
             },
-            ip: value.ip.clone(),
+            ip: request.ip.clone(),
             data,
         })
     }

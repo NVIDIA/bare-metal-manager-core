@@ -33,7 +33,7 @@ where
 
 pub async fn get_machine(id: String, server: String) -> CarbideCliResult<rpc::Machine> {
     with_forge_client(server, |mut client| async move {
-        let request = tonic::Request::new(rpc::Uuid { value: id });
+        let request = tonic::Request::new(rpc::MachineId { id });
         let machine_details = client
             .get_machine(request)
             .await
@@ -86,7 +86,7 @@ pub async fn get_instances_by_machine_id(
     id: String,
 ) -> CarbideCliResult<rpc::InstanceList> {
     with_forge_client(server, |mut client| async move {
-        let request = tonic::Request::new(rpc::Uuid { value: id });
+        let request = tonic::Request::new(rpc::MachineId { id });
         let instance_details = client
             .find_instance_by_machine_id(request)
             .await

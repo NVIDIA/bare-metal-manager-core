@@ -17,7 +17,7 @@ use uname::uname;
 
 use crate::CarbideClientError;
 
-pub async fn run(forge_api: &str, machine_id: uuid::Uuid) -> Result<(), CarbideClientError> {
+pub async fn run(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientError> {
     if let Err(err) = crate::users::create_users(forge_api.to_string(), machine_id).await {
         log::error!("Error while setting up users. {}", err.to_string());
     }
@@ -32,10 +32,10 @@ pub async fn run(forge_api: &str, machine_id: uuid::Uuid) -> Result<(), CarbideC
     Ok(())
 }
 
-pub async fn completed(forge_api: &str, machine_id: uuid::Uuid) -> Result<(), CarbideClientError> {
+pub async fn completed(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientError> {
     let mut client = rpc::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
     let request = tonic::Request::new(rpc::MachineDiscoveryCompletedRequest {
-        machine_id: Some(machine_id.into()),
+        machine_id: Some(machine_id.to_string().into()),
     });
     client.discovery_completed(request).await?;
     Ok(())

@@ -46,7 +46,7 @@ pub const FIXTURE_DPU_HBN_PASSWORD: &str = "a9123";
 /// Creates a Machine Interface and Machine for a DPU
 ///
 /// Returns the ID of the created machine
-pub async fn create_dpu_machine(env: &TestEnv) -> rpc::Uuid {
+pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
     let dpu_machine_id = dpu_discover_machine(env, machine_interface_id).await;
 
@@ -97,7 +97,10 @@ pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
 
 /// Emulates DPU Machine Discovery (submitting hardware information) for the
 /// DPU that uses a certain `machine_interface_id`
-pub async fn dpu_discover_machine(env: &TestEnv, machine_interface_id: rpc::Uuid) -> rpc::Uuid {
+pub async fn dpu_discover_machine(
+    env: &TestEnv,
+    machine_interface_id: rpc::Uuid,
+) -> rpc::MachineId {
     let response = env
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {
@@ -116,7 +119,7 @@ pub async fn dpu_discover_machine(env: &TestEnv, machine_interface_id: rpc::Uuid
 /// Emulates the `UpdateBmcMetaData` request of a DPU
 pub async fn update_dpu_bmc_metadata(
     env: &TestEnv,
-    dpu_machine_id: rpc::Uuid,
+    dpu_machine_id: rpc::MachineId,
     dpu_bmc_ip_address: &str,
 ) {
     let _response = env
@@ -137,7 +140,7 @@ pub async fn update_dpu_bmc_metadata(
 }
 
 /// Emulates the `UpdateMachineCredentials` request of a DPU
-pub async fn update_dpu_machine_credentials(env: &TestEnv, dpu_machine_id: rpc::Uuid) {
+pub async fn update_dpu_machine_credentials(env: &TestEnv, dpu_machine_id: rpc::MachineId) {
     let _response = env
         .api
         .update_machine_credentials(Request::new(MachineCredentialsUpdateRequest {
@@ -161,7 +164,7 @@ pub async fn update_dpu_machine_credentials(env: &TestEnv, dpu_machine_id: rpc::
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU
-pub async fn dpu_discovery_completed(env: &TestEnv, dpu_machine_id: rpc::Uuid) {
+pub async fn dpu_discovery_completed(env: &TestEnv, dpu_machine_id: rpc::MachineId) {
     let _response = env
         .api
         .discovery_completed(Request::new(MachineDiscoveryCompletedRequest {

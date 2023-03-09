@@ -32,8 +32,9 @@ pub use crate::protos::forge::{
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
     InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
     InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
-    MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment, NetworkSegmentList,
-    ObservedInstanceNetworkStatusRecordResult, SyncState, TenantConfig, TenantState, Uuid,
+    MachineId, MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment,
+    NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, SyncState, TenantConfig,
+    TenantState, Uuid,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
@@ -209,6 +210,12 @@ impl From<uuid::Uuid> for forge::Uuid {
     }
 }
 
+impl From<String> for forge::MachineId {
+    fn from(machine_id: String) -> forge::MachineId {
+        forge::MachineId { id: machine_id }
+    }
+}
+
 impl TryFrom<forge::Uuid> for uuid::Uuid {
     type Error = uuid::Error;
     fn try_from(uuid: Uuid) -> Result<Self, Self::Error> {
@@ -229,6 +236,23 @@ impl Display for forge::Uuid {
             Ok(uuid) => write!(f, "{}", uuid),
             Err(err) => write!(f, "<uuid error: {}>", err),
         }
+    }
+}
+
+impl Display for forge::MachineId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.id.fmt(f)
+    }
+}
+
+/// Custom Serializer implementation which omits the notion of the wrapper in gRPC
+/// and just serializes the MachineId itself
+impl serde::Serialize for forge::MachineId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.id.serialize(serializer)
     }
 }
 
@@ -264,6 +288,12 @@ mod tests {
             "\"1970-01-01T00:00:00Z\"",
             serde_json::to_string(&proto_ts).unwrap()
         );
+    }
+
+    #[test]
+    fn test_serialize_machine_id_as_json() {
+        let id = MachineId::from("fms100ABCD".to_string());
+        assert_eq!("\"fms100ABCD\"", serde_json::to_string(&id).unwrap());
     }
 
     /// Test to check that serializing a type with a custom Timestamp implementation works

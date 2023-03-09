@@ -75,11 +75,11 @@ struct IpmiInfo {
 impl IpmiInfo {
     fn convert(
         value: Vec<IpmiInfo>,
-        machine_id: uuid::Uuid,
+        machine_id: &str,
         ip: String,
     ) -> Result<rpc::BmcMetaDataUpdateRequest, CarbideClientError> {
         let mut bmc_meta_data = rpc::BmcMetaDataUpdateRequest {
-            machine_id: Some(machine_id.into()),
+            machine_id: Some(machine_id.to_string().into()),
             ip,
             data: Vec::new(),
             request_type: rpc::BmcRequestType::Ipmi as i32,
@@ -378,10 +378,7 @@ fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String)> {
     ))
 }
 
-pub async fn update_ipmi_creds(
-    forge_api: String,
-    machine_id: uuid::Uuid,
-) -> CarbideClientResult<()> {
+pub async fn update_ipmi_creds(forge_api: String, machine_id: &str) -> CarbideClientResult<()> {
     if IN_QEMU_VM.read().await.in_qemu {
         return Ok(());
     }

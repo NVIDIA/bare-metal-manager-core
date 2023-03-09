@@ -13,7 +13,7 @@ use std::convert::TryFrom;
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
-use ::rpc::protos::common::forge::TenantState;
+use ::rpc::protos::forge::TenantState;
 use chrono::prelude::*;
 use futures::StreamExt;
 use ipnetwork::{IpNetwork, IpNetworkError};

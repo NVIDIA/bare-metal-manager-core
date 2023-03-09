@@ -12,10 +12,13 @@
 
 use log::LevelFilter;
 
-use carbide::db::{
-    machine::Machine, machine_interface::MachineInterface,
-    machine_state_history::MachineStateHistory, machine_topology::MachineTopology,
-    vpc_resource_leaf::VpcResourceLeaf,
+use carbide::{
+    db::{
+        machine::Machine, machine_interface::MachineInterface,
+        machine_state_history::MachineStateHistory, machine_topology::MachineTopology,
+        vpc_resource_leaf::VpcResourceLeaf,
+    },
+    model::machine::machine_id::try_parse_machine_id,
 };
 
 use ::rpc::forge::{forge_server::Forge, AdminForceDeleteMachineRequest};
@@ -37,7 +40,7 @@ fn setup() {
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone(), Default::default());
 
-    let dpu_machine_id: uuid::Uuid = create_dpu_machine(&env).await.try_into().unwrap();
+    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
 
     let mut txn = pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine_id)
@@ -82,7 +85,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let response = env
         .api
         .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-            id: Some(dpu_machine_id.into()),
+            id: Some(dpu_machine_id.to_string().into()),
             fqdn: None,
         }))
         .await

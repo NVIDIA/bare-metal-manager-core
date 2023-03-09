@@ -3,13 +3,12 @@ use ::rpc::forge::{
     machine_credentials_update_request::Credentials, MachineCredentialsUpdateRequest,
     MachineCredentialsUpdateResponse,
 };
-use ::rpc::Uuid;
 use forge_credentials::{CredentialKey, CredentialProvider};
 
 use crate::{CarbideError, CarbideResult};
 
 pub struct UpdateCredentials {
-    machine_id: Uuid,
+    machine_id: ::rpc::MachineId,
     credentials: Vec<Credentials>,
 }
 

@@ -17,7 +17,10 @@ pub mod ipxe;
 pub struct RpcContext;
 
 impl RpcContext {
-    async fn get_pxe_instructions(machine_id: rpc::Uuid, url: String) -> Result<String, String> {
+    async fn get_pxe_instructions(
+        machine_id: rpc::MachineId,
+        url: String,
+    ) -> Result<String, String> {
         let mut client = rpc::forge_client::ForgeClient::connect(url)
             .await
             .map_err(|err| err.to_string())?;
@@ -34,7 +37,10 @@ impl RpcContext {
             })
     }
 
-    async fn get_instance(machine_id: rpc::Uuid, url: String) -> Result<rpc::Instance, String> {
+    async fn get_instance(
+        machine_id: rpc::MachineId,
+        url: String,
+    ) -> Result<rpc::Instance, String> {
         match rpc::forge_client::ForgeClient::connect(url).await {
             Ok(mut client) => {
                 let request = tonic::Request::new(machine_id.clone());

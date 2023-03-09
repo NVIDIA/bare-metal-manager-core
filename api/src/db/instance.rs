@@ -262,7 +262,10 @@ impl DeleteInstance {
     ) -> CarbideResult<Instance> {
         if Instance::find(&mut *txn, UuidKeyedObjectFilter::One(self.instance_id))
             .await
-            .map_err(|_| CarbideError::NotFoundError("instance".to_string(), self.instance_id))?
+            .map_err(|_| CarbideError::NotFoundError {
+                kind: "instance",
+                id: self.instance_id.to_string(),
+            })?
             .is_empty()
         {
             return Err(CarbideError::FindOneReturnedNoResultsError(

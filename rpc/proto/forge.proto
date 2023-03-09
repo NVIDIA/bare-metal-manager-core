@@ -38,7 +38,7 @@ service Forge {
   // Note: This is commented because we will not immediately implement the method
   // rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
   rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
-  rpc FindInstanceByMachineID(UUID) returns (InstanceList);
+  rpc FindInstanceByMachineID(MachineId) returns (InstanceList);
 
   // INTERNAL: RPC method is used between Site Controller components,
   // and for testing
@@ -62,7 +62,7 @@ service Forge {
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
 
   // PRIVILEGED: Get a single machine
-  rpc GetMachine(UUID) returns (Machine);
+  rpc GetMachine(MachineId) returns (Machine);
 
   // PRIVILEGED: Find a list of machines
   rpc FindMachines(MachineSearchQuery) returns (MachineList);
@@ -106,7 +106,7 @@ service Forge {
   // List all or one security group binds.
   rpc ListSecurityGroupBinds(SecurityGroupBindQuery) returns(SecurityGroupBindList);
 
-  rpc GetPxeInstructions(UUID) returns (PxeInstructions);
+  rpc GetPxeInstructions(MachineId) returns (PxeInstructions);
   rpc Echo(EchoRequest) returns (EchoResponse);
 
   // Admin CLI actions
@@ -131,6 +131,10 @@ service Forge {
   // Reboot a machine and boot into PXE
   rpc AdminReboot(AdminRebootRequest) returns (AdminRebootResponse);
 
+}
+
+message MachineId {
+  string id = 1;
 }
 
 message EchoRequest {
@@ -376,7 +380,7 @@ enum InstanceTypeCapabilities {
 }
 
 message InstancePowerRequest {
-  UUID machine_id = 1;
+  MachineId machine_id = 1;
   enum Operation {
     POWER_RESET = 0;
   }
@@ -417,7 +421,7 @@ message InstanceAllocationRequest {
   // The Machine on top of which we create an Instance
   // If we go towards "we already have instances model", this would become more of a
   // AssignInstanceToTenant request, and the ID would be the instance_id
-  UUID machine_id = 1;
+  MachineId machine_id = 1;
 
   // Desired configuration for the allocated instance
   InstanceConfig config = 2;
@@ -549,7 +553,7 @@ message Instance {
   // Instance ID
   UUID id = 1;
   // The ID of the machine which is utilized for this Instance
-  UUID machine_id = 2;
+  MachineId machine_id = 2;
 
   // The desired configuration on the instance
   InstanceConfig config = 103;
@@ -604,7 +608,7 @@ message InstanceReleaseResult {
 }
 
 message MachineSearchQuery {
-  optional UUID id = 1;
+  optional MachineId id = 1;
   optional string fqdn = 2;
 }
 
@@ -621,7 +625,7 @@ message InterfaceSearchQuery {
 }
 
 message Machine {
-  UUID id = 1;
+  MachineId id = 1;
 
   google.protobuf.Timestamp created = 4;
   google.protobuf.Timestamp updated = 5;
@@ -664,7 +668,7 @@ enum MachineArchitecture {
 
 message MachineEvent {
   int64 id = 1;
-  UUID  machine_id = 2;
+  MachineId machine_id = 2;
 
   string event = 3;
 
@@ -673,8 +677,8 @@ message MachineEvent {
 
 message MachineInterface {
   UUID id = 1;
-  optional UUID attached_dpu_machine_id = 2;
-  UUID machine_id = 3;
+  optional MachineId attached_dpu_machine_id = 2;
+  MachineId machine_id = 3;
   UUID segment_id = 4;
 
   string hostname = 5;
@@ -696,7 +700,7 @@ message DhcpDiscovery {
 }
 
 message DhcpRecord {
-  UUID machine_id = 1;
+  MachineId machine_id = 1;
   UUID machine_interface_id = 2;
   UUID segment_id = 3;
   UUID subdomain_id = 4;
@@ -828,7 +832,7 @@ enum BMCRequestType {
 }
 
 message BMCMetaDataGetRequest {
-    UUID machine_id = 1;
+    MachineId machine_id = 1;
     UserRoles role = 2;
     BMCRequestType request_type = 3;
 }
@@ -846,7 +850,7 @@ message BMCMetaDataUpdateRequest {
         string password = 4;
     }
 
-    UUID machine_id = 1;
+    MachineId machine_id = 1;
     string ip = 2;
     repeated DataItem data = 3;
     BMCRequestType request_type = 4;
@@ -865,14 +869,14 @@ message MachineCredentialsUpdateRequest {
         CredentialPurpose credential_purpose = 3;
     }
 
-    UUID machine_id = 4;
+    MachineId machine_id = 4;
     repeated Credentials credentials = 5;
 }
 
 message MachineCredentialsUpdateResponse {}
 
 message ForgeAgentControlRequest {
-    UUID machine_id = 1;
+    MachineId machine_id = 1;
 }
 
 message ForgeAgentControlResponse {
@@ -893,7 +897,7 @@ message MachineDiscoveryInfo {
 }
 
 message MachineDiscoveryCompletedRequest {
-	UUID machine_id = 1;
+	MachineId machine_id = 1;
 }
 
 message MachineCleanupInfo {
@@ -907,7 +911,7 @@ message MachineCleanupInfo {
 		string message = 2;
 	}
 
-	UUID machine_id = 1;
+	MachineId machine_id = 1;
 
 	// NVMe Cleanup Result
 	CleanupStepResult nvme = 2;
@@ -921,7 +925,7 @@ message MachineCleanupInfo {
 
 message MachineDiscoveryResult {
   // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
-  UUID machine_id = 1;
+  MachineId machine_id = 1;
 }
 
 message MachineDiscoveryCompletedResponse { }

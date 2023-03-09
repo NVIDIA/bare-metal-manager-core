@@ -18,14 +18,14 @@ use prettytable::{row, Table};
 use crate::cfg::carbide_options::ForceDeleteMachineQuery;
 
 use super::cfg::carbide_options::ShowMachine;
-use super::{default_uuid, rpc, CarbideCliResult};
+use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
 
 fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResult<String> {
     let width = 10;
     let mut lines = String::new();
 
     let data = vec![
-        ("ID", machine.id.clone().unwrap_or_default().value),
+        ("ID", machine.id.clone().unwrap_or_default().id),
         (
             "CREATED",
             machine.created.clone().unwrap_or_default().to_string(),
@@ -87,7 +87,7 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
                     interface
                         .attached_dpu_machine_id
                         .clone()
-                        .unwrap_or_else(default_uuid)
+                        .unwrap_or_else(default_machine_id)
                         .to_string(),
                 ),
                 (
@@ -95,7 +95,7 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
                     interface
                         .machine_id
                         .clone()
-                        .unwrap_or_else(default_uuid)
+                        .unwrap_or_else(default_machine_id)
                         .to_string(),
                 ),
                 (

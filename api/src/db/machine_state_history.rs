@@ -38,13 +38,13 @@ pub struct MachineStateHistory {
     timestamp: DateTime<Utc>,
 }
 
-/// Conversion from a MachineEvent object into a Protocol buffer representation for transmission
+/// Conversion from a MachineStateHistory object into a Protocol buffer representation for transmission
 /// over the wire.
 impl From<MachineStateHistory> for rpc::MachineEvent {
     fn from(event: MachineStateHistory) -> rpc::MachineEvent {
         rpc::MachineEvent {
             id: event.id,
-            machine_id: Some(event.machine_id.into()),
+            machine_id: Some(event.machine_id.to_string().into()),
             time: Some(event.timestamp.into()),
             event: event.state.to_string(),
         }
