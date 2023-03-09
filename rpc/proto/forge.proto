@@ -243,7 +243,7 @@ message VpcUpdateRequest {
 
   // CR question: To avoid the duplication between VpcUpdateRequest and
   // VpcCreationRequest and Vpc - we could move all user configurable fields into
-  // a `message VpcConfig/VpcSettings`. Hwoever I don't feel like this would add
+  // a `message VpcConfig/VpcSettings`. However I don't feel like this would add
   // a lot for primitive types like Vpc.
 
   string name = 3;
@@ -451,7 +451,7 @@ message TenantConfig {
 
 // Desired configuration for an instance
 message InstanceConfig {
-  // Tenant related configuation.
+  // Tenant related configuration.
   // This field can be absent if the instance has not yet been allocated by
   // a tenant. On assignment, the config changes once. Due to the one-time
   // change no version field is required.
@@ -536,15 +536,15 @@ message InstanceNetworkStatus {
   // Note for the implementation: We need to monitor all these config versions
   // on the feedback path from DPU to carbide in order to know whether the
   // changes have indeed taken effect.
-  // TODO: Do we also want to show all applied versios here, or just track them
-  // internally? Probably not helpfor for tenants at all - but it could be helpful
+  // TODO: Do we also want to show all applied versions here, or just track them
+  // internally? Probably not help for for tenants at all - but it could be helpful
   // for the Forge operating team to debug settings that to do do not go in-sync
   // without having to attach to the database.
   SyncState configs_synced = 101;
 }
 
 // Contains all information about an actively running instance
-// This entails both the instace configuration, as well as the current state of the instance
+// This entails both the instance configuration, as well as the current state of the instance
 message Instance {
   // Instance ID
   UUID id = 1;
@@ -993,7 +993,7 @@ message InstanceNetworkStatusObservation {
   // date. Clients can set the timestamp to indicate that they provide a status
   // to the server that is based on an older observation (e.g. a cache). This
   // can help the server to decide whether the data that is acted upon might be
-  // oudated, and might not indicate that networking is still configured correctly.
+  // outdated, and might not indicate that networking is still configured correctly.
   optional google.protobuf.Timestamp observed_at = 3;
 
   // Status for each configured interface
@@ -1007,7 +1007,7 @@ message ObservedInstanceNetworkStatusRecordResult {
 // Observed status of a single network interface of an instance
 message InstanceInterfaceStatusObservation {
   // Whether the interface is a physical or virtual function
-  // In the case of a virtual function the associcated
+  // In the case of a virtual function the associated
   // `virtual_function_id` describes the ID of the interface
   InterfaceFunctionType function_type = 1;
 
