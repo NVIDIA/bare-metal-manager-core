@@ -13,6 +13,7 @@ FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04"
 BFB_NAME = "DOCA_1.5.1_BSP_3.9.3_Ubuntu_20.04-4.2211-LTS.signed.bfb"
+HBN_CONFIG_VERSION = "1.5.1v2"
 
 [tasks.build-boot-artifacts-x86_64]
 dependencies = [
@@ -371,9 +372,9 @@ category = "iPXE Kernel"
 description = "Add the HBN installer to the bfb"
 command = "wget"
 args = [
-	"https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/1.5.0/zip",
+	"https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/$HBN_CONFIG_VERSION/zip",
 	"-O",
-	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs_1.5.0.zip",
+	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs_$HBN_CONFIG_VERSION.zip",
 ]
 
 [tasks.move-forge-dpu-package-to-bfb]

@@ -12,7 +12,7 @@ bfb_modify_os()
 mkdir -p /mnt/opt/forge
 mv /forge-scout /mnt/opt/forge
 mv /forge-dpu_1.0-1.deb /mnt/opt/forge
-mv /doca_container_configs_1.5.0.zip /mnt/opt/forge
+mv /doca_container_configs_1.5.1v2.zip /mnt/opt/forge
 mv /forge_root.pem /mnt/opt/forge
 
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
@@ -161,12 +161,12 @@ runcmd:
   - [ /usr/bin/mlxconfig, -y, -d, /dev/mst/mt*_pciconf0, s, SRIOV_EN=True, NUM_OF_VFS=16, HIDE_PORT2_PF=True ]
   - [ dpkg, -i, /opt/forge/forge-dpu_1.0-1.deb ]
   - [ mkdir, -p, /opt/hbn_installer ]
-  - [ /usr/bin/unzip, /opt/forge/doca_container_configs_1.5.0.zip, -d, /opt/hbn_installer/ ]
+  - [ /usr/bin/unzip, /opt/forge/doca_container_configs_1.5.1v2.zip, -d, /opt/hbn_installer/ ]
   - [ chmod, +x, /opt/hbn_installer/scripts/doca_hbn/hbn-dpu-setup.sh]
   - [ cd, /opt/hbn_installer/scripts/doca_hbn ]
   - [ ip, vrf, exec, mgmt, /bin/bash, hbn-dpu-setup.sh ]
-  - [ cp, /opt/hbn_installer/configs/1.5.0/doca_hbn.yaml, /etc/kubelet.d/ ]
-  - [ cp, /opt/hbn_installer/configs/1.5.0/doca_telemetry.yaml, /etc/kubelet.d/ ]
+  - [ cp, /opt/hbn_installer/configs/1.5.1v2/doca_hbn.yaml, /etc/kubelet.d/ ]
+  - [ cp, /opt/hbn_installer/configs/1.5.1v2/doca_telemetry.yaml, /etc/kubelet.d/ ]
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
   - [ /usr/sbin/reboot ]
 EOF
