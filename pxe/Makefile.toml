@@ -372,9 +372,9 @@ category = "iPXE Kernel"
 description = "Add the HBN installer to the bfb"
 command = "wget"
 args = [
-	"https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/$HBN_CONFIG_VERSION/zip",
+	"https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/${HBN_CONFIG_VERSION}/zip",
 	"-O",
-	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs_$HBN_CONFIG_VERSION.zip",
+	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs_${HBN_CONFIG_VERSION}.zip",
 ]
 
 [tasks.move-forge-dpu-package-to-bfb]
