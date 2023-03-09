@@ -27,7 +27,7 @@ pub enum RegistrationError {
 #[derive(Debug, Clone)]
 pub struct RegistrationData {
     /// The machine ID under which this machine is known in Forge
-    pub machine_id: uuid::Uuid,
+    pub machine_id: String,
 }
 
 /// Registers a machine at the Forge API server for further interactions
@@ -59,12 +59,10 @@ pub async fn register_machine(
         })?
         .into_inner();
 
-    let machine_id: uuid::Uuid = uuid::Uuid::try_from(
-        response
-            .machine_id
-            .ok_or(RegistrationError::InvalidMachineId(machine_interface_id))?,
-    )
-    .map_err(|_| RegistrationError::InvalidMachineId(machine_interface_id))?;
+    let machine_id: String = response
+        .machine_id
+        .ok_or(RegistrationError::InvalidMachineId(machine_interface_id))?
+        .id;
 
     log::info!("Registered machine with ID {machine_id} for interface {machine_interface_id} at Forge API server");
 

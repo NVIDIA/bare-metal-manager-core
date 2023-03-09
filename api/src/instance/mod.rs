@@ -31,7 +31,7 @@ use crate::{
             config::{network::InterfaceFunctionId, InstanceConfig},
             snapshot::InstanceSnapshot,
         },
-        machine::MachineState,
+        machine::{machine_id::try_parse_machine_id, MachineState},
         ConfigValidationError, RpcDataConversionError,
     },
     state_controller::snapshot_loader::{
@@ -59,10 +59,11 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
     type Error = CarbideError;
 
     fn try_from(request: rpc::InstanceAllocationRequest) -> Result<Self, Self::Error> {
-        let machine_id = request
-            .machine_id
-            .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?
-            .try_into()?;
+        let machine_id = try_parse_machine_id(
+            &request
+                .machine_id
+                .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?,
+        )?;
         let config = request
             .config
             .ok_or(RpcDataConversionError::MissingArgument("config"))?;

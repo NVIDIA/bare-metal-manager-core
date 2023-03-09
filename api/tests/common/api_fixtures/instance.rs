@@ -45,7 +45,7 @@ pub async fn create_instance(
     // is requested
     let info = api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            machine_id: Some(FIXTURE_X86_MACHINE_ID.into()),
+            machine_id: Some(FIXTURE_X86_MACHINE_ID.to_string().into()),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(rpc::TenantConfig {
                     user_data: Some("SomeRandomData".to_string()),

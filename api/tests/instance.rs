@@ -30,20 +30,23 @@ use carbide::{
         instance_address::InstanceAddress,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
-    model::instance::{
-        config::{
-            network::{InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType},
-            tenant::{TenantConfig, TenantOrg},
-            InstanceConfig,
-        },
-        status::{
-            network::{
-                InstanceInterfaceStatus, InstanceInterfaceStatusObservation,
-                InstanceNetworkStatusObservation,
+    model::{
+        instance::{
+            config::{
+                network::{InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType},
+                tenant::{TenantConfig, TenantOrg},
+                InstanceConfig,
             },
-            tenant::TenantState,
-            SyncState,
+            status::{
+                network::{
+                    InstanceInterfaceStatus, InstanceInterfaceStatusObservation,
+                    InstanceNetworkStatusObservation,
+                },
+                tenant::TenantState,
+                SyncState,
+            },
         },
+        machine::machine_id::try_parse_machine_id,
     },
     state_controller::snapshot_loader::{
         DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
@@ -473,7 +476,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
     let dpu_machine_id = create_dpu_machine(&env).await;
 
     let request = InstanceAllocationRequest {
-        machine_id: dpu_machine_id.try_into().unwrap(),
+        machine_id: try_parse_machine_id(&dpu_machine_id).unwrap(),
         config: InstanceConfig {
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),

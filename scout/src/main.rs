@@ -73,16 +73,16 @@ async fn main() -> Result<(), color_eyre::Report> {
         Command::Discovery(Discovery { uuid }) | Command::AutoDetect(AutoDetect { uuid }) => {
             let machine_id = register::run(&config.api, uuid).await?;
 
-            match query_api(&config.api, machine_id).await? {
+            match query_api(&config.api, &machine_id).await? {
                 Action::Discovery => {
                     //This is temporary. All cleanup must be done when API call Reset.
                     deprovision::run_no_api();
 
-                    discovery::run(&config.api, machine_id).await?;
-                    discovery::completed(&config.api, machine_id).await?;
+                    discovery::run(&config.api, &machine_id).await?;
+                    discovery::completed(&config.api, &machine_id).await?;
                 }
                 Action::Reset => {
-                    deprovision::run(&config.api, machine_id).await?;
+                    deprovision::run(&config.api, &machine_id).await?;
                 }
                 Action::Rebuild => {
                     unimplemented!("Rebuild not written yet");
@@ -93,16 +93,16 @@ async fn main() -> Result<(), color_eyre::Report> {
 
         Command::Deprovision(d) => {
             let machine_id = register::run(&config.api, d.uuid).await?;
-            deprovision::run(&config.api, machine_id).await?;
+            deprovision::run(&config.api, &machine_id).await?;
         }
     }
     Ok(())
 }
 
 /// Ask API if we need to do anything after discovery.
-async fn query_api(forge_api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<Action> {
+async fn query_api(forge_api: &str, machine_id: &str) -> CarbideClientResult<Action> {
     let query = rpc_forge::ForgeAgentControlRequest {
-        machine_id: Some(machine_id.into()),
+        machine_id: Some(machine_id.to_string().into()),
     };
     let request = tonic::Request::new(query);
     let mut client = rpc_forge::forge_client::ForgeClient::connect(forge_api.to_string()).await?;

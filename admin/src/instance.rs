@@ -15,7 +15,7 @@ use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 
 use super::cfg::carbide_options::ShowInstance;
-use super::{default_uuid, rpc, CarbideCliResult};
+use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
 use crate::CarbideCliError;
 
 fn convert_instance_to_nice_format(
@@ -29,7 +29,7 @@ fn convert_instance_to_nice_format(
         ("ID", instance.id.clone().unwrap_or_default().value),
         (
             "MACHINE ID",
-            instance.machine_id.clone().unwrap_or_default().value,
+            instance.machine_id.clone().unwrap_or_default().id,
         ),
         (
             "TENANT ORG",
@@ -222,7 +222,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> String 
 
         table.add_row(row![
             instance.id.unwrap_or_default(),
-            instance.machine_id.unwrap_or_else(default_uuid),
+            instance.machine_id.unwrap_or_else(default_machine_id),
             tenant_org,
             tenant_state,
             configs_synced,

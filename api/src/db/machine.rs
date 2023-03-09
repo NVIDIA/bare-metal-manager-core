@@ -130,7 +130,7 @@ impl From<MachineId> for uuid::Uuid {
 impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
         rpc::Machine {
-            id: Some(machine.id.into()),
+            id: Some(machine.id.to_string().into()),
             created: Some(machine.created.into()),
             updated: Some(machine.updated.into()),
             deployed: machine.deployed.map(|ts| ts.into()),
@@ -218,10 +218,10 @@ impl Machine {
                         "Interface ID {} refers to missing machine {machine_id}",
                         interface.id()
                     );
-                    Err(CarbideError::NotFoundError(
-                        "machine".to_string(),
-                        machine_id,
-                    ))
+                    Err(CarbideError::NotFoundError {
+                        kind: "machine",
+                        id: machine_id.to_string(),
+                    })
                 }
             },
             // CREATE
@@ -312,7 +312,7 @@ SELECT m.id FROM
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    /// Returns the UUID of the machine object
+    /// Returns the ID of the machine object
     pub fn id(&self) -> &uuid::Uuid {
         &self.id
     }

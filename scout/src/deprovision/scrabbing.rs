@@ -322,9 +322,9 @@ fn cleanup_ram() -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-async fn do_cleanup(machine_id: uuid::Uuid) -> CarbideClientResult<rpc::MachineCleanupInfo> {
+async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
     let mut cleanup_result = rpc::MachineCleanupInfo {
-        machine_id: Some(machine_id.into()),
+        machine_id: Some(machine_id.to_string().into()),
         nvme: None,
         ram: None,
         mem_overwrite: None,
@@ -413,7 +413,7 @@ fn is_host() -> bool {
     true
 }
 
-pub async fn run(api: &str, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
+pub async fn run(api: &str, machine_id: &str) -> CarbideClientResult<()> {
     log::info!("full deprovision starts.");
     if !is_host() {
         // do not send API cleanup_machine_completed

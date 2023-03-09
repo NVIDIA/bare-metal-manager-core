@@ -13,12 +13,12 @@ use tokio::process::Command;
 
 use crate::{CarbideClientError, CarbideClientResult};
 
-pub async fn create_users(forge_api: String, machine_id: uuid::Uuid) -> CarbideClientResult<()> {
+pub async fn create_users(forge_api: String, machine_id: &str) -> CarbideClientResult<()> {
     let login_user_creds = create_login_user().await?;
     let hbn_user_creds = create_hbn_user().await?;
     let update_request = ::rpc::forge::MachineCredentialsUpdateRequest {
         credentials: vec![login_user_creds, hbn_user_creds],
-        machine_id: Some(machine_id.into()),
+        machine_id: Some(machine_id.to_string().into()),
     };
 
     let mut client = ForgeClient::connect(forge_api).await?;

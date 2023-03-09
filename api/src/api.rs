@@ -40,6 +40,7 @@ use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
 use crate::db::ipmi::UserRoles;
+use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::{
     auth, cfg,
     credentials::UpdateCredentials,
@@ -638,7 +639,7 @@ where
 
     async fn find_instance_by_machine_id(
         &self,
-        request: Request<rpc::Uuid>,
+        request: Request<rpc::MachineId>,
     ) -> Result<Response<InstanceList>, Status> {
         log_request_data(&request);
 
@@ -655,8 +656,8 @@ where
             ))
         })?;
 
-        let uuid = Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
-        let instance_id = Instance::find_id_by_machine_id(&mut txn, uuid)
+        let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
+        let instance_id = Instance::find_id_by_machine_id(&mut txn, machine_id)
             .await
             .map_err(CarbideError::from)?;
 
@@ -961,14 +962,14 @@ where
             .await
             .map(rpc::Machine::from)?;
 
-        let uuid = match &machine.id {
-            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+        let machine_id = match &machine.id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
                 return Err(Status::not_found("Missing machine"));
             }
         };
 
-        MachineTopology::create(&mut txn, &uuid, &hardware_info).await?;
+        MachineTopology::create(&mut txn, &machine_id, &hardware_info).await?;
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {
             machine_id: machine.id,
@@ -992,7 +993,7 @@ where
 
         // Extract and check UUID
         let machine_id = match &req.machine_id {
-            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
                 return Err(Status::invalid_argument("A machine UUID is required"));
             }
@@ -1048,7 +1049,7 @@ where
 
         // Extract and check UUID
         let machine_id = match &cleanup_info.machine_id {
-            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
                 return Err(Status::invalid_argument("A machine UUID is required"));
             }
@@ -1084,11 +1085,11 @@ where
 
     async fn get_machine(
         &self,
-        request: Request<rpc::Uuid>,
+        request: Request<rpc::MachineId>,
     ) -> Result<Response<rpc::Machine>, Status> {
         log_request_data(&request);
 
-        let machine_id = Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+        let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
         let (machine, _) = self.load_machine(machine_id).await?;
         Ok(Response::new(rpc::Machine::from(machine)))
     }
@@ -1108,17 +1109,9 @@ where
         let rpc::MachineSearchQuery { id, fqdn, .. } = request.into_inner();
         let machines = match (id, fqdn) {
             (Some(id), _) => {
-                let id = id;
-                let uuid = match Uuid::try_from(id) {
-                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                    Err(err) => {
-                        return Err(Status::invalid_argument(format!(
-                            "Invalid UUID supplied: {}",
-                            err
-                        )));
-                    }
-                };
-                Machine::find(&mut txn, uuid).await
+                let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
+                let filter = UuidKeyedObjectFilter::One(machine_id);
+                Machine::find(&mut txn, filter).await
             }
             (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, &fqdn).await,
             (None, None) => Machine::find(&mut txn, UuidKeyedObjectFilter::All).await,
@@ -1467,7 +1460,10 @@ where
             .await
             .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
                 Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
-                    CarbideError::NotFoundError("dpu-ssh-cred".to_string(), uuid)
+                    CarbideError::NotFoundError {
+                        kind: "dpu-ssh-cred",
+                        id: uuid.to_string(),
+                    }
                 }
                 Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
                 Err(err) => CarbideError::GenericError(format!(
@@ -1687,7 +1683,7 @@ where
 
     async fn get_pxe_instructions(
         &self,
-        request: Request<rpc::Uuid>,
+        request: Request<rpc::MachineId>,
     ) -> Result<Response<rpc::PxeInstructions>, Status> {
         log_request_data(&request);
 
@@ -1696,7 +1692,7 @@ where
                 CarbideError::DatabaseError(file!(), "begin get_pxe_instructions", e)
             })?;
 
-        let machine_id = Uuid::try_from(request.into_inner()).map_err(CarbideError::from)?;
+        let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
 
         let instance = Instance::find_by_machine_id(&mut txn, machine_id)
             .await
@@ -1729,12 +1725,11 @@ where
 
         use ::rpc::forge_agent_control_response::Action;
 
-        // Convert Option<rpc::Uuid> into uuid::Uuid
         let machine_id = match request.into_inner().machine_id {
-            Some(rpc_uuid) => Uuid::try_from(&rpc_uuid).map_err(CarbideError::from)?,
+            Some(id) => try_parse_machine_id(&id).map_err(CarbideError::from)?,
             None => {
-                log::warn!("forge agent control: missing uuid");
-                return Err(Status::invalid_argument("Missing machine UUID"));
+                log::warn!("forge agent control: missing machine ID");
+                return Err(Status::invalid_argument("Missing machine ID"));
             }
         };
 
@@ -2346,10 +2341,10 @@ where
             }
             Ok(None) => {
                 log::info!("no machine for {machine_id}");
-                return Err(CarbideError::NotFoundError(
-                    "machine".to_string(),
-                    machine_id,
-                ));
+                return Err(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: machine_id.to_string(),
+                });
             }
             Ok(Some(m)) => m,
         };

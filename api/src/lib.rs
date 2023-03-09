@@ -71,8 +71,13 @@ pub enum CarbideError {
     #[error("Uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
 
-    #[error("Uuid not found: {0}:{1}")]
-    NotFoundError(String, uuid::Uuid),
+    #[error("{kind} not found: {id}")]
+    NotFoundError {
+        /// The type of the resource that was not found (e.g. Machine)
+        kind: &'static str,
+        /// The ID of the resource that was not found
+        id: String,
+    },
 
     #[error("Argument is missing in input: {0}")]
     MissingArgument(&'static str),
@@ -244,8 +249,8 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
             CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
             CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
-            CarbideError::NotFoundError(kind, uuid) => {
-                Status::not_found(format!("missing {kind} {uuid}"))
+            CarbideError::NotFoundError { kind, id } => {
+                Status::not_found(format!("missing {kind} {id}"))
             }
             error @ CarbideError::ConcurrentModificationError(_, _) => {
                 Status::failed_precondition(error.to_string())
@@ -280,23 +285,3 @@ impl From<kube::Error> for CarbideError {
 /// assert!(matches!(do_something(), Err(CarbideError::GenericError(_))));
 /// ```
 pub type CarbideResult<T> = Result<T, CarbideError>;
-
-//pub fn network_to_host_ipv4(src: IpNetwork) -> CarbideResult<Ipv4Addr> {
-//    match src {
-//        IpNetwork::V4(network) => Ok(network.ip()),
-//        IpNetwork::V6(network) => Err(CarbideError::GenericError(format!(
-//            "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
-//            network
-//        ))),
-//    }
-//}
-//
-//pub fn network_to_host_ipv6(src: IpNetwork) -> CarbideResult<Ipv6Addr> {
-//    match src {
-//        IpNetwork::V6(network) => Ok(network.ip()),
-//        IpNetwork::V4(network) => Err(CarbideError::GenericError(format!(
-//            "IP address field in address_ipv4 ({}) is not an IPv4 subnet",
-//            network
-//        ))),
-//    }
-//}

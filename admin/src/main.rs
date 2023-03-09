@@ -63,6 +63,12 @@ pub fn default_uuid() -> forgerpc::Uuid {
     }
 }
 
+pub fn default_machine_id() -> forgerpc::MachineId {
+    forgerpc::MachineId {
+        id: "INVALID_MACHINE".to_string(),
+    }
+}
+
 fn get_carbide_api_url(carbide_api: Option<String>, config: Option<Config>) -> String {
     // First from command line, second env var.
     if let Some(carbide_api) = carbide_api {

@@ -185,11 +185,11 @@ mod tests {
             id: Some(rpc::Uuid {
                 value: interface_id.clone(),
             }),
-            attached_dpu_machine_id: Some(rpc::Uuid {
-                value: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
+            attached_dpu_machine_id: Some(rpc::MachineId {
+                id: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
             }),
-            machine_id: Some(rpc::Uuid {
-                value: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
+            machine_id: Some(rpc::MachineId {
+                id: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
             }),
             segment_id: None,
             hostname: "abc".to_string(),
@@ -210,8 +210,8 @@ mod tests {
                 deleted: None,
             },
             machine: Some(rpc::forge::Machine {
-                id: Some(rpc::Uuid {
-                    value: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
+                id: Some(rpc::MachineId {
+                    id: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
                 }),
                 created: None,
                 updated: None,

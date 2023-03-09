@@ -45,6 +45,8 @@ pub enum RpcDataConversionError {
     InvalidMacAddress(String),
     #[error("Version string {0} is not valid")]
     InvalidConfigVersion(String),
+    #[error("Machine ID {0} is not valid")]
+    InvalidMachineId(String),
     #[error("Timestamp {0} is not valid")]
     InvalidTimestamp(String),
     #[error("Tenant Org {0} is not valid")]

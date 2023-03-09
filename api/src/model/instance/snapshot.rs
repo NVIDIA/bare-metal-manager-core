@@ -51,7 +51,7 @@ impl TryFrom<InstanceSnapshot> for rpc::Instance {
 
         Ok(rpc::Instance {
             id: Some(snapshot.instance_id.into()),
-            machine_id: Some(snapshot.machine_id.into()),
+            machine_id: Some(snapshot.machine_id.to_string().into()),
             config: Some(snapshot.config.try_into()?),
             status: Some(status.try_into()?),
             network_config_version: snapshot.network_config_version.to_version_string(),

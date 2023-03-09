@@ -85,8 +85,10 @@ impl From<MachineInterface> for rpc::MachineInterface {
     fn from(machine_interface: MachineInterface) -> rpc::MachineInterface {
         rpc::MachineInterface {
             id: Some(machine_interface.id.into()),
-            attached_dpu_machine_id: machine_interface.attached_dpu_machine_id.map(|d| d.into()),
-            machine_id: machine_interface.machine_id.map(|v| v.into()),
+            attached_dpu_machine_id: machine_interface
+                .attached_dpu_machine_id
+                .map(|id| id.to_string().into()),
+            machine_id: machine_interface.machine_id.map(|id| id.to_string().into()),
             segment_id: Some(machine_interface.segment_id.into()),
             hostname: machine_interface.hostname,
             domain_id: machine_interface.domain_id.map(|d| d.into()),
@@ -166,7 +168,7 @@ impl MachineInterface {
             })
     }
 
-    /// Returns the UUID of the machine object
+    /// Returns the ID of the MachineInterface object
     pub fn id(&self) -> &uuid::Uuid {
         &self.id
     }
@@ -488,7 +490,10 @@ impl MachineInterface {
         MachineInterface::find_by_machine_ids(txn, &[machine_id])
             .await?
             .remove(&machine_id)
-            .ok_or_else(|| CarbideError::NotFoundError("interface".to_string(), machine_id))?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "interface",
+                id: machine_id.to_string(),
+            })?
             .into_iter()
             .filter(|m_intf| m_intf.primary_interface())
             .collect::<Vec<MachineInterface>>()

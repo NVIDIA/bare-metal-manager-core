@@ -19,7 +19,7 @@ use crate::CarbideClientError;
 pub async fn run(
     forge_api: &str,
     machine_interface_id: uuid::Uuid,
-) -> Result<uuid::Uuid, CarbideClientError> {
+) -> Result<String, CarbideClientError> {
     let hardware_info = enumerate_hardware()?;
     log::info!("Successfully enumerated hardware");
 

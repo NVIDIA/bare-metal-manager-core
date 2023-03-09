@@ -46,7 +46,7 @@ pub struct DhcpRecord {
 impl From<DhcpRecord> for rpc::DhcpRecord {
     fn from(record: DhcpRecord) -> Self {
         Self {
-            machine_id: record.machine_id.map(rpc::Uuid::from),
+            machine_id: record.machine_id.map(|id| id.to_string().into()),
             machine_interface_id: Some(record.machine_interface_id.into()),
             segment_id: Some(record.segment_id.into()),
             subdomain_id: record.subdomain_id.map(rpc::Uuid::from),
@@ -120,7 +120,7 @@ impl TryFrom<InstanceDhcpRecord> for rpc::DhcpRecord {
     type Error = CarbideError;
     fn try_from(record: InstanceDhcpRecord) -> CarbideResult<Self> {
         Ok(Self {
-            machine_id: record.machine_id.map(rpc::Uuid::from),
+            machine_id: record.machine_id.map(|id| id.to_string().into()),
             machine_interface_id: match record.function_id.ok_or_else(|| {
                 DhcpError::MissingCircuitIdForMachine(
                     record

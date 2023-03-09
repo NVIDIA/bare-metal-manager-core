@@ -27,6 +27,7 @@ use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::instance::Instance;
 use crate::db::ipmi::{BmcMetaDataGetRequest, UserRoles};
+use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::reachability::{wait_for_requested_state, PingReachabilityChecker, ReachabilityError};
 use crate::{CarbideError, CarbideResult};
 
@@ -557,7 +558,7 @@ impl TryFrom<rpc::InstancePowerRequest> for MachineBmcRequest {
             .ok_or(CarbideError::MissingArgument("UUID is missing."))?;
 
         Ok(MachineBmcRequest {
-            machine_id: uuid::Uuid::try_from(machine_id)?,
+            machine_id: try_parse_machine_id(&machine_id)?,
             operation: Operation::try_from(ipr.operation)?,
             boot_with_custom_ipxe: ipr.boot_with_custom_ipxe,
         })
