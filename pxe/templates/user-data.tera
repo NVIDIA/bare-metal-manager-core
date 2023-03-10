@@ -165,8 +165,8 @@ runcmd:
   - [ chmod, +x, /opt/hbn_installer/scripts/doca_hbn/hbn-dpu-setup.sh]
   - [ cd, /opt/hbn_installer/scripts/doca_hbn ]
   - [ ip, vrf, exec, mgmt, /bin/bash, hbn-dpu-setup.sh ]
-  - [ cp, /opt/hbn_installer/configs/1.5.1v2/doca_hbn.yaml, /etc/kubelet.d/ ]
-  - [ cp, /opt/hbn_installer/configs/1.5.1v2/doca_telemetry.yaml, /etc/kubelet.d/ ]
+  - [ cp, /opt/hbn_installer/configs/1.5.1/doca_hbn.yaml, /etc/kubelet.d/ ]
+  - [ cp, /opt/hbn_installer/configs/1.5.1/doca_telemetry.yaml, /etc/kubelet.d/ ]
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
   - [ /usr/sbin/reboot ]
 EOF
