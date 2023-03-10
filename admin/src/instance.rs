@@ -174,7 +174,7 @@ fn convert_instance_to_nice_format(
     Ok(lines)
 }
 
-fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> String {
+fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Table> {
     let mut table = Table::new();
 
     table.add_row(row![
@@ -230,7 +230,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> String 
         ]);
     }
 
-    table.to_string()
+    table.into()
 }
 
 async fn show_all_instances(json: bool, carbide_api: String) -> CarbideCliResult<()> {
@@ -238,7 +238,7 @@ async fn show_all_instances(json: bool, carbide_api: String) -> CarbideCliResult
     if json {
         println!("{}", serde_json::to_string_pretty(&instances).unwrap());
     } else {
-        println!("{}", convert_instances_to_nice_table(instances));
+        convert_instances_to_nice_table(instances).printstd();
     }
     Ok(())
 }

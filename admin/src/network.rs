@@ -111,7 +111,7 @@ async fn get_domain_name(domain_id: Option<forgerpc::Uuid>, carbide_api: String)
 async fn convert_network_to_nice_table(
     segments: forgerpc::NetworkSegmentList,
     carbide_api: String,
-) -> String {
+) -> Box<Table> {
     let mut table = Table::new();
 
     table.add_row(row![
@@ -155,7 +155,7 @@ async fn convert_network_to_nice_table(
         ]);
     }
 
-    table.to_string()
+    table.into()
 }
 
 async fn show_all_segments(json: bool, carbide_api: String) -> CarbideCliResult<()> {
@@ -163,10 +163,9 @@ async fn show_all_segments(json: bool, carbide_api: String) -> CarbideCliResult<
     if json {
         println!("{}", serde_json::to_string_pretty(&segments).unwrap());
     } else {
-        println!(
-            "{}",
-            convert_network_to_nice_table(segments, carbide_api).await
-        );
+        convert_network_to_nice_table(segments, carbide_api)
+            .await
+            .printstd();
     }
     Ok(())
 }

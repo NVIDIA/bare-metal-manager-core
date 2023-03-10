@@ -134,7 +134,7 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
     Ok(lines)
 }
 
-fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> String {
+fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table> {
     let mut table = Table::new();
 
     table.add_row(row![
@@ -196,7 +196,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> String {
         ]);
     }
 
-    table.to_string()
+    table.into()
 }
 
 async fn show_all_machines(json: bool, carbide_api: String) -> CarbideCliResult<()> {
@@ -204,7 +204,7 @@ async fn show_all_machines(json: bool, carbide_api: String) -> CarbideCliResult<
     if json {
         println!("{}", serde_json::to_string_pretty(&machines).unwrap());
     } else {
-        println!("{}", convert_machines_to_nice_table(machines));
+        convert_machines_to_nice_table(machines).printstd();
     }
     Ok(())
 }
