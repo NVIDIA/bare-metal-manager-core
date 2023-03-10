@@ -30,7 +30,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     let forge_vpc = NewVpc {
         name: "Forge".to_string(),
-        organization: String::new(),
+        tenant_organization_id: String::new(),
     }
     .persist(&mut txn)
     .await?;
@@ -38,7 +38,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     let no_org_vpc = NewVpc {
         name: "Forge no Org".to_string(),
-        organization: String::new(),
+        tenant_organization_id: String::new(),
     }
     .persist(&mut txn)
     .await?;
@@ -57,21 +57,21 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let updated_vpc = UpdateVpc {
         id: no_org_vpc.id,
         name: "new name".to_string(),
-        organization: "new org".to_string(),
+        tenant_organization_id: "new org".to_string(),
         if_version_match: None,
     }
     .update(&mut txn)
     .await?;
 
     assert_eq!(&updated_vpc.name, "new name");
-    assert_eq!(&updated_vpc.organization_id, "new org");
+    assert_eq!(&updated_vpc.tenant_organization_id, "new org");
     assert_eq!(updated_vpc.version.version_nr(), 2);
 
     // Update on outdated version
     let update_result = UpdateVpc {
         id: no_org_vpc.id,
         name: "never this name".to_string(),
-        organization: "never this org".to_string(),
+        tenant_organization_id: "never this org".to_string(),
         if_version_match: Some(initial_no_org_vpc_version),
     }
     .update(&mut txn)
@@ -85,26 +85,26 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc.id)).await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.name, "new name");
-    assert_eq!(&first.organization_id, "new org");
+    assert_eq!(&first.tenant_organization_id, "new org");
     assert_eq!(first.version.version_nr(), 2);
 
     // Update on correct version
     let updated_vpc = UpdateVpc {
         id: no_org_vpc.id,
         name: "yet another new name".to_string(),
-        organization: "yet another new org".to_string(),
+        tenant_organization_id: "yet another new org".to_string(),
         if_version_match: Some(updated_vpc.version),
     }
     .update(&mut txn)
     .await?;
     assert_eq!(&updated_vpc.name, "yet another new name");
-    assert_eq!(&updated_vpc.organization_id, "yet another new org");
+    assert_eq!(&updated_vpc.tenant_organization_id, "yet another new org");
     assert_eq!(updated_vpc.version.version_nr(), 3);
 
     let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc.id)).await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.name, "yet another new name");
-    assert_eq!(&first.organization_id, "yet another new org");
+    assert_eq!(&first.tenant_organization_id, "yet another new org");
     assert_eq!(first.version.version_nr(), 3);
 
     let vpc = DeleteVpc { id: no_org_vpc.id }.delete(&mut txn).await?;

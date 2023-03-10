@@ -14,12 +14,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::task::Poll;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::forge::InstanceList;
-use ::rpc::protos::forge::{EchoRequest, EchoResponse};
-use ::rpc::protos::forge::{MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse};
 use color_eyre::Report;
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use futures_util::future::BoxFuture;
 use http::header::USER_AGENT;
 use http::{header::AUTHORIZATION, StatusCode};
@@ -38,7 +33,18 @@ use tonic_reflection::server::Builder;
 use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use uuid::Uuid;
 
-use self::rpc::forge_server::Forge;
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::{
+    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
+    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
+    EchoResponse, FindTenantKeysetRequest, FindTenantKeysetResponse, FindTenantRequest,
+    FindTenantResponse, InstanceList, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse,
+    UpdateTenantRequest, UpdateTenantResponse, ValidateTenantPublicKeyRequest,
+    ValidateTenantPublicKeyResponse,
+};
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+
 use crate::db::ipmi::UserRoles;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
 use crate::{
@@ -87,6 +93,8 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
+
+use self::rpc::forge_server::Forge;
 
 // Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -911,6 +919,63 @@ where
         };
 
         Ok(Response::new(reply))
+    }
+
+    /// Tenant-related actions
+    async fn create_tenant(
+        &self,
+        _request: Request<CreateTenantRequest>,
+    ) -> Result<Response<CreateTenantResponse>, Status> {
+        todo!()
+    }
+
+    async fn find_tenant(
+        &self,
+        _request: Request<FindTenantRequest>,
+    ) -> Result<Response<FindTenantResponse>, Status> {
+        todo!()
+    }
+
+    async fn update_tenant(
+        &self,
+        _request: Request<UpdateTenantRequest>,
+    ) -> Result<Response<UpdateTenantResponse>, Status> {
+        todo!()
+    }
+
+    async fn create_tenant_keyset(
+        &self,
+        _request: Request<CreateTenantKeysetRequest>,
+    ) -> Result<Response<CreateTenantKeysetResponse>, Status> {
+        todo!()
+    }
+
+    async fn find_tenant_keyset(
+        &self,
+        _request: Request<FindTenantKeysetRequest>,
+    ) -> Result<Response<FindTenantKeysetResponse>, Status> {
+        todo!()
+    }
+
+    async fn update_tenant_keyset(
+        &self,
+        _request: Request<UpdateTenantKeysetRequest>,
+    ) -> Result<Response<UpdateTenantKeysetResponse>, Status> {
+        todo!()
+    }
+
+    async fn delete_tenant_keyset(
+        &self,
+        _request: Request<DeleteTenantKeysetRequest>,
+    ) -> Result<Response<DeleteTenantKeysetResponse>, Status> {
+        todo!()
+    }
+
+    async fn validate_tenant_public_key(
+        &self,
+        _request: Request<ValidateTenantPublicKeyRequest>,
+    ) -> Result<Response<ValidateTenantPublicKeyResponse>, Status> {
+        todo!()
     }
 
     async fn discover_machine(

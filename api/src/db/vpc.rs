@@ -13,30 +13,141 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use chrono::prelude::*;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
-use super::DatabaseError;
 use crate::db::UuidKeyedObjectFilter;
 use crate::model::config_version::ConfigVersion;
 use crate::{CarbideError, CarbideResult};
+
+use super::DatabaseError;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TenantKeysetIdentifier {
+    pub organization_id: String,
+    pub keyset_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TenantPublicKey {
+    pub public_key: String,
+    pub comment: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TenantKeysetContent {
+    pub public_keys: Vec<TenantPublicKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TenantKeyset {
+    pub keyset_identifier: TenantKeysetIdentifier,
+    pub keyset_content: TenantKeysetContent,
+    pub version: String,
+}
+
+impl From<rpc::forge::TenantPublicKey> for TenantPublicKey {
+    fn from(src: rpc::forge::TenantPublicKey) -> Self {
+        Self {
+            public_key: src.public_key,
+            comment: src.comment,
+        }
+    }
+}
+
+impl From<TenantPublicKey> for rpc::forge::TenantPublicKey {
+    fn from(src: TenantPublicKey) -> Self {
+        Self {
+            public_key: src.public_key,
+            comment: src.comment,
+        }
+    }
+}
+
+impl From<rpc::forge::TenantKeysetContent> for TenantKeysetContent {
+    fn from(src: rpc::forge::TenantKeysetContent) -> Self {
+        Self {
+            public_keys: src.public_keys.into_iter().map(|x| x.into()).collect(),
+        }
+    }
+}
+
+impl From<TenantKeysetContent> for rpc::forge::TenantKeysetContent {
+    fn from(src: TenantKeysetContent) -> Self {
+        Self {
+            public_keys: src.public_keys.into_iter().map(|x| x.into()).collect(),
+        }
+    }
+}
+
+impl From<rpc::forge::TenantKeysetIdentifier> for TenantKeysetIdentifier {
+    fn from(src: rpc::forge::TenantKeysetIdentifier) -> Self {
+        Self {
+            organization_id: src.organization_id,
+            keyset_id: src.keyset_id,
+        }
+    }
+}
+
+impl From<TenantKeysetIdentifier> for rpc::forge::TenantKeysetIdentifier {
+    fn from(src: TenantKeysetIdentifier) -> Self {
+        Self {
+            organization_id: src.organization_id,
+            keyset_id: src.keyset_id,
+        }
+    }
+}
+
+impl TryFrom<rpc::forge::TenantKeyset> for TenantKeyset {
+    type Error = CarbideError;
+
+    fn try_from(src: rpc::forge::TenantKeyset) -> Result<Self, Self::Error> {
+        let keyset_identifier: TenantKeysetIdentifier = src
+            .keyset_identifier
+            .ok_or_else(|| CarbideError::MissingArgument("tenant keyset identifier"))?
+            .into();
+
+        let keyset_content: TenantKeysetContent = src
+            .keyset_content
+            .ok_or_else(|| CarbideError::MissingArgument("tenant keyset content"))?
+            .into();
+
+        Ok(Self {
+            keyset_content,
+            keyset_identifier,
+            version: src.version,
+        })
+    }
+}
+
+impl From<TenantKeyset> for rpc::forge::TenantKeyset {
+    fn from(src: TenantKeyset) -> Self {
+        Self {
+            keyset_identifier: Some(src.keyset_identifier.into()),
+            keyset_content: Some(src.keyset_content.into()),
+            version: src.version,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
     pub id: Uuid,
     pub name: String,
-    pub organization_id: String,
+    pub tenant_organization_id: String,
     pub version: ConfigVersion,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
+    pub tenant_keyset_id: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct NewVpc {
     pub name: String,
-    pub organization: String,
+    pub tenant_organization_id: String,
 }
 
 #[derive(Clone, Debug)]
@@ -44,7 +155,7 @@ pub struct UpdateVpc {
     pub id: Uuid,
     pub if_version_match: Option<ConfigVersion>,
     pub name: String,
-    pub organization: String,
+    pub tenant_organization_id: String,
 }
 
 #[derive(Clone, Debug)]
@@ -69,10 +180,11 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             id: row.try_get("id")?,
             version,
             name: row.try_get("name")?,
-            organization_id: row.try_get("organization_id")?,
+            tenant_organization_id: row.try_get("organization_id")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
+            tenant_keyset_id: None, //TODO: fix this once DB gets updated
         })
     }
 }
@@ -89,7 +201,7 @@ impl NewVpc {
             "INSERT INTO vpcs (name, organization_id, version) VALUES ($1, $2, $3) RETURNING *";
         sqlx::query_as(query)
             .bind(&self.name)
-            .bind(&self.organization)
+            .bind(&self.tenant_organization_id)
             .bind(&version_string)
             .fetch_one(&mut *txn)
             .await
@@ -149,10 +261,11 @@ impl From<Vpc> for rpc::forge::Vpc {
             id: Some(src.id.into()),
             version: src.version.to_version_string(),
             name: src.name,
-            organization: src.organization_id,
+            tenant_organization_id: src.tenant_organization_id,
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
+            tenant_keyset_id: src.tenant_keyset_id,
         }
     }
 }
@@ -163,7 +276,7 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
     fn try_from(value: rpc::forge::VpcCreationRequest) -> Result<Self, Self::Error> {
         Ok(NewVpc {
             name: value.name,
-            organization: value.organization,
+            tenant_organization_id: value.tenant_organization_id,
         })
     }
 }
@@ -184,7 +297,7 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
                 .try_into()?,
             if_version_match,
             name: value.name,
-            organization: value.organization,
+            tenant_organization_id: value.tenant_organization_id,
         })
     }
 }
@@ -232,7 +345,7 @@ impl UpdateVpc {
             RETURNING *";
         let query_result = sqlx::query_as(query)
             .bind(&self.name)
-            .bind(&self.organization)
+            .bind(&self.tenant_organization_id)
             .bind(&next_version_str)
             .bind(self.id)
             .bind(&current_version_str)

@@ -50,7 +50,8 @@ pub async fn create_instance(
                 tenant: Some(rpc::TenantConfig {
                     user_data: Some("SomeRandomData".to_string()),
                     custom_ipxe: "SomeRandomiPxe".to_string(),
-                    tenant_org: "Tenant1".to_string(),
+                    tenant_organization_id: "Tenant1".to_string(),
+                    tenant_keyset_ids: vec![],
                 }),
                 network,
             }),

@@ -109,6 +109,18 @@ service Forge {
   rpc GetPxeInstructions(MachineId) returns (PxeInstructions);
   rpc Echo(EchoRequest) returns (EchoResponse);
 
+  // Tenant, Tenant Team, & Tenant Public Key actions
+  rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse);
+  rpc FindTenant(FindTenantRequest) returns (FindTenantResponse);
+  rpc UpdateTenant(UpdateTenantRequest) returns (UpdateTenantResponse);
+
+  rpc CreateTenantKeyset(CreateTenantKeysetRequest) returns (CreateTenantKeysetResponse);
+  rpc FindTenantKeyset(FindTenantKeysetRequest) returns (FindTenantKeysetResponse);
+  rpc UpdateTenantKeyset(UpdateTenantKeysetRequest) returns (UpdateTenantKeysetResponse);
+  rpc DeleteTenantKeyset(DeleteTenantKeysetRequest) returns (DeleteTenantKeysetResponse);
+
+  rpc ValidateTenantPublicKey(ValidateTenantPublicKeyRequest) returns (ValidateTenantPublicKeyResponse);
+
   // Admin CLI actions
 
   // Query Vault for the DPU's SSH admin password
@@ -222,7 +234,7 @@ message VpcSearchQuery {
 message Vpc {
   UUID id = 1;
   string name = 2;
-  string organization = 3;
+  string tenantOrganizationId = 3;
 
   string version = 99;
 
@@ -230,11 +242,15 @@ message Vpc {
   google.protobuf.Timestamp created = 4;
   google.protobuf.Timestamp updated = 5;
   google.protobuf.Timestamp deleted = 6;
+
+  optional string tenantKeysetId = 7;
 }
 
 message VpcCreationRequest {
   string name = 2;
-  string organization = 3;
+  string tenantOrganizationId = 3;
+  // this keyset will enable any key contained within it to access any instance associated with this VPC.
+  optional string tenantKeysetId = 4;
 }
 
 message VpcUpdateRequest {
@@ -251,7 +267,8 @@ message VpcUpdateRequest {
   // a lot for primitive types like Vpc.
 
   string name = 3;
-  string organization = 4;
+  string tenantOrganizationId = 4;
+  optional string tenantKeysetId = 5;
 }
 
 message VpcUpdateResult {
@@ -426,12 +443,7 @@ message InstanceAllocationRequest {
   // Desired configuration for the allocated instance
   InstanceConfig config = 2;
 
-  // SSH keys are not part of `InstanceConfig` since they are secrets that are
-  // set once at instance allocation. They should not be reported in `Instance`
-  // which contains `InstanceConfig`.
-  // TODO: We might need to add changeInstanceSshKeys method if users want to
-  // update them at instance creation. But we can defer this until there is a
-  // customer need.
+  //DEPRECATED -- use tenantKeysetId in InstanceConfig.TenantConfig instead.
   repeated string ssh_keys = 11;
 }
 
@@ -439,7 +451,7 @@ message InstanceAllocationRequest {
 // by a tenant
 message TenantConfig {
   // Identifies the tenant that uses this instance
-  string tenant_org = 1;
+  string tenant_organization_id = 1;
 
   // TODO: If we want to make those user-changeable, it might also be worthwhile to
   // move them into a message `InstanceImageConfig` or something along that.
@@ -451,6 +463,9 @@ message TenantConfig {
   // able to get from empty to populated.
   optional string user_data = 11;
   string custom_ipxe = 12;
+
+  //TODO: make an API that allows these to be updated.  For now, they're set only at instance allocation.
+  repeated string tenantKeysetIds = 8; // this may be empty
 }
 
 // Desired configuration for an instance
@@ -1046,3 +1061,114 @@ message InstanceInterfaceStatusObservation {
   repeated string addresses = 4;
 }
 
+message TenantContent {
+  // this keysetId must be unique within a tenant's organization
+  // if it is present, then any keys within this keyset will have access to all instances associated with this tenant
+  optional string keysetId = 2;
+}
+
+message Tenant {
+  string organizationId = 1;
+  TenantContent tenantContent = 2;
+  // this string is used to verify that the client has the most updated "view" of a keyset when attempting to modify it
+  string version = 3;
+}
+
+message CreateTenantRequest {
+  // this organization ID must be globally unique
+  string organizationId = 1;
+}
+message CreateTenantResponse {
+  Tenant tenant = 1;
+}
+
+message UpdateTenantRequest {
+  string organizationId = 1;
+  TenantContent tenantContent = 2;
+
+  // if this field is set and non-empty, the request will only update the tenant if the version matches the server's view,
+  // otherwise it will return a concurrency related error.
+  optional string if_version_match = 3;
+}
+message UpdateTenantResponse {
+  // the updated tenant after modification
+  Tenant tenant = 1;
+}
+
+message FindTenantRequest {
+  string tenantOrganizationId = 1;
+}
+message FindTenantResponse {
+  Tenant tenant = 1;
+}
+
+message TenantKeysetIdentifier {
+  // the organizationId of the associated tenant, required to be non-null and globally unique
+  string organizationId = 1;
+  // the id of the key, provided by the tenant.  Must be unique within the tenant's organization.
+  // TODO: update this document once we have a clearer idea of the charset restrictions for this provided identifier.
+  string keysetId = 2;
+}
+
+message TenantPublicKey {
+  string publicKey = 1;
+  optional string comment = 2;
+}
+
+message TenantKeysetContent {
+  repeated TenantPublicKey publicKeys = 1;
+}
+
+message TenantKeyset {
+  TenantKeysetIdentifier keysetIdentifier = 1;
+  TenantKeysetContent keysetContent = 2;
+  // this version will be used to determine if a client has the most updated "view" of a tenant when attempting to modify it
+  string version = 3;
+}
+
+message CreateTenantKeysetRequest {
+  TenantKeysetIdentifier keysetIdentifier = 1;
+  // it is allowed for the provided request to contain no keys, which will reserve the identifier as an empty set.
+  TenantKeysetContent keysetContent = 2;
+}
+message CreateTenantKeysetResponse {
+  TenantKeyset keyset = 1;
+}
+
+message FindTenantKeysetRequest {
+  TenantKeysetIdentifier keysetIdentifier = 1;
+}
+message FindTenantKeysetResponse {
+  TenantKeyset keyset = 1;
+}
+
+message UpdateTenantKeysetRequest {
+  // this request will update the existing keyset provided the identifiers match
+  TenantKeysetIdentifier keysetIdentifier = 1;
+  TenantKeysetContent keysetContent = 2;
+
+  // if this field is set and non-empty, the request will only update the tenant if the version matches the server's view,
+  // otherwise it will return a concurrency related error.
+  optional string if_version_match = 3;
+}
+message UpdateTenantKeysetResponse {
+  // will respond with the final keyset after it has been modified in accordance with the request
+  TenantKeyset keyset = 1;
+}
+
+message DeleteTenantKeysetRequest {
+  TenantKeysetIdentifier keysetIdentifier = 1;
+}
+message DeleteTenantKeysetResponse {}
+
+// the tenantPublicKey will be checked against the following lists for permission to access the instance:
+// 1) the instance's keysets.
+// 2) the vpc's keyset.
+// 3) the tenant's keyset.
+// if the key is present in one of those lists, the request will be granted permission to access the instance.
+message ValidateTenantPublicKeyRequest {
+  string instanceId = 1;
+  string tenantPublicKey = 2;
+}
+// the status of the response will be in the grpc Status object, along with any associated Errors.
+message ValidateTenantPublicKeyResponse {}
