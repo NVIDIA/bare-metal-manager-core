@@ -175,6 +175,8 @@ pub fn routes() -> Vec<Route> {
 
 #[cfg(test)]
 mod tests {
+    use rpc::forge::MachineType;
+
     use super::*;
 
     #[test]
@@ -220,6 +222,7 @@ mod tests {
                 events: Vec::new(),
                 interfaces: vec![interface],
                 discovery_info: None,
+                machine_type: MachineType::Dpu as i32,
             }),
         };
 
