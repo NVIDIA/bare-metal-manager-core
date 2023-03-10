@@ -28,7 +28,7 @@ use crate::{
         instance::{
             config::{
                 network::InstanceNetworkConfig,
-                tenant::{TenantConfig, TenantOrg},
+                tenant::{TenantConfig, TenantOrganizationId},
             },
             status::network::InstanceNetworkStatusObservation,
         },
@@ -73,13 +73,14 @@ impl<'r> FromRow<'r, PgRow> for Instance {
         let user_data: Option<String> = row.try_get("user_data")?;
         let custom_ipxe = row.try_get("custom_ipxe")?;
         let tenant_org_str = row.try_get::<String, _>("tenant_org")?;
-        let tenant_org =
-            TenantOrg::try_from(tenant_org_str).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let tenant_org = TenantOrganizationId::try_from(tenant_org_str)
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
         let tenant_config = TenantConfig {
-            tenant_org,
+            tenant_organization_id: tenant_org,
             custom_ipxe,
             user_data,
+            tenant_keyset_ids: vec![], //TODO: fixme once DB Schema gets updated
         };
 
         Ok(Instance {
@@ -244,7 +245,7 @@ impl<'a> NewInstance<'a> {
             .bind(self.machine_id)
             .bind(&self.tenant_config.user_data)
             .bind(&self.tenant_config.custom_ipxe)
-            .bind(self.tenant_config.tenant_org.as_str())
+            .bind(self.tenant_config.tenant_organization_id.as_str())
             .bind(&self.ssh_keys)
             .bind(sqlx::types::Json(&self.network_config.value))
             .bind(&network_version_string)

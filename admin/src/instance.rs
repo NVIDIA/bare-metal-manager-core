@@ -37,7 +37,7 @@ fn convert_instance_to_nice_format(
                 .config
                 .as_ref()
                 .and_then(|config| config.tenant.as_ref())
-                .map(|tenant| tenant.tenant_org.clone())
+                .map(|tenant| tenant.tenant_organization_id.clone())
                 .unwrap_or_default(),
         ),
         (
@@ -191,7 +191,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .config
             .as_ref()
             .and_then(|config| config.tenant.as_ref())
-            .map(|tenant| tenant.tenant_org.clone())
+            .map(|tenant| tenant.tenant_organization_id.clone())
             .unwrap_or_default();
 
         let tenant_state = instance

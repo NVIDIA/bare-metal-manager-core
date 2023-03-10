@@ -55,6 +55,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegment", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.Tenant", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.TenantContent", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.TenantKeyset", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.TenantKeysetContent", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.TenantKeysetIdentifier",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute("forge.TenantPublicKey", "#[derive(serde::Serialize)]")
         .type_attribute("forge.UUID", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcResourceState", "#[derive(serde::Serialize)]")
         .type_attribute(
