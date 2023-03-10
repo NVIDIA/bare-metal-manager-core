@@ -49,13 +49,13 @@ pub enum Machine {
     #[clap(about = "Print DPU admin SSH username:password")]
     DpuSshCredentials(MachineQuery),
     #[clap(about = "Reboot a machine")]
-    Reboot(BMCCOnfig),
+    Reboot(BMCConfig),
     #[clap(about = "Force delete a machine")]
     ForceDelete(ForceDeleteMachineQuery),
 }
 
 #[derive(Parser, Debug)]
-pub struct BMCCOnfig {
+pub struct BMCConfig {
     #[clap(long, help = "Hostname or IP of machine BMC")]
     pub address: String,
 

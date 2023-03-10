@@ -42,7 +42,7 @@ fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<
     Ok(lines)
 }
 
-fn convert_domain_to_nice_table(domains: forgerpc::DomainList) -> String {
+fn convert_domain_to_nice_table(domains: forgerpc::DomainList) -> Box<Table> {
     let mut table = Table::new();
 
     table.add_row(row!["Id", "Name", "Created",]);
@@ -55,7 +55,7 @@ fn convert_domain_to_nice_table(domains: forgerpc::DomainList) -> String {
         ]);
     }
 
-    table.to_string()
+    table.into()
 }
 
 async fn show_all_domains(json: bool, carbide_api: String) -> CarbideCliResult<()> {
@@ -63,7 +63,7 @@ async fn show_all_domains(json: bool, carbide_api: String) -> CarbideCliResult<(
     if json {
         println!("{}", serde_json::to_string_pretty(&domains).unwrap());
     } else {
-        println!("{}", convert_domain_to_nice_table(domains));
+        convert_domain_to_nice_table(domains).printstd();
     }
     Ok(())
 }
