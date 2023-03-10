@@ -11,6 +11,7 @@
  */
 use std::net::IpAddr;
 
+use itertools::Itertools;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
@@ -160,4 +161,43 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
     let fqdn2 = format!("a{}", fqdn);
     let machines = Machine::find_by_fqdn(&mut txn, &fqdn2).await.unwrap();
     assert!(machines.is_empty());
+}
+
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_network_segment",
+    "create_machine"
+))]
+async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone(), Default::default());
+
+    let machines = env.find_machines(None, None, true).await;
+    assert_eq!(machines.machines.len(), 2); // 1 host and 1 DPU
+
+    let machine_types = machines
+        .machines
+        .into_iter()
+        .map(|x| x.machine_type)
+        .collect_vec();
+
+    assert!(machine_types.contains(&(rpc::forge::MachineType::Host as i32)));
+    assert!(machine_types.contains(&(rpc::forge::MachineType::Dpu as i32)));
+}
+
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_network_segment",
+    "create_machine"
+))]
+async fn test_find_machine_dpu_excluded(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone(), Default::default());
+
+    let machines = env.find_machines(None, None, false).await;
+    assert_eq!(machines.machines.len(), 1); // 1 host
+    assert_eq!(
+        machines.machines[0].machine_type,
+        rpc::forge::MachineType::Host as i32
+    );
 }

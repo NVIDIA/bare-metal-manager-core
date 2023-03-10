@@ -607,9 +607,14 @@ message InstanceReleaseRequest {
 message InstanceReleaseResult {
 }
 
+message MachineSearchConfig {
+  bool include_dpus = 1;
+}
+
 message MachineSearchQuery {
   optional MachineId id = 1;
   optional string fqdn = 2;
+  optional MachineSearchConfig search_config = 3;
 }
 
 message InterfaceList {
@@ -622,6 +627,12 @@ message MachineList {
 
 message InterfaceSearchQuery {
   optional UUID id = 1;
+}
+
+enum MachineType {
+  UNKNOWN = 0;
+  DPU = 1;
+  HOST = 2;
 }
 
 message Machine {
@@ -644,6 +655,9 @@ message Machine {
   // hardware and restarted, the data can change. The Instance would have the
   // capability to store the actual discovery information for each lifecycle
   optional machine_discovery.DiscoveryInfo discovery_info = 10;
+
+  // Machine type if it is a DPU or HOST.
+  MachineType machine_type = 11; 
 }
 
 // The most recent tenant related status

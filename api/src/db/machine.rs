@@ -32,6 +32,7 @@ use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::{machine_id::MachineId as StableMachineId, MachineState};
 use crate::{CarbideError, CarbideResult};
 
@@ -135,6 +136,7 @@ impl From<Machine> for rpc::Machine {
             updated: Some(machine.updated.into()),
             deployed: machine.deployed.map(|ts| ts.into()),
             state: machine.state.value.to_string(),
+            machine_type: *RpcMachineTypeWrapper::from(machine.machine_type()) as i32,
             events: machine
                 .history
                 .into_iter()
@@ -745,6 +747,17 @@ SELECT m.id FROM
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
+    }
+
+    /// Returns the MachineType based on hardware info.
+    pub fn machine_type(&self) -> Option<MachineType> {
+        self.hardware_info.as_ref().map(|x| {
+            if x.is_dpu() {
+                MachineType::Dpu
+            } else {
+                MachineType::Host
+            }
+        })
     }
 }
 

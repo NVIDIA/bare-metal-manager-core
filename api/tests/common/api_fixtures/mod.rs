@@ -27,6 +27,7 @@ use carbide::{
         },
     },
 };
+use rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -95,6 +96,24 @@ impl TestEnv {
             handler,
         )
         .await
+    }
+
+    // Returns all machines using FindMachines call.
+    pub async fn find_machines(
+        &self,
+        id: Option<rpc::forge::MachineId>,
+        fqdn: Option<String>,
+        include_dpus: bool,
+    ) -> rpc::forge::MachineList {
+        self.api
+            .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
+                search_config: Some(rpc::forge::MachineSearchConfig { include_dpus }),
+                id,
+                fqdn,
+            }))
+            .await
+            .unwrap()
+            .into_inner()
     }
 }
 

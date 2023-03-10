@@ -83,14 +83,8 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
 
     // The machine should be now be gone in the API
     let response = env
-        .api
-        .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-            id: Some(dpu_machine_id.to_string().into()),
-            fqdn: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        .await;
     assert!(response.machines.is_empty());
 
     // And it should also be gone on the DB layer

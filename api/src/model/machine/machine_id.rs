@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{fmt::Write, str::FromStr};
+use std::{fmt::Write, ops::Deref, str::FromStr};
 
 use crate::model::{hardware_info::HardwareInfo, RpcDataConversionError};
 
@@ -104,6 +104,27 @@ pub enum MachineType {
     /// Once the hardware fingerprint of the host is known, the Machine will
     /// obtain a new `MachineId` with `MachineType::Host`
     PredictedHost,
+}
+
+pub struct RpcMachineTypeWrapper(rpc::forge::MachineType);
+
+impl From<Option<MachineType>> for RpcMachineTypeWrapper {
+    fn from(value: Option<MachineType>) -> Self {
+        RpcMachineTypeWrapper(match value {
+            None => rpc::forge::MachineType::Unknown,
+            Some(ty) => match ty {
+                MachineType::PredictedHost | MachineType::Host => rpc::forge::MachineType::Host,
+                MachineType::Dpu => rpc::forge::MachineType::Dpu,
+            },
+        })
+    }
+}
+
+impl Deref for RpcMachineTypeWrapper {
+    type Target = rpc::forge::MachineType;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl MachineType {

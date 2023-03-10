@@ -40,7 +40,7 @@ use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
 use crate::db::ipmi::UserRoles;
-use crate::model::machine::machine_id::try_parse_machine_id;
+use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
 use crate::{
     auth, cfg,
     credentials::UpdateCredentials,
@@ -1106,7 +1106,14 @@ where
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_machines", e))?;
 
-        let rpc::MachineSearchQuery { id, fqdn, .. } = request.into_inner();
+        let rpc::MachineSearchQuery {
+            id,
+            fqdn,
+            search_config,
+            ..
+        } = request.into_inner();
+        let include_dpu = search_config.map(|x| x.include_dpus).unwrap_or(false);
+
         let machines = match (id, fqdn) {
             (Some(id), _) => {
                 let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
@@ -1119,7 +1126,16 @@ where
 
         let result = machines
             .map(|machine| rpc::MachineList {
-                machines: machine.into_iter().map(rpc::Machine::from).collect(),
+                machines: machine
+                    .into_iter()
+                    .filter(|x| {
+                        let ty = x.machine_type();
+                        ty.is_some()
+                            && (include_dpu
+                                || ty.expect("MachineType is none.") == MachineType::Host)
+                    })
+                    .map(rpc::Machine::from)
+                    .collect(),
             })
             .map(Response::new)
             .map_err(CarbideError::from)?;
