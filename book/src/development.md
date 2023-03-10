@@ -18,7 +18,7 @@ environment.
 
    Arch - `sudo pacman -S base-devel`
 
-   Debian - `sudo apt-get -y install build-essential`
+   Debian - `sudo apt-get -y install build-essential libudev-dev`
 
    Fedora - `sudo dnf -y install gcc-c++ systemd-devel` (systemd-devel needed for libudev-devel)
 
@@ -36,19 +36,21 @@ environment.
    Fedora - `sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-compose`
 
 5. Install ISC kea using your system package manager
-
    Arch - `sudo pacman -S kea`
 
    Debian
+    - Install required libraries
+        - `sudo apt-get install -y libboost-dev`
+        - download libssl1 from [here](http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/) and install `sudo dpkg -i <downloaded-lib>`
 
    - Add the KEA package source, just [as our build container does](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/243203db10f883376c933ed57b6f43a3861c4752/dev/docker/Dockerfile.build-container#L14-15)
      ```
-     cp dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
-     cp dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
+     sudo cp dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
+     sudo cp dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
      ```
    - Install kea from source
      ```
-     sudo apt-get update && apt-get install -y isc-kea-dhcp4-server isc-kea-dev
+     sudo apt-get update && sudo apt-get install -y isc-kea-dhcp4-server isc-kea-dev
      ```
 
    Fedora - `sudo dnf install -y kea kea-devel kea-libs`
@@ -75,9 +77,9 @@ environment.
 
 8. Install `direnv` using your package manager
 
-   It would be best to install `direnv` on your host. Once you
-   clone the `carbide` repo, run `direnv allow` in your local copy.
-   Running `direnv allow` exports the necessary environmental variables
+   It would be best to install `direnv` on your host. `direnv` requires a shell hook to work.  See `man direnv` (after install) for
+   more information on setting it up.  Once you clone the `carbide` repo, you need to run `direnv allow` the first time you cd into your local copy.
+   Running `direnv allow` exports the necessary environmental variables while in the repo and cleans up when not in the repo.
 
    There are preset environment variables that are used throughout the repo. `${REPO_ROOT}` represents the top of the forge repo tree.
 
@@ -91,6 +93,7 @@ environment.
    Fedora - `sudo dnf install -y direnv`
 
 9. Install golang using whatever method is most convenient for you. `forge-vpc` (which is in a subtree of the `forge-provisioner` repo uses golang)
+
 10. Install GRPC client `grpcurl`.
 
     Arch - `sudo pacman -S grpcurl`
