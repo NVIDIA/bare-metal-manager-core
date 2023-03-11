@@ -94,7 +94,7 @@ resource "vault_pki_secret_backend_cert" "postgresql" {
   backend = vault_mount.pki.path
   name = vault_pki_secret_backend_role.service.name
   common_name = "postgresql"
-  ttl = 3600
+  ttl = 302400 # must be less than the certificate authority vault_pki_secret_backend_cert
   auto_renew = true
 }
 

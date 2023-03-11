@@ -48,6 +48,8 @@ pub enum Machine {
     Show(ShowMachine),
     #[clap(about = "Print DPU admin SSH username:password")]
     DpuSshCredentials(MachineQuery),
+    #[clap(about = "Print network status of all machines")]
+    NetworkStatus,
     #[clap(about = "Reboot a machine")]
     Reboot(BMCConfig),
     #[clap(about = "Force delete a machine")]

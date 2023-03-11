@@ -9,8 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::Parser;
 use std::path::PathBuf;
+
+use clap::Parser;
 
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
@@ -19,6 +20,10 @@ pub(crate) struct Options {
     /// This file will hold data in the `AgentConfig` format
     #[clap(long, default_value = "/etc/forge/config.toml")]
     pub config_path: PathBuf,
+
+    /// Valid commands: run|health|hardware
+    #[clap(short, long, default_value = "run")]
+    pub cmd: String,
 }
 
 impl Options {

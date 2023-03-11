@@ -43,6 +43,8 @@ service Forge {
   // INTERNAL: RPC method is used between Site Controller components,
   // and for testing
   rpc RecordObservedInstanceNetworkStatus(InstanceNetworkStatusObservation) returns (ObservedInstanceNetworkStatusRecordResult);
+  // forge-dpu-agent -> carbide-api
+  rpc RecordManagedHostNetworkStatus(ManagedHostNetworkStatusObservation) returns (ManagedHostNetworkStatusRecordResult);
 
   rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
 //  rpc LookupPTRRecord(DnsRequest) returns (DnsReply);
@@ -125,6 +127,9 @@ service Forge {
 
   // Query Vault for the DPU's SSH admin password
   rpc GetDpuSSHCredential(CredentialRequest) returns (CredentialResponse);
+
+  // List all machines network status (HBN), as reported by `forge-dpu-agent`
+  rpc GetAllManagedHostNetworkStatus(ManagedHostNetworkStatusRequest) returns (ManagedHostNetworkStatusResponse);
 
   // Force deletes a Machine and the associated DPU from Forge databases,
   // with the intention of rediscovering the host later on.
@@ -672,7 +677,7 @@ message Machine {
   optional machine_discovery.DiscoveryInfo discovery_info = 10;
 
   // Machine type if it is a DPU or HOST.
-  MachineType machine_type = 11; 
+  MachineType machine_type = 11;
 }
 
 // The most recent tenant related status
@@ -819,6 +824,11 @@ message CredentialRequest {
 message CredentialResponse {
     string username = 1;
     string password = 2;
+}
+
+message ManagedHostNetworkStatusRequest {}
+message ManagedHostNetworkStatusResponse {
+    repeated ManagedHostNetworkStatusObservation all = 1;
 }
 
 message AdminForceDeleteMachineRequest {
@@ -1008,6 +1018,15 @@ enum InterfaceFunctionType {
   VIRTUAL_FUNCTION = 1;
 }
 
+// What forge-dpu-agent reports. Will grow over time.
+message ManagedHostNetworkStatusObservation {
+  MachineId dpu_machine_id = 1;
+  optional google.protobuf.Timestamp observed_at = 2;
+  optional NetworkHealth health = 3;
+}
+
+message ManagedHostNetworkStatusRecordResult {}
+
 // Observed status of the networking subsystem of an instance
 message InstanceNetworkStatusObservation {
   // The ID of the instance for which this status was observed
@@ -1172,3 +1191,11 @@ message ValidateTenantPublicKeyRequest {
 }
 // the status of the response will be in the grpc Status object, along with any associated Errors.
 message ValidateTenantPublicKeyResponse {}
+
+// Health of HBN on a DPU. Sent by forge-dpu-agent.
+message NetworkHealth {
+    bool is_healthy = 1;
+    repeated string passed = 2;
+    repeated string failed = 3;
+    optional string message = 4;
+}

@@ -150,6 +150,22 @@ pub async fn get_dpu_ssh_credential(
     .await
 }
 
+pub async fn get_all_managed_host_network_status(
+    server: String,
+) -> CarbideCliResult<rpc::ManagedHostNetworkStatusResponse> {
+    with_forge_client(server, |mut client| async move {
+        let request = tonic::Request::new(rpc::ManagedHostNetworkStatusRequest {});
+        let all = client
+            .get_all_managed_host_network_status(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(all)
+    })
+    .await
+}
+
 pub async fn machine_admin_force_delete(
     query: ForceDeleteMachineQuery,
     server: String,

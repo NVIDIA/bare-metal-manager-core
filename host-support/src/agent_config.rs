@@ -40,7 +40,7 @@ impl AgentConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForgeSystemConfig {
     #[serde(rename = "api-server")]
-    api_server: String,
+    pub api_server: String,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -58,7 +58,7 @@ pub struct ForgeSystemConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MachineConfig {
     #[serde(rename = "interface-id")]
-    interface_id: uuid::Uuid,
+    pub interface_id: uuid::Uuid,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

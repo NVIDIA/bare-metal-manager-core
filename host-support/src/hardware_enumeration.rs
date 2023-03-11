@@ -156,7 +156,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
     let arch = info.machine.parse()?;
 
-    log::debug!("{:?}", info);
+    log::trace!("{:?}", info);
     // Nics
     let mut enumerator = libudev::Enumerator::new(&context)?;
     enumerator.match_subsystem("net")?;
@@ -172,10 +172,10 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     for device in devices {
         log::debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
-            log::debug!("Property - {:?} - {:?}", p.name(), p.value());
+            log::trace!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            log::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
 
         if device
@@ -212,10 +212,10 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     for device in devices {
         log::debug!("Syspath - {:?}", device.syspath());
         for p in device.properties() {
-            log::debug!("Property - {:?} - {:?}", p.name(), p.value());
+            log::trace!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            log::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
     }
     let mut enumerator = libudev::Enumerator::new(&context)?;
@@ -225,10 +225,10 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     for device in devices {
         log::debug!("Syspath - {:?}", device.syspath());
         for p in device.properties() {
-            log::debug!("Property - {:?} - {:?}", p.name(), p.value());
+            log::trace!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            log::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
     }
     // cpus
@@ -341,7 +341,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     for device in devices {
         log::debug!("{:?}", device.syspath());
         for p in device.properties() {
-            log::debug!("{:?} - {:?}", p.name(), p.value());
+            log::trace!("{:?} - {:?}", p.name(), p.value());
         }
 
         if device
@@ -373,7 +373,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     for device in devices {
         log::debug!("{:?}", device.syspath());
         for p in device.properties() {
-            log::debug!("{:?} - {:?}", p.name(), p.value());
+            log::trace!("{:?} - {:?}", p.name(), p.value());
         }
 
         if device
@@ -404,7 +404,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     if let Some(device) = devices.next() {
         log::debug!("{:?}", device.syspath());
         for p in device.properties() {
-            log::debug!("{:?} - {:?}", p.name(), p.value());
+            log::trace!("{:?} - {:?}", p.name(), p.value());
         }
 
         if device
