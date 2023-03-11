@@ -47,6 +47,7 @@ use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 
 use crate::db::ipmi::UserRoles;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
+use crate::model::machine::network::MachineNetworkStatus;
 use crate::{
     auth, cfg,
     credentials::UpdateCredentials,
@@ -812,6 +813,49 @@ where
         ))
     }
 
+    async fn record_managed_host_network_status(
+        &self,
+        request: Request<rpc::ManagedHostNetworkStatusObservation>,
+    ) -> Result<Response<rpc::ManagedHostNetworkStatusRecordResult>, tonic::Status> {
+        log_request_data(&request);
+
+        let request = request.into_inner();
+        let machine_id = match &request.dpu_machine_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::not_found("Missing machine id"));
+            }
+        };
+
+        let hs = request
+            .health
+            .as_ref()
+            .ok_or_else(|| CarbideError::MissingArgument("health_status"))?;
+        if !hs.is_healthy {
+            tracing::debug!(
+                "{machine_id} reports network failed checks {:?} because {}",
+                hs.failed,
+                hs.message.as_deref().unwrap_or_default()
+            );
+        }
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin record_machine_network_status", e)
+        })?;
+        let db_observation = MachineNetworkStatus::try_from(request).map_err(CarbideError::from)?;
+        Machine::update_network_status_observation(&mut txn, &machine_id, db_observation).await?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit record_machine_network_status",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(rpc::ManagedHostNetworkStatusRecordResult {}))
+    }
+
     async fn lookup_record(
         &self,
         request: Request<rpc::dns_message::DnsQuestion>,
@@ -1566,6 +1610,31 @@ where
         Ok(Response::new(rpc::CredentialResponse {
             username,
             password,
+        }))
+    }
+
+    // Network status of each managed host, as reported by forge-dpu-agent.
+    // For use by forge-admin-cli
+    //
+    // Currently: Status of HBN on each DPU
+    async fn get_all_managed_host_network_status(
+        &self,
+        request: Request<rpc::ManagedHostNetworkStatusRequest>,
+    ) -> Result<Response<rpc::ManagedHostNetworkStatusResponse>, Status> {
+        log_request_data(&request);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin get_managed_host_network_status", e)
+        })?;
+
+        let all_status = Machine::get_all_network_status(&mut txn).await?;
+
+        let mut out = Vec::with_capacity(all_status.len());
+        for machine_network_status in all_status {
+            out.push(machine_network_status.into());
+        }
+        Ok(Response::new(rpc::ManagedHostNetworkStatusResponse {
+            all: out,
         }))
     }
 

@@ -82,7 +82,7 @@ pub enum CarbideError {
     #[error("Argument is missing in input: {0}")]
     MissingArgument(&'static str),
 
-    #[error("Arguemnt is invalid: {0}")]
+    #[error("Argument is invalid: {0}")]
     InvalidArgument(String),
 
     // OLD, use DBError instead

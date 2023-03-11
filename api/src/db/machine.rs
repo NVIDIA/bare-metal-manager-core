@@ -33,6 +33,7 @@ use crate::human_hash;
 use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
+use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::{machine_id::MachineId as StableMachineId, MachineState};
 use crate::{CarbideError, CarbideResult};
 
@@ -684,10 +685,10 @@ SELECT m.id FROM
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &uuid::Uuid,
     ) -> CarbideResult<Option<Self>> {
-        let query = r#"SELECT m.* From machines m 
-                INNER JOIN machine_interfaces mi 
-                  ON m.id = mi.machine_id 
-                WHERE mi.attached_dpu_machine_id=$1::uuid 
+        let query = r#"SELECT m.* From machines m
+                INNER JOIN machine_interfaces mi
+                  ON m.id = mi.machine_id
+                WHERE mi.attached_dpu_machine_id=$1::uuid
                     AND mi.attached_dpu_machine_id != mi.machine_id"#;
         let machine: Option<Self> = sqlx::query_as(query)
             .bind(dpu_machine_id)
@@ -709,9 +710,9 @@ SELECT m.id FROM
         txn: &mut Transaction<'_, Postgres>,
         host_machine_id: &uuid::Uuid,
     ) -> CarbideResult<Option<Self>> {
-        let query = r#"SELECT m.* From machines m 
-                INNER JOIN machine_interfaces mi 
-                  ON m.id = mi.attached_dpu_machine_id 
+        let query = r#"SELECT m.* From machines m
+                INNER JOIN machine_interfaces mi
+                  ON m.id = mi.attached_dpu_machine_id
                 WHERE mi.machine_id=$1::uuid"#;
         let machine: Option<Self> = sqlx::query_as(query)
             .bind(host_machine_id)
@@ -727,6 +728,44 @@ SELECT m.id FROM
         machine.load_related_data(txn).await?;
 
         Ok(Some(machine))
+    }
+
+    pub async fn update_network_status_observation(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &uuid::Uuid,
+        observation: MachineNetworkStatus,
+    ) -> CarbideResult<()> {
+        let query =
+            "UPDATE machines SET network_status_observation = $1::json WHERE id = $2::uuid RETURNING id";
+        let _id: (uuid::Uuid,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(observation))
+            .bind(machine_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn get_all_network_status(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<Vec<MachineNetworkStatus>> {
+        let query = "SELECT network_status_observation FROM machines
+            WHERE network_status_observation IS NOT NULL
+            ORDER BY network_status_observation->'machine_id'
+            LIMIT 1000";
+        let rows = sqlx::query(query)
+            .fetch_all(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let mut all = Vec::with_capacity(rows.len());
+        for row in rows {
+            let s: sqlx::types::Json<MachineNetworkStatus> = row
+                .try_get("network_status_observation")
+                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            all.push(s.0);
+        }
+        Ok(all)
     }
 
     /// Force cleans all tables related to a Machine - except MachineInterfaces

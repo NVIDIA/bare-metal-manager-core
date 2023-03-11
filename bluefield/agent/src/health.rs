@@ -1,0 +1,551 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::{collections::HashMap, fmt, path::PathBuf, process::Command, str::FromStr};
+
+use serde::{Deserialize, Serialize};
+use tracing::{debug, warn};
+
+const EXPECTED_FILES: [&str; 3] = [
+    "/var/lib/hbn/etc/frr/frr.conf",
+    "/var/lib/hbn/etc/network/interfaces",
+    "/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf",
+];
+
+const EXPECTED_SERVICES: [&str; 4] = ["frr", "isc-dhcp-relay-default", "nl2doca", "rsyslog"];
+
+/// Check the health of HBN
+pub fn health_check() -> HealthReport {
+    let mut hr = HealthReport::new();
+    let container_id = match get_hbn_container_id() {
+        Ok(id) => id,
+        Err(err) => {
+            hr.failed(HealthCheck::ContainerExists, err.to_string());
+            return hr;
+        }
+    };
+    hr.passed(HealthCheck::ContainerExists);
+    debug!("Container ID: {container_id}");
+
+    check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES);
+    check_network_stats(&mut hr, &container_id);
+    check_ifreload(&mut hr, &container_id);
+    check_files(&mut hr, &EXPECTED_FILES);
+
+    hr
+}
+
+// HBN processes should be running
+fn check_hbn_services_running(
+    hr: &mut HealthReport,
+    container_id: &str,
+    expected_services: &[&str],
+) {
+    // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
+    // so final param is 'false' here.
+    // https://github.com/Supervisor/supervisor/issues/1223
+    let sctl = match run_in_container(container_id, &["supervisorctl", "status"], false) {
+        Ok(s) => s,
+        Err(err) => {
+            debug!("check_hbn_services_running supervisorctl status: {err}");
+            hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
+            return;
+        }
+    };
+    let st = match parse_status(&sctl) {
+        Ok(s) => s,
+        Err(err) => {
+            debug!("check_hbn_services_running supervisorctl status parse: {err}");
+            hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
+            return;
+        }
+    };
+    hr.passed(HealthCheck::SupervisorctlStatus);
+
+    for service in expected_services.iter().map(|x| x.to_string()) {
+        match st.status_of(&service) {
+            SctlState::Running => hr.passed(HealthCheck::ServiceRunning(service)),
+            status => {
+                debug!("check_hbn_services_running {service}: {status}");
+                hr.failed(
+                    HealthCheck::ServiceRunning(service.clone()),
+                    status.to_string(),
+                );
+            }
+        }
+    }
+}
+
+// Check HBN BGP stats
+fn check_network_stats(hr: &mut HealthReport, container_id: &str) {
+    // `vtysh` is HBN's shell.
+    let bgp_stats = match run_in_container(
+        container_id,
+        &["vtysh", "-c", "show bgp summary json"],
+        true,
+    ) {
+        Ok(s) => s,
+        Err(err) => {
+            debug!("check_network_stats show bgp summary: {err}");
+            hr.failed(HealthCheck::BgpStats, err.to_string());
+            return;
+        }
+    };
+    match check_bgp(&bgp_stats) {
+        Ok(_) => hr.passed(HealthCheck::BgpStats),
+        Err(err) => {
+            debug!("check_network_stats bgp: {err}");
+            hr.failed(HealthCheck::BgpStats, err.to_string());
+        }
+    }
+}
+
+// `ifreload -a` should exit code 0 and have no output
+fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
+    match run_in_container(container_id, &["ifreload", "-a"], true) {
+        Ok(stdout) => {
+            if stdout.is_empty() {
+                hr.passed(HealthCheck::Ifreload);
+            } else {
+                debug!("check_ifreload: {stdout}");
+                hr.failed(HealthCheck::Ifreload, stdout);
+            }
+        }
+        Err(err) => {
+            debug!("check_ifreload: {err}");
+            hr.failed(HealthCheck::Ifreload, err.to_string());
+        }
+    }
+}
+
+// The files VPC creates should exist
+fn check_files(hr: &mut HealthReport, expected_files: &[&str]) {
+    for filename in expected_files {
+        let path = PathBuf::from(filename);
+        if path.exists() {
+            hr.passed(HealthCheck::FileExists(filename.to_string()));
+        } else {
+            hr.failed(
+                HealthCheck::FileExists(filename.to_string()),
+                "Not found".to_string(),
+            );
+            continue;
+        }
+        let stat = match std::fs::metadata(path) {
+            Ok(s) => s,
+            Err(err) => {
+                debug!("check_files {filename}: {err}");
+                hr.failed(
+                    HealthCheck::FileIsValid(filename.to_string()),
+                    err.to_string(),
+                );
+                continue;
+            }
+        };
+        if stat.len() < 100 {
+            debug!("check_files {filename}: Too small");
+            hr.failed(
+                HealthCheck::FileIsValid(filename.to_string()),
+                "Too small".to_string(),
+            );
+        }
+        hr.passed(HealthCheck::FileIsValid(filename.to_string()));
+    }
+}
+
+fn check_bgp(bgp_json: &str) -> color_eyre::Result<()> {
+    let networks: BgpNetworks = serde_json::from_str(bgp_json)?;
+    check_bgp_stats("ipv4_unicast", &networks.ipv4_unicast)?;
+    check_bgp_stats("l2_vpn_evpn", &networks.l2_vpn_evpn)
+}
+
+fn check_bgp_stats(name: &str, s: &BgpStats) -> color_eyre::Result<()> {
+    if s.failed_peers != 0 {
+        return Err(eyre::eyre!(
+            "{name} failed peers is {} should be 0",
+            s.failed_peers
+        ));
+    }
+    if s.total_peers != 1 && s.total_peers != 2 {
+        // One or two depending on uplink configuration
+        return Err(eyre::eyre!(
+            "{name} total peers is {} should be 1 or 2",
+            s.total_peers
+        ));
+    }
+    if s.dynamic_peers != 0 {
+        return Err(eyre::eyre!(
+            "{name} dynamic peers is {} should be 0",
+            s.dynamic_peers
+        ));
+    }
+    for (peer_name, peer) in s.peers.iter() {
+        if peer.state != "Established" {
+            return Err(eyre::eyre!(
+                "{name} {peer_name} state is '{}' should be 'Established'",
+                peer.state
+            ));
+        }
+        if peer.pfx_rcd == 0 {
+            return Err(eyre::eyre!("{name} {peer_name} pfx rcd is 0 should be > 0"));
+        }
+        if peer.pfx_snt == 0 {
+            return Err(eyre::eyre!("{name} {peer_name} state is 0 should be > 0"));
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct BgpNetworks {
+    ipv4_unicast: BgpStats,
+    l2_vpn_evpn: BgpStats,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct BgpStats {
+    failed_peers: u32,
+    total_peers: u32,
+    dynamic_peers: u32,
+    peers: HashMap<String, BgpPeer>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct BgpPeer {
+    state: String,
+    pfx_rcd: u32,
+    pfx_snt: u32,
+}
+
+// Health of HBN
+#[derive(Debug, Default, Serialize)]
+pub struct HealthReport {
+    pub checks_passed: Vec<HealthCheck>,
+    pub checks_failed: Vec<HealthCheck>,
+    pub message: Option<String>,
+}
+
+impl HealthReport {
+    fn new() -> HealthReport {
+        Default::default()
+    }
+
+    fn passed(&mut self, hc: HealthCheck) {
+        self.checks_passed.push(hc);
+    }
+
+    fn failed(&mut self, hc: HealthCheck, msg: String) {
+        self.checks_failed.push(hc);
+        if self.message.is_none() {
+            self.message = Some(msg);
+        }
+    }
+
+    pub fn is_healthy(&self) -> bool {
+        !self.checks_passed.is_empty() && self.checks_failed.is_empty()
+    }
+}
+
+// The things we check on an HBN to ensure it's in good health
+#[derive(Debug, Serialize, PartialEq)]
+pub enum HealthCheck {
+    ContainerExists,
+    SupervisorctlStatus,
+    ServiceRunning(String),
+    BgpStats,
+    Ifreload,
+    FileExists(String),
+    FileIsValid(String),
+}
+
+impl fmt::Display for HealthReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_healthy() {
+            write!(f, "OK")
+        } else {
+            write!(
+                f,
+                "Passed: {}, failed: {}, first failure: {}",
+                self.checks_passed
+                    .iter()
+                    .map(|hc| hc.to_string())
+                    .collect::<Vec<String>>()
+                    .join(","),
+                self.checks_failed
+                    .iter()
+                    .map(|hc| hc.to_string())
+                    .collect::<Vec<String>>()
+                    .join(","),
+                self.message.as_deref().unwrap_or_default()
+            )
+        }
+    }
+}
+
+impl fmt::Display for HealthCheck {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ContainerExists => write!(f, "ContainerExists"),
+            Self::SupervisorctlStatus => write!(f, "SupervisorctlStatus"),
+            Self::ServiceRunning(service_name) => write!(f, "ServiceRunning({})", service_name),
+            Self::BgpStats => write!(f, "BgpStats"),
+            Self::Ifreload => write!(f, "Ifreload"),
+            Self::FileExists(file_name) => write!(f, "FileExists({})", file_name),
+            Self::FileIsValid(file_name) => write!(f, "FileIsValid({})", file_name),
+        }
+    }
+}
+
+fn run_in_container(
+    container_id: &str,
+    command: &[&str],
+    need_success: bool,
+) -> color_eyre::Result<String> {
+    let mut args = vec!["crictl", "exec", container_id];
+    args.extend_from_slice(command);
+
+    let mut sudo = Command::new("sudo");
+    let cmd = sudo.args(args);
+    let out = cmd.output()?;
+    if need_success && !out.status.success() {
+        debug!(
+            "STDERR {}: {}",
+            pretty_cmd(cmd),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return Err(eyre::eyre!(
+            "{} for cmd '{}'",
+            out.status, // includes the string "exit status"
+            pretty_cmd(cmd)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+fn parse_status(status_out: &str) -> color_eyre::Result<SctlStatus> {
+    let mut m = HashMap::new();
+    for line in status_out.lines() {
+        let parts: Vec<&str> = line.split_ascii_whitespace().collect();
+        if parts.len() < 2 {
+            warn!("supervisorctl status line too short: '{line}'");
+            continue;
+        }
+        let state: SctlState = match parts[1].parse() {
+            Ok(s) => s,
+            Err(_err) => {
+                // unreachable but future proof. SctlState::from_str is currently infallible.
+                warn!(
+                    "supervisorctl status invalid state '{}' in line '{line}'",
+                    parts[1]
+                );
+                continue;
+            }
+        };
+        m.insert(parts[0].to_string(), state);
+    }
+    Ok(SctlStatus { m })
+}
+
+fn get_hbn_container_id() -> color_eyre::Result<String> {
+    let mut sudo = Command::new("sudo");
+    let cmd = sudo.args(["crictl", "ps", "--name=doca-hbn", "-o=json"]);
+    let out = cmd.output()?;
+    if !out.status.success() {
+        debug!(
+            "STDERR {}: {}",
+            pretty_cmd(cmd),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return Err(eyre::eyre!("{} for cmd '{}'", out.status, pretty_cmd(cmd)));
+    }
+
+    parse_container_id(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn parse_container_id(json: &str) -> color_eyre::Result<String> {
+    let o: CrictlOut = serde_json::from_str(json)?;
+    if o.containers.is_empty() {
+        return Err(eyre::eyre!(
+            "crictl JSON output has empty 'containers' array. Is doca-hbn running?"
+        ));
+    }
+    Ok(o.containers[0].id.clone())
+}
+
+#[derive(Deserialize, Debug)]
+struct CrictlOut {
+    containers: Vec<Container>,
+}
+
+#[derive(Deserialize, Debug)]
+struct Container {
+    id: String,
+}
+
+struct SctlStatus {
+    m: HashMap<String, SctlState>,
+}
+
+impl SctlStatus {
+    fn status_of(&self, process: &str) -> SctlState {
+        *self.m.get(process).unwrap_or(&SctlState::Unknown)
+    }
+}
+
+impl FromStr for SctlState {
+    type Err = color_eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "STOPPED" => Self::Stopped,
+            "STARTING" => Self::Starting,
+            "RUNNING" => Self::Running,
+            "BACKOFF" => Self::Backoff,
+            "STOPPING" => Self::Stopping,
+            "EXITED" => Self::Exited,
+            "FATAL" => Self::Fatal,
+            _ => Self::Unknown,
+        })
+    }
+}
+
+impl fmt::Display for SctlState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Stopped => "STOPPED",
+                Self::Starting => "STARTING",
+                Self::Running => "RUNNING",
+                Self::Backoff => "BACKOFF",
+                Self::Stopping => "STOPPING",
+                Self::Exited => "EXITED",
+                Self::Fatal => "FATAL",
+                Self::Unknown => "UNKNOWN",
+            }
+        )
+    }
+}
+
+// Supervisorctl process states
+// https://supervisord.org/subprocess.html?#process-states
+#[derive(PartialEq, Debug, Copy, Clone, Default)]
+enum SctlState {
+    #[default]
+    Unknown,
+    Stopped,
+    Starting,
+    Running,
+    Backoff,
+    Stopping,
+    Exited,
+    Fatal,
+}
+
+fn pretty_cmd(c: &Command) -> String {
+    format!(
+        "{} {}",
+        c.get_program().to_string_lossy(),
+        c.get_args()
+            .map(|x| x.to_string_lossy())
+            .collect::<Vec<std::borrow::Cow<'_, str>>>()
+            .join(" ")
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{check_bgp, parse_container_id, parse_status, SctlState};
+
+    const CRICTL_OUT: &str = r#"
+{
+  "containers": [
+    {
+      "id": "f11d4746b230d51598bac048331072597a87303fede8c1812e01612c496bbc43",
+      "podSandboxId": "b5703f93d448f305b391c2583384b7d1a4e2266c35d12b0e0f2f01fe5083f93d",
+      "metadata": {
+        "name": "doca-hbn",
+        "attempt": 0
+      },
+      "image": {
+        "image": "sha256:05f1047133f9852bd739590fa53071cc6f6eb7cce0a695ce981ddba81317c368",
+        "annotations": {
+        }
+      },
+      "imageRef": "sha256:05f1047133f9852bd739590fa53071cc6f6eb7cce0a695ce981ddba81317c368",
+      "state": "CONTAINER_RUNNING",
+      "createdAt": "1678127057518777146",
+      "labels": {
+        "io.kubernetes.container.name": "doca-hbn",
+        "io.kubernetes.pod.name": "doca-hbn-service-idaho-hamper.forge.local",
+        "io.kubernetes.pod.namespace": "default",
+        "io.kubernetes.pod.uid": "949491dc6d16952d446a7d0e80da5b18"
+      },
+      "annotations": {
+        "io.kubernetes.container.hash": "ee4ee15b",
+        "io.kubernetes.container.restartCount": "0",
+        "io.kubernetes.container.terminationMessagePath": "/dev/termination-log",
+        "io.kubernetes.container.terminationMessagePolicy": "File",
+        "io.kubernetes.pod.terminationGracePeriod": "30"
+      }
+    }
+  ]
+}
+"#;
+
+    // Should these gaps be tabs? Yes. Are they tabs? No. `supervisorctl` outputs spaces.
+    const SUPERVISORCTL_STATUS_OUT: &str = r#"
+cron                             RUNNING   pid 15, uptime 4:18:47
+decrypt-user-add                 EXITED    Mar 06 06:24 PM
+frr                              RUNNING   pid 17, uptime 4:18:47
+frr-reload                       STOPPED   Not started
+ifreload                         EXITED    Mar 06 06:24 PM
+isc-dhcp-relay-default           RUNNING   pid 19, uptime 4:18:47
+neighmgr                         RUNNING   pid 21, uptime 4:18:47
+nginx                            RUNNING   pid 22, uptime 4:18:47
+nl2doca                          RUNNING   pid 23, uptime 4:18:47
+nvued                            STOPPED   Mar 06 06:24 PM
+nvued-startup                    EXITED    Mar 06 06:24 PM
+rsyslog                          RUNNING   pid 27, uptime 4:18:47
+sysctl-apply                     EXITED    Mar 06 06:24 PM
+"#;
+
+    const BGP_SUMMARY_JSON: &str = include_str!("hbn_bgp_summary.json");
+
+    #[test]
+    fn test_parse_container_id() -> color_eyre::Result<()> {
+        assert_eq!(
+            parse_container_id(CRICTL_OUT)?,
+            "f11d4746b230d51598bac048331072597a87303fede8c1812e01612c496bbc43"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_supervisorctl_status() -> color_eyre::Result<()> {
+        let st = parse_status(SUPERVISORCTL_STATUS_OUT)?;
+        assert_eq!(st.status_of("frr"), SctlState::Running);
+        assert_eq!(st.status_of("ifreload"), SctlState::Exited);
+        assert_eq!(st.status_of("nvued"), SctlState::Stopped);
+        Ok(())
+    }
+
+    #[test]
+    fn test_check_bgp() -> color_eyre::Result<()> {
+        check_bgp(BGP_SUMMARY_JSON)
+    }
+}

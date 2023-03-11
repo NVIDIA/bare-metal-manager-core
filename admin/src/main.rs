@@ -27,6 +27,7 @@ use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, NetworkSegment,
 };
 use log::LevelFilter;
+use prettytable::{row, Table};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +139,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!("{}", serde_json::to_string_pretty(&cred).unwrap());
                 } else {
                     println!("{}:{}", cred.username, cred.password);
+                }
+            }
+            Machine::NetworkStatus => {
+                let all_status = rpc::get_all_managed_host_network_status(carbide_api)
+                    .await?
+                    .all;
+                if all_status.is_empty() {
+                    println!("No reported network status");
+                } else {
+                    let mut table = Table::new();
+                    table.add_row(row![
+                        "Observed at",
+                        "DPU machine ID",
+                        "Is healthy?",
+                        "Checks passed",
+                        "Checks failed",
+                        "First failure"
+                    ]);
+                    for mut st in all_status.into_iter().filter(|st| st.health.is_some()) {
+                        let h = st.health.take().unwrap();
+                        table.add_row(row![
+                            st.observed_at.unwrap(),
+                            st.dpu_machine_id.unwrap(),
+                            h.is_healthy,
+                            h.passed.join(","),
+                            h.failed.join(","),
+                            h.message.unwrap_or_default(),
+                        ]);
+                    }
+                    table.printstd();
                 }
             }
             Machine::Reboot(c) => {
