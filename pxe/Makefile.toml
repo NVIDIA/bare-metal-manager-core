@@ -269,7 +269,6 @@ dependencies = [
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",
-	"bfb-extract-vmlinuz",
 	"bfb-copy-efi",
 	"bfb-remove-extracted-efi",
 	"bfb-rebuild-rootfs",
@@ -291,7 +290,6 @@ dependencies = [
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",
-	"bfb-extract-vmlinuz",
 	"bfb-copy-efi",
 	"bfb-update-efi-checksum-aarch64",
 	"bfb-remove-extracted-efi",
@@ -386,13 +384,6 @@ args = [
 	"/tmp/bfb-dump/initramfs-tmp",
 ]
 
-[tasks.bfb-extract-vmlinuz]
-category = "iPXE Kernel"
-description = "Extract the BFB ubuntu image on aarch64 gitlab runner"
-command = "tar"
-args = [ "--wildcards", "-xf", "image.tar.xz", "./boot/vmlinuz*"]
-cwd = "/tmp/bfb-dump/initramfs-tmp/ubuntu"
-
 [tasks.bfb-update-efi-checksum-aarch64]
 category = "iPXE Kernel"
 description = "update the checksum for the aarch64 BFB EFI kernel"
@@ -410,14 +401,14 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Copy the BFB efi kernel on aarch64 gitlab runner"
 command = "cp"
-args = [ "/tmp/bfb-dump/initramfs-tmp/ubuntu/boot/vmlinuz", "carbide.efi"]
+args = [ "/tmp/bfb-dump/initramfs-tmp/dump-image-v0", "carbide.efi"]
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.bfb-remove-extracted-efi]
 category = "iPXE Kernel"
 description = "Remove the BFB efi kernel on aarch64 gitlab runner"
 command = "rm"
-args = [ "-fr", "/tmp/bfb-dump/initramfs-tmp/ubuntu/boot"]
+args = [ "-fr", "/tmp/bfb-dump/initramfs-tmp/dump-image-v0"]
 
 [tasks.bfb-update-rootfs-checksum-aarch64]
 category = "iPXE Kernel"
