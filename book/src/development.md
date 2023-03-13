@@ -187,6 +187,33 @@ of options (VS Code, NeoVim etc), but CLion/IntelliJ is widely used.
 One thing to note regardless of what IDE you choose: if you're running on Linux DO NOT USE Snap or Flatpak versions of the software packages. These builds introduce a number
 of complications in the C lib linking between the IDE and your system and frankly it's not worth fighting.
 
+## Cross-compiling for aarch64 (rough notes)
+
+The DPU has an ARM core. To build software that runs there such as `forge-dpu-agent` you need an ARM8 machine. QEMU/libvirt can provide that.
+
+Here's how I did it.
+
+One time build:
+ - copy / edit the Docker file from https://gitlab-master.nvidia.com/grahamk/carbide/-/blob/trunk/dev/docker/Dockerfile.build-container-arm into `myarm/Dockerfile`.
+ - delete these lines:
+```
+ RUN /root/.cargo/bin/cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache && /root/.cargo/bin/cargo cache -r registry-index,registry-sources
+ RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
+ RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
+```
+ - `docker build -t myarm myarm` # give it a cooler name
+ - `docker run -it -v /home/graham/src/carbide:/carbide myarm /bin/bash`
+
+Daily usage:
+ - `docker start <container id or name>`
+ - `docker attach <container id or name>`
+
+Now that you're in the container go into `/carbide` and work normally (`cargo build --release`). The binary rust produces will be aarch64. You can `scp` it to a DPU and run it.
+
+The build may hang the first time. I don't know why. Ctrl-C and try again. You may want to `docker commit` after it succeeds to update the image.
+
+Remember to `strip` before you scp so that scp goes faster. scp to DPU example (`nvinit` first): `scp -v -J grahamk@155.130.12.194 /home/graham/src/carbide/target/release/forge-dpu-agent ubuntu@10.180.198.23:.`
+
 ## Next steps
 
 Setup a complete local environment with docker-compose:
