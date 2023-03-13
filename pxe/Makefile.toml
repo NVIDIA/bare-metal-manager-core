@@ -401,7 +401,7 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Copy the BFB efi kernel on aarch64 gitlab runner"
 command = "cp"
-args = [ "/tmp/bfb-dump/initramfs-tmp/dump-image-v0", "carbide.efi"]
+args = [ "/tmp/bfb-dump/dump-image-v0", "carbide.efi"]
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.bfb-remove-extracted-efi]
