@@ -6,6 +6,10 @@ https://en.wikipedia.org/wiki/Border_Gateway_Protocol
 
 Border Gateway Protocol (BGP) is a standardized exterior gateway protocol designed to exchange routing and reachability information among autonomous systems (AS) on the Internet.
 
+### BMC (Baseboard Management Controller)
+
+Runs the BIOS, controls power on/off of the machine it's responsible for. The **Host** has a BMC, and the **DPU** has a separate BMC. The **Host**'s BMC runs a web server which provides both a web interface to manage BIOS settings, and a [Redfish](https://en.wikipedia.org/wiki/Redfish_(specification)) API. The BMC is how we can programmatically reboot a machine.
+
 ### Cloud-Init
 
 https://cloudinit.readthedocs.io/en/latest/
@@ -36,19 +40,27 @@ of services based on a domain name.
 
 ### DPU
 
-DPU - A Mellanox BlueField 2 (or 3) network interface card.
-
-https://www.nvidia.com/en-us/networking/products/data-processing-unit/
+DPU - A [Mellanox BlueField 2 (or 3)](https://www.nvidia.com/en-us/networking/products/data-processing-unit/) network interface card. It has an ARM processor and runs a modified Ubuntu. It has it's own **BMC**. It can act as a network card and as a disk controller.
 
 An list with available SKUs for the card can be found [here](https://nvidia-my.sharepoint.com/:x:/r/personal/tal_nvidia_com/_layouts/15/doc2.aspx?sourcedoc=%7B456F2AFC-D58F-4FF9-892D-07615C4D39D7%7D&file=BlueField%20OPN%20Scheme.xlsx)
 
 ### FleetCommand
 
+See https://nvidia.sharepoint.com/sites/EPG/SitePages/Fleet-Command.aspx
+
 ### HBN (Host Based Networking)
 
-A feature of Cumulus Linux and the DPU cards its running on to configure network routing.
+Software networking switch running in a container on the **DPU**. Manages network routing. Runs [Cumulus Linux](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-linux/). Carbide controls it via VPC and `forge-dpu-agent`.
 
 https://docs.nvidia.com/doca/sdk/pdf/doca-hbn-service.pdf
+
+### Host
+
+A **Host** is the computer the way a customer thinks of it, currently with an x86 processor. It is the "bare metal" we are managing. It runs whatever OS the customer puts in it. See also **ManagedHost** and **DPU**.
+
+### Instance
+
+An Instance is a **Host** currently being used by a customer.
 
 ### IPMI (Intelligent Platform Management Interface)
 
@@ -62,13 +74,19 @@ https://en.wikipedia.org/wiki/IPXE
 
 iPXE is an open-source implementation of the [Preboot eXecution Environment (PXE)](glossary.md#PXE) client software and bootloader. It can be used to enable computers without built-in PXE capability to boot from the network, or to provide additional features beyond what built-in PXE provides.
 
-### Kubernetes
-
 ### Leaf
 
 In the Forge project, we call "Leaf" the device that the host (which we to make available for tenants) plugs into.
 This is typically a DPU that will make the overlay network available
-to the tenant. In future iterations of the Forge project, the Leaf might be a specialized switch instead of a DPU. 
+to the tenant. In future iterations of the Forge project, the Leaf might be a specialized switch instead of a DPU.
+
+### Machine
+
+Generic term for either a **DPU** or a **Host**. Compare with **ManagedHost**.
+
+### ManagedHost
+
+A **ManagedHost** is a box in a data center. It contains two **Machine**: one **DPU** and one **Host**.
 
 ### POD
 
