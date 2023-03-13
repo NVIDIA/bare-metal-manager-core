@@ -16,7 +16,7 @@ rules:
   - apiGroups: ["cert-manager.io"]
     resources: ["certificaterequests"]
     verbs: ["create"]
-  - apiGroups: ["resource.vpc.forge.gitlab-master.nvidia.com"]
+  - apiGroups: ["networkfabric.vpc.forge.gitlab-master.nvidia.com", "resource.vpc.forge.gitlab-master.nvidia.com"]
     resources: ["resourcegroups", "managedresources", "leafs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   {{- if .Values.rbac.rules }}
