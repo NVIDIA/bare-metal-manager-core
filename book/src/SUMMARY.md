@@ -42,6 +42,7 @@
 - [forge-admin-cli access on a Forge cluster](playbooks/forge_admin_cli.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)
+- [Cleaning up the Gitlab Runner in CI when it runs out of disk space](playbooks/gitlab_runner_disk_cleanup.md)
 
 # Environments
 
