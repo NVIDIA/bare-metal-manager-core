@@ -1,4 +1,3 @@
-use carbide::CarbideError;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -10,10 +9,13 @@ use carbide::CarbideError;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
 
 use carbide::db::vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
 use carbide::db::UuidKeyedObjectFilter;
+use carbide::CarbideError;
+use log::LevelFilter;
+
+pub mod common;
 
 const FIXTURE_CREATED_VPC_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
 
