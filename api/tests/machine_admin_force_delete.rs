@@ -14,8 +14,10 @@ use log::LevelFilter;
 
 use carbide::{
     db::{
-        machine::Machine, machine_interface::MachineInterface,
-        machine_state_history::MachineStateHistory, machine_topology::MachineTopology,
+        machine::{Machine, MachineSearchConfig},
+        machine_interface::MachineInterface,
+        machine_state_history::MachineStateHistory,
+        machine_topology::MachineTopology,
         vpc_resource_leaf::VpcResourceLeaf,
     },
     model::machine::machine_id::try_parse_machine_id,
@@ -43,7 +45,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
 
     let mut txn = pool.begin().await.unwrap();
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine_id)
+    let dpu_machine = Machine::find_one(&mut txn, dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -89,10 +91,12 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
 
     // And it should also be gone on the DB layer
     let mut txn = pool.begin().await.unwrap();
-    assert!(Machine::find_one(&mut txn, dpu_machine_id)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        Machine::find_one(&mut txn, dpu_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     // The history should remain in table.
     assert!(

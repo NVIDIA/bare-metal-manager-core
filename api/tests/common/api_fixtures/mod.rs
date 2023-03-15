@@ -107,7 +107,10 @@ impl TestEnv {
     ) -> rpc::forge::MachineList {
         self.api
             .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-                search_config: Some(rpc::forge::MachineSearchConfig { include_dpus }),
+                search_config: Some(rpc::forge::MachineSearchConfig {
+                    include_dpus,
+                    include_history: true,
+                }),
                 id,
                 fqdn,
             }))

@@ -20,7 +20,7 @@ use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
 use crate::db::dpu_machine::DpuMachine;
-use crate::db::machine::Machine;
+use crate::db::machine::{Machine, MachineSearchConfig};
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
 use crate::kubernetes::{leaf_name, LeafData, VpcResourceActions};
 use crate::model::hardware_info::HardwareInfo;
@@ -155,7 +155,10 @@ impl MachineTopology {
                 let machine_dpu =
                     Machine::associate_vpc_leaf_id(&mut *txn, *machine_id, *new_leaf.id()).await?;
 
-                if let Some(machine) = Machine::find_one(&mut *txn, *machine_dpu.id()).await? {
+                if let Some(machine) =
+                    Machine::find_one(&mut *txn, *machine_dpu.id(), MachineSearchConfig::default())
+                        .await?
+                {
                     log::info!("Machine with ID: {} found", machine.id());
                     for mut interface in machine.interfaces().iter().cloned() {
                         if machine.vpc_leaf_id().is_some() {

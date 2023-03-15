@@ -87,10 +87,14 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     assert_eq!(returned_hw_info, hardware_info);
 
     // Hardware info is available on the machine
-    let machine2 = Machine::find_one(&mut txn, *machine.id())
-        .await
-        .unwrap()
-        .unwrap();
+    let machine2 = Machine::find_one(
+        &mut txn,
+        *machine.id(),
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     let rpc_machine = rpc::Machine::try_from(machine2).unwrap();
     let discovery_info = rpc_machine.discovery_info.unwrap();
@@ -112,10 +116,14 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             .is_none()
     );
 
-    let machine2 = Machine::find_one(&mut txn, *machine.id())
-        .await
-        .unwrap()
-        .unwrap();
+    let machine2 = Machine::find_one(
+        &mut txn,
+        *machine.id(),
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     let rpc_machine = rpc::Machine::try_from(machine2).unwrap();
     let discovery_info = rpc_machine.discovery_info.unwrap();

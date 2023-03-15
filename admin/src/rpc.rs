@@ -50,7 +50,10 @@ pub async fn get_all_machines(server: String) -> CarbideCliResult<rpc::MachineLi
         let request = tonic::Request::new(rpc::MachineSearchQuery {
             id: None,
             fqdn: None,
-            search_config: Some(rpc::MachineSearchConfig { include_dpus: true }),
+            search_config: Some(rpc::MachineSearchConfig {
+                include_dpus: true,
+                include_history: true,
+            }),
         });
         let machine_details = client
             .find_machines(request)
