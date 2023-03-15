@@ -33,9 +33,13 @@ async fn state_machine_advance_from_db_events(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let machine = Machine::find_one(&mut txn, FIXTURE_CREATED_MACHINE_ID)
-        .await?
-        .unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_CREATED_MACHINE_ID,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await?
+    .unwrap();
 
     // Insert some valid state changes into the db
     machine
@@ -51,9 +55,13 @@ async fn state_machine_advance_from_db_events(
         .await
         .unwrap();
 
-    let machine = Machine::find_one(&mut txn, FIXTURE_CREATED_MACHINE_ID)
-        .await?
-        .unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_CREATED_MACHINE_ID,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await?
+    .unwrap();
     let state = machine.current_state();
     assert!(matches!(state, MachineState::Assigned));
 

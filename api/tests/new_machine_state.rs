@@ -34,7 +34,15 @@ fn setup() {
 async fn test_new_machine_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let machine = Machine::find_one(&mut txn, FIXTURE_CREATED_MACHINE_ID).await?;
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_CREATED_MACHINE_ID,
+        carbide::db::machine::MachineSearchConfig {
+            include_dpus: true,
+            include_history: true,
+        },
+    )
+    .await?;
 
     assert!(matches!(
         machine,
@@ -56,9 +64,29 @@ async fn test_new_machine_state_history(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let machine = Machine::find_one(&mut txn, FIXTURE_CREATED_MACHINE_ID)
-        .await?
-        .unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_CREATED_MACHINE_ID,
+        carbide::db::machine::MachineSearchConfig {
+            include_dpus: true,
+            include_history: true,
+        },
+    )
+    .await?
+    .unwrap();
+
+    assert!(machine.history().is_empty()); // No machine history is added during fixtures based
+                                           // machine creation as this is just DB value update.
+
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_CREATED_MACHINE_ID,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await?
+    .unwrap();
+
+    assert!(machine.history().is_empty());
 
     for _ in 1..300 {
         machine
@@ -76,5 +104,18 @@ async fn test_new_machine_state_history(
 
     // Count should not go beyond 250.
     assert_eq!(result.len(), 250);
+
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_CREATED_MACHINE_ID,
+        carbide::db::machine::MachineSearchConfig {
+            include_dpus: true,
+            include_history: true,
+        },
+    )
+    .await?
+    .unwrap();
+
+    assert!(!machine.history().is_empty());
     Ok(())
 }

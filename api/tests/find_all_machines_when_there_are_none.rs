@@ -26,9 +26,16 @@ async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
         .await
         .expect("Could create a transaction on database pool");
 
-    let machines = Machine::find(&mut txn, carbide::db::UuidKeyedObjectFilter::All)
-        .await
-        .unwrap();
+    let machines = Machine::find(
+        &mut txn,
+        carbide::db::UuidKeyedObjectFilter::All,
+        carbide::db::machine::MachineSearchConfig {
+            include_dpus: true,
+            include_history: true,
+        },
+    )
+    .await
+    .unwrap();
 
     assert!(machines.is_empty());
 }

@@ -19,10 +19,14 @@ pub const FIXTURE_CIRCUIT_ID_1: &str = "vlan_101";
 
 pub async fn prepare_machine(pool: &sqlx::PgPool) {
     let mut txn = pool.begin().await.unwrap();
-    let machine = Machine::find_one(&mut txn, FIXTURE_X86_MACHINE_ID)
-        .await
-        .unwrap()
-        .unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_X86_MACHINE_ID,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(matches!(machine.current_state(), MachineState::Init));
     machine
         .advance(&mut txn, MachineState::Adopted)

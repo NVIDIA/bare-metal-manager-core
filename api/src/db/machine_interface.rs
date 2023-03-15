@@ -19,6 +19,7 @@ use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use super::machine::MachineSearchConfig;
 use super::{DatabaseError, UuidKeyedObjectFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
@@ -419,7 +420,9 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Option<Machine>, DatabaseError> {
         match self.machine_id {
-            Some(machine_id) => Machine::find_one(txn, machine_id).await,
+            Some(machine_id) => {
+                Machine::find_one(txn, machine_id, MachineSearchConfig::default()).await
+            }
             None => Ok(None),
         }
     }

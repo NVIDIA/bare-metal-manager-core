@@ -12,6 +12,7 @@
 //!
 //! Machine - represents a database-backed Machine object
 //!
+use std::collections::HashMap;
 use std::convert::From;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
@@ -36,6 +37,22 @@ use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::{machine_id::MachineId as StableMachineId, MachineState};
 use crate::{CarbideError, CarbideResult};
+
+/// MachineSearchConfig: Search parameters
+#[derive(Default, Debug)]
+pub struct MachineSearchConfig {
+    pub include_dpus: bool,
+    pub include_history: bool,
+}
+
+impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
+    fn from(value: rpc::MachineSearchConfig) -> Self {
+        MachineSearchConfig {
+            include_dpus: value.include_dpus,
+            include_history: value.include_history,
+        }
+    }
+}
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
@@ -62,14 +79,10 @@ pub struct Machine {
     /// The current state of the machine
     state: Versioned<MachineState>,
 
-    /// A list of [MachineEvent][event]s that this machine has experienced
-    ///
-    /// [event]: crate::db::MachineEvent
+    /// A list of [MachineStateHistory] that this machine has experienced
     history: Vec<MachineStateHistory>,
 
     /// A list of [MachineInterface][interface]s that this machine owns
-    ///
-    /// [event]: crate::db::MachineInterface
     interfaces: Vec<MachineInterface>,
 
     /// The Hardware information that was discoverd for this machine
@@ -188,7 +201,8 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: uuid::Uuid,
     ) -> Result<bool, DatabaseError> {
-        let machine = Machine::find_one(&mut *txn, machine_id).await?;
+        let machine =
+            Machine::find_one(&mut *txn, machine_id, MachineSearchConfig::default()).await?;
         match machine {
             None => Ok(false),
             Some(_) => Ok(true),
@@ -211,22 +225,26 @@ impl Machine {
 
         match interface.machine_id {
             // GET
-            Some(machine_id) => match Machine::find_one(&mut *txn, machine_id).await? {
-                Some(machine) => {
-                    // TODO: Verify that the Stable Machine ID matches?
-                    Ok(machine)
+            Some(machine_id) => {
+                match Machine::find_one(&mut *txn, machine_id, MachineSearchConfig::default())
+                    .await?
+                {
+                    Some(machine) => {
+                        // TODO: Verify that the Stable Machine ID matches?
+                        Ok(machine)
+                    }
+                    None => {
+                        log::warn!(
+                            "Interface ID {} refers to missing machine {machine_id}",
+                            interface.id()
+                        );
+                        Err(CarbideError::NotFoundError {
+                            kind: "machine",
+                            id: machine_id.to_string(),
+                        })
+                    }
                 }
-                None => {
-                    log::warn!(
-                        "Interface ID {} refers to missing machine {machine_id}",
-                        interface.id()
-                    );
-                    Err(CarbideError::NotFoundError {
-                        kind: "machine",
-                        id: machine_id.to_string(),
-                    })
-                }
-            },
+            }
             // CREATE
             None => {
                 let query = "INSERT INTO machines(stable_id) VALUES($1) RETURNING id";
@@ -237,11 +255,13 @@ impl Machine {
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
                     })?;
-                let machine = match Machine::find_one(&mut *txn, row.0).await {
-                    Ok(Some(x)) => Ok(x),
-                    Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),
-                    Err(x) => Err(x.into()),
-                }?;
+                let machine =
+                    match Machine::find_one(&mut *txn, row.0, MachineSearchConfig::default()).await
+                    {
+                        Ok(Some(x)) => Ok(x),
+                        Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),
+                        Err(x) => Err(x.into()),
+                    }?;
                 match machine.current_state() {
                     MachineState::Init => {
                         interface
@@ -278,10 +298,13 @@ impl Machine {
     pub async fn find_one(
         txn: &mut Transaction<'_, Postgres>,
         uuid: uuid::Uuid,
+        search_config: MachineSearchConfig,
     ) -> Result<Option<Self>, DatabaseError> {
-        Ok(Machine::find(txn, UuidKeyedObjectFilter::One(uuid))
-            .await?
-            .pop())
+        Ok(
+            Machine::find(txn, UuidKeyedObjectFilter::One(uuid), search_config)
+                .await?
+                .pop(),
+        )
     }
 
     pub fn generate_hostname_from_uuid(uuid: &uuid::Uuid) -> String {
@@ -428,6 +451,7 @@ SELECT m.id FROM
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
+        search_config: MachineSearchConfig,
     ) -> Result<Vec<Machine>, DatabaseError> {
         let base_query = "SELECT * FROM machines m {where} GROUP BY m.id".to_owned();
 
@@ -456,8 +480,11 @@ SELECT m.id FROM
 
         let all_uuids = all_machines.iter().map(|m| m.id).collect::<Vec<Uuid>>();
 
-        let mut history_for_machine =
-            MachineStateHistory::find_by_machine_ids(&mut *txn, &all_uuids).await?;
+        let mut history_for_machine = if search_config.include_history {
+            MachineStateHistory::find_by_machine_ids(&mut *txn, &all_uuids).await?
+        } else {
+            HashMap::new()
+        };
 
         let mut interfaces_for_machine =
             MachineInterface::find_by_machine_ids(&mut *txn, &all_uuids).await?;
@@ -466,10 +493,12 @@ SELECT m.id FROM
             MachineTopology::find_latest_by_machine_ids(&mut *txn, &all_uuids).await?;
 
         all_machines.iter_mut().for_each(|machine| {
-            if let Some(history) = history_for_machine.remove(&machine.id) {
-                machine.history = history;
-            } else {
-                log::warn!("Machine {0} () has no events", machine.id);
+            if search_config.include_history {
+                if let Some(history) = history_for_machine.remove(&machine.id) {
+                    machine.history = history;
+                } else {
+                    log::warn!("Machine {0} () has no history event.", machine.id);
+                }
             }
 
             if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
@@ -584,6 +613,7 @@ SELECT m.id FROM
     pub async fn find_by_fqdn(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         fqdn: &str,
+        search_config: MachineSearchConfig,
     ) -> Result<Vec<Machine>, DatabaseError> {
         let query = "SELECT machine_id FROM machine_dhcp_records WHERE fqdn = $1";
 
@@ -597,7 +627,7 @@ SELECT m.id FROM
             None => return Ok(Vec::new()),
         };
 
-        match Self::find_one(txn, machine_id.0).await? {
+        match Self::find_one(txn, machine_id.0, search_config).await? {
             Some(machine) => Ok(vec![machine]),
             None => Ok(vec![]),
         }
@@ -614,7 +644,7 @@ SELECT m.id FROM
         query: &str,
     ) -> Result<Option<Self>, DatabaseError> {
         if let Ok(uuid) = Uuid::parse_str(query) {
-            return Self::find_one(txn, uuid).await;
+            return Self::find_one(txn, uuid, MachineSearchConfig::default()).await;
         }
 
         if let Ok(ip) = Ipv4Addr::from_str(query) {

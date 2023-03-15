@@ -46,6 +46,7 @@ use ::rpc::protos::forge::{
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 
 use crate::db::ipmi::UserRoles;
+use crate::db::machine::MachineSearchConfig;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
 use crate::model::machine::network::MachineNetworkStatus;
 use crate::{
@@ -719,9 +720,13 @@ where
         let instance = delete_instance.delete(&mut txn).await?;
 
         // Change state to Decommissioned
-        let machine = match Machine::find_one(&mut txn, instance.machine_id)
-            .await
-            .map_err(CarbideError::from)?
+        let machine = match Machine::find_one(
+            &mut txn,
+            instance.machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await
+        .map_err(CarbideError::from)?
         {
             None => {
                 return Err(Status::invalid_argument(format!(
@@ -1108,7 +1113,9 @@ where
             }
         };
 
-        let (machine, mut txn) = self.load_machine(machine_id).await?;
+        let (machine, mut txn) = self
+            .load_machine(machine_id, MachineSearchConfig::default())
+            .await?;
         machine.update_discovery_time(&mut txn).await?;
 
         match machine.current_state() {
@@ -1164,7 +1171,9 @@ where
             }
         };
 
-        let (machine, mut txn) = self.load_machine(machine_id).await?;
+        let (machine, mut txn) = self
+            .load_machine(machine_id, MachineSearchConfig::default())
+            .await?;
         machine.update_cleanup_time(&mut txn).await?;
         machine
             .advance(&mut txn, MachineState::Cleanedup)
@@ -1199,7 +1208,15 @@ where
         log_request_data(&request);
 
         let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
-        let (machine, _) = self.load_machine(machine_id).await?;
+        let (machine, _) = self
+            .load_machine(
+                machine_id,
+                MachineSearchConfig {
+                    include_history: true,
+                    ..MachineSearchConfig::default()
+                },
+            )
+            .await?;
         Ok(Response::new(rpc::Machine::from(machine)))
     }
 
@@ -1221,16 +1238,21 @@ where
             search_config,
             ..
         } = request.into_inner();
-        let include_dpu = search_config.map(|x| x.include_dpus).unwrap_or(false);
+        let search_config = search_config
+            .map(MachineSearchConfig::from)
+            .unwrap_or(MachineSearchConfig::default());
+        let include_dpus = search_config.include_dpus;
 
         let machines = match (id, fqdn) {
             (Some(id), _) => {
                 let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
                 let filter = UuidKeyedObjectFilter::One(machine_id);
-                Machine::find(&mut txn, filter).await
+                Machine::find(&mut txn, filter, search_config).await
             }
-            (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, &fqdn).await,
-            (None, None) => Machine::find(&mut txn, UuidKeyedObjectFilter::All).await,
+            (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, &fqdn, search_config).await,
+            (None, None) => {
+                Machine::find(&mut txn, UuidKeyedObjectFilter::All, search_config).await
+            }
         };
 
         let result = machines
@@ -1240,7 +1262,7 @@ where
                     .filter(|x| {
                         let ty = x.machine_type();
                         ty.is_some()
-                            && (include_dpu
+                            && (include_dpus
                                 || ty.expect("MachineType is none.") == MachineType::Host)
                     })
                     .map(rpc::Machine::from)
@@ -1883,7 +1905,9 @@ where
             }
         };
 
-        let (machine, mut txn) = self.load_machine(machine_id).await?;
+        let (machine, mut txn) = self
+            .load_machine(machine_id, MachineSearchConfig::default())
+            .await?;
 
         // Treat this message as signal from machine that reboot is finished. Update reboot time.
         machine.update_reboot_time(&mut txn).await?;
@@ -2476,13 +2500,14 @@ where
     async fn load_machine(
         &self,
         machine_id: uuid::Uuid,
+        search_config: MachineSearchConfig,
     ) -> CarbideResult<(Machine, sqlx::Transaction<'_, sqlx::Postgres>)> {
         let mut txn = self
             .database_connection
             .begin()
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin load_machine", e))?;
-        let machine = match Machine::find_one(&mut txn, machine_id).await {
+        let machine = match Machine::find_one(&mut txn, machine_id, search_config).await {
             Err(err) => {
                 log::warn!("loading machine for {machine_id}: {err}.");
                 return Err(CarbideError::InvalidArgument(

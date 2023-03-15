@@ -16,7 +16,7 @@ use crate::{
             config::network::load_instance_network_config,
             status::network::load_instance_network_status_observation, Instance,
         },
-        machine::Machine,
+        machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
         DatabaseError,
     },
@@ -93,7 +93,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             None => None,
         };
 
-        let machine = Machine::find_one(txn, machine_id)
+        let machine = Machine::find_one(txn, machine_id, MachineSearchConfig::default())
             .await?
             .ok_or(SnapshotLoaderError::MachineNotFound(machine_id))?;
 

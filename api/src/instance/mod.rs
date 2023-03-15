@@ -19,7 +19,7 @@ use crate::{
     db::{
         instance::{config::network::load_instance_network_config, NewInstance},
         instance_address::InstanceAddress,
-        machine::Machine,
+        machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
         network_segment::NetworkSegment,
     },
@@ -126,7 +126,7 @@ pub async fn allocate_instance(
         )));
     }
 
-    let machine = Machine::find_one(&mut txn, machine_id)
+    let machine = Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| {
             CarbideError::InvalidArgument(format!("Machine with UUID {} was not found", machine_id))
