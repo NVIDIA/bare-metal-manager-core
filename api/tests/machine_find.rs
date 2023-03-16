@@ -93,7 +93,6 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
         dpu_machine_id,
         MachineSearchConfig {
             include_history: true,
-            ..MachineSearchConfig::default()
         },
     )
     .await
@@ -133,7 +132,6 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
         dpu_machine_id,
         MachineSearchConfig {
             include_history: true,
-            ..MachineSearchConfig::default()
         },
     )
     .await

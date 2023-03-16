@@ -1213,7 +1213,6 @@ where
                 machine_id,
                 MachineSearchConfig {
                     include_history: true,
-                    ..MachineSearchConfig::default()
                 },
             )
             .await?;
@@ -1238,10 +1237,14 @@ where
             search_config,
             ..
         } = request.into_inner();
+        let include_dpus = search_config
+            .as_ref()
+            .map(|x| x.include_dpus)
+            .unwrap_or(false);
+
         let search_config = search_config
             .map(MachineSearchConfig::from)
             .unwrap_or(MachineSearchConfig::default());
-        let include_dpus = search_config.include_dpus;
 
         let machines = match (id, fqdn) {
             (Some(id), _) => {

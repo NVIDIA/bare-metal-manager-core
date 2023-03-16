@@ -38,7 +38,6 @@ async fn test_new_machine_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         &mut txn,
         FIXTURE_CREATED_MACHINE_ID,
         carbide::db::machine::MachineSearchConfig {
-            include_dpus: true,
             include_history: true,
         },
     )
@@ -68,7 +67,6 @@ async fn test_new_machine_state_history(
         &mut txn,
         FIXTURE_CREATED_MACHINE_ID,
         carbide::db::machine::MachineSearchConfig {
-            include_dpus: true,
             include_history: true,
         },
     )
@@ -109,7 +107,6 @@ async fn test_new_machine_state_history(
         &mut txn,
         FIXTURE_CREATED_MACHINE_ID,
         carbide::db::machine::MachineSearchConfig {
-            include_dpus: true,
             include_history: true,
         },
     )
