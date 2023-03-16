@@ -30,7 +30,6 @@ async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::All,
         carbide::db::machine::MachineSearchConfig {
-            include_dpus: true,
             include_history: true,
         },
     )

@@ -41,14 +41,12 @@ use crate::{CarbideError, CarbideResult};
 /// MachineSearchConfig: Search parameters
 #[derive(Default, Debug)]
 pub struct MachineSearchConfig {
-    pub include_dpus: bool,
     pub include_history: bool,
 }
 
 impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
     fn from(value: rpc::MachineSearchConfig) -> Self {
         MachineSearchConfig {
-            include_dpus: value.include_dpus,
             include_history: value.include_history,
         }
     }
