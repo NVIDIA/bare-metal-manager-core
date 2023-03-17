@@ -25,7 +25,7 @@
   - [Docker](docker/development.md)
   - [Running a PXE Client in a VM](development/vm_pxe_client.md)
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
-- [Data Model](development/schema.md)
+- [Data Model / DB Schema](development/schema.md)
 - [DPU/Bluefield](dpu-operations.md)
 - [Baby Forge](babyforge.md)
 
