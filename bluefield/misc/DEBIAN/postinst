@@ -1,4 +1,4 @@
 #!/bin/sh
 
 systemctl enable local_bmc_dev.service
-systemctl enable forge_dpu_agent.service
+systemctl enable forge-dpu-agent.service
