@@ -49,6 +49,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
     let segment = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()

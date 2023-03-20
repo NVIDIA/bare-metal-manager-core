@@ -55,6 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegment", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.NetworkSegmentStateHistory",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.Tenant", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantContent", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantKeyset", "#[derive(serde::Serialize)]")

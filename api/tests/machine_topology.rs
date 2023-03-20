@@ -43,6 +43,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let segment = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()

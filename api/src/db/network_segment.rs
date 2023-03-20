@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -38,6 +39,19 @@ use crate::{
 };
 use crate::{CarbideError, CarbideResult};
 
+#[derive(Debug, Clone, Default)]
+pub struct NetworkSegmentSearchConfig {
+    pub include_history: bool,
+}
+
+impl From<rpc::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig {
+    fn from(value: rpc::NetworkSegmentSearchConfig) -> Self {
+        NetworkSegmentSearchConfig {
+            include_history: value.include_history,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
     pub id: Uuid,
@@ -56,6 +70,8 @@ pub struct NetworkSegment {
     pub prefixes: Vec<NetworkPrefix>,
     /// Whether VPC had been configured on all prefixes
     pub resource_groups_created: bool,
+    /// History of state changes.
+    pub history: Vec<NetworkSegmentStateHistory>,
 }
 
 impl NetworkSegment {
@@ -103,6 +119,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             mtu: row.try_get("mtu")?,
             prefixes: Vec::new(),
             resource_groups_created: false,
+            history: Vec::new(),
         })
     }
 }
@@ -181,6 +198,12 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             state = TenantState::Terminating;
         }
 
+        let mut history = Vec::with_capacity(src.history.len());
+
+        for state in src.history {
+            history.push(rpc::NetworkSegmentStateHistory::try_from(state)?);
+        }
+
         Ok(rpc::NetworkSegment {
             id: Some(src.id.into()),
             version: src.version.to_version_string(),
@@ -197,6 +220,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
                 .collect_vec(),
             vpc_id: src.vpc_id.map(rpc::Uuid::from),
             state: state as i32,
+            history,
         })
     }
 }
@@ -314,6 +338,7 @@ impl NetworkSegment {
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
+        search_config: NetworkSegmentSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
         let base_query = "SELECT * FROM network_segments {where}".to_owned();
 
@@ -354,6 +379,12 @@ impl NetworkSegment {
                 .into_iter()
                 .into_group_map_by(|prefix| prefix.segment_id);
 
+        let mut state_history = if search_config.include_history {
+            NetworkSegmentStateHistory::find_by_segment_ids(&mut *txn, &all_uuids).await?
+        } else {
+            HashMap::new()
+        };
+
         for record in &mut all_records {
             if let Some(prefixes) = grouped_prefixes.remove(&record.id) {
                 record.prefixes = prefixes;
@@ -361,6 +392,18 @@ impl NetworkSegment {
                 log::warn!("Network {0} ({1}) has no prefixes?", record.id, record.name);
             }
             record.update_prefix_state(&mut *txn).await?;
+
+            if search_config.include_history {
+                if let Some(history) = state_history.remove(&record.id) {
+                    record.history = history;
+                } else {
+                    log::warn!(
+                        "Network {0} ({1}) has no history yet.",
+                        record.id,
+                        record.name
+                    );
+                }
+            }
         }
 
         Ok(all_records)

@@ -50,8 +50,12 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         segment_id: &Self::ObjectId,
     ) -> Result<Self::State, SnapshotLoaderError> {
-        let mut segments =
-            NetworkSegment::find(txn, UuidKeyedObjectFilter::One(*segment_id)).await?;
+        let mut segments = NetworkSegment::find(
+            txn,
+            UuidKeyedObjectFilter::One(*segment_id),
+            crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+        )
+        .await?;
         if segments.len() != 1 {
             return Err(SnapshotLoaderError::InvalidResult(format!(
                 "Searching for NetworkSegment {} returned zero or multiple results",

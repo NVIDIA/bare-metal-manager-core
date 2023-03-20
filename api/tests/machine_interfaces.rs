@@ -42,6 +42,7 @@ async fn get_fixture_network_segment(
     carbide::db::network_segment::NetworkSegment::find(
         txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?
     .pop()

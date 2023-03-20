@@ -16,6 +16,7 @@ use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
+use super::network_segment::NetworkSegmentSearchConfig;
 use super::DatabaseError;
 use super::{
     address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
@@ -200,6 +201,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
                     .map(|x| x.network_segment_id)
                     .collect_vec()[..],
             ),
+            NetworkSegmentSearchConfig::default(),
         )
         .await?;
 
@@ -339,6 +341,7 @@ mod tests {
                         version,
                     },
                     resource_groups_created: true,
+                    history: Vec::new(),
                 }
             })
             .collect_vec();
