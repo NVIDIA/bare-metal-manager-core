@@ -31,6 +31,7 @@ async fn test_update_network_segment_name(
     let mut segments = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 
@@ -45,6 +46,7 @@ async fn test_update_network_segment_name(
     let segments = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 
@@ -65,6 +67,7 @@ async fn test_update_network_segment_vpc(
     let mut segments = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 
@@ -80,6 +83,7 @@ async fn test_update_network_segment_vpc(
     let segments = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 
@@ -100,6 +104,7 @@ async fn test_update_network_segment_domain(
     let mut segments = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 
@@ -115,6 +120,7 @@ async fn test_update_network_segment_domain(
     let segments = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 
@@ -136,6 +142,7 @@ async fn test_update_network_segment_all(
     let mut segments = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 
@@ -152,6 +159,7 @@ async fn test_update_network_segment_all(
     let segments = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 

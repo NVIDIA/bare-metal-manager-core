@@ -315,6 +315,12 @@ enum TenantState {
   FAILED = 5;
 }
 
+message NetworkSegmentStateHistory {
+  string state = 1;
+  string version = 2;
+  google.protobuf.Timestamp time = 3;
+}
+
 message NetworkSegment {
   UUID id = 1;
   UUID vpc_id = 2;
@@ -328,6 +334,8 @@ message NetworkSegment {
 
   string version = 99;
   TenantState state = 100;
+  repeated NetworkSegmentStateHistory history = 101;
+
 
   // Not sure if we actually still need those
   google.protobuf.Timestamp created = 11;
@@ -379,8 +387,13 @@ message NetworkSegmentDeletionRequest {
 message NetworkSegmentDeletionResult {
 }
 
+message NetworkSegmentSearchConfig {
+  bool include_history = 1;
+}
+
 message NetworkSegmentQuery {
   UUID id = 1;
+  optional NetworkSegmentSearchConfig search_config = 2;
 }
 
 message NetworkPrefix {

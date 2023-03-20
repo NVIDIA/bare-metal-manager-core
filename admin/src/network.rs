@@ -13,7 +13,13 @@ use super::cfg::carbide_options::ShowNetwork;
 use super::{default_uuid, rpc, CarbideCliError, CarbideCliResult};
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
+use serde::Deserialize;
 use std::fmt::Write;
+
+#[derive(Deserialize)]
+struct NetworkState {
+    state: String,
+}
 
 async fn convert_network_to_nice_format(
     segment: &forgerpc::NetworkSegment,
@@ -32,6 +38,14 @@ async fn convert_network_to_nice_format(
         (
             "UPDATED",
             segment.updated.clone().unwrap_or_default().to_string(),
+        ),
+        (
+            "DELETED",
+            segment
+                .deleted
+                .clone()
+                .map(|x| x.to_string())
+                .unwrap_or("Not Deleted".to_string()),
         ),
         (
             "STATE",
@@ -72,10 +86,6 @@ async fn convert_network_to_nice_format(
                         .to_string(),
                 ),
                 ("Reserve First", prefix.reserve_first.to_string()),
-                (
-                    "State",
-                    prefix.state.map(|x| x.state).unwrap_or_default().to_owned(),
-                ),
                 ("Circuit ID", prefix.circuit_id.unwrap_or_default()),
             ];
 
@@ -84,7 +94,30 @@ async fn convert_network_to_nice_format(
             }
             writeln!(
                 &mut lines,
-                "\t--------------------------------------------------"
+                "\t------------------------------------------------------------"
+            )?;
+        }
+    }
+
+    writeln!(&mut lines, "STATE HISTORY: (Latest 5 only)")?;
+    if segment.history.is_empty() {
+        writeln!(&mut lines, "\tEMPTY")?;
+    } else {
+        writeln!(
+            &mut lines,
+            "\tState          Version                      Time"
+        )?;
+        writeln!(
+            &mut lines,
+            "\t---------------------------------------------------"
+        )?;
+        for x in segment.history.iter().rev().take(5).rev() {
+            writeln!(
+                &mut lines,
+                "\t{:<15} {:25} {}",
+                serde_json::from_str::<NetworkState>(&x.state)?.state,
+                x.version,
+                x.time.clone().unwrap_or_default()
             )?;
         }
     }

@@ -28,6 +28,7 @@ use carbide::db::vpc::Vpc;
 pub mod common;
 use common::api_fixtures::{create_test_env, TestApi, TestEnvConfig};
 use rpc::forge::forge_server::Forge;
+use rpc::forge::NetworkSegmentSearchConfig;
 use tonic::Request;
 
 #[ctor::ctor]
@@ -77,6 +78,9 @@ async fn get_segment_state(api: &TestApi, segment_id: uuid::Uuid) -> rpc::forge:
     let segment = api
         .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
             id: Some(segment_id.into()),
+            search_config: Some(NetworkSegmentSearchConfig {
+                include_history: false,
+            }),
         }))
         .await
         .unwrap()
@@ -84,6 +88,20 @@ async fn get_segment_state(api: &TestApi, segment_id: uuid::Uuid) -> rpc::forge:
         .network_segments
         .remove(0);
     segment.state()
+}
+
+async fn get_segments(
+    api: &TestApi,
+    segment_id: uuid::Uuid,
+    search_config: Option<NetworkSegmentSearchConfig>,
+) -> rpc::forge::NetworkSegmentList {
+    api.find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
+        id: Some(segment_id.into()),
+        search_config,
+    }))
+    .await
+    .unwrap()
+    .into_inner()
 }
 
 async fn test_network_segment_lifecycle_impl(
@@ -180,6 +198,7 @@ async fn test_network_segment_lifecycle_impl(
         .api
         .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
             id: segment.id.clone(),
+            search_config: None,
         }))
         .await
         .unwrap()
@@ -327,6 +346,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     let db_segment = NetworkSegment::find(
         &mut txn,
         UuidKeyedObjectFilter::One(segment.id.clone().unwrap().try_into().unwrap()),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()
@@ -386,13 +406,40 @@ async fn test_network_segment_max_history_length(
         rpc::forge::TenantState::Ready
     );
 
+    let segment = get_segments(
+        &env.api,
+        segment_id,
+        Some(NetworkSegmentSearchConfig {
+            include_history: true,
+        }),
+    )
+    .await;
+    assert!(!segment.network_segments[0].history.is_empty());
+
+    let segment = get_segments(
+        &env.api,
+        segment_id,
+        Some(NetworkSegmentSearchConfig {
+            include_history: false,
+        }),
+    )
+    .await;
+    assert!(segment.network_segments[0].history.is_empty());
+
+    let segment = get_segments(&env.api, segment_id, None).await;
+    assert!(segment.network_segments[0].history.is_empty());
+
     // Now insert a lot of state changes, and see if the history limit is kept
     const HISTORY_LIMIT: usize = 250;
 
     let mut txn = pool.begin().await.unwrap();
-    let mut version = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::One(segment_id))
-        .await
-        .unwrap()[0]
+    let mut version = NetworkSegment::find(
+        &mut txn,
+        UuidKeyedObjectFilter::One(segment_id),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap()[0]
         .controller_state
         .version;
     txn.commit().await.unwrap();
@@ -409,9 +456,13 @@ async fn test_network_segment_max_history_length(
         )
         .await
         .unwrap());
-        version = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::One(segment_id))
-            .await
-            .unwrap()[0]
+        version = NetworkSegment::find(
+            &mut txn,
+            UuidKeyedObjectFilter::One(segment_id),
+            carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
+        )
+        .await
+        .unwrap()[0]
             .controller_state
             .version;
         txn.commit().await.unwrap();

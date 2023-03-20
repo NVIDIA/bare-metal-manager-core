@@ -21,7 +21,7 @@ use super::DatabaseError;
 
 /// A record of a past state of a NetworkSegment
 ///
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NetworkSegmentStateHistory {
     /// The numeric identifier of the state change. This is a global change number
     /// for all states, and therefore not important for consumers
@@ -35,7 +35,19 @@ pub struct NetworkSegmentStateHistory {
     pub state_version: ConfigVersion,
 
     /// The timestamp of the state change
-    _timestamp: DateTime<Utc>,
+    timestamp: DateTime<Utc>,
+}
+
+impl TryFrom<NetworkSegmentStateHistory> for rpc::forge::NetworkSegmentStateHistory {
+    fn try_from(value: NetworkSegmentStateHistory) -> Result<Self, Self::Error> {
+        Ok(rpc::forge::NetworkSegmentStateHistory {
+            state: serde_json::to_string(&value.state)?,
+            version: value.state_version.to_version_string(),
+            time: Some(value.timestamp.into()),
+        })
+    }
+
+    type Error = serde_json::Error;
 }
 
 impl<'r> FromRow<'r, PgRow> for NetworkSegmentStateHistory {
@@ -50,7 +62,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegmentStateHistory {
             segment_id: row.try_get("segment_id")?,
             state: state.0,
             state_version,
-            _timestamp: row.try_get("timestamp")?,
+            timestamp: row.try_get("timestamp")?,
         })
     }
 }

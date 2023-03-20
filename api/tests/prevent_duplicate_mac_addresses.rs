@@ -38,6 +38,7 @@ async fn prevent_duplicate_mac_addresses(
     let network_segment = NetworkSegment::find(
         &mut txn,
         carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?
     .pop()

@@ -47,6 +47,7 @@ use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 
 use crate::db::ipmi::UserRoles;
 use crate::db::machine::MachineSearchConfig;
+use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
 use crate::model::machine::network::MachineNetworkStatus;
 use crate::{
@@ -431,7 +432,9 @@ where
                 CarbideError::DatabaseError(file!(), "begin find_network_segments", e)
             })?;
 
-        let rpc::NetworkSegmentQuery { id, .. } = request.into_inner();
+        let rpc::NetworkSegmentQuery {
+            id, search_config, ..
+        } = request.into_inner();
 
         let uuid_filter = match id {
             Some(id) => match Uuid::try_from(id) {
@@ -446,7 +449,10 @@ where
             None => UuidKeyedObjectFilter::All,
         };
 
-        let results = NetworkSegment::find(&mut txn, uuid_filter)
+        let search_config = search_config
+            .map(NetworkSegmentSearchConfig::from)
+            .unwrap_or(NetworkSegmentSearchConfig::default());
+        let results = NetworkSegment::find(&mut txn, uuid_filter, search_config)
             .await
             .map_err(CarbideError::from)?;
         let mut network_segments = Vec::with_capacity(results.len());
@@ -518,9 +524,10 @@ where
             }
         };
 
-        let mut segments = NetworkSegment::find(&mut txn, uuid)
-            .await
-            .map_err(CarbideError::from)?;
+        let mut segments =
+            NetworkSegment::find(&mut txn, uuid, NetworkSegmentSearchConfig::default())
+                .await
+                .map_err(CarbideError::from)?;
 
         let segment = match segments.len() {
             1 => segments.remove(0),

@@ -54,6 +54,9 @@ pub enum CarbideCliError {
 
     #[error("Domain not found.")]
     DomainNotFound,
+
+    #[error("Error while handling json: {0}")]
+    JsonError(#[from] serde_json::Error),
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;

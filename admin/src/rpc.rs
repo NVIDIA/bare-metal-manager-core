@@ -11,7 +11,7 @@ use std::future::Future;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, NetworkSegmentSearchConfig};
 use tonic::transport::Channel;
 
 use super::{CarbideCliError, CarbideCliResult};
@@ -107,7 +107,12 @@ pub async fn get_segments(
     server: String,
 ) -> CarbideCliResult<rpc::NetworkSegmentList> {
     with_forge_client(server, |mut client| async move {
-        let request = tonic::Request::new(rpc::NetworkSegmentQuery { id });
+        let request = tonic::Request::new(rpc::NetworkSegmentQuery {
+            id,
+            search_config: Some(NetworkSegmentSearchConfig {
+                include_history: true,
+            }),
+        });
         let networks = client
             .find_network_segments(request)
             .await
