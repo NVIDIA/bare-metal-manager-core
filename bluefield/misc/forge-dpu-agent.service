@@ -6,7 +6,7 @@ After=networking.service
 Type=simple
 Environment="RUST_BACKTRACE=1"
 Environment="RUST_LOG=debug"
-ExecStart=/usr/bin/forge-dpu-agent
+ExecStart=+/usr/sbin/ip vrf exec mgmt /usr/bin/forge-dpu-agent
 
 [Install]
 WantedBy=multi-user.target

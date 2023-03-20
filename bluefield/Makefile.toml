@@ -23,7 +23,7 @@ script = '''
     mkdir -p "forge-dpu_${vers}/lib/systemd/system" && \
     mkdir -p "forge-dpu_${vers}/usr/bin" && \
     cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/" && \
-    cp misc/forge_dpu_agent.service "forge-dpu_${vers}/lib/systemd/system/" && \
+    cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/" && \
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/" && \
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/" && \
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
