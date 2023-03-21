@@ -16,6 +16,7 @@ use crate::model::{
         config::InstanceConfig,
         status::{InstanceStatus, InstanceStatusObservations},
     },
+    machine::ManagedHostState,
     RpcDataConversionError,
 };
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,9 @@ pub struct InstanceSnapshot {
     /// Machine ID
     pub machine_id: uuid::Uuid,
 
+    /// Machine State
+    pub machine_state: ManagedHostState,
+
     /// Instance configuration. This represents the desired status of the Instance
     /// The Instance might not yet be in that state, but work would be underway
     /// to get the Instance into this state
@@ -41,13 +45,16 @@ pub struct InstanceSnapshot {
 
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
+
+    /// Is delete requested
+    pub delete_requested: bool,
 }
 
 impl TryFrom<InstanceSnapshot> for rpc::Instance {
     type Error = RpcDataConversionError;
 
     fn try_from(snapshot: InstanceSnapshot) -> Result<Self, Self::Error> {
-        let status = snapshot.derive_status();
+        let status = snapshot.derive_status()?;
 
         Ok(rpc::Instance {
             id: Some(snapshot.instance_id.into()),
@@ -62,10 +69,11 @@ impl TryFrom<InstanceSnapshot> for rpc::Instance {
 impl InstanceSnapshot {
     /// Derives the tenant and site-admin facing [`InstanceStatus`] from the
     /// snapshot information about the instance
-    pub fn derive_status(&self) -> InstanceStatus {
+    pub fn derive_status(&self) -> Result<InstanceStatus, RpcDataConversionError> {
         InstanceStatus::from_config_and_observation(
             Versioned::new(&self.config.network, self.network_config_version),
             &self.observations,
+            self.machine_state.clone(),
         )
     }
 }

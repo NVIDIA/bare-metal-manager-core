@@ -261,22 +261,21 @@ impl DeleteInstance {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Instance> {
-        if Instance::find(&mut *txn, UuidKeyedObjectFilter::One(self.instance_id))
-            .await
-            .map_err(|_| CarbideError::NotFoundError {
-                kind: "instance",
-                id: self.instance_id.to_string(),
-            })?
-            .is_empty()
-        {
-            return Err(CarbideError::FindOneReturnedNoResultsError(
-                self.instance_id,
-            ));
-        }
-
         InstanceAddress::delete(&mut *txn, self.instance_id).await?;
 
         let query = "DELETE FROM instances where id=$1::uuid RETURNING *";
+        sqlx::query_as(query)
+            .bind(self.instance_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+    }
+    pub async fn mark_as_deleted(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<Instance> {
+        let query = "UPDATE instances SET deleted=NOW() WHERE id=$1::uuid RETURNING *";
+
         sqlx::query_as(query)
             .bind(self.instance_id)
             .fetch_one(&mut *txn)

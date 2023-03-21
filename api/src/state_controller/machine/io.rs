@@ -12,11 +12,11 @@
 
 //! State Controller IO implementation for Machines
 
-use crate::db::machine::Machine;
 use crate::{
+    db::dpu_machine::DpuMachine,
     model::{
         config_version::{ConfigVersion, Versioned},
-        machine::MachineStateSnapshot,
+        machine::{ManagedHostState, ManagedHostStateSnapshot},
     },
     state_controller::{
         controller::StateControllerIO,
@@ -33,8 +33,8 @@ pub struct MachineStateControllerIO {
 #[async_trait::async_trait]
 impl StateControllerIO for MachineStateControllerIO {
     type ObjectId = uuid::Uuid;
-    type State = MachineStateSnapshot;
-    type ControllerState = ();
+    type State = ManagedHostStateSnapshot;
+    type ControllerState = ManagedHostState;
 
     fn db_lock_name() -> &'static str {
         "machine_state_controller_lock"
@@ -44,7 +44,9 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
     ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
-        Ok(Machine::list_active_machine_ids(txn).await?)
+        Ok(crate::db::dpu_machine::DpuMachine::list_active_dpu_ids(txn)
+            .await
+            .map_err(|x| SnapshotLoaderError::GenericError(x.into()))?)
     }
 
     /// Loads a state snapshot from the database
@@ -62,18 +64,24 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _object_id: &Self::ObjectId,
-        _state: &Self::State,
+        state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, SnapshotLoaderError> {
-        Ok(Versioned::new((), ConfigVersion::initial()))
+        let current = state.dpu_snapshot.current.clone();
+
+        Ok(Versioned::new(current.state, current.version))
     }
 
     async fn persist_controller_state(
         &self,
-        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _object_id: &Self::ObjectId,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        object_id: &Self::ObjectId,
         _old_version: ConfigVersion,
-        _new_state: Self::ControllerState,
+        new_state: Self::ControllerState,
     ) -> Result<(), SnapshotLoaderError> {
+        DpuMachine::update_state(txn, *object_id, new_state)
+            .await
+            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
+
         Ok(())
     }
 }

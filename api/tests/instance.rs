@@ -28,6 +28,7 @@ use carbide::{
             Instance,
         },
         instance_address::InstanceAddress,
+        machine::{Machine, MachineSearchConfig},
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     model::{
@@ -47,6 +48,7 @@ use carbide::{
             },
         },
         machine::machine_id::try_parse_machine_id,
+        machine::{InstanceState, ManagedHostState},
     },
     state_controller::snapshot_loader::{
         DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
@@ -61,6 +63,8 @@ use common::api_fixtures::{
     },
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
+
+use crate::common::api_fixtures::instance::FIXTURE_DPU_MACHINE_ID;
 
 pub mod common;
 
@@ -78,7 +82,7 @@ fn setup() {
     "create_machine"
 ))]
 async fn test_crud_instance(pool: sqlx::PgPool) {
-    let api = create_test_env(pool.clone(), Default::default()).api;
+    let env = create_test_env(pool.clone(), Default::default());
     prepare_machine(&pool).await;
 
     let parsed_relay = "192.168.0.1".parse::<IpAddr>().unwrap();
@@ -98,6 +102,18 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
             .unwrap(),
         0
     );
+    assert!(matches!(
+        Machine::find_one(
+            &mut txn,
+            FIXTURE_X86_MACHINE_ID,
+            MachineSearchConfig::default()
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .current_state(),
+        ManagedHostState::Ready
+    ));
     txn.commit().await.unwrap();
 
     let network = Some(rpc::InstanceNetworkConfig {
@@ -107,7 +123,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         }],
     });
 
-    let (instance_id, _instance) = create_instance(&api, network).await;
+    let (instance_id, _instance) = create_instance(&env, network).await;
 
     let mut txn = pool
         .clone()
@@ -140,7 +156,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         load_instance_network_status_observation(&mut txn, instance_id)
             .await
             .unwrap();
-    assert!(network_status_observation.is_none());
+    assert!(network_status_observation.is_some());
 
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
@@ -171,9 +187,18 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
     assert_eq!(record.address().ip().to_string(), "192.0.2.3");
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_X86_MACHINE_ID,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
     let snapshot_loader = DbSnapshotLoader::default();
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id)
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
         .await
         .unwrap();
 
@@ -192,9 +217,21 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         }
     );
 
+    assert!(matches!(
+        Machine::find_one(
+            &mut txn,
+            FIXTURE_X86_MACHINE_ID,
+            MachineSearchConfig::default()
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .current_state(),
+        ManagedHostState::Assigned(InstanceState::Ready)
+    ));
     txn.commit().await.unwrap();
 
-    delete_instance(&api, instance_id).await;
+    delete_instance(&env, instance_id).await;
 
     // Address is freed during delete
     let mut txn = pool
@@ -202,6 +239,19 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
+
+    assert!(matches!(
+        Machine::find_one(
+            &mut txn,
+            FIXTURE_X86_MACHINE_ID,
+            MachineSearchConfig::default()
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .current_state(),
+        ManagedHostState::Ready
+    ));
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
             .await
@@ -218,7 +268,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     "create_machine"
 ))]
 async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
-    let api = create_test_env(pool.clone(), Default::default()).api;
+    let env = create_test_env(pool.clone(), Default::default());
     prepare_machine(&pool).await;
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
@@ -227,7 +277,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         }],
     });
 
-    let (instance_id, _instance) = create_instance(&api, network).await;
+    let (instance_id, _instance) = create_instance(&env, network).await;
 
     let mut txn = pool
         .clone()
@@ -238,27 +288,18 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     // When no network status has been observed, we report an interface
     // list with no IPs and MACs to the user
     let snapshot_loader = DbSnapshotLoader::default();
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_X86_MACHINE_ID,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id)
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
         .await
         .unwrap();
-    assert!(snapshot.observations.network.is_none());
-
-    let status = snapshot.derive_status();
-    assert_eq!(status.configs_synced, SyncState::Pending);
-    assert_eq!(status.network.configs_synced, SyncState::Pending);
-    assert_eq!(
-        status.tenant.as_ref().unwrap().state,
-        TenantState::Provisioning
-    );
-    assert_eq!(
-        status.network.interfaces,
-        vec![InstanceInterfaceStatus {
-            function_id: InterfaceFunctionId::PhysicalFunctionId {},
-            mac_address: None,
-            addresses: Vec::new(),
-        }]
-    );
 
     let mut updated_network_status = InstanceNetworkStatusObservation {
         config_version: snapshot.network_config_version,
@@ -274,8 +315,17 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_X86_MACHINE_ID,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id)
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
         .await
         .unwrap();
 
@@ -283,7 +333,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
     );
-    let status = snapshot.derive_status();
+    let status = snapshot.derive_status().unwrap();
     assert_eq!(status.configs_synced, SyncState::Synced);
     assert_eq!(status.network.configs_synced, SyncState::Synced);
     assert_eq!(status.tenant.as_ref().unwrap().state, TenantState::Ready);
@@ -304,8 +354,16 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     update_instance_network_status_observation(&mut txn, instance_id, &updated_network_status)
         .await
         .unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_X86_MACHINE_ID,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id)
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
         .await
         .unwrap();
 
@@ -313,7 +371,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
     );
-    let status = snapshot.derive_status();
+    let status = snapshot.derive_status().unwrap();
     assert_eq!(status.configs_synced, SyncState::Synced);
     assert_eq!(status.network.configs_synced, SyncState::Synced);
     assert_eq!(status.tenant.as_ref().unwrap().state, TenantState::Ready);
@@ -336,8 +394,16 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     .fetch_one(&mut txn)
     .await
     .unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_X86_MACHINE_ID,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id)
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
         .await
         .unwrap();
 
@@ -345,7 +411,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
     );
-    let status = snapshot.derive_status();
+    let status = snapshot.derive_status().unwrap();
     assert_eq!(status.configs_synced, SyncState::Pending);
     assert_eq!(status.network.configs_synced, SyncState::Pending);
     // TODO: This is wrong - it should become `Configuring`
@@ -376,8 +442,16 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     update_instance_network_status_observation(&mut txn, instance_id, &updated_network_status)
         .await
         .unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        FIXTURE_X86_MACHINE_ID,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id)
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
         .await
         .unwrap();
 
@@ -385,7 +459,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
     );
-    let status = snapshot.derive_status();
+    let status = snapshot.derive_status().unwrap();
     assert_eq!(status.configs_synced, SyncState::Synced);
     assert_eq!(status.network.configs_synced, SyncState::Synced);
     assert_eq!(status.tenant.as_ref().unwrap().state, TenantState::Ready);
@@ -399,7 +473,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     );
 
     txn.commit().await.unwrap();
-    delete_instance(&api, instance_id).await;
+    delete_instance(&env, instance_id).await;
 }
 
 #[sqlx::test(fixtures(
@@ -409,7 +483,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     "create_machine"
 ))]
 async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPool) {
-    let api = create_test_env(pool.clone(), Default::default()).api;
+    let env = create_test_env(pool.clone(), Default::default());
     prepare_machine(&pool).await;
 
     let snapshot_loader = DbSnapshotLoader::default();
@@ -420,7 +494,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         .await
         .expect("Unable to create transaction on database pool");
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, FIXTURE_X86_MACHINE_ID)
+        .load_machine_snapshot(&mut txn, FIXTURE_DPU_MACHINE_ID)
         .await
         .unwrap();
     assert!(
@@ -436,7 +510,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         }],
     });
 
-    let (instance_id, _instance) = create_instance(&api, network).await;
+    let (instance_id, _instance) = create_instance(&env, network).await;
 
     let mut txn = pool
         .clone()
@@ -444,7 +518,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         .await
         .expect("Unable to create transaction on database pool");
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, FIXTURE_X86_MACHINE_ID)
+        .load_machine_snapshot(&mut txn, FIXTURE_DPU_MACHINE_ID)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -456,7 +530,6 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         instance_snapshot.config.network,
         InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID)
     );
-    assert!(instance_snapshot.observations.network.is_none());
 
     assert_eq!(
         instance_snapshot.config.tenant,
@@ -468,7 +541,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         })
     );
 
-    delete_instance(&api, instance_id).await;
+    delete_instance(&env, instance_id).await;
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
@@ -512,7 +585,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
     "create_machine"
 ))]
 async fn test_instance_address_creation(pool: sqlx::PgPool) {
-    let api = create_test_env(pool.clone(), Default::default()).api;
+    let env = create_test_env(pool.clone(), Default::default());
     prepare_machine(&pool).await;
     let mut txn = pool
         .clone()
@@ -547,7 +620,7 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
         ],
     });
 
-    let (instance_id, instance) = create_instance(&api, network).await;
+    let (instance_id, instance) = create_instance(&env, network).await;
 
     let mut txn = pool
         .clone()
@@ -571,35 +644,37 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
 
     let segment_ip = HashMap::from([(None, "192.0.2.3"), (Some(1), "192.0.3.3")]);
 
-    api.record_observed_instance_network_status(tonic::Request::new(
-        rpc::InstanceNetworkStatusObservation {
-            instance_id: Some(instance_id.into()),
-            config_version: instance.network_config_version,
-            observed_at: Some(SystemTime::now().into()),
-            interfaces: vec![
-                rpc::InstanceInterfaceStatusObservation {
-                    function_type: rpc::InterfaceFunctionType::from(
-                        InterfaceFunctionType::PhysicalFunction,
-                    ) as i32,
-                    virtual_function_id: None,
-                    mac_address: None,
-                    addresses: vec!["192.0.2.3".to_string()],
-                },
-                rpc::InstanceInterfaceStatusObservation {
-                    function_type: rpc::InterfaceFunctionType::from(
-                        InterfaceFunctionType::VirtualFunction,
-                    ) as i32,
-                    virtual_function_id: Some(1),
-                    mac_address: None,
-                    addresses: vec!["192.0.3.3".to_string()],
-                },
-            ],
-        },
-    ))
-    .await
-    .unwrap();
+    env.api
+        .record_observed_instance_network_status(tonic::Request::new(
+            rpc::InstanceNetworkStatusObservation {
+                instance_id: Some(instance_id.into()),
+                config_version: instance.network_config_version,
+                observed_at: Some(SystemTime::now().into()),
+                interfaces: vec![
+                    rpc::InstanceInterfaceStatusObservation {
+                        function_type: rpc::InterfaceFunctionType::from(
+                            InterfaceFunctionType::PhysicalFunction,
+                        ) as i32,
+                        virtual_function_id: None,
+                        mac_address: None,
+                        addresses: vec!["192.0.2.3".to_string()],
+                    },
+                    rpc::InstanceInterfaceStatusObservation {
+                        function_type: rpc::InterfaceFunctionType::from(
+                            InterfaceFunctionType::VirtualFunction,
+                        ) as i32,
+                        virtual_function_id: Some(1),
+                        mac_address: None,
+                        addresses: vec!["192.0.3.3".to_string()],
+                    },
+                ],
+            },
+        ))
+        .await
+        .unwrap();
 
-    let instance = &api
+    let instance = &env
+        .api
         .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
             id: Some(instance_id.into()),
         }))

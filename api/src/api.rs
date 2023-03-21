@@ -49,6 +49,8 @@ use crate::db::ipmi::UserRoles;
 use crate::db::machine::MachineSearchConfig;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
 use crate::model::machine::network::MachineNetworkStatus;
+use crate::model::machine::{InstanceState, ManagedHostState};
+use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 use crate::{
     auth, cfg,
     credentials::UpdateCredentials,
@@ -56,9 +58,7 @@ use crate::{
         auth::SshKeyValidationRequest,
         domain::Domain,
         domain::NewDomain,
-        dpu_machine::DpuMachine,
         instance::{
-            config::network::load_instance_network_config,
             status::network::update_instance_network_status_observation, DeleteInstance, Instance,
         },
         instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
@@ -73,8 +73,8 @@ use crate::{
         DatabaseError, UuidKeyedObjectFilter,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
-    ipmi::{ipmi_handler, MachineBmcRequest, Operation, RealIpmiCommandHandler},
-    kubernetes::{bgkubernetes_handler, delete_managed_resource, VpcApi, VpcApiImpl, VpcApiSim},
+    ipmi::{ipmi_handler, MachineBmcRequest, RealIpmiCommandHandler},
+    kubernetes::{bgkubernetes_handler, VpcApi, VpcApiImpl, VpcApiSim},
     logging::{
         api_logs::LogLayer,
         service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
@@ -91,7 +91,7 @@ use crate::{
         network_segment::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
         },
-        snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
+        snapshot_loader::DbSnapshotLoader,
     },
     CarbideError, CarbideResult,
 };
@@ -638,9 +638,14 @@ where
         let mut instances = Vec::with_capacity(raw_instances.len());
         for instance in raw_instances {
             let snapshot = loader
-                .load_instance_snapshot(&mut txn, instance.id)
+                .load_machine_snapshot_for_host(&mut txn, instance.machine_id)
                 .await
-                .map_err(CarbideError::from)?;
+                .map_err(CarbideError::from)?
+                .instance
+                .ok_or(Status::invalid_argument(format!(
+                    "Snapshot not found for Instance {}",
+                    instance.id()
+                )))?;
             instances.push(rpc::Instance::try_from(snapshot).map_err(CarbideError::from)?);
         }
 
@@ -667,19 +672,14 @@ where
         })?;
 
         let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
-        let instance_id = Instance::find_id_by_machine_id(&mut txn, machine_id)
-            .await
-            .map_err(CarbideError::from)?;
 
-        let instance_id = match instance_id {
-            Some(id) => id,
-            None => return Ok(Response::new(rpc::InstanceList::default())),
+        let Some(snapshot) = DbSnapshotLoader::default()
+            .load_machine_snapshot_for_host(&mut txn, machine_id)
+            .await
+            .map_err(CarbideError::from)?.instance else {
+            return Ok(Response::new(rpc::InstanceList::default()));
         };
 
-        let snapshot = DbSnapshotLoader::default()
-            .load_instance_snapshot(&mut txn, instance_id)
-            .await
-            .map_err(CarbideError::from)?;
         let response = Response::new(rpc::InstanceList {
             instances: vec![snapshot.try_into().map_err(CarbideError::from)?],
         });
@@ -712,12 +712,19 @@ where
         })?;
 
         let delete_instance = DeleteInstance::try_from(request.into_inner())?;
-        let instance_network_config =
-            load_instance_network_config(&mut txn, delete_instance.instance_id)
-                .await
-                .map_err(CarbideError::from)?;
+        let instance = Instance::find(
+            &mut txn,
+            UuidKeyedObjectFilter::One(delete_instance.instance_id),
+        )
+        .await
+        .map_err(CarbideError::from)?;
 
-        let instance = delete_instance.delete(&mut txn).await?;
+        let Some(instance) = instance.last() else {
+                return Err(Status::invalid_argument(format!(
+                    "Supplied invalid UUID: {}. Could not find associated instance.",
+                    delete_instance.instance_id
+                )));
+        };
 
         // Change state to Decommissioned
         let machine = match Machine::find_one(
@@ -737,33 +744,26 @@ where
             Some(m) => m,
         };
 
-        // After deleted instance, machine should be moved to Decommissioned state.
-        match machine.current_state() {
-            MachineState::Assigned => {
-                machine
-                    .advance(&mut txn, MachineState::Reset)
-                    .await
-                    .map_err(CarbideError::from)?;
-            }
-            rest => {
+        if let ManagedHostState::Assigned(InstanceState::Ready) = machine.current_state() {
+            if instance.deleted.is_some() {
                 return Err(Status::invalid_argument(format!(
-                    "Could not create instance given machine state {:?}",
-                    rest
+                    "Instance {} is already marked for deletion.",
+                    delete_instance.instance_id,
                 )));
             }
-        };
+            log::info!(
+                "Marking instance {} for deletion.",
+                delete_instance.instance_id
+            );
+            let _ = delete_instance.mark_as_deleted(&mut txn).await?;
+        } else {
+            return Err(Status::invalid_argument(format!(
+                "Could not release instance {} given machine state {:?}",
+                delete_instance.instance_id,
+                machine.current_state()
+            )));
+        }
 
-        let dpu = DpuMachine::find_by_host_machine_id(&mut txn, &instance.machine_id)
-            .await
-            .map_err(CarbideError::from)?;
-        delete_managed_resource(
-            &mut txn,
-            instance.machine_id,
-            dpu.machine_id().to_owned(),
-            instance_network_config,
-            instance.id,
-        )
-        .await?;
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -772,8 +772,6 @@ where
                 e,
             ))
         })?;
-
-        // Machine will be rebooted once managed resource deletion successful.
 
         Ok(Response::new(rpc::InstanceReleaseResult {}))
     }
@@ -1071,10 +1069,14 @@ where
         };
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
-
-        let machine = Machine::get_or_create(&mut txn, stable_machine_id, interface)
-            .await
-            .map(rpc::Machine::from)?;
+        let machine = Machine::get_or_create(
+            &mut txn,
+            stable_machine_id,
+            interface,
+            hardware_info.is_dpu(),
+        )
+        .await
+        .map(rpc::Machine::from)?;
 
         let machine_id = match &machine.id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
@@ -1117,38 +1119,11 @@ where
             .load_machine(machine_id, MachineSearchConfig::default())
             .await?;
         machine.update_discovery_time(&mut txn).await?;
-
-        match machine.current_state() {
-            // new machine
-            MachineState::Init => {
-                machine
-                    .advance(&mut txn, MachineState::Adopted)
-                    .await
-                    .map_err(CarbideError::from)?;
-                machine
-                    .advance(&mut txn, MachineState::Ready)
-                    .await
-                    .map_err(CarbideError::from)?;
-            }
-            // after de-provision
-            MachineState::Cleanedup => {
-                machine
-                    .advance(&mut txn, MachineState::Ready)
-                    .await
-                    .map_err(CarbideError::from)?;
-            }
-            // all other states are invalid
-            x => {
-                log::warn!("discovery_completed {machine_id} in invalid state {x}");
-                return Err(Status::failed_precondition(format!("invalid state {x}")));
-            }
-        }
         txn.commit()
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit discovery_completed", e))?;
 
         log::info!("discovery_completed_success: {machine_id}");
-
         Ok(Response::new(rpc::MachineDiscoveryCompletedResponse {}))
     }
 
@@ -1171,24 +1146,16 @@ where
             }
         };
 
+        // Load machine from DB
         let (machine, mut txn) = self
             .load_machine(machine_id, MachineSearchConfig::default())
             .await?;
         machine.update_cleanup_time(&mut txn).await?;
-        machine
-            .advance(&mut txn, MachineState::Cleanedup)
-            .await
-            .map_err(CarbideError::from)?;
-
-        let mpr = MachineBmcRequest::new(machine_id, Operation::DisableLockdown, true);
-        mpr.invoke_bmc_command(self.database_connection.clone())
-            .await?;
-        log::info!("Requested disable lockdown and power reset for machine: {machine_id}");
-
         txn.commit().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "commit cleanup_machine_completed", e)
         })?;
 
+        // State handler should mark Machine as Adopted and reboot host for bios/bmc lockdown.
         Ok(Response::new(rpc::MachineCleanupResult {}))
     }
 
@@ -1915,18 +1882,50 @@ where
         // Treat this message as signal from machine that reboot is finished. Update reboot time.
         machine.update_reboot_time(&mut txn).await?;
 
+        let info = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id])
+            .await
+            .map_err(|_| Status::invalid_argument("Missing discovery data"))?
+            .remove(&machine_id)
+            .ok_or(CarbideError::FindOneReturnedNoResultsError(machine_id))?;
+
+        let is_dpu = info.topology().discovery_data.info.is_dpu();
+        let dpu_machine = if is_dpu {
+            machine.clone()
+        } else {
+            Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id)
+                .await?
+                .ok_or(CarbideError::FindOneReturnedNoResultsError(machine_id))?
+        };
+
         // Respond based on machine current state
-        let state = machine.current_state();
-        let action = match state {
-            MachineState::Init | MachineState::Cleanedup => Action::Discovery,
-            MachineState::Reset => Action::Reset,
-            _ => {
-                // Later this might go to site admin dashboard for manual intervention
-                log::info!(
-                    "forge agent control: Machine '{}' in invalid state '{state}'",
-                    machine.id()
-                );
-                Action::Noop
+        let state = dpu_machine.current_state();
+        let action = if is_dpu {
+            match state {
+                ManagedHostState::DPUNotReady(MachineState::Init) => Action::Discovery,
+                _ => {
+                    // Later this might go to site admin dashboard for manual intervention
+                    log::info!(
+                        "forge agent control: DPU Machine '{}' in state '{state}'",
+                        machine.id()
+                    );
+                    Action::Noop
+                }
+            }
+        } else {
+            match state {
+                ManagedHostState::HostNotReady(MachineState::Init) => Action::Retry,
+                ManagedHostState::HostNotReady(MachineState::WaitingForDiscovery) => {
+                    Action::Discovery
+                }
+                ManagedHostState::WaitingForCleanup(..) => Action::Reset,
+                _ => {
+                    // Later this might go to site admin dashboard for manual intervention
+                    log::info!(
+                        "forge agent control: Host Machine '{}' in state '{state}'",
+                        machine.id()
+                    );
+                    Action::Noop
+                }
             }
         };
         log::info!(
@@ -2027,13 +2026,13 @@ where
         // TODO: In the new model we might just need to move one Machine to this state
         if let Some(host_machine) = &host_machine {
             host_machine
-                .advance(&mut txn, MachineState::ForceDeletion)
+                .advance(&mut txn, ManagedHostState::ForceDeletion, None)
                 .await
                 .map_err(CarbideError::from)?;
         }
         if let Some(dpu_machine) = &dpu_machine {
             dpu_machine
-                .advance(&mut txn, MachineState::ForceDeletion)
+                .advance(&mut txn, ManagedHostState::ForceDeletion, None)
                 .await
                 .map_err(CarbideError::from)?;
         }
@@ -2480,6 +2479,7 @@ where
             StateController::<MachineStateControllerIO>::builder()
                 .database(database_connection.clone())
                 .vpc_api(vpc_api.clone())
+                .forge_api(api_service.clone())
                 .iteration_time(service_config.machine_state_controller_iteration_time)
                 .state_handler(Arc::new(MachineStateHandler::default()))
                 .build()
@@ -2489,6 +2489,7 @@ where
             StateController::<NetworkSegmentStateControllerIO>::builder()
                 .database(database_connection)
                 .vpc_api(vpc_api)
+                .forge_api(api_service.clone())
                 .iteration_time(service_config.network_segment_state_controller_iteration_time)
                 .state_handler(Arc::new(NetworkSegmentStateHandler::new(
                     service_config.network_segment_drain_time,
@@ -2568,7 +2569,7 @@ impl ServiceConfig {
     pub fn for_local_development() -> Self {
         Self {
             network_segment_drain_time: chrono::Duration::seconds(60),
-            machine_state_controller_iteration_time: std::time::Duration::from_secs(30),
+            machine_state_controller_iteration_time: std::time::Duration::from_secs(10),
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
             max_db_connections: 1000,
             db_stats_interval: std::time::Duration::from_secs(60),

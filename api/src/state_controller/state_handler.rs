@@ -15,16 +15,18 @@ use std::sync::Arc;
 use crate::{
     db::DatabaseError,
     kubernetes::{VpcApi, VpcApiError},
+    model::machine::ManagedHostState,
     state_controller::snapshot_loader::SnapshotLoaderError,
 };
 
 /// Services that are accessible to the `StateHandler`
-#[derive(Debug)]
 pub struct StateHandlerServices {
     /// A database connection pool that can be used for additional queries
     pub pool: sqlx::PgPool,
     /// API for interaction with Forge VPC
     pub vpc_api: Arc<dyn VpcApi>,
+    /// API for interaction with Forge VPC
+    pub forge_api: Arc<dyn rpc::forge::forge_server::Forge>,
 }
 
 /// Context parameter passed to `StateHandler`
@@ -129,6 +131,14 @@ pub enum StateHandlerError {
     TransactionError(#[from] sqlx::Error),
     #[error("Failed interaction with VPC: {0}")]
     VpcApiError(#[from] VpcApiError),
+    #[error("Machine not found: {0}")]
+    MachineNotFoundError(uuid::Uuid),
+    #[error("Host snapshot is missing for DPU {0} in state: {1}")]
+    HostSnapshotMissing(uuid::Uuid, ManagedHostState),
+    // TODO: This should be replaced - but requires downstream errors to migrate
+    // off from CarbideError
+    #[error("Unable to load snapshot: {0}")]
+    GenericError(anyhow::Error),
     #[error("{0}")]
     DBError(#[from] DatabaseError),
 }

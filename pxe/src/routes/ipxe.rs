@@ -141,13 +141,15 @@ pub async fn boot(contents: Machine, config: RuntimeConfig) -> Result<Template, 
     Ok(Template::render("pxe", &context))
 }
 
+// TODO: Move this whole logic to API. A change in display value of state can cause iPXE to break.
+// Also multiple states include substates. This can not be represented with String correctly.
 async fn determine_boot_from_state(
     machine: rpc::Machine,
     machine_interface_id: uuid::Uuid,
     config: RuntimeConfig,
     arch: rpc::MachineArchitecture,
 ) -> String {
-    match machine.state.as_str() {
+    match machine.state.to_lowercase().as_str() {
         "ready" => match arch {
             // The DPU needs an error code to force boot into the OS
             rpc::MachineArchitecture::Arm => "exit 1".to_string(),
@@ -156,11 +158,10 @@ async fn determine_boot_from_state(
                 boot_forge_host_image(arch, machine_interface_id, config)
             }
         },
-        "reset" | "cleanup" => {
+        x if x.contains("rebuilding") => {
             boot_forge_host_image(rpc::MachineArchitecture::X86, machine_interface_id, config)
         }
-
-        "assigned" => boot_tenant_image(machine, config).await,
+        x if x.contains("assigned") => boot_tenant_image(machine, config).await,
         // any unrecognized state will cause ipxe to stop working with this message
         invalid_status => format!(
             r#"

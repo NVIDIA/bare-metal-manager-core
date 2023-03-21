@@ -625,3 +625,23 @@ impl MachineBmcRequest {
         Ok(task_id)
     }
 }
+
+// This function will create a background task under IPMI handler to enable lockdown and reset.
+pub async fn enable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
+    log::info!(
+        "Sending enable lockdown and power reset command for machine: {}",
+        machine_id
+    );
+    let mpr = MachineBmcRequest::new(machine_id, Operation::EnableLockdown, true);
+    mpr.invoke_bmc_command(pool).await
+}
+
+// This function will create a background task under IPMI handler to disable lockdown and reset.
+pub async fn disable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
+    log::info!(
+        "Sending disable lockdown and power reset command for machine: {}",
+        machine_id
+    );
+    let mpr = MachineBmcRequest::new(machine_id, Operation::DisableLockdown, true);
+    mpr.invoke_bmc_command(pool).await
+}

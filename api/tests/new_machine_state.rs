@@ -11,10 +11,8 @@
  */
 use log::LevelFilter;
 
-use carbide::{
-    db::{machine::Machine, machine_state_history::MachineStateHistory},
-    model::machine::MachineState,
-};
+use carbide::db::{machine::Machine, machine_state_history::MachineStateHistory};
+use carbide::model::machine::ManagedHostState;
 
 const FIXTURE_CREATED_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
 
@@ -45,7 +43,7 @@ async fn test_new_machine_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     assert!(matches!(
         machine,
-        Some(x) if x.current_state() == MachineState::Init));
+        Some(x) if x.current_state() == ManagedHostState::Created));
 
     txn.commit().await?;
 
@@ -88,7 +86,7 @@ async fn test_new_machine_state_history(
 
     for _ in 1..300 {
         machine
-            .advance(&mut txn, MachineState::Ready)
+            .advance(&mut txn, ManagedHostState::Ready, None)
             .await
             .unwrap();
     }

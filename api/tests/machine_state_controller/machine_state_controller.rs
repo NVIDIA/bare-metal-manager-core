@@ -22,13 +22,16 @@ use std::{
 };
 
 use ipnetwork::IpNetwork;
-use sqlx::Executor;
 use tonic::Request;
 
+use crate::common::api_fixtures::{
+    create_test_env,
+    dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
+};
 use carbide::{
     db::dpu_machine::DpuMachine,
     kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError},
-    model::machine::MachineStateSnapshot,
+    model::machine::{ManagedHostState, ManagedHostStateSnapshot},
     state_controller::{
         controller::StateController,
         machine::io::MachineStateControllerIO,
@@ -36,13 +39,9 @@ use carbide::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
         },
     },
+    vpc_resources::managed_resource::ManagedResource,
 };
 use rpc::{forge::forge_server::Forge, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
-
-use crate::common::api_fixtures::{
-    create_test_env,
-    dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
-};
 
 #[derive(Debug, Default, Clone)]
 pub struct TestMachineStateHandler {
@@ -54,19 +53,19 @@ pub struct TestMachineStateHandler {
 
 #[async_trait::async_trait]
 impl StateHandler for TestMachineStateHandler {
-    type State = MachineStateSnapshot;
-    type ControllerState = ();
+    type State = ManagedHostStateSnapshot;
+    type ControllerState = ManagedHostState;
     type ObjectId = uuid::Uuid;
 
     async fn handle_object_state(
         &self,
         machine_id: &uuid::Uuid,
-        state: &mut MachineStateSnapshot,
+        state: &mut ManagedHostStateSnapshot,
         _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
-        assert_eq!(state.machine_id, *machine_id);
+        assert_eq!(state.dpu_snapshot.machine_id, *machine_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
             let mut guard = self.counts_per_id.lock().unwrap();
@@ -106,6 +105,13 @@ impl VpcApi for MockVpcApi {
         panic!("Not used in this test")
     }
 
+    async fn try_create_managed_resources(
+        &self,
+        _managed_resources: Vec<ManagedResource>,
+    ) -> Result<Poll<()>, VpcApiError> {
+        panic!("Not used in this test.")
+    }
+
     async fn try_update_leaf(
         &self,
         _dpu_machine_id: uuid::Uuid,
@@ -120,25 +126,18 @@ impl VpcApi for MockVpcApi {
     ) -> Result<Poll<()>, VpcApiError> {
         panic!("Not used in this test")
     }
+
+    async fn try_monitor_leaf(&self, _dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+        Ok(Poll::Ready(()))
+    }
 }
 
-const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
-
-#[sqlx::test]
+#[sqlx::test(fixtures(
+    "../../fixtures/create_domain",
+    "../../fixtures/create_vpc",
+    "../../fixtures/create_network_segment",
+))]
 async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
-    let mut txn = pool.begin().await?;
-
-    // Workaround to make the fixtures work from a different directory
-    for fixture in &["create_domain", "create_vpc", "create_network_segment"] {
-        let content = std::fs::read(format!("{}/{}.sql", FIXTURE_DIR, fixture)).unwrap();
-        let content = String::from_utf8(content).unwrap();
-        txn.execute(content.as_str())
-            .await
-            .unwrap_or_else(|e| panic!("failed to apply test fixture {:?}: {:?}", fixture, e));
-    }
-
-    txn.commit().await?;
-
     let env = create_test_env(pool.clone(), Default::default());
 
     // Insert some machines
@@ -176,6 +175,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let expected_iterations = (TEST_TIME.as_millis() / ITERATION_TIME.as_millis()) as f64;
     let expected_total_count = expected_iterations * dpu_macs.len() as f64;
 
+    let test_api = Arc::new(env.api);
     // We build multiple state controllers. But since only one should act at a time,
     // the count should still not increase
     let mut handles = Vec::new();
@@ -185,6 +185,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 .iteration_time(Duration::from_millis(100))
                 .database(pool.clone())
                 .vpc_api(Arc::new(MockVpcApi {}))
+                .forge_api(test_api.clone())
                 .state_handler(machine_handler.clone())
                 .build()
                 .unwrap(),

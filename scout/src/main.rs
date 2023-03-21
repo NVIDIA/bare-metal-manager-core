@@ -72,8 +72,20 @@ async fn main() -> Result<(), color_eyre::Report> {
     match config.subcmd {
         Command::Discovery(Discovery { uuid }) | Command::AutoDetect(AutoDetect { uuid }) => {
             let machine_id = register::run(&config.api, uuid).await?;
+            let mut retry_count = 0;
+            const MAX_RETRY_COUNT: u64 = 5;
+            const RETRY_TIMER: u64 = 30;
 
-            match query_api(&config.api, &machine_id).await? {
+            // State machine handler needs 1-2 cycles to update host_adminIP to leaf.
+            // In case by the time, host coems up and IP is still not updated, let's wait.
+            let mut action = query_api(&config.api, &machine_id).await?;
+            while Action::Retry == action && retry_count <= MAX_RETRY_COUNT {
+                tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_TIMER)).await;
+                action = query_api(&config.api, &machine_id).await?;
+                retry_count += 1;
+            }
+
+            match action {
                 Action::Discovery => {
                     //This is temporary. All cleanup must be done when API call Reset.
                     deprovision::run_no_api();
@@ -88,6 +100,12 @@ async fn main() -> Result<(), color_eyre::Report> {
                     unimplemented!("Rebuild not written yet");
                 }
                 Action::Noop => {}
+                Action::Retry => {
+                    log::error!(
+                        "Even after {} secs, still machine state is not updated.",
+                        MAX_RETRY_COUNT * RETRY_TIMER
+                    );
+                }
             }
         }
 

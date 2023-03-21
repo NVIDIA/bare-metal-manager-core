@@ -57,6 +57,8 @@ pub enum RpcDataConversionError {
     InvalidUuid(&'static str),
     #[error("Argument {0} is missing")]
     MissingArgument(&'static str),
+    #[error("Machine state {0} is invalid")]
+    InvalidMachineState(String),
 }
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`

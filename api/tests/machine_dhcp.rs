@@ -171,7 +171,7 @@ async fn test_multiple_machines_dhcp_with_api(
 async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default()).api;
+    let env = common::api_fixtures::create_test_env(pool.clone(), Default::default());
     prepare_machine(&pool).await;
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![
@@ -185,9 +185,10 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             },
         ],
     });
-    let (_instance_id, _instance) = create_instance(&api, network).await;
+    let (_instance_id, _instance) = create_instance(&env, network).await;
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
-    let response = api
+    let response = env
+        .api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
             mac_address: mac_address.clone(),
             relay_address: "192.168.0.1".to_string(),
@@ -213,7 +214,8 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     assert_eq!(response.prefix, "192.0.2.0/24".to_owned());
     assert_eq!(response.gateway.unwrap(), "192.0.2.1/32".to_owned());
 
-    let response = api
+    let response = env
+        .api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
             mac_address: mac_address.clone(),
             relay_address: "192.168.0.1".to_string(),

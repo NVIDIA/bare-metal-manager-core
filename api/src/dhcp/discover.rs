@@ -26,7 +26,7 @@ use crate::{
         vpc_resource_leaf::VpcResourceLeaf,
     },
     dhcp::allocation::DhcpError,
-    kubernetes, CarbideError, CarbideResult,
+    CarbideError, CarbideResult,
 };
 
 async fn handle_dhcp_for_instance(
@@ -159,8 +159,7 @@ pub async fn discover_dhcp(
             .into();
 
     if newly_created_interface {
-        handle_new_machine_interface(&mut txn, relay_ip, &mut machine_interface, record.clone())
-            .await?;
+        handle_new_machine_interface(&mut txn, relay_ip, &mut machine_interface).await?;
     }
 
     txn.commit()
@@ -173,7 +172,6 @@ async fn handle_new_machine_interface(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     relay_ip: IpAddr,
     machine_interface: &mut MachineInterface,
-    record: rpc::DhcpRecord,
 ) -> CarbideResult<()> {
     let resource = VpcResourceLeaf::find_by_loopback_ip(&mut *txn, relay_ip).await?;
 
@@ -182,10 +180,9 @@ async fn handle_new_machine_interface(
     // can create this mapping.  The only way for it to not be present for a given relay address is
     // if this is a DPU coming up for the very first time. In this case we need to do nothing -- because
     // the provisioning step in 'discover_machine' is going to create this mapping for us.
-    if let Some(resource_leaf) = resource {
+    if let Some(_resource_leaf) = resource {
         // we need to go look at our mapping and get the assigned leaf ID for this relay address
-        //TODO: think about making a GET leaf call in VPC resource actions
-        kubernetes::update_leaf(&mut *txn, resource_leaf, record).await?;
+        // Statemachine handler will take care of updating leaf now.
 
         let dpu_machine_interface =
             VpcResourceLeaf::find_associated_dpu_machine_interface(&mut *txn, relay_ip).await?;
