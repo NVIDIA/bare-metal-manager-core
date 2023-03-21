@@ -16,12 +16,18 @@ use chrono::prelude::*;
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
-use crate::model::{config_version::ConfigVersion, machine::MachineState};
+use crate::model::{config_version::ConfigVersion, machine::ManagedHostState};
 
 use super::DatabaseError;
 
-/// A record of a past state of Machine
-#[derive(Debug)]
+/// Representation of an event (state transition) on a machine.
+///
+/// The database stores a list of the events (and not state changes).  The state machine in the
+/// database schema converts the state machine edges into a `current state` representation.  For
+/// instance, creating an event called `adopt` on a Machine where the last event is `discover` will
+/// result in a MachineState of `adopted`
+///
+#[derive(Debug, Clone)]
 pub struct MachineStateHistory {
     /// The numeric identifier of the state change. This is a global change number
     /// for all states, and therefore not important for consumers
@@ -31,7 +37,9 @@ pub struct MachineStateHistory {
     machine_id: uuid::Uuid,
 
     /// The state that was entered
-    pub state: MachineState,
+    pub state: ManagedHostState,
+
+    // Current version.
     pub state_version: ConfigVersion,
 
     /// The timestamp of the state change
@@ -57,7 +65,7 @@ impl<'r> FromRow<'r, PgRow> for MachineStateHistory {
         let state_version = state_version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        let state: sqlx::types::Json<MachineState> = row.try_get("state")?;
+        let state: sqlx::types::Json<ManagedHostState> = row.try_get("state")?;
         Ok(MachineStateHistory {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
@@ -108,7 +116,7 @@ impl MachineStateHistory {
     pub async fn persist(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &uuid::Uuid,
-        state: MachineState,
+        state: ManagedHostState,
         state_version: ConfigVersion,
     ) -> Result<Self, DatabaseError> {
         let query =

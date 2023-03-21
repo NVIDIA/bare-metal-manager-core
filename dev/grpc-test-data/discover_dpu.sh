@@ -7,6 +7,8 @@ set -eo pipefail
 # If you need more than one DPU, you can edit the MAC address in the file and call
 # `discover_dpu.sh` again
 
+MAX_RETRY=10
+
 # Simulate the DHCP request of a DPU
 RESULT=`grpcurl -d @ -plaintext 127.0.0.1:1079 forge.Forge/DiscoverDhcp < "$REPO_ROOT/dev/grpc-test-data/dpu_dhcp_discovery.json"`
 MACHINE_INTERFACE_ID=$(echo $RESULT | jq ".machineInterfaceId.value" | tr -d '"')
@@ -31,4 +33,20 @@ fi
 
 # Mark discovery complete
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/DiscoveryCompleted)
-echo "DPU discovery completed"
+echo "DPU discovery completed. Waiting for it reached in Host/Init state."
+
+# Wait until DPU becomes ready
+i=0
+MACHINE_STATE=""
+while [[ $MACHINE_STATE != "Host/Init" && $i -lt $MAX_RETRY ]]; do
+  sleep 10
+  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -plaintext 127.0.0.1:1079 forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  echo "Checking machine state. Waiting for it to be in Host/Init state. Current: $MACHINE_STATE"
+  i=$((i+1))
+done
+
+if [[ $i == "$MAX_RETRY" ]]; then
+  echo "Even after $MAX_RETRY retries, DPU did not come in Host/Init state."
+  exit 1
+fi
+echo "DPU is up now."

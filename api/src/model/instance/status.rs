@@ -13,7 +13,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    config_version::Versioned, instance::config::network::InstanceNetworkConfig,
+    config_version::Versioned,
+    instance::config::network::InstanceNetworkConfig,
+    machine::{InstanceState, ManagedHostState},
     RpcDataConversionError,
 };
 
@@ -52,6 +54,35 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
 }
 
 impl InstanceStatus {
+    /// Tries to convert Machine state to tenant state.
+    fn tenant_state(
+        machine_state: ManagedHostState,
+    ) -> Result<tenant::TenantState, RpcDataConversionError> {
+        // At this point, we are sure that instance is created.
+        // If machine state is still ready, means state mahcine has not processed this instance
+        // yet.
+
+        let tenant_state = match machine_state {
+            ManagedHostState::Ready => tenant::TenantState::Provisioning,
+            ManagedHostState::Assigned(instance_state) => match instance_state {
+                InstanceState::Init | InstanceState::WaitingForNetworkConfig => {
+                    tenant::TenantState::Provisioning
+                }
+                InstanceState::Ready => tenant::TenantState::Ready,
+                InstanceState::DeletingManagedResource
+                | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
+            },
+            _ => {
+                log::error!("Invalid state {} during state handling.", machine_state);
+                return Err(RpcDataConversionError::InvalidMachineState(
+                    machine_state.to_string(),
+                ));
+            }
+        };
+
+        Ok(tenant_state)
+    }
+
     /// Derives an Instances network status from the users desired config
     /// and status that we observed from the networking subsystem.
     ///
@@ -63,7 +94,8 @@ impl InstanceStatus {
     pub fn from_config_and_observation(
         network_config: Versioned<&InstanceNetworkConfig>,
         observations: &InstanceStatusObservations,
-    ) -> Self {
+        machine_state: ManagedHostState,
+    ) -> Result<Self, RpcDataConversionError> {
         let network = network::InstanceNetworkStatus::from_config_and_observation(
             network_config,
             observations.network.as_ref(),
@@ -71,31 +103,19 @@ impl InstanceStatus {
         // If additional configs are added, they need to be incorporated here
         let configs_synced = network.configs_synced;
 
-        // TODO: Implement tenant state properly
-        //
-        // The current implementation is an approximation, and only works because
-        // the only time the network status changes is after the managed resource
-        // becomes ready. This is the only time we observe the network status,
-        // and can therefore get from `Provisioning` to `Ready`.
-        // If we would observe the state more often, using the same logic could
-        // however make us go back from a `Ready` state to a `Provisioning` state.
-        // This would be wrong - it needs to be `Configuring` instead. To fix this,
-        // we need an additional persisted flag that tracks whether the instance
-        // has ever been `Ready`. We don't have this yet, so we can't provide the
-        // better implementation.
         let tenant = tenant::InstanceTenantStatus {
             state: match configs_synced {
-                SyncState::Synced => tenant::TenantState::Ready,
+                SyncState::Synced => InstanceStatus::tenant_state(machine_state)?,
                 SyncState::Pending => tenant::TenantState::Provisioning,
             },
             state_details: String::new(),
         };
 
-        Self {
+        Ok(Self {
             tenant: Some(tenant),
             network,
             configs_synced,
-        }
+        })
     }
 }
 

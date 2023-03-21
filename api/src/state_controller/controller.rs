@@ -37,7 +37,6 @@ use crate::{
 /// While all instances run in parallel, the StateController uses internal
 /// synchronization to make sure that inside a single site - only a single controller
 /// will decide the next step for a single object.
-#[derive(Debug)]
 pub struct StateController<IO: StateControllerIO> {
     handler_services: Arc<StateHandlerServices>,
     io: Arc<IO>,
@@ -361,7 +360,6 @@ const DEFAULT_ITERATION_TIME: Duration = Duration::from_secs(30);
 const DEFAULT_MAX_CONCURRENCY: usize = 10;
 
 /// A builder for `StateController`
-#[derive(Debug)]
 pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
     vpc_api: Option<Arc<dyn VpcApi>>,
@@ -374,6 +372,7 @@ pub struct Builder<IO: StateControllerIO> {
             ObjectId = IO::ObjectId,
         >,
     >,
+    forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
 }
 
 impl<IO: StateControllerIO> Builder<IO> {
@@ -392,6 +391,7 @@ impl<IO: StateControllerIO> Builder<IO> {
                 IO::ControllerState,
             >::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
+            forge_api: None,
         }
     }
 
@@ -406,6 +406,11 @@ impl<IO: StateControllerIO> Builder<IO> {
             .vpc_api
             .take()
             .ok_or(StateControllerBuildError::MissingArgument("vpc_api"))?;
+
+        let forge_api = self
+            .forge_api
+            .take()
+            .ok_or(StateControllerBuildError::MissingArgument("forge_api"))?;
 
         let (stop_sender, stop_receiver) = oneshot::channel();
 
@@ -422,6 +427,7 @@ impl<IO: StateControllerIO> Builder<IO> {
         let handler_services = Arc::new(StateHandlerServices {
             pool: database,
             vpc_api,
+            forge_api,
         });
 
         let controller = StateController::<IO> {
@@ -439,6 +445,12 @@ impl<IO: StateControllerIO> Builder<IO> {
         };
 
         Ok(handle)
+    }
+
+    /// Configures the forge grpc api
+    pub fn forge_api(mut self, forge_api: Arc<dyn rpc::forge::forge_server::Forge>) -> Self {
+        self.forge_api = Some(forge_api);
+        self
     }
 
     /// Configures the utilized database

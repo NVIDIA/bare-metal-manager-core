@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::hash_map::RandomState;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
@@ -39,6 +39,7 @@ use uuid::Uuid;
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::dpu_machine::DpuMachine;
+use crate::db::instance_address::InstanceAddress;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipmi::{MachineBmcRequest, Operation};
@@ -334,8 +335,7 @@ async fn create_managed_resource_handler(
     )
     .await;
 
-    let task_id =
-        enable_lockdown_reset_machine(data.machine_id, current_job.pool().clone()).await?;
+    let task_id = request_reboot(data.machine_id, current_job.pool().clone()).await?;
     update_status(
         &current_job,
         5,
@@ -511,6 +511,7 @@ async fn delete_managed_resource_handler(
     // TODO: Machine should be moved to FAILED state.
     wait_for_hbn_to_configure(leaf_name, client.clone(), &current_job, &start_time).await?;
 
+    // Reboot host
     let task_id = request_reboot(data.machine_id, current_job.pool().clone()).await?;
     update_status(
         &current_job,
@@ -905,13 +906,20 @@ fn resource_group_name(prefix_id: uuid::Uuid) -> String {
 
 pub async fn create_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
-    machine_id: uuid::Uuid,
     dpu_machine_id: uuid::Uuid,
-    network_config: Versioned<InstanceNetworkConfig>,
-    ip_details: HashMap<Uuid, IpAddr>,
+    network_config: InstanceNetworkConfig,
     instance_id: uuid::Uuid,
-) -> CarbideResult<()> {
+    vpc_api: &Arc<dyn VpcApi>,
+) -> Result<Poll<()>, VpcApiError> {
     let mut managed_resources = Vec::new();
+
+    let ip_details: HashMap<Uuid, IpAddr, RandomState> = HashMap::from_iter(
+        InstanceAddress::get_allocated_address(txn, instance_id)
+            .await
+            .map_err(|e| VpcApiError::GenericError(e.into()))?
+            .into_iter()
+            .map(|x| (x.segment_id, x.address.ip())),
+    );
 
     for iface in &network_config.interfaces {
         // find_by_segmentcan CAN return max two prefixes, one for ipv4 and another for ipv6
@@ -920,12 +928,13 @@ pub async fn create_managed_resource(
             &mut *txn,
             crate::db::UuidKeyedObjectFilter::One(iface.network_segment_id),
         )
-        .await?
+        .await
+        .map_err(|e| VpcApiError::GenericError(e.into()))?
         .into_iter()
         .filter(|x| x.prefix.is_ipv4())
         .last()
         .ok_or_else(|| {
-            CarbideError::GenericError(format!(
+            VpcApiError::GenericError(anyhow::anyhow!(
                 "Counldn't find IPV4 NetworkPrefix for segment {}",
                 iface.network_segment_id
             ))
@@ -959,22 +968,9 @@ pub async fn create_managed_resource(
         managed_resources,
     );
 
-    let db_conn = txn
-        .acquire()
+    vpc_api
+        .try_create_managed_resources(managed_resources)
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "acquire create_managed_resource", e))?;
-    VpcResourceActions::CreateManagedResource(ManagedResourceData::new(
-        machine_id,
-        dpu_machine_id,
-        instance_id,
-        network_config,
-        Some(ip_details),
-        managed_resources,
-    ))
-    .reconcile(db_conn)
-    .await?;
-
-    Ok(())
 }
 
 pub async fn delete_managed_resource(
@@ -1027,16 +1023,6 @@ pub async fn delete_managed_resource(
     Ok(())
 }
 
-// This function will create a background task under IPMI handler to enable lockdown and reset.
-pub async fn enable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
-    log::info!(
-        "Sending enable lockdown and power reset command for machine: {}",
-        machine_id
-    );
-    let mpr = MachineBmcRequest::new(machine_id, Operation::EnableLockdown, true);
-    mpr.invoke_bmc_command(pool).await
-}
-
 pub async fn update_leaf(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     resource_leaf: VpcResourceLeaf,
@@ -1083,6 +1069,8 @@ pub enum VpcApiError {
     ObjectExistsWithDifferentSpec(String),
     #[error("VPC API simulation is out of loopback IPs")]
     VpiApiSimLoopbackIpsExhausted,
+    #[error("Unable to process: {0}")]
+    GenericError(anyhow::Error),
     #[error(
         "Leaf with name {0} has an invalid existing configuration and \
         and therefore new Host Admin IPs can't be configured"
@@ -1143,7 +1131,7 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
         network_prefix_id: uuid::Uuid,
     ) -> Result<Poll<()>, VpcApiError>;
 
-    /// Trys to create a resource group on Forge VPC
+    /// Trys to create a leaf on Forge VPC
     ///
     /// Will return
     /// - Ok(Poll::Ready(result)) if the creation succeeded
@@ -1168,6 +1156,17 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
     ///   be called again later to retrieve the final result.
     /// - Err if the deletion attempt failed
     async fn try_delete_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError>;
+    /// Trys to create managed resources on Forge VPC
+    ///
+    /// Will return
+    /// - Ok(Poll::Ready(result)) if the creation succeeded
+    /// - Ok(Poll::Pending) if the creation is in progress. The method should
+    ///   be called again later to retrieve the final result.
+    /// - Err if the creation attempt failed
+    async fn try_create_managed_resources(
+        &self,
+        managed_resources: Vec<managed_resource::ManagedResource>,
+    ) -> Result<Poll<()>, VpcApiError>;
 
     /// Trys to delete all managed resources that are associated with an instance
     ///
@@ -1180,6 +1179,17 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
         &self,
         instance_id: uuid::Uuid,
     ) -> Result<Poll<()>, VpcApiError>;
+
+    /// Trys to reconfigure VPC on admin network once all managed resources are deleted.
+    /// As soon as managed resources are deleted, VPC starts reconfiguring network.
+    /// This function only monitors leafs to check if network is reconfigured.
+    ///
+    /// Will return
+    /// - Ok(Poll::Ready(())) if the deletion of all resources has succeeded
+    /// - Ok(Poll::Pending) if the deletion is in progress. The method should
+    ///   be called again later to retrieve the final result.
+    /// - Err if the deletion attempt failed
+    async fn try_monitor_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError>;
 }
 
 /// Implementation of the VPC API which makes "real kubernetes API calls"
@@ -1364,6 +1374,46 @@ impl VpcApi for VpcApiImpl {
         try_delete_k8s_resource::<leaf::Leaf>(&self.client, "leaf", &leaf_name).await
     }
 
+    async fn try_create_managed_resources(
+        &self,
+        managed_resources: Vec<managed_resource::ManagedResource>,
+    ) -> Result<Poll<()>, VpcApiError> {
+        let mut created = false;
+        let mut at_least_one_not_ready = false;
+
+        let api: Api<managed_resource::ManagedResource> =
+            Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
+
+        for spec in &managed_resources {
+            let spec_name = spec.name().to_string();
+            match api.get(&spec_name).await {
+                Err(_) => {
+                    let result = api.create(&PostParams::default(), spec).await;
+                    if let Err(err) = result {
+                        return Err(VpcApiError::KubeError(Box::new(err)));
+                    }
+                    created = true;
+                }
+                Ok(result) => match result.status() {
+                    Some(status) => {
+                        if !status.is_ready() {
+                            at_least_one_not_ready = true;
+                        }
+                    }
+                    None => {
+                        at_least_one_not_ready = true;
+                    }
+                },
+            }
+        }
+
+        if created || at_least_one_not_ready {
+            return Ok(Poll::Pending);
+        }
+
+        Ok(Poll::Ready(()))
+    }
+
     async fn try_update_leaf(
         &self,
         dpu_machine_id: uuid::Uuid,
@@ -1467,6 +1517,29 @@ impl VpcApi for VpcApiImpl {
             return Ok(Poll::Pending);
         }
         Ok(Poll::Ready(()))
+    }
+
+    async fn try_monitor_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+        let leaf_name = leaf_name(dpu_machine_id);
+
+        let api: Api<leaf::Leaf> = Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
+
+        let fetch_existing_result = api.get(&leaf_name).await;
+        tracing::info!(
+            "Fetching a potential existing leaf to monitor with name {} yielded: {:?}",
+            leaf_name,
+            fetch_existing_result
+        );
+
+        match fetch_existing_result {
+            Ok(existing_leaf) => {
+                return leaf_creation_result_from_state(&existing_leaf).map(|_| Poll::Ready(()));
+            }
+            Err(err) => {
+                log::error!("Attached leaf {} with dpu id: {} not found. Machine should move to Broken state.", leaf_name, dpu_machine_id);
+                return Err(VpcApiError::KubeError(err.into()));
+            }
+        }
     }
 }
 
@@ -1808,6 +1881,13 @@ impl VpcApi for VpcApiSim {
         }
     }
 
+    async fn try_create_managed_resources(
+        &self,
+        _managed_resources: Vec<managed_resource::ManagedResource>,
+    ) -> Result<Poll<()>, VpcApiError> {
+        Ok(Poll::Ready(()))
+    }
+
     async fn try_update_leaf(
         &self,
         dpu_machine_id: uuid::Uuid,
@@ -1839,6 +1919,10 @@ impl VpcApi for VpcApiSim {
         &self,
         _instance_id: uuid::Uuid,
     ) -> Result<Poll<()>, VpcApiError> {
-        todo!("Not implemented because we don't create anything yet")
+        return Ok(Poll::Ready(()));
+    }
+
+    async fn try_monitor_leaf(&self, _dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+        return Ok(Poll::Ready(()));
     }
 }

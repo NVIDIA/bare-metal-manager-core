@@ -12,7 +12,13 @@
 
 //! Contains DPU related fixtures
 
-use carbide::model::hardware_info::HardwareInfo;
+use carbide::{
+    model::{
+        hardware_info::HardwareInfo,
+        machine::{machine_id::try_parse_machine_id, ManagedHostState},
+    },
+    state_controller::machine::handler::MachineStateHandler,
+};
 use rpc::{
     forge::{
         forge_server::Forge,
@@ -49,7 +55,8 @@ pub const FIXTURE_DPU_HBN_PASSWORD: &str = "a9123";
 pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
     let dpu_machine_id = dpu_discover_machine(env, machine_interface_id).await;
-
+    let handler = MachineStateHandler::default();
+    let dpu_machine_id_uuid = try_parse_machine_id(&dpu_machine_id).unwrap();
     // Simulate the ForgeAgentControl request of the DPU
     let agent_control_response = env
         .api
@@ -71,6 +78,17 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     update_dpu_bmc_metadata(env, dpu_machine_id.clone(), FIXTURE_DPU_BMC_IP_ADDRESS).await;
 
     dpu_discovery_completed(env, dpu_machine_id.clone()).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        dpu_machine_id_uuid,
+        &handler,
+        2,
+        &mut txn,
+        ManagedHostState::HostNotReady(carbide::model::machine::MachineState::Init),
+    )
+    .await;
+    txn.commit().await.unwrap();
+
     dpu_machine_id
 }
 

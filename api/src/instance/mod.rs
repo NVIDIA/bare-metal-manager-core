@@ -10,33 +10,29 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
-
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
     db::{
-        instance::{config::network::load_instance_network_config, NewInstance},
+        instance::{config::network::load_instance_network_config, Instance, NewInstance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
-        machine_interface::MachineInterface,
+        machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
     dhcp::allocation::DhcpError,
-    kubernetes::create_managed_resource,
     model::{
         config_version::{ConfigVersion, Versioned},
         instance::{
             config::{network::InterfaceFunctionId, InstanceConfig},
             snapshot::InstanceSnapshot,
         },
-        machine::{machine_id::try_parse_machine_id, MachineState},
+        machine::machine_id::try_parse_machine_id,
+        machine::ManagedHostState,
         ConfigValidationError, RpcDataConversionError,
     },
-    state_controller::snapshot_loader::{
-        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
-    },
+    state_controller::snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
     CarbideError, CarbideResult,
 };
 
@@ -114,12 +110,12 @@ pub async fn allocate_instance(
     };
 
     let machine_id = new_instance.machine_id;
-    // check the state of the machine
-    let machine_state = DbSnapshotLoader::default()
-        .load_machine_snapshot(&mut txn, new_instance.machine_id)
-        .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
-    if machine_state.hardware_info.is_dpu() {
+    let info = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id])
+        .await?
+        .remove(&machine_id)
+        .ok_or(CarbideError::FindOneReturnedNoResultsError(machine_id))?;
+
+    if info.topology().discovery_data.info.is_dpu() {
         return Err(CarbideError::InvalidArgument(format!(
             "Machine with UUID {} is a DPU and can not be converted into an instance",
             machine_id
@@ -132,54 +128,29 @@ pub async fn allocate_instance(
             CarbideError::InvalidArgument(format!("Machine with UUID {} was not found", machine_id))
         })?;
 
-    let machine_interface =
-        MachineInterface::get_machine_interface_primary(machine_id, &mut txn).await?;
-
     // A new instance can be created only in Ready state.
-    match machine.current_state() {
-        MachineState::Ready => {
-            // Blindly march forward to ready
-            machine.advance(&mut txn, MachineState::Assigned).await?;
-        }
-        rest => {
-            return Err(CarbideError::InvalidArgument(format!(
-                "Could not create instance on machine {} given machine state {:?}",
-                machine_id, rest
-            )));
-        }
+    // This is possible that a instance is created by user, but still not picked by state machine.
+    // To avoid that race condition, need to check if db has any entry with given machine id.
+    let possible_instance = Instance::find_by_machine_id(&mut txn, machine_id).await?;
+
+    if ManagedHostState::Ready != machine.current_state() || possible_instance.is_some() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Could not create instance on machine {} given machine state {:?}, Unprocessed instance: {}",
+            machine_id,
+            machine.current_state(),
+            possible_instance.is_some()
+        )));
     }
 
     let instance = new_instance.persist(&mut txn).await?;
     // TODO: Should we check that the network segment actually belongs to the
     // tenant?
 
-    let interface_ips = HashMap::from_iter(
-        InstanceAddress::allocate(&mut txn, *instance.id(), &network_config.value)
-            .await?
-            .into_iter()
-            .map(|x| (x.segment_id, x.address.ip())),
-    );
-
-    let dpu_machine_id = machine_interface
-        .attached_dpu_machine_id()
-        .ok_or_else(|| CarbideError::MissingArgument("DPU ID"))?;
-
-    // TODO: This needs to be updated to take the information about all interfaces
-    // Maybe use `InstanceNetworkConfig` and a Map from vfid to IPs as parameter?
-    create_managed_resource(
-        &mut txn,
-        request.machine_id,
-        dpu_machine_id,
-        network_config,
-        interface_ips,
-        instance.id,
-    )
-    .await?;
+    InstanceAddress::allocate(&mut txn, *instance.id(), &network_config.value).await?;
 
     // Machine will be rebooted once managed resource creation is successful.
-
     let snapshot = DbSnapshotLoader::default()
-        .load_instance_snapshot(&mut txn, instance.id)
+        .load_instance_snapshot(&mut txn, instance.id, machine.current_state())
         .await?;
 
     txn.commit()

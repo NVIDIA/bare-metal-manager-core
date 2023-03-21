@@ -60,10 +60,9 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await
     .unwrap();
-
     let hardware_info = create_host_hardware_info();
     let machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
-    let machine = Machine::get_or_create(&mut txn, Some(machine_id), iface)
+    let machine = Machine::get_or_create(&mut txn, Some(machine_id), iface, true)
         .await
         .unwrap();
 

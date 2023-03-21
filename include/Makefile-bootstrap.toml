@@ -29,6 +29,17 @@ $REPO_ROOT/dev/grpc-test-data/discover_host.sh
 '''
 cwd="${REPO_ROOT}"
 
+[tasks.test-instance-forge-docker]
+category = "Bootstrap Forge"
+workspace = false
+script = '''
+#!/usr/bin/env bash
+source include/envrc-docker-compose
+echo "In case you don't want to delete instance for further testing, call script 'dev/grpc-test-data/instance_handling.sh create' and 'dev/grpc-test-data/instance_handling.sh delete'"
+$REPO_ROOT/dev/grpc-test-data/instance_handling.sh
+'''
+cwd="${REPO_ROOT}"
+
 [tasks.build-bootstrap-forge-kube]
 category = "Bootstrap Forge"
 workspace = false

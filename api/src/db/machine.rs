@@ -19,7 +19,6 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
-use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
@@ -33,9 +32,10 @@ use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::machine_id::MachineId as StableMachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::MachineNetworkStatus;
-use crate::model::machine::{machine_id::MachineId as StableMachineId, MachineState};
+use crate::model::machine::{MachineState, ManagedHostState};
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -55,7 +55,7 @@ impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
 ///
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Machine {
     ///
     /// The UUID of the machine, this is an internal identifier in the database that's unique for
@@ -74,8 +74,8 @@ pub struct Machine {
     /// When the machine was last deployed
     deployed: Option<DateTime<Utc>>,
 
-    /// The current state of the machine
-    state: Versioned<MachineState>,
+    /// The current state of the machine.
+    state: Versioned<ManagedHostState>,
 
     /// A list of [MachineStateHistory] that this machine has experienced
     history: Vec<MachineStateHistory>,
@@ -107,7 +107,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let controller_state_version = controller_state_version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        let controller_state: sqlx::types::Json<MachineState> = row.try_get("controller_state")?;
+        let controller_state: sqlx::types::Json<ManagedHostState> =
+            row.try_get("controller_state")?;
 
         Ok(Machine {
             id: row.try_get("id")?,
@@ -218,6 +219,7 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         stable_machine_id: Option<StableMachineId>,
         mut interface: MachineInterface,
+        is_dpu: bool,
     ) -> CarbideResult<Self> {
         let stable_machine_id_string = stable_machine_id.map(|id| id.to_string());
 
@@ -245,6 +247,15 @@ impl Machine {
             }
             // CREATE
             None => {
+                // Choose appropriate state based on machine type dpu or host.
+                let state = if is_dpu {
+                    ManagedHostState::DPUNotReady(MachineState::Init)
+                } else {
+                    // At this time, this should be same state of DPU. Even if not, it will be
+                    // synced in next state change.
+                    ManagedHostState::Created
+                };
+
                 let query = "INSERT INTO machines(stable_id) VALUES($1) RETURNING id";
                 let row: (Uuid,) = sqlx::query_as(query)
                     .bind(&stable_machine_id_string)
@@ -253,27 +264,14 @@ impl Machine {
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
                     })?;
-                let machine =
-                    match Machine::find_one(&mut *txn, row.0, MachineSearchConfig::default()).await
-                    {
-                        Ok(Some(x)) => Ok(x),
-                        Ok(None) => Err(CarbideError::DatabaseInconsistencyOnMachineCreate(row.0)),
-                        Err(x) => Err(x.into()),
-                    }?;
-                match machine.current_state() {
-                    MachineState::Init => {
-                        interface
-                            .associate_interface_with_machine(txn, &machine.id)
-                            .await?;
-                    }
-                    rest => {
-                        return Err(CarbideError::GenericError(format!(
-                            "Discover call received in Invalid {} state for machine: {}",
-                            rest,
-                            machine.id()
-                        )));
-                    }
-                }
+                let machine = Machine::find_one(txn, row.0, MachineSearchConfig::default())
+                    .await?
+                    .ok_or(CarbideError::FindOneReturnedNoResultsError(row.0))?;
+                machine.advance(txn, state, None).await?;
+
+                interface
+                    .associate_interface_with_machine(txn, &machine.id)
+                    .await?;
                 Ok(machine)
             }
         }
@@ -370,7 +368,7 @@ SELECT m.id FROM
     /// Arguments:
     /// None
     ///
-    pub fn current_state(&self) -> MachineState {
+    pub fn current_state(&self) -> ManagedHostState {
         self.state.value.clone()
     }
 
@@ -391,50 +389,30 @@ SELECT m.id FROM
     /// * `txn` - A reference to a currently open database transaction
     /// * `state` - A reference to a MachineState enum
     ///
+    // TODO: abhi, Make it private.
     pub async fn advance(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        state: MachineState,
-    ) -> Result<bool, DatabaseError> {
+        state: ManagedHostState,
+        version: Option<ConfigVersion>,
+    ) -> CarbideResult<bool> {
         // Get current version
-        let version = self.state.version;
-        let new_version = version.increment();
+        let version = version.unwrap_or_else(|| self.state.version.increment());
 
         // Store history of machine state changes.
-        MachineStateHistory::persist(txn, self.id(), state.clone(), new_version).await?;
+        MachineStateHistory::persist(txn, self.id(), state.clone(), version).await?;
 
-        let query = "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id";
-        let _id: (uuid::Uuid,) = sqlx::query_as(query)
-            .bind(new_version.to_version_string())
-            .bind(sqlx::types::Json(state))
-            .bind(self.id())
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let _id: (uuid::Uuid,) = sqlx::query_as(
+            "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
+        )
+        .bind(version.to_version_string())
+        .bind(sqlx::types::Json(state))
+        .bind(self.id())
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "update machines state", e))?;
 
         Ok(true)
-    }
-
-    /// Retrieves the IDs of all active Machines - which are machines that are not in
-    /// the final state.
-    ///
-    /// * `txn` - A reference to a currently open database transaction
-    ///
-    pub async fn list_active_machine_ids(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<Uuid>, DatabaseError> {
-        // TODO: Since the state is not directly part of the database and might move,
-        // we currently assume all machines as active
-
-        let query = "SELECT id FROM machines";
-        let mut results = Vec::new();
-        let mut machine_id_stream = sqlx::query_as::<_, MachineId>(query).fetch(txn);
-        while let Some(maybe_id) = machine_id_stream.next().await {
-            let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-            results.push(id.into());
-        }
-
-        Ok(results)
     }
 
     /// Find machines given a set of criteria, right now just returns all machines because there's

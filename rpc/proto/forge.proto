@@ -938,6 +938,7 @@ message ForgeAgentControlResponse {
 		RESET = 1;      // Wipe the machine, prepare for next tenant
 		DISCOVERY = 2;  // Run full discovery
 		REBUILD = 3;    // Future thingy
+		RETRY = 4;      // Machine needs more time to come in proper state. Retry again.
 	}
 	Action action = 1;
 }

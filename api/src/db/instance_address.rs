@@ -85,7 +85,7 @@ impl InstanceAddress {
         .into_group_map_by(|address| address.instance_id))
     }
 
-    async fn get_allocated_address(
+    pub async fn get_allocated_address(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: uuid::Uuid,
     ) -> Result<Vec<InstanceSegmentAddress>, DatabaseError> {

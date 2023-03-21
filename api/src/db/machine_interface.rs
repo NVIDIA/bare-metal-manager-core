@@ -206,6 +206,35 @@ impl MachineInterface {
         )
     }
 
+    pub async fn find_host_primary_interface_by_dpu_id(
+        txn: &mut Transaction<'_, Postgres>,
+        dpu_machine_id: uuid::Uuid,
+    ) -> Result<Option<MachineInterface>, DatabaseError> {
+        let query =
+            "SELECT * FROM machine_interfaces WHERE attached_dpu_machine_id = $1::uuid AND primary_interface=TRUE AND (machine_id!=attached_dpu_machine_id OR machine_id IS NULL)";
+        let Some(mut machine_interface) = sqlx::query_as::<_, MachineInterface>(query)
+            .bind(dpu_machine_id)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))? else {
+            return Ok(None);
+        };
+
+        let mut addresses_for_interfaces = MachineInterfaceAddress::find_for_interface(
+            &mut *txn,
+            UuidKeyedObjectFilter::List(&[machine_interface.id]),
+        )
+        .await?;
+
+        if let Some(addresses) = addresses_for_interfaces.remove(&machine_interface.id) {
+            machine_interface.addresses = addresses;
+        } else {
+            log::warn!("Interface {0} has no addresses", &machine_interface.id);
+        }
+
+        Ok(Some(machine_interface))
+    }
+
     pub async fn count_by_segment_id(
         txn: &mut Transaction<'_, Postgres>,
         segment_id: &uuid::Uuid,

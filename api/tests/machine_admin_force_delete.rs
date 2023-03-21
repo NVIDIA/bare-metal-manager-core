@@ -75,6 +75,16 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
+    assert!(!response.all_done);
+    let response = env
+        .api
+        .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: dpu_machine_id.to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
     assert_eq!(response.dpu_machine_id, dpu_machine_id.to_string());
     assert_eq!(
         response.dpu_machine_interface_id,

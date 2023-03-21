@@ -15,7 +15,9 @@
 use carbide::{
     api::Api,
     auth::{Authorizer, NoopEngine},
+    db::machine::Machine,
     kubernetes::{VpcApiSim, VpcApiSimConfig},
+    model::machine::ManagedHostState,
     state_controller::{
         controller::StateControllerIO,
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
@@ -42,6 +44,8 @@ pub mod network_segment;
 pub type TestApi = Api<TestCredentialProvider>;
 
 pub const FIXTURE_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
+pub const FIXTURE_DPU_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
+pub const FIXTURE_X86_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd99");
 
 pub struct TestEnv {
     pub api: TestApi,
@@ -56,17 +60,57 @@ impl TestEnv {
     /// Creates an instance of StateHandlerServices that are suitable for this
     /// test environment
     pub fn state_handler_services(&self) -> StateHandlerServices {
+        let forge_api = Arc::new(carbide::api::Api::new(
+            self.credential_provider.clone(),
+            self.pool.clone(),
+            Authorizer::new(Arc::new(NoopEngine {})),
+            self.vpc_api.clone(),
+        ));
         StateHandlerServices {
             pool: self.pool.clone(),
             vpc_api: self.vpc_api.clone(),
+            forge_api,
         }
+    }
+
+    /// Runs one iteration of the machine state controller handler with the services
+    /// in this test environment
+    pub async fn run_machine_state_controller_iteration_until_state_matches(
+        &self,
+        dpu_machine_id: uuid::Uuid,
+        handler: &MachineStateHandler,
+        max_iterations: u32,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        expected_state: ManagedHostState,
+    ) {
+        let services = Arc::new(self.state_handler_services());
+        for _ in 0..max_iterations {
+            run_state_controller_iteration(
+                &services,
+                &self.pool,
+                &self.machine_state_controller_io,
+                dpu_machine_id,
+                handler,
+            )
+            .await
+        }
+        let machine = Machine::find_one(
+            txn,
+            dpu_machine_id,
+            carbide::db::machine::MachineSearchConfig::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(machine.current_state(), expected_state);
     }
 
     /// Runs one iteration of the machine state controller handler with the services
     /// in this test environment
     pub async fn run_machine_state_controller_iteration(
         &self,
-        machine_id: uuid::Uuid,
+        dpu_machine_id: uuid::Uuid,
         handler: &MachineStateHandler,
     ) {
         let services = Arc::new(self.state_handler_services());
@@ -74,7 +118,7 @@ impl TestEnv {
             &services,
             &self.pool,
             &self.machine_state_controller_io,
-            machine_id,
+            dpu_machine_id,
             handler,
         )
         .await

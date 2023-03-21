@@ -7,6 +7,7 @@ set -eo pipefail
 # If you need more than one HOST, you can edit the MAC address in the file and call
 # `discover_dpu.sh` to create DPU first and `discover_host.sh` to create host again
 
+MAX_RETRY=10
 # Determine the CircuitId that our host needs to use
 # We use the first network segment that we can find
 RESULT=$(grpcurl -plaintext 127.0.0.1:1079 forge.Forge/FindNetworkSegments)
@@ -30,18 +31,63 @@ DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuChassis123/HostChassis12
 DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuProductName234/HostProductName234}
 DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuSysVendor234/HostSysVendor234}
 
+# Assuming ManagedHost is Host/Init state now.
 RESULT=$(echo "$DISCOVER_MACHINE_REQUEST" | grpcurl -d @ -plaintext 127.0.0.1:1079 forge.Forge/DiscoverMachine)
 HOST_MACHINE_ID=$(echo "$RESULT" | jq ".machineId.id" | tr -d '"')
 grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ForgeAgentControl
 
 # Give it a BMC IP and credentials
 grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"ip\": \"host.docker.internal:1266\", \"data\": [{\"user\": \"forge_admin\", \"password\": \"notforprod\", \"role\": 1}], \"request_type\": 1 }" -plaintext 127.0.0.1:1079 forge.Forge/UpdateBMCMetaData
-echo "Created HOST Machine with ID $HOST_MACHINE_ID"
+echo "Created HOST Machine with ID $HOST_MACHINE_ID. Starting discovery and waiting for it to reach in Waintingfordiscovery state."
+
+# Wait until host reaches discovered state.
+i=0
+MACHINE_STATE=""
+while [[ $MACHINE_STATE != "Host/WaitingForDiscovery" && $i -lt $MAX_RETRY ]]; do
+  sleep 10
+  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -plaintext 127.0.0.1:1079 forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  echo "Checking machine state. Waiting for it to be in Host/WaitingForDiscovery state. Current: $MACHINE_STATE"
+  i=$((i+1))
+done
+
+if [[ $i == "$MAX_RETRY" ]]; then
+  echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."
+  exit 1
+fi
 
 # Mark discovery complete
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/DiscoveryCompleted)
 
-echo "Waiting for machine to process host state to Discovered."
-#sleep 60;
+# Wait until host reaches discovered state.
+i=0
+MACHINE_STATE=""
+while [[ $MACHINE_STATE != "Host/Discovered" && $i -lt $MAX_RETRY ]]; do
+  sleep 10
+  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -plaintext 127.0.0.1:1079 forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  echo "Checking machine state. Waiting for it to be in Host/Discovered state. Current: $MACHINE_STATE"
+  i=$((i+1))
+done
+
+if [[ $i == "$MAX_RETRY" ]]; then
+  echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."
+  exit 1
+fi
 
 grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ForgeAgentControl
+
+# Wait until host reaches ready state.
+i=0
+MACHINE_STATE=""
+while [[ $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
+  sleep 10
+  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -plaintext 127.0.0.1:1079 forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  echo "Checking machine state. Waiting for it to be in Ready state. Current: $MACHINE_STATE"
+  i=$((i+1))
+done
+
+if [[ $i == "$MAX_RETRY" ]]; then
+  echo "Even after $MAX_RETRY retries, Host did not come in Ready state."
+  exit 1
+fi
+
+echo "ManagedHost is up in Ready state."

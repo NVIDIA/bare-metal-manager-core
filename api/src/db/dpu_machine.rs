@@ -9,15 +9,20 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-//!
-//! Machine - represents a database-backed Machine object
-//!
+//
+// DpuMachine - represents a database-backed DpuMachine object
+//
 
+use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
+
+use crate::db::machine::Machine;
+use crate::model::machine::ManagedHostState;
+use crate::{CarbideError, CarbideResult};
 
 use super::DatabaseError;
 
@@ -49,6 +54,15 @@ impl<'r> FromRow<'r, PgRow> for DpuMachine {
     }
 }
 
+#[derive(Debug, Clone, Copy, FromRow)]
+pub struct MachineId(uuid::Uuid);
+
+impl From<MachineId> for uuid::Uuid {
+    fn from(id: MachineId) -> Self {
+        id.0
+    }
+}
+
 impl DpuMachine {
     pub fn _vpc_leaf_id(&self) -> &Uuid {
         &self._vpc_leaf_id
@@ -72,6 +86,34 @@ impl DpuMachine {
 
     pub fn _hostname(&self) -> &str {
         &self._hostname
+    }
+
+    /// Retrieves the IDs of all active Machines - which are machines that are not in
+    /// the final state.
+    ///
+    /// * `txn` - A reference to a currently open database transaction
+    ///
+    pub async fn list_active_dpu_ids(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
+        // TODO: Since the state is not directly part of the database and might move,
+        // we currently assume all machines as active
+
+        // TODO 2: This method returns a `sqlx::Error` instead of the `CarbideError` most
+        // other methods return. The challenge with `CarbideError` is that if we would
+        // use this function in another subcomponent of the project, it would also be forced
+        // to use `CarbideError`, which gives callers not an option to have a finer grained
+        // error type.
+
+        let mut results = Vec::new();
+        let mut machine_id_stream =
+            sqlx::query_as::<_, MachineId>("SELECT machine_id FROM dpu_machines;").fetch(txn);
+        while let Some(maybe_id) = machine_id_stream.next().await {
+            let id = maybe_id?;
+            results.push(id.into());
+        }
+
+        Ok(results)
     }
 
     pub async fn find_by_machine_id(
@@ -99,6 +141,33 @@ WHERE mi.machine_id=$1::uuid";
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    pub async fn update_state(
+        txn: &mut Transaction<'_, Postgres>,
+        dpu_machine_id: uuid::Uuid,
+        new_state: ManagedHostState,
+    ) -> CarbideResult<()> {
+        let machine = Machine::find_one(
+            txn,
+            dpu_machine_id,
+            crate::db::machine::MachineSearchConfig::default(),
+        )
+        .await?
+        .ok_or(CarbideError::FindOneReturnedNoResultsError(dpu_machine_id))?;
+
+        let version = machine.current_version().increment();
+
+        log::info!("Updating state of DPU {} to {}", machine.id(), new_state);
+
+        machine
+            .advance(txn, new_state.clone(), Some(version))
+            .await?;
+
+        // Keep both host and dpu's states in sync.
+        let Some(host) = Machine::find_host_by_dpu_machine_id(txn, &dpu_machine_id).await? else {return Ok(());};
+        host.advance(txn, new_state, Some(version)).await?;
+        Ok(())
     }
 }
 

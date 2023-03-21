@@ -9,23 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use chrono::prelude::*;
-use forge_credentials::CredentialKey;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
-use crate::db::dpu_machine::DpuMachine;
 use crate::db::machine::{Machine, MachineSearchConfig};
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
-use crate::kubernetes::{leaf_name, LeafData, VpcResourceActions};
 use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
-use crate::vpc_resources::{host_interfaces, leaf};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Deserialize)]
@@ -169,44 +164,6 @@ impl MachineTopology {
                         }
                     }
                 }
-                let dpu = DpuMachine::find_by_machine_id(&mut *txn, machine_dpu.id()).await?;
-
-                let leaf_spec = leaf::Leaf::new(
-                    &leaf_name(*machine_id),
-                    leaf::LeafSpec {
-                        control: Some(leaf::LeafControl {
-                            maintenance_mode: Some(false),
-                            management_ip: Some(dpu.address().ip().to_string()),
-                            ssh_credential_kv_path: Some(
-                                CredentialKey::DpuSsh {
-                                    machine_id: machine_id.to_string(),
-                                }
-                                .to_key_str(),
-                            ),
-                            //it's also required for us to pass an HBN kv path but apparently that's not setup in schema yet.
-                            vendor: Some("DPU".to_string()),
-                        }),
-                        host_admin_i_ps: Some(BTreeMap::from([(
-                            DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
-                            "".to_string(),
-                        )])),
-                        host_interfaces: Some(host_interfaces(dpu.machine_id())),
-                    },
-                );
-
-                log::info!("Leafspec sent to kubernetes: {:?}", leaf_spec);
-
-                let db_conn = txn
-                    .acquire()
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "acquire", e))?;
-
-                VpcResourceActions::CreateLeaf(LeafData {
-                    leaf: leaf_spec,
-                    dpu_machine_id: *machine_id,
-                })
-                .reconcile(db_conn)
-                .await?;
             }
             Ok(Some(res))
         }

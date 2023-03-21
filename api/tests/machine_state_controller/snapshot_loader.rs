@@ -69,7 +69,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     let hardware_info = create_dpu_hardware_info();
     let stable_machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
-    let machine = Machine::get_or_create(&mut txn, Some(stable_machine_id), iface)
+    let machine = Machine::get_or_create(&mut txn, Some(stable_machine_id), iface, true)
         .await
         .unwrap();
 
@@ -98,8 +98,8 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
         .await
         .unwrap();
 
-    assert_eq!(snapshot.machine_id, *machine.id());
-    assert_eq!(snapshot.hardware_info, hardware_info);
+    assert_eq!(snapshot.dpu_snapshot.machine_id, *machine.id());
+    assert_eq!(snapshot.dpu_snapshot.hardware_info.unwrap(), hardware_info);
 
     Ok(())
 }
