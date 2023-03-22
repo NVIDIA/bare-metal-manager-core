@@ -12,6 +12,7 @@
 
 mod command_line;
 mod health;
+mod network_config_fetcher;
 
 use std::{
     thread::sleep,
@@ -30,6 +31,9 @@ use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 //
 // Eventually we will need an event system. Block storage requires very fast DPU responses.
 const MAIN_LOOP_PERIOD: Duration = Duration::from_secs(30);
+
+/// How often we fetch the desired network configuration for a host
+const NETWORK_CONFIG_FETCH_PERIOD: Duration = Duration::from_secs(30);
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
@@ -62,7 +66,10 @@ fn main() -> color_eyre::Result<()> {
     let hardware_info = enumerate_hardware()?;
     debug!("Successfully enumerated DPU hardware");
 
-    let mut rt = tokio::runtime::Builder::new_current_thread()
+    // We need a multi-threaded runtime since background threads will queue work
+    // on it, and the foreground thread might not be blocked onto the runtime
+    // at all points in time
+    let mut rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     let registration_data = rt.block_on(register_machine(
@@ -98,12 +105,27 @@ fn main() -> color_eyre::Result<()> {
 
 // main loop when running in daemon mode
 fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str) {
+    let network_config_fetcher = network_config_fetcher::NetworkConfigFetcher::new(
+        network_config_fetcher::NetworkConfigFetcherConfig {
+            config_fetch_interval: NETWORK_CONFIG_FETCH_PERIOD,
+            machine_id: machine_id.to_string(),
+            forge_api: forge_api.to_string(),
+            runtime: rt.handle().to_owned(),
+        },
+    );
+
+    let network_config_reader = network_config_fetcher.reader();
+
     let mut first = true;
     loop {
         if !first {
             sleep(MAIN_LOOP_PERIOD);
         }
         first = false;
+
+        let network_config = network_config_reader.read();
+        trace!("Desired network config is {:?}", network_config);
+
         let health_report = health::health_check();
         trace!("{} health is {}", machine_id, health_report);
 

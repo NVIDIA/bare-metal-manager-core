@@ -13,7 +13,8 @@
 use std::time::SystemTime;
 
 use ::rpc::forge::{
-    ManagedHostNetworkStatusObservation, ManagedHostNetworkStatusRequest, NetworkHealth,
+    ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusObservation,
+    ManagedHostNetworkStatusRequest, NetworkHealth,
 };
 use log::LevelFilter;
 use rpc::forge::forge_server::Forge;
@@ -26,6 +27,22 @@ fn setup() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Error)
         .init();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_managed_host_network_config(pool: sqlx::PgPool) {
+    let test = api_fixtures::create_test_env(pool.clone(), Default::default());
+    let dpu_machine_id = api_fixtures::dpu::create_dpu_machine(&test).await;
+
+    // Fetch a Machines network config
+    let response = test
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            machine_id: Some(dpu_machine_id),
+        }))
+        .await;
+
+    assert!(response.is_err());
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]

@@ -39,6 +39,7 @@ dependencies = [
 name = "agent"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "clap",
  "color-eyre 0.5.11",
  "eyre",

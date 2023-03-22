@@ -823,6 +823,45 @@ where
         ))
     }
 
+    async fn get_managed_host_network_config(
+        &self,
+        request: Request<rpc::ManagedHostNetworkConfigRequest>,
+    ) -> Result<tonic::Response<rpc::ManagedHostNetworkConfigResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        let request = request.into_inner();
+        let machine_id = match &request.machine_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::not_found("Missing machine id"));
+            }
+        };
+
+        let loader = DbSnapshotLoader::default();
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin get_managed_host_network_config", e)
+        })?;
+
+        let snapshot = loader
+            .load_machine_snapshot(&mut txn, machine_id)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit get_managed_host_network_config",
+                e,
+            ))
+        })?;
+
+        // TODO: Extract network state from Machine State. Loading the Machine state
+        // should contain it (and already contains the instance state)
+        let _ = snapshot;
+        Err(CarbideError::NotImplemented.into())
+    }
+
     async fn record_managed_host_network_status(
         &self,
         request: Request<rpc::ManagedHostNetworkStatusObservation>,

@@ -44,6 +44,7 @@ service Forge {
   // and for testing
   rpc RecordObservedInstanceNetworkStatus(InstanceNetworkStatusObservation) returns (ObservedInstanceNetworkStatusRecordResult);
   // forge-dpu-agent -> carbide-api
+  rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordManagedHostNetworkStatus(ManagedHostNetworkStatusObservation) returns (ManagedHostNetworkStatusRecordResult);
 
   rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
@@ -840,6 +841,17 @@ message CredentialResponse {
     string password = 2;
 }
 
+message ManagedHostNetworkConfigRequest {
+  MachineId machine_id = 1;
+}
+
+message ManagedHostNetworkConfigResponse {
+  ManagedHostNetworkConfig managed_host_config = 1;
+  string managed_host_config_version = 2;
+  // TODO: Should be augmented by the active InstanceConfig
+  // Either here, or as field inside `ManagedHostNetworkConfig`
+}
+
 message ManagedHostNetworkStatusRequest {}
 message ManagedHostNetworkStatusResponse {
     repeated ManagedHostNetworkStatusObservation all = 1;
@@ -1031,6 +1043,22 @@ message PxeInstructions {
 enum InterfaceFunctionType {
   PHYSICAL_FUNCTION = 0;
   VIRTUAL_FUNCTION = 1;
+}
+
+// Network configuration for a managed host (host + DPU pair) managed by Forge
+message ManagedHostNetworkConfig {
+  // Enables access to the Forge admin network for the x86 host
+  bool admin_network_enabled = 1;
+  // TODO: Do we need the mapping from interface to IP as in the current Leaf spec
+  // or multiple IPs for IPv4 vs IPv6?
+  string host_admin_ip = 2;
+  // DHCP server that the Host DHCP requests should be relayed to
+  repeated string dhcp_servers = 3;
+
+  // TODOs:
+  // 1. Do we want to keep the ability of maintainence_mode?
+  // 2. Do we need any other information out of what is currently defined in
+  //    the admin NetworkSegment?
 }
 
 // What forge-dpu-agent reports. Will grow over time.

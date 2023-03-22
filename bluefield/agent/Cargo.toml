@@ -10,6 +10,7 @@ name = "forge-dpu-agent"
 path = "src/main.rs"
 
 [dependencies]
+arc-swap = "1.6"
 clap = { version = "~3", features = ["derive", "env"] }
 color-eyre = "0.5.11"
 eyre = "0.6"
