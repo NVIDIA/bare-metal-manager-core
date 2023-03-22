@@ -17,6 +17,7 @@ use ::rstest_reuse;
 use dhcp::allocation::DhcpError;
 use kubernetes::VpcApiError;
 use mac_address::MacAddress;
+use model::machine::machine_id::MachineId;
 use model::{
     config_version::{ConfigVersion, ParseConfigVersionError},
     ConfigValidationError, RpcDataConversionError,
@@ -127,7 +128,7 @@ pub enum CarbideError {
     NetworkSegmentDelete(String),
 
     #[error("A machine that was just created, failed to return any rows: {0}")]
-    DatabaseInconsistencyOnMachineCreate(uuid::Uuid),
+    DatabaseInconsistencyOnMachineCreate(MachineId),
 
     #[error("Generic error: {0}")]
     GenericError(String),

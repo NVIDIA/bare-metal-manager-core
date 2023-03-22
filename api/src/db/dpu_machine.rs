@@ -20,19 +20,22 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use crate::db::machine::Machine;
-use crate::model::machine::ManagedHostState;
-use crate::{CarbideError, CarbideResult};
-
-use super::DatabaseError;
+use crate::{
+    db::{
+        machine::{DbMachineId, Machine},
+        DatabaseError,
+    },
+    model::machine::{machine_id::MachineId, ManagedHostState},
+    CarbideError, CarbideResult,
+};
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
 ///
 #[derive(Debug)]
 pub struct DpuMachine {
-    machine_id: uuid::Uuid,
-    _vpc_leaf_id: uuid::Uuid,
+    machine_id: MachineId,
+    _vpc_leaf_id: MachineId,
     _machine_interface_id: uuid::Uuid,
     _mac_address: MacAddress,
     address: IpNetwork,
@@ -43,9 +46,11 @@ pub struct DpuMachine {
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for DpuMachine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_id: DbMachineId = row.try_get("machine_id")?;
+        let vpc_leaf_id: DbMachineId = row.try_get("vpc_leaf_id")?;
         Ok(DpuMachine {
-            machine_id: row.try_get("machine_id")?,
-            _vpc_leaf_id: row.try_get("vpc_leaf_id")?,
+            machine_id: machine_id.into_inner(),
+            _vpc_leaf_id: vpc_leaf_id.into_inner(),
             _machine_interface_id: row.try_get("machine_interfaces_id")?,
             _mac_address: row.try_get("mac_address")?,
             address: row.try_get("address")?,
@@ -54,21 +59,12 @@ impl<'r> FromRow<'r, PgRow> for DpuMachine {
     }
 }
 
-#[derive(Debug, Clone, Copy, FromRow)]
-pub struct MachineId(uuid::Uuid);
-
-impl From<MachineId> for uuid::Uuid {
-    fn from(id: MachineId) -> Self {
-        id.0
-    }
-}
-
 impl DpuMachine {
-    pub fn _vpc_leaf_id(&self) -> &Uuid {
+    pub fn _vpc_leaf_id(&self) -> &MachineId {
         &self._vpc_leaf_id
     }
 
-    pub fn machine_id(&self) -> &Uuid {
+    pub fn machine_id(&self) -> &MachineId {
         &self.machine_id
     }
 
@@ -95,7 +91,7 @@ impl DpuMachine {
     ///
     pub async fn list_active_dpu_ids(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<Uuid>, sqlx::Error> {
+    ) -> Result<Vec<MachineId>, sqlx::Error> {
         // TODO: Since the state is not directly part of the database and might move,
         // we currently assume all machines as active
 
@@ -107,10 +103,10 @@ impl DpuMachine {
 
         let mut results = Vec::new();
         let mut machine_id_stream =
-            sqlx::query_as::<_, MachineId>("SELECT machine_id FROM dpu_machines;").fetch(txn);
+            sqlx::query_as::<_, DbMachineId>("SELECT machine_id FROM dpu_machines;").fetch(txn);
         while let Some(maybe_id) = machine_id_stream.next().await {
             let id = maybe_id?;
-            results.push(id.into());
+            results.push(id.into_inner());
         }
 
         Ok(results)
@@ -118,11 +114,11 @@ impl DpuMachine {
 
     pub async fn find_by_machine_id(
         txn: &mut Transaction<'_, Postgres>,
-        dpu_machine_id: &uuid::Uuid,
+        dpu_machine_id: &MachineId,
     ) -> Result<Self, DatabaseError> {
-        let query = "SELECT * FROM dpu_machines WHERE machine_id = $1::uuid";
+        let query = "SELECT * FROM dpu_machines WHERE machine_id = $1";
         sqlx::query_as(query)
-            .bind(dpu_machine_id)
+            .bind(dpu_machine_id.to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -130,14 +126,14 @@ impl DpuMachine {
 
     pub async fn find_by_host_machine_id(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: &uuid::Uuid,
+        machine_id: &MachineId,
     ) -> Result<Self, DatabaseError> {
         let query = "
 SELECT dm.* FROM dpu_machines dm
 JOIN machine_interfaces mi on dm.machine_id = mi.attached_dpu_machine_id
-WHERE mi.machine_id=$1::uuid";
+WHERE mi.machine_id=$1";
         sqlx::query_as(query)
-            .bind(machine_id)
+            .bind(machine_id.to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -145,7 +141,7 @@ WHERE mi.machine_id=$1::uuid";
 
     pub async fn update_state(
         txn: &mut Transaction<'_, Postgres>,
-        dpu_machine_id: uuid::Uuid,
+        dpu_machine_id: &MachineId,
         new_state: ManagedHostState,
     ) -> CarbideResult<()> {
         let machine = Machine::find_one(
@@ -154,7 +150,10 @@ WHERE mi.machine_id=$1::uuid";
             crate::db::machine::MachineSearchConfig::default(),
         )
         .await?
-        .ok_or(CarbideError::FindOneReturnedNoResultsError(dpu_machine_id))?;
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: dpu_machine_id.to_string(),
+        })?;
 
         let version = machine.current_version().increment();
 
@@ -165,7 +164,7 @@ WHERE mi.machine_id=$1::uuid";
             .await?;
 
         // Keep both host and dpu's states in sync.
-        let Some(host) = Machine::find_host_by_dpu_machine_id(txn, &dpu_machine_id).await? else {return Ok(());};
+        let Some(host) = Machine::find_host_by_dpu_machine_id(txn, dpu_machine_id).await? else {return Ok(());};
         host.advance(txn, new_state, Some(version)).await?;
         Ok(())
     }

@@ -25,14 +25,14 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use super::{DatabaseError, UuidKeyedObjectFilter};
+use super::{DatabaseError, ObjectFilter};
 use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::machine_id::MachineId as StableMachineId;
+use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::{MachineState, ManagedHostState};
@@ -57,13 +57,14 @@ impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
 ///
 #[derive(Debug, Clone)]
 pub struct Machine {
-    ///
-    /// The UUID of the machine, this is an internal identifier in the database that's unique for
+    /// The ID of the machine, this is an internal identifier in the database that's unique for
     /// all machines managed by this instance of carbide.
-    ///
-    id: uuid::Uuid,
+    id: MachineId,
 
-    vpc_leaf_id: Option<uuid::Uuid>,
+    /// References the entry in the vpc_resource_leafs table
+    ///
+    /// This is a MachineId, because the table is indexed by the MachineId of the DPU
+    vpc_leaf_id: Option<MachineId>,
 
     /// When this machine record was created
     created: DateTime<Utc>,
@@ -110,9 +111,14 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let controller_state: sqlx::types::Json<ManagedHostState> =
             row.try_get("controller_state")?;
 
+        let stable_string: String = row.try_get("id")?;
+        let id = MachineId::from_str(&stable_string).unwrap();
+
+        let vpc_leaf_id: Option<DbMachineId> = row.try_get("vpc_leaf_id")?;
+
         Ok(Machine {
-            id: row.try_get("id")?,
-            vpc_leaf_id: row.try_get("vpc_leaf_id")?,
+            id,
+            vpc_leaf_id: vpc_leaf_id.map(|id| id.0),
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
@@ -128,12 +134,57 @@ impl<'r> FromRow<'r, PgRow> for Machine {
     }
 }
 
-#[derive(Debug, Clone, Copy, FromRow)]
-pub struct MachineId(uuid::Uuid);
+/// A wrapper around `MachineId` that implements `sqlx::Decode` and `sqlx::FromRow`
+#[derive(Debug, Clone)]
+pub struct DbMachineId(MachineId);
 
-impl From<MachineId> for uuid::Uuid {
-    fn from(id: MachineId) -> Self {
-        id.0
+impl DbMachineId {
+    pub fn into_inner(self) -> MachineId {
+        self.0
+    }
+}
+
+impl From<DbMachineId> for MachineId {
+    fn from(value: DbMachineId) -> Self {
+        value.0
+    }
+}
+
+impl<DB> sqlx::Type<DB> for DbMachineId
+where
+    DB: sqlx::Database,
+    String: sqlx::Type<DB>,
+{
+    fn type_info() -> <DB as sqlx::Database>::TypeInfo {
+        String::type_info()
+    }
+
+    fn compatible(ty: &DB::TypeInfo) -> bool {
+        String::compatible(ty)
+    }
+}
+
+impl<'r, DB> sqlx::Decode<'r, DB> for DbMachineId
+where
+    DB: sqlx::Database,
+    String: sqlx::Decode<'r, DB>,
+{
+    fn decode(
+        value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
+        // We first read the MachineId as a String. The function for this already
+        // exists and we delegate
+        let str_id: String = String::decode(value)?;
+        // Then we parse the ID
+        let id = MachineId::from_str(&str_id).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        Ok(DbMachineId(id))
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for DbMachineId {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let id: DbMachineId = row.try_get(0)?;
+        Ok(id)
     }
 }
 
@@ -198,7 +249,7 @@ impl Machine {
 
     pub async fn exists(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: uuid::Uuid,
+        machine_id: &MachineId,
     ) -> Result<bool, DatabaseError> {
         let machine =
             Machine::find_one(&mut *txn, machine_id, MachineSearchConfig::default()).await?;
@@ -217,13 +268,13 @@ impl Machine {
     ///
     pub async fn get_or_create(
         txn: &mut Transaction<'_, Postgres>,
-        stable_machine_id: Option<StableMachineId>,
+        stable_machine_id: Option<MachineId>,
         mut interface: MachineInterface,
         is_dpu: bool,
     ) -> CarbideResult<Self> {
         let stable_machine_id_string = stable_machine_id.map(|id| id.to_string());
 
-        match interface.machine_id {
+        match &interface.machine_id {
             // GET
             Some(machine_id) => {
                 match Machine::find_one(&mut *txn, machine_id, MachineSearchConfig::default())
@@ -256,17 +307,21 @@ impl Machine {
                     ManagedHostState::Created
                 };
 
-                let query = "INSERT INTO machines(stable_id) VALUES($1) RETURNING id";
-                let row: (Uuid,) = sqlx::query_as(query)
+                let query = "INSERT INTO machines(id) VALUES($1) RETURNING id";
+                let row: (DbMachineId,) = sqlx::query_as(query)
                     .bind(&stable_machine_id_string)
                     .fetch_one(&mut *txn)
                     .await
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
                     })?;
-                let machine = Machine::find_one(txn, row.0, MachineSearchConfig::default())
+                let machine_id = row.0.into_inner();
+                let machine = Machine::find_one(txn, &machine_id, MachineSearchConfig::default())
                     .await?
-                    .ok_or(CarbideError::FindOneReturnedNoResultsError(row.0))?;
+                    .ok_or_else(|| CarbideError::NotFoundError {
+                        kind: "machine",
+                        id: machine_id.to_string(),
+                    })?;
                 machine.advance(txn, state, None).await?;
 
                 interface
@@ -279,13 +334,13 @@ impl Machine {
 
     pub async fn associate_vpc_leaf_id(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: uuid::Uuid,
-        vpc_leaf_id: uuid::Uuid,
+        machine_id: &MachineId,
+        vpc_leaf_id: &MachineId,
     ) -> Result<Machine, DatabaseError> {
-        let query = "UPDATE machines SET vpc_leaf_id=$1::uuid where id=$2::uuid RETURNING *";
+        let query = "UPDATE machines SET vpc_leaf_id=$1 where id=$2 RETURNING *";
         sqlx::query_as(query)
-            .bind(vpc_leaf_id)
-            .bind(machine_id)
+            .bind(vpc_leaf_id.to_string())
+            .bind(machine_id.to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -293,11 +348,11 @@ impl Machine {
 
     pub async fn find_one(
         txn: &mut Transaction<'_, Postgres>,
-        uuid: uuid::Uuid,
+        id: &MachineId,
         search_config: MachineSearchConfig,
     ) -> Result<Option<Self>, DatabaseError> {
         Ok(
-            Machine::find(txn, UuidKeyedObjectFilter::One(uuid), search_config)
+            Machine::find(txn, ObjectFilter::One(id.clone()), search_config)
                 .await?
                 .pop(),
         )
@@ -335,7 +390,7 @@ SELECT m.id FROM
     }
 
     /// Returns the ID of the machine object
-    pub fn id(&self) -> &uuid::Uuid {
+    pub fn id(&self) -> &MachineId {
         &self.id
     }
 
@@ -359,7 +414,7 @@ SELECT m.id FROM
         &self.interfaces
     }
 
-    pub fn vpc_leaf_id(&self) -> &Option<uuid::Uuid> {
+    pub fn vpc_leaf_id(&self) -> &Option<MachineId> {
         &self.vpc_leaf_id
     }
 
@@ -402,12 +457,12 @@ SELECT m.id FROM
         // Store history of machine state changes.
         MachineStateHistory::persist(txn, self.id(), state.clone(), version).await?;
 
-        let _id: (uuid::Uuid,) = sqlx::query_as(
+        let _id: (String,) = sqlx::query_as(
             "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
         )
         .bind(version.to_version_string())
         .bind(sqlx::types::Json(state))
-        .bind(self.id())
+        .bind(self.id().to_string())
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "update machines state", e))?;
@@ -426,47 +481,55 @@ SELECT m.id FROM
     ///
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
+        filter: ObjectFilter<'_, MachineId>,
         search_config: MachineSearchConfig,
     ) -> Result<Vec<Machine>, DatabaseError> {
         let base_query = "SELECT * FROM machines m {where} GROUP BY m.id".to_owned();
 
         let mut all_machines: Vec<Machine> = match filter {
-            UuidKeyedObjectFilter::All => {
-                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut *txn)
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "machines All", e))?
-            }
-            UuidKeyedObjectFilter::One(uuid) => {
+            ObjectFilter::All => sqlx::query_as::<_, Machine>(&base_query.replace("{where}", ""))
+                .fetch_all(&mut *txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "machines All", e))?,
+            ObjectFilter::One(id) => {
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=$1"))
-                    .bind(uuid)
+                    .bind(id.to_string())
                     .fetch_all(&mut *txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "machines One", e))?
             }
-            UuidKeyedObjectFilter::List(list) => {
+            ObjectFilter::List(list) => {
+                let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
-                    .bind(list)
+                    .bind(str_list)
                     .fetch_all(&mut *txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "machines List", e))?
             }
         };
 
-        let all_uuids = all_machines.iter().map(|m| m.id).collect::<Vec<Uuid>>();
+        // If we didn't find anything, we don't have to invest more queries for
+        // fetching related data
+        if all_machines.is_empty() {
+            return Ok(all_machines);
+        }
+
+        let all_ids = all_machines
+            .iter()
+            .map(|m| m.id.clone())
+            .collect::<Vec<MachineId>>();
 
         let mut history_for_machine = if search_config.include_history {
-            MachineStateHistory::find_by_machine_ids(&mut *txn, &all_uuids).await?
+            MachineStateHistory::find_by_machine_ids(&mut *txn, &all_ids).await?
         } else {
             HashMap::new()
         };
 
         let mut interfaces_for_machine =
-            MachineInterface::find_by_machine_ids(&mut *txn, &all_uuids).await?;
+            MachineInterface::find_by_machine_ids(&mut *txn, &all_ids).await?;
 
         let topologies_for_machine =
-            MachineTopology::find_latest_by_machine_ids(&mut *txn, &all_uuids).await?;
+            MachineTopology::find_latest_by_machine_ids(&mut *txn, &all_ids).await?;
 
         all_machines.iter_mut().for_each(|machine| {
             if search_config.include_history {
@@ -505,13 +568,14 @@ SELECT m.id FROM
             self.history = history;
         }
 
-        let mut interfaces = MachineInterface::find_by_machine_ids(&mut *txn, &[self.id]).await?;
+        let mut interfaces =
+            MachineInterface::find_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
         if let Some(interfaces) = interfaces.remove(&self.id) {
             self.interfaces = interfaces;
         }
 
         let mut topologies =
-            MachineTopology::find_latest_by_machine_ids(&mut *txn, &[self.id]).await?;
+            MachineTopology::find_latest_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
         if let Some(topology) = topologies.remove(&self.id) {
             self.hardware_info = Some(topology.topology().discovery_data.info.clone());
             self.bmc_ip = topology.topology().ipmi_ip.clone();
@@ -593,17 +657,17 @@ SELECT m.id FROM
     ) -> Result<Vec<Machine>, DatabaseError> {
         let query = "SELECT machine_id FROM machine_dhcp_records WHERE fqdn = $1";
 
-        let machine_id: Option<MachineId> = sqlx::query_as(query)
+        let machine_id: Option<DbMachineId> = sqlx::query_as(query)
             .bind(fqdn)
             .fetch_optional(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         let machine_id = match machine_id {
-            Some(id) => id,
+            Some(id) => id.into_inner(),
             None => return Ok(Vec::new()),
         };
 
-        match Self::find_one(txn, machine_id.0, search_config).await? {
+        match Self::find_one(txn, &machine_id, search_config).await? {
             Some(machine) => Ok(vec![machine]),
             None => Ok(vec![]),
         }
@@ -619,8 +683,8 @@ SELECT m.id FROM
         txn: &mut sqlx::Transaction<'_, Postgres>,
         query: &str,
     ) -> Result<Option<Self>, DatabaseError> {
-        if let Ok(uuid) = Uuid::parse_str(query) {
-            return Self::find_one(txn, uuid, MachineSearchConfig::default()).await;
+        if let Ok(id) = MachineId::from_str(query) {
+            return Self::find_one(txn, &id, MachineSearchConfig::default()).await;
         }
 
         if let Ok(ip) = Ipv4Addr::from_str(query) {
@@ -652,7 +716,7 @@ SELECT m.id FROM
     ) -> CarbideResult<()> {
         let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
-            .bind(self.id())
+            .bind(self.id().to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -665,7 +729,7 @@ SELECT m.id FROM
     ) -> CarbideResult<()> {
         let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
-            .bind(self.id())
+            .bind(self.id().to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -679,7 +743,7 @@ SELECT m.id FROM
     ) -> CarbideResult<()> {
         let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
-            .bind(self.id())
+            .bind(self.id().to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -689,15 +753,15 @@ SELECT m.id FROM
 
     pub async fn find_host_by_dpu_machine_id(
         txn: &mut Transaction<'_, Postgres>,
-        dpu_machine_id: &uuid::Uuid,
+        dpu_machine_id: &MachineId,
     ) -> CarbideResult<Option<Self>> {
         let query = r#"SELECT m.* From machines m
                 INNER JOIN machine_interfaces mi
                   ON m.id = mi.machine_id
-                WHERE mi.attached_dpu_machine_id=$1::uuid
+                WHERE mi.attached_dpu_machine_id=$1
                     AND mi.attached_dpu_machine_id != mi.machine_id"#;
         let machine: Option<Self> = sqlx::query_as(query)
-            .bind(dpu_machine_id)
+            .bind(dpu_machine_id.to_string())
             .fetch_optional(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -714,14 +778,14 @@ SELECT m.id FROM
 
     pub async fn find_dpu_by_host_machine_id(
         txn: &mut Transaction<'_, Postgres>,
-        host_machine_id: &uuid::Uuid,
+        host_machine_id: &MachineId,
     ) -> CarbideResult<Option<Self>> {
         let query = r#"SELECT m.* From machines m
                 INNER JOIN machine_interfaces mi
                   ON m.id = mi.attached_dpu_machine_id
-                WHERE mi.machine_id=$1::uuid"#;
+                WHERE mi.machine_id=$1"#;
         let machine: Option<Self> = sqlx::query_as(query)
-            .bind(host_machine_id)
+            .bind(host_machine_id.to_string())
             .fetch_optional(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -738,14 +802,14 @@ SELECT m.id FROM
 
     pub async fn update_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: &uuid::Uuid,
+        machine_id: &MachineId,
         observation: MachineNetworkStatus,
     ) -> CarbideResult<()> {
         let query =
-            "UPDATE machines SET network_status_observation = $1::json WHERE id = $2::uuid RETURNING id";
-        let _id: (uuid::Uuid,) = sqlx::query_as(query)
+            "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 RETURNING id";
+        let _id: (DbMachineId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(observation))
-            .bind(machine_id)
+            .bind(machine_id.to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -779,7 +843,7 @@ SELECT m.id FROM
     /// DO NOT USE OUTSIDE OF ADMIN CLI
     pub async fn force_cleanup(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: uuid::Uuid,
+        machine_id: &MachineId,
     ) -> Result<(), DatabaseError> {
         // Note: It might be nicer to actually write the full query here so we can
         // report more results.
@@ -787,7 +851,7 @@ SELECT m.id FROM
         // it stays up to date.
         let query = r#"call cleanup_machine_by_id($1)"#;
         let _query_result = sqlx::query(query)
-            .bind(machine_id)
+            .bind(machine_id.to_string())
             .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

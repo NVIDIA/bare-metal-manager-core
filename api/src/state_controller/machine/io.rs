@@ -16,7 +16,7 @@ use crate::{
     db::dpu_machine::DpuMachine,
     model::{
         config_version::{ConfigVersion, Versioned},
-        machine::{ManagedHostState, ManagedHostStateSnapshot},
+        machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
     },
     state_controller::{
         controller::StateControllerIO,
@@ -32,7 +32,7 @@ pub struct MachineStateControllerIO {
 
 #[async_trait::async_trait]
 impl StateControllerIO for MachineStateControllerIO {
-    type ObjectId = uuid::Uuid;
+    type ObjectId = MachineId;
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
 
@@ -56,7 +56,7 @@ impl StateControllerIO for MachineStateControllerIO {
         machine_id: &Self::ObjectId,
     ) -> Result<Self::State, SnapshotLoaderError> {
         self.snapshot_loader
-            .load_machine_snapshot(txn, *machine_id)
+            .load_machine_snapshot(txn, machine_id)
             .await
     }
 
@@ -78,7 +78,7 @@ impl StateControllerIO for MachineStateControllerIO {
         _old_version: ConfigVersion,
         new_state: Self::ControllerState,
     ) -> Result<(), SnapshotLoaderError> {
-        DpuMachine::update_state(txn, *object_id, new_state)
+        DpuMachine::update_state(txn, object_id, new_state)
             .await
             .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
 

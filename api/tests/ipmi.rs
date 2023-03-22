@@ -12,10 +12,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use carbide::model::machine::machine_id::MachineId;
 use log::LevelFilter;
 use sqlx::PgPool;
 use tokio::time;
-use uuid::Uuid;
 
 use carbide::bg::{Status, TaskState};
 use carbide::db::ipmi::{
@@ -50,11 +50,13 @@ fn setup() {
 async fn test_ipmi_cred(pool: PgPool) {
     let mut txn = pool.begin().await.unwrap();
 
-    let machine_id: Uuid = "52dfecb4-8070-4f4b-ba95-f66d0f51fd98".parse().unwrap();
+    let machine_id: MachineId = "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA"
+        .parse()
+        .unwrap();
 
     let credentials_provider = TestCredentialProvider::new();
     BmcMetaDataUpdateRequest {
-        machine_id,
+        machine_id: machine_id.clone(),
         ip: "127.0.0.2".to_string(),
         data: DATA
             .iter()
@@ -75,7 +77,7 @@ async fn test_ipmi_cred(pool: PgPool) {
 
     for d in &DATA {
         let ipmi_req = BmcMetaDataGetRequest {
-            machine_id,
+            machine_id: machine_id.clone(),
             role: d.0,
         };
 
@@ -119,7 +121,7 @@ async fn test_ipmi(pool: PgPool) {
     let _handle = ipmi_handler(pool.clone(), TestIpmiCommandHandler {}, credential_provider).await;
     let job = IpmiCommand::new(
         "127.0.0.1".to_string(),
-        "deadbeef-dead-beef-dead-beefdeadbeef"
+        "fm100htT5SKOR7BXF7RGH5LW22EOKLMTNXQEAPHT6Z4KNLONR36RG3KQBVA"
             .to_string()
             .parse()
             .unwrap(),

@@ -19,13 +19,14 @@ use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use super::machine::MachineSearchConfig;
-use super::{DatabaseError, UuidKeyedObjectFilter};
+use super::machine::{DbMachineId, MachineSearchConfig};
+use super::{DatabaseError, ObjectFilter, UuidKeyedObjectFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::NetworkSegment;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::model::machine::machine_id::MachineId;
 use crate::{CarbideError, CarbideResult};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
@@ -34,9 +35,9 @@ const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_mac
 #[derive(Debug, Clone)]
 pub struct MachineInterface {
     pub id: uuid::Uuid,
-    attached_dpu_machine_id: Option<uuid::Uuid>,
+    attached_dpu_machine_id: Option<MachineId>,
     domain_id: Option<uuid::Uuid>,
-    pub machine_id: Option<uuid::Uuid>,
+    pub machine_id: Option<MachineId>,
     segment_id: uuid::Uuid,
     pub mac_address: MacAddress,
     hostname: String,
@@ -68,10 +69,14 @@ RON AND IAN Discussion Notes -
 */
 impl<'r> FromRow<'r, PgRow> for MachineInterface {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
+        let attached_dpu_machine_id: Option<DbMachineId> =
+            row.try_get("attached_dpu_machine_id")?;
+
         Ok(MachineInterface {
             id: row.try_get("id")?,
-            attached_dpu_machine_id: row.try_get("attached_dpu_machine_id")?,
-            machine_id: row.try_get("machine_id")?,
+            attached_dpu_machine_id: attached_dpu_machine_id.map(|id| id.into_inner()),
+            machine_id: machine_id.map(|id| id.into_inner()),
             segment_id: row.try_get("segment_id")?,
             domain_id: row.try_get("domain_id")?,
             hostname: row.try_get("hostname")?,
@@ -135,12 +140,12 @@ impl MachineInterface {
     pub async fn associate_interface_with_dpu_machine(
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
-        dpu_machine_id: &uuid::Uuid,
+        dpu_machine_id: &MachineId,
     ) -> Result<Self, DatabaseError> {
         let query =
-            "UPDATE machine_interfaces SET attached_dpu_machine_id=$1::uuid where id=$2::uuid RETURNING *";
+            "UPDATE machine_interfaces SET attached_dpu_machine_id=$1 where id=$2::uuid RETURNING *";
         sqlx::query_as(query)
-            .bind(dpu_machine_id)
+            .bind(dpu_machine_id.to_string())
             .bind(self.id)
             .fetch_one(&mut *txn)
             .await
@@ -150,12 +155,11 @@ impl MachineInterface {
     pub async fn associate_interface_with_machine(
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: &uuid::Uuid,
+        machine_id: &MachineId,
     ) -> CarbideResult<Self> {
-        let query =
-            "UPDATE machine_interfaces SET machine_id=$1::uuid where id=$2::uuid RETURNING *";
+        let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING *";
         sqlx::query_as(query)
-            .bind(machine_id)
+            .bind(machine_id.to_string())
             .bind(self.id)
             .fetch_one(&mut *txn)
             .await
@@ -178,7 +182,7 @@ impl MachineInterface {
         &self.addresses
     }
 
-    pub fn attached_dpu_machine_id(&self) -> &Option<uuid::Uuid> {
+    pub fn attached_dpu_machine_id(&self) -> &Option<MachineId> {
         &self.attached_dpu_machine_id
     }
 
@@ -186,6 +190,8 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
     ) -> Result<Vec<MachineInterface>, DatabaseError> {
+        // TODO: This is broken as is - because it doesn't load the addresses in the same format
+        // that `find_by_machine_ids` and `find_by` does
         let query = "SELECT * FROM machine_interfaces mi WHERE mi.mac_address = $1::macaddr";
         sqlx::query_as(query)
             .bind(macaddr)
@@ -196,24 +202,27 @@ impl MachineInterface {
 
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
-        machine_ids: &[uuid::Uuid],
-    ) -> Result<HashMap<uuid::Uuid, Vec<MachineInterface>>, DatabaseError> {
+        machine_ids: &[MachineId],
+    ) -> Result<HashMap<MachineId, Vec<MachineInterface>>, DatabaseError> {
+        // The .unwrap() in the `group_map_by` call is ok - because we are only
+        // searching for Machines which have associated MachineIds
+        let str_ids: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
         Ok(
-            MachineInterface::find_by(txn, UuidKeyedObjectFilter::List(machine_ids), "machine_id")
+            MachineInterface::find_by(txn, ObjectFilter::List(&str_ids), "machine_id")
                 .await?
                 .into_iter()
-                .into_group_map_by(|interface| interface.machine_id.unwrap()),
+                .into_group_map_by(|interface| interface.machine_id.clone().unwrap()),
         )
     }
 
     pub async fn find_host_primary_interface_by_dpu_id(
         txn: &mut Transaction<'_, Postgres>,
-        dpu_machine_id: uuid::Uuid,
+        dpu_machine_id: &MachineId,
     ) -> Result<Option<MachineInterface>, DatabaseError> {
         let query =
-            "SELECT * FROM machine_interfaces WHERE attached_dpu_machine_id = $1::uuid AND primary_interface=TRUE AND (machine_id!=attached_dpu_machine_id OR machine_id IS NULL)";
+            "SELECT * FROM machine_interfaces WHERE attached_dpu_machine_id = $1 AND primary_interface=TRUE AND (machine_id!=attached_dpu_machine_id OR machine_id IS NULL)";
         let Some(mut machine_interface) = sqlx::query_as::<_, MachineInterface>(query)
-            .bind(dpu_machine_id)
+            .bind(dpu_machine_id.to_string())
             .fetch_optional(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))? else {
@@ -254,7 +263,7 @@ impl MachineInterface {
         interface_id: uuid::Uuid,
     ) -> CarbideResult<MachineInterface> {
         let mut interfaces =
-            MachineInterface::find_by(txn, UuidKeyedObjectFilter::One(interface_id), "id")
+            MachineInterface::find_by(txn, ObjectFilter::One(interface_id.to_string()), "id")
                 .await
                 .map_err(CarbideError::from)?;
         match interfaces.len() {
@@ -424,7 +433,7 @@ impl MachineInterface {
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;
 
         Ok(
-            MachineInterface::find_by(txn, UuidKeyedObjectFilter::One(interface_id.0), "id")
+            MachineInterface::find_by(txn, ObjectFilter::One(interface_id.0.to_string()), "id")
                 .await?
                 .remove(0),
         )
@@ -448,7 +457,7 @@ impl MachineInterface {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Option<Machine>, DatabaseError> {
-        match self.machine_id {
+        match &self.machine_id {
             Some(machine_id) => {
                 Machine::find_one(txn, machine_id, MachineSearchConfig::default()).await
             }
@@ -458,13 +467,13 @@ impl MachineInterface {
 
     async fn find_by<'a>(
         txn: &mut Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
+        filter: ObjectFilter<'_, String>,
         column: &'a str,
     ) -> Result<Vec<MachineInterface>, DatabaseError> {
         let base_query = "SELECT * FROM machine_interfaces mi {where}".to_owned();
 
         let mut interfaces = match filter {
-            UuidKeyedObjectFilter::All => {
+            ObjectFilter::All => {
                 sqlx::query_as::<_, MachineInterface>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
                     .await
@@ -472,24 +481,42 @@ impl MachineInterface {
                         DatabaseError::new(file!(), line!(), "machine_interfaces All", e)
                     })?
             }
-            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, MachineInterface>(
-                &base_query
-                    .replace("{where}", "WHERE mi.{column}=$1")
-                    .replace("{column}", column),
-            )
-            .bind(uuid)
-            .fetch_all(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces One", e))?,
-            UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, MachineInterface>(
-                &base_query
-                    .replace("{where}", "WHERE mi.{column}=ANY($1)")
-                    .replace("{column}", column),
-            )
-            .bind(list)
-            .fetch_all(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces List", e))?,
+            ObjectFilter::One(id) => {
+                let query = base_query
+                    .replace("{where}", &format!("WHERE mi.{column}='{}'", id))
+                    .replace("{column}", column);
+                sqlx::query_as::<_, MachineInterface>(&query)
+                    .fetch_all(&mut *txn)
+                    .await
+                    .map_err(|e| {
+                        DatabaseError::new(file!(), line!(), "machine_interfaces One", e)
+                    })?
+            }
+            ObjectFilter::List(list) => {
+                if list.is_empty() {
+                    return Ok(Vec::new());
+                }
+
+                let mut columns = String::new();
+                for item in list {
+                    if !columns.is_empty() {
+                        columns.push(',');
+                    }
+                    columns.push('\'');
+                    columns.push_str(item);
+                    columns.push('\'');
+                }
+                let query = base_query
+                    .replace("{where}", &format!("WHERE mi.{column} IN ({})", columns))
+                    .replace("{column}", column);
+
+                sqlx::query_as::<_, MachineInterface>(&query)
+                    .fetch_all(&mut *txn)
+                    .await
+                    .map_err(|e| {
+                        DatabaseError::new(file!(), line!(), "machine_interfaces List", e)
+                    })?
+            }
         };
 
         let mut addresses_for_interfaces = MachineInterfaceAddress::find_for_interface(
@@ -516,12 +543,12 @@ impl MachineInterface {
     }
 
     pub async fn get_machine_interface_primary(
-        machine_id: uuid::Uuid,
+        machine_id: &MachineId,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<MachineInterface> {
-        MachineInterface::find_by_machine_ids(txn, &[machine_id])
+        MachineInterface::find_by_machine_ids(txn, &[machine_id.clone()])
             .await?
-            .remove(&machine_id)
+            .remove(machine_id)
             .ok_or_else(|| CarbideError::NotFoundError {
                 kind: "interface",
                 id: machine_id.to_string(),

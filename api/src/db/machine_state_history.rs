@@ -16,9 +16,13 @@ use chrono::prelude::*;
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
-use crate::model::{config_version::ConfigVersion, machine::ManagedHostState};
-
-use super::DatabaseError;
+use crate::{
+    db::{machine::DbMachineId, DatabaseError},
+    model::{
+        config_version::ConfigVersion,
+        machine::{machine_id::MachineId, ManagedHostState},
+    },
+};
 
 /// Representation of an event (state transition) on a machine.
 ///
@@ -33,8 +37,8 @@ pub struct MachineStateHistory {
     /// for all states, and therefore not important for consumers
     id: i64,
 
-    /// The UUID of the machine that experienced the state change
-    machine_id: uuid::Uuid,
+    /// The ID of the machine that experienced the state change
+    machine_id: MachineId,
 
     /// The state that was entered
     pub state: ManagedHostState,
@@ -61,6 +65,7 @@ impl From<MachineStateHistory> for rpc::MachineEvent {
 
 impl<'r> FromRow<'r, PgRow> for MachineStateHistory {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_id: DbMachineId = row.try_get("machine_id")?;
         let state_version_str: &str = row.try_get("state_version")?;
         let state_version = state_version_str
             .parse()
@@ -68,7 +73,7 @@ impl<'r> FromRow<'r, PgRow> for MachineStateHistory {
         let state: sqlx::types::Json<ManagedHostState> = row.try_get("state")?;
         Ok(MachineStateHistory {
             id: row.try_get("id")?,
-            machine_id: row.try_get("machine_id")?,
+            machine_id: machine_id.into_inner(),
             state: state.0,
             state_version,
             timestamp: row.try_get("timestamp")?,
@@ -88,25 +93,26 @@ impl MachineStateHistory {
     ///
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
-        ids: &[uuid::Uuid],
-    ) -> Result<HashMap<uuid::Uuid, Vec<Self>>, DatabaseError> {
+        ids: &[MachineId],
+    ) -> Result<HashMap<MachineId, Vec<Self>>, DatabaseError> {
         let query = "SELECT * FROM machine_state_history WHERE machine_id=ANY($1) order by id asc";
+        let str_ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
         Ok(sqlx::query_as::<_, Self>(query)
-            .bind(ids)
+            .bind(str_ids)
             .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .into_iter()
-            .into_group_map_by(|event| event.machine_id))
+            .into_group_map_by(|event| event.machine_id.clone()))
     }
 
     pub async fn for_machine(
         txn: &mut Transaction<'_, Postgres>,
-        id: &uuid::Uuid,
+        id: &MachineId,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT * FROM machine_state_history WHERE machine_id=$1::uuid order by id asc";
+        let query = "SELECT * FROM machine_state_history WHERE machine_id=$1 order by id asc";
         sqlx::query_as::<_, Self>(query)
-            .bind(id)
+            .bind(id.to_string())
             .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -115,14 +121,14 @@ impl MachineStateHistory {
     /// Store each state for debugging purpose.
     pub async fn persist(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: &uuid::Uuid,
+        machine_id: &MachineId,
         state: ManagedHostState,
         state_version: ConfigVersion,
     ) -> Result<Self, DatabaseError> {
         let query =
             "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2, $3) RETURNING *";
         sqlx::query_as::<_, Self>(query)
-            .bind(machine_id)
+            .bind(machine_id.to_string())
             .bind(sqlx::types::Json(state))
             .bind(state_version.to_version_string())
             .fetch_one(&mut *txn)

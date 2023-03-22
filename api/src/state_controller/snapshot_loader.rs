@@ -25,7 +25,8 @@ use crate::{
             config::InstanceConfig, snapshot::InstanceSnapshot, status::InstanceStatusObservations,
         },
         machine::{
-            CurrentMachineState, MachineSnapshot, ManagedHostState, ManagedHostStateSnapshot,
+            machine_id::MachineId, CurrentMachineState, MachineSnapshot, ManagedHostState,
+            ManagedHostStateSnapshot,
         },
     },
 };
@@ -37,14 +38,14 @@ pub trait MachineStateSnapshotLoader: Send + Sync + std::fmt::Debug {
     async fn load_machine_snapshot(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        machine_id: uuid::Uuid,
+        machine_id: &MachineId,
     ) -> Result<ManagedHostStateSnapshot, SnapshotLoaderError>;
 
     /// Loads a machine state snapshot from the database for a given instance
     async fn load_machine_snapshot_for_host(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        instance_id: uuid::Uuid,
+        host_machine_id: &MachineId,
     ) -> Result<ManagedHostStateSnapshot, SnapshotLoaderError>;
 }
 
@@ -68,15 +69,15 @@ pub enum SnapshotLoaderError {
     #[error("Unable to load Hardware information: {0}")]
     HardwareInfoSqlError(String),
     #[error("Hardware information for Machine {0} is missing")]
-    MissingHardwareInfo(uuid::Uuid),
+    MissingHardwareInfo(MachineId),
     #[error("Instance with ID {0} was not found")]
     InstanceNotFound(uuid::Uuid),
     #[error("Invalid result: {0}")]
     InvalidResult(String),
     #[error("Machine with ID {0} was not found.")]
-    MachineNotFound(uuid::Uuid),
-    #[error("DPU for machine with ID {0} was not found.")]
-    DPUNotFound(uuid::Uuid),
+    MachineNotFound(MachineId),
+    #[error("DPU for host machine with ID {0} was not found.")]
+    DPUNotFound(MachineId),
     #[error("Expected 1 instance with id {0} found {1}")]
     MultipleInstances(uuid::Uuid, usize),
     #[error("State handling generic error: {0}")]
@@ -89,12 +90,13 @@ pub struct DbSnapshotLoader;
 
 pub async fn get_machine_snapshot(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    machine_id: uuid::Uuid,
+    machine_id: &MachineId,
 ) -> Result<MachineSnapshot, SnapshotLoaderError> {
-    let mut hardware_infos = MachineTopology::find_latest_by_machine_ids(txn, &[machine_id])
-        .await
-        .map_err(|e| SnapshotLoaderError::HardwareInfoSqlError(e.to_string()))?;
-    let info = hardware_infos.remove(&machine_id);
+    let mut hardware_infos =
+        MachineTopology::find_latest_by_machine_ids(txn, &[machine_id.clone()])
+            .await
+            .map_err(|e| SnapshotLoaderError::HardwareInfoSqlError(e.to_string()))?;
+    let info = hardware_infos.remove(machine_id);
     let machine = Machine::find_one(
         txn,
         machine_id,
@@ -102,9 +104,9 @@ pub async fn get_machine_snapshot(
     )
     .await
     .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
-    .ok_or(SnapshotLoaderError::MachineNotFound(machine_id))?;
+    .ok_or(SnapshotLoaderError::MachineNotFound(machine_id.clone()))?;
     let snapshot = MachineSnapshot {
-        machine_id,
+        machine_id: machine_id.clone(),
         hardware_info: info.map(|x| x.topology().discovery_data.info.clone()),
         current: CurrentMachineState {
             state: machine.current_state(),
@@ -123,9 +125,9 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
     async fn load_machine_snapshot(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        dpu_machine_id: uuid::Uuid, //dpu id
+        dpu_machine_id: &MachineId,
     ) -> Result<ManagedHostStateSnapshot, SnapshotLoaderError> {
-        let host = Machine::find_host_by_dpu_machine_id(txn, &dpu_machine_id)
+        let host = Machine::find_host_by_dpu_machine_id(txn, dpu_machine_id)
             .await
             .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
 
@@ -133,7 +135,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
         let instance_snapshot = match &host {
             None => None,
             Some(machine) => {
-                let instance_id = Instance::find_id_by_machine_id(txn, *machine.id()).await?;
+                let instance_id = Instance::find_id_by_machine_id(txn, machine.id()).await?;
                 match instance_id {
                     Some(instance_id) => Some(
                         self.load_instance_snapshot(
@@ -150,7 +152,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
 
         let snapshot = ManagedHostStateSnapshot {
             host_snapshot: if let Some(host) = host {
-                Some(get_machine_snapshot(txn, *host.id()).await?)
+                Some(get_machine_snapshot(txn, host.id()).await?)
             } else {
                 None
             },
@@ -165,15 +167,15 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
     async fn load_machine_snapshot_for_host(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        host_machine_id: uuid::Uuid,
+        host_machine_id: &MachineId,
     ) -> Result<ManagedHostStateSnapshot, SnapshotLoaderError> {
-        let Some(dpu) = Machine::find_dpu_by_host_machine_id(txn, &host_machine_id)
+        let Some(dpu) = Machine::find_dpu_by_host_machine_id(txn, host_machine_id)
             .await
             .map_err(|err| SnapshotLoaderError::GenericError(err.into()))? else {
-            return Err(SnapshotLoaderError::DPUNotFound(host_machine_id));
+            return Err(SnapshotLoaderError::DPUNotFound(host_machine_id.clone()));
         };
 
-        self.load_machine_snapshot(txn, *dpu.id()).await
+        self.load_machine_snapshot(txn, dpu.id()).await
     }
 }
 

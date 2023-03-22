@@ -105,7 +105,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     assert!(matches!(
         Machine::find_one(
             &mut txn,
-            FIXTURE_X86_MACHINE_ID,
+            &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
             MachineSearchConfig::default()
         )
         .await
@@ -135,7 +135,10 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(fetched_instance.machine_id, FIXTURE_X86_MACHINE_ID);
+    assert_eq!(
+        fetched_instance.machine_id,
+        FIXTURE_X86_MACHINE_ID.parse().unwrap()
+    );
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
             .await
@@ -160,7 +163,12 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
 
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = Instance::use_custom_ipxe_on_next_boot(FIXTURE_X86_MACHINE_ID, false, &mut txn).await;
+    let _ = Instance::use_custom_ipxe_on_next_boot(
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
+        false,
+        &mut txn,
+    )
+    .await;
     let fetched_instance = Instance::find_by_relay_ip(&mut txn, parsed_relay)
         .await
         .unwrap()
@@ -189,7 +197,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     assert_eq!(record.address().ip().to_string(), "192.0.2.3");
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_X86_MACHINE_ID,
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         MachineSearchConfig::default(),
     )
     .await
@@ -220,7 +228,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     assert!(matches!(
         Machine::find_one(
             &mut txn,
-            FIXTURE_X86_MACHINE_ID,
+            &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
             MachineSearchConfig::default()
         )
         .await
@@ -243,7 +251,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     assert!(matches!(
         Machine::find_one(
             &mut txn,
-            FIXTURE_X86_MACHINE_ID,
+            &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
             MachineSearchConfig::default()
         )
         .await
@@ -290,7 +298,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     let snapshot_loader = DbSnapshotLoader::default();
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_X86_MACHINE_ID,
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         MachineSearchConfig::default(),
     )
     .await
@@ -317,7 +325,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
 
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_X86_MACHINE_ID,
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         MachineSearchConfig::default(),
     )
     .await
@@ -356,7 +364,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         .unwrap();
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_X86_MACHINE_ID,
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         MachineSearchConfig::default(),
     )
     .await
@@ -396,7 +404,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     .unwrap();
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_X86_MACHINE_ID,
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         MachineSearchConfig::default(),
     )
     .await
@@ -444,7 +452,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         .unwrap();
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_X86_MACHINE_ID,
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         MachineSearchConfig::default(),
     )
     .await
@@ -494,7 +502,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         .await
         .expect("Unable to create transaction on database pool");
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, FIXTURE_DPU_MACHINE_ID)
+        .load_machine_snapshot(&mut txn, &FIXTURE_DPU_MACHINE_ID.parse().unwrap())
         .await
         .unwrap();
     assert!(
@@ -518,7 +526,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         .await
         .expect("Unable to create transaction on database pool");
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, FIXTURE_DPU_MACHINE_ID)
+        .load_machine_snapshot(&mut txn, &FIXTURE_DPU_MACHINE_ID.parse().unwrap())
         .await
         .unwrap();
     txn.commit().await.unwrap();

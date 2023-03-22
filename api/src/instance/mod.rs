@@ -11,7 +11,6 @@
  */
 
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::{
     db::{
@@ -28,7 +27,7 @@ use crate::{
             config::{network::InterfaceFunctionId, InstanceConfig},
             snapshot::InstanceSnapshot,
         },
-        machine::machine_id::try_parse_machine_id,
+        machine::machine_id::{try_parse_machine_id, MachineId},
         machine::ManagedHostState,
         ConfigValidationError, RpcDataConversionError,
     },
@@ -40,7 +39,7 @@ use crate::{
 #[derive(Debug)]
 pub struct InstanceAllocationRequest {
     // The Machine on top of which we create an Instance
-    pub machine_id: Uuid,
+    pub machine_id: MachineId,
 
     // Desired configuration of the instance
     pub config: InstanceConfig,
@@ -109,11 +108,14 @@ pub async fn allocate_instance(
         network_config: network_config.as_ref(),
     };
 
-    let machine_id = new_instance.machine_id;
-    let info = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id])
+    let machine_id = new_instance.machine_id.clone();
+    let info = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
         .await?
         .remove(&machine_id)
-        .ok_or(CarbideError::FindOneReturnedNoResultsError(machine_id))?;
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
 
     if info.topology().discovery_data.info.is_dpu() {
         return Err(CarbideError::InvalidArgument(format!(
@@ -122,7 +124,7 @@ pub async fn allocate_instance(
         )));
     }
 
-    let machine = Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
+    let machine = Machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| {
             CarbideError::InvalidArgument(format!("Machine with UUID {} was not found", machine_id))
@@ -131,7 +133,7 @@ pub async fn allocate_instance(
     // A new instance can be created only in Ready state.
     // This is possible that a instance is created by user, but still not picked by state machine.
     // To avoid that race condition, need to check if db has any entry with given machine id.
-    let possible_instance = Instance::find_by_machine_id(&mut txn, machine_id).await?;
+    let possible_instance = Instance::find_by_machine_id(&mut txn, &machine_id).await?;
 
     if ManagedHostState::Ready != machine.current_state() || possible_instance.is_some() {
         return Err(CarbideError::InvalidArgument(format!(

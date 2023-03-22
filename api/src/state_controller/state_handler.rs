@@ -15,7 +15,7 @@ use std::sync::Arc;
 use crate::{
     db::DatabaseError,
     kubernetes::{VpcApi, VpcApiError},
-    model::machine::ManagedHostState,
+    model::machine::{machine_id::MachineId, ManagedHostState},
     state_controller::snapshot_loader::SnapshotLoaderError,
 };
 
@@ -132,9 +132,9 @@ pub enum StateHandlerError {
     #[error("Failed interaction with VPC: {0}")]
     VpcApiError(#[from] VpcApiError),
     #[error("Machine not found: {0}")]
-    MachineNotFoundError(uuid::Uuid),
+    MachineNotFoundError(MachineId),
     #[error("Host snapshot is missing for DPU {0} in state: {1}")]
-    HostSnapshotMissing(uuid::Uuid, ManagedHostState),
+    HostSnapshotMissing(MachineId, ManagedHostState),
     // TODO: This should be replaced - but requires downstream errors to migrate
     // off from CarbideError
     #[error("Unable to load snapshot: {0}")]

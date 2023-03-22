@@ -71,7 +71,7 @@ use crate::{
         resource_record::DnsQuestion,
         tags::{Tag, TagAssociation, TagCreate, TagDelete, TagsList},
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
-        DatabaseError, UuidKeyedObjectFilter,
+        DatabaseError, ObjectFilter, UuidKeyedObjectFilter,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     ipmi::{ipmi_handler, MachineBmcRequest, RealIpmiCommandHandler},
@@ -645,7 +645,7 @@ where
         let mut instances = Vec::with_capacity(raw_instances.len());
         for instance in raw_instances {
             let snapshot = loader
-                .load_machine_snapshot_for_host(&mut txn, instance.machine_id)
+                .load_machine_snapshot_for_host(&mut txn, &instance.machine_id)
                 .await
                 .map_err(CarbideError::from)?
                 .instance
@@ -681,7 +681,7 @@ where
         let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
 
         let Some(snapshot) = DbSnapshotLoader::default()
-            .load_machine_snapshot_for_host(&mut txn, machine_id)
+            .load_machine_snapshot_for_host(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?.instance else {
             return Ok(Response::new(rpc::InstanceList::default()));
@@ -736,7 +736,7 @@ where
         // Change state to Decommissioned
         let machine = match Machine::find_one(
             &mut txn,
-            instance.machine_id,
+            &instance.machine_id,
             MachineSearchConfig::default(),
         )
         .await
@@ -843,7 +843,7 @@ where
         })?;
 
         let snapshot = loader
-            .load_machine_snapshot(&mut txn, machine_id)
+            .load_machine_snapshot(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?;
 
@@ -969,7 +969,7 @@ where
 
         let machine_power_request = MachineBmcRequest::try_from(request.into_inner())?;
 
-        let instance = Instance::find_by_machine_id(&mut txn, machine_power_request.machine_id)
+        let instance = Instance::find_by_machine_id(&mut txn, &machine_power_request.machine_id)
             .await
             .map_err(CarbideError::from)?;
         if instance.is_none() {
@@ -1162,7 +1162,7 @@ where
         };
 
         let (machine, mut txn) = self
-            .load_machine(machine_id, MachineSearchConfig::default())
+            .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
         machine.update_discovery_time(&mut txn).await?;
         txn.commit()
@@ -1194,7 +1194,7 @@ where
 
         // Load machine from DB
         let (machine, mut txn) = self
-            .load_machine(machine_id, MachineSearchConfig::default())
+            .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
         machine.update_cleanup_time(&mut txn).await?;
         txn.commit().await.map_err(|e| {
@@ -1223,7 +1223,7 @@ where
         let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
         let (machine, _) = self
             .load_machine(
-                machine_id,
+                &machine_id,
                 MachineSearchConfig {
                     include_history: true,
                 },
@@ -1262,13 +1262,10 @@ where
         let machines = match (id, fqdn) {
             (Some(id), _) => {
                 let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
-                let filter = UuidKeyedObjectFilter::One(machine_id);
-                Machine::find(&mut txn, filter, search_config).await
+                Machine::find(&mut txn, ObjectFilter::One(machine_id), search_config).await
             }
             (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, &fqdn, search_config).await,
-            (None, None) => {
-                Machine::find(&mut txn, UuidKeyedObjectFilter::All, search_config).await
-            }
+            (None, None) => Machine::find(&mut txn, ObjectFilter::All, search_config).await,
         };
 
         let result = machines
@@ -1589,7 +1586,7 @@ where
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin get_dpu_ssh_credential", e)
             })?;
-        let uuid = match Machine::find_by_query(&mut txn, &query)
+        let machine_id = match Machine::find_by_query(&mut txn, &query)
             .await
             .map_err(CarbideError::from)?
         {
@@ -1600,12 +1597,14 @@ where
                         machine.id()
                     )));
                 }
-                *machine.id()
+                machine.id().clone()
             }
             None => {
-                return Err(Status::not_found(format!(
-                    "Searching for machine '{query}' did not yield any results"
-                )));
+                return Err(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: query,
+                }
+                .into());
             }
         };
 
@@ -1618,14 +1617,14 @@ where
         let credentials = self
             .credential_provider
             .get_credentials(CredentialKey::DpuSsh {
-                machine_id: uuid.to_string(),
+                machine_id: machine_id.to_string(),
             })
             .await
             .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
                 Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
                     CarbideError::NotFoundError {
                         kind: "dpu-ssh-cred",
-                        id: uuid.to_string(),
+                        id: machine_id.to_string(),
                     }
                 }
                 Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
@@ -1882,13 +1881,16 @@ where
 
         let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
 
-        let instance = Instance::find_by_machine_id(&mut txn, machine_id)
+        let instance = Instance::find_by_machine_id(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?
-            .ok_or(CarbideError::FindOneReturnedNoResultsError(machine_id))?;
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
 
         let pxe_script = if instance.use_custom_pxe_on_boot {
-            Instance::use_custom_ipxe_on_next_boot(machine_id, false, &mut txn)
+            Instance::use_custom_ipxe_on_next_boot(&machine_id, false, &mut txn)
                 .await
                 .map_err(CarbideError::from)?;
             instance.tenant_config.custom_ipxe
@@ -1922,17 +1924,20 @@ where
         };
 
         let (machine, mut txn) = self
-            .load_machine(machine_id, MachineSearchConfig::default())
+            .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
 
         // Treat this message as signal from machine that reboot is finished. Update reboot time.
         machine.update_reboot_time(&mut txn).await?;
 
-        let info = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id])
+        let info = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
             .await
             .map_err(|_| Status::invalid_argument("Missing discovery data"))?
             .remove(&machine_id)
-            .ok_or(CarbideError::FindOneReturnedNoResultsError(machine_id))?;
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
 
         let is_dpu = info.topology().discovery_data.info.is_dpu();
         let dpu_machine = if is_dpu {
@@ -1940,7 +1945,10 @@ where
         } else {
             Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id)
                 .await?
-                .ok_or(CarbideError::FindOneReturnedNoResultsError(machine_id))?
+                .ok_or(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: machine_id.to_string(),
+                })?
         };
 
         // Respond based on machine current state
@@ -2041,7 +2049,7 @@ where
 
         let mut instance_id = None;
         if let Some(host_machine) = &host_machine {
-            instance_id = Instance::find_id_by_machine_id(&mut txn, *host_machine.id())
+            instance_id = Instance::find_id_by_machine_id(&mut txn, host_machine.id())
                 .await
                 .map_err(CarbideError::from)?;
         }
@@ -2124,7 +2132,7 @@ where
         }
 
         if let Some(machine) = &host_machine {
-            Machine::force_cleanup(&mut txn, *machine.id())
+            Machine::force_cleanup(&mut txn, machine.id())
                 .await
                 .map_err(CarbideError::from)?;
         }
@@ -2140,7 +2148,7 @@ where
         if let Some(dpu_machine) = &dpu_machine {
             match self
                 .vpc_api
-                .try_delete_leaf(*dpu_machine.id())
+                .try_delete_leaf(dpu_machine.id())
                 .await
                 .map_err(CarbideError::from)?
             {
@@ -2162,7 +2170,7 @@ where
                 )
             })?;
 
-            Machine::force_cleanup(&mut txn, *dpu_machine.id())
+            Machine::force_cleanup(&mut txn, dpu_machine.id())
                 .await
                 .map_err(CarbideError::from)?;
 
@@ -2549,7 +2557,7 @@ where
 
     async fn load_machine(
         &self,
-        machine_id: uuid::Uuid,
+        machine_id: &MachineId,
         search_config: MachineSearchConfig,
     ) -> CarbideResult<(Machine, sqlx::Transaction<'_, sqlx::Postgres>)> {
         let mut txn = self
