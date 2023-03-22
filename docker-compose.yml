@@ -82,8 +82,10 @@ services:
       - $HOME/docker_forge_root:/opt/forge
       - .:/app/code
       - ca-certificate:/identity
-    # add '-dd' for trace/debug mode:
-    # command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
+    # Options:
+    #  - For trace/debug mode add '-dd':
+    #    command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
+    #  - For local Kubernetes add '--kubernetes'
     command: >-
       cargo watch -C api -x "run --target-dir /tmp/carbide-api --
       run
@@ -95,12 +97,13 @@ services:
       - 1080:1080
     environment:
       - CARGO_HOME=/docker_cargo_home
-      - CARBIDE_DHCP_SERVER="172.20.0.12"
+      - CARBIDE_DHCP_SERVER=172.20.0.12
       - CARBIDE_METRICS_ENDPOINT=[::0]:1080
       - VAULT_MOUNT_LOCATION=secret
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
       - RUST_BACKTRACE=1
+      - KUBECONFIG=/app/code/dev/kube_config # Only used if you pass --kubernetes
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

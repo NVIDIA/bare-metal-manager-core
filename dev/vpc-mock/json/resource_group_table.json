@@ -1,0 +1,174 @@
+{
+  "apiVersion": "meta.k8s.io/v1",
+  "columnDefinitions": [
+    {
+      "description": "Name",
+      "format": "name",
+      "name": "Name",
+      "priority": 0,
+      "type": "string"
+    },
+    {
+      "description": ".status.network",
+      "format": "",
+      "name": "Network",
+      "priority": 0,
+      "type": "string"
+    },
+    {
+      "description": ".status.dhcpCircID",
+      "format": "",
+      "name": "DHCPCircID",
+      "priority": 0,
+      "type": "string"
+    },
+    {
+      "description": ".status.fabricNetworkConfiguration.vni",
+      "format": "",
+      "name": "VNI",
+      "priority": 0,
+      "type": "string"
+    },
+    {
+      "description": ".status.fabricNetworkConfiguration.vlanID",
+      "format": "",
+      "name": "VLAN",
+      "priority": 0,
+      "type": "string"
+    },
+    {
+      "description": ".status.conditions[0].status",
+      "format": "",
+      "name": "Status",
+      "priority": 0,
+      "type": "string"
+    }
+  ],
+  "kind": "Table",
+  "metadata": {
+    "resourceVersion": "35662692"
+  },
+  "rows": [
+    {
+      "cells": [
+        "0106e6b6-94d3-41a9-9132-55f139118ac8",
+        "{\"gateway\":\"10.180.125.177\",\"ip\":\"10.180.125.176\",\"prefixLength\":28}",
+        "vlan271",
+        "1024521",
+        "271",
+        "True"
+      ],
+      "object": {
+        "apiVersion": "meta.k8s.io/v1",
+        "kind": "PartialObjectMetadata",
+        "metadata": {
+          "creationTimestamp": "2023-02-16T16:36:20Z",
+          "finalizers": [
+            "resourcegroup.resource.vpc.forge/finalizer"
+          ],
+          "generation": 1,
+          "managedFields": [
+            {
+              "apiVersion": "resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1",
+              "fieldsType": "FieldsV1",
+              "fieldsV1": {
+                "f:metadata": {
+                  "f:finalizers": {
+                    ".": {},
+                    "v:\"resourcegroup.resource.vpc.forge/finalizer\"": {}
+                  }
+                }
+              },
+              "manager": "manager",
+              "operation": "Update",
+              "time": "2023-02-16T16:36:20Z"
+            },
+            {
+              "apiVersion": "resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1",
+              "fieldsType": "FieldsV1",
+              "fieldsV1": {
+                "f:spec": {
+                  ".": {},
+                  "f:dhcpServers": {},
+                  "f:network": {
+                    ".": {},
+                    "f:gateway": {},
+                    "f:ip": {},
+                    "f:prefixLength": {}
+                  },
+                  "f:tenantIdentifier": {}
+                }
+              },
+              "manager": "unknown",
+              "operation": "Update",
+              "time": "2023-02-16T16:36:20Z"
+            },
+            {
+              "apiVersion": "resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1",
+              "fieldsType": "FieldsV1",
+              "fieldsV1": {
+                "f:status": {
+                  ".": {},
+                  "f:conditions": {},
+                  "f:dhcpCircID": {},
+                  "f:fabricNetworkConfiguration": {
+                    ".": {},
+                    "f:vlanID": {},
+                    "f:vni": {}
+                  },
+                  "f:managedResourceCount": {},
+                  "f:network": {
+                    ".": {},
+                    "f:gateway": {},
+                    "f:ip": {},
+                    "f:prefixLength": {}
+                  }
+                }
+              },
+              "manager": "manager",
+              "operation": "Update",
+              "subresource": "status",
+              "time": "2023-02-16T16:40:24Z"
+            }
+          ],
+          "name": "0106e6b6-94d3-41a9-9132-55f139118ac8",
+          "namespace": "forge-system",
+          "resourceVersion": "35662692",
+          "uid": "a61c3795-9c15-487b-914a-f7a04f88fd6e"
+        }
+      }
+    }
+  ],
+  "spec": {
+    "dhcpServers": [
+      "172.20.0.12"
+    ],
+    "network": {
+      "gateway": "172.20.0.1",
+      "ip": "172.20.0.0",
+      "prefixLength": 24
+    },
+    "networkImplementationType": "Fabric",
+    "tenantIdentifier": "723f0fc6-9442-4826-9e41-3ddc7a2e5f56"
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastTransitionTime": "2023-02-16T16:36:21Z",
+        "status": "True",
+        "type": "Create"
+      }
+    ],
+    "dhcpCircID": "vlan271",
+    "fabricNetworkConfiguration": {
+      "vlanID": 271,
+      "vni": 1024521
+    },
+    "managedResourceCount": 1,
+    "network": {
+      "gateway": "172.20.0.1",
+      "ip": "172.20.0.0",
+      "prefixLength": 24
+    }
+  }
+}

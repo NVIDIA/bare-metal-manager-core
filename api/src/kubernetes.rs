@@ -1062,11 +1062,11 @@ pub enum VpcApiError {
     #[error("Kube returned malformed IP {0}")]
     MalformedIpError(String),
     #[error(
-        "A VPC object with the same name {0} but different spec already exists. \
+        "A VPC object with the same name {0} but different {1} already exists. \
     The object will not be deleted automatically. \
     Please review the configuration and delete the object manually"
     )]
-    ObjectExistsWithDifferentSpec(String),
+    ObjectExistsWithDifferentSpec(String, String),
     #[error("VPC API simulation is out of loopback IPs")]
     VpiApiSimLoopbackIpsExhausted,
     #[error("Unable to process: {0}")]
@@ -1258,39 +1258,50 @@ impl VpcApi for VpcApiImpl {
         match fetch_existing_result {
             Ok(existing_resource) => {
                 // This comparison exists because the VPC definitions don't implement PartialEq :'(
-                if existing_resource.spec.dhcp_servers != resource_group.spec.dhcp_servers
-                    || existing_resource
-                        .spec
-                        .network
-                        .as_ref()
-                        .map(|network| &network.gateway)
-                        != resource_group
-                            .spec
-                            .network
-                            .as_ref()
-                            .map(|network| &network.gateway)
-                    || existing_resource
-                        .spec
-                        .network
-                        .as_ref()
-                        .map(|network| &network.ip)
-                        != resource_group
-                            .spec
-                            .network
-                            .as_ref()
-                            .map(|network| &network.ip)
-                    || existing_resource
-                        .spec
-                        .network
-                        .as_ref()
-                        .map(|network| network.prefix_length)
-                        != resource_group
-                            .spec
-                            .network
-                            .as_ref()
-                            .map(|network| network.prefix_length)
-                {
-                    return Err(VpcApiError::ObjectExistsWithDifferentSpec(resource_name));
+                let diff_dhcp_servers =
+                    existing_resource.spec.dhcp_servers != resource_group.spec.dhcp_servers;
+                let e_net = existing_resource.spec.network.as_ref();
+                let s_net = resource_group.spec.network.as_ref();
+                let (diff_gateway, diff_ip, diff_prefix_len) = match (e_net, s_net) {
+                    (None, None) => (false, false, false),
+                    (None, Some(_)) | (Some(_), None) => (true, true, true),
+                    (Some(e_net), Some(s_net)) => (
+                        e_net.gateway != s_net.gateway,
+                        e_net.ip != s_net.ip,
+                        e_net.prefix_length != s_net.prefix_length,
+                    ),
+                };
+                if diff_dhcp_servers || diff_gateway || diff_ip || diff_prefix_len {
+                    let diff = if diff_dhcp_servers {
+                        format!(
+                            "dhcp_servers (existing:'{:?}', spec:'{:?}')",
+                            existing_resource.spec.dhcp_servers, resource_group.spec.dhcp_servers
+                        )
+                    } else if diff_gateway {
+                        format!(
+                            "gateway (existing:'{:?}', spec:'{:?}')",
+                            e_net.map(|x| &x.gateway),
+                            s_net.map(|x| &x.gateway)
+                        )
+                    } else if diff_ip {
+                        format!(
+                            "ip (existing:'{:?}', spec:'{:?}')",
+                            e_net.map(|x| &x.ip),
+                            s_net.map(|x| &x.ip)
+                        )
+                    } else if diff_prefix_len {
+                        format!(
+                            "prefix_length (existing:'{:?}', spec:'{:?}')",
+                            e_net.map(|x| x.prefix_length),
+                            s_net.map(|x| x.prefix_length)
+                        )
+                    } else {
+                        unreachable!();
+                    };
+                    return Err(VpcApiError::ObjectExistsWithDifferentSpec(
+                        resource_name,
+                        diff,
+                    ));
                 }
 
                 return Ok(resource_group_creation_result_from_state(
@@ -1307,7 +1318,7 @@ impl VpcApi for VpcApiImpl {
             .await
             .map_err(|e| VpcApiError::KubeError(Box::new(e)))?;
         log::info!(
-            "ResourceGroup creation request succeeded. Resoure is {:?}",
+            "ResourceGroup creation request succeeded. Resource is {:?}",
             result
         );
 
@@ -1344,10 +1355,18 @@ impl VpcApi for VpcApiImpl {
             Ok(existing_leaf) => {
                 // This comparison exists because the VPC definitions don't implement PartialEq :'(
                 // TODO: We don't check equality for `leaf_control`
-                if existing_leaf.spec.host_admin_i_ps != spec.host_admin_i_ps
-                    || existing_leaf.spec.host_interfaces != spec.host_interfaces
-                {
-                    return Err(VpcApiError::ObjectExistsWithDifferentSpec(leaf_name));
+                let diff_admin_ips = existing_leaf.spec.host_admin_i_ps != spec.host_admin_i_ps;
+                let diff_interfaces = existing_leaf.spec.host_interfaces != spec.host_interfaces;
+                if diff_admin_ips || diff_interfaces {
+                    let diff = if diff_admin_ips {
+                        "admin_ips"
+                    } else {
+                        "interfaces"
+                    };
+                    return Err(VpcApiError::ObjectExistsWithDifferentSpec(
+                        leaf_name,
+                        diff.to_string(),
+                    ));
                 }
 
                 return leaf_creation_result_from_state(&existing_leaf);
@@ -1727,7 +1746,10 @@ impl VpcApi for VpcApiSim {
 
         if let Some(entry) = guard.resource_groups.get_mut(&name) {
             if entry.spec != group {
-                return Err(VpcApiError::ObjectExistsWithDifferentSpec(name));
+                return Err(VpcApiError::ObjectExistsWithDifferentSpec(
+                    name,
+                    "VpcApiSimResourceGroup".to_string(),
+                ));
             }
             entry.creation_attempts += 1;
             if entry.creation_attempts >= self.config.required_creation_attempts {
@@ -1783,10 +1805,18 @@ impl VpcApi for VpcApiSim {
         let mut guard = self.state.lock().unwrap();
 
         if let Some(entry) = guard.leafs.get_mut(&leaf_name) {
-            if entry.spec.host_admin_i_ps != spec.host_admin_i_ps
-                || entry.spec.host_interfaces != spec.host_interfaces
-            {
-                return Err(VpcApiError::ObjectExistsWithDifferentSpec(leaf_name));
+            let diff_admin_ips = entry.spec.host_admin_i_ps != spec.host_admin_i_ps;
+            let diff_interfaces = entry.spec.host_interfaces != spec.host_interfaces;
+            if diff_admin_ips || diff_interfaces {
+                let diff = if diff_admin_ips {
+                    "admin_ips"
+                } else {
+                    "interfaces"
+                };
+                return Err(VpcApiError::ObjectExistsWithDifferentSpec(
+                    leaf_name,
+                    diff.to_string(),
+                ));
             }
             entry.creation_attempts += 1;
             if entry.creation_attempts >= self.config.required_creation_attempts {

@@ -1,0 +1,18 @@
+{
+  "apiVersion": "resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1",
+  "kind": "ResourceGroup",
+  "metadata": {
+    "name": "4f72beac-48bb-43b0-90a8-30c313d8f457"
+  },
+  "spec": {
+    "dhcpServers": [
+      "\"172.20.0.12\""
+    ],
+    "network": {
+      "gateway": "172.20.0.1",
+      "ip": "172.20.0.0",
+      "prefixLength": 24
+    },
+    "tenantIdentifier": "723f0fc6-9442-4826-9e41-3ddc7a2e5f56"
+  }
+}

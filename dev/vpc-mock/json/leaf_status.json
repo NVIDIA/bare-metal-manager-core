@@ -1,0 +1,53 @@
+{
+  "apiVersion": "v1",
+  "kind": "Status",
+  "metadata": {
+    "name": "57083c92-6eea-485a-b4d4-acdb582633f4.leaf"
+  },
+  "spec": {
+    "control": {
+      "managementIP": "172.20.0.32",
+      "sshCredentialKVPath": "machines/57083c92-6eea-485a-b4d4-acdb582633f4/dpu-ssh",
+      "vendor": "DPU"
+    },
+    "hostAdminIPs": {
+      "pf0hpf": "10.180.90.16"
+    },
+    "hostInterfaces": {
+      "57083c92-6eea-485a-b4d4-acdb582633f4.pf": "pf0hpf",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-1": "pf0vf0",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-10": "pf0vf9",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-11": "pf0vf10",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-12": "pf0vf11",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-13": "pf0vf12",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-14": "pf0vf13",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-15": "pf0vf14",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-16": "pf0vf15",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-2": "pf0vf1",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-3": "pf0vf2",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-4": "pf0vf3",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-5": "pf0vf4",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-6": "pf0vf5",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-7": "pf0vf6",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-8": "pf0vf7",
+      "57083c92-6eea-485a-b4d4-acdb582633f4.vf-9": "pf0vf8"
+    }
+  },
+  "status": {
+    "asn": 4244766820,
+    "conditions": [
+      {
+        "lastTransitionTime": "2023-03-15T19:07:05Z",
+        "status": "True",
+        "type": "Liveness"
+      }
+    ],
+    "hostAdminDHCPServers": [
+      "10.180.248.27"
+    ],
+    "hostAdminIPs": {
+      "pf0hpf": "10.180.90.16"
+    },
+    "loopbackIP": "10.180.62.43"
+  }
+}
