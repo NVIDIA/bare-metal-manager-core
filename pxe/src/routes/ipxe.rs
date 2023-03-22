@@ -149,28 +149,30 @@ async fn determine_boot_from_state(
     config: RuntimeConfig,
     arch: rpc::MachineArchitecture,
 ) -> String {
-    match machine.state.to_lowercase().as_str() {
-        "ready" => match arch {
+    let state = machine.state.to_lowercase();
+
+    //TODO: This all logic should move to api in get_pxe_instructions call.
+    if state == "ready" || state.starts_with("host/") || state.starts_with("waitingforcleanup/") {
+        match arch {
             // The DPU needs an error code to force boot into the OS
             rpc::MachineArchitecture::Arm => "exit 1".to_string(),
             // X86 does not install OS in disk. It boots fresh everytime with carbide.efi.
             rpc::MachineArchitecture::X86 => {
                 boot_forge_host_image(arch, machine_interface_id, config)
             }
-        },
-        x if x.contains("rebuilding") => {
-            boot_forge_host_image(rpc::MachineArchitecture::X86, machine_interface_id, config)
         }
-        x if x.contains("assigned") => boot_tenant_image(machine, config).await,
+    } else if state.starts_with("assigned") {
+        boot_tenant_image(machine, config).await
+    } else {
         // any unrecognized state will cause ipxe to stop working with this message
-        invalid_status => format!(
+        format!(
             r#"
 echo could not continue boot due to invalid status - {} ||
 sleep 5 ||
 exit ||
 "#,
-            invalid_status
-        ),
+            state
+        )
     }
 }
 
