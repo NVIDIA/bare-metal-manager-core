@@ -14,7 +14,7 @@ path = "src/main.rs"
 async-compression = { version = "0.3.14", features = ["tokio", "gzip"] }
 base64 = "0.13"
 clap = { version = "~3", features = ["derive"]}
-eui48 = "0.4.0"
+eui48 = { version = "1", default-features = false } # disable feature rustc-serialize
 futures = "0.3.24"
 futures-util = "0.3.24"
 hex = "0.4.3"
