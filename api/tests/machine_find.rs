@@ -17,7 +17,7 @@ use mac_address::MacAddress;
 
 use carbide::{
     db::machine::{Machine, MachineSearchConfig},
-    model::machine::machine_id::try_parse_machine_id,
+    model::machine::machine_id::{try_parse_machine_id, MachineId, MACHINE_ID_PREFIX_LENGTH},
 };
 
 pub mod common;
@@ -34,7 +34,7 @@ fn setup() {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_find_machine_by_uuid(pool: sqlx::PgPool) {
+async fn test_find_machine_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone(), Default::default());
 
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
@@ -48,7 +48,13 @@ async fn test_find_machine_by_uuid(pool: sqlx::PgPool) {
     assert!(machine.is_dpu());
 
     // We shouldn't find a machine that doesn't exist
-    let id2 = uuid::Uuid::from_u128(dpu_machine_id.as_u128() + 1);
+    let mut new_id = dpu_machine_id.to_string();
+    match unsafe { new_id.as_bytes_mut().get_mut(MACHINE_ID_PREFIX_LENGTH + 1) } {
+        Some(c) if *c == b'Z' => *c = b'A',
+        Some(c) => *c = b'Z',
+        None => panic!("Not expected"),
+    }
+    let id2: MachineId = new_id.parse().unwrap();
     assert!(Machine::find_by_query(&mut txn, &id2.to_string())
         .await
         .unwrap()
@@ -61,7 +67,7 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
 
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine_id, MachineSearchConfig::default())
+    let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -90,7 +96,7 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
     let mut txn = pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(
         &mut txn,
-        dpu_machine_id,
+        &dpu_machine_id,
         MachineSearchConfig {
             include_history: true,
         },
@@ -129,7 +135,7 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
     let mut txn = pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(
         &mut txn,
-        dpu_machine_id,
+        &dpu_machine_id,
         MachineSearchConfig {
             include_history: true,
         },
@@ -160,7 +166,7 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
 
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine_id, MachineSearchConfig::default())
+    let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();

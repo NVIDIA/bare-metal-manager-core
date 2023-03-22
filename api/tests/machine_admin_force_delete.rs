@@ -45,23 +45,23 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
 
     let mut txn = pool.begin().await.unwrap();
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine_id, MachineSearchConfig::default())
+    let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
     assert!(
-        !MachineStateHistory::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        !MachineStateHistory::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
             .await
             .unwrap()
             .is_empty()
     );
     assert!(
-        !MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        !MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
             .await
             .unwrap()
             .is_empty()
     );
-    assert!(VpcResourceLeaf::find(&mut txn, dpu_machine_id)
+    assert!(VpcResourceLeaf::find(&mut txn, &dpu_machine_id)
         .await
         .is_ok());
     txn.rollback().await.unwrap();
@@ -102,7 +102,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     // And it should also be gone on the DB layer
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        Machine::find_one(&mut txn, dpu_machine_id, MachineSearchConfig::default())
+        Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .is_none()
@@ -110,20 +110,20 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
 
     // The history should remain in table.
     assert!(
-        !MachineStateHistory::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        !MachineStateHistory::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
             .await
             .unwrap()
             .is_empty()
     );
     // And the topology
     assert!(
-        MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
             .await
             .unwrap()
             .is_empty()
     );
     // And the leaf table entry
-    assert!(VpcResourceLeaf::find(&mut txn, dpu_machine_id)
+    assert!(VpcResourceLeaf::find(&mut txn, &dpu_machine_id)
         .await
         .is_err());
 

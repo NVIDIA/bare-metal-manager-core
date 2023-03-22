@@ -35,7 +35,8 @@ use crate::{
         config_version::ConfigVersion,
         instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId},
         machine::{
-            CleanupState, InstanceState, MachineState, ManagedHostState, ManagedHostStateSnapshot,
+            machine_id::MachineId, CleanupState, InstanceState, MachineState, ManagedHostState,
+            ManagedHostStateSnapshot,
         },
     },
     state_controller::state_handler::{
@@ -55,12 +56,12 @@ pub struct MachineStateHandler {
 impl StateHandler for MachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
-    type ObjectId = uuid::Uuid;
+    type ObjectId = MachineId;
 
     // TODO: Update event in machine_events table when you process it.
     async fn handle_object_state(
         &self,
-        machine_id: &uuid::Uuid,
+        machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -88,7 +89,7 @@ impl StateHandler for MachineStateHandler {
                     // Create managed resources and move to Assigned: WaitingForNetworkConfig
                     let _poll_status = kubernetes::create_managed_resource(
                         txn,
-                        *machine_id,
+                        machine_id,
                         instance.config.network.clone(),
                         instance.instance_id,
                         &ctx.services.vpc_api,
@@ -123,10 +124,14 @@ impl StateHandler for MachineStateHandler {
                         }
 
                         // Reboot host
-                        MachineBmcRequest::new(host_snapshot.machine_id, Operation::Reset, true)
-                            .invoke_bmc_command(ctx.services.pool.clone())
-                            .await
-                            .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+                        MachineBmcRequest::new(
+                            host_snapshot.machine_id.clone(),
+                            Operation::Reset,
+                            true,
+                        )
+                        .invoke_bmc_command(ctx.services.pool.clone())
+                        .await
+                        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
 
                         *controller_state.modify() =
                             ManagedHostState::HostNotReady(MachineState::Discovered);
@@ -160,11 +165,11 @@ pub struct DpuMachineStateHandler {}
 impl StateHandler for DpuMachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
-    type ObjectId = uuid::Uuid;
+    type ObjectId = MachineId;
 
     async fn handle_object_state(
         &self,
-        _machine_id: &uuid::Uuid,
+        _machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -185,7 +190,7 @@ impl StateHandler for DpuMachineStateHandler {
 
             // Create leaf and wait for it to get loopback ip.
             if Poll::Pending
-                == create_leaf_and_wait_for_loopback_ip(txn, state.dpu_snapshot.machine_id, ctx)
+                == create_leaf_and_wait_for_loopback_ip(txn, &state.dpu_snapshot.machine_id, ctx)
                     .await?
             {
                 return Ok(());
@@ -239,10 +244,10 @@ pub struct HostMachineStateHandler {}
 
 pub async fn create_leaf_and_wait_for_loopback_ip(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    dpu_machine_id: uuid::Uuid,
+    dpu_machine_id: &MachineId,
     ctx: &mut StateHandlerContext<'_>,
 ) -> Result<Poll<()>, StateHandlerError> {
-    let dpu = DpuMachine::find_by_machine_id(txn, &dpu_machine_id)
+    let dpu = DpuMachine::find_by_machine_id(txn, dpu_machine_id)
         .await
         .map_err(|err| StateHandlerError::GenericError(err.into()))?;
     match ctx.services.vpc_api.try_create_leaf(dpu).await? {
@@ -265,11 +270,11 @@ pub async fn create_leaf_and_wait_for_loopback_ip(
 impl StateHandler for HostMachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
-    type ObjectId = uuid::Uuid;
+    type ObjectId = MachineId;
 
     async fn handle_object_state(
         &self,
-        machine_id: &uuid::Uuid,
+        machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -281,7 +286,7 @@ impl StateHandler for HostMachineStateHandler {
             // machine_interface.
             // If IP allocated => DHCP done and host is powered-on.
             // try_updating_leaf.
-            let Some(machine_interface) = MachineInterface::find_host_primary_interface_by_dpu_id(txn, *machine_id).await? else {
+            let Some(machine_interface) = MachineInterface::find_host_primary_interface_by_dpu_id(txn, machine_id).await? else {
                     log::info!("Still host interface is not created for dpu_id: {}.", machine_id);
                     return Ok(());
             };
@@ -307,7 +312,7 @@ impl StateHandler for HostMachineStateHandler {
             if ctx
                 .services
                 .vpc_api
-                .try_update_leaf(*machine_id, ip_address)
+                .try_update_leaf(machine_id, ip_address)
                 .await?
                 .is_pending()
             {
@@ -324,7 +329,7 @@ impl StateHandler for HostMachineStateHandler {
                 return Ok(());
             }
             return Err(StateHandlerError::HostSnapshotMissing(
-                *machine_id,
+                machine_id.clone(),
                 managed_state.clone(),
             ));
         };
@@ -343,7 +348,7 @@ impl StateHandler for HostMachineStateHandler {
                     }
                     // Enable Bios/BMC lockdown now.
                     ipmi::enable_lockdown_reset_machine(
-                        host_snapshot.machine_id,
+                        &host_snapshot.machine_id,
                         ctx.services.pool.clone(),
                     )
                     .await
@@ -444,11 +449,11 @@ pub struct InstanceStateHandler {}
 impl StateHandler for InstanceStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
-    type ObjectId = uuid::Uuid;
+    type ObjectId = MachineId;
 
     async fn handle_object_state(
         &self,
-        machine_id: &uuid::Uuid,
+        machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -475,7 +480,7 @@ impl StateHandler for InstanceStateHandler {
                     // are up. Reboot host and moved to Ready.
                     if kubernetes::create_managed_resource(
                         txn,
-                        *machine_id,
+                        machine_id,
                         instance.config.network.clone(),
                         instance.instance_id,
                         &ctx.services.vpc_api.clone(),
@@ -496,10 +501,14 @@ impl StateHandler for InstanceStateHandler {
                     .await?;
 
                     // Reboot host
-                    MachineBmcRequest::new(host_snapshot.machine_id, Operation::Reset, true)
-                        .invoke_bmc_command(ctx.services.pool.clone())
-                        .await
-                        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+                    MachineBmcRequest::new(
+                        host_snapshot.machine_id.clone(),
+                        Operation::Reset,
+                        true,
+                    )
+                    .invoke_bmc_command(ctx.services.pool.clone())
+                    .await
+                    .map_err(|e| StateHandlerError::GenericError(e.into()))?;
 
                     // Instance is ready.
                     // We can not determine if machine is rebooted successfully or not. Just leave
@@ -539,7 +548,7 @@ impl StateHandler for InstanceStateHandler {
                     if ctx
                         .services
                         .vpc_api
-                        .try_monitor_leaf(*machine_id)
+                        .try_monitor_leaf(machine_id)
                         .await?
                         .is_pending()
                     {
@@ -555,10 +564,14 @@ impl StateHandler for InstanceStateHandler {
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
                     // Reboot host
-                    MachineBmcRequest::new(host_snapshot.machine_id, Operation::Reset, true)
-                        .invoke_bmc_command(ctx.services.pool.clone())
-                        .await
-                        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+                    MachineBmcRequest::new(
+                        host_snapshot.machine_id.clone(),
+                        Operation::Reset,
+                        true,
+                    )
+                    .invoke_bmc_command(ctx.services.pool.clone())
+                    .await
+                    .map_err(|e| StateHandlerError::GenericError(e.into()))?;
 
                     *controller_state.modify() =
                         ManagedHostState::WaitingForCleanup(CleanupState::HostCleanup);

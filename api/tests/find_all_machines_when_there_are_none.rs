@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide::db::machine::Machine;
+use carbide::db::{machine::Machine, ObjectFilter};
 use log::LevelFilter;
 
 #[ctor::ctor]
@@ -28,7 +28,7 @@ async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
 
     let machines = Machine::find(
         &mut txn,
-        carbide::db::UuidKeyedObjectFilter::All,
+        ObjectFilter::All,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },

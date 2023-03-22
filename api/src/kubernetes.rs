@@ -45,6 +45,7 @@ use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipmi::{MachineBmcRequest, Operation};
 use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId};
+use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
 use crate::vpc_resources::{
     leaf, managed_resource, resource_group, BlueFieldInterface, VpcResource, VpcResourceStatus,
@@ -54,19 +55,19 @@ use crate::{CarbideError, CarbideResult};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LeafData {
     pub leaf: leaf::Leaf,
-    pub dpu_machine_id: uuid::Uuid,
+    pub dpu_machine_id: MachineId,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UpdateLeafData {
-    pub dpu_machine_id: uuid::Uuid,
+    pub dpu_machine_id: MachineId,
     host_admin_i_ps: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManagedResourceData {
-    machine_id: uuid::Uuid,
-    dpu_machine_id: uuid::Uuid,
+    machine_id: MachineId,
+    dpu_machine_id: MachineId,
     instance_id: uuid::Uuid,
     network_config_version: ConfigVersion,
     network_config: InstanceNetworkConfig,
@@ -76,8 +77,8 @@ pub struct ManagedResourceData {
 
 impl ManagedResourceData {
     fn new(
-        machine_id: uuid::Uuid,
-        dpu_machine_id: uuid::Uuid,
+        machine_id: MachineId,
+        dpu_machine_id: MachineId,
         instance_id: uuid::Uuid,
         network_config: Versioned<InstanceNetworkConfig>,
         ip_details: Option<HashMap<Uuid, IpAddr>>, // NetworkSegment => IpAddr
@@ -335,7 +336,7 @@ async fn create_managed_resource_handler(
     )
     .await;
 
-    let task_id = request_reboot(data.machine_id, current_job.pool().clone()).await?;
+    let task_id = request_reboot(data.machine_id.clone(), current_job.pool().clone()).await?;
     update_status(
         &current_job,
         5,
@@ -376,7 +377,7 @@ async fn find_leaf_with_host_interface(
 }
 
 async fn find_leaf_with_dpu_id(
-    dpu_machine_id: uuid::Uuid,
+    dpu_machine_id: MachineId,
     client: Client,
 ) -> CarbideResult<Option<String>> {
     let host_interface = BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {})
@@ -512,7 +513,7 @@ async fn delete_managed_resource_handler(
     wait_for_hbn_to_configure(leaf_name, client.clone(), &current_job, &start_time).await?;
 
     // Reboot host
-    let task_id = request_reboot(data.machine_id, current_job.pool().clone()).await?;
+    let task_id = request_reboot(data.machine_id.clone(), current_job.pool().clone()).await?;
     update_status(
         &current_job,
         3,
@@ -532,8 +533,8 @@ async fn delete_managed_resource_handler(
     Ok(())
 }
 
-async fn request_reboot(machine_id: uuid::Uuid, db_conn: PgPool) -> CarbideResult<uuid::Uuid> {
-    let machine_power_request = MachineBmcRequest::new(machine_id, Operation::Reset, true);
+async fn request_reboot(machine_id: MachineId, db_conn: PgPool) -> CarbideResult<uuid::Uuid> {
+    let machine_power_request = MachineBmcRequest::new(machine_id.clone(), Operation::Reset, true);
     let task_id = machine_power_request.invoke_bmc_command(db_conn).await?;
     log::info!(
         "cleanup: Spawned task {} to reboot host {}",
@@ -584,7 +585,7 @@ pub async fn vpc_reconcile_handler(
 
         match vpc_resource {
             VpcResourceActions::CreateLeaf(leaf_data) => {
-                let spec_name = leaf_name(leaf_data.dpu_machine_id);
+                let spec_name = leaf_name(&leaf_data.dpu_machine_id);
                 let spec = leaf_data.leaf;
                 assert_eq!(
                     Some(&spec_name),
@@ -600,7 +601,7 @@ pub async fn vpc_reconcile_handler(
 
                 // Kube CRD names are strings, so we have to convert from string to uuid::Uuid
                 let mut vpc_db_resource =
-                    VpcResourceLeaf::find(&mut vpc_txn, leaf_data.dpu_machine_id).await?;
+                    VpcResourceLeaf::find(&mut vpc_txn, &leaf_data.dpu_machine_id).await?;
 
                 let result = leafs.create(&PostParams::default(), &spec).await;
                 match result {
@@ -716,7 +717,7 @@ pub async fn vpc_reconcile_handler(
             }
             VpcResourceActions::DeleteLeaf(leaf_data) => {
                 //TODO: I am pretty sure that we are not deleting any Leaf here.
-                let spec_name = leaf_name(leaf_data.dpu_machine_id);
+                let spec_name = leaf_name(&leaf_data.dpu_machine_id);
 
                 update_status(
                     &current_job,
@@ -735,7 +736,7 @@ pub async fn vpc_reconcile_handler(
                     .map_err(|e| CarbideError::DatabaseError(file!(), "complete", e));
             }
             VpcResourceActions::UpdateLeaf(leaf_data) => {
-                let spec_name = leaf_name(leaf_data.dpu_machine_id);
+                let spec_name = leaf_name(&leaf_data.dpu_machine_id);
 
                 let leaf_api: Api<leaf::Leaf> = Api::namespaced(client, FORGE_KUBE_NAMESPACE);
                 let mut updated_leaf = leaf_api.get(&spec_name).await?;
@@ -890,7 +891,7 @@ pub async fn bgkubernetes_handler(
 }
 
 /// Generates the kubernetes name of a Leaf CRD - based on the Forge dpu_machine_id
-pub fn leaf_name(dpu_machine_id: uuid::Uuid) -> String {
+pub fn leaf_name(dpu_machine_id: &MachineId) -> String {
     format!("{}.leaf", dpu_machine_id,)
 }
 
@@ -906,7 +907,7 @@ fn resource_group_name(prefix_id: uuid::Uuid) -> String {
 
 pub async fn create_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
-    dpu_machine_id: uuid::Uuid,
+    dpu_machine_id: &MachineId,
     network_config: InstanceNetworkConfig,
     instance_id: uuid::Uuid,
     vpc_api: &Arc<dyn VpcApi>,
@@ -941,7 +942,7 @@ pub async fn create_managed_resource(
         })?;
 
         let host_interface = Some(
-            BlueFieldInterface::new(iface.function_id.clone()).leaf_interface_id(&dpu_machine_id),
+            BlueFieldInterface::new(iface.function_id.clone()).leaf_interface_id(dpu_machine_id),
         );
 
         let host_interface_ip = ip_details
@@ -975,8 +976,8 @@ pub async fn create_managed_resource(
 
 pub async fn delete_managed_resource(
     txn: &mut sqlx::Transaction<'_, Postgres>,
-    machine_id: uuid::Uuid,
-    dpu_machine_id: uuid::Uuid,
+    machine_id: MachineId,
+    dpu_machine_id: MachineId,
     network_config: Versioned<InstanceNetworkConfig>,
     instance_id: uuid::Uuid,
 ) -> CarbideResult<()> {
@@ -1028,7 +1029,7 @@ pub async fn update_leaf(
     resource_leaf: VpcResourceLeaf,
     record: rpc::forge::DhcpRecord,
 ) -> CarbideResult<()> {
-    let dpu_machine_id = *resource_leaf.id();
+    let dpu_machine_id = resource_leaf.id().clone();
 
     let host_admin_ip_network = Ipv4Network::from_str(record.address.as_str())
         .map_err(|err| CarbideError::GenericError(err.to_string()))?;
@@ -1144,7 +1145,7 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
     /// host that is attached to the DPU
     async fn try_update_leaf(
         &self,
-        dpu_machine_id: uuid::Uuid,
+        dpu_machine_id: &MachineId,
         host_admin_ip: Ipv4Addr,
     ) -> Result<Poll<()>, VpcApiError>;
 
@@ -1155,7 +1156,8 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
     /// - Ok(Poll::Pending) if the deletion is in progress. The method should
     ///   be called again later to retrieve the final result.
     /// - Err if the deletion attempt failed
-    async fn try_delete_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError>;
+    async fn try_delete_leaf(&self, dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError>;
+
     /// Trys to create managed resources on Forge VPC
     ///
     /// Will return
@@ -1189,7 +1191,7 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
     /// - Ok(Poll::Pending) if the deletion is in progress. The method should
     ///   be called again later to retrieve the final result.
     /// - Err if the deletion attempt failed
-    async fn try_monitor_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError>;
+    async fn try_monitor_leaf(&self, dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError>;
 }
 
 /// Implementation of the VPC API which makes "real kubernetes API calls"
@@ -1328,7 +1330,7 @@ impl VpcApi for VpcApiImpl {
     }
 
     async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
-        let leaf_name = leaf_name(*dpu.machine_id());
+        let leaf_name = leaf_name(dpu.machine_id());
         let spec = leaf_spec_from_dpu_machine(&dpu);
 
         let api: Api<leaf::Leaf> = Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
@@ -1368,7 +1370,7 @@ impl VpcApi for VpcApiImpl {
         return leaf_creation_result_from_state(&result);
     }
 
-    async fn try_delete_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+    async fn try_delete_leaf(&self, dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError> {
         let leaf_name = leaf_name(dpu_machine_id);
 
         try_delete_k8s_resource::<leaf::Leaf>(&self.client, "leaf", &leaf_name).await
@@ -1416,7 +1418,7 @@ impl VpcApi for VpcApiImpl {
 
     async fn try_update_leaf(
         &self,
-        dpu_machine_id: uuid::Uuid,
+        dpu_machine_id: &MachineId,
         host_admin_ip: Ipv4Addr,
     ) -> Result<Poll<()>, VpcApiError> {
         let leaf_name = leaf_name(dpu_machine_id);
@@ -1519,7 +1521,7 @@ impl VpcApi for VpcApiImpl {
         Ok(Poll::Ready(()))
     }
 
-    async fn try_monitor_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+    async fn try_monitor_leaf(&self, dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError> {
         let leaf_name = leaf_name(dpu_machine_id);
 
         let api: Api<leaf::Leaf> = Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
@@ -1777,7 +1779,7 @@ impl VpcApi for VpcApiSim {
     }
 
     async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
-        let leaf_name = leaf_name(*dpu.machine_id());
+        let leaf_name = leaf_name(dpu.machine_id());
         let spec = leaf_spec_from_dpu_machine(&dpu);
 
         let mut guard = self.state.lock().unwrap();
@@ -1844,7 +1846,7 @@ impl VpcApi for VpcApiSim {
         }
     }
 
-    async fn try_delete_leaf(&self, dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+    async fn try_delete_leaf(&self, dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError> {
         let leaf_name = leaf_name(dpu_machine_id);
 
         let mut guard = self.state.lock().unwrap();
@@ -1890,7 +1892,7 @@ impl VpcApi for VpcApiSim {
 
     async fn try_update_leaf(
         &self,
-        dpu_machine_id: uuid::Uuid,
+        dpu_machine_id: &MachineId,
         host_admin_ip: Ipv4Addr,
     ) -> Result<Poll<()>, VpcApiError> {
         let leaf_name = leaf_name(dpu_machine_id);
@@ -1922,7 +1924,7 @@ impl VpcApi for VpcApiSim {
         return Ok(Poll::Ready(()));
     }
 
-    async fn try_monitor_leaf(&self, _dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+    async fn try_monitor_leaf(&self, _dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError> {
         return Ok(Poll::Ready(()));
     }
 }

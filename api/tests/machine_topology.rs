@@ -76,7 +76,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = pool.begin().await?;
 
-    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[*machine.id()])
+    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[machine.id().clone()])
         .await
         .unwrap();
     assert_eq!(topos.len(), 1);
@@ -89,7 +89,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Hardware info is available on the machine
     let machine2 = Machine::find_one(
         &mut txn,
-        *machine.id(),
+        machine.id(),
         carbide::db::machine::MachineSearchConfig::default(),
     )
     .await
@@ -118,7 +118,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let machine2 = Machine::find_one(
         &mut txn,
-        *machine.id(),
+        machine.id(),
         carbide::db::machine::MachineSearchConfig::default(),
     )
     .await

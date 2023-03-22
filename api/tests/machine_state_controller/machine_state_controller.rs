@@ -31,7 +31,7 @@ use crate::common::api_fixtures::{
 use carbide::{
     db::dpu_machine::DpuMachine,
     kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError},
-    model::machine::{ManagedHostState, ManagedHostStateSnapshot},
+    model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
     state_controller::{
         controller::StateController,
         machine::io::MachineStateControllerIO,
@@ -55,11 +55,11 @@ pub struct TestMachineStateHandler {
 impl StateHandler for TestMachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
-    type ObjectId = uuid::Uuid;
+    type ObjectId = MachineId;
 
     async fn handle_object_state(
         &self,
-        machine_id: &uuid::Uuid,
+        machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -101,7 +101,7 @@ impl VpcApi for MockVpcApi {
         Ok(Poll::Ready(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))))
     }
 
-    async fn try_delete_leaf(&self, _dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+    async fn try_delete_leaf(&self, _dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError> {
         panic!("Not used in this test")
     }
 
@@ -114,7 +114,7 @@ impl VpcApi for MockVpcApi {
 
     async fn try_update_leaf(
         &self,
-        _dpu_machine_id: uuid::Uuid,
+        _dpu_machine_id: &MachineId,
         _host_admin_ip: Ipv4Addr,
     ) -> Result<Poll<()>, VpcApiError> {
         panic!("Not used in this test")
@@ -127,7 +127,7 @@ impl VpcApi for MockVpcApi {
         panic!("Not used in this test")
     }
 
-    async fn try_monitor_leaf(&self, _dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+    async fn try_monitor_leaf(&self, _dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError> {
         Ok(Poll::Ready(()))
     }
 }

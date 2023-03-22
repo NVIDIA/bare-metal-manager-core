@@ -26,23 +26,22 @@ fn setup() {
         .init();
 }
 
-const FIXTURE_CREATED_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
+const FIXTURE_CREATED_MACHINE_ID: &str =
+    "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
 
 #[ignore]
 #[sqlx::test]
 async fn new_leafs_are_in_new_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID)
+    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID.parse().unwrap())
         .persist(&mut txn)
         .await?;
 
     txn.commit().await?;
     let mut txn = pool.begin().await?;
 
-    assert!(VpcResourceLeaf::find(&mut txn, leaf.id().to_owned())
-        .await
-        .is_ok());
+    assert!(VpcResourceLeaf::find(&mut txn, leaf.id()).await.is_ok());
 
     Ok(())
 }
@@ -51,15 +50,15 @@ async fn new_leafs_are_in_new_state(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn find_leaf_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID)
+    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID.parse().unwrap())
         .persist(&mut txn)
         .await?;
 
     txn.commit().await?;
     let mut txn = pool.begin().await?;
 
-    let leaf = VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await?;
-    assert_eq!(leaf.id(), &FIXTURE_CREATED_MACHINE_ID);
+    let leaf = VpcResourceLeaf::find(&mut txn, leaf.id()).await?;
+    assert_eq!(leaf.id(), &FIXTURE_CREATED_MACHINE_ID.parse().unwrap());
 
     Ok(())
 }
@@ -70,7 +69,7 @@ async fn find_leaf_and_update_loopback_ip(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID)
+    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID.parse().unwrap())
         .persist(&mut txn)
         .await?;
     assert!(leaf.loopback_ip_address().is_none());
@@ -81,7 +80,7 @@ async fn find_leaf_and_update_loopback_ip(
 
     let address = IpAddr::from_str("1.2.3.4")?;
 
-    let mut new_leaf = VpcResourceLeaf::find(&mut txn, leaf.id().to_owned()).await?;
+    let mut new_leaf = VpcResourceLeaf::find(&mut txn, leaf.id()).await?;
 
     new_leaf
         .update_loopback_ip_address(&mut txn, address)

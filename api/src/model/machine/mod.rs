@@ -20,6 +20,7 @@ use crate::model::hardware_info::HardwareInfo;
 
 pub mod machine_id;
 pub mod network;
+use machine_id::MachineId;
 
 pub const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 pub const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
@@ -39,7 +40,7 @@ pub struct ManagedHostStateSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineSnapshot {
     /// Machine ID
-    pub machine_id: uuid::Uuid,
+    pub machine_id: MachineId,
     /// Hardware Information that was discovered about this Machine
     pub hardware_info: Option<HardwareInfo>,
     /// Desired state of the machine

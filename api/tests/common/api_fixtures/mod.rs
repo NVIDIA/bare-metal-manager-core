@@ -17,7 +17,7 @@ use carbide::{
     auth::{Authorizer, NoopEngine},
     db::machine::Machine,
     kubernetes::{VpcApiSim, VpcApiSimConfig},
-    model::machine::ManagedHostState,
+    model::machine::{machine_id::MachineId, ManagedHostState},
     state_controller::{
         controller::StateControllerIO,
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
@@ -44,8 +44,10 @@ pub mod network_segment;
 pub type TestApi = Api<TestCredentialProvider>;
 
 pub const FIXTURE_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
-pub const FIXTURE_DPU_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
-pub const FIXTURE_X86_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd99");
+pub const FIXTURE_DPU_MACHINE_ID: &str =
+    "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
+pub const FIXTURE_X86_MACHINE_ID: &str =
+    "fm100htT5SKOR7BXF7RGH5LW22EOKLMTNXQEAPHT6Z4KNLONR36RG3KQBVA";
 
 pub struct TestEnv {
     pub api: TestApi,
@@ -77,7 +79,7 @@ impl TestEnv {
     /// in this test environment
     pub async fn run_machine_state_controller_iteration_until_state_matches(
         &self,
-        dpu_machine_id: uuid::Uuid,
+        dpu_machine_id: &MachineId,
         handler: &MachineStateHandler,
         max_iterations: u32,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -89,7 +91,7 @@ impl TestEnv {
                 &services,
                 &self.pool,
                 &self.machine_state_controller_io,
-                dpu_machine_id,
+                dpu_machine_id.clone(),
                 handler,
             )
             .await
@@ -110,7 +112,7 @@ impl TestEnv {
     /// in this test environment
     pub async fn run_machine_state_controller_iteration(
         &self,
-        dpu_machine_id: uuid::Uuid,
+        dpu_machine_id: MachineId,
         handler: &MachineStateHandler,
     ) {
         let services = Arc::new(self.state_handler_services());

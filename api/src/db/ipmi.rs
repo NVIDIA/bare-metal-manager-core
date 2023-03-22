@@ -18,10 +18,9 @@ use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Transaction};
-use uuid::Uuid;
 
-use super::DatabaseError;
-use crate::model::machine::machine_id::try_parse_machine_id;
+use super::{machine::DbMachineId, DatabaseError};
+use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
@@ -49,7 +48,7 @@ impl Display for UserRoles {
 
 #[derive(Debug, Clone)]
 pub struct BmcMetaDataGetRequest {
-    pub machine_id: Uuid,
+    pub machine_id: MachineId,
     pub role: UserRoles,
 }
 
@@ -66,7 +65,7 @@ pub struct BmcMetadataItem {
 }
 
 pub struct BmcMetaDataUpdateRequest {
-    pub machine_id: Uuid,
+    pub machine_id: MachineId,
     pub ip: String,
     pub data: Vec<BmcMetadataItem>,
 }
@@ -170,7 +169,7 @@ impl BmcMetaDataGetRequest {
         let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address
             FROM machine_topologies WHERE machine_id=$1"#;
         sqlx::query_as::<_, MachineHostInformation>(query)
-            .bind(self.machine_id)
+            .bind(self.machine_id.to_string())
             .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -247,9 +246,9 @@ SET topology = jsonb_set(topology, '{ipmi_ip}', $1, true)
 WHERE machine_id=$2
 RETURNING machine_id";
 
-        let _: Option<(Uuid,)> = sqlx::query_as(query)
+        let _: Option<(DbMachineId,)> = sqlx::query_as(query)
             .bind(&json!(self.ip))
-            .bind(self.machine_id)
+            .bind(self.machine_id.to_string())
             .fetch_optional(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

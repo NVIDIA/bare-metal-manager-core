@@ -326,26 +326,11 @@ impl<'de> Deserialize<'de> for MachineId {
     }
 }
 
-///
-/// A parameter to find() to filter machines by MachineId;
-///
-pub enum MachineIdFilter<'a> {
-    /// Retrieve all Machines
-    All,
-
-    /// Filter by a list of machine IDs
-    List(&'a [MachineId]),
-
-    /// Retrieve a single machine
-    One(MachineId),
-}
-
 /// Convertes a RPC MachineId into the internal data format
-/// TODO: This needs to return `MachineId`
 pub fn try_parse_machine_id(
     id: &rpc::forge::MachineId,
-) -> Result<uuid::Uuid, RpcDataConversionError> {
-    uuid::Uuid::try_from(id.id.as_str())
+) -> Result<MachineId, RpcDataConversionError> {
+    MachineId::from_str(id.id.as_str())
         .map_err(|_| RpcDataConversionError::InvalidMachineId(id.id.clone()))
 }
 

@@ -14,7 +14,8 @@ use log::LevelFilter;
 use carbide::db::{machine::Machine, machine_state_history::MachineStateHistory};
 use carbide::model::machine::ManagedHostState;
 
-const FIXTURE_CREATED_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
+const FIXTURE_CREATED_MACHINE_ID: &str =
+    "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
 
 #[ctor::ctor]
 fn setup() {
@@ -34,7 +35,7 @@ async fn test_new_machine_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_CREATED_MACHINE_ID,
+        &FIXTURE_CREATED_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },
@@ -63,7 +64,7 @@ async fn test_new_machine_state_history(
 
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_CREATED_MACHINE_ID,
+        &FIXTURE_CREATED_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },
@@ -76,7 +77,7 @@ async fn test_new_machine_state_history(
 
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_CREATED_MACHINE_ID,
+        &FIXTURE_CREATED_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig::default(),
     )
     .await?
@@ -94,16 +95,17 @@ async fn test_new_machine_state_history(
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
-    let result = MachineStateHistory::for_machine(&mut txn, &FIXTURE_CREATED_MACHINE_ID)
-        .await
-        .unwrap();
+    let result =
+        MachineStateHistory::for_machine(&mut txn, &FIXTURE_CREATED_MACHINE_ID.parse().unwrap())
+            .await
+            .unwrap();
 
     // Count should not go beyond 250.
     assert_eq!(result.len(), 250);
 
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_CREATED_MACHINE_ID,
+        &FIXTURE_CREATED_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },

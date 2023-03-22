@@ -51,6 +51,20 @@ pub enum UuidKeyedObjectFilter<'a> {
     One(uuid::Uuid),
 }
 
+/// A parameter to find() to filter resources based on a certain ID
+pub enum ObjectFilter<'a, ID> {
+    /// Don't filter. Return all objects
+    All,
+
+    /// Filter by a list of uuids
+    /// The filter will return any objects whose ID is included in the list.
+    /// If the list is empty, the filter will return no objects.
+    List(&'a [ID]),
+
+    /// Retrieve a single objects
+    One(ID),
+}
+
 ///
 /// Wraps a sqlx::Error and records location and query
 ///

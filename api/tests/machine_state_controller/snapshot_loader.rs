@@ -94,7 +94,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     let snapshot_loader = DbSnapshotLoader::default();
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, *machine.id())
+        .load_machine_snapshot(&mut txn, machine.id())
         .await
         .unwrap();
 

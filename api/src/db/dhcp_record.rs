@@ -14,10 +14,10 @@ use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
-use super::instance::Instance;
-use super::DatabaseError;
 use crate::{
-    dhcp::allocation::DhcpError, model::instance::config::network::InterfaceFunctionId,
+    db::{instance::Instance, machine::DbMachineId, DatabaseError},
+    dhcp::allocation::DhcpError,
+    model::{instance::config::network::InterfaceFunctionId, machine::machine_id::MachineId},
     CarbideError, CarbideResult,
 };
 
@@ -26,9 +26,9 @@ use crate::{
 /// (not implemented) that returns the network information for that interface on that node, and
 /// contains everything necessary to return a DHCP response
 ///
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 pub struct DhcpRecord {
-    machine_id: Option<uuid::Uuid>,
+    machine_id: Option<MachineId>,
     segment_id: uuid::Uuid,
     machine_interface_id: uuid::Uuid,
     subdomain_id: Option<uuid::Uuid>,
@@ -41,6 +41,25 @@ pub struct DhcpRecord {
 
     prefix: IpNetwork,
     gateway: Option<IpNetwork>,
+}
+
+impl<'r> FromRow<'r, PgRow> for DhcpRecord {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
+
+        Ok(DhcpRecord {
+            machine_id: machine_id.map(|id| id.into_inner()),
+            segment_id: row.try_get("segment_id")?,
+            machine_interface_id: row.try_get("machine_interface_id")?,
+            subdomain_id: row.try_get("subdomain_id")?,
+            fqdn: row.try_get("fqdn")?,
+            mac_address: row.try_get("mac_address")?,
+            address: row.try_get("address")?,
+            mtu: row.try_get("mtu")?,
+            prefix: row.try_get("prefix")?,
+            gateway: row.try_get("gateway")?,
+        })
+    }
 }
 
 impl From<DhcpRecord> for rpc::DhcpRecord {
@@ -82,7 +101,7 @@ impl DhcpRecord {
 
 #[derive(Debug)]
 pub struct InstanceDhcpRecord {
-    machine_id: Option<uuid::Uuid>,
+    machine_id: Option<MachineId>,
     segment_id: uuid::Uuid,
     machine_interface_id: uuid::Uuid,
     subdomain_id: Option<uuid::Uuid>,
@@ -100,8 +119,10 @@ pub struct InstanceDhcpRecord {
 
 impl<'r> sqlx::FromRow<'r, PgRow> for InstanceDhcpRecord {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
+
         Ok(InstanceDhcpRecord {
-            machine_id: row.try_get("machine_id")?,
+            machine_id: machine_id.map(|id| id.into_inner()),
             segment_id: row.try_get("segment_id")?,
             machine_interface_id: row.try_get("machine_interface_id")?,
             subdomain_id: row.try_get("subdomain_id")?,
@@ -120,7 +141,7 @@ impl TryFrom<InstanceDhcpRecord> for rpc::DhcpRecord {
     type Error = CarbideError;
     fn try_from(record: InstanceDhcpRecord) -> CarbideResult<Self> {
         Ok(Self {
-            machine_id: record.machine_id.map(|id| id.to_string().into()),
+            machine_id: record.machine_id.as_ref().map(|id| id.to_string().into()),
             machine_interface_id: match record.function_id.ok_or_else(|| {
                 DhcpError::MissingCircuitIdForMachine(
                     record
@@ -166,11 +187,11 @@ impl InstanceDhcpRecord {
     ) -> CarbideResult<InstanceDhcpRecord> {
         let query = "
 SELECT * FROM instance_dhcp_records
-WHERE machine_id=$1::uuid
+WHERE machine_id=$1
     AND circuit_id=$2
     AND family(prefix) = 4";
         let mut record: InstanceDhcpRecord = sqlx::query_as(query)
-            .bind(instance.machine_id)
+            .bind(instance.machine_id.to_string())
             .bind(circuit_id.clone())
             .fetch_one(&mut *txn)
             .await

@@ -26,7 +26,7 @@ pub async fn prepare_machine(pool: &sqlx::PgPool) {
     let mut txn = pool.begin().await.unwrap();
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_X86_MACHINE_ID,
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig::default(),
     )
     .await
@@ -39,7 +39,7 @@ pub async fn prepare_machine(pool: &sqlx::PgPool) {
         .unwrap();
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_DPU_MACHINE_ID,
+        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig::default(),
     )
     .await
@@ -84,7 +84,7 @@ pub async fn create_instance(
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        FIXTURE_DPU_MACHINE_ID,
+        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
         &handler,
         2,
         &mut txn,
@@ -108,7 +108,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        FIXTURE_DPU_MACHINE_ID,
+        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
         &handler,
         3,
         &mut txn,
@@ -120,7 +120,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
     let mut txn = env.pool.begin().await.unwrap();
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_X86_MACHINE_ID,
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },
@@ -134,7 +134,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        FIXTURE_DPU_MACHINE_ID,
+        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
         &handler,
         3,
         &mut txn,
@@ -146,7 +146,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
     let mut txn = env.pool.begin().await.unwrap();
     let machine = Machine::find_one(
         &mut txn,
-        FIXTURE_X86_MACHINE_ID,
+        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },
@@ -159,7 +159,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        FIXTURE_DPU_MACHINE_ID,
+        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
         &handler,
         3,
         &mut txn,

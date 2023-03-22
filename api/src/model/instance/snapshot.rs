@@ -16,7 +16,7 @@ use crate::model::{
         config::InstanceConfig,
         status::{InstanceStatus, InstanceStatusObservations},
     },
-    machine::ManagedHostState,
+    machine::{machine_id::MachineId, ManagedHostState},
     RpcDataConversionError,
 };
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ pub struct InstanceSnapshot {
     /// Instance ID
     pub instance_id: uuid::Uuid,
     /// Machine ID
-    pub machine_id: uuid::Uuid,
+    pub machine_id: MachineId,
 
     /// Machine State
     pub machine_state: ManagedHostState,

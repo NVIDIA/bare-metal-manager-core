@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 pub mod common;
+use carbide::model::machine::machine_id::MachineId;
 use common::api_fixtures::create_test_env;
 use std::net::{IpAddr, Ipv4Addr};
 use std::task::Poll;
@@ -24,8 +25,8 @@ use carbide::vpc_resources::managed_resource::ManagedResource;
 use ipnetwork::IpNetwork;
 use log::LevelFilter;
 
-const DPU_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
-const HOST_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd99");
+const DPU_MACHINE_ID: &str = "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
+const HOST_MACHINE_ID: &str = "fm100htT5SKOR7BXF7RGH5LW22EOKLMTNXQEAPHT6Z4KNLONR36RG3KQBVA";
 
 #[derive(Debug)]
 pub struct MockVpcApi {}
@@ -52,7 +53,7 @@ impl VpcApi for MockVpcApi {
         Ok(Poll::Ready(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))))
     }
 
-    async fn try_delete_leaf(&self, _dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+    async fn try_delete_leaf(&self, _dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError> {
         Ok(Poll::Ready(()))
     }
 
@@ -65,7 +66,7 @@ impl VpcApi for MockVpcApi {
 
     async fn try_update_leaf(
         &self,
-        _dpu_machine_id: uuid::Uuid,
+        _dpu_machine_id: &MachineId,
         _host_admin_ip: Ipv4Addr,
     ) -> Result<Poll<()>, VpcApiError> {
         Ok(Poll::Ready(()))
@@ -78,7 +79,7 @@ impl VpcApi for MockVpcApi {
         Ok(Poll::Ready(()))
     }
 
-    async fn try_monitor_leaf(&self, _dpu_machine_id: uuid::Uuid) -> Result<Poll<()>, VpcApiError> {
+    async fn try_monitor_leaf(&self, _dpu_machine_id: &MachineId) -> Result<Poll<()>, VpcApiError> {
         Ok(Poll::Ready(()))
     }
 }
@@ -105,7 +106,7 @@ async fn validate_state_till_ready(pool: sqlx::PgPool) -> sqlx::Result<()> {
     // Reset Machine state to initial.
     DpuMachine::update_state(
         &mut txn,
-        DPU_MACHINE_ID,
+        &DPU_MACHINE_ID.parse().unwrap(),
         ManagedHostState::DPUNotReady(MachineState::Init),
     )
     .await
@@ -113,10 +114,14 @@ async fn validate_state_till_ready(pool: sqlx::PgPool) -> sqlx::Result<()> {
     txn.commit().await.unwrap();
 
     let mut txn = pool.begin().await?;
-    let dpu = Machine::find_one(&mut txn, DPU_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = Machine::find_one(
+        &mut txn,
+        &DPU_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(matches!(
         dpu.current_state(),
         ManagedHostState::DPUNotReady(..)
@@ -128,55 +133,71 @@ async fn validate_state_till_ready(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
     let handler = MachineStateHandler::default();
 
-    env.run_machine_state_controller_iteration(DPU_MACHINE_ID, &handler)
+    env.run_machine_state_controller_iteration(DPU_MACHINE_ID.parse().unwrap(), &handler)
         .await;
-    env.run_machine_state_controller_iteration(DPU_MACHINE_ID, &handler)
+    env.run_machine_state_controller_iteration(DPU_MACHINE_ID.parse().unwrap(), &handler)
         .await;
 
     // Now machine should be in HostNotReady state.
     // Simulate Host boot setup.
     let mut txn = pool.begin().await?;
-    let host = Machine::find_one(&mut txn, HOST_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = Machine::find_one(
+        &mut txn,
+        &HOST_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert!(matches!(
         host.current_state(),
         ManagedHostState::HostNotReady(MachineState::Init)
     ));
-    env.run_machine_state_controller_iteration(DPU_MACHINE_ID, &handler)
+    env.run_machine_state_controller_iteration(DPU_MACHINE_ID.parse().unwrap(), &handler)
         .await;
-    let host = Machine::find_one(&mut txn, HOST_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = Machine::find_one(
+        &mut txn,
+        &HOST_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(matches!(
         host.current_state(),
         ManagedHostState::HostNotReady(MachineState::WaitingForDiscovery)
     ));
 
     txn.commit().await.unwrap();
-    env.run_machine_state_controller_iteration(DPU_MACHINE_ID, &handler)
+    env.run_machine_state_controller_iteration(DPU_MACHINE_ID.parse().unwrap(), &handler)
         .await;
 
     // Now state should be hostnotready discovered.
     let mut txn = pool.begin().await?;
-    let host = Machine::find_one(&mut txn, HOST_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = Machine::find_one(
+        &mut txn,
+        &HOST_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     host.update_reboot_time(&mut txn).await.unwrap();
     host.update_discovery_time(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
 
-    env.run_machine_state_controller_iteration(DPU_MACHINE_ID, &handler)
+    env.run_machine_state_controller_iteration(DPU_MACHINE_ID.parse().unwrap(), &handler)
         .await;
     let mut txn = pool.begin().await?;
-    let host = Machine::find_one(&mut txn, HOST_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = Machine::find_one(
+        &mut txn,
+        &HOST_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert!(matches!(
         host.current_state(),
@@ -188,20 +209,28 @@ async fn validate_state_till_ready(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let mut txn = pool.begin().await?;
     host.update_reboot_time(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
-    env.run_machine_state_controller_iteration(DPU_MACHINE_ID, &handler)
+    env.run_machine_state_controller_iteration(DPU_MACHINE_ID.parse().unwrap(), &handler)
         .await;
 
     let mut txn = pool.begin().await?;
-    let host = Machine::find_one(&mut txn, HOST_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = Machine::find_one(
+        &mut txn,
+        &HOST_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
-    let dpu = Machine::find_one(&mut txn, DPU_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = Machine::find_one(
+        &mut txn,
+        &DPU_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
@@ -224,7 +253,7 @@ async fn validate_state_from_cleanup_to_ready(pool: sqlx::PgPool) -> sqlx::Resul
     // Reset Machine state to initial.
     DpuMachine::update_state(
         &mut txn,
-        DPU_MACHINE_ID,
+        &DPU_MACHINE_ID.parse().unwrap(),
         ManagedHostState::WaitingForCleanup(carbide::model::machine::CleanupState::HostCleanup),
     )
     .await
@@ -232,10 +261,14 @@ async fn validate_state_from_cleanup_to_ready(pool: sqlx::PgPool) -> sqlx::Resul
     txn.commit().await.unwrap();
 
     let mut txn = pool.begin().await?;
-    let host = Machine::find_one(&mut txn, HOST_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = Machine::find_one(
+        &mut txn,
+        &HOST_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     host.update_reboot_time(&mut txn).await.unwrap();
     host.update_cleanup_time(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
@@ -243,16 +276,20 @@ async fn validate_state_from_cleanup_to_ready(pool: sqlx::PgPool) -> sqlx::Resul
     let handler = MachineStateHandler::default();
 
     // Current State: HostCleanup
-    env.run_machine_state_controller_iteration(DPU_MACHINE_ID, &handler)
+    env.run_machine_state_controller_iteration(DPU_MACHINE_ID.parse().unwrap(), &handler)
         .await;
 
     // Now machine should be in HostNotReady(WaitingForDiscovery) state.
     // Simulate Host boot setup.
     let mut txn = pool.begin().await?;
-    let host = Machine::find_one(&mut txn, HOST_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = Machine::find_one(
+        &mut txn,
+        &HOST_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert!(matches!(
         host.current_state(),
@@ -262,21 +299,29 @@ async fn validate_state_from_cleanup_to_ready(pool: sqlx::PgPool) -> sqlx::Resul
     txn.commit().await.unwrap();
 
     // Current: Discovered
-    env.run_machine_state_controller_iteration(DPU_MACHINE_ID, &handler)
+    env.run_machine_state_controller_iteration(DPU_MACHINE_ID.parse().unwrap(), &handler)
         .await;
 
     // Now state should be READY.
     let mut txn = pool.begin().await?;
-    let host = Machine::find_one(&mut txn, HOST_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = Machine::find_one(
+        &mut txn,
+        &HOST_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
-    let dpu = Machine::find_one(&mut txn, DPU_MACHINE_ID, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = Machine::find_one(
+        &mut txn,
+        &DPU_MACHINE_ID.parse().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();

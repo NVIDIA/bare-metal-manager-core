@@ -27,7 +27,7 @@ use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::instance::Instance;
 use crate::db::ipmi::{BmcMetaDataGetRequest, UserRoles};
-use crate::model::machine::machine_id::try_parse_machine_id;
+use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::reachability::{wait_for_requested_state, PingReachabilityChecker, ReachabilityError};
 use crate::{CarbideError, CarbideResult};
 
@@ -46,7 +46,7 @@ pub enum IpmiTask {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct IpmiCommand {
     pub host: String,
-    pub machine_id: Uuid,
+    pub machine_id: MachineId,
     pub user_role: UserRoles,
     pub action: Option<IpmiTask>,
 }
@@ -167,7 +167,8 @@ async fn observe_dpu_state_and_reboot_host(
     );
 
     // Reboot host now. Raise it as separate task. It will give some breathing time to DPU.
-    let machine_power_request = MachineBmcRequest::new(cmd.machine_id, Operation::Reset, true);
+    let machine_power_request =
+        MachineBmcRequest::new(cmd.machine_id.clone(), Operation::Reset, true);
     let task_id = machine_power_request.invoke_bmc_command(pool).await?;
     log::info!(
         "observe: Spawned task {} to reboot host {}",
@@ -443,7 +444,7 @@ impl IpmiCommand {
 }
 
 impl IpmiCommand {
-    pub fn new(host: String, machine_id: Uuid, user_role: UserRoles) -> Self {
+    pub fn new(host: String, machine_id: MachineId, user_role: UserRoles) -> Self {
         IpmiCommand {
             host,
             machine_id,
@@ -545,7 +546,7 @@ impl TryFrom<i32> for Operation {
 }
 
 pub struct MachineBmcRequest {
-    pub machine_id: uuid::Uuid,
+    pub machine_id: MachineId,
     operation: Operation,
     boot_with_custom_ipxe: bool,
 }
@@ -566,7 +567,7 @@ impl TryFrom<rpc::InstancePowerRequest> for MachineBmcRequest {
 }
 
 impl MachineBmcRequest {
-    pub fn new(machine_id: uuid::Uuid, operation: Operation, boot_with_custom_ipxe: bool) -> Self {
+    pub fn new(machine_id: MachineId, operation: Operation, boot_with_custom_ipxe: bool) -> Self {
         MachineBmcRequest {
             machine_id,
             operation,
@@ -579,7 +580,7 @@ impl MachineBmcRequest {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> CarbideResult<()> {
         Instance::use_custom_ipxe_on_next_boot(
-            self.machine_id,
+            &self.machine_id,
             self.boot_with_custom_ipxe,
             &mut *txn,
         )
@@ -595,7 +596,7 @@ impl MachineBmcRequest {
 
         let role = UserRoles::Administrator;
         let ip = BmcMetaDataGetRequest {
-            machine_id: self.machine_id,
+            machine_id: self.machine_id.clone(),
             role,
         }
         .get_bmc_host_ip(&mut txn)
@@ -605,7 +606,7 @@ impl MachineBmcRequest {
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit invoke_bmc_command", e))?;
 
-        let ipmi_command = IpmiCommand::new(ip, self.machine_id, role);
+        let ipmi_command = IpmiCommand::new(ip, self.machine_id.clone(), role);
 
         let task_id = match self.operation {
             Operation::Reset => ipmi_command.power_reset(&pool).await?,
@@ -627,21 +628,27 @@ impl MachineBmcRequest {
 }
 
 // This function will create a background task under IPMI handler to enable lockdown and reset.
-pub async fn enable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
+pub async fn enable_lockdown_reset_machine(
+    machine_id: &MachineId,
+    pool: PgPool,
+) -> CarbideResult<Uuid> {
     log::info!(
         "Sending enable lockdown and power reset command for machine: {}",
         machine_id
     );
-    let mpr = MachineBmcRequest::new(machine_id, Operation::EnableLockdown, true);
+    let mpr = MachineBmcRequest::new(machine_id.clone(), Operation::EnableLockdown, true);
     mpr.invoke_bmc_command(pool).await
 }
 
 // This function will create a background task under IPMI handler to disable lockdown and reset.
-pub async fn disable_lockdown_reset_machine(machine_id: Uuid, pool: PgPool) -> CarbideResult<Uuid> {
+pub async fn disable_lockdown_reset_machine(
+    machine_id: &MachineId,
+    pool: PgPool,
+) -> CarbideResult<Uuid> {
     log::info!(
         "Sending disable lockdown and power reset command for machine: {}",
         machine_id
     );
-    let mpr = MachineBmcRequest::new(machine_id, Operation::DisableLockdown, true);
+    let mpr = MachineBmcRequest::new(machine_id.clone(), Operation::DisableLockdown, true);
     mpr.invoke_bmc_command(pool).await
 }

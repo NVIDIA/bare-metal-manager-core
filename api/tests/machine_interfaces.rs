@@ -146,9 +146,9 @@ async fn many_non_primary_interfaces_per_machine(
     Ok(())
 }
 
-const DPU_MACHINE_INT_ID: uuid::Uuid = uuid::uuid!("ad871735-efaa-406e-a83e-9ff63b1bc145");
-const DPU_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
-const HOST_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd99");
+const DPU_MACHINE_INT_ID: &str = "ad871735-efaa-406e-a83e-9ff63b1bc145";
+const DPU_MACHINE_ID: &str = "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
+const HOST_MACHINE_ID: &str = "fm100htT5SKOR7BXF7RGH5LW22EOKLMTNXQEAPHT6Z4KNLONR36RG3KQBVA";
 
 #[sqlx::test(fixtures(
     "create_domain",
@@ -166,7 +166,7 @@ async fn test_find_machine_by_loopback(
     )
     .await
     .unwrap();
-    assert_eq!(machine_interface.id, DPU_MACHINE_INT_ID);
+    assert_eq!(machine_interface.id, DPU_MACHINE_INT_ID.parse().unwrap());
     Ok(())
 }
 
@@ -179,12 +179,15 @@ async fn test_find_machine_by_loopback(
 async fn test_dpu_machine_test(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let machine = DpuMachine::find_by_machine_id(&mut txn, &DPU_MACHINE_ID)
+    let machine = DpuMachine::find_by_machine_id(&mut txn, &DPU_MACHINE_ID.parse().unwrap())
         .await
         .unwrap();
 
-    assert_eq!(machine._machine_interface_id(), &DPU_MACHINE_INT_ID);
-    let machine = DpuMachine::find_by_machine_id(&mut txn, &HOST_MACHINE_ID).await;
+    assert_eq!(
+        machine._machine_interface_id(),
+        &DPU_MACHINE_INT_ID.parse().unwrap()
+    );
+    let machine = DpuMachine::find_by_machine_id(&mut txn, &HOST_MACHINE_ID.parse().unwrap()).await;
 
     assert!(machine.is_err());
     Ok(())

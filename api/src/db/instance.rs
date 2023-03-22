@@ -22,7 +22,7 @@ use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::{DatabaseError, UuidKeyedObjectFilter};
 use crate::{
-    db::instance_address::InstanceAddress,
+    db::{instance_address::InstanceAddress, machine::DbMachineId},
     model::{
         config_version::Versioned,
         instance::{
@@ -32,6 +32,7 @@ use crate::{
             },
             status::network::InstanceNetworkStatusObservation,
         },
+        machine::machine_id::MachineId,
     },
     CarbideError, CarbideResult,
 };
@@ -42,7 +43,7 @@ pub mod status;
 #[derive(Debug, Clone)]
 pub struct Instance {
     pub id: uuid::Uuid,
-    pub machine_id: uuid::Uuid,
+    pub machine_id: MachineId,
     pub requested: DateTime<Utc>,
     pub started: DateTime<Utc>,
     pub finished: Option<DateTime<Utc>>,
@@ -58,7 +59,7 @@ pub struct InstanceList {
 }
 
 pub struct NewInstance<'a> {
-    pub machine_id: uuid::Uuid,
+    pub machine_id: MachineId,
     pub tenant_config: &'a TenantConfig,
     pub ssh_keys: Vec<String>,
     pub network_config: Versioned<&'a InstanceNetworkConfig>,
@@ -72,6 +73,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let user_data: Option<String> = row.try_get("user_data")?;
         let custom_ipxe = row.try_get("custom_ipxe")?;
+        let machine_id: DbMachineId = row.try_get("machine_id")?;
         let tenant_org_str = row.try_get::<String, _>("tenant_org")?;
         let tenant_org = TenantOrganizationId::try_from(tenant_org_str)
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
@@ -85,7 +87,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
 
         Ok(Instance {
             id: row.try_get("id")?,
-            machine_id: row.try_get("machine_id")?,
+            machine_id: machine_id.into_inner(),
             requested: row.try_get("requested")?,
             started: row.try_get("started")?,
             finished: row.try_get("finished")?,
@@ -149,16 +151,16 @@ impl Instance {
 
     pub async fn find_id_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        machine_id: uuid::Uuid,
+        machine_id: &MachineId,
     ) -> Result<Option<uuid::Uuid>, DatabaseError> {
         #[derive(Debug, Clone, Copy, FromRow)]
         pub struct InstanceId(uuid::Uuid);
 
         // TODO: This won't work anymore if instances are not hard deleted on user delete.
         // Multiple instances will map to the same machine. We would need to get the active one.
-        let query = "SELECT id from instances WHERE machine_id = $1::uuid";
+        let query = "SELECT id from instances WHERE machine_id = $1";
         let instance_id = sqlx::query_as::<_, InstanceId>(query)
-            .bind(machine_id)
+            .bind(machine_id.to_string())
             .fetch_optional(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -168,11 +170,11 @@ impl Instance {
 
     pub async fn find_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        machine_id: uuid::Uuid,
+        machine_id: &MachineId,
     ) -> Result<Option<Instance>, DatabaseError> {
-        let query = "SELECT * from instances WHERE machine_id = $1::uuid";
+        let query = "SELECT * from instances WHERE machine_id = $1";
         let instance = sqlx::query_as::<_, Instance>(query)
-            .bind(machine_id)
+            .bind(machine_id.to_string())
             .fetch_optional(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -200,16 +202,16 @@ WHERE v.loopback_ip_address=$1";
     }
 
     pub async fn use_custom_ipxe_on_next_boot(
-        machine_id: uuid::Uuid,
+        machine_id: &MachineId,
         boot_with_custom_ipxe: bool,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query =
-            "UPDATE instances SET use_custom_pxe_on_boot=$1::bool WHERE machine_id=$2::uuid RETURNING machine_id";
+            "UPDATE instances SET use_custom_pxe_on_boot=$1::bool WHERE machine_id=$2 RETURNING machine_id";
         // Fetch one to make sure atleast one row is updated.
-        let _: (uuid::Uuid,) = sqlx::query_as(query)
+        let _: (DbMachineId,) = sqlx::query_as(query)
             .bind(boot_with_custom_ipxe)
-            .bind(machine_id)
+            .bind(machine_id.to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -239,10 +241,10 @@ impl<'a> NewInstance<'a> {
                         network_config_version,
                         network_status_observation
                     )
-                    VALUES ($1::uuid, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json)
+                    VALUES ($1, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json)
                     RETURNING *";
         sqlx::query_as(query)
-            .bind(self.machine_id)
+            .bind(self.machine_id.to_string())
             .bind(&self.tenant_config.user_data)
             .bind(&self.tenant_config.custom_ipxe)
             .bind(self.tenant_config.tenant_organization_id.as_str())

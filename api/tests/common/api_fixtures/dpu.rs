@@ -56,12 +56,15 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
     let dpu_machine_id = dpu_discover_machine(env, machine_interface_id).await;
     let handler = MachineStateHandler::default();
-    let dpu_machine_id_uuid = try_parse_machine_id(&dpu_machine_id).unwrap();
+
+    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+    let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
+
     // Simulate the ForgeAgentControl request of the DPU
     let agent_control_response = env
         .api
         .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
-            machine_id: Some(dpu_machine_id.clone()),
+            machine_id: Some(dpu_rpc_machine_id.clone()),
         }))
         .await
         .unwrap()
@@ -71,16 +74,16 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
         rpc::forge_agent_control_response::Action::Discovery as i32
     );
 
-    update_dpu_machine_credentials(env, dpu_machine_id.clone()).await;
+    update_dpu_machine_credentials(env, dpu_rpc_machine_id.clone()).await;
 
     // TODO: This it not really happening in the current version of forge-scout.
     // But it's in the test setup to verify reading back submitted credentials
-    update_dpu_bmc_metadata(env, dpu_machine_id.clone(), FIXTURE_DPU_BMC_IP_ADDRESS).await;
+    update_dpu_bmc_metadata(env, dpu_rpc_machine_id.clone(), FIXTURE_DPU_BMC_IP_ADDRESS).await;
 
-    dpu_discovery_completed(env, dpu_machine_id.clone()).await;
+    dpu_discovery_completed(env, dpu_rpc_machine_id.clone()).await;
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        dpu_machine_id_uuid,
+        &dpu_machine_id,
         &handler,
         2,
         &mut txn,
@@ -89,7 +92,7 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     .await;
     txn.commit().await.unwrap();
 
-    dpu_machine_id
+    dpu_rpc_machine_id
 }
 
 /// Uses the `discover_dhcp` API to discover a DPU with a certain MAC address

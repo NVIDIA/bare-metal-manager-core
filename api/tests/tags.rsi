@@ -13,7 +13,7 @@ use log::LevelFilter;
 
 use carbide::db::tags::{Tag, TagAssociation, TagCreate, TagDelete, TagTargetKind, TagsList};
 
-const FIXTURE_CREATED_MACHINE_ID: uuid::Uuid = uuid::uuid!("52dfecb4-8070-4f4b-ba95-f66d0f51fd98");
+const FIXTURE_CREATED_MACHINE_ID: &str = "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
 
 #[ctor::ctor]
 fn setup() {

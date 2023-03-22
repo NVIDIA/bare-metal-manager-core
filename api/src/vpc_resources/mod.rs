@@ -12,6 +12,7 @@
 use std::time::SystemTime;
 
 use crate::model::instance::config::network::InterfaceFunctionId;
+use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::{
     DPU_PHYSICAL_NETWORK_INTERFACE, DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER,
 };
@@ -171,7 +172,7 @@ impl BlueFieldInterface {
         BlueFieldInterface(interface)
     }
 
-    pub fn leaf_interface_id(&self, dpu_machine_id: &uuid::Uuid) -> String {
+    pub fn leaf_interface_id(&self, dpu_machine_id: &MachineId) -> String {
         format!("{}.{}", dpu_machine_id, self.0.kube_representation())
     }
 
@@ -189,11 +190,11 @@ impl BlueFieldInterface {
 
 struct BlueFieldInterfaceMap {
     interfaces: BTreeMap<String, String>,
-    dpu_machine_id: uuid::Uuid,
+    dpu_machine_id: MachineId,
 }
 
 impl BlueFieldInterfaceMap {
-    fn new(dpu_machine_id: uuid::Uuid) -> Self {
+    fn new(dpu_machine_id: MachineId) -> Self {
         BlueFieldInterfaceMap {
             interfaces: BTreeMap::new(),
             dpu_machine_id,
@@ -209,7 +210,7 @@ impl BlueFieldInterfaceMap {
     }
 }
 
-pub fn host_interfaces(dpu_machine_id: &uuid::Uuid) -> BTreeMap<String, String> {
+pub fn host_interfaces(dpu_machine_id: &MachineId) -> BTreeMap<String, String> {
     // Virtual interfaces start from 1 to 16.
     let mut interface_map = BlueFieldInterfaceMap::new(dpu_machine_id.to_owned());
 
@@ -228,32 +229,100 @@ mod tests {
 
     const BASE_TIME: &str = "2022-09-29T16:40:49Z";
     const NEW_TIME: &str = "2022-09-29T18:40:49Z";
-    const DPU_MACHINE_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
+    const DPU_MACHINE_ID: &str = "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
 
     #[template]
     #[rstest]
-    #[case(0, "60cef902-9779-4666-8362-c9bb4b37184f.pf", "pf0hpf")]
-    #[case(1, "60cef902-9779-4666-8362-c9bb4b37184f.vf-1", "pf0vf0")]
-    #[case(2, "60cef902-9779-4666-8362-c9bb4b37184f.vf-2", "pf0vf1")]
-    #[case(3, "60cef902-9779-4666-8362-c9bb4b37184f.vf-3", "pf0vf2")]
-    #[case(4, "60cef902-9779-4666-8362-c9bb4b37184f.vf-4", "pf0vf3")]
-    #[case(5, "60cef902-9779-4666-8362-c9bb4b37184f.vf-5", "pf0vf4")]
-    #[case(6, "60cef902-9779-4666-8362-c9bb4b37184f.vf-6", "pf0vf5")]
-    #[case(7, "60cef902-9779-4666-8362-c9bb4b37184f.vf-7", "pf0vf6")]
-    #[case(8, "60cef902-9779-4666-8362-c9bb4b37184f.vf-8", "pf0vf7")]
-    #[case(9, "60cef902-9779-4666-8362-c9bb4b37184f.vf-9", "pf0vf8")]
-    #[case(10, "60cef902-9779-4666-8362-c9bb4b37184f.vf-10", "pf0vf9")]
-    #[case(11, "60cef902-9779-4666-8362-c9bb4b37184f.vf-11", "pf0vf10")]
-    #[case(12, "60cef902-9779-4666-8362-c9bb4b37184f.vf-12", "pf0vf11")]
-    #[case(13, "60cef902-9779-4666-8362-c9bb4b37184f.vf-13", "pf0vf12")]
-    #[case(14, "60cef902-9779-4666-8362-c9bb4b37184f.vf-14", "pf0vf13")]
-    #[case(15, "60cef902-9779-4666-8362-c9bb4b37184f.vf-15", "pf0vf14")]
-    #[case(16, "60cef902-9779-4666-8362-c9bb4b37184f.vf-16", "pf0vf15")]
+    #[case(
+        0,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.pf",
+        "pf0hpf"
+    )]
+    #[case(
+        1,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-1",
+        "pf0vf0"
+    )]
+    #[case(
+        2,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-2",
+        "pf0vf1"
+    )]
+    #[case(
+        3,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-3",
+        "pf0vf2"
+    )]
+    #[case(
+        4,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-4",
+        "pf0vf3"
+    )]
+    #[case(
+        5,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-5",
+        "pf0vf4"
+    )]
+    #[case(
+        6,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-6",
+        "pf0vf5"
+    )]
+    #[case(
+        7,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-7",
+        "pf0vf6"
+    )]
+    #[case(
+        8,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-8",
+        "pf0vf7"
+    )]
+    #[case(
+        9,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-9",
+        "pf0vf8"
+    )]
+    #[case(
+        10,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-10",
+        "pf0vf9"
+    )]
+    #[case(
+        11,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-11",
+        "pf0vf10"
+    )]
+    #[case(
+        12,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-12",
+        "pf0vf11"
+    )]
+    #[case(
+        13,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-13",
+        "pf0vf12"
+    )]
+    #[case(
+        14,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-14",
+        "pf0vf13"
+    )]
+    #[case(
+        15,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-15",
+        "pf0vf14"
+    )]
+    #[case(
+        16,
+        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-16",
+        "pf0vf15"
+    )]
     fn test_params() {}
 
     #[apply(test_params)]
     fn test_host_interfaces(#[case] _id: u8, #[case] key: &str, #[case] value: &str) {
-        let x = host_interfaces(&DPU_MACHINE_ID);
+        let x = host_interfaces(&DPU_MACHINE_ID.parse().unwrap());
         let val = x.get(key);
         assert!(val.is_some());
         assert_eq!(val.unwrap(), value);
@@ -264,8 +333,8 @@ mod tests {
         let physical_interface =
             BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {});
         assert_eq!(
-            "60cef902-9779-4666-8362-c9bb4b37184f.pf".to_owned(),
-            physical_interface.leaf_interface_id(&DPU_MACHINE_ID,)
+            "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.pf".to_owned(),
+            physical_interface.leaf_interface_id(&DPU_MACHINE_ID.parse().unwrap())
         );
     }
 
@@ -282,7 +351,7 @@ mod tests {
             BlueFieldInterface::new(InterfaceFunctionId::VirtualFunctionId { id });
         assert_eq!(
             leaf_interface_name,
-            virtual_interface.leaf_interface_id(&DPU_MACHINE_ID,)
+            virtual_interface.leaf_interface_id(&DPU_MACHINE_ID.parse().unwrap())
         );
         assert_eq!(interface_name, virtual_interface.interface_name());
     }

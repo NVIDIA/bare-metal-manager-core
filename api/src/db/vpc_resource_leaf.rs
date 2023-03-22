@@ -15,25 +15,28 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row};
 
+use super::machine::DbMachineId;
 use super::machine_interface::MachineInterface;
 use super::DatabaseError;
+use crate::model::machine::machine_id::MachineId;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct VpcResourceLeaf {
-    id: uuid::Uuid,
+    id: MachineId,
     loopback_ip_address: Option<IpAddr>,
 }
 
 #[derive(Debug)]
 pub struct NewVpcResourceLeaf {
-    dpu_machine_id: uuid::Uuid,
+    dpu_machine_id: MachineId,
 }
 
 impl<'r> FromRow<'r, PgRow> for VpcResourceLeaf {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let id: DbMachineId = row.try_get("id")?;
         Ok(VpcResourceLeaf {
-            id: row.try_get("id")?,
+            id: id.into(),
             loopback_ip_address: row.try_get("loopback_ip_address")?,
         })
     }
@@ -44,11 +47,11 @@ impl VpcResourceLeaf {
     // that always return CarbideResult<Vec<T>>
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        dpu_machine_id: uuid::Uuid,
+        dpu_machine_id: &MachineId,
     ) -> Result<VpcResourceLeaf, DatabaseError> {
         let query = "SELECT * from vpc_resource_leafs WHERE id = $1";
         sqlx::query_as(query)
-            .bind(dpu_machine_id)
+            .bind(dpu_machine_id.to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -82,10 +85,10 @@ impl VpcResourceLeaf {
         );
 
         let query =
-            "UPDATE vpc_resource_leafs SET loopback_ip_address=$1::inet where id=$2::uuid RETURNING *";
+            "UPDATE vpc_resource_leafs SET loopback_ip_address=$1::inet where id=$2 RETURNING *";
         let leaf = sqlx::query_as(query)
             .bind(ip_address)
-            .bind(self.id)
+            .bind(self.id.to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -95,7 +98,7 @@ impl VpcResourceLeaf {
     }
 
     /// Returns the ID of the machine object
-    pub fn id(&self) -> &uuid::Uuid {
+    pub fn id(&self) -> &MachineId {
         &self.id
     }
 
@@ -122,7 +125,7 @@ WHERE vpc_resource_leafs.loopback_ip_address = $1";
 }
 
 impl NewVpcResourceLeaf {
-    pub fn new(dpu_machine_id: uuid::Uuid) -> NewVpcResourceLeaf {
+    pub fn new(dpu_machine_id: MachineId) -> NewVpcResourceLeaf {
         Self { dpu_machine_id }
     }
 
@@ -130,9 +133,9 @@ impl NewVpcResourceLeaf {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<VpcResourceLeaf, DatabaseError> {
-        let query = "INSERT INTO vpc_resource_leafs (id) VALUES($1::uuid) returning *";
+        let query = "INSERT INTO vpc_resource_leafs (id) VALUES($1) returning *";
         sqlx::query_as(query)
-            .bind(self.dpu_machine_id)
+            .bind(self.dpu_machine_id.to_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
