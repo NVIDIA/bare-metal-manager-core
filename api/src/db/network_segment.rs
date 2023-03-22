@@ -410,7 +410,7 @@ impl NetworkSegment {
     }
 
     /// Updates the network segment state that is owned by the state controller
-    /// under the premise that the curren controller state version didn't change.
+    /// under the premise that the current controller state version didn't change.
     ///
     /// Returns `true` if the state could be updated, and `false` if the object
     /// either doesn't exist anymore or is at a different version.

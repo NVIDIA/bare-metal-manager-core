@@ -200,7 +200,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
     handler_services: &Arc<StateHandlerServices>,
     config: &Config,
 ) -> Result<(), IterationError> {
-    // We start by grabbing a list of objectss that should be active
+    // We start by grabbing a list of objects that should be active
     // The list might change until we fetch more data. However that should be ok:
     // The next iteration of the controller would also find objects that
     // have been added to the system. And no object should ever be removed
