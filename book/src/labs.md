@@ -2,8 +2,8 @@
 
 ## Required access groups
 
-In order to reach any of IP's in our lab environments you need to be a member of  
-`forge-dev-ssh-access` ssh groups. 
+In order to reach any of IP's in our lab environments you need to be a member of
+`forge-dev-ssh-access` ssh groups.
 
 You must first install the latest version of [nvinit](https://confluence.nvidia.com/display/COS/NGC+Security+Engineering+Home#NGCSecurityEngineeringHome-Installation&Usage) and optionally hashicorp vault.
 
@@ -48,7 +48,7 @@ Host sjc4jump 24.51.7.3
   User bouncer
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
-Host renojump 155.130.12.194 
+Host renojump 155.130.12.194
   Hostname 155.130.12.194
   Compression yes
   User bouncer

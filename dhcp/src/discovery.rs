@@ -327,7 +327,17 @@ unsafe fn discovery_fetch_machine_at(
         //
         let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
 
-        match runtime.block_on(Machine::try_fetch(discovery, url, vendor_class.clone())) {
+        let forge_root_ca_path = &CONFIG
+            .read()
+            .unwrap() // TODO(ajf): don't unwrap
+            .forge_root_ca_path;
+
+        match runtime.block_on(Machine::try_fetch(
+            discovery,
+            url,
+            vendor_class.clone(),
+            forge_root_ca_path.clone(),
+        )) {
             Ok(machine) => {
                 cache::put(
                     mac_address,
@@ -340,11 +350,12 @@ unsafe fn discovery_fetch_machine_at(
                 DiscoveryBuilderResult::Success
             }
             Err(e_str) => {
-                log::info!(
-                    "Error getting info back from the machine discovery: mac={} addr={} err={}",
+                log::error!(
+                    "Error getting info back from the machine discovery: mac={} addr={} err={} api_url={}",
                     mac_address,
                     addr_for_dhcp,
-                    e_str
+                    e_str,
+                    url
                 );
                 DiscoveryBuilderResult::FetchMachineError
             }

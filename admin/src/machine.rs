@@ -12,10 +12,12 @@
 use std::fmt::Write;
 use std::time::Duration;
 
-use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 
+use ::rpc::forge as forgerpc;
+
 use crate::cfg::carbide_options::ForceDeleteMachineQuery;
+use crate::Config;
 
 use super::cfg::carbide_options::ShowMachine;
 use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
@@ -199,8 +201,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
     table.into()
 }
 
-async fn show_all_machines(json: bool, carbide_api: String) -> CarbideCliResult<()> {
-    let machines = rpc::get_all_machines(carbide_api).await?;
+async fn show_all_machines(json: bool, api_config: Config) -> CarbideCliResult<()> {
+    let machines = rpc::get_all_machines(api_config).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&machines).unwrap());
     } else {
@@ -212,9 +214,9 @@ async fn show_all_machines(json: bool, carbide_api: String) -> CarbideCliResult<
 async fn show_machine_information(
     id: String,
     json: bool,
-    carbide_api: String,
+    api_config: Config,
 ) -> CarbideCliResult<()> {
-    let machine = rpc::get_machine(id, carbide_api).await?;
+    let machine = rpc::get_machine(id, api_config).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&machine).unwrap());
     } else {
@@ -229,12 +231,12 @@ async fn show_machine_information(
 pub async fn handle_show(
     args: ShowMachine,
     json: bool,
-    carbide_api: String,
+    api_config: Config,
 ) -> CarbideCliResult<()> {
     if args.all {
-        show_all_machines(json, carbide_api).await?;
+        show_all_machines(json, api_config).await?;
     } else if let Some(uuid) = args.uuid {
-        show_machine_information(uuid, json, carbide_api).await?;
+        show_machine_information(uuid, json, api_config).await?;
     }
 
     Ok(())
@@ -242,7 +244,7 @@ pub async fn handle_show(
 
 pub async fn force_delete(
     query: ForceDeleteMachineQuery,
-    carbide_api: String,
+    api_config: Config,
 ) -> CarbideCliResult<()> {
     const RETRY_TIME: Duration = Duration::from_secs(5);
     const MAX_WAIT_TIME: Duration = Duration::from_secs(60 * 10);
@@ -250,7 +252,7 @@ pub async fn force_delete(
     let start = std::time::Instant::now();
 
     loop {
-        let response = rpc::machine_admin_force_delete(query.clone(), carbide_api.clone()).await?;
+        let response = rpc::machine_admin_force_delete(query.clone(), api_config.clone()).await?;
         println!(
             "Force delete response: {}",
             serde_json::to_string_pretty(&response).unwrap()

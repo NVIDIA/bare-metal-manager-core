@@ -28,7 +28,13 @@ async fn user_data_handler_in_assigned(
 
     let user_data = match &machine_id {
         Some(rpc_machine) => {
-            match RpcContext::get_instance(rpc_machine.clone(), config.api_url.clone()).await {
+            match RpcContext::get_instance(
+                rpc_machine.clone(),
+                config.api_url.clone(),
+                config.forge_root_ca_path.clone(),
+            )
+            .await
+            {
                 Ok(rpc::Instance {
                     config:
                         Some(rpc::InstanceConfig {
@@ -230,6 +236,7 @@ mod tests {
             api_url: "https://127.0.0.1:8001".to_string(),
             pxe_url: "http://127.0.0.1:8080".to_string(),
             ntp_server: "127.0.0.2".to_string(),
+            forge_root_ca_path: None,
         };
 
         let interface_id: uuid::Uuid = interface_id.parse().unwrap();

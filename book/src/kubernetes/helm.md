@@ -62,13 +62,13 @@ Helm chart changes can be verified using the following steps:
 4. You can verify the generated helm chart by inspecting the output
 5. In case template rendering fails with a linting error like
    > [ERROR] templates/deployment.yaml: unable to parse YAML: error converting YAML to JSON: yaml: line 116: did not find expected node content
-   
+
    You are able to inspect the generated yaml and why it fails by commenting
    the lines that have been added and are potential source of errors via
    prefixing them with `#`. After a line is commented, the `helm template .`
    command should succeed and templates should still be expected. Thereby
    you can inspect the output and spot malformed content, like
    > `#              value: [::0]:%!d(float64=1080)`
-   
+
    After the template is fixed and rendering the content shows the expected
    values, you can uncomment the line again.

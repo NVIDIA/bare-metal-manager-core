@@ -10,15 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge as rpc;
-use forge_host_support::hardware_enumeration::{CpuArchitecture, HardwareEnumerationError};
 // wrapper for libc::uname()
 use uname::uname;
+
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client;
+use forge_host_support::hardware_enumeration::{CpuArchitecture, HardwareEnumerationError};
 
 use crate::CarbideClientError;
 
 pub async fn run(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientError> {
-    if let Err(err) = crate::users::create_users(forge_api.to_string(), machine_id).await {
+    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+        .connect(forge_api)
+        .await
+        .map_err(|err| CarbideClientError::GenericError(err.to_string()))?;
+    if let Err(err) = crate::users::create_users(&mut client, machine_id).await {
         log::error!("Error while setting up users. {}", err.to_string());
     }
     // Note: We're intentionally not doing this for Aarch64 (DPUs) because losing the root password for
@@ -27,13 +33,21 @@ pub async fn run(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientE
     let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
     let architecture: CpuArchitecture = info.machine.parse()?;
     if architecture == CpuArchitecture::X86_64 {
-        crate::ipmi::update_ipmi_creds(forge_api.to_string(), machine_id).await?;
+        crate::ipmi::update_ipmi_creds(&mut client, machine_id)
+            .await
+            .map_err(|err| {
+                log::error!("Error while setting up IPMI. {}", err.to_string());
+                err
+            })?;
     }
     Ok(())
 }
 
 pub async fn completed(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientError> {
-    let mut client = rpc::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
+    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+        .connect(forge_api)
+        .await
+        .map_err(|err| CarbideClientError::GenericError(err.to_string()))?;
     let request = tonic::Request::new(rpc::MachineDiscoveryCompletedRequest {
         machine_id: Some(machine_id.to_string().into()),
     });

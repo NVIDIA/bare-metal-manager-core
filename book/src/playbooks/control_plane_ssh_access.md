@@ -78,7 +78,7 @@ After you configured the CLI correctly, your NGC CLI config file should look alo
 ```
 cat ~/.ngc/config
 ;WARNING - This is a machine generated file.  Do not edit manually.
-;WARNING - To update local config settings, see "ngc config set -h" 
+;WARNING - To update local config settings, see "ngc config set -h"
 
 [CURRENT]
 apikey = YOUR_API_KEY
@@ -129,10 +129,10 @@ organization can use the follow steps to add permissions:
 - Check the `Admin` checkbox in the `Fleet Command` box.
 - Click "Add Role".
 
-**Note: This might lead you to a screen where everything is greyed out, 
-and where the new role might not yet be reflected. Going back to the 
-Users screen might also not yet show new permissions. This is a NGC UI 
-limitation. Users will receive an email invite and first have to accept 
+**Note: This might lead you to a screen where everything is greyed out,
+and where the new role might not yet be reflected. Going back to the
+Users screen might also not yet show new permissions. This is a NGC UI
+limitation. Users will receive an email invite and first have to accept
 this email before the new permissions will show up. This even applies if
 the user had NGC access before.**
 

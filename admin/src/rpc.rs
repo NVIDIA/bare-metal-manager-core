@@ -1,5 +1,13 @@
 use std::future::Future;
 
+use ::rpc::forge::{self as rpc, NetworkSegmentSearchConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientT};
+
+use crate::cfg::carbide_options::ForceDeleteMachineQuery;
+use crate::Config;
+
+use super::{CarbideCliError, CarbideCliResult};
+
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -11,28 +19,23 @@ use std::future::Future;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::forge::{self as rpc, NetworkSegmentSearchConfig};
-use tonic::transport::Channel;
-
-use super::{CarbideCliError, CarbideCliResult};
-use crate::cfg::carbide_options::ForceDeleteMachineQuery;
-
 pub async fn with_forge_client<T, F>(
-    server: String,
-    callback: impl FnOnce(rpc::forge_client::ForgeClient<Channel>) -> F,
+    api_config: Config,
+    callback: impl FnOnce(ForgeClientT) -> F,
 ) -> CarbideCliResult<T>
 where
     F: Future<Output = CarbideCliResult<T>>,
 {
-    let client = rpc::forge_client::ForgeClient::connect(server)
+    let client = forge_tls_client::ForgeTlsClient::new(Some(api_config.forge_root_ca_path))
+        .connect(api_config.carbide_api_url)
         .await
-        .map_err(CarbideCliError::ApiConnectFailed)?;
+        .map_err(|err| CarbideCliError::ApiConnectFailed(err.to_string()))?;
 
     callback(client).await
 }
 
-pub async fn get_machine(id: String, server: String) -> CarbideCliResult<rpc::Machine> {
-    with_forge_client(server, |mut client| async move {
+pub async fn get_machine(id: String, api_config: Config) -> CarbideCliResult<rpc::Machine> {
+    with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::MachineId { id });
         let machine_details = client
             .get_machine(request)
@@ -45,8 +48,8 @@ pub async fn get_machine(id: String, server: String) -> CarbideCliResult<rpc::Ma
     .await
 }
 
-pub async fn get_all_machines(server: String) -> CarbideCliResult<rpc::MachineList> {
-    with_forge_client(server, |mut client| async move {
+pub async fn get_all_machines(api_config: Config) -> CarbideCliResult<rpc::MachineList> {
+    with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::MachineSearchQuery {
             id: None,
             fqdn: None,
@@ -67,10 +70,10 @@ pub async fn get_all_machines(server: String) -> CarbideCliResult<rpc::MachineLi
 }
 
 pub async fn get_instances(
-    server: String,
+    api_config: Config,
     id: Option<String>,
 ) -> CarbideCliResult<rpc::InstanceList> {
-    with_forge_client(server, |mut client| async move {
+    with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::InstanceSearchQuery {
             id: id.map(|x| rpc::Uuid { value: x }),
         });
@@ -86,10 +89,10 @@ pub async fn get_instances(
 }
 
 pub async fn get_instances_by_machine_id(
-    server: String,
+    api_config: Config,
     id: String,
 ) -> CarbideCliResult<rpc::InstanceList> {
-    with_forge_client(server, |mut client| async move {
+    with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::MachineId { id });
         let instance_details = client
             .find_instance_by_machine_id(request)
@@ -104,9 +107,9 @@ pub async fn get_instances_by_machine_id(
 
 pub async fn get_segments(
     id: Option<rpc::Uuid>,
-    server: String,
+    api_config: Config,
 ) -> CarbideCliResult<rpc::NetworkSegmentList> {
-    with_forge_client(server, |mut client| async move {
+    with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::NetworkSegmentQuery {
             id,
             search_config: Some(NetworkSegmentSearchConfig {
@@ -126,9 +129,9 @@ pub async fn get_segments(
 
 pub async fn get_domains(
     id: Option<rpc::Uuid>,
-    server: String,
+    api_config: Config,
 ) -> CarbideCliResult<rpc::DomainList> {
-    with_forge_client(server, |mut client| async move {
+    with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::DomainSearchQuery { id, name: None });
         let networks = client
             .find_domain(request)
@@ -143,9 +146,9 @@ pub async fn get_domains(
 
 pub async fn get_dpu_ssh_credential(
     query: String,
-    server: String,
+    api_config: Config,
 ) -> CarbideCliResult<rpc::CredentialResponse> {
-    with_forge_client(server, |mut client| async move {
+    with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::CredentialRequest { host_id: query });
         let cred = client
             .get_dpu_ssh_credential(request)
@@ -159,9 +162,9 @@ pub async fn get_dpu_ssh_credential(
 }
 
 pub async fn get_all_managed_host_network_status(
-    server: String,
+    api_config: Config,
 ) -> CarbideCliResult<rpc::ManagedHostNetworkStatusResponse> {
-    with_forge_client(server, |mut client| async move {
+    with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::ManagedHostNetworkStatusRequest {});
         let all = client
             .get_all_managed_host_network_status(request)
@@ -176,9 +179,9 @@ pub async fn get_all_managed_host_network_status(
 
 pub async fn machine_admin_force_delete(
     query: ForceDeleteMachineQuery,
-    server: String,
+    api_config: Config,
 ) -> CarbideCliResult<::rpc::forge::AdminForceDeleteMachineResponse> {
-    with_forge_client(server, |mut client| async move {
+    with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(::rpc::forge::AdminForceDeleteMachineRequest {
             host_query: query.machine,
         });
@@ -202,12 +205,12 @@ pub enum RebootAuth {
 }
 
 pub async fn reboot(
-    server: String,
+    api_config: Config,
     ip: String,
     port: Option<u32>,
     auth: RebootAuth,
 ) -> CarbideCliResult<rpc::AdminRebootResponse> {
-    with_forge_client(server, |mut client| async move {
+    with_forge_client(api_config, |mut client| async move {
         let (user, password, machine_id) = match auth {
             RebootAuth::Direct { user, password } => (Some(user), Some(password), None),
             RebootAuth::Indirect { machine_id } => (None, None, Some(machine_id)),

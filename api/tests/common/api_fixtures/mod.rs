@@ -62,11 +62,13 @@ impl TestEnv {
     /// Creates an instance of StateHandlerServices that are suitable for this
     /// test environment
     pub fn state_handler_services(&self) -> StateHandlerServices {
-        let forge_api = Arc::new(carbide::api::Api::new(
+        let forge_api = Arc::new(Api::new(
             self.credential_provider.clone(),
             self.pool.clone(),
             Authorizer::new(Arc::new(NoopEngine {})),
             self.vpc_api.clone(),
+            "not a real pemfile path".to_string(),
+            "not a real keyfile path".to_string(),
         ));
         StateHandlerServices {
             pool: self.pool.clone(),
@@ -186,6 +188,8 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
         pool.clone(),
         Authorizer::new(Arc::new(NoopEngine {})),
         vpc_api.clone(),
+        "not a real pemfile path".to_string(),
+        "not a real keyfile path".to_string(),
     );
 
     TestEnv {

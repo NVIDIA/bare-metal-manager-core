@@ -19,6 +19,7 @@ use std::{
 use tracing::{error, trace};
 
 use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client;
 
 /// The desired DPU configuration for a ManagedHost - as fetched from the
 /// Forge Site Controller
@@ -144,16 +145,18 @@ fn run_network_config_fetcher(state: Arc<NetworkConfigFetcherState>) {
 async fn fetch_latest_network_config(
     state: &NetworkConfigFetcherState,
 ) -> Result<NetworkConfig, eyre::Error> {
-    let mut client =
-        match rpc::forge_client::ForgeClient::connect(state.config.forge_api.clone()).await {
-            Ok(client) => client,
-            Err(err) => {
-                return Err(eyre::eyre!(
-                    "Could not connect to Forge API server at {}: {err}",
-                    state.config.forge_api
-                ));
-            }
-        };
+    let mut client = match forge_tls_client::ForgeTlsClient::new(None)
+        .connect(state.config.forge_api.clone())
+        .await
+    {
+        Ok(client) => client,
+        Err(err) => {
+            return Err(eyre::eyre!(
+                "Could not connect to Forge API server at {}: {err}",
+                state.config.forge_api
+            ));
+        }
+    };
     let request = tonic::Request::new(rpc::ManagedHostNetworkConfigRequest {
         machine_id: Some(rpc::MachineId {
             id: state.config.machine_id.clone(),

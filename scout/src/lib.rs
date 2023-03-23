@@ -15,8 +15,8 @@ pub enum CarbideClientError {
     #[error("Generic error: {0}")]
     GenericError(String),
 
-    #[error("Generic Tonic transport error {0}")]
-    TonicTransportError(#[from] tonic::transport::Error),
+    #[error("Generic transport error {0}")]
+    TransportError(String),
 
     #[error("Generic Tonic status error {0}")]
     TonicStatusError(#[from] tonic::Status),

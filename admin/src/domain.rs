@@ -9,11 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::fmt::Write;
+
+use prettytable::{row, Table};
+
+use ::rpc::forge as forgerpc;
+
+use crate::Config;
+
 use super::cfg::carbide_options::ShowDomain;
 use super::{rpc, CarbideCliError, CarbideCliResult};
-use ::rpc::forge as forgerpc;
-use prettytable::{row, Table};
-use std::fmt::Write;
 
 fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<String> {
     let width = 10;
@@ -58,8 +63,8 @@ fn convert_domain_to_nice_table(domains: forgerpc::DomainList) -> Box<Table> {
     table.into()
 }
 
-async fn show_all_domains(json: bool, carbide_api: String) -> CarbideCliResult<()> {
-    let domains = rpc::get_domains(None, carbide_api.clone()).await?;
+async fn show_all_domains(json: bool, api_config: Config) -> CarbideCliResult<()> {
+    let domains = rpc::get_domains(None, api_config).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&domains).unwrap());
     } else {
@@ -71,7 +76,7 @@ async fn show_all_domains(json: bool, carbide_api: String) -> CarbideCliResult<(
 async fn show_domain_information(
     id: String,
     json: bool,
-    carbide_api: String,
+    api_config: Config,
 ) -> CarbideCliResult<()> {
     let domains = rpc::get_domains(
         Some(
@@ -79,7 +84,7 @@ async fn show_domain_information(
                 .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
                 .into(),
         ),
-        carbide_api.clone(),
+        api_config,
     )
     .await?;
     if domains.domains.is_empty() {
@@ -98,15 +103,11 @@ async fn show_domain_information(
     Ok(())
 }
 
-pub async fn handle_show(
-    args: ShowDomain,
-    json: bool,
-    carbide_api: String,
-) -> CarbideCliResult<()> {
+pub async fn handle_show(args: ShowDomain, json: bool, api_config: Config) -> CarbideCliResult<()> {
     if args.all {
-        show_all_domains(json, carbide_api).await?;
+        show_all_domains(json, api_config).await?;
     } else if let Some(uuid) = args.uuid {
-        show_domain_information(uuid, json, carbide_api).await?;
+        show_domain_information(uuid, json, api_config).await?;
     }
 
     Ok(())

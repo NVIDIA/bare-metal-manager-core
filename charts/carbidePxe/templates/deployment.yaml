@@ -131,6 +131,8 @@ spec:
               value: {{ .Values.rocketEnv | quote }}
             - name: BITNAMI_DEBUG
               value: {{ ternary "true" "false" (or .Values.container.image.debug .Values.diagnosticMode.enabled) | quote }}
+            - name: FORGE_ROOT_CAFILE_PATH
+              value: {{ .Values.forgeRootCaFilePath | quote }}
             {{- if .Values.container.extraEnvVars }}
             {{- include "common.tplvalues.render" (dict "value" .Values.container.extraEnvVars "context" $) | nindent 12 }}
             {{- end }}

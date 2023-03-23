@@ -1,9 +1,5 @@
 use std::path::Path;
 
-use ::rpc::forge::{
-    forge_client::ForgeClient, machine_credentials_update_request::CredentialPurpose,
-    machine_credentials_update_request::Credentials,
-};
 use pwhash::sha512_crypt;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -11,9 +7,18 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
+use ::rpc::forge::{
+    machine_credentials_update_request::CredentialPurpose,
+    machine_credentials_update_request::Credentials,
+};
+use ::rpc::forge_tls_client::ForgeClientT;
+
 use crate::{CarbideClientError, CarbideClientResult};
 
-pub async fn create_users(forge_api: String, machine_id: &str) -> CarbideClientResult<()> {
+pub async fn create_users(
+    forge_client: &mut ForgeClientT,
+    machine_id: &str,
+) -> CarbideClientResult<()> {
     let login_user_creds = create_login_user().await?;
     let hbn_user_creds = create_hbn_user().await?;
     let update_request = ::rpc::forge::MachineCredentialsUpdateRequest {
@@ -21,9 +26,8 @@ pub async fn create_users(forge_api: String, machine_id: &str) -> CarbideClientR
         machine_id: Some(machine_id.to_string().into()),
     };
 
-    let mut client = ForgeClient::connect(forge_api).await?;
     let request = tonic::Request::new(update_request);
-    client.update_machine_credentials(request).await?;
+    forge_client.update_machine_credentials(request).await?;
 
     Ok(())
 }

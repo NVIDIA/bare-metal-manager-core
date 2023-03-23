@@ -36,7 +36,7 @@ services:
       - 8000:8000
     environment:
       - ROCKET_template_dir="/opt/carbide/pxe/templates"
-      - ROCKET_CARBIDE_API_URL=${carbide_url-"http://[::1]:1079}"
+      - ROCKET_CARBIDE_API_URL=${carbide_url-"https://[::1]:1079}"
       - ROCKET_ADDRESS="0.0.0.0"
       - ROCKET_PORT=8000
     command: ["/opt/carbide/carbide", "-s", "/opt/carbide/static"]

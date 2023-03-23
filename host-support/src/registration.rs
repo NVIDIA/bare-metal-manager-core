@@ -11,12 +11,13 @@
  */
 
 use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client;
 use ::rpc::machine_discovery as rpc_discovery;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RegistrationError {
-    #[error("Tonic transport error {0}")]
-    TonicTransportError(#[from] tonic::transport::Error),
+    #[error("Transport error {0}")]
+    TransportError(String),
     #[error("Tonic status error {0}")]
     TonicStatusError(#[from] tonic::Status),
     #[error("Missing or invalid machine id in API server response for machine interface ID {0}")]
@@ -44,7 +45,10 @@ pub async fn register_machine(
             hardware_info,
         )),
     };
-    let mut client = rpc::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
+    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+        .connect(forge_api.to_string())
+        .await
+        .map_err(|err| RegistrationError::TransportError(err.to_string()))?;
     let request = tonic::Request::new(info);
 
     let response = client

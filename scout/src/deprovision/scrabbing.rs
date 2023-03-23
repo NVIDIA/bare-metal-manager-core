@@ -12,13 +12,15 @@
 use std::fs;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
 use procfs::Meminfo;
 use regex::Regex;
 use rlimit::Resource;
-use scout::CarbideClientError;
 use serde::Deserialize;
 use uname::uname;
+
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client;
+use scout::CarbideClientError;
 
 use crate::deprovision::cmdrun;
 use crate::CarbideClientResult;
@@ -420,7 +422,10 @@ pub async fn run(api: &str, machine_id: &str) -> CarbideClientResult<()> {
         return Ok(());
     }
     let info = do_cleanup(machine_id).await?;
-    let mut client = rpc::forge_client::ForgeClient::connect(api.to_string()).await?;
+    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+        .connect(api)
+        .await
+        .map_err(|err| CarbideClientError::GenericError(err.to_string()))?;
     let request = tonic::Request::new(info);
     client.cleanup_machine_completed(request).await?;
     Ok(())

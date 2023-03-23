@@ -43,6 +43,8 @@ loglevel: INFO
 # loglevel -- loglevel of KEA
 useTLS: false
 # useTLS -- attempt to connect to carbide-api using TLS
+forgeRootCaFilePath: /run/secrets/spiffe.io/ca.crt
+# forgeRootCaFilePath -- where the forge root CA is on disk
 trustDomain: forge.local
 # trustDomain -- spiffe trust domain
 
