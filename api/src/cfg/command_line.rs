@@ -68,6 +68,22 @@ pub struct Daemon {
     #[clap(long, multiple_values(true), env = "CARBIDE_DHCP_SERVER")]
     pub dhcp_server: Vec<String>,
 
+    #[clap(
+        long,
+        multiple_values(false),
+        env = "IDENTITY_PEMFILE_PATH",
+        default_value = "/opt/forge/server_identity.pem"
+    )]
+    pub identity_pemfile_path: String,
+
+    #[clap(
+        long,
+        multiple_values(false),
+        env = "IDENTITY_KEYFILE_PATH",
+        default_value = "/opt/forge/server_identity.key"
+    )]
+    pub identity_keyfile_path: String,
+
     // TODO: cfg this out for release builds?
     /// Enable permissive mode in the authorization enforcer (for development).
     #[clap(

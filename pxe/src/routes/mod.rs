@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client;
 
 pub mod cloud_init;
 pub mod ipxe;
@@ -20,8 +21,10 @@ impl RpcContext {
     async fn get_pxe_instructions(
         machine_id: rpc::MachineId,
         url: String,
+        forge_root_ca_path: Option<String>,
     ) -> Result<String, String> {
-        let mut client = rpc::forge_client::ForgeClient::connect(url)
+        let mut client = forge_tls_client::ForgeTlsClient::new(forge_root_ca_path)
+            .connect(url)
             .await
             .map_err(|err| err.to_string())?;
         let request = tonic::Request::new(machine_id.clone());
@@ -40,8 +43,12 @@ impl RpcContext {
     async fn get_instance(
         machine_id: rpc::MachineId,
         url: String,
+        forge_root_ca_path: Option<String>,
     ) -> Result<rpc::Instance, String> {
-        match rpc::forge_client::ForgeClient::connect(url).await {
+        match forge_tls_client::ForgeTlsClient::new(forge_root_ca_path)
+            .connect(url)
+            .await
+        {
             Ok(mut client) => {
                 let request = tonic::Request::new(machine_id.clone());
 

@@ -11,12 +11,14 @@
  */
 use std::fmt::Write;
 
-use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
+
+use ::rpc::forge as forgerpc;
+
+use crate::{CarbideCliError, Config};
 
 use super::cfg::carbide_options::ShowInstance;
 use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
-use crate::CarbideCliError;
 
 fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,
@@ -233,8 +235,8 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
     table.into()
 }
 
-async fn show_all_instances(json: bool, carbide_api: String) -> CarbideCliResult<()> {
-    let instances = rpc::get_instances(carbide_api, None).await?;
+async fn show_all_instances(json: bool, api_config: Config) -> CarbideCliResult<()> {
+    let instances = rpc::get_instances(api_config, None).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&instances).unwrap());
     } else {
@@ -246,10 +248,10 @@ async fn show_all_instances(json: bool, carbide_api: String) -> CarbideCliResult
 async fn show_instance_details(
     id: String,
     json: bool,
-    carbide_api: String,
+    api_config: Config,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
-    let instance = rpc::get_instances(carbide_api, Some(id)).await?;
+    let instance = rpc::get_instances(api_config, Some(id)).await?;
     if instance.instances.len() != 1 {
         println!("Unknown UUID.");
         return Err(CarbideCliError::GenericError("Unknow UUID".to_string()));
@@ -271,10 +273,10 @@ async fn show_instance_details(
 async fn show_machine_details(
     id: String,
     json: bool,
-    carbide_api: String,
+    api_config: Config,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
-    let instance = rpc::get_instances_by_machine_id(carbide_api, id).await?;
+    let instance = rpc::get_instances_by_machine_id(api_config, id).await?;
     if instance.instances.len() != 1 {
         println!("Unknown UUID.");
         return Err(CarbideCliError::GenericError("Unknow UUID".to_string()));
@@ -296,14 +298,14 @@ async fn show_machine_details(
 pub async fn handle_show(
     args: ShowInstance,
     json: bool,
-    carbide_api: String,
+    api_config: Config,
 ) -> CarbideCliResult<()> {
     if args.all {
-        show_all_instances(json, carbide_api).await?;
+        show_all_instances(json, api_config).await?;
     } else if let Some(uuid) = args.uuid {
-        show_instance_details(uuid, json, carbide_api, args.extrainfo).await?;
+        show_instance_details(uuid, json, api_config, args.extrainfo).await?;
     } else if let Some(uuid) = args.machineid {
-        show_machine_details(uuid, json, carbide_api, args.extrainfo).await?;
+        show_machine_details(uuid, json, api_config, args.extrainfo).await?;
     }
 
     Ok(())

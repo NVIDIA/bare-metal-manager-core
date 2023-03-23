@@ -41,6 +41,7 @@ pub use crate::protos::machine_discovery::{
     PciDeviceProperties,
 };
 
+pub mod forge_tls_client;
 pub mod protos;
 
 pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("protos/forge.bin");

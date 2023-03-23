@@ -22,6 +22,11 @@ pub struct CarbideOptions {
         help = "Default to CARBIDE_API_URL environment variable or $HOME/.config/carbide_api_cli.json file."
     )]
     pub carbide_api: Option<String>,
+    #[clap(short, long, multiple_values(false), env = "FORGE_ROOT_CA_PATH")]
+    #[clap(
+        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+    )]
+    pub forge_root_ca_path: Option<String>,
     #[clap(short, long, multiple_values(false), action)]
     pub json: bool,
     #[clap(short, long, parse(from_occurrences))]

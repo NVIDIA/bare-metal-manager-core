@@ -10,22 +10,24 @@
  * its affiliates is strictly prohibited.
  */
 
-mod command_line;
-mod health;
-mod network_config_fetcher;
-
 use std::{
     thread::sleep,
     time::{Duration, SystemTime},
 };
 
+use tracing::{debug, error, info, trace};
+use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
+
 use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client;
 use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
-use tracing::{debug, error, info, trace};
-use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
+
+mod command_line;
+mod health;
+mod network_config_fetcher;
 
 // Report HBN health every this long
 //
@@ -150,9 +152,10 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str) {
             observed_at: Some(SystemTime::now().into()),
             health: Some(hs),
         };
-        let mut client = match rt.block_on(rpc::forge_client::ForgeClient::connect(
-            forge_api.to_string(),
-        )) {
+
+        let mut client = match rt
+            .block_on(forge_tls_client::ForgeTlsClient::new(None).connect(forge_api))
+        {
             Ok(client) => client,
             Err(err) => {
                 error!("Could not connect to Forge API server at {forge_api}. Will retry. {err}");

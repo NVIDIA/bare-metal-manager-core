@@ -9,13 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use cfg::{AutoDetect, Command, Discovery, Options};
 use log::LevelFilter;
 use once_cell::sync::Lazy;
+use tokio::sync::RwLock;
+
+use ::rpc::forge_tls_client;
+use cfg::{AutoDetect, Command, Discovery, Options};
 use rpc::forge as rpc_forge;
 use rpc::forge::forge_agent_control_response::Action;
 pub use scout::{CarbideClientError, CarbideClientResult};
-use tokio::sync::RwLock;
 
 mod cfg;
 mod deprovision;
@@ -123,7 +125,10 @@ async fn query_api(forge_api: &str, machine_id: &str) -> CarbideClientResult<Act
         machine_id: Some(machine_id.to_string().into()),
     };
     let request = tonic::Request::new(query);
-    let mut client = rpc_forge::forge_client::ForgeClient::connect(forge_api.to_string()).await?;
+    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+        .connect(forge_api.to_string())
+        .await
+        .map_err(|err| CarbideClientError::TransportError(err.to_string()))?;
     let response = client.forge_agent_control(request).await?.into_inner();
     let action = Action::try_from(response.action)?;
     Ok(action)

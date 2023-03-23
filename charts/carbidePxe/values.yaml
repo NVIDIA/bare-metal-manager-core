@@ -45,6 +45,8 @@ rocketEnv: production
 # rocketEnv -- What environment is this running in
 rocketTemplateDir: /opt/carbide/pxe/templates
 # rocketTemplateDir -- Where to search for templates
+forgeRootCaFilePath: /run/secrets/spiffe.io/ca.crt
+# forgeRootCaFilePath -- where the forge root CA is on disk
 trustDomain: forge.local
 # trustDomain -- spiffe trust domain
 

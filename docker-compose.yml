@@ -44,6 +44,7 @@ services:
       - "67:67/udp"
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
+      - ./dev/certs:/opt/forge
       - .:/app/code
       - ca-certificate:/identity
     environment:
@@ -79,7 +80,7 @@ services:
         ipv4_address: 172.20.0.14
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
-      - $HOME/docker_forge_root:/opt/forge
+      - ./dev/certs:/opt/forge
       - .:/app/code
       - ca-certificate:/identity
     # Options:
@@ -116,6 +117,7 @@ services:
         ipv4_address: 172.20.0.15
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
+      - ./dev/certs:/opt/forge
       - .:/app/code
       - ca-certificate:/identity
     environment:

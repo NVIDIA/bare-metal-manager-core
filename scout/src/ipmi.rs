@@ -15,10 +15,12 @@ use std::fmt;
 use std::process::Command;
 use std::time::Instant;
 
-use ::rpc::forge as rpc;
 use rand::Rng;
 use regex::Regex;
 use tokio::time::{sleep, Duration};
+
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::ForgeClientT;
 
 use crate::CarbideClientError;
 use crate::CarbideClientResult;
@@ -378,7 +380,10 @@ fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String)> {
     ))
 }
 
-pub async fn update_ipmi_creds(forge_api: String, machine_id: &str) -> CarbideClientResult<()> {
+pub async fn update_ipmi_creds(
+    forge_client: &mut ForgeClientT,
+    machine_id: &str,
+) -> CarbideClientResult<()> {
     if IN_QEMU_VM.read().await.in_qemu {
         return Ok(());
     }
@@ -389,9 +394,8 @@ pub async fn update_ipmi_creds(forge_api: String, machine_id: &str) -> CarbideCl
     let bmc_metadata: rpc::BmcMetaDataUpdateRequest =
         IpmiInfo::convert(vec![ipmi_info], machine_id, ip)?;
 
-    let mut client = rpc::forge_client::ForgeClient::connect(forge_api).await?;
     let request = tonic::Request::new(bmc_metadata);
-    client.update_bmc_meta_data(request).await?;
+    forge_client.update_bmc_meta_data(request).await?;
 
     Ok(())
 }

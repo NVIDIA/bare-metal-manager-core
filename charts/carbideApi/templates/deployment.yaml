@@ -170,6 +170,10 @@ spec:
               value: {{ printf "\"[::0]:%v\"" .Values.metricsService.targetPorts.http }}
             - name: BITNAMI_DEBUG
               value: {{ ternary "true" "false" (or .Values.container.image.debug .Values.diagnosticMode.enabled) | quote }}
+            - name: IDENTITY_PEMFILE_PATH
+              value: {{ .Values.identityPemfilePath | quote }}
+            - name: IDENTITY_KEYFILE_PATH
+              value: {{ .Values.identityKeyfilePath | quote }}
             {{- if .Values.container.extraEnvVars }}
             {{- include "common.tplvalues.render" (dict "value" .Values.container.extraEnvVars "context" $) | nindent 12 }}
             {{- end }}

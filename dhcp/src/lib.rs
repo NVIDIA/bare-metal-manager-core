@@ -39,6 +39,7 @@ pub struct CarbideDhcpContext {
     ntpserver: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
     _provisioning_server_ipv6: Option<Ipv6Addr>,
+    forge_root_ca_path: Option<String>,
 }
 
 impl Default for CarbideDhcpContext {
@@ -46,6 +47,7 @@ impl Default for CarbideDhcpContext {
         Self {
             api_endpoint: "https://[::1]:1079".to_string(),
             nameservers: "1.1.1.1".to_string(),
+            forge_root_ca_path: std::env::var("FORGE_ROOT_CAFILE_PATH").ok(),
             ntpserver: "172.20.0.24".to_string(), // local ntp server
             provisioning_server_ipv4: None,
             _provisioning_server_ipv6: None,

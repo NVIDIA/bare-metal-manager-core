@@ -15,6 +15,15 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+use log::LevelFilter;
+use prettytable::{row, Table};
+use serde::Deserialize;
+
+use ::rpc::forge as forgerpc;
+use cfg::carbide_options::{
+    CarbideCommand, CarbideOptions, Domain, Instance, Machine, NetworkSegment,
+};
+
 mod cfg;
 mod domain;
 mod instance;
@@ -22,23 +31,22 @@ mod machine;
 mod network;
 mod rpc;
 
-use ::rpc::forge as forgerpc;
-use cfg::carbide_options::{
-    CarbideCommand, CarbideOptions, Domain, Instance, Machine, NetworkSegment,
-};
-use log::LevelFilter;
-use prettytable::{row, Table};
-use serde::Deserialize;
-
 #[derive(Debug, Deserialize)]
-struct Config {
+struct FileConfig {
     carbide_api_url: Option<String>,
+    forge_root_ca_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    carbide_api_url: String,
+    forge_root_ca_path: String,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideCliError {
     #[error("Unable to connect to carbide API: {0}")]
-    ApiConnectFailed(tonic::transport::Error),
+    ApiConnectFailed(String),
 
     #[error("The API call to the Forge API server returned {0}")]
     ApiInvocationError(tonic::Status),
@@ -73,16 +81,16 @@ pub fn default_machine_id() -> forgerpc::MachineId {
     }
 }
 
-fn get_carbide_api_url(carbide_api: Option<String>, config: Option<Config>) -> String {
+fn get_carbide_api_url(carbide_api: Option<String>, file_config: Option<&FileConfig>) -> String {
     // First from command line, second env var.
     if let Some(carbide_api) = carbide_api {
         return carbide_api;
     }
 
     // Third config file
-    if let Some(config) = config {
-        if let Some(carbide_api_url) = config.carbide_api_url {
-            return carbide_api_url;
+    if let Some(file_config) = file_config {
+        if let Some(carbide_api_url) = file_config.carbide_api_url.as_ref() {
+            return carbide_api_url.clone();
         }
     }
 
@@ -94,16 +102,40 @@ fn get_carbide_api_url(carbide_api: Option<String>, config: Option<Config>) -> S
     )
 }
 
-fn get_config_from_file() -> Option<Config> {
+fn get_forge_root_ca_path(
+    forge_root_ca_path: Option<String>,
+    file_config: Option<&FileConfig>,
+) -> String {
+    // First from command line, second env var.
+    if let Some(forge_root_ca_path) = forge_root_ca_path {
+        return forge_root_ca_path;
+    }
+
+    // Third config file
+    if let Some(file_config) = file_config {
+        if let Some(forge_root_ca_path) = file_config.forge_root_ca_path.as_ref() {
+            return forge_root_ca_path.clone();
+        }
+    }
+
+    panic!(
+        r#"Unknown FORGE_ROOT_CA_PATH. Set (will be read in same sequence.)
+           1. --forge_root_ca_path/-f flag or
+           2. environment variable FORGE_ROOT_CA_PATH or
+           3. add forge_root_ca_path in $HOME/.config/carbide_api_cli.json."#
+    )
+}
+
+fn get_config_from_file() -> Option<FileConfig> {
     // Third config file
     if let Ok(home) = env::var("HOME") {
         let file = Path::new(&home).join(".config/carbide_api_cli.json");
         if file.exists() {
             let file = File::open(file).unwrap();
             let reader = BufReader::new(file);
-            let config: Config = serde_json::from_reader(reader).unwrap();
+            let file_config: FileConfig = serde_json::from_reader(reader).unwrap();
 
-            return Some(config);
+            return Some(file_config);
         }
     }
 
@@ -128,16 +160,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
         .init();
 
-    std::env::set_var("RUST_BACKTRACE", "1");
-    let carbide_api = get_carbide_api_url(config.carbide_api, file_config);
+    env::set_var("RUST_BACKTRACE", "1");
+    let carbide_api_url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
+    let forge_root_ca_path =
+        get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
 
+    let api_config = Config {
+        carbide_api_url,
+        forge_root_ca_path,
+    };
     match config.commands {
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
-                machine::handle_show(machine, config.json, carbide_api).await?
+                machine::handle_show(machine, config.json, api_config).await?
             }
             Machine::DpuSshCredentials(query) => {
-                let cred = rpc::get_dpu_ssh_credential(query.query, carbide_api).await?;
+                let cred = rpc::get_dpu_ssh_credential(query.query, api_config).await?;
                 if config.json {
                     println!("{}", serde_json::to_string_pretty(&cred).unwrap());
                 } else {
@@ -145,7 +183,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             Machine::NetworkStatus => {
-                let all_status = rpc::get_all_managed_host_network_status(carbide_api)
+                let all_status = rpc::get_all_managed_host_network_status(api_config)
                     .await?
                     .all;
                 if all_status.is_empty() {
@@ -183,22 +221,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         return Ok(());
                     }
                 };
-                rpc::reboot(carbide_api, c.address, c.port, bmc_auth).await?;
+                rpc::reboot(api_config, c.address, c.port, bmc_auth).await?;
             }
-            Machine::ForceDelete(query) => machine::force_delete(query, carbide_api).await?,
+            Machine::ForceDelete(query) => machine::force_delete(query, api_config).await?,
         },
         CarbideCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {
-                instance::handle_show(instance, config.json, carbide_api).await?
+                instance::handle_show(instance, config.json, api_config).await?
             }
         },
         CarbideCommand::NetworkSegment(network) => match network {
             NetworkSegment::Show(network) => {
-                network::handle_show(network, config.json, carbide_api).await?
+                network::handle_show(network, config.json, api_config).await?
             }
         },
         CarbideCommand::Domain(domain) => match domain {
-            Domain::Show(domain) => domain::handle_show(domain, config.json, carbide_api).await?,
+            Domain::Show(domain) => domain::handle_show(domain, config.json, api_config).await?,
         },
     }
 

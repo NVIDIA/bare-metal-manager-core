@@ -10,7 +10,7 @@ spec:
     - carbide-dhcp.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}
   uris:
     - spiffe://{{ .Values.trustDomain }}/{{ include "common.names.namespace" . }}/sa/carbide-dhcp
-  privateKey: 
+  privateKey:
     algorithm: ECDSA
     size: 384
   issuerRef:

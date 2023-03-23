@@ -107,6 +107,8 @@ pub struct Api<C: CredentialProvider> {
     credential_provider: Arc<C>,
     authorizer: auth::Authorizer,
     vpc_api: Arc<dyn VpcApi>,
+    identity_pemfile_path: String,
+    identity_keyfile_path: String,
 }
 
 #[tonic::async_trait]
@@ -2187,14 +2189,14 @@ where
     }
 }
 
-const FORGE_ROOT_PEMFILE_PATH: &str = "/opt/forge/forge_root.pem";
-const FORGE_ROOT_KEYFILE_PATH: &str = "/opt/forge/forge_root.key";
-
 ///
 /// this function blocks, don't use it in a raw async context
-fn get_tls_acceptor() -> Option<TlsAcceptor> {
+fn get_tls_acceptor<S: AsRef<str>>(
+    identity_pemfile_path: S,
+    identity_keyfile_path: S,
+) -> Option<TlsAcceptor> {
     let certs = {
-        let fd = match std::fs::File::open(FORGE_ROOT_PEMFILE_PATH) {
+        let fd = match std::fs::File::open(identity_pemfile_path.as_ref()) {
             Ok(fd) => fd,
             Err(_) => return None,
         };
@@ -2208,12 +2210,12 @@ fn get_tls_acceptor() -> Option<TlsAcceptor> {
         }
     };
     let key = {
-        let fd = match std::fs::File::open(FORGE_ROOT_KEYFILE_PATH) {
+        let fd = match std::fs::File::open(identity_keyfile_path.as_ref()) {
             Ok(fd) => fd,
             Err(_) => return None,
         };
         let mut buf = std::io::BufReader::new(&fd);
-        match rustls_pemfile::pkcs8_private_keys(&mut buf) {
+        match rustls_pemfile::rsa_private_keys(&mut buf) {
             Ok(keys) => {
                 if let Some(key) = keys.into_iter().map(PrivateKey).next() {
                     key
@@ -2379,7 +2381,12 @@ where
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
         .build()?;
 
-    let tls_acceptor = tokio::task::spawn_blocking(get_tls_acceptor).await?;
+    let identity_pemfile_path = api_service.identity_pemfile_path.clone();
+    let identity_keyfile_path = api_service.identity_keyfile_path.clone();
+    let tls_acceptor = tokio::task::spawn_blocking(move || {
+        get_tls_acceptor(identity_pemfile_path, identity_keyfile_path)
+    })
+    .await?;
 
     let listener = TcpListener::bind(listen_port).await?;
     let mut http = Http::new();
@@ -2453,12 +2460,16 @@ where
         database_connection: sqlx::PgPool,
         authorizer: auth::Authorizer,
         vpc_api: Arc<dyn VpcApi>,
+        identity_pemfile_path: String,
+        identity_keyfile_path: String,
     ) -> Self {
         Self {
             database_connection,
             credential_provider,
             authorizer,
             vpc_api,
+            identity_pemfile_path,
+            identity_keyfile_path,
         }
     }
 
@@ -2512,6 +2523,8 @@ where
             database_connection.clone(),
             authorizer,
             vpc_api.clone(),
+            daemon_config.identity_pemfile_path.clone(),
+            daemon_config.identity_keyfile_path.clone(),
         ));
 
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.

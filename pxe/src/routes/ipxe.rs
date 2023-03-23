@@ -183,18 +183,22 @@ async fn boot_tenant_image(machine: rpc::Machine, config: RuntimeConfig) -> Stri
         None => return "Machine ID is invalid".to_string(),
     };
 
-    RpcContext::get_pxe_instructions(machine_id, config.api_url.clone())
-        .await
-        .unwrap_or_else(|err| {
-            eprintln!("{}", err);
-            format!(
-                r#"
+    RpcContext::get_pxe_instructions(
+        machine_id,
+        config.api_url.clone(),
+        config.forge_root_ca_path.clone(),
+    )
+    .await
+    .unwrap_or_else(|err| {
+        eprintln!("{}", err);
+        format!(
+            r#"
 echo Failed to fetch custome_ipxe: {} ||
 exit 101 ||
 "#,
-                err
-            )
-        })
+            err
+        )
+    })
 }
 
 // Boot host with our discovery and reset image

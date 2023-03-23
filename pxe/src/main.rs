@@ -25,9 +25,9 @@ use rocket_dyn_templates::Template;
 use serde::Serialize;
 
 use ::rpc::forge;
-use ::rpc::forge::forge_client::ForgeClient;
 use ::rpc::forge::DomainSearchQuery;
 use ::rpc::forge::InterfaceSearchQuery;
+use ::rpc::forge_tls_client;
 
 use crate::artifacts::ArtifactConfig;
 
@@ -48,6 +48,7 @@ pub struct RuntimeConfig {
     api_url: String,
     pxe_url: String,
     ntp_server: String,
+    forge_root_ca_path: Option<String>,
 }
 
 pub enum RPCError<'a> {
@@ -163,16 +164,26 @@ impl<'r> FromRequest<'r> for Machine {
         };
 
         let mut client = match request.rocket().state::<RuntimeConfig>() {
-            Some(url) => match ForgeClient::connect(url.api_url.clone()).await {
-                Ok(client) => client,
-                Err(_err) => {
-                    eprintln!("error in connect - {:?} - url: {:?}", _err, url.api_url);
-                    return request::Outcome::Failure((
-                        Status::BadRequest,
-                        RPCError::MissingClientConfig,
-                    ));
+            Some(runtime_config) => {
+                match forge_tls_client::ForgeTlsClient::new(
+                    runtime_config.forge_root_ca_path.clone(),
+                )
+                .connect(runtime_config.api_url.clone())
+                .await
+                {
+                    Ok(client) => client,
+                    Err(err) => {
+                        eprintln!(
+                            "error connecting to forge api from pxe - {:?} - url: {:?}",
+                            err, runtime_config.api_url
+                        );
+                        return request::Outcome::Failure((
+                            Status::BadRequest,
+                            RPCError::MissingClientConfig,
+                        ));
+                    }
                 }
-            },
+            }
             None => {
                 eprintln!("error in client returned none");
                 return request::Outcome::Failure((
@@ -286,9 +297,13 @@ async fn main() -> Result<(), rocket::Error> {
                         api_url: config.api_url,
                         pxe_url: config.pxe_url,
                         ntp_server: config.ntp_server,
+                        forge_root_ca_path: config.forge_root_ca_path,
                     })),
                     Err(err) => {
-                        println!("An unexpected error occurred in carbide api setup: {}", err);
+                        println!(
+                            "An unexpected error occurred in carbide pxe server setup: {}",
+                            err
+                        );
                         Err(rocket)
                     }
                 }
@@ -311,5 +326,6 @@ fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
         ntp_server: figment
             .extract_inner::<String>("carbide_ntp_server")
             .map_err(|_| "Could not extract ntp_server from config")?,
+        forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH").ok(),
     })
 }

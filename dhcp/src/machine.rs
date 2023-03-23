@@ -15,6 +15,7 @@ use std::primitive::u32;
 use std::ptr;
 
 use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client;
 use ipnetwork::IpNetwork;
 
 use crate::discovery::Discovery;
@@ -38,10 +39,12 @@ impl Machine {
         discovery: Discovery,
         url: &str,
         vendor_class: Option<VendorClass>,
+        forge_root_ca_path: Option<String>,
     ) -> Result<Self, String> {
-        let url = url.to_owned();
-
-        match rpc::forge_client::ForgeClient::connect(url).await {
+        match forge_tls_client::ForgeTlsClient::new(forge_root_ca_path)
+            .connect(url)
+            .await
+        {
             Ok(mut client) => {
                 let request = tonic::Request::new(rpc::DhcpDiscovery {
                     mac_address: discovery.mac_address.to_string(),
