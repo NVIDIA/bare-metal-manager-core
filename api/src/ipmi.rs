@@ -204,11 +204,11 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        let conf = libredfish::NetworkConfig {
-            endpoint: cmd.host.clone(),
+        let endpoint = libredfish::Endpoint {
+            host: cmd.host.clone(),
+            port: None,
             user: Some(username),
             password: Some(password),
-            ..Default::default()
         };
 
         let action = cmd.action.clone();
@@ -216,7 +216,8 @@ impl IpmiCommandHandler for RealIpmiCommandHandler {
         let result = tokio::task::spawn_blocking(move || {
             let result: CarbideResult<String>;
 
-            let redfish = libredfish::new(conf)?;
+            let pool = libredfish::RedfishClientPool::builder().build()?;
+            let redfish = pool.create_client(endpoint)?;
 
             result = match action.unwrap() {
                 IpmiTask::PowerControl(task) => match redfish.power(task) {
