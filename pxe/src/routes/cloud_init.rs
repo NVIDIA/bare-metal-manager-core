@@ -147,7 +147,7 @@ fn generate_forge_agent_config(
 #[get("/<uuid>/user-data")]
 pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig) -> Template {
     let (template, context) = match machine.machine.as_ref() {
-        Some(rpc_machine) if rpc_machine.state == "assigned" => {
+        Some(rpc_machine) if rpc_machine.state.to_lowercase().starts_with("assigned") => {
             user_data_handler_in_assigned(machine, config).await
         }
 
