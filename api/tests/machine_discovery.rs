@@ -18,6 +18,9 @@ use mac_address::MacAddress;
 
 use carbide::db::machine_interface::MachineInterface;
 
+mod common;
+use common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS;
+
 #[ctor::ctor]
 fn setup() {
     pretty_env_logger::formatted_timed_builder()
@@ -34,7 +37,7 @@ async fn test_machine_discovery_no_domain(
     let machine_interface = MachineInterface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        "192.0.2.1".parse().unwrap(),
+        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
     )
     .await
     .expect("Unable to create machine");
@@ -68,7 +71,7 @@ async fn test_machine_discovery_with_domain(
     let machine_interface = MachineInterface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        "192.0.2.1".parse().unwrap(),
+        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
     )
     .await
     .expect("Unable to create machine");

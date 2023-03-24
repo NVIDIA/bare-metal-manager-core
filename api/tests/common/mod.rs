@@ -12,5 +12,7 @@
 
 //! Contains common functionality between integration tests
 
+#![allow(dead_code)] // Not all tests use all tools
+
 pub mod api_fixtures;
 pub mod test_credentials;

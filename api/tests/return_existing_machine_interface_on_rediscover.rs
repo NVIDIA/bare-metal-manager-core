@@ -13,6 +13,9 @@ use log::LevelFilter;
 
 use carbide::db::machine_interface::MachineInterface;
 
+mod common;
+use common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS;
+
 #[ctor::ctor]
 fn setup() {
     pretty_env_logger::formatted_timed_builder()
@@ -21,9 +24,12 @@ fn setup() {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn return_existing_machine_on_rediscover(
+async fn return_existing_machine_interface_on_rediscover(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: This tests only DHCP without Machines. For Interfaces with a Machine,
+    // there are tests in `machine_dhcp.rs`
+    // This should also be migrated to use actual API calls
     let mut txn = pool.begin().await?;
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
@@ -31,14 +37,14 @@ async fn return_existing_machine_on_rediscover(
     let new_machine = MachineInterface::validate_existing_mac_and_create(
         &mut txn,
         test_mac,
-        "192.0.2.1".parse().unwrap(),
+        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
     )
     .await?;
 
     let existing_machine = MachineInterface::validate_existing_mac_and_create(
         &mut txn,
         test_mac,
-        "192.0.2.1".parse().unwrap(),
+        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
     )
     .await?;
 
