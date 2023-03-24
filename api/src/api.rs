@@ -1726,15 +1726,16 @@ where
 
         // libredfish uses reqwest in blocking mode, making and dropping a runtime
         let _ = tokio::task::spawn_blocking(move || -> Result<(), libredfish::RedfishError> {
-            let conf = libredfish::NetworkConfig {
+            let endpoint = libredfish::Endpoint {
                 user: Some(user),
                 password: Some(password),
-                endpoint: req.ip.clone(),
+                host: req.ip.clone(),
                 // Option<u32> -> Option<u16> because no uint16 in protobuf
                 port: req.port.map(|p| p as u16),
-                ..Default::default()
             };
-            let redfish = libredfish::new(conf)?;
+
+            let pool = libredfish::RedfishClientPool::builder().build()?;
+            let redfish = pool.create_client(endpoint)?;
             redfish.boot_once(libredfish::Boot::Pxe)?;
             redfish.power(libredfish::SystemPowerControl::ForceRestart)?;
             tracing::info!("Reboot to PXE requested for {}", req.ip);
