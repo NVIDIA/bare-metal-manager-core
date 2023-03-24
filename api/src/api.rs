@@ -2215,7 +2215,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
             Err(_) => return None,
         };
         let mut buf = std::io::BufReader::new(&fd);
-        match rustls_pemfile::rsa_private_keys(&mut buf) {
+        match rustls_pemfile::ec_private_keys(&mut buf) {
             Ok(keys) => {
                 if let Some(key) = keys.into_iter().map(PrivateKey).next() {
                     key
@@ -2226,7 +2226,24 @@ fn get_tls_acceptor<S: AsRef<str>>(
             }
             Err(error) => {
                 log::error!("Rustls error reading key: {:?}", error);
-                return None;
+                //TODO: remove this fallback hack once we move to EC keys locally
+                match rustls_pemfile::rsa_private_keys(&mut buf) {
+                    Ok(keys) => {
+                        if let Some(key) = keys.into_iter().map(PrivateKey).next() {
+                            key
+                        } else {
+                            log::error!("Rustls error reading key: no keys?");
+                            return None;
+                        }
+                    }
+                    Err(error) => {
+                        log::error!("Rustls error reading key: {:?}", error);
+                        //TODO: remove this hack once we move to EC keys locally
+
+                        return None;
+                    }
+                }
+                //TODO: end of fallback "hack"
             }
         }
     };
