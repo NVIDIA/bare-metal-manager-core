@@ -24,6 +24,15 @@ dependencies = [
         "ipxe-x86_64",
 ]
 
+[tasks.build-boot-artifacts-minikube-x86_64]
+dependencies = [
+        "mkdir-static-x86_64",
+        { name = "build-cli-ci", path = "${REPO_ROOT}" },
+        "create-ephemeral-image-x86_64",
+        "ipxe-x86_64",
+]
+
+
 [tasks.build-boot-artifacts-x86_64-ci]
 dependencies = [
         "mkdir-static-x86_64",

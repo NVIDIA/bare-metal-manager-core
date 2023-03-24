@@ -49,6 +49,8 @@ forgeRootCaFilePath: /run/secrets/spiffe.io/ca.crt
 # forgeRootCaFilePath -- where the forge root CA is on disk
 trustDomain: forge.local
 # trustDomain -- spiffe trust domain
+bootArtifactsHostPath: /srv/forge-boot-artifacts
+# artifactsHostPath: -- when _not_ using boot-artifacts container, where to generate the hostpath.  If using boot-artifacts container, this has not effect.
 
 diagnosticMode:
   enabled: false
