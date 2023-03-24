@@ -30,7 +30,7 @@ use rpc::{
 };
 use tonic::Request;
 
-use super::TestEnv;
+use super::{TestEnv, FIXTURE_DHCP_RELAY_ADDRESS};
 
 /// MAC address that is used by the DPU that is created by the fixture
 pub const FIXTURE_DPU_MAC_ADDRESS: &str = "01:11:21:31:41:51";
@@ -103,7 +103,7 @@ pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
         .api
         .discover_dhcp(Request::new(DhcpDiscovery {
             mac_address: mac_address.to_string(),
-            relay_address: "192.0.2.1".to_string(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             vendor_string: None,
             link_address: None,
             circuit_id: None,

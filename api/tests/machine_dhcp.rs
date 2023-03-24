@@ -16,12 +16,15 @@ use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 use std::str::FromStr;
 
 use carbide::db::machine_interface::MachineInterface;
-#[allow(dead_code)]
+
 mod common;
+
+use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 
 use common::api_fixtures::{
     instance::{create_instance, prepare_machine, FIXTURE_CIRCUIT_ID, FIXTURE_CIRCUIT_ID_1},
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
+    FIXTURE_DHCP_RELAY_ADDRESS,
 };
 
 #[ctor::ctor]
@@ -36,7 +39,7 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     let mut txn = pool.begin().await?;
 
     let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
-    let test_gateway_address = "192.0.2.1".parse().unwrap();
+    let test_gateway_address = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
 
     MachineInterface::validate_existing_mac_and_create(
         &mut txn,
@@ -68,7 +71,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let response = api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
             mac_address: mac_address.clone(),
-            relay_address: "192.0.2.1".to_string(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             link_address: None,
             vendor_string: None,
             circuit_id: None,
@@ -127,7 +130,7 @@ async fn test_multiple_machines_dhcp_with_api(
         let response = api
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
                 mac_address: mac.clone(),
-                relay_address: "192.0.2.1".to_string(),
+                relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
                 link_address: None,
                 vendor_string: None,
                 circuit_id: None,
@@ -239,5 +242,38 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     assert_eq!(response.address, "192.0.3.3/32".to_owned());
     assert_eq!(response.prefix, "192.0.3.0/24".to_owned());
     assert_eq!(response.gateway.unwrap(), "192.0.3.1/32".to_owned());
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_dpu_machine_dhcp_for_existing_dpu(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone(), Default::default());
+
+    let dpu_machine_id = create_dpu_machine(&env).await;
+
+    let mut machines = env.find_machines(Some(dpu_machine_id), None, true).await;
+    let machine = machines.machines.remove(0);
+    let mac = machine.interfaces[0].mac_address.clone();
+
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: mac.clone(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
+            link_address: None,
+            vendor_string: None,
+            circuit_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(
+        response.address.as_str(),
+        machine.interfaces[0].address[0].as_str()
+    );
+
     Ok(())
 }

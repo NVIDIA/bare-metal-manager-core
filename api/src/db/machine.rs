@@ -23,7 +23,6 @@ use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
-use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter};
 use crate::db::machine_interface::MachineInterface;
@@ -366,7 +365,7 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
         relay: IpAddr,
-    ) -> Result<Option<(Uuid,)>, DatabaseError> {
+    ) -> Result<Option<MachineId>, DatabaseError> {
         let query = "
 SELECT m.id FROM
     machines m
@@ -381,12 +380,14 @@ SELECT m.id FROM
         AND
         $2::inet <<= np.prefix";
 
-        sqlx::query_as(query)
+        let id: Option<DbMachineId> = sqlx::query_as(query)
             .bind(macaddr)
             .bind(IpNetwork::from(relay))
             .fetch_optional(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(id.map(|id| id.into_inner()))
     }
 
     /// Returns the ID of the machine object

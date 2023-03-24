@@ -278,7 +278,7 @@ impl MachineInterface {
     // one.
     pub async fn find_or_create_machine_interface(
         txn: &mut Transaction<'_, Postgres>,
-        machines: Option<(uuid::Uuid,)>,
+        machines: Option<MachineId>,
         mac_address: MacAddress,
         relay: IpAddr,
     ) -> CarbideResult<(Self, bool)> {

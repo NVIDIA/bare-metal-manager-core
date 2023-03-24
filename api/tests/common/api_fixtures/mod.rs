@@ -43,6 +43,9 @@ pub mod network_segment;
 /// Carbide API for integration tests
 pub type TestApi = Api<TestCredentialProvider>;
 
+/// The datacenter-level DHCP relay that is assumed for all DPU discovery
+pub const FIXTURE_DHCP_RELAY_ADDRESS: &str = "192.0.2.1";
+
 pub const FIXTURE_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
 pub const FIXTURE_DPU_MACHINE_ID: &str =
     "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
