@@ -98,11 +98,12 @@ spec:
           command: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.command "context" $) | nindent 12 }}
           {{- else if .Values.container.command }}
           command: {{- include "common.tplvalues.render" (dict "value" .Values.container.command "context" $) | nindent 12 }}
-          {{- end }}
+          {{- else }}
           command:
             - /bin/sh
             - -c
             - /opt/carbide/carbide-api run --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}" --kubernetes {{ if .Values.authPermissiveMode }}--auth-permissive-mode=true{{ end }}
+          {{- end }}
           {{- if .Values.diagnosticMode.enabled }}
           args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
           {{- else if .Values.container.args }}

@@ -220,7 +220,7 @@ spec:
       {{- if eq (.Values.bootArtifactsContainer.enabled | toString) "false" }}
         - name: boot-artifacts
           hostPath:
-            path: /srv/forge-boot-artifacts
+            path: {{ .Values.bootArtifactsHostPath }}
             type: Directory
       {{- else }}
         - name: boot-artifacts

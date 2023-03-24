@@ -1,4 +1,5 @@
 target/*
-.git/*
-book/*
-pxe/mkiso/*
+.git/
+book/
+pxe/mkiso/
+pxe/static/blobs/internal/*/.mkosi*

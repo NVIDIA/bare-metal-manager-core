@@ -1,0 +1,103 @@
+apiVersion: skaffold/v4beta2 
+kind: Config
+metadata:
+  name: carbide
+build:
+  local:
+    useBuildkit: true
+    useDockerCLI: true
+  insecureRegistries:
+    - "registry.minikube"
+  artifacts:
+    - image: registry.minikube/carbide-dns
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.dns.localdev
+    - image: registry.minikube/carbide-pxe
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.pxe.localdev
+      sync:
+        infer:
+          - pxe/templates/*
+    - image: registry.minikube/carbide-api
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.api.localdev
+      sync:
+        infer:
+          - api/casbin-policy.csv
+    - image: registry.minikube/carbide-dhcp
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.dhcp.localdev
+
+deploy:
+  statusCheckDeadlineSeconds: 300
+  helm:
+    releases:
+      - name: carbide-dns
+        chartPath: charts/carbideDns
+        skipBuildDependencies: true
+        namespace: forge-system
+        setValueTemplates:
+          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_carbide_dns}}"
+          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_carbide_dns}}"
+          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_carbide_dns}}"
+          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_carbide_dns}}"
+        setValues:
+          container.image.pullPolicy: "IfNotPresent"
+          container.image.pullSecrets: []
+          service.type: LoadBalancer
+          service.loadBalancerIP: 192.168.252.77
+      - name: carbide-pxe
+        chartPath: charts/carbidePxe
+        skipBuildDependencies: true
+        namespace: forge-system
+        setValueTemplates:
+          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_carbide_pxe}}"
+          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_carbide_pxe}}"
+          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_carbide_pxe}}"
+          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_carbide_pxe}}"
+        setValues:
+          container.image.pullPolicy: "IfNotPresent"
+          container.image.pullSecrets: []
+          bootArtifactsContainer.enabled: false
+          service.loadBalancerIP: "192.168.252.76"
+          service.type: LoadBalancer
+          carbideApiUrl: "http://192.168.252.75:1079"
+          carbidePxeUrl: "http://192.168.252.76:8080"
+      - name: carbide-api
+        chartPath: charts/carbideApi
+        skipBuildDependencies: true
+        namespace: forge-system
+        setValueTemplates:
+          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_carbide_api}}"
+          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_carbide_api}}"
+          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_carbide_api}}"
+          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_carbide_api}}"
+        setValues:
+          container.image.pullPolicy: "IfNotPresent"
+          container.image.pullSecrets: []
+          container.command:
+            - /bin/sh
+            - -c
+            - /opt/carbide/carbide-api run --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}" --auth-permissive-mode=true
+          service.type: LoadBalancer
+          service.LoadBalancerIP: "192.168.252.75"
+          authPermissiveMode: true
+          dhcpServerIp: "10.96.0.67"
+      - name: carbide-dhcp
+        chartPath: charts/carbideDhcp
+        skipBuildDependencies: true
+        namespace: forge-system
+        setValueTemplates:
+          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_carbide_dhcp}}"
+          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_carbide_dhcp}}"
+          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_carbide_dhcp}}"
+          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_carbide_dhcp}}"
+        setValues:
+          container.image.pullPolicy: "IfNotPresent"
+          container.image.pullSecrets: []
+          service.clusterIP: "10.96.0.67"
+          service.type: ClusterIP
+          carbidePxeIpAddress: 192.168.252.76
+          carbideDnsServerIPs:
+            - "192.168.252.79"
+
