@@ -635,6 +635,7 @@ dependencies = [
  "jsonwebtoken",
  "k8s-openapi",
  "kube",
+ "lazy_static",
  "libredfish",
  "log",
  "mac_address",

@@ -24,8 +24,8 @@ use carbide::db::ipmi::{
 use carbide::ipmi::{ipmi_handler, IpmiCommand, IpmiCommandHandler, IpmiTask};
 use carbide::CarbideResult;
 use forge_credentials::CredentialProvider;
-
 pub mod common;
+use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 use common::test_credentials::TestCredentialProvider;
 
 const DATA: [(UserRoles, &str, &str); 3] = [
@@ -66,6 +66,7 @@ async fn test_ipmi_cred(pool: PgPool) {
                 password: x.2.to_string(),
             })
             .collect::<Vec<BmcMetadataItem>>(),
+        mac: "01:02:03:04:05:06".to_string(),
     }
     .update_bmc_meta_data(&mut txn, &credentials_provider)
     .await
@@ -140,4 +141,33 @@ async fn test_ipmi(pool: PgPool) {
     let fs = Status::poll(&pool, job_id).await.unwrap();
     assert_eq!(fs.state, TaskState::Finished);
     assert_eq!(fs.msg.trim(), "Power Control");
+}
+
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_network_segment",
+    "create_machine",
+))]
+async fn test_topology_missing_mac_field(pool: PgPool) {
+    let env = create_test_env(pool.clone(), Default::default());
+    let rpc_machine_id = create_dpu_machine(&env).await;
+
+    let mut txn = pool.begin().await.unwrap();
+
+    let query = r#"UPDATE machine_topologies SET topology = (SELECT topology::jsonb - 'ipmi_mac' FROM machine_topologies WHERE machine_id=$1) where machine_id=$1;"#;
+
+    sqlx::query(query)
+        .bind(rpc_machine_id.to_string())
+        .execute(&mut txn)
+        .await
+        .expect("update failed");
+
+    txn.commit().await.expect("commit failed");
+
+    let machines = env.find_machines(Some(rpc_machine_id), None, true).await;
+
+    let machine = machines.machines.first().unwrap();
+    let bmc_info = machine.bmc_info.as_ref().unwrap();
+    assert!(bmc_info.mac.is_none());
 }

@@ -40,6 +40,7 @@ pub const FIXTURE_DPU_MAC_ADDRESS: &str = "01:11:21:31:41:51";
 /// and it supports only a single DPU Machine
 /// We might need a more extensive BMC simulation for this
 pub const FIXTURE_DPU_BMC_IP_ADDRESS: &str = "233.233.233.2";
+pub const FIXTURE_DPU_BMC_MAC_ADDRESS: &str = "11:22:33:44:55:66";
 
 pub const FIXTURE_DPU_BMC_ADMIN_USER_NAME: &str = "forge_admin";
 
@@ -154,6 +155,7 @@ pub async fn update_dpu_bmc_metadata(
                 role: rpc::forge::UserRoles::Administrator as i32,
             }],
             request_type: rpc::forge::BmcRequestType::Redfish as i32,
+            mac: FIXTURE_DPU_BMC_MAC_ADDRESS.to_owned(),
         }))
         .await
         .unwrap()

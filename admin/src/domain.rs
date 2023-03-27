@@ -106,8 +106,8 @@ async fn show_domain_information(
 pub async fn handle_show(args: ShowDomain, json: bool, api_config: Config) -> CarbideCliResult<()> {
     if args.all {
         show_all_domains(json, api_config).await?;
-    } else if let Some(uuid) = args.uuid {
-        show_domain_information(uuid, json, api_config).await?;
+    } else if let Some(domain_id) = args.domain {
+        show_domain_information(domain_id, json, api_config).await?;
     }
 
     Ok(())

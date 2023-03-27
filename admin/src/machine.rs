@@ -235,8 +235,8 @@ pub async fn handle_show(
 ) -> CarbideCliResult<()> {
     if args.all {
         show_all_machines(json, api_config).await?;
-    } else if let Some(uuid) = args.uuid {
-        show_machine_information(uuid, json, api_config).await?;
+    } else if let Some(machine_id) = args.machine {
+        show_machine_information(machine_id, json, api_config).await?;
     }
 
     Ok(())

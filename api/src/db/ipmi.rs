@@ -53,8 +53,9 @@ pub struct BmcMetaDataGetRequest {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
-struct MachineHostInformation {
-    address: String,
+pub struct MachineHostInformation {
+    pub address: String,
+    pub mac: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +69,7 @@ pub struct BmcMetaDataUpdateRequest {
     pub machine_id: MachineId,
     pub ip: String,
     pub data: Vec<BmcMetadataItem>,
+    pub mac: String,
 }
 
 impl From<rpc::UserRoles> for UserRoles {
@@ -139,7 +141,7 @@ impl BmcMetaDataGetRequest {
     where
         C: CredentialProvider + ?Sized,
     {
-        let address = self.get_bmc_host_ip(txn).await?;
+        let (address, mac) = self.get_bmc_host_ip(txn).await?;
 
         let credentials = credential_provider
             .get_credentials(CredentialKey::Bmc {
@@ -157,6 +159,7 @@ impl BmcMetaDataGetRequest {
 
         Ok(rpc::BmcMetaDataGetResponse {
             ip: address,
+            mac,
             user: username,
             password,
         })
@@ -165,15 +168,20 @@ impl BmcMetaDataGetRequest {
     pub async fn get_bmc_host_ip(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<String, DatabaseError> {
-        let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address
+    ) -> Result<(String, String), DatabaseError> {
+        let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address, machine_topologies.topology->>'ipmi_mac' as mac
             FROM machine_topologies WHERE machine_id=$1"#;
         sqlx::query_as::<_, MachineHostInformation>(query)
             .bind(self.machine_id.to_string())
             .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-            .map(|machine_host_information| machine_host_information.address)
+            .map(|machine_host_information| {
+                (
+                    machine_host_information.address,
+                    machine_host_information.mac.unwrap_or("".to_owned()),
+                )
+            })
     }
 }
 
@@ -199,7 +207,8 @@ impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
                     return Err(CarbideError::GenericError("Machine id is null".to_string()));
                 }
             },
-            ip: request.ip.clone(),
+            ip: request.ip,
+            mac: request.mac,
             data,
         })
     }
@@ -234,7 +243,7 @@ impl BmcMetaDataUpdateRequest {
         Ok(())
     }
 
-    async fn update_ipmi_ip_into_topologies(
+    async fn update_ipmi_network_into_topologies(
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
@@ -242,12 +251,13 @@ impl BmcMetaDataUpdateRequest {
         // Just update json by adding a ipmi_ip entry.
         let query = "
 UPDATE machine_topologies
-SET topology = jsonb_set(topology, '{ipmi_ip}', $1, true)
-WHERE machine_id=$2
+SET topology = jsonb_set(jsonb_set(topology, '{ipmi_mac}', $2, true), '{ipmi_ip}', $1, true)
+WHERE machine_id=$3
 RETURNING machine_id";
 
         let _: Option<(DbMachineId,)> = sqlx::query_as(query)
             .bind(&json!(self.ip))
+            .bind(&json!(self.mac))
             .bind(self.machine_id.to_string())
             .fetch_optional(&mut *txn)
             .await
@@ -260,7 +270,7 @@ RETURNING machine_id";
         txn: &mut Transaction<'_, Postgres>,
         credential_provider: &impl CredentialProvider,
     ) -> CarbideResult<rpc::BmcMetaDataUpdateResponse> {
-        self.update_ipmi_ip_into_topologies(txn).await?;
+        self.update_ipmi_network_into_topologies(txn).await?;
         self.insert_into_credentials_store(credential_provider)
             .await?;
         Ok(rpc::BmcMetaDataUpdateResponse {})
