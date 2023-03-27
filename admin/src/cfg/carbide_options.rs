@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::{ArgGroup, Parser};
+use clap::{ArgEnum, ArgGroup, Parser};
 
 #[derive(Parser, Debug)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
@@ -22,13 +22,15 @@ pub struct CarbideOptions {
         help = "Default to CARBIDE_API_URL environment variable or $HOME/.config/carbide_api_cli.json file."
     )]
     pub carbide_api: Option<String>,
+    #[clap(short, long, arg_enum, default_value = "ascii-table")]
+    pub format: OutputFormat,
+    #[clap(short, long)]
+    pub output: Option<String>,
     #[clap(short, long, multiple_values(false), env = "FORGE_ROOT_CA_PATH")]
     #[clap(
         help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
     )]
     pub forge_root_ca_path: Option<String>,
-    #[clap(short, long, multiple_values(false), action)]
-    pub json: bool,
     #[clap(short, long, parse(from_occurrences))]
     pub debug: u8,
     #[clap(subcommand)]
@@ -45,6 +47,8 @@ pub enum CarbideCommand {
     NetworkSegment(NetworkSegment),
     #[clap(about = "Domain related handling", subcommand)]
     Domain(Domain),
+    #[clap(about = "Managed host related handling", subcommand)]
+    ManagedHost(ManagedHost),
 }
 
 #[derive(Parser, Debug)]
@@ -62,6 +66,12 @@ pub enum Machine {
 }
 
 #[derive(Parser, Debug)]
+pub enum ManagedHost {
+    #[clap(about = "Display managed host information")]
+    Show(ShowManagedHost),
+}
+
+#[derive(Parser, Debug)]
 pub struct BMCConfig {
     #[clap(long, help = "Hostname or IP of machine BMC")]
     pub address: String,
@@ -76,7 +86,7 @@ pub struct BMCConfig {
     pub password: Option<String>,
 
     #[clap(long, help = "ID of the machine to reboot")]
-    pub machine_id: Option<String>,
+    pub machine: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -106,13 +116,26 @@ pub struct ForceDeleteMachineQuery {
 #[clap(group(
         ArgGroup::new("show_machine")
         .required(true)
-        .args(&["all", "uuid"])))]
+        .args(&["all", "machine"])))]
 pub struct ShowMachine {
     #[clap(short, long, multiple_values(false), action)]
     pub all: bool,
 
     #[clap(short, long, multiple_values(false))]
-    pub uuid: Option<String>,
+    pub machine: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+        ArgGroup::new("show_managed_host")
+        .required(true)
+        .args(&["all", "machine"])))]
+pub struct ShowManagedHost {
+    #[clap(short, long, multiple_values(false), action)]
+    pub all: bool,
+
+    #[clap(short, long, multiple_values(false))]
+    pub machine: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -125,16 +148,16 @@ pub enum Instance {
 #[clap(group(
         ArgGroup::new("show_instance")
         .required(true)
-        .args(&["all", "uuid", "machineid"])))]
+        .args(&["all", "instance", "machine"])))]
 pub struct ShowInstance {
     #[clap(short, long, multiple_values(false), action)]
     pub all: bool,
 
     #[clap(short, long, multiple_values(false))]
-    pub uuid: Option<String>,
+    pub instance: Option<String>,
 
     #[clap(short, long, multiple_values(false))]
-    pub machineid: Option<String>,
+    pub machine: Option<String>,
 
     #[clap(short, long, multiple_values(false), action)]
     pub extrainfo: bool,
@@ -150,13 +173,13 @@ pub enum Domain {
 #[clap(group(
         ArgGroup::new("show_domain")
         .required(true)
-        .args(&["all", "uuid"])))]
+        .args(&["all", "domain"])))]
 pub struct ShowDomain {
     #[clap(short, long, multiple_values(false), action)]
     pub all: bool,
 
     #[clap(short, long, multiple_values(false))]
-    pub uuid: Option<String>,
+    pub domain: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -169,13 +192,21 @@ pub enum NetworkSegment {
 #[clap(group(
         ArgGroup::new("show_network")
         .required(true)
-        .args(&["all", "uuid"])))]
+        .args(&["all", "network"])))]
 pub struct ShowNetwork {
     #[clap(short, long, multiple_values(false), action)]
     pub all: bool,
 
     #[clap(short, long, multiple_values(false))]
-    pub uuid: Option<String>,
+    pub network: Option<String>,
+}
+
+#[derive(PartialEq, Eq, ArgEnum, Clone, Debug)]
+#[clap(rename_all = "kebab_case")]
+pub enum OutputFormat {
+    Json,
+    Csv,
+    AsciiTable,
 }
 
 impl CarbideOptions {

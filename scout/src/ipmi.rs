@@ -15,6 +15,7 @@ use std::fmt;
 use std::process::Command;
 use std::time::Instant;
 
+use log::debug;
 use rand::Rng;
 use regex::Regex;
 use tokio::time::{sleep, Duration};
@@ -79,12 +80,14 @@ impl IpmiInfo {
         value: Vec<IpmiInfo>,
         machine_id: &str,
         ip: String,
+        mac: String,
     ) -> Result<rpc::BmcMetaDataUpdateRequest, CarbideClientError> {
         let mut bmc_meta_data = rpc::BmcMetaDataUpdateRequest {
             machine_id: Some(machine_id.to_string().into()),
             ip,
             data: Vec::new(),
             request_type: rpc::BmcRequestType::Ipmi as i32,
+            mac,
         };
 
         for v in value {
@@ -162,13 +165,14 @@ fn get_lan_print() -> CarbideClientResult<String> {
     }
 }
 
-fn fetch_ipmi_ip() -> CarbideClientResult<String> {
-    let pattern = Regex::new("IP Address *: (.*?)$")?;
-    log::info!("Fetching BMC IP Address.");
+fn fetch_ipmi_network_config() -> CarbideClientResult<(String, String)> {
+    let ip_pattern = Regex::new("IP Address *: (.*?)$")?;
+    let mac_pattern = Regex::new("MAC Address *: (.*?)$")?;
+    log::info!("Fetching BMC Network Config.");
     let output = get_lan_print()?;
     let ip = output
         .lines()
-        .filter_map(|line| pattern.captures(line))
+        .filter_map(|line| ip_pattern.captures(line))
         .map(|x| x[1].trim().to_string())
         .take(1)
         .collect::<Vec<String>>();
@@ -179,7 +183,22 @@ fn fetch_ipmi_ip() -> CarbideClientResult<String> {
             "Could not find IP address.".to_string(),
         ));
     }
-    Ok(ip[0].clone())
+
+    let mac = output
+        .lines()
+        .filter_map(|line| mac_pattern.captures(line))
+        .map(|x| x[1].trim().to_string())
+        .take(1)
+        .collect::<Vec<String>>();
+
+    if mac.is_empty() {
+        log::error!("Could not find MAC address. Output: {}", output);
+        return Err(CarbideClientError::GenericError(
+            "Could not find MAC address.".to_string(),
+        ));
+    }
+    debug!("BMC IP: {} MAC: {}", ip[0], mac[0]);
+    Ok((ip[0].clone(), mac[0].clone()))
 }
 
 fn get_user_list(test_list: Option<&str>) -> CarbideClientResult<String> {
@@ -323,8 +342,8 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     Ok(())
 }
 
-fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String)> {
-    let ip = fetch_ipmi_ip()?;
+fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String, String)> {
+    let (ip, mac) = fetch_ipmi_network_config()?;
     let (mut free_users, existing_users) = fetch_ipmi_users_and_free_ids(None)?;
 
     // first, we create users, if we need to.
@@ -377,7 +396,24 @@ fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String)> {
             password,
         },
         ip,
+        mac,
     ))
+}
+
+pub async fn retrieve_ipmi_network(
+    forge_client: &mut ForgeClientT,
+    machine_id: &str,
+) -> CarbideClientResult<()> {
+    wait_until_ipmi_is_ready().await?;
+
+    let (ip, mac) = fetch_ipmi_network_config()?;
+    let bmc_metadata: rpc::BmcMetaDataUpdateRequest =
+        IpmiInfo::convert(vec![], machine_id, ip, mac)?;
+
+    let request = tonic::Request::new(bmc_metadata);
+    forge_client.update_bmc_meta_data(request).await?;
+
+    Ok(())
 }
 
 pub async fn update_ipmi_creds(
@@ -385,14 +421,14 @@ pub async fn update_ipmi_creds(
     machine_id: &str,
 ) -> CarbideClientResult<()> {
     if IN_QEMU_VM.read().await.in_qemu {
-        return Ok(());
+        return retrieve_ipmi_network(forge_client, machine_id).await;
     }
 
     wait_until_ipmi_is_ready().await?;
 
-    let (ipmi_info, ip) = set_ipmi_creds()?;
+    let (ipmi_info, ip, mac) = set_ipmi_creds()?;
     let bmc_metadata: rpc::BmcMetaDataUpdateRequest =
-        IpmiInfo::convert(vec![ipmi_info], machine_id, ip)?;
+        IpmiInfo::convert(vec![ipmi_info], machine_id, ip, mac)?;
 
     let request = tonic::Request::new(bmc_metadata);
     forge_client.update_bmc_meta_data(request).await?;
@@ -438,10 +474,14 @@ mod tests {
     use super::*;
 
     static EXPECTED_IP: &str = "127.0.0.2";
+    static EXPECTED_MAC: &str = "10:70:fd:18:0f:be";
 
     #[tokio::test]
     async fn test_ipmi_ip() {
-        assert_eq!(&fetch_ipmi_ip().unwrap(), EXPECTED_IP)
+        let (ip, mac) = fetch_ipmi_network_config().unwrap();
+
+        assert_eq!(ip, EXPECTED_IP);
+        assert_eq!(mac, EXPECTED_MAC);
     }
 
     #[tokio::test]

@@ -247,8 +247,8 @@ pub async fn handle_show(
 ) -> CarbideCliResult<()> {
     if args.all {
         show_all_segments(json, api_config).await?;
-    } else if let Some(uuid) = args.uuid {
-        show_network_information(uuid, json, api_config).await?;
+    } else if let Some(network_id) = args.network {
+        show_network_information(network_id, json, api_config).await?;
     }
 
     Ok(())

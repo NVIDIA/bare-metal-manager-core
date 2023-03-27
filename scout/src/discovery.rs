@@ -39,6 +39,13 @@ pub async fn run(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientE
                 log::error!("Error while setting up IPMI. {}", err.to_string());
                 err
             })?;
+    } else {
+        crate::ipmi::retrieve_ipmi_network(&mut client, machine_id)
+            .await
+            .map_err(|err| {
+                log::error!("Error while setting up IPMI. {}", err.to_string());
+                err
+            })?;
     }
     Ok(())
 }

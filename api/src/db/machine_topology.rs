@@ -73,6 +73,7 @@ pub struct TopologyData {
     /// `crate::crate::db::ipmi::BmcMetaDataUpdateRequest::update_bmc_meta_data`
     /// Therefore no `write` function can be found here.
     pub ipmi_ip: Option<String>,
+    pub ipmi_mac: Option<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -122,6 +123,7 @@ impl MachineTopology {
                     info: hardware_info.clone(),
                 },
                 ipmi_ip: None,
+                ipmi_mac: None,
             };
 
             let query = "INSERT INTO machine_topologies VALUES ($1, $2::json) RETURNING *";

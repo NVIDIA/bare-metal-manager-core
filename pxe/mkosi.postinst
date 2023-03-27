@@ -7,12 +7,17 @@ set -e
 set -u
 set -x
 
+# add groups that scout will attempt to add to a user, but don't exist in the base install
+groupadd --system netdev
+groupadd --system lxd
+
 tmpdir=/tmp/tmpins
 mkdir -p $tmpdir
 cd $tmpdir
 softdir=/distr
 
 # Install racadm
+apt install -y dmidecode
 wget https://linux.dell.com/repo/community/openmanage/10300/focal/pool/main/s/srvadmin-idracadm8/srvadmin-idracadm8_10.3.0.0_amd64.deb
 wget https://linux.dell.com/repo/community/openmanage/10300/focal/pool/main/s/srvadmin-idracadm8/srvadmin-idracadm7_10.3.0.0_all.deb
 wget https://linux.dell.com/repo/community/openmanage/10300/focal/pool/main/s/srvadmin-hapi/srvadmin-hapi_10.3.0.0_amd64.deb

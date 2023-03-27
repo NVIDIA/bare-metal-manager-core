@@ -12,6 +12,7 @@
 use std::env;
 use std::error::Error;
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::BufReader;
 use std::path::Path;
 
@@ -19,15 +20,20 @@ use log::LevelFilter;
 use prettytable::{row, Table};
 use serde::Deserialize;
 
-use ::rpc::forge as forgerpc;
+use ::rpc::{
+    forge::{self as forgerpc, MachineType},
+    MachineId,
+};
 use cfg::carbide_options::{
-    CarbideCommand, CarbideOptions, Domain, Instance, Machine, NetworkSegment,
+    CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, NetworkSegment,
+    OutputFormat,
 };
 
 mod cfg;
 mod domain;
 mod instance;
 mod machine;
+mod managed_host;
 mod network;
 mod rpc;
 
@@ -65,6 +71,12 @@ pub enum CarbideCliError {
 
     #[error("Error while handling json: {0}")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("Unexpected machine type.  expected {0:?} but found {1:?}")]
+    UnexpectedMachineType(MachineType, MachineType),
+
+    #[error("Host machine with id {0} not found")]
+    MachineNotFound(MachineId),
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
@@ -169,14 +181,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
         carbide_api_url,
         forge_root_ca_path,
     };
+
+    let mut output_file = if let Some(filename) = config.output {
+        Box::new(
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(filename)?,
+        ) as Box<dyn std::io::Write>
+    } else {
+        Box::new(std::io::stdout()) as Box<dyn std::io::Write>
+    };
+
     match config.commands {
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
-                machine::handle_show(machine, config.json, api_config).await?
+                machine::handle_show(machine, config.format == OutputFormat::Json, api_config)
+                    .await?
             }
             Machine::DpuSshCredentials(query) => {
                 let cred = rpc::get_dpu_ssh_credential(query.query, api_config).await?;
-                if config.json {
+                if config.format == OutputFormat::Json {
                     println!("{}", serde_json::to_string_pretty(&cred).unwrap());
                 } else {
                     println!("{}:{}", cred.username, cred.password);
@@ -213,7 +238,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             Machine::Reboot(c) => {
-                let bmc_auth = match (c.username, c.password, c.machine_id) {
+                let bmc_auth = match (c.username, c.password, c.machine) {
                     (Some(user), Some(password), _) => rpc::RebootAuth::Direct { user, password },
                     (_, _, Some(machine_id)) => rpc::RebootAuth::Indirect { machine_id },
                     _ => {
@@ -227,16 +252,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         },
         CarbideCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {
-                instance::handle_show(instance, config.json, api_config).await?
+                instance::handle_show(instance, config.format == OutputFormat::Json, api_config)
+                    .await?
             }
         },
         CarbideCommand::NetworkSegment(network) => match network {
             NetworkSegment::Show(network) => {
-                network::handle_show(network, config.json, api_config).await?
+                network::handle_show(network, config.format == OutputFormat::Json, api_config)
+                    .await?
             }
         },
         CarbideCommand::Domain(domain) => match domain {
-            Domain::Show(domain) => domain::handle_show(domain, config.json, api_config).await?,
+            Domain::Show(domain) => {
+                domain::handle_show(domain, config.format == OutputFormat::Json, api_config).await?
+            }
+        },
+        CarbideCommand::ManagedHost(managed_host) => match managed_host {
+            ManagedHost::Show(managed_host) => {
+                managed_host::handle_show(&mut output_file, managed_host, config.format, api_config)
+                    .await?
+            }
         },
     }
 

@@ -596,7 +596,7 @@ impl MachineBmcRequest {
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin invoke_bmc_command", e))?;
 
         let role = UserRoles::Administrator;
-        let ip = BmcMetaDataGetRequest {
+        let (ip, _) = BmcMetaDataGetRequest {
             machine_id: self.machine_id.clone(),
             role,
         }
