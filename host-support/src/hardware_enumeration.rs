@@ -22,6 +22,12 @@ use uname::uname;
 
 mod tpm;
 
+const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
+const PCI_VENDOR_ID: &str = "ID_VENDOR_ID";
+const PCI_MODEL_ID: &str = "ID_MODEL_ID";
+const PCI_DEV_PATH: &str = "DEVPATH";
+const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CpuArchitecture {
     Aarch64,
@@ -157,6 +163,57 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let arch = info.machine.parse()?;
 
     log::trace!("{:?}", info);
+
+    let device_debug_log = |device: &Device| {
+        log::debug!("SysPath - {:?}", device.syspath());
+        for p in device.properties() {
+            log::debug!("Property - {:?} - {:?}", p.name(), p.value());
+        }
+        for a in device.attributes() {
+            log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+        }
+    };
+
+    // IBs
+    let mut enumerator = libudev::Enumerator::new(&context)?;
+    enumerator.match_subsystem("infiniband")?;
+    let devices = enumerator.scan_devices()?;
+
+    // PCI_DEV_PATH - "/devices/pci0000:b0/0000:b0:02.0/0000:b1:00.1/infiniband/mlx5_5"
+    // PCI_MODEL_ID - "0x1017"
+    // PCI_MODEL - "MT27800 Family [ConnectX-5]"
+    // PCI_SUBCLASS - "Infiniband controller"
+    // PCI_VENDOR_ID - "0x15b3"
+    // "NAME" - "mlx5_5"
+    // "node_guid" - Some("1070:fd03:0017:660d")
+    // "sys_image_guid" - Some("1070:fd03:0017:660c")
+    let mut ibs: Vec<rpc_discovery::InfinibandInterface> = Vec::new();
+
+    for device in devices {
+        device_debug_log(&device);
+
+        if device
+            .property_value(PCI_SUBCLASS)
+            .filter(|v| v.eq_ignore_ascii_case("Infiniband controller"))
+            .is_none()
+        {
+            continue;
+        }
+
+        ibs.push(rpc_discovery::InfinibandInterface {
+            guid: convert_sysattr_to_string("node_guid", &device)?
+                .to_string()
+                .replace(':', ""),
+            pci_properties: Some(rpc_discovery::PciDeviceProperties {
+                vendor: convert_property_to_string(PCI_VENDOR_ID, "", &device)?.to_string(),
+                device: convert_property_to_string(PCI_MODEL_ID, "", &device)?.to_string(),
+                path: convert_property_to_string(PCI_DEV_PATH, "", &device)?.to_string(),
+                numa_node: get_numa_node_from_syspath(device.syspath())?,
+                description: Some(convert_property_to_string(PCI_MODEL, "", &device)?.to_string()),
+            }),
+        });
+    }
+
     // Nics
     let mut enumerator = libudev::Enumerator::new(&context)?;
     enumerator.match_subsystem("net")?;
@@ -179,7 +236,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         }
 
         if device
-            .property_value("ID_PCI_SUBCLASS_FROM_DATABASE")
+            .property_value(PCI_SUBCLASS)
             .filter(|v| v.eq_ignore_ascii_case("Ethernet controller"))
             .is_some()
         {
@@ -189,13 +246,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
                         .to_string(),
                 )?,
                 pci_properties: Some(rpc_discovery::PciDeviceProperties {
-                    vendor: convert_property_to_string("ID_VENDOR_ID", "", &device)?.to_string(),
-                    device: convert_property_to_string("ID_MODEL_ID", "", &device)?.to_string(),
-                    path: convert_property_to_string("DEVPATH", "", &device)?.to_string(),
+                    vendor: convert_property_to_string(PCI_VENDOR_ID, "", &device)?.to_string(),
+                    device: convert_property_to_string(PCI_MODEL_ID, "", &device)?.to_string(),
+                    path: convert_property_to_string(PCI_DEV_PATH, "", &device)?.to_string(),
                     numa_node: get_numa_node_from_syspath(device.syspath())?,
                     description: Some(
-                        convert_property_to_string("ID_MODEL_FROM_DATABASE", "", &device)?
-                            .to_string(),
+                        convert_property_to_string(PCI_MODEL, "", &device)?.to_string(),
                     ),
                 }),
             });
@@ -345,7 +401,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         }
 
         if device
-            .property_value("DEVPATH")
+            .property_value(PCI_DEV_PATH)
             .map(|v| v.to_str())
             .ok_or_else(|| {
                 HardwareEnumerationError::GenericError("Could not decode DEVPATH".to_string())
@@ -377,7 +433,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         }
 
         if device
-            .property_value("DEVPATH")
+            .property_value(PCI_DEV_PATH)
             .map(|v| v.to_str())
             .ok_or_else(|| {
                 HardwareEnumerationError::GenericError("Could not decode DEVPATH".to_string())
@@ -408,7 +464,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         }
 
         if device
-            .property_value("DEVPATH")
+            .property_value(PCI_DEV_PATH)
             .map(|v| v.to_str())
             .ok_or_else(|| {
                 HardwareEnumerationError::GenericError("Could not decode DEVPATH".to_string())
@@ -438,6 +494,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     log::debug!("Discovered Disks - {:?}", disks);
     log::debug!("Discovered CPUs: {:?}", cpus);
     log::debug!("Discovered NICS: {:?}", nics);
+    log::debug!("Discovered IBS: {:?}", ibs);
     log::debug!("Discovered NVMES: {:?}", nvmes);
     log::debug!("Discovered DMI: {:?}", dmi);
     log::debug!("Discovered Machine Architecture: {}", info.machine.as_str());
@@ -447,6 +504,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
     Ok(rpc_discovery::DiscoveryInfo {
         network_interfaces: nics,
+        infiniband_interfaces: ibs,
         cpus,
         block_devices: disks,
         nvme_devices: nvmes,
