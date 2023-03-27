@@ -26,7 +26,7 @@ pub struct CarbideOptions {
     pub format: OutputFormat,
     #[clap(short, long)]
     pub output: Option<String>,
-    #[clap(short, long, multiple_values(false), env = "FORGE_ROOT_CA_PATH")]
+    #[clap(long, multiple_values(false), env = "FORGE_ROOT_CA_PATH")]
     #[clap(
         help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
     )]
