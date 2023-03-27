@@ -20,6 +20,7 @@ use tokio::{sync::oneshot, task::JoinSet};
 use crate::{
     kubernetes::VpcApi,
     model::config_version::{ConfigVersion, Versioned},
+    redfish::RedfishClientPool,
     state_controller::{
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
@@ -362,6 +363,7 @@ const DEFAULT_MAX_CONCURRENCY: usize = 10;
 /// A builder for `StateController`
 pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
+    redfish_client_pool: Option<Arc<dyn RedfishClientPool>>,
     vpc_api: Option<Arc<dyn VpcApi>>,
     iteration_time: Option<Duration>,
     max_concurrency: usize,
@@ -383,6 +385,7 @@ impl<IO: StateControllerIO> Builder<IO> {
     fn new() -> Self {
         Self {
             database: None,
+            redfish_client_pool: None,
             vpc_api: None,
             iteration_time: None,
             state_handler: Arc::new(NoopStateHandler::<
@@ -401,6 +404,13 @@ impl<IO: StateControllerIO> Builder<IO> {
             .database
             .take()
             .ok_or(StateControllerBuildError::MissingArgument("database"))?;
+
+        let redfish_client_pool =
+            self.redfish_client_pool
+                .take()
+                .ok_or(StateControllerBuildError::MissingArgument(
+                    "redfish_client_pool",
+                ))?;
 
         let vpc_api = self
             .vpc_api
@@ -427,6 +437,7 @@ impl<IO: StateControllerIO> Builder<IO> {
         let handler_services = Arc::new(StateHandlerServices {
             pool: database,
             vpc_api,
+            redfish_client_pool,
             forge_api,
         });
 
@@ -456,6 +467,12 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures the utilized database
     pub fn database(mut self, db: sqlx::PgPool) -> Self {
         self.database = Some(db);
+        self
+    }
+
+    /// Configures the utilized Redfish client pool
+    pub fn redfish_client_pool(mut self, redfish_client_pool: Arc<dyn RedfishClientPool>) -> Self {
+        self.redfish_client_pool = Some(redfish_client_pool);
         self
     }
 

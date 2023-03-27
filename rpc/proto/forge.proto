@@ -885,6 +885,11 @@ message AdminForceDeleteMachineResponse {
 
     uint32 deleted_managed_resources = 31;
     uint32 deleted_leafs = 32;
+
+    // The Machines lockdown state before it was attempted to unlock the Machine
+    string initial_lockdown_state = 41;
+    // Whether the Machine had been unlocked as part of this action
+    bool machine_unlocked = 42;
 }
 
 // Must provide either machine_id or user/password pair

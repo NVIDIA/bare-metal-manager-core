@@ -85,6 +85,7 @@ use crate::{
         instance::status::network::InstanceNetworkStatusObservation,
         machine::{machine_id::MachineId, MachineState},
     },
+    redfish::{RedfishClientPool, RedfishClientPoolImpl},
     state_controller::{
         controller::StateController,
         machine::handler::MachineStateHandler,
@@ -106,6 +107,7 @@ pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
     credential_provider: Arc<C>,
     authorizer: auth::Authorizer,
+    redfish_pool: Arc<dyn RedfishClientPool>,
     vpc_api: Arc<dyn VpcApi>,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
@@ -2013,6 +2015,8 @@ where
         // This is the default
         // If we can't delete something in one go - we will reset it
         response.all_done = true;
+        response.initial_lockdown_state = "".to_string();
+        response.machine_unlocked = false;
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin investigate admin_force_delete_machine", e)
@@ -2132,6 +2136,75 @@ where
             // TODO: This might need some changes with the new state machine
             let delete_instance = DeleteInstance { instance_id };
             let _instance = delete_instance.delete(&mut txn).await?;
+        }
+
+        if let Some(machine) = &host_machine {
+            if let Some(ip) = machine.bmc_ip() {
+                tracing::info!(
+                    "BMC ip {} for machine {} was found. Trying to perform Bios unlock",
+                    ip,
+                    machine.id().to_string()
+                );
+
+                match self
+                    .redfish_pool
+                    .create_client(machine.id(), ip, None)
+                    .await
+                {
+                    Ok(client) => {
+                        let machine_id = machine.id().clone();
+                        match tokio::task::spawn_blocking(move || match client.lockdown_status() {
+                            Ok(status) if status.is_fully_disabled() => {
+                                tracing::info!(
+                                    "Bios for Machine {} is not locked down",
+                                    machine_id
+                                );
+                                (status.to_string(), false)
+                            }
+                            Ok(status) => {
+                                tracing::info!(
+                                    "Bios for Machine {} is in status {:?}. Unlocking",
+                                    machine_id,
+                                    status
+                                );
+                                if let Err(e) =
+                                    client.lockdown(libredfish::EnabledDisabled::Disabled)
+                                {
+                                    tracing::warn!(
+                                        "Failed to unlock Machine {}: {}",
+                                        machine_id,
+                                        e
+                                    );
+                                    (status.to_string(), false)
+                                } else {
+                                    (status.to_string(), true)
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to fetch lockdown status for Machine {}: {}",
+                                    machine_id,
+                                    e
+                                );
+                                ("".to_string(), false)
+                            }
+                        })
+                        .await
+                        {
+                            Ok((previous_state, unlocked)) => {
+                                response.initial_lockdown_state = previous_state;
+                                response.machine_unlocked = unlocked;
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to join tokio task: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to create Redfish client for machine {} due to {}. Skipping bios unlock", machine.id().to_string(), e);
+                    }
+                }
+            }
         }
 
         if let Some(machine) = &host_machine {
@@ -2486,6 +2559,7 @@ where
         credential_provider: Arc<C>,
         database_connection: sqlx::PgPool,
         authorizer: auth::Authorizer,
+        redfish_pool: Arc<dyn RedfishClientPool>,
         vpc_api: Arc<dyn VpcApi>,
         identity_pemfile_path: String,
         identity_keyfile_path: String,
@@ -2494,6 +2568,7 @@ where
             database_connection,
             credential_provider,
             authorizer,
+            redfish_pool,
             vpc_api,
             identity_pemfile_path,
             identity_keyfile_path,
@@ -2511,6 +2586,12 @@ where
         } else {
             ServiceConfig::for_local_development()
         };
+
+        let redfish_pool = RedfishClientPoolImpl::new(
+            credential_provider.clone(),
+            libredfish::RedfishClientPool::builder().build()?,
+        );
+        let shared_redfish_pool: Arc<dyn RedfishClientPool> = Arc::new(redfish_pool);
 
         let database_connection = sqlx::pool::PoolOptions::new()
             .max_connections(service_config.max_db_connections)
@@ -2549,6 +2630,7 @@ where
             credential_provider.clone(),
             database_connection.clone(),
             authorizer,
+            shared_redfish_pool.clone(),
             vpc_api.clone(),
             daemon_config.identity_pemfile_path.clone(),
             daemon_config.identity_keyfile_path.clone(),
@@ -2572,6 +2654,7 @@ where
         let _machine_state_controller_handle =
             StateController::<MachineStateControllerIO>::builder()
                 .database(database_connection.clone())
+                .redfish_client_pool(shared_redfish_pool.clone())
                 .vpc_api(vpc_api.clone())
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.machine_state_controller_iteration_time)
@@ -2582,6 +2665,7 @@ where
         let _network_segment_controller_handle =
             StateController::<NetworkSegmentStateControllerIO>::builder()
                 .database(database_connection)
+                .redfish_client_pool(shared_redfish_pool.clone())
                 .vpc_api(vpc_api)
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.network_segment_state_controller_iteration_time)

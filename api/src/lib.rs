@@ -41,6 +41,7 @@ pub mod kubernetes;
 pub mod logging;
 pub mod model;
 mod reachability;
+pub mod redfish;
 pub mod state_controller;
 pub mod vpc_resources;
 
