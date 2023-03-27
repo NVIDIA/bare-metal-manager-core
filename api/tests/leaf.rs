@@ -27,7 +27,7 @@ fn setup() {
 }
 
 const FIXTURE_CREATED_MACHINE_ID: &str =
-    "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
+    "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
 
 #[ignore]
 #[sqlx::test]

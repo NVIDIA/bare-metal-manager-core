@@ -229,93 +229,93 @@ mod tests {
 
     const BASE_TIME: &str = "2022-09-29T16:40:49Z";
     const NEW_TIME: &str = "2022-09-29T18:40:49Z";
-    const DPU_MACHINE_ID: &str = "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
+    const DPU_MACHINE_ID: &str = "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
 
     #[template]
     #[rstest]
     #[case(
         0,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.pf",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.pf",
         "pf0hpf"
     )]
     #[case(
         1,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-1",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-1",
         "pf0vf0"
     )]
     #[case(
         2,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-2",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-2",
         "pf0vf1"
     )]
     #[case(
         3,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-3",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-3",
         "pf0vf2"
     )]
     #[case(
         4,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-4",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-4",
         "pf0vf3"
     )]
     #[case(
         5,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-5",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-5",
         "pf0vf4"
     )]
     #[case(
         6,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-6",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-6",
         "pf0vf5"
     )]
     #[case(
         7,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-7",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-7",
         "pf0vf6"
     )]
     #[case(
         8,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-8",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-8",
         "pf0vf7"
     )]
     #[case(
         9,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-9",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-9",
         "pf0vf8"
     )]
     #[case(
         10,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-10",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-10",
         "pf0vf9"
     )]
     #[case(
         11,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-11",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-11",
         "pf0vf10"
     )]
     #[case(
         12,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-12",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-12",
         "pf0vf11"
     )]
     #[case(
         13,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-13",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-13",
         "pf0vf12"
     )]
     #[case(
         14,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-14",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-14",
         "pf0vf13"
     )]
     #[case(
         15,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-15",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-15",
         "pf0vf14"
     )]
     #[case(
         16,
-        "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.vf-16",
+        "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.vf-16",
         "pf0vf15"
     )]
     fn test_params() {}
@@ -333,7 +333,7 @@ mod tests {
         let physical_interface =
             BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {});
         assert_eq!(
-            "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA.pf".to_owned(),
+            "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.pf".to_owned(),
             physical_interface.leaf_interface_id(&DPU_MACHINE_ID.parse().unwrap())
         );
     }
