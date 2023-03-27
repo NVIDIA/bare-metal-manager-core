@@ -48,9 +48,9 @@ pub const FIXTURE_DHCP_RELAY_ADDRESS: &str = "192.0.2.1";
 
 pub const FIXTURE_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
 pub const FIXTURE_DPU_MACHINE_ID: &str =
-    "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
+    "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
 pub const FIXTURE_X86_MACHINE_ID: &str =
-    "fm100htT5SKOR7BXF7RGH5LW22EOKLMTNXQEAPHT6Z4KNLONR36RG3KQBVA";
+    "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 
 pub struct TestEnv {
     pub api: TestApi,

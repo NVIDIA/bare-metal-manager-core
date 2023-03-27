@@ -50,7 +50,7 @@ fn setup() {
 async fn test_ipmi_cred(pool: PgPool) {
     let mut txn = pool.begin().await.unwrap();
 
-    let machine_id: MachineId = "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA"
+    let machine_id: MachineId = "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g"
         .parse()
         .unwrap();
 
@@ -122,7 +122,7 @@ async fn test_ipmi(pool: PgPool) {
     let _handle = ipmi_handler(pool.clone(), TestIpmiCommandHandler {}, credential_provider).await;
     let job = IpmiCommand::new(
         "127.0.0.1".to_string(),
-        "fm100htT5SKOR7BXF7RGH5LW22EOKLMTNXQEAPHT6Z4KNLONR36RG3KQBVA"
+        "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
             .to_string()
             .parse()
             .unwrap(),

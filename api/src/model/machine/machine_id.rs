@@ -14,7 +14,7 @@ use std::{fmt::Write, ops::Deref, str::FromStr};
 
 use crate::model::{hardware_info::HardwareInfo, RpcDataConversionError};
 
-use data_encoding::BASE32_NOPAD;
+use data_encoding::BASE32_DNSSEC;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -23,12 +23,15 @@ use sha2::{Digest, Sha256};
 /// `MachineId`s are derived from a hardware fingerprint, and are thereby
 /// globally unique.
 ///
+/// MachineIds are using an encoding which makes them valid DNS names.
+/// This requires the use of lowercase characters only.
+///
 /// Examples for MachineIds can be:
-/// - fm100htT5SKOR7BXF7RGH5LW22EOKLMTNXQEAPHT6Z4KNLONR36RG3KQBVA
-/// - fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA
-/// - fm100hsKJYDTOUYWFSDWMARGZZUNKJBWMW4POEHXJTK56X6NAKIAZTTNJKQ
-/// - fm100dsEBRFFQGHWQVOLYXWQCIOWLVNAP3HWA76JTNLWLW657FUVZZZGSCQ
-/// - fm100psEBRFFQGHWQVOLYXWQCIOWLVNAP3HWA76JTNLWLW657FUVZZZGSCQ
+/// - fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
+/// - fm100dtjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
+/// - fm100hsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g
+/// - fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g
+/// - fm100ptjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MachineId {
     /// The hardware source from which the Machine ID was derived
@@ -198,12 +201,12 @@ impl FromStr for MachineId {
             return Err(MachineIdParseError::InvalidMachineIdPrefix(s.to_string()));
         }
 
-        // Everything after the prefix needs to be valid base64
+        // Everything after the prefix needs to be valid base32
         let mut buffer = [0u8; 64];
         let encoded_hardware_id = &s.as_bytes()[MACHINE_ID_PREFIX_LENGTH..];
-        match BASE32_NOPAD.decode_mut(
+        match BASE32_DNSSEC.decode_mut(
             encoded_hardware_id,
-            &mut buffer[..BASE32_NOPAD
+            &mut buffer[..BASE32_DNSSEC
                 .decode_len(encoded_hardware_id.len())
                 .expect("Maximum length of the encoded MachineId is small")],
         ) {
@@ -293,7 +296,9 @@ impl MachineId {
         hasher.update(bytes);
         let hash: [u8; 32] = hasher.finalize().into();
 
-        let encoded = BASE32_NOPAD.encode(&hash);
+        // BASE32_DNSSEC is chosen to just generate lowercase characters and
+        // numbers - which will result in valid DNS names for MachineIds.
+        let encoded = BASE32_DNSSEC.encode(&hash);
         assert_eq!(encoded.len(), MACHINE_ID_HARDWARE_ID_LENGTH);
 
         Some(MachineId {
@@ -345,6 +350,11 @@ mod tests {
         "/src/model/hardware_info/test_data"
     );
 
+    lazy_static::lazy_static! {
+        /// A valid DNS domain name. Regex is copied from a k8s error message for DNS name validation
+        static ref DOMAIN_NAME_RE: regex::Regex = regex::Regex::new(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$").unwrap();
+    }
+
     fn test_derive_machine_id(
         fingerprint: &mut HardwareInfo,
         expected_type: MachineType,
@@ -370,6 +380,11 @@ mod tests {
         ) {
             let serialized = machine_id.to_string();
             println!("Serialized: {}", serialized);
+            assert!(
+                DOMAIN_NAME_RE.is_match(&serialized),
+                "{} is not a valid DNS name",
+                serialized
+            );
 
             let expected_prefix = format!(
                 "fm100{}{}",

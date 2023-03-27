@@ -147,8 +147,8 @@ async fn many_non_primary_interfaces_per_machine(
 }
 
 const DPU_MACHINE_INT_ID: &str = "ad871735-efaa-406e-a83e-9ff63b1bc145";
-const DPU_MACHINE_ID: &str = "fm100dt37B6YIKCXOOKMSFIB3A3RSBKXTNS6437JFZVKX3S43LZQ3QSKUCA";
-const HOST_MACHINE_ID: &str = "fm100htT5SKOR7BXF7RGH5LW22EOKLMTNXQEAPHT6Z4KNLONR36RG3KQBVA";
+const DPU_MACHINE_ID: &str = "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
+const HOST_MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 
 #[sqlx::test(fixtures(
     "create_domain",

@@ -50,8 +50,8 @@ async fn test_find_machine_by_id(pool: sqlx::PgPool) {
     // We shouldn't find a machine that doesn't exist
     let mut new_id = dpu_machine_id.to_string();
     match unsafe { new_id.as_bytes_mut().get_mut(MACHINE_ID_PREFIX_LENGTH + 1) } {
-        Some(c) if *c == b'Z' => *c = b'A',
-        Some(c) => *c = b'Z',
+        Some(c) if *c == b'a' => *c = b'b',
+        Some(c) => *c = b'a',
         None => panic!("Not expected"),
     }
     let id2: MachineId = new_id.parse().unwrap();
