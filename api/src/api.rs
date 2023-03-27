@@ -2210,42 +2210,47 @@ fn get_tls_acceptor<S: AsRef<str>>(
             }
         }
     };
-    let key = {
+
+    let mut key = {
         let fd = match std::fs::File::open(identity_keyfile_path.as_ref()) {
             Ok(fd) => fd,
             Err(_) => return None,
         };
         let mut buf = std::io::BufReader::new(&fd);
-        match rustls_pemfile::ec_private_keys(&mut buf) {
-            Ok(keys) => {
-                if let Some(key) = keys.into_iter().map(PrivateKey).next() {
-                    key
-                } else {
-                    log::error!("Rustls error reading key: no keys?");
-                    return None;
-                }
-            }
-            Err(error) => {
-                log::error!("Rustls error reading key: {:?}", error);
-                //TODO: remove this fallback hack once we move to EC keys locally
-                match rustls_pemfile::rsa_private_keys(&mut buf) {
-                    Ok(keys) => {
-                        if let Some(key) = keys.into_iter().map(PrivateKey).next() {
-                            key
-                        } else {
-                            log::error!("Rustls error reading key: no keys?");
-                            return None;
-                        }
-                    }
-                    Err(error) => {
-                        log::error!("Rustls error reading key: {:?}", error);
-                        //TODO: remove this hack once we move to EC keys locally
 
-                        return None;
-                    }
-                }
-                //TODO: end of fallback "hack"
+        match rustls_pemfile::ec_private_keys(&mut buf) {
+            Ok(keys) => keys.into_iter().map(PrivateKey).next(),
+            error => {
+                log::error!("Rustls error reading key: {:?}", error);
+                None
             }
+        }
+    };
+
+    //TODO: remove this fallback hack once we move to EC keys locally
+    if key.is_none() {
+        key = {
+            let fd = match std::fs::File::open(identity_keyfile_path.as_ref()) {
+                Ok(fd) => fd,
+                Err(_) => return None,
+            };
+            let mut buf = std::io::BufReader::new(&fd);
+
+            match rustls_pemfile::rsa_private_keys(&mut buf) {
+                Ok(keys) => keys.into_iter().map(PrivateKey).next(),
+                error => {
+                    log::error!("Rustls error reading key: {:?}", error);
+                    None
+                }
+            }
+        }
+    }
+
+    let key = match key {
+        Some(key) => key,
+        None => {
+            log::error!("Rustls error: no keys?");
+            return None;
         }
     };
 
@@ -2455,7 +2460,11 @@ where
                         }
                     }
                     Err(error) => {
-                        log::error!("error accepting tls connection: {:?}", error);
+                        log::error!(
+                            "error accepting tls connection: {:?}, from address: {:?}",
+                            error,
+                            addr
+                        );
                     }
                 }
             } else if let Err(error) = http.serve_connection(conn, svc).await {
