@@ -118,11 +118,33 @@ fn get_forge_root_ca_path(
         }
     }
 
+    // this is the location for most k8s pods
+    if Path::new("/var/run/secrets/spiffe.io/ca.crt").exists() {
+        return "/var/run/secrets/spiffe.io/ca.crt".to_string();
+    }
+
+    // this is the location for most compiled clients executing on x86 hosts or DPUs
+    if Path::new("/opt/forge/forge_root.pem").exists() {
+        return "/opt/forge/forge_root.pem".to_string();
+    }
+
+    // and this is the location for developers executing from within carbide's repo
+    if let Ok(project_root) = env::var("REPO_ROOT") {
+        let path = format!("{}/dev/certs/forge_root.pem", project_root);
+        if Path::new(path.as_str()).exists() {
+            return path;
+        }
+    }
+
+    // if you make it here, you'll just have to tell me where the root CA is.
     panic!(
-        r#"Unknown FORGE_ROOT_CA_PATH. Set (will be read in same sequence.)
+        r###"Unknown FORGE_ROOT_CA_PATH. Set (will be read in same sequence.)
            1. --forge_root_ca_path/-f flag or
            2. environment variable FORGE_ROOT_CA_PATH or
-           3. add forge_root_ca_path in $HOME/.config/carbide_api_cli.json."#
+           3. add forge_root_ca_path in $HOME/.config/carbide_api_cli.json.
+           5. a file existing at "/var/run/secrets/spiffe.io/ca.crt".
+           5. a file existing at "/opt/forge/forge_root.pem".
+           5. a file existing at "$REPO_ROOT/dev/certs/forge_root.pem"."###
     )
 }
 
