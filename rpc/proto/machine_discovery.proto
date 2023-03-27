@@ -31,11 +31,20 @@ message DiscoveryInfo {
 
   // Values that are provided by DMI (Desktop Management Interface)
   DmiData dmi_data = 8;
+
+  // Enumerates discovered infiniband interfaces on the host
+  repeated InfinibandInterface infiniband_interfaces = 9;
 }
 
 message NetworkInterface {
   string mac_address = 1;
   PciDeviceProperties pci_properties = 2;
+}
+
+message InfinibandInterface {
+  PciDeviceProperties pci_properties = 1;
+
+  string guid = 2;
 }
 
 message Cpu {

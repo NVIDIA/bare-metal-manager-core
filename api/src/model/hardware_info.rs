@@ -23,6 +23,8 @@ pub struct HardwareInfo {
     #[serde(default)]
     pub network_interfaces: Vec<NetworkInterface>,
     #[serde(default)]
+    pub infiniband_interfaces: Vec<InfinibandInterface>,
+    #[serde(default)]
     pub cpus: Vec<Cpu>,
     #[serde(default)]
     pub block_devices: Vec<BlockDevice>,
@@ -37,6 +39,14 @@ pub struct HardwareInfo {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkInterface {
     pub mac_address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pci_properties: Option<PciDeviceProperties>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InfinibandInterface {
+    pub guid: String,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pci_properties: Option<PciDeviceProperties>,
 }
@@ -315,6 +325,43 @@ impl TryFrom<NetworkInterface> for rpc::machine_discovery::NetworkInterface {
     }
 }
 
+impl TryFrom<rpc::machine_discovery::InfinibandInterface> for InfinibandInterface {
+    type Error = RpcDataConversionError;
+
+    fn try_from(ibface: rpc::machine_discovery::InfinibandInterface) -> Result<Self, Self::Error> {
+        let pci_properties = match ibface.pci_properties.map(PciDeviceProperties::try_from) {
+            Some(Err(e)) => return Err(e),
+            Some(Ok(props)) => Some(props),
+            None => None,
+        };
+
+        Ok(Self {
+            guid: ibface.guid,
+            pci_properties,
+        })
+    }
+}
+
+impl TryFrom<InfinibandInterface> for rpc::machine_discovery::InfinibandInterface {
+    type Error = RpcDataConversionError;
+
+    fn try_from(ibface: InfinibandInterface) -> Result<Self, Self::Error> {
+        let pci_properties = match ibface
+            .pci_properties
+            .map(rpc::machine_discovery::PciDeviceProperties::try_from)
+        {
+            Some(Err(e)) => return Err(e),
+            Some(Ok(props)) => Some(props),
+            None => None,
+        };
+
+        Ok(Self {
+            guid: ibface.guid,
+            pci_properties,
+        })
+    }
+}
+
 impl TryFrom<rpc::machine_discovery::PciDeviceProperties> for PciDeviceProperties {
     type Error = RpcDataConversionError;
 
@@ -357,6 +404,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
 
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
+            infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
             cpus: try_convert_vec(info.cpus)?,
             block_devices: try_convert_vec(info.block_devices)?,
             machine_type: info.machine_type,
@@ -373,6 +421,7 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
     fn try_from(info: HardwareInfo) -> Result<Self, Self::Error> {
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
+            infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
             cpus: try_convert_vec(info.cpus)?,
             block_devices: try_convert_vec(info.block_devices)?,
             machine_type: info.machine_type,
