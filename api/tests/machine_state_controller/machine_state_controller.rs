@@ -32,6 +32,7 @@ use carbide::{
     db::dpu_machine::DpuMachine,
     kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError},
     model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
+    redfish::RedfishSim,
     state_controller::{
         controller::StateController,
         machine::io::MachineStateControllerIO,
@@ -184,6 +185,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             StateController::<MachineStateControllerIO>::builder()
                 .iteration_time(Duration::from_millis(100))
                 .database(pool.clone())
+                .redfish_client_pool(Arc::new(RedfishSim::default()))
                 .vpc_api(Arc::new(MockVpcApi {}))
                 .forge_api(test_api.clone())
                 .state_handler(machine_handler.clone())

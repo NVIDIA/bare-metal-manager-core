@@ -18,6 +18,7 @@ use carbide::{
     db::machine::Machine,
     kubernetes::{VpcApiSim, VpcApiSimConfig},
     model::machine::{machine_id::MachineId, ManagedHostState},
+    redfish::RedfishSim,
     state_controller::{
         controller::StateControllerIO,
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
@@ -56,6 +57,7 @@ pub struct TestEnv {
     pub api: TestApi,
     pub credential_provider: Arc<TestCredentialProvider>,
     pub pool: PgPool,
+    pub redfish_sim: Arc<RedfishSim>,
     pub vpc_api: Arc<VpcApiSim>,
     pub machine_state_controller_io: MachineStateControllerIO,
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
@@ -69,12 +71,14 @@ impl TestEnv {
             self.credential_provider.clone(),
             self.pool.clone(),
             Authorizer::new(Arc::new(NoopEngine {})),
+            self.redfish_sim.clone(),
             self.vpc_api.clone(),
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
         ));
         StateHandlerServices {
             pool: self.pool.clone(),
+            redfish_client_pool: self.redfish_sim.clone(),
             vpc_api: self.vpc_api.clone(),
             forge_api,
         }
@@ -185,11 +189,13 @@ pub struct TestEnvConfig {
 pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
     let credential_provider = Arc::new(TestCredentialProvider::new());
     let vpc_api = Arc::new(VpcApiSim::with_config(config.vpc_sim_config));
+    let redfish_sim = Arc::new(RedfishSim::default());
 
     let api = carbide::api::Api::new(
         credential_provider.clone(),
         pool.clone(),
         Authorizer::new(Arc::new(NoopEngine {})),
+        redfish_sim.clone(),
         vpc_api.clone(),
         "not a real pemfile path".to_string(),
         "not a real keyfile path".to_string(),
@@ -199,6 +205,7 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
         api,
         credential_provider,
         pool,
+        redfish_sim,
         vpc_api,
         machine_state_controller_io: MachineStateControllerIO::default(),
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),

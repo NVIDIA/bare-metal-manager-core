@@ -16,6 +16,7 @@ use crate::{
     db::DatabaseError,
     kubernetes::{VpcApi, VpcApiError},
     model::machine::{machine_id::MachineId, ManagedHostState},
+    redfish::RedfishClientPool,
     state_controller::snapshot_loader::SnapshotLoaderError,
 };
 
@@ -27,6 +28,8 @@ pub struct StateHandlerServices {
     pub vpc_api: Arc<dyn VpcApi>,
     /// API for interaction with Forge VPC
     pub forge_api: Arc<dyn rpc::forge::forge_server::Forge>,
+    /// API for interaction with Libredfish
+    pub redfish_client_pool: Arc<dyn RedfishClientPool>,
 }
 
 /// Context parameter passed to `StateHandler`
