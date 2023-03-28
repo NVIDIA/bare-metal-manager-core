@@ -26,15 +26,13 @@ fn setup() {
         .init();
 }
 
-const FIXTURE_CREATED_MACHINE_ID: &str =
-    "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
+const DPU_MACHINE_ID: &str = "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
 
-#[ignore]
 #[sqlx::test]
 async fn new_leafs_are_in_new_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID.parse().unwrap())
+    let leaf = NewVpcResourceLeaf::new(DPU_MACHINE_ID.parse().unwrap())
         .persist(&mut txn)
         .await?;
 
@@ -50,7 +48,7 @@ async fn new_leafs_are_in_new_state(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn find_leaf_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID.parse().unwrap())
+    let leaf = NewVpcResourceLeaf::new(DPU_MACHINE_ID.parse().unwrap())
         .persist(&mut txn)
         .await?;
 
@@ -58,7 +56,7 @@ async fn find_leaf_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::E
     let mut txn = pool.begin().await?;
 
     let leaf = VpcResourceLeaf::find(&mut txn, leaf.id()).await?;
-    assert_eq!(leaf.id(), &FIXTURE_CREATED_MACHINE_ID.parse().unwrap());
+    assert_eq!(leaf.id(), &DPU_MACHINE_ID.parse().unwrap());
 
     Ok(())
 }
@@ -69,7 +67,7 @@ async fn find_leaf_and_update_loopback_ip(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let leaf = NewVpcResourceLeaf::new(FIXTURE_CREATED_MACHINE_ID.parse().unwrap())
+    let leaf = NewVpcResourceLeaf::new(DPU_MACHINE_ID.parse().unwrap())
         .persist(&mut txn)
         .await?;
     assert!(leaf.loopback_ip_address().is_none());

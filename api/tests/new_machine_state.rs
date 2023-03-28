@@ -14,8 +14,8 @@ use log::LevelFilter;
 use carbide::db::{machine::Machine, machine_state_history::MachineStateHistory};
 use carbide::model::machine::ManagedHostState;
 
-const FIXTURE_CREATED_MACHINE_ID: &str =
-    "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
+mod common;
+use common::api_fixtures::FIXTURE_DPU_MACHINE_ID;
 
 #[ctor::ctor]
 fn setup() {
@@ -35,7 +35,7 @@ async fn test_new_machine_state(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     let machine = Machine::find_one(
         &mut txn,
-        &FIXTURE_CREATED_MACHINE_ID.parse().unwrap(),
+        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },
@@ -64,7 +64,7 @@ async fn test_new_machine_state_history(
 
     let machine = Machine::find_one(
         &mut txn,
-        &FIXTURE_CREATED_MACHINE_ID.parse().unwrap(),
+        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },
@@ -77,7 +77,7 @@ async fn test_new_machine_state_history(
 
     let machine = Machine::find_one(
         &mut txn,
-        &FIXTURE_CREATED_MACHINE_ID.parse().unwrap(),
+        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig::default(),
     )
     .await?
@@ -96,7 +96,7 @@ async fn test_new_machine_state_history(
 
     let mut txn = pool.begin().await?;
     let result =
-        MachineStateHistory::for_machine(&mut txn, &FIXTURE_CREATED_MACHINE_ID.parse().unwrap())
+        MachineStateHistory::for_machine(&mut txn, &FIXTURE_DPU_MACHINE_ID.parse().unwrap())
             .await
             .unwrap();
 
@@ -105,7 +105,7 @@ async fn test_new_machine_state_history(
 
     let machine = Machine::find_one(
         &mut txn,
-        &FIXTURE_CREATED_MACHINE_ID.parse().unwrap(),
+        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },

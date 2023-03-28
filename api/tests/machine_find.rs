@@ -16,7 +16,10 @@ use log::LevelFilter;
 use mac_address::MacAddress;
 
 use carbide::{
-    db::machine::{Machine, MachineSearchConfig},
+    db::{
+        machine::{Machine, MachineSearchConfig},
+        ObjectFilter,
+    },
     model::machine::machine_id::{try_parse_machine_id, MachineId, MACHINE_ID_PREFIX_LENGTH},
 };
 
@@ -225,4 +228,24 @@ async fn test_find_machine_dpu_excluded(pool: sqlx::PgPool) {
         machines.machines[0].machine_type,
         rpc::forge::MachineType::Host as i32
     );
+}
+
+#[sqlx::test]
+async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
+    let mut txn = pool
+        .begin()
+        .await
+        .expect("Could create a transaction on database pool");
+
+    let machines = Machine::find(
+        &mut txn,
+        ObjectFilter::All,
+        carbide::db::machine::MachineSearchConfig {
+            include_history: true,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(machines.is_empty());
 }

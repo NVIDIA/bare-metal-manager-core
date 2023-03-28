@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use carbide::model::machine::machine_id::MachineId;
+use carbide::model::machine::machine_id::try_parse_machine_id;
 use log::LevelFilter;
 use sqlx::PgPool;
 use tokio::time;
@@ -25,7 +25,7 @@ use carbide::ipmi::{ipmi_handler, IpmiCommand, IpmiCommandHandler, IpmiTask};
 use carbide::CarbideResult;
 use forge_credentials::CredentialProvider;
 pub mod common;
-use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
+use common::api_fixtures::{create_test_env, dpu::create_dpu_machine, FIXTURE_X86_MACHINE_ID};
 use common::test_credentials::TestCredentialProvider;
 
 const DATA: [(UserRoles, &str, &str); 3] = [
@@ -41,22 +41,19 @@ fn setup() {
         .init();
 }
 
-#[sqlx::test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_network_segment",
-    "create_machine"
-))]
-async fn test_ipmi_cred(pool: PgPool) {
-    let mut txn = pool.begin().await.unwrap();
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn machine_bmc_credential_update(pool: PgPool) {
+    let env = create_test_env(pool.clone(), Default::default());
+    // TODO: This probably should test with a host machine instead of a DPU,
+    // since for DPUs we don't really store BMC credentials
+    let dpu_rpc_machine_id = create_dpu_machine(&env).await;
+    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
-    let machine_id: MachineId = "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g"
-        .parse()
-        .unwrap();
+    let mut txn = pool.begin().await.unwrap();
 
     let credentials_provider = TestCredentialProvider::new();
     BmcMetaDataUpdateRequest {
-        machine_id: machine_id.clone(),
+        machine_id: dpu_machine_id.clone(),
         ip: "127.0.0.2".to_string(),
         data: DATA
             .iter()
@@ -78,7 +75,7 @@ async fn test_ipmi_cred(pool: PgPool) {
 
     for d in &DATA {
         let ipmi_req = BmcMetaDataGetRequest {
-            machine_id: machine_id.clone(),
+            machine_id: dpu_machine_id.clone(),
             role: d.0,
         };
 
@@ -122,10 +119,7 @@ async fn test_ipmi(pool: PgPool) {
     let _handle = ipmi_handler(pool.clone(), TestIpmiCommandHandler {}, credential_provider).await;
     let job = IpmiCommand::new(
         "127.0.0.1".to_string(),
-        "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-            .to_string()
-            .parse()
-            .unwrap(),
+        FIXTURE_X86_MACHINE_ID.parse().unwrap(),
         UserRoles::Administrator,
     );
 
@@ -141,33 +135,4 @@ async fn test_ipmi(pool: PgPool) {
     let fs = Status::poll(&pool, job_id).await.unwrap();
     assert_eq!(fs.state, TaskState::Finished);
     assert_eq!(fs.msg.trim(), "Power Control");
-}
-
-#[sqlx::test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_network_segment",
-    "create_machine",
-))]
-async fn test_topology_missing_mac_field(pool: PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
-    let rpc_machine_id = create_dpu_machine(&env).await;
-
-    let mut txn = pool.begin().await.unwrap();
-
-    let query = r#"UPDATE machine_topologies SET topology = (SELECT topology::jsonb - 'ipmi_mac' FROM machine_topologies WHERE machine_id=$1) where machine_id=$1;"#;
-
-    sqlx::query(query)
-        .bind(rpc_machine_id.to_string())
-        .execute(&mut txn)
-        .await
-        .expect("update failed");
-
-    txn.commit().await.expect("commit failed");
-
-    let machines = env.find_machines(Some(rpc_machine_id), None, true).await;
-
-    let machine = machines.machines.first().unwrap();
-    let bmc_info = machine.bmc_info.as_ref().unwrap();
-    assert!(bmc_info.mac.is_none());
 }

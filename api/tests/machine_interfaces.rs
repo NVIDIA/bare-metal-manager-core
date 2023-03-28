@@ -12,9 +12,8 @@
 
 use carbide::{
     db::{
-        address_selection_strategy::AddressSelectionStrategy, dpu_machine::DpuMachine,
-        machine::Machine, machine_interface::MachineInterface, network_segment::NetworkSegment,
-        vpc_resource_leaf::VpcResourceLeaf,
+        address_selection_strategy::AddressSelectionStrategy, machine::Machine,
+        machine_interface::MachineInterface, network_segment::NetworkSegment,
     },
     model::machine::machine_id::MachineId,
     CarbideError,
@@ -27,6 +26,7 @@ use std::str::FromStr;
 pub mod common;
 use common::api_fixtures::{
     dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    FIXTURE_DHCP_RELAY_ADDRESS,
 };
 
 #[ctor::ctor]
@@ -146,49 +146,67 @@ async fn many_non_primary_interfaces_per_machine(
     Ok(())
 }
 
-const DPU_MACHINE_INT_ID: &str = "ad871735-efaa-406e-a83e-9ff63b1bc145";
-const DPU_MACHINE_ID: &str = "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
-const HOST_MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
-
-#[sqlx::test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_network_segment",
-    "create_machine"
-))]
-async fn test_find_machine_by_loopback(
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn return_existing_machine_interface_on_rediscover(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: This tests only DHCP without Machines. For Interfaces with a Machine,
+    // there are tests in `machine_dhcp.rs`
+    // This should also be migrated to use actual API calls
     let mut txn = pool.begin().await?;
-    let machine_interface = VpcResourceLeaf::find_associated_dpu_machine_interface(
+
+    let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
+
+    let new_machine = MachineInterface::validate_existing_mac_and_create(
         &mut txn,
-        "192.168.0.1".parse().unwrap(),
+        test_mac,
+        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
     )
-    .await
-    .unwrap();
-    assert_eq!(machine_interface.id, DPU_MACHINE_INT_ID.parse().unwrap());
+    .await?;
+
+    let existing_machine = MachineInterface::validate_existing_mac_and_create(
+        &mut txn,
+        test_mac,
+        FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
+    )
+    .await?;
+
+    assert_eq!(new_machine.id(), existing_machine.id());
+
     Ok(())
 }
 
-#[sqlx::test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_network_segment",
-    "create_machine"
-))]
-async fn test_dpu_machine_test(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_rename_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let machine = DpuMachine::find_by_machine_id(&mut txn, &DPU_MACHINE_ID.parse().unwrap())
-        .await
-        .unwrap();
+    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
 
-    assert_eq!(
-        machine._machine_interface_id(),
-        &DPU_MACHINE_INT_ID.parse().unwrap()
-    );
-    let machine = DpuMachine::find_by_machine_id(&mut txn, &HOST_MACHINE_ID.parse().unwrap()).await;
+    let interface = MachineInterface::create(
+        &mut txn,
+        &network_segment,
+        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
+        None,
+        "peppersmacker2".to_string(),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await?;
+    txn.commit().await.unwrap();
 
-    assert!(machine.is_err());
+    let mut txn = pool.begin().await?;
+
+    let mut updated_interface = MachineInterface::find_one(&mut txn, interface.id).await?;
+    assert_eq!(updated_interface.hostname(), "peppersmacker2");
+
+    let new_hostname = "peppersmacker400";
+    updated_interface
+        .update_hostname(&mut txn, new_hostname)
+        .await?;
+
+    txn.commit().await?;
+
+    assert_eq!(updated_interface.hostname(), new_hostname);
+
     Ok(())
 }
