@@ -228,17 +228,10 @@ impl From<Machine> for rpc::Machine {
 }
 
 impl Machine {
-    /// Returns whether the Machine is a DPU, based on the attached HardwareInfo
-    ///
-    /// If no HardwareInfo is loaded, this will return `false` even if the Machine is a DPU
+    /// Returns whether the Machine is a DPU, based on the HardwareInfo that
+    /// was available when the Machine was discovered
     pub fn is_dpu(&self) -> bool {
-        // TODO: With new MachineIds, this can just check the ID
-        // Another appraoch is also to check the `attached_dpu_machine_id` - but this
-        // requires interface information being loaded
-        match &self.hardware_info {
-            Some(info) => info.is_dpu(),
-            None => false,
-        }
+        self.id.machine_type().is_dpu()
     }
 
     /// The BMC IP for this machine
@@ -860,14 +853,8 @@ SELECT m.id FROM
     }
 
     /// Returns the MachineType based on hardware info.
-    pub fn machine_type(&self) -> Option<MachineType> {
-        self.hardware_info.as_ref().map(|x| {
-            if x.is_dpu() {
-                MachineType::Dpu
-            } else {
-                MachineType::Host
-            }
-        })
+    pub fn machine_type(&self) -> MachineType {
+        self.id.machine_type()
     }
 }
 

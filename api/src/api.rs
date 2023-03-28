@@ -48,7 +48,7 @@ use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use crate::db::ipmi::UserRoles;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
-use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
+use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
@@ -1276,9 +1276,8 @@ where
                     .into_iter()
                     .filter(|x| {
                         let ty = x.machine_type();
-                        ty.is_some()
-                            && (include_dpus
-                                || ty.expect("MachineType is none.") == MachineType::Host)
+                        // We never return PredictedHost
+                        ty.is_host() || (ty.is_dpu() && include_dpus)
                     })
                     .map(rpc::Machine::from)
                     .collect(),
@@ -1933,16 +1932,7 @@ where
         // Treat this message as signal from machine that reboot is finished. Update reboot time.
         machine.update_reboot_time(&mut txn).await?;
 
-        let info = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
-            .await
-            .map_err(|_| Status::invalid_argument("Missing discovery data"))?
-            .remove(&machine_id)
-            .ok_or(CarbideError::NotFoundError {
-                kind: "machine",
-                id: machine_id.to_string(),
-            })?;
-
-        let is_dpu = info.topology().discovery_data.info.is_dpu();
+        let is_dpu = machine.is_dpu();
         let dpu_machine = if is_dpu {
             machine.clone()
         } else {

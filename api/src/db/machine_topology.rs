@@ -132,7 +132,7 @@ impl MachineTopology {
                 .await
                 .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
-            if hardware_info.is_dpu() {
+            if machine_id.machine_type().is_dpu() {
                 let new_leaf = NewVpcResourceLeaf::new(machine_id.clone())
                     .persist(&mut *txn)
                     .await?;

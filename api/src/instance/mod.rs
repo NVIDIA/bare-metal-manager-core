@@ -17,7 +17,6 @@ use crate::{
         instance::{config::network::load_instance_network_config, Instance, NewInstance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
-        machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
     dhcp::allocation::DhcpError,
@@ -109,18 +108,11 @@ pub async fn allocate_instance(
     };
 
     let machine_id = new_instance.machine_id.clone();
-    let info = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
-        .await?
-        .remove(&machine_id)
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
-
-    if info.topology().discovery_data.info.is_dpu() {
+    if !machine_id.machine_type().is_host() {
         return Err(CarbideError::InvalidArgument(format!(
-            "Machine with UUID {} is a DPU and can not be converted into an instance",
-            machine_id
+            "Machine with UUID {} is of type {} and can not be converted into an instance",
+            machine_id,
+            machine_id.machine_type()
         )));
     }
 
