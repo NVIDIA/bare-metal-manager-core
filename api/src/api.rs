@@ -1785,6 +1785,14 @@ where
             ),
         );
 
+        if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
+            log::info!(
+                "Got a UpdateBmcMetadata request from: {:?} with authorization_type: {:?}",
+                conn_info.addr,
+                conn_info.authorization_type,
+            );
+        }
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin update_bmc_meta_data", e)
@@ -2346,30 +2354,22 @@ async fn check_auth<B>(
                 .expect("header not a valid utf8 string?")
                 .to_string(),
         );
-    } else if request
-        .uri()
-        .to_string()
-        .to_lowercase()
-        .contains("discovermachine")
-        || request.uri().to_string().to_lowercase().contains("echo")
-    //TODO: using this to test, delete the "echo" check once discover machine is tested
-    {
+    }
+
+    let request_uri = request.uri().to_string().to_lowercase();
+    if request_uri.contains("discovermachine") {
+        // TODO: we will eventually need the actual hardware identifier in a header to use right here.
         return AuthorizationType::TrustedHardwareIdentifier(None);
-    } else if request
-        .uri()
-        .to_string()
-        .to_lowercase()
-        .contains("reflection")
-    {
+    } else if cfg!(debug_assertions) {
+        // only in debug builds, allow grpcurl unrestricted access to the API.
         if let Some(user_agent) = request.headers().get(USER_AGENT) {
             if user_agent
                 .to_str()
                 .expect("header not a valid utf8 string?")
                 .to_lowercase()
-                .contains("grpc")
+                .contains("grpcurl")
             {
-                // grpc needs this to function, allow it
-                return AuthorizationType::TrustedHardwareIdentifier(None);
+                return AuthorizationType::AuthorizationNotRequired("grpcurl user agent dev build");
             }
         }
     }
@@ -2392,6 +2392,7 @@ enum AuthorizationType {
     TrustedHardwareIdentifier(
         Option<String>, /*TODO: make this not optional once we require TPMs*/
     ),
+    AuthorizationNotRequired(&'static str /*reason*/),
     Unauthorized,
 }
 
