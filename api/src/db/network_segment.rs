@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -10,6 +9,7 @@ use std::collections::HashMap;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 
