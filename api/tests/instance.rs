@@ -580,8 +580,8 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
     let result = allocate_instance(request, &pool).await;
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
-        error.contains("is a DPU"),
-        "Error message should contain 'is a DPU', but is {}",
+        error.contains("is of type Dpu and can not be converted into an instance"),
+        "Error message should contain 'is of type Dpu and can not be converted into an instance', but is {}",
         error
     );
 }

@@ -109,16 +109,38 @@ pub enum MachineType {
     PredictedHost,
 }
 
+impl MachineType {
+    /// Returns `true` if the Machine is a DPU
+    pub fn is_dpu(self) -> bool {
+        self == MachineType::Dpu
+    }
+
+    /// Returns `true` if the Machine is a Host
+    ///
+    /// This only returns `true` for hosts which actually have been discovered,
+    /// and not for temporary (predicted) hosts.
+    pub fn is_host(self) -> bool {
+        self == MachineType::Host
+    }
+}
+
+impl std::fmt::Display for MachineType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MachineType::Dpu => f.write_str("Dpu"),
+            MachineType::Host => f.write_str("Host"),
+            MachineType::PredictedHost => f.write_str("PredictedHost"),
+        }
+    }
+}
+
 pub struct RpcMachineTypeWrapper(rpc::forge::MachineType);
 
-impl From<Option<MachineType>> for RpcMachineTypeWrapper {
-    fn from(value: Option<MachineType>) -> Self {
+impl From<MachineType> for RpcMachineTypeWrapper {
+    fn from(value: MachineType) -> Self {
         RpcMachineTypeWrapper(match value {
-            None => rpc::forge::MachineType::Unknown,
-            Some(ty) => match ty {
-                MachineType::PredictedHost | MachineType::Host => rpc::forge::MachineType::Host,
-                MachineType::Dpu => rpc::forge::MachineType::Dpu,
-            },
+            MachineType::PredictedHost | MachineType::Host => rpc::forge::MachineType::Host,
+            MachineType::Dpu => rpc::forge::MachineType::Dpu,
         })
     }
 }
