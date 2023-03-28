@@ -14,7 +14,18 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::task::Poll;
 
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::{
+    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
+    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
+    EchoResponse, FindTenantKeysetRequest, FindTenantKeysetResponse, FindTenantRequest,
+    FindTenantResponse, InstanceList, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse,
+    UpdateTenantRequest, UpdateTenantResponse, ValidateTenantPublicKeyRequest,
+    ValidateTenantPublicKeyResponse,
+};
 use color_eyre::Report;
+use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use futures_util::future::BoxFuture;
 use http::header::USER_AGENT;
 use http::{header::AUTHORIZATION, StatusCode};
@@ -33,18 +44,7 @@ use tonic_reflection::server::Builder;
 use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use uuid::Uuid;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::forge::{
-    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
-    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantKeysetResponse, FindTenantRequest,
-    FindTenantResponse, InstanceList, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse,
-    UpdateTenantRequest, UpdateTenantResponse, ValidateTenantPublicKeyRequest,
-    ValidateTenantPublicKeyResponse,
-};
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
-
+use self::rpc::forge_server::Forge;
 use crate::db::ipmi::UserRoles;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
@@ -97,8 +97,6 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
-
-use self::rpc::forge_server::Forge;
 
 // Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -2587,10 +2585,15 @@ where
             ServiceConfig::for_local_development()
         };
 
-        let redfish_pool = RedfishClientPoolImpl::new(
-            credential_provider.clone(),
-            libredfish::RedfishClientPool::builder().build()?,
-        );
+        // RedfishClientPool uses reqwest in blocking mode.
+        // If it is called from an async function directly it will crash the runtime,
+        // therefore we have to wrap it inside spawn_blocking.
+        let rf_pool =
+            tokio::task::spawn_blocking(move || -> Result<_, libredfish::RedfishError> {
+                libredfish::RedfishClientPool::builder().build()
+            })
+            .await??;
+        let redfish_pool = RedfishClientPoolImpl::new(credential_provider.clone(), rf_pool);
         let shared_redfish_pool: Arc<dyn RedfishClientPool> = Arc::new(redfish_pool);
 
         let database_connection = sqlx::pool::PoolOptions::new()
