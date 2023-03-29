@@ -24,7 +24,7 @@ environment.
 
 2. Install additional cargo utilities
 
-   `cargo install cargo-watch cargo-make sccache mdbook mdbook-mermaid`
+   `RUSTC_WRAPPER= cargo install cargo-watch cargo-make sccache mdbook mdbook-mermaid`
 
 3. Install docker following these [directions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), then add yourself to the docker group: `sudo usermod -aG docker $USER` (otherwise, you must always `sudo` docker`).
 4. Install docker-compose using your system package manager
