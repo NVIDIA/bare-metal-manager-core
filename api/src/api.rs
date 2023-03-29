@@ -75,7 +75,7 @@ use crate::{
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     ipmi::{ipmi_handler, MachineBmcRequest, RealIpmiCommandHandler},
-    kubernetes::{bgkubernetes_handler, VpcApi, VpcApiImpl, VpcApiSim},
+    kubernetes::{VpcApi, VpcApiImpl, VpcApiSim},
     logging::{
         api_logs::LogLayer,
         service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
@@ -2635,13 +2635,6 @@ where
             conn_clone,
             RealIpmiCommandHandler {},
             credential_provider.clone(),
-        )
-        .await?;
-
-        let _kube_handle = bgkubernetes_handler(
-            daemon_config.kubernetes,
-            api_service.clone(),
-            database_connection.clone(),
         )
         .await?;
 

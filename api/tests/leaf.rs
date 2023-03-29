@@ -12,12 +12,9 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use kube::runtime::wait::Condition;
 use log::LevelFilter;
 
 use carbide::db::vpc_resource_leaf::{NewVpcResourceLeaf, VpcResourceLeaf};
-use carbide::kubernetes::ConditionReadyMatcher;
-use carbide::vpc_resources::leaf;
 
 #[ctor::ctor]
 fn setup() {
@@ -90,44 +87,4 @@ async fn find_leaf_and_update_loopback_ip(
     );
 
     Ok(())
-}
-
-///
-/// we took a leaf object from the Kube API so that we could be sure
-/// we're operating with one "just like the real one" in our tests
-fn get_default_leaf() -> leaf::Leaf {
-    let json = r#"{"apiVersion":"networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1",
-    "kind":"Leaf","metadata":{"creationTimestamp":"2022-09-23T21:01:18Z",
-    "finalizers":["leaf.networkfabric.vpc.forge/finalizer"],"generation":3,
-    "managedFields":[{"apiVersion":"networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1",
-    "fieldsType":"FieldsV1","fieldsV1":{"f:metadata":{"f:finalizers":{".":{},
-    "v:\"leaf.networkfabric.vpc.forge/finalizer\"":{}}}},"manager":"manager","operation":"Update",
-    "time":"2022-09-23T21:01:18Z"},{"apiVersion":"networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1",
-    "fieldsType":"FieldsV1","fieldsV1":{"f:status":{".":{},"f:asn":{},"f:conditions":{},"f:hostAdminDHCPServer":{},
-    "f:hostAdminIPs":{".":{},"f:pf0hpf":{}},"f:loopbackIP":{}}},"manager":"manager","operation":"Update","subresource":
-    "status","time":"2022-09-23T21:04:40Z"},{"apiVersion":"networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1",
-    "fieldsType":"FieldsV1","fieldsV1":{"f:spec":{".":{},"f:control":{".":{},"f:managementIP":{},"f:vendor":{}},
-    "f:hostAdminIPs":{".":{},"f:pf0hpf":{}},"f:hostInterfaces":{".":{},"f:08-C0-EB-CB-0D-E6":{}}}},"manager":"unknown",
-    "operation":"Update","time":"2022-09-23T21:18:18Z"}],"name":"a469ee48-2f5c-41e4-a0ca-60160e5915a7","namespace":
-    "forge-system","resourceVersion":"40682169","uid":"19d6148d-c01f-4cd2-8f7e-3438a608b131"},"spec":{"control":
-    {"managementIP":"10.180.221.200","vendor":"DPU"},"hostAdminIPs":{"pf0hpf":"10.180.124.16"},"hostInterfaces":
-    {"08-C0-EB-CB-0D-E6":"pf0hpf"}},"status":{"asn":4240186200,"conditions":[{"lastTransitionTime":
-    "2022-09-29T16:40:49Z","status":"True","type":"Liveness"}],"hostAdminDHCPServer":"10.180.32.74",
-    "hostAdminIPs":{"pf0hpf":"11.180.124.16"},"loopbackIP":"10.180.96.223"}}"#;
-
-    serde_json::from_str(json).unwrap()
-}
-
-#[test]
-fn test_serialize() {
-    let mut leaf = get_default_leaf();
-
-    let matcher = ConditionReadyMatcher {
-        matched_name: "my_cool_name".to_string(),
-    };
-
-    assert!(!matcher.matches_object(Option::<&leaf::Leaf>::None));
-    assert!(!matcher.matches_object(Some(&leaf)));
-    leaf.metadata.name = Some("my_cool_name".to_string());
-    assert!(matcher.matches_object(Some(&leaf)));
 }
