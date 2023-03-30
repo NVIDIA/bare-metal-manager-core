@@ -98,6 +98,10 @@ container:
   livenessProbe:
     # -- Configure extra options for carbide containers' liveness and readiness probes
     # ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/#configure-probes
+    httpGet:
+      scheme: "HTTP" # it's http because it's hitting the metrics port
+      port: 1080
+    # carbideApi.livenessProbe.httpGet.scheme -- Scheme to use for connecting to the host (HTTP or HTTPS)
     enabled: true
     # carbideApi.livenessProbe.enabled -- Enable livenessProbe on containers
     initialDelaySeconds: 20
@@ -110,8 +114,6 @@ container:
     # livenessProbe.failureThreshold -- Failure threshold for livenessProbe
     successThreshold: 1
     # livenessProbe.successThreshold -- Success threshold for livenessProbe
-    tcpSocket:
-      port: 1079
 
   readinessProbe:
     enabled: false

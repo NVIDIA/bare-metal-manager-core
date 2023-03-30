@@ -61,7 +61,7 @@ deploy:
           bootArtifactsContainer.enabled: false
           service.loadBalancerIP: "192.168.252.76"
           service.type: LoadBalancer
-          carbideApiUrl: "http://192.168.252.75:1079"
+          carbideApiUrl: "https://192.168.252.75:1079"
           carbidePxeUrl: "http://192.168.252.76:8080"
       - name: carbide-api
         chartPath: charts/carbideApi
@@ -98,6 +98,7 @@ deploy:
           service.clusterIP: "10.96.0.67"
           service.type: ClusterIP
           carbidePxeIpAddress: 192.168.252.76
+          useTls: true
           carbideDnsServerIPs:
             - "192.168.252.79"
 
