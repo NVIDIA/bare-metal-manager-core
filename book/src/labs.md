@@ -5,27 +5,19 @@
 In order to reach any of IP's in our lab environments you need to be a member of
 `forge-dev-ssh-access` ssh groups.
 
-You must first install the latest version of [nvinit](https://confluence.nvidia.com/display/COS/NGC+Security+Engineering+Home#NGCSecurityEngineeringHome-Installation&Usage) and optionally hashicorp vault.
+You must first install the latest version of [nvinit](https://confluence.nvidia.com/display/COS/NGC+Security+Engineering+Home#NGCSecurityEngineeringHome-Installation&Usage) and optionally hashicorp vault.<br>
+If you already have `nvinit` installed, make sure the version is `>=2.1.5`
 
 SSH group membership:
 
 First is `forge-dev-ssh-access`.  Make a [dlrequest](https://dlrequest/GroupID/Groups/Properties?identity=MWQyNmFlNTkxZGU4NDIxMjgwNmNmMzIyOWIxMWI5Njh8Z3JvdXA=) Click Join -> Join perpetually
 
 
-### DUO
-
-In order to use `nvinit` - which will provide ssh credentials - you have
-to be enrolled into DUO 2 factor authentication. Since DUO is no longer the
-default for other services in the company, you have to file a request for
-it.
-
-To request DUO access, visit [http://dlrequest.nvidia.com](http://dlrequest.nvidia.com) then subscribe to group Duo_Users_Request_Access. An NVIDIA employee will reach out to you
-about the request and help to get access.
-
-After you are added to the group, enroll in DUO using [https://duo.nvidia.com](https://duo.nvidia.com),
-and install the DUO authentication app on your mobile device.
-
 ### nvinit
+**Windows users**: See [this](https://gitlab-master.nvidia.com/ngcsecurity/nvinit/-/blob/master/docs/windows.md) document and make sure that your `ssh-agent` service is not in a `disabled` state
+
+**NBU users**: Pulse Secure VPN might have issues with access to remote servers. Use Cisco AnyConnect VPN.
+
 
 Once authenticated to vault, you use nvinit to request additional principals
 Before running the commands below make sure to have `ssh-agent` running.
@@ -36,7 +28,7 @@ ssh-add -D
 ```
 
 ```
-nvinit ssh -user <AD username> -aggregate -passcode <DUO passcode>
+nvinit ssh -user <AD username>
 ```
 
 Add the following to your `.ssh/config`:
@@ -61,3 +53,4 @@ Host 10.180.32.* 10.180.222.* 10.180.221.* 10.180.124.*
   ProxyJump renojump
 ```
 
+**Note**: Jump hosts no longer allow direct ssh access. They should be used as jump hosts only.<br>Example: `ssh -J <win_ad_user>@<dc_jumphost> <os_user>@<host_ip/host_fqdn>`
