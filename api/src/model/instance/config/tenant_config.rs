@@ -10,65 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::str::FromStr;
-
 use serde::{Deserialize, Serialize};
 
+use crate::model::tenant::TenantOrganizationId;
 use crate::model::{ConfigValidationError, RpcDataConversionError};
-
-/// Identifies a forge tenant
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TenantOrganizationId(String);
-
-impl std::fmt::Debug for TenantOrganizationId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl std::fmt::Display for TenantOrganizationId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl TenantOrganizationId {
-    /// Returns a String representation of the Tenant Org
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
-/// A string is not a valid Tenant ID
-#[derive(thiserror::Error, Debug)]
-#[error("ID {0} is not a valid Tenant Organization ID")]
-pub struct InvalidTenantOrg(String);
-
-impl TryFrom<String> for TenantOrganizationId {
-    type Error = InvalidTenantOrg;
-
-    fn try_from(id: String) -> Result<Self, Self::Error> {
-        if id.is_empty() {
-            return Err(InvalidTenantOrg(id));
-        }
-
-        for &ch in id.as_bytes() {
-            if !(ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'-') {
-                return Err(InvalidTenantOrg(id));
-            }
-        }
-
-        Ok(Self(id))
-    }
-}
-
-impl FromStr for TenantOrganizationId {
-    type Err = InvalidTenantOrg;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s.to_string())
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TenantConfig {
@@ -131,34 +76,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_tenant_org() {
-        // Valid cases
-        for &valid in &["TenantA", "Tenant_B", "Tenant-C-_And_D_"] {
-            let org = TenantOrganizationId::try_from(valid.to_string()).unwrap();
-            assert_eq!(org.as_str(), valid);
-            let org: TenantOrganizationId = valid.parse().unwrap();
-            assert_eq!(org.as_str(), valid);
-        }
-
-        // Invalid cases
-        for &invalid in &["", " Tenant_B", "Tenant_C ", "Tenant D", "Tenant!A"] {
-            assert!(TenantOrganizationId::try_from(invalid.to_string()).is_err());
-            assert!(invalid.parse::<TenantOrganizationId>().is_err());
-        }
-    }
-
-    #[test]
-    fn tenant_org_formatting() {
-        let tenant = TenantOrganizationId::try_from("TenantA".to_string()).unwrap();
-        assert_eq!(format!("{}", tenant), "TenantA");
-        assert_eq!(format!("{:?}", tenant), "\"TenantA\"");
-        assert_eq!(serde_json::to_string(&tenant).unwrap(), "\"TenantA\"");
-    }
-
-    #[test]
     fn serialize_tenant_config() {
         let mut config = TenantConfig {
-            tenant_organization_id: TenantOrganizationId("TenantA".to_string()),
+            tenant_organization_id: TenantOrganizationId::try_from("TenantA".to_string()).unwrap(),
             custom_ipxe: "PXE".to_string(),
             user_data: Some("data".to_string()),
             tenant_keyset_ids: vec![],

@@ -22,5 +22,5 @@ RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/pxe/templates && \
   mkdir -p /opt/carbide/static
 RUN --mount=type=cache,target=/var/cache/apt apt-get update && apt-get install -y --no-install-recommends \
-  ca-certificates curl iproute2 iputils-ping libudev1 
+  ca-certificates curl iproute2 iputils-ping libudev1
 COPY --from=builder ["/carbide/target/debug/carbide-dns", "/opt/carbide/"]

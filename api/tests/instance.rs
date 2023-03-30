@@ -35,7 +35,7 @@ use carbide::{
         instance::{
             config::{
                 network::{InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType},
-                tenant::{TenantConfig, TenantOrganizationId},
+                tenant_config::TenantConfig,
                 InstanceConfig,
             },
             status::{
@@ -49,6 +49,7 @@ use carbide::{
         },
         machine::machine_id::try_parse_machine_id,
         machine::{InstanceState, ManagedHostState},
+        tenant::TenantOrganizationId,
     },
     state_controller::snapshot_loader::{
         DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,

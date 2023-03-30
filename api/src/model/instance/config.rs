@@ -11,12 +11,12 @@
  */
 
 pub mod network;
-pub mod tenant;
+pub mod tenant_config;
 
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    instance::config::{network::InstanceNetworkConfig, tenant::TenantConfig},
+    instance::config::{network::InstanceNetworkConfig, tenant_config::TenantConfig},
     ConfigValidationError, RpcDataConversionError,
 };
 
