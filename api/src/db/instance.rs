@@ -26,13 +26,11 @@ use crate::{
     model::{
         config_version::Versioned,
         instance::{
-            config::{
-                network::InstanceNetworkConfig,
-                tenant::{TenantConfig, TenantOrganizationId},
-            },
+            config::{network::InstanceNetworkConfig, tenant_config::TenantConfig},
             status::network::InstanceNetworkStatusObservation,
         },
         machine::machine_id::MachineId,
+        tenant::TenantOrganizationId,
     },
     CarbideError, CarbideResult,
 };

@@ -13,7 +13,6 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use chrono::prelude::*;
-use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
@@ -23,114 +22,6 @@ use crate::model::config_version::ConfigVersion;
 use crate::{CarbideError, CarbideResult};
 
 use super::DatabaseError;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TenantKeysetIdentifier {
-    pub organization_id: String,
-    pub keyset_id: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TenantPublicKey {
-    pub public_key: String,
-    pub comment: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TenantKeysetContent {
-    pub public_keys: Vec<TenantPublicKey>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TenantKeyset {
-    pub keyset_identifier: TenantKeysetIdentifier,
-    pub keyset_content: TenantKeysetContent,
-    pub version: String,
-}
-
-impl From<rpc::forge::TenantPublicKey> for TenantPublicKey {
-    fn from(src: rpc::forge::TenantPublicKey) -> Self {
-        Self {
-            public_key: src.public_key,
-            comment: src.comment,
-        }
-    }
-}
-
-impl From<TenantPublicKey> for rpc::forge::TenantPublicKey {
-    fn from(src: TenantPublicKey) -> Self {
-        Self {
-            public_key: src.public_key,
-            comment: src.comment,
-        }
-    }
-}
-
-impl From<rpc::forge::TenantKeysetContent> for TenantKeysetContent {
-    fn from(src: rpc::forge::TenantKeysetContent) -> Self {
-        Self {
-            public_keys: src.public_keys.into_iter().map(|x| x.into()).collect(),
-        }
-    }
-}
-
-impl From<TenantKeysetContent> for rpc::forge::TenantKeysetContent {
-    fn from(src: TenantKeysetContent) -> Self {
-        Self {
-            public_keys: src.public_keys.into_iter().map(|x| x.into()).collect(),
-        }
-    }
-}
-
-impl From<rpc::forge::TenantKeysetIdentifier> for TenantKeysetIdentifier {
-    fn from(src: rpc::forge::TenantKeysetIdentifier) -> Self {
-        Self {
-            organization_id: src.organization_id,
-            keyset_id: src.keyset_id,
-        }
-    }
-}
-
-impl From<TenantKeysetIdentifier> for rpc::forge::TenantKeysetIdentifier {
-    fn from(src: TenantKeysetIdentifier) -> Self {
-        Self {
-            organization_id: src.organization_id,
-            keyset_id: src.keyset_id,
-        }
-    }
-}
-
-impl TryFrom<rpc::forge::TenantKeyset> for TenantKeyset {
-    type Error = CarbideError;
-
-    fn try_from(src: rpc::forge::TenantKeyset) -> Result<Self, Self::Error> {
-        let keyset_identifier: TenantKeysetIdentifier = src
-            .keyset_identifier
-            .ok_or_else(|| CarbideError::MissingArgument("tenant keyset identifier"))?
-            .into();
-
-        let keyset_content: TenantKeysetContent = src
-            .keyset_content
-            .ok_or_else(|| CarbideError::MissingArgument("tenant keyset content"))?
-            .into();
-
-        Ok(Self {
-            keyset_content,
-            keyset_identifier,
-            version: src.version,
-        })
-    }
-}
-
-impl From<TenantKeyset> for rpc::forge::TenantKeyset {
-    fn from(src: TenantKeyset) -> Self {
-        Self {
-            keyset_identifier: Some(src.keyset_identifier.into()),
-            keyset_content: Some(src.keyset_content.into()),
-            version: src.version,
-        }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {

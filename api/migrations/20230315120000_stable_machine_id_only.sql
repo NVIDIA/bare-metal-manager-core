@@ -94,7 +94,7 @@ CREATE VIEW dpu_machines AS (
     FROM machine_interfaces
     LEFT JOIN machines on machine_interfaces.machine_id=machines.id
     INNER JOIN machine_interface_addresses on machine_interface_addresses.interface_id=machine_interfaces.id
-    WHERE machine_interfaces.attached_dpu_machine_id IS NOT NULL 
+    WHERE machine_interfaces.attached_dpu_machine_id IS NOT NULL
     AND machine_interfaces.attached_dpu_machine_id = machine_interfaces.machine_id
 );
 
