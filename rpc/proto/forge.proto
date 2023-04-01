@@ -1138,9 +1138,6 @@ message InstanceInterfaceStatusObservation {
 }
 
 message TenantContent {
-  // this keysetId must be unique within a tenant's organization
-  // if it is present, then any keys within this keyset will have access to all instances associated with this tenant
-  optional string keysetId = 2;
 }
 
 message Tenant {

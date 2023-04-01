@@ -25,13 +25,10 @@ impl Tenant {
     ) -> Result<Self, DatabaseError> {
         let version = ConfigVersion::initial();
         let version_string = version.to_version_string();
-        let keyset_id: Option<String> = None;
-        let query =
-            "INSERT INTO tenants (organization_id, keyset_id, version) VALUES ($1, $2, $3) RETURNING *";
+        let query = "INSERT INTO tenants (organization_id, version) VALUES ($1, $2) RETURNING *";
 
         sqlx::query_as(query)
             .bind(organization_id)
-            .bind(keyset_id)
             .bind(&version_string)
             .fetch_one(&mut *txn)
             .await
@@ -54,7 +51,6 @@ impl Tenant {
 
     pub async fn update(
         organization_id: String,
-        keyset_id: Option<String>,
         if_version_match: Option<ConfigVersion>,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Self> {
@@ -76,12 +72,11 @@ impl Tenant {
         let next_version_str = next_version.to_version_string();
 
         let query = "UPDATE tenants
-            SET keyset_id=$1, version=$2
-            WHERE organization_id=$3 AND version=$4
+            SET version=$1
+            WHERE organization_id=$2 AND version=$3
             RETURNING *";
 
         sqlx::query_as(query)
-            .bind(keyset_id)
             .bind(&next_version_str)
             .bind(organization_id)
             .bind(&current_version_str)
@@ -107,7 +102,6 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Tenant {
             organization_id: organization_id
                 .try_into()
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
-            keyset_id: row.try_get("keyset_id")?,
             version,
         })
     }

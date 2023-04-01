@@ -2,7 +2,6 @@
 CREATE TABLE tenants
 (
     organization_id text PRIMARY KEY,
-    keyset_id text NULL,
     version         VARCHAR(64) NOT NULL
 );
 
