@@ -19,7 +19,6 @@ use crate::model::RpcDataConversionError;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tenant {
-    pub keyset_id: Option<String>,
     pub organization_id: TenantOrganizationId,
     pub version: ConfigVersion,
 }
@@ -27,9 +26,7 @@ pub struct Tenant {
 impl From<Tenant> for rpc::forge::Tenant {
     fn from(src: Tenant) -> Self {
         Self {
-            tenant_content: Some(rpc::forge::TenantContent {
-                keyset_id: src.keyset_id,
-            }),
+            tenant_content: Some(rpc::forge::TenantContent {}),
             organization_id: src.organization_id.to_string(),
             version: src.version.to_version_string(),
         }
@@ -40,7 +37,7 @@ impl TryFrom<rpc::forge::Tenant> for Tenant {
     type Error = RpcDataConversionError;
 
     fn try_from(src: rpc::forge::Tenant) -> Result<Self, Self::Error> {
-        let tenant_content = src
+        let _tenant_content = src
             .tenant_content
             .ok_or(RpcDataConversionError::MissingArgument("tenant content"))?;
         let version = src
@@ -54,7 +51,6 @@ impl TryFrom<rpc::forge::Tenant> for Tenant {
             .map_err(|_| RpcDataConversionError::InvalidTenantOrg(src.organization_id))?;
 
         Ok(Self {
-            keyset_id: tenant_content.keyset_id,
             organization_id,
             version,
         })
