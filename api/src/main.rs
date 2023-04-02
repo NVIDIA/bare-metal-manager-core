@@ -32,8 +32,10 @@ use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
 #[tokio::main]
-async fn main() -> Result<(), color_eyre::Report> {
-    color_eyre::install()?;
+async fn main() -> color_eyre::Result<()> {
+    if atty::is(atty::Stream::Stdout) {
+        color_eyre::install()?;
+    }
 
     let config = Options::load();
 
@@ -97,7 +99,11 @@ async fn main() -> Result<(), color_eyre::Report> {
         .with_tracer(tracer);
 
     tracing_subscriber::registry()
-        .with(fmt::Layer::default().pretty())
+        .with(
+            fmt::Layer::default()
+                .pretty()
+                .with_ansi(atty::is(atty::Stream::Stdout)),
+        )
         .with(env_filter)
         .with(telemetry)
         .try_init()?;

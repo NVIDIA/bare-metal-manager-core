@@ -618,6 +618,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "atty",
  "base64 0.13.1",
  "casbin",
  "chrono",
