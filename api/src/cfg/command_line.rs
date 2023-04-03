@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::Parser;
+use clap::{ArgAction, Parser};
 
 // TODO(ajf): always look at crate root
 const DEFAULT_CONFIG_PATH: &str = ".config.toml";
@@ -17,7 +17,7 @@ const DEFAULT_CONFIG_PATH: &str = ".config.toml";
 #[derive(Parser)]
 #[clap(name = "carbide-api")]
 pub struct Options {
-    #[clap(short, long, parse(from_occurrences))]
+    #[clap(short, long, action = ArgAction::Count)]
     pub debug: u8,
 
     #[clap(long, default_value = DEFAULT_CONFIG_PATH)]
@@ -42,7 +42,7 @@ pub struct Daemon {
     #[clap(
         short,
         long,
-        multiple_values(true),
+        num_args(0..),
         require_equals(true),
         default_value = "[::]:1079"
     )]
@@ -65,12 +65,11 @@ pub struct Daemon {
     /// TODO: The env variable approach at the moment will just accept a single
     /// server name. We need custom logic to either split a comma separated
     /// env variable, or have a different env variable which supports multiple servers.
-    #[clap(long, multiple_values(true), env = "CARBIDE_DHCP_SERVER")]
+    #[clap(long, num_args(0..), env = "CARBIDE_DHCP_SERVER")]
     pub dhcp_server: Vec<String>,
 
     #[clap(
         long,
-        multiple_values(false),
         env = "IDENTITY_PEMFILE_PATH",
         default_value = "/opt/forge/server_identity.pem"
     )]
@@ -78,7 +77,6 @@ pub struct Daemon {
 
     #[clap(
         long,
-        multiple_values(false),
         env = "IDENTITY_KEYFILE_PATH",
         default_value = "/opt/forge/server_identity.key"
     )]
@@ -86,13 +84,7 @@ pub struct Daemon {
 
     // TODO: cfg this out for release builds?
     /// Enable permissive mode in the authorization enforcer (for development).
-    #[clap(
-        long,
-        require_equals(true),
-        takes_value(true),
-        default_value = "false",
-        env = "AUTH_PERMISSIVE_MODE"
-    )]
+    #[clap(long, default_value("true"), env = "AUTH_PERMISSIVE_MODE")]
     pub auth_permissive_mode: bool,
 
     /// The Casbin policy file (in CSV format).

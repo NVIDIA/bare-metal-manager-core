@@ -19,7 +19,7 @@ async-trait = "*"
 base64 = "0.13"
 casbin = "2.0"
 chrono = "0.4.19"
-clap = { version = "~3", features = ["derive", "env"] }
+clap = { workspace = true }
 color-eyre = "0.5.11"
 data-encoding = "2.3.3"
 futures = "0.3"

@@ -9,19 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::Parser;
+use clap::{ArgAction, Parser};
 
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
-    #[clap(short, long, parse(from_occurrences))]
+    #[clap(short, long, action = ArgAction::Count)]
     pub debug: u8,
 
     #[clap(
         short,
         long,
         alias("listen"),
-        multiple_values(false),
         require_equals(true),
         default_value = "https://[::1]:1079"
     )]
@@ -44,21 +43,21 @@ pub(crate) enum Command {
 #[derive(Parser)]
 pub struct AutoDetect {
     // This is a machine_INTERFACE_id, not a machine_id
-    #[clap(short, long, multiple_values(false), require_equals(true))]
+    #[clap(short, long, require_equals(true))]
     pub uuid: uuid::Uuid,
 }
 
 #[derive(Parser)]
 pub struct Discovery {
     // This is a machine_INTERFACE_id, not a machine_id
-    #[clap(short, long, multiple_values(false), require_equals(true))]
+    #[clap(short, long, require_equals(true))]
     pub uuid: uuid::Uuid,
 }
 
 #[derive(Parser)]
 pub struct Deprovision {
     // This is a machine_INTERFACE_id, not a machine_id
-    #[clap(short, long, multiple_values(false), require_equals(true))]
+    #[clap(short, long, require_equals(true))]
     pub uuid: uuid::Uuid,
 }
 

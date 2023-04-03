@@ -10,11 +10,11 @@ name = "forge-admin-cli"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "~3", features = ["derive", "env"] }
-color-eyre = "0.6"
-log = "0.4"
-pretty_env_logger = "0.4"
-prettytable-rs = "0.10"
+clap = { workspace = true }
+color-eyre = "*"
+log = "*"
+pretty_env_logger = "*"
+prettytable-rs = "^0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
