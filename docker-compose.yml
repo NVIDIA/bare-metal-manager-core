@@ -92,7 +92,7 @@ services:
       run
       --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'
       --casbin-policy-file=/app/code/api/casbin-policy.csv
-      --auth-permissive-mode=true"
+      --auth-permissive-mode"
     ports:
       - 1079:1079
       - 1080:1080
