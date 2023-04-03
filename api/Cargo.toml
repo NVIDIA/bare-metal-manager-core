@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.65"
 async-trait = "*"
+atty = "*"
 base64 = "0.13"
 casbin = "2.0"
 chrono = "0.4.19"
