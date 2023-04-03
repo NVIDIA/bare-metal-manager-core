@@ -11,6 +11,7 @@
 REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_PROJECT_DIR"], env_not_set = ["REPO_ROOT"]}}
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
+IPXE_CA_PATH = { value = "${REPO_ROOT}/dev/ipxe-root.pem"}
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04"
 BFB_NAME = "DOCA_1.5.1_BSP_3.9.3_Ubuntu_20.04-54.signed.bfb"
 HBN_CONFIG_VERSION = "1.5.1v2"
@@ -246,21 +247,21 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Build the x86_64 Legacy BIOS iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH}"]
+args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH},${IPXE_CA_PATH}"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-x86_64]
 category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH}"]
+args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH},${IPXE_CA_PATH}"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
-args = [ "bin-arm64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH}"]
+args = [ "bin-arm64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH},${IPXE_CA_PATH}"]
 cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
