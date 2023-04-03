@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::Parser;
+use clap::{ArgAction, Parser};
 
 #[derive(Parser)]
 pub(crate) struct Options {
-    #[clap(short, long, parse(from_occurrences))]
+    #[clap(short, long, action = ArgAction::Count)]
     pub debug: u8,
 
     #[clap(subcommand)]
@@ -31,7 +31,7 @@ pub struct Daemon {
     #[clap(
         short,
         long,
-        multiple_values(true),
+        num_args(0..1),
         require_equals(true),
         default_value = "[::]:1053"
     )]

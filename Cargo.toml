@@ -22,6 +22,7 @@ authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive", "env"] }
 
 [profile.release]
 debug = true # Enable debuginfo

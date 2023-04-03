@@ -539,15 +539,11 @@ SELECT m.id FROM
             if search_config.include_history {
                 if let Some(history) = history_for_machine.remove(&machine.id) {
                     machine.history = history;
-                } else {
-                    log::warn!("Machine {0} () has no history event.", machine.id);
                 }
             }
 
             if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
                 machine.interfaces = interfaces;
-            } else {
-                log::warn!("Machine {0} () has no interfaces", machine.id);
             }
 
             if let Some(topo) = topologies_for_machine.get(&machine.id) {
