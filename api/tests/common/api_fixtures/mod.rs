@@ -17,7 +17,10 @@ use carbide::{
     auth::{Authorizer, NoopEngine},
     db::machine::Machine,
     kubernetes::{VpcApiSim, VpcApiSimConfig},
-    model::machine::{machine_id::MachineId, ManagedHostState},
+    model::machine::{
+        machine_id::{try_parse_machine_id, MachineId},
+        ManagedHostState,
+    },
     redfish::RedfishSim,
     state_controller::{
         controller::StateControllerIO,
@@ -30,11 +33,18 @@ use carbide::{
         },
     },
 };
-use rpc::forge::forge_server::Forge;
+use rpc::forge::{
+    forge_server::Forge, BmcMetaDataUpdateRequest, ForgeAgentControlRequest,
+    ForgeAgentControlResponse, MachineDiscoveryCompletedRequest,
+};
 use sqlx::PgPool;
 use std::sync::Arc;
+use tonic::Request;
 
-use crate::common::test_credentials::TestCredentialProvider;
+use crate::common::{
+    api_fixtures::{dpu::create_dpu_machine, host::create_host_machine},
+    test_credentials::TestCredentialProvider,
+};
 
 pub mod dpu;
 pub mod host;
@@ -258,4 +268,64 @@ async fn run_state_controller_iteration<IO: StateControllerIO>(
         .unwrap();
     }
     txn.commit().await.unwrap();
+}
+
+/// Emulates the `UpdateBmcMetaData` request of a DPU/Host
+pub async fn update_bmc_metadata(
+    env: &TestEnv,
+    machine_id: rpc::MachineId,
+    bmc_ip_address: &str,
+    admin_user: String,
+    bmc_mac_address: String,
+) {
+    let _response = env
+        .api
+        .update_bmc_meta_data(Request::new(BmcMetaDataUpdateRequest {
+            machine_id: Some(machine_id),
+            ip: bmc_ip_address.to_string(),
+            data: vec![rpc::forge::bmc_meta_data_update_request::DataItem {
+                user: admin_user,
+                password: "notforprod".to_string(),
+                role: rpc::forge::UserRoles::Administrator as i32,
+            }],
+            request_type: rpc::forge::BmcRequestType::Redfish as i32,
+            mac: bmc_mac_address,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+}
+
+/// Emulates the `DiscoveryCompleted` request of a DPU/Host
+pub async fn discovery_completed(env: &TestEnv, machine_id: rpc::MachineId) {
+    let _response = env
+        .api
+        .discovery_completed(Request::new(MachineDiscoveryCompletedRequest {
+            machine_id: Some(machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+}
+
+/// Emulates the `DiscoveryCompleted` request of a DPU/Host
+pub async fn forge_agent_control(
+    env: &TestEnv,
+    machine_id: rpc::MachineId,
+) -> ForgeAgentControlResponse {
+    env.api
+        .forge_agent_control(Request::new(ForgeAgentControlRequest {
+            machine_id: Some(machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+}
+
+pub async fn create_managed_host(env: &TestEnv) -> MachineId {
+    let dpu_machine_id = create_dpu_machine(env).await;
+    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+    let _host_machine_id = create_host_machine(env, &dpu_machine_id).await;
+
+    dpu_machine_id
 }
