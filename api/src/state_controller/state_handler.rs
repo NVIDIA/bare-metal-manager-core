@@ -142,6 +142,11 @@ pub enum StateHandlerError {
     // off from CarbideError
     #[error("Unable to load snapshot: {0}")]
     GenericError(anyhow::Error),
+    #[error("State for object {object_id} can not be advanced. Missing data: {missing}")]
+    MissingData {
+        object_id: String,
+        missing: &'static str,
+    },
     #[error("{0}")]
     DBError(#[from] DatabaseError),
 }

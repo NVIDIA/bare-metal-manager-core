@@ -43,6 +43,8 @@ pub struct MachineSnapshot {
     pub machine_id: MachineId,
     /// Hardware Information that was discovered about this Machine
     pub hardware_info: Option<HardwareInfo>,
+    /// BMC related information
+    pub bmc_info: BmcInfo,
     /// Desired state of the machine
     pub current: CurrentMachineState,
     /// Last discovery request from scout.
@@ -138,4 +140,11 @@ impl Display for ManagedHostState {
             ManagedHostState::Created => write!(f, "Created"),
         }
     }
+}
+
+/// BMC related information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BmcInfo {
+    pub ip: Option<String>,
+    pub mac: Option<String>,
 }

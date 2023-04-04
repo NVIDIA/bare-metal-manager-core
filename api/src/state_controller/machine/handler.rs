@@ -29,14 +29,13 @@ use crate::{
         dpu_machine::DpuMachine, instance::DeleteInstance, instance_address::InstanceAddress,
         machine_interface::MachineInterface, vpc_resource_leaf::VpcResourceLeaf,
     },
-    ipmi::{self, MachineBmcRequest, Operation},
-    kubernetes,
+    ipmi, kubernetes,
     model::{
         config_version::ConfigVersion,
         instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId},
         machine::{
-            machine_id::MachineId, CleanupState, InstanceState, MachineState, ManagedHostState,
-            ManagedHostStateSnapshot,
+            machine_id::MachineId, CleanupState, InstanceState, MachineSnapshot, MachineState,
+            ManagedHostState, ManagedHostStateSnapshot,
         },
     },
     state_controller::state_handler::{
@@ -58,7 +57,6 @@ impl StateHandler for MachineStateHandler {
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
 
-    // TODO: Update event in machine_events table when you process it.
     async fn handle_object_state(
         &self,
         machine_id: &MachineId,
@@ -124,14 +122,7 @@ impl StateHandler for MachineStateHandler {
                         }
 
                         // Reboot host
-                        MachineBmcRequest::new(
-                            host_snapshot.machine_id.clone(),
-                            Operation::Reset,
-                            true,
-                        )
-                        .invoke_bmc_command(ctx.services.pool.clone())
-                        .await
-                        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+                        restart_machine(host_snapshot, ctx).await?;
 
                         *controller_state.modify() =
                             ManagedHostState::HostNotReady(MachineState::Discovered);
@@ -501,14 +492,7 @@ impl StateHandler for InstanceStateHandler {
                     .await?;
 
                     // Reboot host
-                    MachineBmcRequest::new(
-                        host_snapshot.machine_id.clone(),
-                        Operation::Reset,
-                        true,
-                    )
-                    .invoke_bmc_command(ctx.services.pool.clone())
-                    .await
-                    .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+                    restart_machine(host_snapshot, ctx).await?;
 
                     // Instance is ready.
                     // We can not determine if machine is rebooted successfully or not. Just leave
@@ -564,14 +548,7 @@ impl StateHandler for InstanceStateHandler {
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
                     // Reboot host
-                    MachineBmcRequest::new(
-                        host_snapshot.machine_id.clone(),
-                        Operation::Reset,
-                        true,
-                    )
-                    .invoke_bmc_command(ctx.services.pool.clone())
-                    .await
-                    .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+                    restart_machine(host_snapshot, ctx).await?;
 
                     *controller_state.modify() =
                         ManagedHostState::WaitingForCleanup(CleanupState::HostCleanup);
@@ -581,4 +558,40 @@ impl StateHandler for InstanceStateHandler {
 
         Ok(())
     }
+}
+
+/// Issues a reboot request command to a host or DPU
+async fn restart_machine(
+    machine_snapshot: &MachineSnapshot,
+    ctx: &StateHandlerContext<'_>,
+) -> Result<(), StateHandlerError> {
+    let bmc_ip =
+        machine_snapshot
+            .bmc_info
+            .ip
+            .as_deref()
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: machine_snapshot.machine_id.to_string(),
+                missing: "bmc_info.ip",
+            })?;
+
+    let client = ctx
+        .services
+        .redfish_client_pool
+        .create_client(&machine_snapshot.machine_id, bmc_ip, None)
+        .await
+        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+
+    // Since libredfish calls are thread blocking and we are inside an async function,
+    // we have to delegate the actual call into a threadpool
+    tokio::task::spawn_blocking(move || client.power(libredfish::SystemPowerControl::ForceRestart))
+        .await
+        .map_err(|e| {
+            StateHandlerError::GenericError(anyhow!("Failed redfish ForceRestart subtask: {}", e))
+        })?
+        .map_err(|e| {
+            StateHandlerError::GenericError(anyhow!("Failed to restart machine: {}", e))
+        })?;
+
+    Ok(())
 }

@@ -34,7 +34,7 @@ use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::MachineNetworkStatus;
-use crate::model::machine::{MachineState, ManagedHostState};
+use crate::model::machine::{BmcInfo, MachineState, ManagedHostState};
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -49,12 +49,6 @@ impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
             include_history: value.include_history,
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct BmcInfo {
-    pub ip: Option<String>,
-    pub mac: Option<String>,
 }
 
 ///
@@ -244,9 +238,14 @@ impl Machine {
         self.id.machine_type().is_dpu()
     }
 
-    /// The BMC IP for this machine
-    pub fn bmc_ip(&self) -> Option<&str> {
-        self.bmc_info.ip.as_deref()
+    /// BMC related information
+    pub fn bmc_info(&self) -> &BmcInfo {
+        &self.bmc_info
+    }
+
+    /// Hardware information
+    pub fn hardware_info(&self) -> Option<&HardwareInfo> {
+        self.hardware_info.as_ref()
     }
 
     pub async fn exists(
@@ -580,6 +579,7 @@ SELECT m.id FROM
         if let Some(topology) = topologies.remove(&self.id) {
             self.hardware_info = Some(topology.topology().discovery_data.info.clone());
             self.bmc_info.ip = topology.topology().ipmi_ip.clone();
+            self.bmc_info.mac = topology.topology().ipmi_mac.clone();
         }
 
         Ok(())

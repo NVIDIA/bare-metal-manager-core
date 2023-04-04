@@ -17,7 +17,6 @@ use crate::{
             status::network::load_instance_network_status_observation, Instance,
         },
         machine::Machine,
-        machine_topology::MachineTopology,
         DatabaseError,
     },
     model::{
@@ -92,11 +91,6 @@ pub async fn get_machine_snapshot(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     machine_id: &MachineId,
 ) -> Result<MachineSnapshot, SnapshotLoaderError> {
-    let mut hardware_infos =
-        MachineTopology::find_latest_by_machine_ids(txn, &[machine_id.clone()])
-            .await
-            .map_err(|e| SnapshotLoaderError::HardwareInfoSqlError(e.to_string()))?;
-    let info = hardware_infos.remove(machine_id);
     let machine = Machine::find_one(
         txn,
         machine_id,
@@ -105,9 +99,11 @@ pub async fn get_machine_snapshot(
     .await
     .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
     .ok_or(SnapshotLoaderError::MachineNotFound(machine_id.clone()))?;
+
     let snapshot = MachineSnapshot {
         machine_id: machine_id.clone(),
-        hardware_info: info.map(|x| x.topology().discovery_data.info.clone()),
+        bmc_info: machine.bmc_info().clone(),
+        hardware_info: machine.hardware_info().cloned(),
         current: CurrentMachineState {
             state: machine.current_state(),
             version: machine.current_version(),

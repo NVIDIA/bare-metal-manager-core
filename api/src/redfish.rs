@@ -27,6 +27,8 @@ pub enum RedfishClientCreationError {
     MissingCredentials(MachineId, anyhow::Error),
     #[error("Failed redfish request for Machine {0}: {1}")]
     RedfishError(MachineId, RedfishError),
+    #[error("Failed subtask to create redfish client for Machine {0}: {1}")]
+    SubtaskError(MachineId, tokio::task::JoinError),
 }
 
 /// Allows to create Redfish clients for a certain Redfish BMC endpoint
@@ -85,8 +87,12 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             password: Some(password),
         };
 
-        self.pool
-            .create_client(endpoint)
+        // Creating the client performs a HTTP request to determine the BMC vendor
+        // The request is blocking - therefore we need to offload it into a ThreadPool
+        let pool = self.pool.clone();
+        tokio::task::spawn_blocking(move || pool.create_client(endpoint))
+            .await
+            .map_err(|e| RedfishClientCreationError::SubtaskError(machine_id.clone(), e))?
             .map_err(|e| RedfishClientCreationError::RedfishError(machine_id.clone(), e))
     }
 }
@@ -118,7 +124,8 @@ impl Redfish for RedfishSimClient {
     }
 
     fn power(&self, _action: libredfish::SystemPowerControl) -> Result<(), RedfishError> {
-        todo!()
+        // TODO: Only return Ok if the machine is actually known
+        Ok(())
     }
 
     fn lockdown(&self, _target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
