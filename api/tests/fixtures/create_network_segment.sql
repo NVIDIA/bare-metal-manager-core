@@ -48,3 +48,20 @@ INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved, circuit
 	'192.0.3.1',
 	3,
   'vlan_101');
+
+INSERT INTO network_segments (id, name, subdomain_id, mtu, version, controller_state_version, controller_state) VALUES (
+	'4de5bdd6-1f28-4ed4-aba7-f52e292f0fa9',
+	'segment_for_vpc_leaf_loopback_ip',
+	'1ebec7c1-114f-4793-a9e4-63f3d22b5b5e',
+	1500,
+	'V1-T1666644937952267',
+	'V1-T1666644937952267',
+	'{"state":"ready"}'
+);
+
+INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved, circuit_id) VALUES (
+	'4de5bdd6-1f28-4ed4-aba7-f52e292f0fa9',
+	'172.20.0.0/24',
+	'172.20.0.1',
+	7,
+  'vlan_200');

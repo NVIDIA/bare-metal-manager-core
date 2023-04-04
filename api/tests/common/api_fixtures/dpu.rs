@@ -23,12 +23,13 @@ use rpc::{
     forge::{
         forge_server::Forge,
         machine_credentials_update_request::{CredentialPurpose, Credentials},
-        BmcMetaDataUpdateRequest, DhcpDiscovery, MachineCredentialsUpdateRequest,
-        MachineDiscoveryCompletedRequest,
+        DhcpDiscovery, MachineCredentialsUpdateRequest,
     },
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
 use tonic::Request;
+
+use crate::common::api_fixtures::{discovery_completed, update_bmc_metadata};
 
 use super::{TestEnv, FIXTURE_DHCP_RELAY_ADDRESS};
 
@@ -79,9 +80,16 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
 
     // TODO: This it not really happening in the current version of forge-scout.
     // But it's in the test setup to verify reading back submitted credentials
-    update_dpu_bmc_metadata(env, dpu_rpc_machine_id.clone(), FIXTURE_DPU_BMC_IP_ADDRESS).await;
+    update_bmc_metadata(
+        env,
+        dpu_rpc_machine_id.clone(),
+        FIXTURE_DPU_BMC_IP_ADDRESS,
+        FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
+        FIXTURE_DPU_BMC_MAC_ADDRESS.to_string(),
+    )
+    .await;
 
-    dpu_discovery_completed(env, dpu_rpc_machine_id.clone()).await;
+    discovery_completed(env, dpu_rpc_machine_id.clone()).await;
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &dpu_machine_id,
@@ -138,30 +146,6 @@ pub async fn dpu_discover_machine(
     response.machine_id.expect("machine_id must be set")
 }
 
-/// Emulates the `UpdateBmcMetaData` request of a DPU
-pub async fn update_dpu_bmc_metadata(
-    env: &TestEnv,
-    dpu_machine_id: rpc::MachineId,
-    dpu_bmc_ip_address: &str,
-) {
-    let _response = env
-        .api
-        .update_bmc_meta_data(Request::new(BmcMetaDataUpdateRequest {
-            machine_id: Some(dpu_machine_id),
-            ip: dpu_bmc_ip_address.to_string(),
-            data: vec![rpc::forge::bmc_meta_data_update_request::DataItem {
-                user: FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
-                password: "notforprod".to_string(),
-                role: rpc::forge::UserRoles::Administrator as i32,
-            }],
-            request_type: rpc::forge::BmcRequestType::Redfish as i32,
-            mac: FIXTURE_DPU_BMC_MAC_ADDRESS.to_owned(),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-}
-
 /// Emulates the `UpdateMachineCredentials` request of a DPU
 pub async fn update_dpu_machine_credentials(env: &TestEnv, dpu_machine_id: rpc::MachineId) {
     let _response = env
@@ -180,18 +164,6 @@ pub async fn update_dpu_machine_credentials(env: &TestEnv, dpu_machine_id: rpc::
                     credential_purpose: CredentialPurpose::Hbn as i32,
                 },
             ],
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-}
-
-/// Emulates the `DiscoveryCompleted` request of a DPU
-pub async fn dpu_discovery_completed(env: &TestEnv, dpu_machine_id: rpc::MachineId) {
-    let _response = env
-        .api
-        .discovery_completed(Request::new(MachineDiscoveryCompletedRequest {
-            machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()
