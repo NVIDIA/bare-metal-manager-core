@@ -342,6 +342,23 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     Ok(())
 }
 
+fn set_ipmi_sol() -> CarbideClientResult<()> {
+    // failures for these 3 commands are okay to ignore, some BMCs may not handle them correctly.
+    let _ = Cmd::default()
+        .args(vec!["sol", "set", "set-in-progress", "set-complete", "1"])
+        .output();
+
+    let _ = Cmd::default()
+        .args(vec!["sol", "set", "enabled", "true", "1"])
+        .output();
+
+    let _ = Cmd::default()
+        .args(vec!["sol", "payload", "enable", "1", "1"])
+        .output();
+
+    Ok(())
+}
+
 fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String, String)> {
     let (ip, mac) = fetch_ipmi_network_config()?;
     let (mut free_users, existing_users) = fetch_ipmi_users_and_free_ids(None)?;
@@ -388,6 +405,9 @@ fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String, String)> {
             }
         }
     }
+
+    // set ipmi sol parameters
+    set_ipmi_sol()?;
 
     Ok((
         IpmiInfo {
