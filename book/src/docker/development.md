@@ -136,7 +136,7 @@ The `bootstrap-forge-docker` command above should succeed. Now Carbide has
 some data. Query carbide-api:
 
 ```
-grpcurl -plaintext 127.0.0.1:1079 forge.Forge/FindMachines
+grpcurl -insecure 127.0.0.1:1079 forge.Forge/FindMachines
 ```
 
 It should return a JSON object with a `machines` array containing one machine.
