@@ -35,7 +35,7 @@ pub struct CarbideOptions {
     )]
     pub forge_root_ca_path: Option<String>,
 
-    #[clap(short, long, num_args(0..))]
+    #[clap(short, long, num_args(0..), default_value = "0")]
     pub debug: u8,
 
     #[clap(subcommand)]
