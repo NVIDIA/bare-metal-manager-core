@@ -10,12 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-// wrapper for libc::uname()
-use uname::uname;
-
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client;
-use forge_host_support::hardware_enumeration::{CpuArchitecture, HardwareEnumerationError};
 
 use crate::CarbideClientError;
 
@@ -27,26 +23,12 @@ pub async fn run(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientE
     if let Err(err) = crate::users::create_users(&mut client, machine_id).await {
         log::error!("Error while setting up users. {}", err.to_string());
     }
-    // Note: We're intentionally not doing this for Aarch64 (DPUs) because losing the root password for
-    // those is ... not fun. And because we're not using IPMI on them, so it's a risk not worth taking
-    // right now.  Maybe revisit later.
-    let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
-    let architecture: CpuArchitecture = info.machine.parse()?;
-    if architecture == CpuArchitecture::X86_64 {
-        crate::ipmi::update_ipmi_creds(&mut client, machine_id)
-            .await
-            .map_err(|err| {
-                log::error!("Error while setting up IPMI. {}", err.to_string());
-                err
-            })?;
-    } else {
-        crate::ipmi::retrieve_ipmi_network(&mut client, machine_id)
-            .await
-            .map_err(|err| {
-                log::error!("Error while setting up IPMI. {}", err.to_string());
-                err
-            })?;
-    }
+    crate::ipmi::update_ipmi_creds(&mut client, machine_id)
+        .await
+        .map_err(|err| {
+            log::error!("Error while setting up IPMI. {}", err.to_string());
+            err
+        })?;
     Ok(())
 }
 
