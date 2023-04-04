@@ -105,6 +105,7 @@ services:
       - VAULT_ADDR=http://vault:8200
       - RUST_BACKTRACE=1
       - KUBECONFIG=/app/code/dev/kube_config # Only used if you pass --kubernetes
+      - CARBIDE_GRAHAM_MODE=${CARBIDE_GRAHAM_MODE:-0}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
