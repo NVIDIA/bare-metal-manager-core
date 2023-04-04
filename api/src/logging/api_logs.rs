@@ -192,13 +192,13 @@ where
                             .get("grpc-message")
                             .map(|header| {
                                 // TODO: The header is percent encoded
-                                // We don't deal with decoding for now
+                                // We only do basic (space) decoding for now
                                 // percent_decode(header.as_bytes())
                                 //     .decode_utf8()
                                 //     .map(|cow| cow.to_string())
                                 std::str::from_utf8(header.as_bytes())
                                     .unwrap_or("Invalid UTF8 Message")
-                                    .to_string()
+                                    .replace("%20", " ")
                             })
                             .unwrap_or_else(String::new);
 

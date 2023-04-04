@@ -24,7 +24,6 @@ use ::rpc::protos::forge::{
     UpdateTenantRequest, UpdateTenantResponse, ValidateTenantPublicKeyRequest,
     ValidateTenantPublicKeyResponse,
 };
-use color_eyre::Report;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use futures_util::future::BoxFuture;
 use http::header::USER_AGENT;
@@ -2458,7 +2457,7 @@ async fn api_handler<C>(
     api_service: Arc<Api<C>>,
     listen_port: SocketAddr,
     meter: Meter,
-) -> Result<(), Report>
+) -> eyre::Result<()>
 where
     C: CredentialProvider + 'static,
 {
@@ -2569,7 +2568,7 @@ where
         daemon_config: &cfg::Daemon,
         credential_provider: Arc<C>,
         meter: opentelemetry::metrics::Meter,
-    ) -> Result<(), Report> {
+    ) -> eyre::Result<()> {
         let service_config = if daemon_config.kubernetes {
             ServiceConfig::default()
         } else {
@@ -2591,19 +2590,11 @@ where
             .max_connections(service_config.max_db_connections)
             .connect(&daemon_config.datastore)
             .await?;
-        let stats_pool = database_connection.clone();
         let health_pool = database_connection.clone();
 
         start_export_service_health_metrics(ServiceHealthContext {
             meter: meter.clone(),
             database_pool: health_pool,
-        });
-
-        tokio::spawn(async move {
-            loop {
-                log::info!("Active DB connections: {}", stats_pool.size());
-                tokio::time::sleep(service_config.db_stats_interval).await;
-            }
         });
 
         let vpc_api: Arc<dyn VpcApi> = if daemon_config.kubernetes {
@@ -2710,8 +2701,6 @@ struct ServiceConfig {
     network_segment_state_controller_iteration_time: std::time::Duration,
     /// Maximum datebase connections
     max_db_connections: u32,
-    /// The interval in which the time amount of active database connections will be printed
-    db_stats_interval: std::time::Duration,
 }
 
 impl Default for ServiceConfig {
@@ -2721,7 +2710,6 @@ impl Default for ServiceConfig {
             machine_state_controller_iteration_time: std::time::Duration::from_secs(30),
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
             max_db_connections: 1000,
-            db_stats_interval: std::time::Duration::from_secs(60),
         }
     }
 }
@@ -2737,7 +2725,6 @@ impl ServiceConfig {
             machine_state_controller_iteration_time: std::time::Duration::from_secs(10),
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
             max_db_connections: 1000,
-            db_stats_interval: std::time::Duration::from_secs(60),
         }
     }
 }

@@ -20,7 +20,7 @@ use carbide::{
         otel_stdout_exporter::OtelStdoutExporter,
     },
 };
-use color_eyre::eyre::Context;
+use eyre::WrapErr;
 use forge_credentials::ForgeVaultClient;
 use opentelemetry::{
     sdk::{self, export::metrics::aggregation, metrics},
@@ -32,11 +32,7 @@ use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
 #[tokio::main]
-async fn main() -> color_eyre::Result<()> {
-    if atty::is(atty::Stream::Stdout) {
-        color_eyre::install()?;
-    }
-
+async fn main() -> eyre::Result<()> {
     let config = Options::load();
 
     // This defines attributes that are set on the exported logs **and** metrics
@@ -74,11 +70,11 @@ async fn main() -> color_eyre::Result<()> {
                 0 => LevelFilter::INFO,
                 1 => {
                     // command line overrides config file
-                    std::env::set_var("RUST_BACKTRACE", "1");
+                    env::set_var("RUST_BACKTRACE", "1");
                     LevelFilter::DEBUG
                 }
                 _ => {
-                    std::env::set_var("RUST_BACKTRACE", "1");
+                    env::set_var("RUST_BACKTRACE", "1");
                     LevelFilter::TRACE
                 }
             }
@@ -98,12 +94,13 @@ async fn main() -> color_eyre::Result<()> {
         .with_threads(false)
         .with_tracer(tracer);
 
+    let stdout_formatter = fmt::Layer::default()
+        .compact()
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(false);
     tracing_subscriber::registry()
-        .with(
-            fmt::Layer::default()
-                .pretty()
-                .with_ansi(atty::is(atty::Stream::Stdout)),
-        )
+        .with(stdout_formatter)
         .with(env_filter)
         .with(telemetry)
         .try_init()?;
