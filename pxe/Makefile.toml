@@ -247,21 +247,21 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Build the x86_64 Legacy BIOS iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH},${IPXE_CA_PATH}"]
+args = [ "bin-x86_64-pcbios/ipxe.kpxe", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-x86_64]
 category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH},${IPXE_CA_PATH}"]
+args = [ "bin-x86_64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
-args = [ "bin-arm64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "CERT=${FORGE_CA_PATH}", "TRUST=${FORGE_CA_PATH},${IPXE_CA_PATH}"]
+args = [ "bin-arm64-efi/ipxe.efi", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
 cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
