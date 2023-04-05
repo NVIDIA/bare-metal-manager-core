@@ -3,3 +3,4 @@ target/*
 book/
 pxe/mkiso/
 pxe/static/blobs/internal/*/.mkosi*
+**/.mkosi*

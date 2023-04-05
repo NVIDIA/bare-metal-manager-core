@@ -15,3 +15,5 @@ dev/kube/kind/ci/*
 .local_envrc
 .*.swp
 **/*.tgz
+**/**/.mkosi*
+.skaffold/*/**
