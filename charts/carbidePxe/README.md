@@ -1,6 +1,6 @@
 # carbidePxe
 
-![Version: 0.0.13](https://img.shields.io/badge/Version-0.0.13-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
+![Version: 0.0.16](https://img.shields.io/badge/Version-0.0.16-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1](https://img.shields.io/badge/AppVersion-0.0.1-informational?style=flat-square)
 
 A Helm chart for Forge carbide-pxe component
 
@@ -18,7 +18,8 @@ A Helm chart for Forge carbide-pxe component
 | bootArtifactsContainer.container.image.pullPolicy | string | `"IfNotPresent"` |  |
 | bootArtifactsContainer.container.image.registry | string | `"nvcr.io"` |  |
 | bootArtifactsContainer.container.image.tag | string | `"latest"` |  |
-| bootArtifactsContainer.enabled | bool | `false` |  |
+| bootArtifactsContainer.enabled | bool | `false` | set to true to pull artifacts container. set to 'develop' to allow manually copy artifacts to container path. set to false to use hostPath |
+| bootArtifactsHostPath | string | `"/srv/forge-boot-artifacts"` |  |
 | carbideApiUrl | string | `"-"` | When set to "-" Helm will automatically attempt to determine the correct service name of carbide-api |
 | carbidePxeUrl | string | `"-"` | When set to "-" Helm will automatically attempt to determine the correct service name of carbide-pxe |
 | clusterDomain | string | `"cluster.local"` | Kubernetes cluster domain name |
@@ -26,7 +27,7 @@ A Helm chart for Forge carbide-pxe component
 | commonLabels | object | `{}` | Labels to add to all deployed objects |
 | container.affinity | object | `{}` |  |
 | container.args[0] | string | `"-s"` |  |
-| container.args[1] | string | `"forge-boot-artifacts"` |  |
+| container.args[1] | string | `"/forge-boot-artifacts"` |  |
 | container.autoscaling.enabled | bool | `false` | Autoscaling configuration ref: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/ |
 | container.autoscaling.maxReplicas | string | `""` |  |
 | container.autoscaling.minReplicas | string | `""` |  |
@@ -105,6 +106,7 @@ A Helm chart for Forge carbide-pxe component
 | diagnosticMode.command | list | `["sleep"]` | Command to override all containers in the deployment |
 | diagnosticMode.enabled | bool | `false` | Enable diagnostic mode (all probes will be disabled and the command will be overridden) |
 | extraDeploy | list | `[]` | Array of extra objects to deploy with the release |
+| forgeRootCaFilePath | string | `"/run/secrets/spiffe.io/ca.crt"` | where the forge root CA is on disk |
 | fullnameOverride | string | `"carbide-pxe"` | String to fully override common.names.fullname |
 | global.imagePullSecrets | list | `[]` | Global Docker registry secret names as an array |
 | global.imageRegistry | string | `""` | Global Docker image registry |

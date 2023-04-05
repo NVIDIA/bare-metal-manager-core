@@ -50,7 +50,7 @@ forgeRootCaFilePath: /run/secrets/spiffe.io/ca.crt
 trustDomain: forge.local
 # trustDomain -- spiffe trust domain
 bootArtifactsHostPath: /srv/forge-boot-artifacts
-# artifactsHostPath: -- when _not_ using boot-artifacts container, where to generate the hostpath.  If using boot-artifacts container, this has not effect.
+# artifactsHostPath: -- when _not_ using boot-artifacts container, where to generate the hostpath.  If using boot-artifacts container or "develop", this has not effect.
 
 diagnosticMode:
   enabled: false
@@ -64,6 +64,7 @@ diagnosticMode:
 
 bootArtifactsContainer:
   enabled: false
+  # bootArtifactsContainer.enabled -- set to true to pull artifacts container. set to 'develop' to allow manually copy artifacts to container path. set to false to use hostPath
   container:
     image:
       registry: nvcr.io
@@ -194,7 +195,7 @@ container:
   args:
     # carbidePxe.args -- Override default container args (useful when using custom images)
     - -s
-    - forge-boot-artifacts
+    - /forge-boot-artifacts
   hostAliases: []
   # carbidePxe.hostAliases -- carbide pods host aliases
   # https://kubernetes.io/docs/concepts/services-networking/add-entries-to-pod-etc-hosts-with-host-aliases/

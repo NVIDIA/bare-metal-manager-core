@@ -88,7 +88,7 @@ spec:
           {{- include "common.tplvalues.render" (dict "value" .Values.container.initContainers "context" $) | nindent 8 }}
         {{- end }}
       containers:
-      {{- if .Values.bootArtifactsContainer.enabled }}
+      {{- if eq (.Values.bootArtifactsContainer.enabled | toString) "true" }}
         - name: boot-artifacts-x86-64
           image: {{ .Values.bootArtifactsContainer.container.image.registry }}/{{ .Values.bootArtifactsContainer.container.image.baseRepository }}-x86_64:{{.Values.bootArtifactsContainer.container.image.tag }}
           imagePullPolicy: {{ .Values.bootArtifactsContainer.container.image.pullPolicy }}
@@ -190,6 +190,7 @@ spec:
         {{- if eq (.Values.bootArtifactsContainer.enabled | toString) "false" }}
             - name: boot-artifacts
               mountPath: /forge-boot-artifacts
+        {{- else if eq (.Values.bootArtifactsContainer.enabled | toString) "develop" }}
         {{- else }}
             - name: boot-artifacts
               mountPath: /forge-boot-artifacts/blobs/internal
@@ -222,6 +223,7 @@ spec:
           hostPath:
             path: {{ .Values.bootArtifactsHostPath }}
             type: Directory
+      {{- else if eq (.Values.bootArtifactsContainer.enabled | toString) "develop" }}
       {{- else }}
         - name: boot-artifacts
           emptyDir: {}
