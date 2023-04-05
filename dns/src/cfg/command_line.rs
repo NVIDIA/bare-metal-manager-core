@@ -28,13 +28,7 @@ pub(crate) enum Command {
 
 #[derive(Parser)]
 pub struct Daemon {
-    #[clap(
-        short,
-        long,
-        num_args(0..1),
-        require_equals(true),
-        default_value = "[::]:1053"
-    )]
+    #[clap(short, long, require_equals(true), default_value = "[::]:1053")]
     pub listen: std::net::SocketAddr,
 
     #[clap(short, long, default_value = "http://[::1]:1079")]
