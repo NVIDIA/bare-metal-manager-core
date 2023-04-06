@@ -90,6 +90,8 @@ A **ManagedHost** is a box in a data center. It contains two **Machine**: one **
 
 ### POD
 
+A Kubernetes thing
+
 ### PXE
 
 In computing, the Preboot eXecution Environment, PXE specification describes a standardized client–server environment that boots a software assembly, retrieved from a network, on PXE-enabled clients.
@@ -97,3 +99,25 @@ In computing, the Preboot eXecution Environment, PXE specification describes a s
 In Forge, DPUs and Hosts are using PXE after startup to install both the
 Forge specific software images as well as the images that the tenant
 wants to run.
+
+### VLAN
+
+A 12-bit ID inserted into an Ethernet frame to identify which virtual network it belongs to. Switches/routers are VLAN aware. The limitations of only have 4096 VLAN IDs means that VXLAN is usually used instead.
+
+In our setup VLAN IDs only exist in the DPU-Host communication, and would be needed if the host was running a Hypervisor. The VLAN ID would identify which virtual machine the Ethernet frame should be delivered to.
+
+See also: [VXLAN](glossary.md#vxlan).
+
+### VNI
+
+Another name for VXLAN ID. See [VXLAN](glossary.md#vxlan).
+
+### VTEP
+
+VXLAN Tunnel EndPoint. See [VXLAN](glossary.md#vxlan).
+
+### VXLAN
+
+[Virtual Extensible LAN](https://en.wikipedia.org/wiki/Virtual_Extensible_LAN). In a data center we often want to pretend that we have multiple networks, but using a single set of cables. A customer will want all their machines to be on a single network, separate from the other customers, but we don't want to run around plugging cables in every time tenants change. The answer to this is virtual networks. An Ethernet packet is wrapped in a VXLAN packet which identifies which virtual network it is part of.
+
+The VXLAN packet is just an 8-byte header, mostly consisting of a 24-bit identifier, known as the VXLAN ID or VNI. The VXLAN wrapping / unwrapping is done by a VTEP. In our case the DPU is the VTEP. The customers' Ethernet frame goes into a VXLAN packet identified by a VXLAN ID or VNI, that goes in a UDP packet which is routed like any other IP packet to it's receiving VTEP (in our case usually another DPU), where it gets unwrapped and continues as an Ethernet frame. This allows the data center networking to only route IP packets, and allows the x86 host to believe it got an Ethernet frame from a machine on the same local network.
