@@ -13,8 +13,6 @@ use log::LevelFilter;
 
 use carbide::db::tags::{Tag, TagAssociation, TagCreate, TagDelete, TagTargetKind, TagsList};
 
-const FIXTURE_CREATED_MACHINE_ID: &str = "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
-
 #[ctor::ctor]
 fn setup() {
     pretty_env_logger::formatted_timed_builder()
@@ -81,10 +79,11 @@ async fn tag_deletion(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Erro
 #[sqlx::test(fixtures(
     "create_domain",
     "create_vpc",
-    "create_network_segment",
-    "create_machine"
+    "create_network_segment"
 ))]
 async fn tag_assign_and_remove(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: This should create a Machine using api_fixtures once revived
+
     let mut txn = pool.begin().await?;
 
     let tag = TagCreate {
@@ -133,10 +132,11 @@ async fn tag_assign_and_remove(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 #[sqlx::test(fixtures(
     "create_domain",
     "create_vpc",
-    "create_network_segment",
-    "create_machine"
+    "create_network_segment"
 ))]
 async fn test_set_tags(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: This should create a Machine using api_fixtures once revived
+
     // Create tag first to delete.
     let mut txn = pool.begin().await?;
 

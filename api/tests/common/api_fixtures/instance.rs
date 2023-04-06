@@ -9,10 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-pub use crate::common::api_fixtures::FIXTURE_DPU_MACHINE_ID;
-pub use crate::common::api_fixtures::FIXTURE_X86_MACHINE_ID;
 
 use super::TestEnv;
+use carbide::model::machine::machine_id::MachineId;
 use carbide::model::machine::CleanupState;
 use carbide::model::machine::MachineState;
 use carbide::state_controller::machine::handler::MachineStateHandler;
@@ -22,49 +21,18 @@ use rpc::{forge::forge_server::Forge, InstanceReleaseRequest};
 pub const FIXTURE_CIRCUIT_ID: &str = "vlan_100";
 pub const FIXTURE_CIRCUIT_ID_1: &str = "vlan_101";
 
-pub async fn prepare_machine(pool: &sqlx::PgPool) {
-    let mut txn = pool.begin().await.unwrap();
-    let machine = Machine::find_one(
-        &mut txn,
-        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
-        carbide::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(matches!(machine.current_state(), ManagedHostState::Created));
-    machine
-        .advance(&mut txn, ManagedHostState::Ready, None)
-        .await
-        .unwrap();
-    let machine = Machine::find_one(
-        &mut txn,
-        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
-        carbide::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(matches!(machine.current_state(), ManagedHostState::Created));
-    machine
-        .advance(&mut txn, ManagedHostState::Ready, None)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-}
-
 pub async fn create_instance(
     env: &TestEnv,
+    host_machine_id: &MachineId,
+    dpu_machine_id: &MachineId,
     network: Option<rpc::InstanceNetworkConfig>,
 ) -> (uuid::Uuid, rpc::Instance) {
-    // Note: This also requests a background task in the DB for creating managed
-    // resources. That's however ok - we will just ignore it and not execute
-    // that task. Later we might also verify that the creation of those resources
-    // is requested
     let info = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            machine_id: Some(FIXTURE_X86_MACHINE_ID.to_string().into()),
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(rpc::TenantConfig {
                     user_data: Some("SomeRandomData".to_string()),
@@ -84,7 +52,7 @@ pub async fn create_instance(
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
+        dpu_machine_id,
         &handler,
         2,
         &mut txn,
@@ -96,7 +64,12 @@ pub async fn create_instance(
     (instance_id, info)
 }
 
-pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
+pub async fn delete_instance(
+    env: &TestEnv,
+    instance_id: uuid::Uuid,
+    host_machine_id: &MachineId,
+    dpu_machine_id: &MachineId,
+) {
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
@@ -108,7 +81,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
+        dpu_machine_id,
         &handler,
         3,
         &mut txn,
@@ -120,7 +93,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
     let mut txn = env.pool.begin().await.unwrap();
     let machine = Machine::find_one(
         &mut txn,
-        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
+        host_machine_id,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },
@@ -134,7 +107,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
+        dpu_machine_id,
         &handler,
         3,
         &mut txn,
@@ -146,7 +119,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
     let mut txn = env.pool.begin().await.unwrap();
     let machine = Machine::find_one(
         &mut txn,
-        &FIXTURE_X86_MACHINE_ID.parse().unwrap(),
+        host_machine_id,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
         },
@@ -159,7 +132,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid) {
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        &FIXTURE_DPU_MACHINE_ID.parse().unwrap(),
+        dpu_machine_id,
         &handler,
         3,
         &mut txn,

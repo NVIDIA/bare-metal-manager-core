@@ -25,7 +25,7 @@ use carbide::{
 
 pub mod common;
 use common::api_fixtures::{
-    create_test_env,
+    create_managed_host, create_test_env,
     dpu::{create_dpu_machine, FIXTURE_DPU_MAC_ADDRESS},
 };
 
@@ -191,14 +191,10 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
     assert!(machines.is_empty());
 }
 
-#[sqlx::test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_network_segment",
-    "create_machine"
-))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone(), Default::default());
+    let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let machines = env.find_machines(None, None, true).await;
     assert_eq!(machines.machines.len(), 2); // 1 host and 1 DPU
@@ -213,14 +209,10 @@ async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
     assert!(machine_types.contains(&(rpc::forge::MachineType::Dpu as i32)));
 }
 
-#[sqlx::test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_network_segment",
-    "create_machine"
-))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_machine_dpu_excluded(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone(), Default::default());
+    let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let machines = env.find_machines(None, None, false).await;
     assert_eq!(machines.machines.len(), 1); // 1 host

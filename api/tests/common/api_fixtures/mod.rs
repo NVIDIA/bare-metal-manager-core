@@ -322,10 +322,13 @@ pub async fn forge_agent_control(
         .into_inner()
 }
 
-pub async fn create_managed_host(env: &TestEnv) -> MachineId {
+pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
     let dpu_machine_id = create_dpu_machine(env).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
-    let _host_machine_id = create_host_machine(env, &dpu_machine_id).await;
+    let host_machine_id = create_host_machine(env, &dpu_machine_id).await;
 
-    dpu_machine_id
+    (
+        try_parse_machine_id(&host_machine_id).unwrap(),
+        dpu_machine_id,
+    )
 }

@@ -15,14 +15,13 @@ use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 use std::str::FromStr;
 
-use carbide::db::machine_interface::MachineInterface;
+use carbide::db::{machine_interface::MachineInterface, vpc_resource_leaf::VpcResourceLeaf};
 
 mod common;
-
-use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
-
 use common::api_fixtures::{
-    instance::{create_instance, prepare_machine, FIXTURE_CIRCUIT_ID, FIXTURE_CIRCUIT_ID_1},
+    create_managed_host, create_test_env,
+    dpu::create_dpu_machine,
+    instance::{create_instance, FIXTURE_CIRCUIT_ID, FIXTURE_CIRCUIT_ID_1},
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
     FIXTURE_DHCP_RELAY_ADDRESS,
 };
@@ -165,17 +164,23 @@ async fn test_multiple_machines_dhcp_with_api(
     Ok(())
 }
 
-#[sqlx::test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_network_segment",
-    "create_machine",
-))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone(), Default::default());
-    prepare_machine(&pool).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    let leaf = VpcResourceLeaf::find(&mut txn, &dpu_machine_id)
+        .await
+        .unwrap();
+    let dpu_loopback_ip = leaf.loopback_ip_address().unwrap();
+
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
@@ -188,13 +193,14 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             },
         ],
     });
-    let (_instance_id, _instance) = create_instance(&env, network).await;
+    let (_instance_id, _instance) =
+        create_instance(&env, &host_machine_id, &dpu_machine_id, network).await;
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
     let response = env
         .api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
             mac_address: mac_address.clone(),
-            relay_address: "192.168.0.1".to_string(),
+            relay_address: dpu_loopback_ip.to_string(),
             link_address: None,
             vendor_string: None,
             circuit_id: Some(FIXTURE_CIRCUIT_ID.to_string()),
@@ -221,7 +227,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         .api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
             mac_address: mac_address.clone(),
-            relay_address: "192.168.0.1".to_string(),
+            relay_address: dpu_loopback_ip.to_string(),
             link_address: None,
             vendor_string: None,
             circuit_id: Some(FIXTURE_CIRCUIT_ID_1.to_string()),
