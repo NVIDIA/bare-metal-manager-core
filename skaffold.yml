@@ -78,7 +78,7 @@ deploy:
           container.command:
             - /bin/sh
             - -c
-            - /opt/carbide/carbide-api run --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}" --auth-permissive-mode=true
+            - /opt/carbide/carbide-api run --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}" --auth-permissive-mode
           service.type: LoadBalancer
           service.LoadBalancerIP: "192.168.252.75"
           authPermissiveMode: true
