@@ -6,7 +6,7 @@ use std::io::ErrorKind;
 /// Try it:
 ///  - start docker-compose things
 ///  - `cargo make bootstrap-forge-docker`
-///  - `grpcurl -d '{"machine_id": {"value": "71363261-a95a-4964-9eb1-8dd98b870746"}}' -plaintext
+///  - `grpcurl -d '{"machine_id": {"value": "71363261-a95a-4964-9eb1-8dd98b870746"}}' -insecure
 ///  127.0.0.1:1079 forge.Forge/CleanupMachineCompleted`
 ///  where that UUID is a host machine in DB.
 ///

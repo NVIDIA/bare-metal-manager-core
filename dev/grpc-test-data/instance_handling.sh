@@ -1,6 +1,6 @@
 #!/bin/bash
 
-HOST_MACHINE_ID=$(grpcurl -d '{}' -plaintext 127.0.0.1:1079 forge.Forge/FindMachines | python3 -c "import sys,json
+HOST_MACHINE_ID=$(grpcurl -d '{}' -insecure 127.0.0.1:1079 forge.Forge/FindMachines | python3 -c "import sys,json
 data=sys.stdin.read()
 j=json.loads(data)
 for machine in j['machines']:
@@ -8,7 +8,7 @@ for machine in j['machines']:
     print(machine['interfaces'][0]['machineId']['id'])
     break")
 
-SEGMENT_ID=$(grpcurl -d '{}' -plaintext 127.0.0.1:1079 forge.Forge/FindMachines | python3 -c "import sys,json
+SEGMENT_ID=$(grpcurl -d '{}' -insecure 127.0.0.1:1079 forge.Forge/FindMachines | python3 -c "import sys,json
 data=sys.stdin.read()
 j=json.loads(data)
 print(j['machines'][0]['interfaces'][0]['segmentId']['value'])")
@@ -16,11 +16,11 @@ print(j['machines'][0]['interfaces'][0]['segmentId']['value'])")
 if [[ -z "$1" || "$1" == "create" ]]; then
   # Create Instance
   echo "Creating instance with machine: $HOST_MACHINE_ID, with network segment: $SEGMENT_ID"
-  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"config\": {\"tenant\": {\"tenant_organization_id\": \"MyOrg\", \"user_data\": \"hello\", \"custom_ipxe\": \"chain --autofree https://boot.netboot.xyz\"}, \"network\": {\"interfaces\": [{\"function_type\": \"PHYSICAL_FUNCTION\", \"network_segment_id\": {\"value\": \"$SEGMENT_ID\"}}]}}}" -plaintext 127.0.0.1:1079 forge.Forge/AllocateInstance
+  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"config\": {\"tenant\": {\"tenant_organization_id\": \"MyOrg\", \"user_data\": \"hello\", \"custom_ipxe\": \"chain --autofree https://boot.netboot.xyz\"}, \"network\": {\"interfaces\": [{\"function_type\": \"PHYSICAL_FUNCTION\", \"network_segment_id\": {\"value\": \"$SEGMENT_ID\"}}]}}}" -insecure 127.0.0.1:1079 forge.Forge/AllocateInstance
  fi
 
 # Check Instance state
-INSTANCE_ID=$(grpcurl -d '{}' -plaintext 127.0.0.1:1079 forge.Forge/FindInstances | jq ".instances[0].id.value" | tr -d '"')
+INSTANCE_ID=$(grpcurl -d '{}' -insecure 127.0.0.1:1079 forge.Forge/FindInstances | jq ".instances[0].id.value" | tr -d '"')
 
 if [[ -z $INSTANCE_ID ]]; then
   echo "Could not find instance. Exiting."
@@ -36,7 +36,7 @@ if [[ -z "$1" || "$1" == "create" ]]; then
   i=0
   while [[ $INSTANCE_STATE != "READY" && $i -lt $MAX_RETRY ]]; do
     sleep 10
-    INSTANCE_STATE=$(grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/FindInstances | jq ".instances[0].status.tenant.state" | tr -d '"')
+    INSTANCE_STATE=$(grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -insecure 127.0.0.1:1079 forge.Forge/FindInstances | jq ".instances[0].status.tenant.state" | tr -d '"')
     echo "Checking instance state. Waiting for it to be in READY state. Current: $INSTANCE_STATE"
     i=$((i+1))
   done
@@ -55,14 +55,14 @@ fi
 if [[ -z "$1" || "$1" == "delete" ]]; then
   echo "Deleting instance now."
   # Delete Instance
-  grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ReleaseInstance
+  grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -insecure 127.0.0.1:1079 forge.Forge/ReleaseInstance
 
   # Wait until its gone.
   i=0
   INSTANCE_GONE="$INSTANCE_ID"
   while [[ -n "$INSTANCE_GONE" && $i -lt $MAX_RETRY ]]; do
     echo "Waiting for instance to be deleted."
-    INSTANCE_GONE=$(grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/FindInstances | grep "$INSTANCE_ID")
+    INSTANCE_GONE=$(grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -insecure 127.0.0.1:1079 forge.Forge/FindInstances | grep "$INSTANCE_ID")
     sleep 10
     i=$((i+1))
   done
@@ -77,7 +77,7 @@ if [[ -z "$1" || "$1" == "delete" ]]; then
   i=0
   while [[ $MACHINE_STATE != "WaitingForCleanup/HostCleanup" && $i -lt $MAX_RETRY ]]; do
     echo "Checking machine state. Waiting for it to be in Waitingforcleanup state. Current: $MACHINE_STATE"
-    MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -plaintext 127.0.0.1:1079 forge.Forge/GetMachine | jq ".state" | tr -d '"')
+    MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -insecure 127.0.0.1:1079 forge.Forge/GetMachine | jq ".state" | tr -d '"')
     i=$((i+1))
     sleep 10
   done
@@ -88,14 +88,14 @@ if [[ -z "$1" || "$1" == "delete" ]]; then
   fi
 
   # Wait for state change.
-  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ForgeAgentControl
-  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/CleanupMachineCompleted
+  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure 127.0.0.1:1079 forge.Forge/ForgeAgentControl
+  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure 127.0.0.1:1079 forge.Forge/CleanupMachineCompleted
 
   MACHINE_STATE=""
   i=0
   while [[ $MACHINE_STATE != "Host/Discovered" && $i -lt $MAX_RETRY ]]; do
     echo "Checking machine state. Waiting for it to be in Host/Discovered state. Current: $MACHINE_STATE"
-    MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -plaintext 127.0.0.1:1079 forge.Forge/GetMachine | jq ".state" | tr -d '"')
+    MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -insecure 127.0.0.1:1079 forge.Forge/GetMachine | jq ".state" | tr -d '"')
     i=$((i+1))
     sleep 10
   done
@@ -106,12 +106,12 @@ if [[ -z "$1" || "$1" == "delete" ]]; then
   fi
 
   # Wait for state change.
-  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -plaintext 127.0.0.1:1079 forge.Forge/ForgeAgentControl
+  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure 127.0.0.1:1079 forge.Forge/ForgeAgentControl
 
   i=0
   while [[ $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
     echo "Checking machine state. Waiting for it to be in Ready state. Current: $MACHINE_STATE"
-    MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -plaintext 127.0.0.1:1079 forge.Forge/GetMachine | jq ".state" | tr -d '"')
+    MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -insecure 127.0.0.1:1079 forge.Forge/GetMachine | jq ".state" | tr -d '"')
     sleep 10
     i=$((i+1))
   done

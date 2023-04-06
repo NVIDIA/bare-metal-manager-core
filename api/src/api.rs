@@ -1571,7 +1571,7 @@ where
     //  - Hostname
     //
     // Usage:
-    //  grpcurl -d '{"host_id": "neptune-bravo"}' -plaintext 127.0.0.1:1079 forge.Forge/GetDpuSSHCredential | jq -r -j ".password"
+    //  grpcurl -d '{"host_id": "neptune-bravo"}' -insecure 127.0.0.1:1079 forge.Forge/GetDpuSSHCredential | jq -r -j ".password"
     // That should evaluate to exactly the password, ready for inclusion in a script.
     //
     async fn get_dpu_ssh_credential(
