@@ -11,19 +11,18 @@
  */
 use std::str::FromStr;
 
-use carbide::db::UuidKeyedObjectFilter;
-use carbide::kubernetes::VpcApiSimConfig;
-use carbide::model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState};
-use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
-use log::LevelFilter;
-use mac_address::MacAddress;
-
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::machine_interface::MachineInterface;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
 use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
 use carbide::db::vpc::Vpc;
+use carbide::db::UuidKeyedObjectFilter;
+use carbide::kubernetes::VpcApiSimConfig;
+use carbide::model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState};
+use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
+use log::LevelFilter;
+use mac_address::MacAddress;
 
 pub mod common;
 use common::api_fixtures::{create_test_env, TestApi, TestEnvConfig};
@@ -320,6 +319,9 @@ async fn test_advance_network_prefix_state(
                 num_reserved: 100,
             },
         ],
+
+        vlan_id: None,
+        vni: None,
     }
     .persist(&mut txn)
     .await?;

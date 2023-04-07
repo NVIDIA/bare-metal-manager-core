@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use tracing::debug;
@@ -52,13 +52,15 @@ async fn main() {
 
         // Resource group
         .route("/apis/resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/resourcegroups/:rg_id", get(get_resource_group)).with_state(resource_group_state.clone())
+        .route("/apis/resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/resourcegroups/:rg_id", delete(delete_resource_group)).with_state(resource_group_state.clone())
         .route("/apis/resource.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/resourcegroups", post(create_resource_group)).with_state(resource_group_state.clone())
 
         // Leaf
+        .route("/apis/networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/leafs/:leaf_id/status", get(get_leaf_status)).with_state(leaf_state.clone())
+        .route("/apis/networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/leafs/:leaf_id", get(get_leaf)).with_state(leaf_state.clone())
+        .route("/apis/networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/leafs/:leaf_id", delete(delete_leaf)).with_state(leaf_state.clone())
         .route("/apis/networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/leafs", get(get_leafs))
         .route("/apis/networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/leafs", post(create_leaf)).with_state(leaf_state.clone())
-        .route("/apis/networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/leafs/:leaf_id", get(get_leaf)).with_state(leaf_state.clone())
-        .route("/apis/networkfabric.vpc.forge.gitlab-master.nvidia.com/v1alpha1/namespaces/forge-system/leafs/:leaf_id/status", get(get_leaf_status)).with_state(leaf_state.clone())
 
         .fallback(fallback);
 
@@ -91,6 +93,18 @@ async fn get_resource_group(
     match state.lock().unwrap().get(&rg_id) {
         None => (StatusCode::NOT_FOUND, RESOURCE_GROUP_NOT_FOUND_JSON),
         Some(_) => (StatusCode::OK, RESOURCE_GROUP_FOUND_JSON),
+    }
+}
+
+async fn delete_resource_group(
+    State(state): State<Arc<Mutex<HashSet<String>>>>,
+    AxumPath(rg_id): AxumPath<String>,
+) -> impl IntoResponse {
+    debug!("delete_resource_group {rg_id}");
+    if state.lock().unwrap().remove(&rg_id) {
+        (StatusCode::OK, RESOURCE_GROUP_FOUND_JSON)
+    } else {
+        (StatusCode::NOT_FOUND, RESOURCE_GROUP_NOT_FOUND_JSON)
     }
 }
 
@@ -166,4 +180,16 @@ async fn create_leaf(
         StatusCode::CREATED,
         include_str!("../json/leaf_created.json"),
     )
+}
+
+async fn delete_leaf(
+    State(state): State<Arc<Mutex<HashSet<String>>>>,
+    AxumPath(leaf_id): AxumPath<String>,
+) -> impl IntoResponse {
+    debug!("delete_leaf {leaf_id}"); // note that it ends in ".leaf", e.g. d5c58cdd-a1d1-4a13-83fd-74b8f539dff8.leaf
+    if state.lock().unwrap().remove(&leaf_id) {
+        (StatusCode::OK, LEAF_FOUND_JSON)
+    } else {
+        (StatusCode::NOT_FOUND, LEAF_NOT_FOUND_JSON)
+    }
 }

@@ -3,10 +3,9 @@ use std::future::Future;
 use ::rpc::forge::{self as rpc, MachineType, NetworkSegmentSearchConfig};
 use ::rpc::forge_tls_client::{self, ForgeClientT};
 
+use super::{CarbideCliError, CarbideCliResult};
 use crate::cfg::carbide_options::ForceDeleteMachineQuery;
 use crate::Config;
-
-use super::{CarbideCliError, CarbideCliResult};
 
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -285,6 +284,22 @@ pub async fn reboot(
         });
         let out = client
             .admin_reboot(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(out)
+    })
+    .await
+}
+
+pub async fn define_resource_pool(
+    req: rpc::DefineResourcePoolRequest,
+    api_config: Config,
+) -> CarbideCliResult<rpc::DefineResourcePoolResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(req);
+        let out = client
+            .admin_define_resource_pool(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;

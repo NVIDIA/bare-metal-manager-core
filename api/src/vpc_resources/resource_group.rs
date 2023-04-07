@@ -69,6 +69,20 @@ pub struct ResourceGroupSpec {
         rename = "tenantIdentifier"
     )]
     pub tenant_identifier: Option<String>,
+    /// ForgeManagedVlanID is the ID of VLAN interfaces for this overlay network, managed by Forge
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "forgeManagedVlanID"
+    )]
+    pub forge_managed_vlan_id: Option<i32>,
+    /// ForgeManagedVNI is the vni for this overlay network, managed by Forge
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "forgeManagedVNI"
+    )]
+    pub forge_managed_vni: Option<i32>,
 }
 
 /// Network defines the overlay L2 network for this ResourceGroup. It is immutable.

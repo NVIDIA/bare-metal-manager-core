@@ -21,6 +21,7 @@ use crate::{
     kubernetes::VpcApi,
     model::config_version::{ConfigVersion, Versioned},
     redfish::RedfishClientPool,
+    resource_pool::ResourcePool,
     state_controller::{
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
@@ -375,6 +376,8 @@ pub struct Builder<IO: StateControllerIO> {
         >,
     >,
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
+    pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
+    pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
 }
 
 impl<IO: StateControllerIO> Builder<IO> {
@@ -395,6 +398,8 @@ impl<IO: StateControllerIO> Builder<IO> {
             >::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
             forge_api: None,
+            pool_vlan_id: None,
+            pool_vni: None,
         }
     }
 
@@ -439,6 +444,8 @@ impl<IO: StateControllerIO> Builder<IO> {
             vpc_api,
             redfish_client_pool,
             forge_api,
+            pool_vlan_id: self.pool_vlan_id.take(),
+            pool_vni: self.pool_vni.take(),
         });
 
         let controller = StateController::<IO> {
@@ -479,6 +486,18 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures the utilized VPC API
     pub fn vpc_api(mut self, vpc_api: Arc<dyn VpcApi>) -> Self {
         self.vpc_api = Some(vpc_api);
+        self
+    }
+
+    /// Configures the resource pool for allocation / release VLAN IDs
+    pub fn pool_vlan_id(mut self, pool_vlan_id: Arc<dyn ResourcePool<i16>>) -> Self {
+        self.pool_vlan_id = Some(pool_vlan_id);
+        self
+    }
+
+    /// Configures the resource pool for allocation / release VNI (VXLAN IDs)
+    pub fn pool_vni(mut self, pool_vni: Arc<dyn ResourcePool<i32>>) -> Self {
+        self.pool_vni = Some(pool_vni);
         self
     }
 

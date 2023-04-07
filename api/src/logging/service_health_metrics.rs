@@ -10,11 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use opentelemetry::metrics::Meter;
+use opentelemetry::KeyValue;
+
+use crate::resource_pool::ResourcePoolStats;
 
 pub struct ServiceHealthContext {
     pub meter: Meter,
     pub database_pool: sqlx::PgPool,
+    pub resource_pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>>,
 }
 
 /// Starts to export server health metrics
@@ -25,17 +32,28 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         .with_description("Whether the Forge Site Controller API is running")
         .init();
 
-    let pool_total_conns_metric = health_context
+    let db_pool_total_conns_metric = health_context
         .meter
         .u64_observable_gauge("carbide_db_pool_total_conns")
         .with_description(
             "The amount of total (active + idle) connections in the carbide database pool",
         )
         .init();
-    let pool_idle_conns_metric = health_context
+    let db_pool_idle_conns_metric = health_context
         .meter
         .u64_observable_gauge("carbide_db_pool_idle_conns")
         .with_description("The amount of idle connections in the carbide database pool")
+        .init();
+
+    let pool_used = health_context
+        .meter
+        .u64_observable_gauge("carbide_resourcepool_used_count")
+        .with_description("Count of values in the pool currently allocated")
+        .init();
+    let pool_free = health_context
+        .meter
+        .u64_observable_gauge("carbide_resourcepool_free_count")
+        .with_description("Count of values in the pool currently available for allocation")
         .init();
 
     // The metrics is queried inside the callback by the opentelemetry framework
@@ -45,8 +63,19 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
     meter
         .register_callback(move |cx| {
             ready_metric.observe(cx, 1, &[]);
-            pool_total_conns_metric.observe(cx, health_context.database_pool.size() as u64, &[]);
-            pool_idle_conns_metric.observe(cx, health_context.database_pool.num_idle() as u64, &[]);
+
+            db_pool_total_conns_metric.observe(cx, health_context.database_pool.size() as u64, &[]);
+            db_pool_idle_conns_metric.observe(
+                cx,
+                health_context.database_pool.num_idle() as u64,
+                &[],
+            );
+
+            for (name, stats) in health_context.resource_pool_stats.lock().unwrap().iter() {
+                let name_attr = KeyValue::new("pool", name.to_string());
+                pool_used.observe(cx, stats.used as u64, &[name_attr.clone()]);
+                pool_free.observe(cx, stats.free as u64, &[name_attr]);
+            }
         })
         .unwrap();
 }

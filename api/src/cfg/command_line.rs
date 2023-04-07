@@ -61,6 +61,11 @@ pub struct Daemon {
     #[clap(short, long)]
     pub kubernetes: bool,
 
+    /// Should Carbide manage the VPC data (loopback IP, VNI, vlanid)?
+    /// False means VPC manages it as a Kubernetes CRD.
+    #[clap(long)]
+    pub manage_vpc: bool,
+
     /// List of DHCP servers that should be announced
     /// TODO: The env variable approach at the moment will just accept a single
     /// server name. We need custom logic to either split a comma separated

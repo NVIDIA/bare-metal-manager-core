@@ -61,7 +61,13 @@ impl StateHandler for NetworkSegmentStateHandler {
                     match ctx
                         .services
                         .vpc_api
-                        .try_create_resource_group(prefix.id, prefix.prefix, prefix.gateway)
+                        .try_create_resource_group(
+                            prefix.id,
+                            prefix.prefix,
+                            prefix.gateway,
+                            state.vlan_id,
+                            state.vni,
+                        )
                         .await?
                     {
                         Poll::Ready(result) => {
@@ -162,6 +168,17 @@ impl StateHandler for NetworkSegmentStateHandler {
                                         prefix.id
                                     );
                                 }
+                            }
+                        }
+
+                        if let Some(vni) = state.vni.take() {
+                            if let Some(pool_vni) = ctx.services.pool_vni.as_ref() {
+                                pool_vni.release(vni).await?;
+                            }
+                        }
+                        if let Some(vlan_id) = state.vlan_id.take() {
+                            if let Some(pool_vlan_id) = ctx.services.pool_vlan_id.as_ref() {
+                                pool_vlan_id.release(vlan_id).await?;
                             }
                         }
 

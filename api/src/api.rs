@@ -9,8 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use std::convert::TryFrom;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -19,10 +20,11 @@ use ::rpc::protos::forge::{
     CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
     CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
     EchoResponse, FindTenantKeysetRequest, FindTenantKeysetResponse, FindTenantRequest,
-    FindTenantResponse, InstanceList, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse,
-    UpdateTenantRequest, UpdateTenantResponse, ValidateTenantPublicKeyRequest,
-    ValidateTenantPublicKeyResponse,
+    FindTenantResponse, IbSubnet, IbSubnetCreationRequest, IbSubnetDeletionRequest,
+    IbSubnetDeletionResult, IbSubnetList, IbSubnetQuery, InstanceList,
+    MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse, UpdateTenantKeysetRequest,
+    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
+    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use futures_util::future::BoxFuture;
@@ -44,18 +46,14 @@ use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
-
-use ::rpc::protos::forge::{
-    IbSubnet, IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult,
-    IbSubnetList, IbSubnetQuery,
-};
-
+use crate::db::dpu_machine::DpuMachine;
 use crate::db::ipmi::UserRoles;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::{InstanceState, ManagedHostState};
+use crate::resource_pool::{DbResourcePool, ResourcePool, ResourcePoolError};
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 use crate::{
     auth, cfg,
@@ -100,10 +98,10 @@ use crate::{
         },
         snapshot_loader::DbSnapshotLoader,
     },
-    CarbideError, CarbideResult,
+    vpc, CarbideError, CarbideResult,
 };
 
-// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
+/// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
 
 pub struct Api<C: CredentialProvider> {
@@ -114,6 +112,9 @@ pub struct Api<C: CredentialProvider> {
     vpc_api: Arc<dyn VpcApi>,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
+    pool_loopback_ip: Option<Arc<dyn ResourcePool<Ipv4Addr>>>,
+    pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
+    pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
 }
 
 #[tonic::async_trait]
@@ -509,12 +510,15 @@ where
                 CarbideError::DatabaseError(file!(), "begin create_network_segment", e)
             })?;
 
-        let response = NewNetworkSegment::try_from(request.into_inner())?
+        let mut new_network_segment = NewNetworkSegment::try_from(request.into_inner())?;
+        new_network_segment.vlan_id = self.allocate_vlan_id(&new_network_segment.name).await?;
+        new_network_segment.vni = self.allocate_vni(&new_network_segment.name).await?;
+        let network_segment = new_network_segment
             .persist(&mut txn)
             .await
-            .map_err(CarbideError::from);
+            .map_err(CarbideError::from)?;
 
-        let response = Ok(Response::new(response?.try_into()?));
+        let response = Ok(Response::new(network_segment.try_into()?));
         txn.commit().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "commit create_network_segment", e)
         })?;
@@ -1166,7 +1170,13 @@ where
             }
         };
 
-        MachineTopology::create(&mut txn, &machine_id, &hardware_info).await?;
+        let loopback_ip = if hardware_info.is_dpu() {
+            self.allocate_loopback_ip(&machine_id.to_string()).await?
+        } else {
+            None
+        };
+
+        MachineTopology::create(&mut txn, &machine_id, &hardware_info, loopback_ip).await?;
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {
             machine_id: machine.id,
@@ -2266,7 +2276,6 @@ where
                     return Ok(Response::new(response));
                 }
             }
-
             let mut txn = self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(
                     file!(),
@@ -2274,6 +2283,18 @@ where
                     e,
                 )
             })?;
+
+            let actual_dpu_machine = DpuMachine::find_by_machine_id(&mut txn, dpu_machine.id())
+                .await
+                .map_err(CarbideError::from)?;
+            if let Some(pool) = self.pool_loopback_ip.as_ref() {
+                // Forge is managing loopback IPs
+                if let Some(loopback_ip) = actual_dpu_machine.loopback_ip() {
+                    pool.release(loopback_ip)
+                        .await
+                        .map_err(CarbideError::from)?
+                }
+            }
 
             Machine::force_cleanup(&mut txn, dpu_machine.id())
                 .await
@@ -2290,6 +2311,57 @@ where
 
         Ok(Response::new(response))
     }
+
+    async fn admin_define_resource_pool(
+        &self,
+        request: Request<rpc::DefineResourcePoolRequest>,
+    ) -> Result<Response<rpc::DefineResourcePoolResponse>, Status> {
+        log_request_data(&request);
+
+        let def = request.into_inner();
+        let pool_type = rpc::ResourcePoolType::try_from(def.pool_type)
+            .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+        let name = &def.name;
+        for range in def.ranges {
+            match pool_type {
+                rpc::ResourcePoolType::Ipv4 => {
+                    let values = expand_ip_range(&range.start, &range.end)
+                        .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+                    let num_values = values.len();
+                    let pool =
+                        DbResourcePool::new(name.to_string(), self.database_connection.clone());
+                    pool.populate(values).await.map_err(CarbideError::from)?;
+                    tracing::debug!("Populated IP resource pool {name} with {num_values} values");
+                }
+                rpc::ResourcePoolType::Integer => {
+                    let values = expand_int_range(&range.start, &range.end)
+                        .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+                    let num_values = values.len();
+                    let pool =
+                        DbResourcePool::new(name.to_string(), self.database_connection.clone());
+                    pool.populate(values).await.map_err(CarbideError::from)?;
+                    tracing::debug!("Populated int resource pool {name} with {num_values} values");
+                }
+            };
+        }
+        Ok(Response::new(rpc::DefineResourcePoolResponse {}))
+    }
+}
+
+// All the IPv4 addresses between start_s and end_s
+fn expand_ip_range(start_s: &str, end_s: &str) -> Result<Vec<Ipv4Addr>, eyre::Report> {
+    let start_addr: Ipv4Addr = start_s.parse()?;
+    let end_addr: Ipv4Addr = end_s.parse()?;
+    let start: u32 = start_addr.into();
+    let end: u32 = end_addr.into();
+    Ok((start..end).map(Ipv4Addr::from).collect())
+}
+
+// All the numbers between start_s and end_s
+fn expand_int_range(start_s: &str, end_s: &str) -> Result<Vec<i32>, eyre::Report> {
+    let start: i32 = start_s.parse()?;
+    let end: i32 = end_s.parse()?;
+    Ok((start..end).collect())
 }
 
 ///
@@ -2577,6 +2649,7 @@ impl<C> Api<C>
 where
     C: CredentialProvider + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         credential_provider: Arc<C>,
         database_connection: sqlx::PgPool,
@@ -2585,6 +2658,9 @@ where
         vpc_api: Arc<dyn VpcApi>,
         identity_pemfile_path: String,
         identity_keyfile_path: String,
+        pool_loopback_ip: Option<Arc<dyn ResourcePool<Ipv4Addr>>>,
+        pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
+        pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
     ) -> Self {
         Self {
             database_connection,
@@ -2594,6 +2670,9 @@ where
             vpc_api,
             identity_pemfile_path,
             identity_keyfile_path,
+            pool_loopback_ip,
+            pool_vlan_id,
+            pool_vni,
         }
     }
 
@@ -2624,12 +2703,6 @@ where
             .max_connections(service_config.max_db_connections)
             .connect(&daemon_config.datastore)
             .await?;
-        let health_pool = database_connection.clone();
-
-        start_export_service_health_metrics(ServiceHealthContext {
-            meter: meter.clone(),
-            database_pool: health_pool,
-        });
 
         let vpc_api: Arc<dyn VpcApi> = if daemon_config.kubernetes {
             let client = kube::Client::try_default().await?;
@@ -2645,6 +2718,23 @@ where
         )
         .await?;
 
+        let vpc_data = if daemon_config.manage_vpc {
+            // Forge will own and manage VPC data
+            vpc::enable(database_connection.clone()).await
+        } else {
+            // VPC (Go CRD) will own and manage it's data
+            vpc::VpcData::default()
+        };
+
+        let health_pool = database_connection.clone();
+        start_export_service_health_metrics(ServiceHealthContext {
+            meter: meter.clone(),
+            database_pool: health_pool,
+            resource_pool_stats: vpc_data.rp_stats,
+        });
+
+        let sc_pool_vlan_id = vpc_data.pool_vlan_id.clone();
+        let sc_pool_vni = vpc_data.pool_vni.clone();
         let api_service = Arc::new(Self::new(
             credential_provider.clone(),
             database_connection.clone(),
@@ -2653,6 +2743,9 @@ where
             vpc_api.clone(),
             daemon_config.identity_pemfile_path.clone(),
             daemon_config.identity_keyfile_path.clone(),
+            vpc_data.pool_loopback_ip,
+            vpc_data.pool_vlan_id,
+            vpc_data.pool_vni,
         ));
 
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
@@ -2674,18 +2767,24 @@ where
                 .build()
                 .expect("Unable to build MachineStateController");
 
-        let _network_segment_controller_handle =
-            StateController::<NetworkSegmentStateControllerIO>::builder()
-                .database(database_connection)
-                .redfish_client_pool(shared_redfish_pool.clone())
-                .vpc_api(vpc_api)
-                .forge_api(api_service.clone())
-                .iteration_time(service_config.network_segment_state_controller_iteration_time)
-                .state_handler(Arc::new(NetworkSegmentStateHandler::new(
-                    service_config.network_segment_drain_time,
-                )))
-                .build()
-                .expect("Unable to build NetworkSegmentController");
+        let mut ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
+            .database(database_connection)
+            .redfish_client_pool(shared_redfish_pool.clone())
+            .vpc_api(vpc_api)
+            .forge_api(api_service.clone());
+        if let Some(pool_vlan_id) = sc_pool_vlan_id {
+            ns_builder = ns_builder.pool_vlan_id(pool_vlan_id);
+        }
+        if let Some(pool_vni) = sc_pool_vni {
+            ns_builder = ns_builder.pool_vni(pool_vni);
+        }
+        let _network_segment_controller_handle = ns_builder
+            .iteration_time(service_config.network_segment_state_controller_iteration_time)
+            .state_handler(Arc::new(NetworkSegmentStateHandler::new(
+                service_config.network_segment_drain_time,
+            )))
+            .build()
+            .expect("Unable to build NetworkSegmentController");
 
         let listen_port = daemon_config.listen[0];
         api_handler(api_service, listen_port, meter).await
@@ -2718,6 +2817,96 @@ where
             Ok(Some(m)) => m,
         };
         Ok((machine, txn))
+    }
+
+    /// Allocate a value from the loopback IP resource pool.
+    ///
+    /// If the pool doesn't exist return None.
+    /// If the pool exists but is empty or has en error, return that.
+    async fn allocate_loopback_ip(&self, owner_id: &str) -> Result<Option<Ipv4Addr>, Status> {
+        use crate::resource_pool::OwnerType;
+        if self.pool_loopback_ip.is_none() {
+            return Ok(None);
+        }
+        match self
+            .pool_loopback_ip
+            .as_ref()
+            .unwrap()
+            .allocate(OwnerType::Machine, owner_id)
+            .await
+        {
+            Ok(val) => Ok(Some(val)),
+            Err(ResourcePoolError::Empty) => {
+                let msg = format!("Pool lo-ip exhausted, cannot allocate for {owner_id}");
+                tracing::error!("{}", &msg);
+                Err(Status::resource_exhausted(&msg))
+            }
+            Err(err) => {
+                let msg = format!("Err allocating from lo-ip for {owner_id}: {err}");
+                tracing::error!("{}", &msg);
+                Err(Status::internal(&msg))
+            }
+        }
+    }
+
+    /// Allocate a value from the vni resource pool.
+    ///
+    /// If the pool doesn't exist return None.
+    /// If the pool exists but is empty or has en error, return that.
+    async fn allocate_vni(&self, owner_id: &str) -> Result<Option<i32>, Status> {
+        use crate::resource_pool::OwnerType;
+        if self.pool_vni.is_none() {
+            return Ok(None);
+        }
+        match self
+            .pool_vni
+            .as_ref()
+            .unwrap()
+            .allocate(OwnerType::NetworkSegment, owner_id)
+            .await
+        {
+            Ok(val) => Ok(Some(val)),
+            Err(ResourcePoolError::Empty) => {
+                let msg = format!("Pool vni exhausted, cannot allocate for {owner_id}");
+                tracing::error!("{}", &msg);
+                Err(Status::resource_exhausted(&msg))
+            }
+            Err(err) => {
+                let msg = format!("Err allocating from vni for {owner_id}: {err}");
+                tracing::error!("{}", &msg);
+                Err(Status::internal(&msg))
+            }
+        }
+    }
+
+    /// Allocate a value from the vlan id resource pool.
+    ///
+    /// If the pool doesn't exist return None.
+    /// If the pool exists but is empty or has en error, return that.
+    async fn allocate_vlan_id(&self, owner_id: &str) -> Result<Option<i16>, Status> {
+        use crate::resource_pool::OwnerType;
+        if self.pool_vlan_id.is_none() {
+            return Ok(None);
+        }
+        match self
+            .pool_vlan_id
+            .as_ref()
+            .unwrap()
+            .allocate(OwnerType::NetworkSegment, owner_id)
+            .await
+        {
+            Ok(val) => Ok(Some(val)),
+            Err(ResourcePoolError::Empty) => {
+                let msg = format!("Pool vlan_id exhausted, cannot allocate for {owner_id}");
+                tracing::error!("{}", &msg);
+                Err(Status::resource_exhausted(&msg))
+            }
+            Err(err) => {
+                let msg = format!("Err allocating from vlan_id for {owner_id}: {err}");
+                tracing::error!("{}", &msg);
+                Err(Status::internal(&msg))
+            }
+        }
     }
 }
 

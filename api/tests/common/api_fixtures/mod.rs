@@ -12,6 +12,8 @@
 
 //! Contains fixtures that use the Carbide API for setting up
 
+use std::sync::Arc;
+
 use carbide::{
     api::Api,
     auth::{Authorizer, NoopEngine},
@@ -38,7 +40,6 @@ use rpc::forge::{
     ForgeAgentControlResponse, MachineDiscoveryCompletedRequest,
 };
 use sqlx::PgPool;
-use std::sync::Arc;
 use tonic::Request;
 
 use crate::common::{
@@ -85,12 +86,17 @@ impl TestEnv {
             self.vpc_api.clone(),
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
+            None,
+            None,
+            None,
         ));
         StateHandlerServices {
             pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
             vpc_api: self.vpc_api.clone(),
             forge_api,
+            pool_vlan_id: None,
+            pool_vni: None,
         }
     }
 
@@ -209,6 +215,9 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
         vpc_api.clone(),
         "not a real pemfile path".to_string(),
         "not a real keyfile path".to_string(),
+        None,
+        None,
+        None,
     );
 
     TestEnv {

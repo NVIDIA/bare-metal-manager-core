@@ -13,6 +13,8 @@
 // DpuMachine - represents a database-backed DpuMachine object
 //
 
+use std::net::{IpAddr, Ipv4Addr};
+
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
@@ -40,6 +42,7 @@ pub struct DpuMachine {
     _mac_address: MacAddress,
     address: IpNetwork,
     _hostname: String,
+    loopback_ip: Option<Ipv4Addr>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -48,6 +51,15 @@ impl<'r> FromRow<'r, PgRow> for DpuMachine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let machine_id: DbMachineId = row.try_get("machine_id")?;
         let vpc_leaf_id: DbMachineId = row.try_get("vpc_leaf_id")?;
+        let loopback_ip: Option<IpAddr> = row.try_get("loopback_ip")?;
+        let loopback_ip = match loopback_ip {
+            Some(IpAddr::V4(v4_addr)) => Some(v4_addr),
+            Some(IpAddr::V6(_)) => {
+                let e = format!("Unexpected IPv6 loopback_ip in DB for {machine_id:?}");
+                return Err(sqlx::Error::Decode(e.into()));
+            }
+            None => None,
+        };
         Ok(DpuMachine {
             machine_id: machine_id.into_inner(),
             _vpc_leaf_id: vpc_leaf_id.into_inner(),
@@ -55,6 +67,7 @@ impl<'r> FromRow<'r, PgRow> for DpuMachine {
             _mac_address: row.try_get("mac_address")?,
             address: row.try_get("address")?,
             _hostname: row.try_get("hostname")?,
+            loopback_ip,
         })
     }
 }
@@ -82,6 +95,11 @@ impl DpuMachine {
 
     pub fn _hostname(&self) -> &str {
         &self._hostname
+    }
+
+    // None if it's not been assigned yet
+    pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
+        self.loopback_ip
     }
 
     /// Retrieves the IDs of all active Machines - which are machines that are not in

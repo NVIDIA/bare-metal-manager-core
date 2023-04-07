@@ -72,6 +72,9 @@ pub struct NetworkSegment {
     pub resource_groups_created: bool,
     /// History of state changes.
     pub history: Vec<NetworkSegmentStateHistory>,
+
+    pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
+    pub vni: Option<i32>,
 }
 
 impl NetworkSegment {
@@ -88,6 +91,8 @@ pub struct NewNetworkSegment {
     pub vpc_id: Option<Uuid>,
     pub mtu: i32,
     pub prefixes: Vec<NewNetworkPrefix>,
+    pub vlan_id: Option<i16>,
+    pub vni: Option<i32>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -120,6 +125,8 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             prefixes: Vec::new(),
             resource_groups_created: false,
             history: Vec::new(),
+            vlan_id: row.try_get("vlan_id").unwrap_or_default(),
+            vni: row.try_get("vni_id").unwrap_or_default(),
         })
     }
 }
@@ -170,6 +177,8 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
                 .into_iter()
                 .map(NewNetworkPrefix::try_from)
                 .collect::<Result<Vec<NewNetworkPrefix>, CarbideError>>()?,
+            vlan_id: None,
+            vni: None,
         })
     }
 }
@@ -241,8 +250,10 @@ impl NewNetworkSegment {
                 mtu,
                 version,
                 controller_state_version,
-                controller_state)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                controller_state,
+                vlan_id,
+                vni_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *";
         let mut segment: NetworkSegment = sqlx::query_as(query)
             .bind(&self.name)
@@ -252,6 +263,8 @@ impl NewNetworkSegment {
             .bind(&version_string)
             .bind(&version_string)
             .bind(sqlx::types::Json(&controller_state))
+            .bind(self.vlan_id)
+            .bind(self.vni)
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -524,14 +537,16 @@ impl NetworkSegment {
     ) -> Result<NetworkSegment, DatabaseError> {
         let query = "
 UPDATE network_segments
-SET name=$1, subdomain_id=$2, vpc_id=$3, mtu=$4, updated=NOW()
-WHERE id=$5
+SET name=$1, subdomain_id=$2, vpc_id=$3, mtu=$4, vlan_id=$5, vni_id=$6, updated=NOW()
+WHERE id=$7
 RETURNING *";
         let mut segment: NetworkSegment = sqlx::query_as(query)
             .bind(&self.name)
             .bind(self.subdomain_id)
             .bind(self.vpc_id)
             .bind(self.mtu)
+            .bind(self.vlan_id)
+            .bind(self.vni)
             .bind(self.id)
             .fetch_one(&mut *txn)
             .await

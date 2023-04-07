@@ -155,6 +155,8 @@ service Forge {
   // Reboot a machine and boot into PXE
   rpc AdminReboot(AdminRebootRequest) returns (AdminRebootResponse);
 
+  // Create or edit a resource pool
+  rpc AdminDefineResourcePool(DefineResourcePoolRequest) returns (DefineResourcePoolResponse);
 }
 
 message MachineId {
@@ -1368,4 +1370,22 @@ message NetworkHealth {
     repeated string passed = 2;
     repeated string failed = 3;
     optional string message = 4;
+}
+
+message DefineResourcePoolRequest {
+    string name = 1;
+    ResourcePoolType pool_type = 2;
+    repeated Range ranges = 3;
+}
+
+message DefineResourcePoolResponse {}
+
+message Range {
+    string start = 1;
+    string end = 2;
+}
+
+enum ResourcePoolType {
+    Integer = 0;
+    Ipv4 = 1;
 }

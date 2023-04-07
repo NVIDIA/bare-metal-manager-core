@@ -43,6 +43,13 @@ pub struct LeafSpec {
         rename = "hostInterfaces"
     )]
     pub host_interfaces: Option<BTreeMap<String, String>>,
+    /// ForgeManagedLoopbackIP is the loopback IP when assigned directly by Forge (not by VPC)
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "forgeManagedLoopbackIP"
+    )]
+    pub forge_managed_lookback_ip: Option<String>,
 }
 
 /// Control specifies the ways to interact with this Leaf device.

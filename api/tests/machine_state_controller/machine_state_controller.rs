@@ -21,13 +21,6 @@ use std::{
     time::Duration,
 };
 
-use ipnetwork::IpNetwork;
-use tonic::Request;
-
-use crate::common::api_fixtures::{
-    create_test_env,
-    dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
-};
 use carbide::{
     db::dpu_machine::DpuMachine,
     kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError},
@@ -42,7 +35,14 @@ use carbide::{
     },
     vpc_resources::managed_resource::ManagedResource,
 };
+use ipnetwork::IpNetwork;
 use rpc::{forge::forge_server::Forge, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use tonic::Request;
+
+use crate::common::api_fixtures::{
+    create_test_env,
+    dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct TestMachineStateHandler {
@@ -87,6 +87,8 @@ impl VpcApi for MockVpcApi {
         _network_prefix_id: uuid::Uuid,
         _prefix: IpNetwork,
         _gateway: Option<IpNetwork>,
+        _vlan_id: Option<i16>,
+        _vni: Option<i32>,
     ) -> Result<Poll<VpcApiCreateResourceGroupResult>, VpcApiError> {
         panic!("Not used in this test")
     }

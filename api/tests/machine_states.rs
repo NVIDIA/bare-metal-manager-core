@@ -10,16 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 pub mod common;
-use carbide::model::machine::machine_id::MachineId;
-use common::api_fixtures::create_test_env;
 use std::net::{IpAddr, Ipv4Addr};
 use std::task::Poll;
 
 use carbide::db::dpu_machine::DpuMachine;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError};
+use carbide::model::machine::machine_id::MachineId;
 use carbide::model::machine::ManagedHostState;
 use carbide::vpc_resources::managed_resource::ManagedResource;
+use common::api_fixtures::create_test_env;
 use ipnetwork::IpNetwork;
 use log::LevelFilter;
 
@@ -33,6 +33,8 @@ impl VpcApi for MockVpcApi {
         _network_prefix_id: uuid::Uuid,
         _prefix: IpNetwork,
         _gateway: Option<IpNetwork>,
+        _vlan_id: Option<i16>,
+        _vni: Option<i32>,
     ) -> Result<Poll<VpcApiCreateResourceGroupResult>, VpcApiError> {
         panic!("Not used in this test")
     }

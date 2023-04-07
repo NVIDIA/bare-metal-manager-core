@@ -11,14 +11,9 @@
  */
 use std::env;
 use std::error::Error;
-use std::fs::File;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::BufReader;
 use std::path::Path;
-
-use log::LevelFilter;
-use prettytable::{row, Table};
-use serde::Deserialize;
 
 use ::rpc::{
     forge::{self as forgerpc, MachineType},
@@ -26,8 +21,11 @@ use ::rpc::{
 };
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, NetworkSegment,
-    OutputFormat,
+    OutputFormat, ResourcePool,
 };
+use log::LevelFilter;
+use prettytable::{row, Table};
+use serde::Deserialize;
 
 mod cfg;
 mod domain;
@@ -35,6 +33,7 @@ mod instance;
 mod machine;
 mod managed_host;
 mod network;
+mod resource_pool;
 mod rpc;
 
 #[derive(Debug, Deserialize)]
@@ -72,11 +71,17 @@ pub enum CarbideCliError {
     #[error("Error while handling json: {0}")]
     JsonError(#[from] serde_json::Error),
 
+    #[error("Error parsing TOML file: {0}")]
+    TomlError(#[from] toml::de::Error),
+
     #[error("Unexpected machine type.  expected {0:?} but found {1:?}")]
     UnexpectedMachineType(MachineType, MachineType),
 
     #[error("Host machine with id {0} not found")]
     MachineNotFound(MachineId),
+
+    #[error("I/O error. Does the file exist? {0}")]
+    IOError(#[from] std::io::Error),
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
@@ -293,6 +298,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             ManagedHost::Show(managed_host) => {
                 managed_host::handle_show(&mut output_file, managed_host, config.format, api_config)
                     .await?
+            }
+        },
+        CarbideCommand::ResourcePool(rp) => match rp {
+            ResourcePool::Define(def) => {
+                resource_pool::define_all_from(&def.filename, api_config).await?;
             }
         },
     }

@@ -17,6 +17,7 @@ use crate::{
     kubernetes::{VpcApi, VpcApiError},
     model::machine::{machine_id::MachineId, ManagedHostState},
     redfish::RedfishClientPool,
+    resource_pool::{ResourcePool, ResourcePoolError},
     state_controller::snapshot_loader::SnapshotLoaderError,
 };
 
@@ -24,12 +25,23 @@ use crate::{
 pub struct StateHandlerServices {
     /// A database connection pool that can be used for additional queries
     pub pool: sqlx::PgPool,
+
     /// API for interaction with Forge VPC
     pub vpc_api: Arc<dyn VpcApi>,
+
     /// API for interaction with Forge VPC
     pub forge_api: Arc<dyn rpc::forge::forge_server::Forge>,
+
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
+
+    /// Resource pool for VNI (VXLAN ID) allocate/release
+    /// None if VPC is managing this data
+    pub pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
+
+    /// Resource pool for VLAN ID alllocate/release
+    /// None if VPC is managing this data
+    pub pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
 }
 
 /// Context parameter passed to `StateHandler`
@@ -149,6 +161,8 @@ pub enum StateHandlerError {
     },
     #[error("{0}")]
     DBError(#[from] DatabaseError),
+    #[error("Error releasing from resource pool: {0}")]
+    PoolReleaseError(#[from] ResourcePoolError),
 }
 
 /// A `StateHandler` implementation which does nothing

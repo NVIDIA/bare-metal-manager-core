@@ -72,7 +72,13 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = pool.begin().await?;
 
-    MachineTopology::create(&mut txn, machine.id(), &hardware_info).await?;
+    MachineTopology::create(
+        &mut txn,
+        machine.id(),
+        &hardware_info,
+        Some("192.168.42.42".parse().unwrap()),
+    )
+    .await?;
 
     txn.commit().await?;
 
@@ -112,11 +118,14 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut new_info = hardware_info.clone();
     new_info.cpus[0].model = "SnailSpeedCpu".to_string();
 
-    assert!(
-        MachineTopology::create(&mut txn, machine.id(), &hardware_info)
-            .await?
-            .is_none()
-    );
+    assert!(MachineTopology::create(
+        &mut txn,
+        machine.id(),
+        &hardware_info,
+        Some("192.168.42.42".parse().unwrap()),
+    )
+    .await?
+    .is_none());
 
     let machine2 = Machine::find_one(
         &mut txn,

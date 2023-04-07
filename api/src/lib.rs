@@ -42,7 +42,9 @@ pub mod logging;
 pub mod model;
 mod reachability;
 pub mod redfish;
+pub mod resource_pool;
 pub mod state_controller;
+pub mod vpc;
 pub mod vpc_resources;
 
 /// Represents various Errors that can occur throughout the system.
@@ -217,6 +219,9 @@ pub enum CarbideError {
 
     #[error("Error in libredfish: {0}")]
     RedfishError(#[from] libredfish::RedfishError),
+
+    #[error("Resource pool error: {0}")]
+    ResourcePoolError(#[from] resource_pool::ResourcePoolError),
 }
 
 impl From<CarbideError> for tonic::Status {

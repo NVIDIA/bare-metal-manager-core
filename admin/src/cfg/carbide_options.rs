@@ -54,6 +54,8 @@ pub enum CarbideCommand {
     Domain(Domain),
     #[clap(about = "Managed host related handling", subcommand)]
     ManagedHost(ManagedHost),
+    #[clap(about = "Resource pool handling (VPC)", subcommand)]
+    ResourcePool(ResourcePool),
 }
 
 #[derive(Parser, Debug)]
@@ -216,4 +218,20 @@ impl CarbideOptions {
     pub fn load() -> Self {
         Self::parse()
     }
+}
+
+#[derive(Parser, Debug)]
+pub enum ResourcePool {
+    #[clap(about = "Define a set of resource pools from a yaml file")]
+    Define(ResourcePoolDefinition),
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+        ArgGroup::new("define")
+        .required(true)
+        .args(&["filename"])))]
+pub struct ResourcePoolDefinition {
+    #[clap(short, long, default_value = "dev/resource_pools.toml")]
+    pub filename: String,
 }

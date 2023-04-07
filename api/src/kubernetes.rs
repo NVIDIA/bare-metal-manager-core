@@ -210,6 +210,8 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
         network_prefix_id: uuid::Uuid,
         prefix: IpNetwork,
         gateway: Option<IpNetwork>,
+        vlan_id: Option<i16>,
+        vni: Option<i32>,
     ) -> Result<Poll<VpcApiCreateResourceGroupResult>, VpcApiError>;
 
     /// Trys to delete a resource group on Forge VPC
@@ -314,6 +316,8 @@ impl VpcApi for VpcApiImpl {
         network_prefix_id: uuid::Uuid,
         prefix: IpNetwork,
         gateway: Option<IpNetwork>,
+        vlan_id: Option<i16>,
+        vni: Option<i32>,
     ) -> Result<Poll<VpcApiCreateResourceGroupResult>, VpcApiError> {
         let gateway = gateway.map(|x| x.ip().to_string());
 
@@ -330,6 +334,8 @@ impl VpcApi for VpcApiImpl {
             network_implementation_type: None,
             overlay_ip_pool: None,
             tenant_identifier: Some(resource_name.clone()),
+            forge_managed_vlan_id: vlan_id.map(|x| x as i32), // grpc min size is 32-bits
+            forge_managed_vni: vni,
         };
         let resource_group =
             resource_group::ResourceGroup::new(&resource_name, resource_group_spec);
@@ -455,7 +461,7 @@ impl VpcApi for VpcApiImpl {
                     let diff = if diff_admin_ips {
                         "admin_ips"
                     } else {
-                        "interfaces"
+                        "host_interfaces"
                     };
                     return Err(VpcApiError::ObjectExistsWithDifferentSpec(
                         leaf_name,
@@ -718,6 +724,7 @@ fn leaf_spec_from_dpu_machine(dpu: &DpuMachine) -> leaf::LeafSpec {
             "".to_string(),
         )])),
         host_interfaces: Some(crate::vpc_resources::host_interfaces(dpu.machine_id())),
+        forge_managed_lookback_ip: dpu.loopback_ip().map(|x| x.to_string()),
     }
 }
 
@@ -811,6 +818,8 @@ struct VpcApiSimResourceGroup {
     network_prefix_id: uuid::Uuid,
     prefix: IpNetwork,
     gateway: Option<IpNetwork>,
+    vlan_id: Option<i16>,
+    vni: Option<i32>,
 }
 
 #[derive(Debug)]
@@ -828,12 +837,16 @@ impl VpcApi for VpcApiSim {
         network_prefix_id: uuid::Uuid,
         prefix: IpNetwork,
         gateway: Option<IpNetwork>,
+        vlan_id: Option<i16>,
+        vni: Option<i32>,
     ) -> Result<Poll<VpcApiCreateResourceGroupResult>, VpcApiError> {
         let name = resource_group_name(network_prefix_id);
         let group = VpcApiSimResourceGroup {
             network_prefix_id,
             prefix,
             gateway,
+            vlan_id,
+            vni,
         };
 
         let mut guard = self.state.lock().unwrap();
@@ -925,26 +938,33 @@ impl VpcApi for VpcApiSim {
                 Ok(Poll::Pending)
             }
         } else {
-            // Find a free loopback IP
-            let mut ip = self.config.leaf_loopback_ip_start_address;
-            loop {
-                if !guard.used_loopback_ip_suffixes.contains(&ip[3]) {
-                    break;
+            let loopback_ip: Ipv4Addr = match dpu.loopback_ip() {
+                Some(l_ip) => {
+                    // Forge has already assigned it
+                    l_ip
                 }
-                if ip[3] == 255 {
-                    return Err(VpcApiError::VpiApiSimLoopbackIpsExhausted);
+                None => {
+                    // VPC needs to assign it
+                    // Find a free loopback IP
+                    let mut ip = self.config.leaf_loopback_ip_start_address;
+                    loop {
+                        if !guard.used_loopback_ip_suffixes.contains(&ip[3]) {
+                            break;
+                        }
+                        if ip[3] == 255 {
+                            return Err(VpcApiError::VpiApiSimLoopbackIpsExhausted);
+                        }
+                        ip[3] += 1;
+                    }
+                    guard.used_loopback_ip_suffixes.insert(ip[3]);
+                    Ipv4Addr::from(ip)
                 }
-                ip[3] += 1;
-            }
-
-            let loopback_ip = Ipv4Addr::from(ip);
-
+            };
             tracing::info!(
                 "Started creating leaf with name {} found for DPU {}",
                 leaf_name,
                 dpu.machine_id()
             );
-            guard.used_loopback_ip_suffixes.insert(ip[3]);
             guard.leafs.insert(
                 leaf_name.clone(),
                 VpcApiSimLeafState {

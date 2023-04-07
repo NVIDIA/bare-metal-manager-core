@@ -33,8 +33,8 @@ pub use crate::protos::forge::{
     InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
     InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
     MachineId, MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment,
-    NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, SyncState, TenantConfig,
-    TenantState, Uuid,
+    NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState,
+    TenantConfig, TenantState, Uuid,
 };
 
 pub use crate::protos::forge::{
@@ -266,6 +266,18 @@ impl serde::Serialize for forge::MachineId {
 impl MachineInterface {
     pub fn parsed_mac_address(&self) -> Result<Option<MacAddress>, MacParseError> {
         Ok(Some(MacAddress::from_str(&self.mac_address)?))
+    }
+}
+
+impl TryFrom<i32> for ResourcePoolType {
+    type Error = DiscriminantError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            x if x == Self::Integer as i32 => Ok(Self::Integer),
+            x if x == Self::Ipv4 as i32 => Ok(Self::Ipv4),
+            _ => Err(DiscriminantError(value)),
+        }
     }
 }
 

@@ -15,10 +15,9 @@ use ::rpc::Machine;
 use log::warn;
 use prettytable::{row, Table};
 
+use super::{rpc, CarbideCliResult};
 use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
 use crate::Config;
-
-use super::{rpc, CarbideCliResult};
 
 const UNKNOWN: &str = "Unknown";
 

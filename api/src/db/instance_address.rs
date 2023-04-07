@@ -342,6 +342,8 @@ mod tests {
                     },
                     resource_groups_created: true,
                     history: Vec::new(),
+                    vlan_id: None,
+                    vni: None,
                 }
             })
             .collect_vec();

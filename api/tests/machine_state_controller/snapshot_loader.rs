@@ -82,7 +82,13 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
 
-    MachineTopology::create(&mut txn, machine.id(), &hardware_info).await?;
+    MachineTopology::create(
+        &mut txn,
+        machine.id(),
+        &hardware_info,
+        Some("192.168.42.42".parse().unwrap()),
+    )
+    .await?;
     txn.commit()
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;

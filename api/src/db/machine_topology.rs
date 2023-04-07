@@ -9,7 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
 
 use chrono::prelude::*;
 use itertools::Itertools;
@@ -113,6 +115,7 @@ impl MachineTopology {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         hardware_info: &HardwareInfo,
+        loopback_ip: Option<Ipv4Addr>,
     ) -> CarbideResult<Option<Self>> {
         if Self::is_discovered(&mut *txn, machine_id).await? {
             log::info!("Discovery data for machine {} already exists", machine_id);
@@ -135,9 +138,16 @@ impl MachineTopology {
                 .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
             if machine_id.machine_type().is_dpu() {
-                let new_leaf = NewVpcResourceLeaf::new(machine_id.clone())
+                // TODO new does an INSERT and `update_loopback_ip_address` does an UPDATE
+                // fix so it's a single DB calls
+                let mut new_leaf = NewVpcResourceLeaf::new(machine_id.clone())
                     .persist(&mut *txn)
                     .await?;
+                if let Some(ip) = loopback_ip {
+                    new_leaf
+                        .update_loopback_ip_address(&mut *txn, IpAddr::V4(ip))
+                        .await?;
+                }
 
                 log::info!(
                     "Discovered Machine {} is a DPU. Generating new leaf id {}",
