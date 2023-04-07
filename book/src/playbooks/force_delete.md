@@ -36,7 +36,7 @@ It returns all machine-ids and instance-ids it acted on, as well as the BMC info
 Example:
 
 ```
-/opt/carbide/forge-admin-cli -c http://127.0.0.1:1079 machine force-delete --machine="60cef902-9779-4666-8362-c9bb4b37184f"
+/opt/carbide/forge-admin-cli -c https://127.0.0.1:1079 machine force-delete --machine="60cef902-9779-4666-8362-c9bb4b37184f"
 ```
 
 ### 3. Use the returned BMP IP/port and machine-id to reboot the host

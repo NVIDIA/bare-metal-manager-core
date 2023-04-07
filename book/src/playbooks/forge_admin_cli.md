@@ -15,7 +15,7 @@ cd /opt/carbide/
 
 3. Utilize the admin-cli
 ```
-/opt/carbide/forge-admin-cli -c http://127.0.0.1:1079 machine show --all
+/opt/carbide/forge-admin-cli -c https://127.0.0.1:1079 machine show --all
 ```
 
 Note that you can either use a loopback address (`127.0.0.1`) inside the POD,
@@ -32,7 +32,7 @@ carbide-api    NodePort    10.104.18.37     <none>        1079:1079/TCP       28
 
 Therefore also the following invocation is possible:
 ```
-/opt/carbide/forge-admin-cli -c http://10.104.18.37:1079 machine show --all
+/opt/carbide/forge-admin-cli -c https://10.104.18.37:1079 machine show --all
 ```
 
 **Note:** Once forge site controller migrates to using TLS, you might need

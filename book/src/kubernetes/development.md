@@ -49,7 +49,7 @@ all the kubernetes primitives to expose carbide services.
 When booting the test VM from your local workstation, use the new bridge that
 Kind created for kubernetes.
 
-To interact with carbide-api use the url `http://127.0.0.1:11079`
+To interact with carbide-api use the url `https://127.0.0.1:11079`
 
 To view logs for a particular application, the most straightforward way is to
 ```

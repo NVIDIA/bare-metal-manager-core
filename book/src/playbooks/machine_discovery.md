@@ -1,4 +1,6 @@
-# Discover the DPU
+# Machine discovery
+
+## Discover the DPU
 
 1) ssh to the BMC of the DPU and issue a `echo 'SW_RESET 1' > /dev/rshim0/misc`. 
 2) log in to the rshim console and wait for the prompt to press escape twice `micrcom /dev/rshim0/console`
@@ -11,7 +13,7 @@ Once ipxe loads it should boot into the carbide.efi, if it does not, it probably
 
 The OS installer will now happen and takes about ~20 minutes. You should see it reboot twice and on the second time it will actually have HBN running and being configured by VPC. Look for the output of the leaf. Once the leaf shows status True, you should be good to continue with the x86.
 
-# Discover an x86
+## Discover the x86 host
 
 Discovering a DPU on an existing x86 MAY (or may not) cause the network to stop working. If you cannot get a dhcp IP then do a power off / wait for 20 seconds / do a power on. It will cause the leaf to stop working temporarily but it will eventually come back online and the machine should be in a better state.
 
