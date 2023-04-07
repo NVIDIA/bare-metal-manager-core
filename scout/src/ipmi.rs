@@ -15,13 +15,15 @@ use std::fmt;
 use std::process::Command;
 use std::time::Instant;
 
-use log::debug;
+use log::{debug, error};
 use rand::Rng;
 use regex::Regex;
 use tokio::time::{sleep, Duration};
+use uname::uname;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientT;
+use forge_host_support::hardware_enumeration::{CpuArchitecture, HardwareEnumerationError};
 
 use crate::CarbideClientError;
 use crate::CarbideClientResult;
@@ -334,10 +336,15 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
         .output(); // Ignore it as this command might fail in some cards.
 
     // enable redfish access
-    let idrac_user_str = format!("iDRAC.Users.{id}.Privilege");
-    let _ = Cmd::new("racadm")
-        .args(["set", idrac_user_str.as_str(), "0x1ff"])
-        .output()?;
+    let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
+    let architecture: CpuArchitecture = info.machine.parse()?;
+    if architecture == CpuArchitecture::X86_64 {
+        // we will need an additional check here for sys_vendor == Dell
+        let idrac_user_str = format!("iDRAC.Users.{id}.Privilege");
+        let _ = Cmd::new("racadm")
+            .args(["set", idrac_user_str.as_str(), "0x1ff"])
+            .output()?;
+    }
 
     Ok(())
 }
@@ -346,15 +353,15 @@ fn set_ipmi_sol() -> CarbideClientResult<()> {
     // failures for these 3 commands are okay to ignore, some BMCs may not handle them correctly.
     let _ = Cmd::default()
         .args(vec!["sol", "set", "set-in-progress", "set-complete", "1"])
-        .output();
+        .output()?;
 
     let _ = Cmd::default()
         .args(vec!["sol", "set", "enabled", "true", "1"])
-        .output();
+        .output()?;
 
     let _ = Cmd::default()
         .args(vec!["sol", "payload", "enable", "1", "1"])
-        .output();
+        .output()?;
 
     Ok(())
 }
@@ -407,7 +414,9 @@ fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String, String)> {
     }
 
     // set ipmi sol parameters
-    set_ipmi_sol()?;
+    if let Err(e) = set_ipmi_sol() {
+        error!("Failed to enable SOL: {}", e);
+    }
 
     Ok((
         IpmiInfo {
