@@ -420,6 +420,8 @@ async fn record_instance_network_observation(
                 config_version: network_config_version.to_version_string(),
                 observed_at: Some(SystemTime::now().into()),
                 interfaces: iface_observations,
+                // TODO(k82cn): add IB interface observations.
+                ib_interfaces: Vec::new(),
             },
         ))
         .await

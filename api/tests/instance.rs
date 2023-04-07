@@ -113,6 +113,8 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
             function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
+        // TODO(k82cn): Add IB interface configuration.
+        ib_interfaces: Vec::new(),
     });
 
     let (instance_id, _instance) =
@@ -254,6 +256,8 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
             function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
+        // TODO(k82cn): Add IB interface configuration.
+        ib_interfaces: Vec::new(),
     });
 
     let (instance_id, _instance) =
@@ -463,6 +467,8 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
             function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
+        // TODO(k82cn): Add IB interface configuration.
+        ib_interfaces: Vec::new(),
     });
 
     let (instance_id, _instance) =
@@ -570,6 +576,8 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
                 network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
             },
         ],
+        // TODO(k82cn): Add IB interface configuration.
+        ib_interfaces: Vec::new(),
     });
 
     let (instance_id, instance) =
@@ -621,6 +629,8 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
                         addresses: vec!["192.0.3.3".to_string()],
                     },
                 ],
+                // TODO(k82cn): Add IB interface status observation.
+                ib_interfaces: Vec::new(),
             },
         ))
         .await

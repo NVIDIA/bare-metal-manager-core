@@ -75,6 +75,8 @@ impl TryFrom<InstanceNetworkStatus> for rpc::InstanceNetworkStatus {
         }
         Ok(rpc::InstanceNetworkStatus {
             interfaces,
+            // TODO(k82cn): add IB interface status.
+            ib_interfaces: Vec::new(),
             configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
         })
     }

@@ -27,6 +27,12 @@ service Forge {
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
 
+  // IBSubnets
+  rpc FindIBSubnets(IBSubnetQuery) returns (IBSubnetList);
+  rpc CreateIBSubnet(IBSubnetCreationRequest) returns (IBSubnet);
+  rpc DeleteIBSubnet(IBSubnetDeletionRequest) returns (IBSubnetDeletionResult);
+  rpc IBSubnetsForVpc(VpcSearchQuery) returns (IBSubnetList);
+
   // Manage instances on machines
   // Allocates a Machine as Instance for tenant, with the given configuration
   rpc AllocateInstance(InstanceAllocationRequest) returns (Instance);
@@ -316,6 +322,67 @@ enum TenantState {
   FAILED = 5;
 }
 
+// Describe the desired configuration of an IBSubnet
+message IBSubnetConfig {
+  // The name of IBSubnet.
+  string name = 1;
+  // The ID of VPC that IBSubnet belong to
+  UUID vpc_id = 2;
+}
+
+// Describe the status and applied configuration of an IBSubnet
+message IBSubnetStatus {
+  // Provisioning state of this subnet
+  TenantState state = 1;
+
+  // The pkey of IB Subnet
+  optional string pkey = 2;
+  // The partition name of IB Subnet
+  optional string partition = 3;
+  // can be range from 0-15
+  optional int32 service_level = 4;
+  // can be one of the following: 2.5, 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300
+  optional int32 rate_limit = 5;
+  // For IB subnets, value can be 2k or 4k only
+  optional int32 mtu = 6;
+  // If true, SHARP applications ware created accordingly
+  optional bool enable_sharp = 7;
+}
+
+// Describe an Infiniband based Subnet configuration and status
+message IBSubnet {
+  UUID id = 1;
+
+  IBSubnetConfig config = 2;
+  string config_version = 3;
+
+  IBSubnetStatus status = 4;
+}
+
+message IBSubnetList {
+  repeated IBSubnet ib_subnets = 1;
+}
+
+message IBSubnetCreationRequest {
+  IBSubnetConfig config = 1;
+}
+
+message IBSubnetDeletionRequest {
+  UUID id = 1;
+}
+
+message IBSubnetDeletionResult {
+}
+
+message IBSubnetSearchConfig {
+  bool include_history = 1;
+}
+
+message IBSubnetQuery {
+  UUID id = 1;
+  optional IBSubnetSearchConfig search_config = 2;
+}
+
 message NetworkSegmentStateHistory {
   string state = 1;
   string version = 2;
@@ -504,6 +571,9 @@ message InstanceNetworkConfig {
   // Configures how instance network interfaces are set up
   repeated InstanceInterfaceConfig interfaces = 1;
 
+  // Configures how ib subnet interfaces are set up
+  repeated InstanceIBInterfaceConfig ib_interfaces = 2;
+
   // The ID of security group that is attached to this instance.
   // The configurations in this group apply to all interfaces on the instance.
   // Note: This is commented because we will not supported setting these in the first
@@ -562,6 +632,11 @@ message InstanceNetworkStatus {
   // would map to `instance.config.network.interface_configs[1]`.
   repeated InstanceInterfaceStatus interfaces = 1;
 
+  // Each entry in this status array maps to it's corresponding entry in the
+  // Config section. E.g. `instance.status.network.ib_interface_status[1]`
+  // would map to `instance.config.network.ib_interface_configs[1]`.
+  repeated InstanceIBInterfaceStatus ib_interfaces = 2;
+
   // Whether all desired network changes that the user has applied have taken effect
   // This includes:
   // - Whether `InstanceNetworkConfig` is of exactly the same version as the
@@ -615,6 +690,15 @@ message InstanceInterfaceConfig {
   // optional UUID security_group_id = 4;
 }
 
+// The configuration that a customer desires for an instances IB interface
+message InstanceIBInterfaceConfig {
+  // IB subnet ID can change.
+  repeated UUID ib_subnet_id = 1;
+
+  // The guid of IB interface
+  string guid = 2;
+}
+
 // The actual status of a single network interface of an instance
 message InstanceInterfaceStatus {
   // If the interface is defined as a virtual function (associated
@@ -631,6 +715,20 @@ message InstanceInterfaceStatus {
   // The list of IP addresses that had been assigned to this interface,
   // based on the requested subnet.
   // The list will be empty if interface configuration hasn't been completed
+  repeated string addresses = 3;
+}
+
+// The actual status of a single IB interface of an instance
+message InstanceIBInterfaceStatus {
+  // The GUID which has been assigned to this interface
+  optional string guid = 1;
+
+  // The local id of this IB interface; if interface configuration has not been completed, the value is 0.
+  uint32 lid = 2;
+
+  // The list of IP addresses that had been assigned to this interface,
+  // based on the requested subnet.
+  // The list will be empty if interface configuration hasn't been completed or IPoIB disabled
   repeated string addresses = 3;
 }
 
@@ -1107,6 +1205,9 @@ message InstanceNetworkStatusObservation {
 
   // Status for each configured interface
   repeated InstanceInterfaceStatusObservation interfaces = 4;
+
+  // Status for each configured IB interface
+  repeated InstanceIBInterfaceStatusObservation ib_interfaces = 5;
 }
 
 // Result for the RecordObservedInstanceNetworkStatus method
@@ -1135,6 +1236,21 @@ message InstanceInterfaceStatusObservation {
   // based on the requested subnet.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 4;
+}
+
+// Observed status of a single network interface of an instance
+message InstanceIBInterfaceStatusObservation {
+  // The GUID which has been assigned to this interface
+  // Only relevant for IB interfaces
+  optional string guid = 1;
+
+  // The local id of this IB interface; if interface configuration has not been completed, the value is 0.
+  uint32 lid = 2;
+
+  // The list of IP addresses that had been assigned to this interface,
+  // based on the requested subnet.
+  // The list will be empty if interface configuration hasn't been completed or IPoIB disabled
+  repeated string addresses = 3;
 }
 
 message TenantContent {

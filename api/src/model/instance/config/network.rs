@@ -221,7 +221,11 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
             });
         }
 
-        Ok(rpc::InstanceNetworkConfig { interfaces })
+        Ok(rpc::InstanceNetworkConfig {
+            interfaces,
+            // TODO(k82cn): Add IB interface configuration.
+            ib_interfaces: Vec::new(),
+        })
     }
 }
 

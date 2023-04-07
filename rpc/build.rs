@@ -34,11 +34,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.InstanceInterfaceConfig",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute(
+            "forge.InstanceIBInterfaceConfig",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.InstanceNetworkConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceConfig", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.InstanceInterfaceStatus",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.InstanceIBInterfaceStatus",
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.InstanceNetworkStatus", "#[derive(serde::Serialize)]")
@@ -55,6 +63,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegment", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.IBSubnetConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.IBSubnetStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.IBSubnet", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.NetworkSegmentStateHistory",

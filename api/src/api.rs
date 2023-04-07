@@ -44,6 +44,12 @@ use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
+
+use ::rpc::protos::forge::{
+    IbSubnet, IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult,
+    IbSubnetList, IbSubnetQuery,
+};
+
 use crate::db::ipmi::UserRoles;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
@@ -420,6 +426,34 @@ where
             .map_err(CarbideError::from)?;
 
         Ok(result)
+    }
+
+    async fn find_ib_subnets(
+        &self,
+        _: Request<IbSubnetQuery>,
+    ) -> Result<Response<IbSubnetList>, Status> {
+        todo!()
+    }
+
+    async fn create_ib_subnet(
+        &self,
+        _: Request<IbSubnetCreationRequest>,
+    ) -> Result<Response<IbSubnet>, Status> {
+        todo!()
+    }
+
+    async fn delete_ib_subnet(
+        &self,
+        _: Request<IbSubnetDeletionRequest>,
+    ) -> Result<Response<IbSubnetDeletionResult>, Status> {
+        todo!()
+    }
+
+    async fn ib_subnets_for_vpc(
+        &self,
+        _: Request<rpc::VpcSearchQuery>,
+    ) -> Result<Response<IbSubnetList>, Status> {
+        todo!()
     }
 
     async fn find_network_segments(

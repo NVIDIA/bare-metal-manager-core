@@ -36,6 +36,12 @@ pub use crate::protos::forge::{
     NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, SyncState, TenantConfig,
     TenantState, Uuid,
 };
+
+pub use crate::protos::forge::{
+    IbSubnet, IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult,
+    IbSubnetList, IbSubnetQuery, InstanceIbInterfaceConfig,
+};
+
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
