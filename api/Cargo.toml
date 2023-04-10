@@ -14,14 +14,13 @@ name = "carbide-api"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.65"
 async-trait = "*"
 base64 = "0.13"
 casbin = "2.0"
 chrono = "0.4.19"
 clap = { workspace = true }
 data-encoding = "2.3.3"
-eyre = "0.6.8"
+eyre = "*"
 futures = "0.3"
 futures-util = "0.3"
 http = "0.2"

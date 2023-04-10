@@ -31,11 +31,11 @@ impl TestCredentialProvider {
 
 #[async_trait]
 impl CredentialProvider for TestCredentialProvider {
-    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, anyhow::Error> {
+    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report> {
         let credentials = self.credentials.lock().await;
         let cred = credentials
             .get(key.to_key_str().as_str())
-            .ok_or_else(|| anyhow::anyhow!("missing key in test credentials provider"))?;
+            .ok_or_else(|| eyre::eyre!("missing key in test credentials provider"))?;
 
         Ok(cred.clone())
     }
@@ -44,7 +44,7 @@ impl CredentialProvider for TestCredentialProvider {
         &self,
         key: CredentialKey,
         credentials: Credentials,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), eyre::Report> {
         let mut data = self.credentials.lock().await;
         let _ = data.insert(key.to_key_str(), credentials);
 

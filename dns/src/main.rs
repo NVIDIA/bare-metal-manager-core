@@ -9,17 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
-
 use cfg::{Command, Options};
+use log::LevelFilter;
 
 mod cfg;
 mod dns;
 
 #[tokio::main]
-async fn main() -> Result<(), color_eyre::Report> {
-    color_eyre::install()?;
-
+async fn main() -> Result<(), eyre::Report> {
     let config = Options::load();
 
     pretty_env_logger::formatted_timed_builder()

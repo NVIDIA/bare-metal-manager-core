@@ -108,7 +108,7 @@ pub async fn create_managed_resource(
         .filter(|x| x.prefix.is_ipv4())
         .last()
         .ok_or_else(|| {
-            VpcApiError::GenericError(anyhow::anyhow!(
+            VpcApiError::GenericError(eyre::eyre!(
                 "Counldn't find IPV4 NetworkPrefix for segment {}",
                 iface.network_segment_id
             ))
@@ -163,7 +163,7 @@ pub enum VpcApiError {
     #[error("VPC API simulation is out of loopback IPs")]
     VpiApiSimLoopbackIpsExhausted,
     #[error("Unable to process: {0}")]
-    GenericError(anyhow::Error),
+    GenericError(eyre::Report),
     #[error(
         "Leaf with name {0} has an invalid existing configuration and \
         and therefore new Host Admin IPs can't be configured"

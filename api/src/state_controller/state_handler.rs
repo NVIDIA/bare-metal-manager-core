@@ -153,7 +153,7 @@ pub enum StateHandlerError {
     // TODO: This should be replaced - but requires downstream errors to migrate
     // off from CarbideError
     #[error("Unable to load snapshot: {0}")]
-    GenericError(anyhow::Error),
+    GenericError(eyre::Report),
     #[error("State for object {object_id} can not be advanced. Missing data: {missing}")]
     MissingData {
         object_id: String,

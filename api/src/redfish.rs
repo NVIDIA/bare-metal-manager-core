@@ -24,7 +24,7 @@ use crate::{db::ipmi::UserRoles, model::machine::machine_id::MachineId};
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
     #[error("Failed to look up credentials for Machine {0}: {1}")]
-    MissingCredentials(MachineId, anyhow::Error),
+    MissingCredentials(MachineId, eyre::Report),
     #[error("Failed redfish request for Machine {0}: {1}")]
     RedfishError(MachineId, RedfishError),
     #[error("Failed subtask to create redfish client for Machine {0}: {1}")]

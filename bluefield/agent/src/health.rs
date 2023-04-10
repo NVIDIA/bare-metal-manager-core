@@ -162,13 +162,13 @@ fn check_files(hr: &mut HealthReport, expected_files: &[&str]) {
     }
 }
 
-fn check_bgp(bgp_json: &str) -> color_eyre::Result<()> {
+fn check_bgp(bgp_json: &str) -> eyre::Result<()> {
     let networks: BgpNetworks = serde_json::from_str(bgp_json)?;
     check_bgp_stats("ipv4_unicast", &networks.ipv4_unicast)?;
     check_bgp_stats("l2_vpn_evpn", &networks.l2_vpn_evpn)
 }
 
-fn check_bgp_stats(name: &str, s: &BgpStats) -> color_eyre::Result<()> {
+fn check_bgp_stats(name: &str, s: &BgpStats) -> eyre::Result<()> {
     if s.failed_peers != 0 {
         return Err(eyre::eyre!(
             "{name} failed peers is {} should be 0",
@@ -313,7 +313,7 @@ fn run_in_container(
     container_id: &str,
     command: &[&str],
     need_success: bool,
-) -> color_eyre::Result<String> {
+) -> eyre::Result<String> {
     let mut args = vec!["crictl", "exec", container_id];
     args.extend_from_slice(command);
 
@@ -335,7 +335,7 @@ fn run_in_container(
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-fn parse_status(status_out: &str) -> color_eyre::Result<SctlStatus> {
+fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {
     let mut m = HashMap::new();
     for line in status_out.lines() {
         let parts: Vec<&str> = line.split_ascii_whitespace().collect();
@@ -359,7 +359,7 @@ fn parse_status(status_out: &str) -> color_eyre::Result<SctlStatus> {
     Ok(SctlStatus { m })
 }
 
-fn get_hbn_container_id() -> color_eyre::Result<String> {
+fn get_hbn_container_id() -> eyre::Result<String> {
     let mut sudo = Command::new("sudo");
     let cmd = sudo.args(["crictl", "ps", "--name=doca-hbn", "-o=json"]);
     let out = cmd.output()?;
@@ -375,7 +375,7 @@ fn get_hbn_container_id() -> color_eyre::Result<String> {
     parse_container_id(&String::from_utf8_lossy(&out.stdout))
 }
 
-fn parse_container_id(json: &str) -> color_eyre::Result<String> {
+fn parse_container_id(json: &str) -> eyre::Result<String> {
     let o: CrictlOut = serde_json::from_str(json)?;
     if o.containers.is_empty() {
         return Err(eyre::eyre!(
@@ -406,7 +406,7 @@ impl SctlStatus {
 }
 
 impl FromStr for SctlState {
-    type Err = color_eyre::Report;
+    type Err = eyre::Report;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
@@ -527,7 +527,7 @@ sysctl-apply                     EXITED    Mar 06 06:24 PM
     const BGP_SUMMARY_JSON: &str = include_str!("hbn_bgp_summary.json");
 
     #[test]
-    fn test_parse_container_id() -> color_eyre::Result<()> {
+    fn test_parse_container_id() -> eyre::Result<()> {
         assert_eq!(
             parse_container_id(CRICTL_OUT)?,
             "f11d4746b230d51598bac048331072597a87303fede8c1812e01612c496bbc43"
@@ -536,7 +536,7 @@ sysctl-apply                     EXITED    Mar 06 06:24 PM
     }
 
     #[test]
-    fn test_parse_supervisorctl_status() -> color_eyre::Result<()> {
+    fn test_parse_supervisorctl_status() -> eyre::Result<()> {
         let st = parse_status(SUPERVISORCTL_STATUS_OUT)?;
         assert_eq!(st.status_of("frr"), SctlState::Running);
         assert_eq!(st.status_of("ifreload"), SctlState::Exited);
@@ -545,7 +545,7 @@ sysctl-apply                     EXITED    Mar 06 06:24 PM
     }
 
     #[test]
-    fn test_check_bgp() -> color_eyre::Result<()> {
+    fn test_check_bgp() -> eyre::Result<()> {
         check_bgp(BGP_SUMMARY_JSON)
     }
 }

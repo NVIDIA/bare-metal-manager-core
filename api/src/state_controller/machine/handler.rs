@@ -19,8 +19,8 @@ use std::{
     time::SystemTime,
 };
 
-use anyhow::anyhow;
 use chrono::{DateTime, Utc};
+use eyre::eyre;
 use rpc::{InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation};
 use sqlx::Postgres;
 
@@ -287,7 +287,7 @@ impl StateHandler for HostMachineStateHandler {
                 Some(address) => match address.address.ip() {
                     IpAddr::V4(addr) => addr,
                     x => {
-                        return Err(StateHandlerError::GenericError(anyhow!(
+                        return Err(StateHandlerError::GenericError(eyre!(
                             "Invalid address {:?} for machine: {}",
                             x,
                             machine_id
@@ -396,7 +396,7 @@ async fn record_instance_network_observation(
                     "Failed to retrieve Ip Address for instance {} and function ID {:?}",
                     instance_id, iface.function_id
                 );
-                return Err(StateHandlerError::GenericError(anyhow!(error)));
+                return Err(StateHandlerError::GenericError(eyre!(error)));
             }
         };
 
@@ -426,7 +426,7 @@ async fn record_instance_network_observation(
         ))
         .await
         .map_err(|status| {
-            StateHandlerError::GenericError(anyhow!(<tonic::Status as Into<anyhow::Error>>::into(
+            StateHandlerError::GenericError(eyre!(<tonic::Status as Into<eyre::Report>>::into(
                 status
             )))
         })?;
@@ -457,7 +457,7 @@ impl StateHandler for InstanceStateHandler {
         };
 
         let Some(ref instance) = state.instance else {
-            return Err(StateHandlerError::GenericError(anyhow::anyhow!("Instance is empty at this point. Cleanup is needed for dpu: {}.", machine_id)));
+            return Err(StateHandlerError::GenericError(eyre!("Instance is empty at this point. Cleanup is needed for dpu: {}.", machine_id)));
         };
 
         let state = &state.managed_state;
@@ -589,11 +589,9 @@ async fn restart_machine(
     tokio::task::spawn_blocking(move || client.power(libredfish::SystemPowerControl::ForceRestart))
         .await
         .map_err(|e| {
-            StateHandlerError::GenericError(anyhow!("Failed redfish ForceRestart subtask: {}", e))
+            StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
         })?
-        .map_err(|e| {
-            StateHandlerError::GenericError(anyhow!("Failed to restart machine: {}", e))
-        })?;
+        .map_err(|e| StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e)))?;
 
     Ok(())
 }

@@ -15,15 +15,14 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use tracing::{debug, error, info, trace};
-use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
-
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client;
 use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
+use tracing::{debug, error, info, trace};
+use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 
 mod command_line;
 mod health;
@@ -37,9 +36,7 @@ const MAIN_LOOP_PERIOD: Duration = Duration::from_secs(30);
 /// How often we fetch the desired network configuration for a host
 const NETWORK_CONFIG_FETCH_PERIOD: Duration = Duration::from_secs(30);
 
-fn main() -> color_eyre::Result<()> {
-    color_eyre::install()?;
-
+fn main() -> eyre::Result<()> {
     let cmdline = command_line::Options::load();
 
     let env_filter = EnvFilter::from_default_env()

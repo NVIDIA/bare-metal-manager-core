@@ -25,7 +25,7 @@ tonic = { version = "0.8.0", features = ["tls"] }
 uuid = "1.0"
 
 [dev-dependencies]
-anyhow = "1.0.66"
+eyre = "*"
 dhcproto = "0.8.0"
 serde_json = "1.0.89"
 test-cdylib = "1.1.0"

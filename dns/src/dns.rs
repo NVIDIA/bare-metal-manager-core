@@ -14,7 +14,9 @@ use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::time::Duration;
 
-use color_eyre::Report;
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::{self, ForgeClientT};
+use eyre::Report;
 use tokio::net::{TcpListener, UdpSocket};
 use trust_dns_server::authority::MessageResponseBuilder;
 use trust_dns_server::client::op::{Header, ResponseCode};
@@ -24,9 +26,6 @@ use trust_dns_server::proto::rr::Record;
 use trust_dns_server::proto::rr::RecordType::A;
 use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 use trust_dns_server::ServerFuture;
-
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientT};
 
 use crate::cfg;
 

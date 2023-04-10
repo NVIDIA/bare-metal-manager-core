@@ -35,7 +35,7 @@ const READ_TIMEOUT: Duration = Duration::from_millis(500);
 // Kea should receive the packets, call our hooks, which should call MockAPIServer and then respond to
 // the relay (aka gateway), which is us.
 #[test]
-fn test_real_kea_multithreaded() -> Result<(), anyhow::Error> {
+fn test_real_kea_multithreaded() -> Result<(), eyre::Report> {
     // Start multi-threaded mock API server. The hooks call this over the network.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -150,7 +150,7 @@ fn test_real_kea_multithreaded() -> Result<(), anyhow::Error> {
 struct DHCPFactory {}
 
 impl DHCPFactory {
-    fn encode(msg: Message) -> Result<Vec<u8>, anyhow::Error> {
+    fn encode(msg: Message) -> Result<Vec<u8>, eyre::Report> {
         let mut buf = Vec::with_capacity(300); // msg is 279 bytes
         let mut e = Encoder::new(&mut buf);
         msg.encode(&mut e)?;
@@ -198,7 +198,7 @@ struct Kea {
 impl Kea {
     // Start the Kea DHCP server as a sub-process and return a handle to it
     // Stops when the returned object is dropped.
-    fn start(api_server_url: &str) -> Result<Kea, anyhow::Error> {
+    fn start(api_server_url: &str) -> Result<Kea, eyre::Report> {
         let conf_path = KEA_CONF_PATH.to_string();
         let kea_conf = Kea::config(api_server_url);
 
@@ -210,7 +210,7 @@ impl Kea {
         Ok(Kea { process, conf_path })
     }
 
-    fn run(conf_path: &str) -> Result<Child, anyhow::Error> {
+    fn run(conf_path: &str) -> Result<Child, eyre::Report> {
         let mut process = Command::new("/usr/sbin/kea-dhcp4")
             .env("KEA_PIDFILE_DIR", "/tmp")
             .env("KEA_LOCKFILE_DIR", "/tmp")

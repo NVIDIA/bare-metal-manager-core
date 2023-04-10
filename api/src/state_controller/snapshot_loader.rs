@@ -80,7 +80,7 @@ pub enum SnapshotLoaderError {
     #[error("Expected 1 instance with id {0} found {1}")]
     MultipleInstances(uuid::Uuid, usize),
     #[error("State handling generic error: {0}")]
-    GenericError(anyhow::Error),
+    GenericError(eyre::Report),
 }
 
 /// Load a machine state snapshot from a postgres database

@@ -9,15 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
-use once_cell::sync::Lazy;
-use tokio::sync::RwLock;
-
 use ::rpc::forge_tls_client;
 use cfg::{AutoDetect, Command, Discovery, Options};
+use log::LevelFilter;
+use once_cell::sync::Lazy;
 use rpc::forge as rpc_forge;
 use rpc::forge::forge_agent_control_response::Action;
 pub use scout::{CarbideClientError, CarbideClientResult};
+use tokio::sync::RwLock;
 
 mod cfg;
 mod deprovision;
@@ -44,15 +43,13 @@ async fn check_if_running_in_qemu() {
 
     if let Ok(x) = String::from_utf8(output.stdout) {
         if x.trim() != "none" {
-            IN_QEMU_VM.write().await.in_qemu = true; // Not sure. But if above command is not present,
+            IN_QEMU_VM.write().await.in_qemu = true;
         }
     }
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), color_eyre::Report> {
-    color_eyre::install()?;
-
+async fn main() -> Result<(), eyre::Report> {
     let config = Options::load();
     check_if_running_in_qemu().await;
 

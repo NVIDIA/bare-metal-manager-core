@@ -13,12 +13,12 @@ pub enum Credentials {
 ///
 /// Abstract over a credentials provider that functions as a kv map between "key" -> "cred"
 pub trait CredentialProvider: Send + Sync {
-    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, anyhow::Error>;
+    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report>;
     async fn set_credentials(
         &self,
         key: CredentialKey,
         credentials: Credentials,
-    ) -> Result<(), anyhow::Error>;
+    ) -> Result<(), eyre::Report>;
 }
 
 pub struct ForgeVaultClient {
@@ -37,7 +37,7 @@ impl ForgeVaultClient {
 
 #[async_trait]
 impl CredentialProvider for ForgeVaultClient {
-    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, anyhow::Error> {
+    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report> {
         let credentials = kv2::read(
             &self.vault_client,
             &self.vault_mount_location,
@@ -56,7 +56,7 @@ impl CredentialProvider for ForgeVaultClient {
         &self,
         key: CredentialKey,
         credentials: Credentials,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), eyre::Report> {
         let _secret_version_metadata = kv2::set(
             &self.vault_client,
             &self.vault_mount_location,
