@@ -11,6 +11,7 @@ members = [
   "forge_credentials",
   "host-support",
   "pxe",
+  "dev/rainbow",
   "rpc",
   "scout",
 ]

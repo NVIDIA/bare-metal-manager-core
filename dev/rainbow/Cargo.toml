@@ -1,0 +1,13 @@
+[package]
+name = "rainbow"
+version = "0.1.0"
+edition.workspace = true
+description = "Log pretty-printer for Carbide"
+license = "LicenseRef-NvidiaProprietary"
+authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
+
+[dependencies]
+chrono = "0.4.24"
+clap.workspace = true
+eyre = "*"
+owo-colors = "3.5.0"

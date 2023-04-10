@@ -3996,6 +3996,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rainbow"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap 4.2.1",
+ "eyre",
+ "owo-colors",
+]
+
+[[package]]
 name = "rand"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
