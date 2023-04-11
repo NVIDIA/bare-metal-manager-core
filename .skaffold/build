@@ -1,0 +1,13 @@
+#!/usr/bin/bash
+# This is called from parallel CLI and creates a docker task for each component passed
+# Each component gets its own cargo cache and cargo_target_dir
+docker run --rm -v $REPO_ROOT:/carbide \
+  -e CARGO_TARGET_DIR=/target/$1 \
+  -e CARGO_HOME=/cache/cargo/$1 \
+  -e SCCACHE_DIR=/cache/sccache \
+  -v $REPO_ROOT/.skaffold/target:/target \
+  -v $REPO_ROOT/.skaffold/cache:/cache \
+  --user $(id -u):$(id -g) \
+  --add-host urm.nvidia.com:10.124.92.246 \
+  registry.minikube/build-container:latest $1
+

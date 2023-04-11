@@ -2,5 +2,6 @@ target/*
 .git/
 book/
 pxe/mkiso/
+**/.mkosi*
 pxe/static/blobs/internal/*/.mkosi*
 **/.mkosi*

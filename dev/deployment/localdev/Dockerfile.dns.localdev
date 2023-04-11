@@ -9,18 +9,6 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
-FROM urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v0.0.1-470-g80a16ba9 as builder
+FROM registry.minikube/runtime-container:latest as carbide
 WORKDIR ./carbide
-COPY . ./
-ENV SCCACHE_CACHE_SIZE 2G
-ENV SCCACHE_DIR /root/.cache/sccache
-ENV RUSTC_WRAPPER /usr/local/cargo/bin/sccache
-RUN --mount=type=cache,target=/root/.cache/sccache --mount=type=cache,target=/usr/local/cargo/registry/ cargo build -p carbide-dns && sccache --show-stats
-
-FROM ubuntu:focal as carbide
-RUN mkdir -p /opt/carbide/migrations && \
-  mkdir -p /opt/carbide/pxe/templates && \
-  mkdir -p /opt/carbide/static
-RUN --mount=type=cache,target=/var/cache/apt apt-get update && apt-get install -y --no-install-recommends \
-  ca-certificates curl iproute2 iputils-ping libudev1
-COPY --from=builder ["/carbide/target/debug/carbide-dns", "/opt/carbide/"]
+COPY .skaffold/target/carbide-dns/debug/carbide-dns /opt/carbide
