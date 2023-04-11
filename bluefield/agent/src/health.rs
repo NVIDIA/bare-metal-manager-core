@@ -195,11 +195,15 @@ fn check_bgp_stats(name: &str, s: &BgpStats) -> eyre::Result<()> {
                 peer.state
             ));
         }
-        if peer.pfx_rcd == 0 {
-            return Err(eyre::eyre!("{name} {peer_name} pfx rcd is 0 should be > 0"));
+        if peer.pfx_rcd.unwrap_or_default() == 0 {
+            return Err(eyre::eyre!(
+                "{name} {peer_name} pfx rcd is 0 or missing should be > 0"
+            ));
         }
-        if peer.pfx_snt == 0 {
-            return Err(eyre::eyre!("{name} {peer_name} state is 0 should be > 0"));
+        if peer.pfx_snt.unwrap_or_default() == 0 {
+            return Err(eyre::eyre!(
+                "{name} {peer_name} pfx snt is 0 or missing should be > 0"
+            ));
         }
     }
 
@@ -226,8 +230,8 @@ struct BgpStats {
 #[serde(rename_all = "camelCase")]
 struct BgpPeer {
     state: String,
-    pfx_rcd: u32,
-    pfx_snt: u32,
+    pfx_rcd: Option<u32>,
+    pfx_snt: Option<u32>,
 }
 
 // Health of HBN
@@ -524,7 +528,8 @@ rsyslog                          RUNNING   pid 27, uptime 4:18:47
 sysctl-apply                     EXITED    Mar 06 06:24 PM
 "#;
 
-    const BGP_SUMMARY_JSON: &str = include_str!("hbn_bgp_summary.json");
+    const BGP_SUMMARY_JSON_SUCCESS: &str = include_str!("hbn_bgp_summary.json");
+    const BGP_SUMMARY_JSON_FAIL: &str = include_str!("hbn_bgp_summary_fail.json");
 
     #[test]
     fn test_parse_container_id() -> eyre::Result<()> {
@@ -545,7 +550,19 @@ sysctl-apply                     EXITED    Mar 06 06:24 PM
     }
 
     #[test]
-    fn test_check_bgp() -> eyre::Result<()> {
-        check_bgp(BGP_SUMMARY_JSON)
+    fn test_check_bgp_success() -> eyre::Result<()> {
+        check_bgp(BGP_SUMMARY_JSON_SUCCESS)
+    }
+
+    #[test]
+    fn test_check_bgp_fail() -> eyre::Result<()> {
+        let out = check_bgp(BGP_SUMMARY_JSON_FAIL);
+        assert!(out.is_err());
+
+        let err = out.unwrap_err();
+        assert!(err
+            .to_string()
+            .starts_with("ipv4_unicast failed peers is 2 should be 0"));
+        Ok(())
     }
 }
