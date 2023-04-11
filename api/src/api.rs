@@ -2446,7 +2446,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
 
 async fn check_auth<B>(
     request: &HyperRequest<B>,
-    peer_certs: Arc<Vec<Certificate>>,
+    peer_certs: &Arc<Vec<Certificate>>,
 ) -> AuthorizationType {
     if let Some(peer_cert) = peer_certs.first() {
         //TODO: actually check that this cert is in some way "valid".  Also, check more than just the first one in the list?
@@ -2479,12 +2479,6 @@ async fn check_auth<B>(
         }
     }
 
-    log::error!(
-        "failed to authorize request.  Peer certs: {:?}.  Headers: {:?}. URI: {:?}",
-        peer_certs,
-        request.headers(),
-        request.uri()
-    );
     AuthorizationType::Unauthorized
 }
 
@@ -2519,10 +2513,20 @@ where
         let peer_certs = self.peer_certs.clone();
         let addr = self.addr;
         Box::pin(async move {
-            let authorization_type = check_auth(&request, peer_certs).await;
+            let authorization_type = check_auth(&request, &peer_certs).await;
 
             match authorization_type {
                 AuthorizationType::Unauthorized => {
+                    // TODO: Since mTLS is not implemented and we always fail auth at the moment,
+                    // don't log the failure, overwrite the result, and let the request proceed
+
+                    // log::error!(
+                    //     "failed to authorize request. Peer certs: {:?}. Headers: {:?}. URI: {:?}",
+                    //     peer_certs,
+                    //     request.headers(),
+                    //     request.uri()
+                    // );
+
                     let boxed = BoxBody::default();
                     let unauthorized_response = HyperResponse::builder()
                         .status(StatusCode::UNAUTHORIZED)
