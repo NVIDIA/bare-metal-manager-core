@@ -116,10 +116,12 @@ impl FromStr for VendorClass {
                 }
             }
             // BF2Client is older BF2 cards, PXEClient without colon is iPxe response
-            vc @ ("NVIDIA/BF/OOB" | "BF2Client" | "PXEClient") => Ok(VendorClass {
-                id: vc.to_string(),
-                arch: MachineArchitecture::Arm64,
-            }),
+            vc @ ("NVIDIA/BF/OOB" | "BF2Client" | "PXEClient" | "NVIDIA/BF/BMC") => {
+                Ok(VendorClass {
+                    id: vc.to_string(),
+                    arch: MachineArchitecture::Arm64,
+                })
+            }
             // x86 DELL BMC OR x86 HP iLo BMC
             vc @ ("iDRAC" | "CPQRIB3") => Ok(VendorClass {
                 id: vc.to_string(),
@@ -230,6 +232,12 @@ mod tests {
     #[test]
     fn it_detects_nvidia_bf_oob_as_arm() {
         let vc: VendorClass = "NVIDIA/BF/OOB".parse().unwrap();
+        assert_eq!(vc.to_string(), "ARM 64-bit UEFI (basic)");
+    }
+
+    #[test]
+    fn it_detects_nvidia_bf_bmc_as_arm() {
+        let vc: VendorClass = "NVIDIA/BF/BMC".parse().unwrap();
         assert_eq!(vc.to_string(), "ARM 64-bit UEFI (basic)");
     }
 
