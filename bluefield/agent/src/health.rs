@@ -15,10 +15,12 @@ use std::{collections::HashMap, fmt, path::PathBuf, process::Command, str::FromS
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-const EXPECTED_FILES: [&str; 3] = [
+const HBN_DAEMONS_FILE: &str = "/var/lib/hbn/etc/frr/daemons";
+const EXPECTED_FILES: [&str; 4] = [
     "/var/lib/hbn/etc/frr/frr.conf",
     "/var/lib/hbn/etc/network/interfaces",
     "/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf",
+    HBN_DAEMONS_FILE,
 ];
 
 const EXPECTED_SERVICES: [&str; 4] = ["frr", "isc-dhcp-relay-default", "nl2doca", "rsyslog"];
@@ -26,6 +28,7 @@ const EXPECTED_SERVICES: [&str; 4] = ["frr", "isc-dhcp-relay-default", "nl2doca"
 /// Check the health of HBN
 pub fn health_check() -> HealthReport {
     let mut hr = HealthReport::new();
+
     let container_id = match get_hbn_container_id() {
         Ok(id) => id,
         Err(err) => {
@@ -40,6 +43,7 @@ pub fn health_check() -> HealthReport {
     check_network_stats(&mut hr, &container_id);
     check_ifreload(&mut hr, &container_id);
     check_files(&mut hr, &EXPECTED_FILES);
+    check_bgp_daemon_enabled(&mut hr);
 
     hr
 }
@@ -162,6 +166,37 @@ fn check_files(hr: &mut HealthReport, expected_files: &[&str]) {
     }
 }
 
+fn check_bgp_daemon_enabled(hr: &mut HealthReport) {
+    let daemons = match std::fs::read_to_string(HBN_DAEMONS_FILE) {
+        Ok(s) => s,
+        Err(err) => {
+            debug!("check_bgp_daemon_enabled: {err}");
+            hr.failed(
+                HealthCheck::BgpDaemonEnabled,
+                format!("Trying to open and read {HBN_DAEMONS_FILE}: {err}"),
+            );
+            return;
+        }
+    };
+
+    if daemons.contains("bgpd=no") {
+        hr.failed(
+            HealthCheck::BgpDaemonEnabled,
+            format!("BGP daemon is disabled - {HBN_DAEMONS_FILE} contains 'bgpd=no'"),
+        );
+        return;
+    }
+    if !daemons.contains("bgpd=yes") {
+        hr.failed(
+            HealthCheck::BgpDaemonEnabled,
+            format!("BGP daemon is not enabled - {HBN_DAEMONS_FILE} does not contain 'bgpd=yes'"),
+        );
+        return;
+    }
+
+    hr.passed(HealthCheck::BgpDaemonEnabled);
+}
+
 fn check_bgp(bgp_json: &str) -> eyre::Result<()> {
     let networks: BgpNetworks = serde_json::from_str(bgp_json)?;
     check_bgp_stats("ipv4_unicast", &networks.ipv4_unicast)?;
@@ -273,6 +308,7 @@ pub enum HealthCheck {
     Ifreload,
     FileExists(String),
     FileIsValid(String),
+    BgpDaemonEnabled,
 }
 
 impl fmt::Display for HealthReport {
@@ -309,6 +345,7 @@ impl fmt::Display for HealthCheck {
             Self::Ifreload => write!(f, "Ifreload"),
             Self::FileExists(file_name) => write!(f, "FileExists({})", file_name),
             Self::FileIsValid(file_name) => write!(f, "FileIsValid({})", file_name),
+            Self::BgpDaemonEnabled => write!(f, "BgpDaemonEnabled"),
         }
     }
 }
