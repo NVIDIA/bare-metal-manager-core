@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use std::env;
-use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::BufReader;
 use std::path::Path;
@@ -33,6 +32,7 @@ mod instance;
 mod machine;
 mod managed_host;
 mod network;
+mod redfish;
 mod resource_pool;
 mod rpc;
 
@@ -182,7 +182,7 @@ fn get_config_from_file() -> Option<FileConfig> {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
     let config = CarbideOptions::load();
@@ -305,6 +305,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 resource_pool::define_all_from(&def.filename, api_config).await?;
             }
         },
+        CarbideCommand::Redfish(ra) => {
+            redfish::action(ra).await?;
+        }
     }
 
     Ok(())

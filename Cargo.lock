@@ -23,6 +23,7 @@ version = "0.0.1"
 dependencies = [
  "clap 4.2.1",
  "color-eyre",
+ "libredfish",
  "log",
  "pretty_env_logger",
  "prettytable-rs",

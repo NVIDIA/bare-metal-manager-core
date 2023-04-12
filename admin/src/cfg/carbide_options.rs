@@ -56,6 +56,68 @@ pub enum CarbideCommand {
     ManagedHost(ManagedHost),
     #[clap(about = "Resource pool handling (VPC)", subcommand)]
     ResourcePool(ResourcePool),
+    #[clap(about = "Redfish BMC actions")]
+    Redfish(RedfishAction),
+}
+
+#[derive(Parser, Debug)]
+pub struct RedfishAction {
+    #[clap(subcommand)]
+    pub command: RedfishCommand,
+
+    #[clap(
+        long,
+        global = true,
+        help = "IP:port of machine BMC. Port is optional and defaults to 443"
+    )]
+    pub address: Option<String>,
+
+    #[clap(long, global = true, help = "Username for machine BMC")]
+    pub username: Option<String>,
+
+    #[clap(long, global = true, help = "Password for machine BMC")]
+    pub password: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+#[clap(rename_all = "kebab_case")]
+pub enum RedfishCommand {
+    #[clap(about = "List BIOS attributes")]
+    BiosAttrs,
+    #[clap(about = "Set hard drive first in boot order")]
+    BootHdd,
+    #[clap(about = "Set PXE first in boot order")]
+    BootPxe,
+    #[clap(about = "On next boot only, boot from hard drive")]
+    BootOnceHdd,
+    #[clap(about = "On next boot only, boot from PXE")]
+    BootOncePxe,
+    #[clap(about = "Is this thing on?")]
+    GetPowerState,
+    #[clap(about = "Disable BMC/BIOS lockdown")]
+    LockdownDisable,
+    #[clap(about = "Enable BMC/BIOS lockdown")]
+    LockdownEnable,
+    #[clap(about = "Display status of BMC/BIOS lockdown")]
+    LockdownStatus,
+    #[clap(about = "Force turn machine off")]
+    Off,
+    #[clap(about = "Power on a machine")]
+    On,
+    #[clap(about = "List pending operations")]
+    Pending,
+    #[clap(about = "Force restart")]
+    Reset,
+    #[clap(about = "Graceful restart")]
+    Restart,
+    #[clap(about = "Enable serial console")]
+    SerialEnable,
+    #[clap(about = "Serial console status")]
+    SerialStatus,
+    #[clap(about = "Graceful shutdown")]
+    Shutdown,
+    #[clap(about = "Clear Trusted Platform Module (TPM)")]
+    TpmReset,
 }
 
 #[derive(Parser, Debug)]
@@ -67,7 +129,7 @@ pub enum Machine {
     #[clap(about = "Print network status of all machines")]
     NetworkStatus,
     #[clap(about = "Reboot a machine")]
-    Reboot(BMCConfig),
+    Reboot(BMCConfigForReboot),
     #[clap(about = "Force delete a machine")]
     ForceDelete(ForceDeleteMachineQuery),
 }
@@ -79,7 +141,7 @@ pub enum ManagedHost {
 }
 
 #[derive(Parser, Debug)]
-pub struct BMCConfig {
+pub struct BMCConfigForReboot {
     #[clap(long, help = "Hostname or IP of machine BMC")]
     pub address: String,
 
