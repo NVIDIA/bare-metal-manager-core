@@ -1767,7 +1767,7 @@ where
         };
 
         // libredfish uses reqwest in blocking mode, making and dropping a runtime
-        let _ = tokio::task::spawn_blocking(move || -> Result<(), libredfish::RedfishError> {
+        tokio::task::spawn_blocking(move || -> Result<(), libredfish::RedfishError> {
             let endpoint = libredfish::Endpoint {
                 user: Some(user),
                 password: Some(password),
@@ -1778,12 +1778,15 @@ where
 
             let pool = libredfish::RedfishClientPool::builder().build()?;
             let redfish = pool.create_client(endpoint)?;
+            tracing::info!("Switching boot order for {}", req.ip);
             redfish.boot_once(libredfish::Boot::Pxe)?;
+            tracing::info!("Force restarting {}", req.ip);
             redfish.power(libredfish::SystemPowerControl::ForceRestart)?;
-            tracing::info!("Reboot to PXE requested for {}", req.ip);
+            tracing::info!("Reboot request succeeded for {}", req.ip);
             Ok(())
         })
         .await
+        .map_err(CarbideError::from)?
         .map_err(CarbideError::from)?;
 
         Ok(Response::new(rpc::AdminRebootResponse {}))
