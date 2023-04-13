@@ -166,9 +166,7 @@ impl StateHandler for DpuMachineStateHandler {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
-        let managed_state = &state.managed_state;
-
-        match &managed_state {
+        match &state.managed_state {
             ManagedHostState::DPUNotReady(MachineState::Init) => {
                 // We are waiting for the `DiscoveryCompleted` RPC call to update the
                 // `last_discovery_time` timestamp.
