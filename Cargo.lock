@@ -45,6 +45,9 @@ dependencies = [
  "clap 4.2.1",
  "eyre",
  "forge-host-support",
+ "gtmpl",
+ "gtmpl_derive",
+ "gtmpl_value",
  "pretty_env_logger",
  "rpc",
  "serde",
@@ -2142,6 +2145,41 @@ dependencies = [
  "libz-sys",
  "pkg-config",
  "walkdir",
+]
+
+[[package]]
+name = "gtmpl"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b924c0ea1149cd5cc9b208b33a4acb036ffb4b39c10048569de20616988a2b4"
+dependencies = [
+ "anyhow",
+ "gtmpl_value",
+ "lazy_static",
+ "percent-encoding",
+ "thiserror",
+]
+
+[[package]]
+name = "gtmpl_derive"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e61728835b574497bdb35fa150f5d7c7c7a0e3d22ff10a2cad08591a478ab63f"
+dependencies = [
+ "gtmpl_value",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "gtmpl_value"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d61bf6605eabca491ef6db6ed194e0aa82900ccc8bdea4c56ac277102152dd5"
+dependencies = [
+ "anyhow",
+ "thiserror",
 ]
 
 [[package]]

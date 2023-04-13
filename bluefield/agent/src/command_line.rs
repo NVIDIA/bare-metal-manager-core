@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::path::PathBuf;
+use std::{net::Ipv4Addr, path::PathBuf};
 
 use clap::Parser;
 
@@ -21,9 +21,43 @@ pub(crate) struct Options {
     #[clap(long, default_value = "/etc/forge/config.toml")]
     pub config_path: PathBuf,
 
-    /// Valid commands: run|health|hardware
-    #[clap(short, long, default_value = "run")]
-    pub cmd: String,
+    #[clap(subcommand)]
+    pub cmd: Option<AgentCommand>,
+}
+
+#[derive(Parser, Debug)]
+pub enum AgentCommand {
+    #[clap(about = "Run is the normal and default command")]
+    Run,
+
+    #[clap(about = "Detect hardware and exit")]
+    Hardware,
+
+    #[clap(about = "One-off health check")]
+    Health,
+
+    #[clap(about = "Write a templated config file", subcommand)]
+    Write(WriteTarget),
+}
+
+#[derive(Parser, Debug)]
+pub enum WriteTarget {
+    #[clap(about = "Write frr.conf")]
+    Frr(FrrOptions),
+}
+
+#[derive(Parser, Debug)]
+pub struct FrrOptions {
+    #[clap(long, help = "Full path of frr.conf")]
+    pub path: String,
+    #[clap(long)]
+    pub asn: i64,
+    #[clap(long)]
+    pub loopback_ip: Ipv4Addr,
+    #[clap(long)]
+    pub import_default_route: bool,
+    #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]
+    pub vlan: Vec<String>,
 }
 
 impl Options {

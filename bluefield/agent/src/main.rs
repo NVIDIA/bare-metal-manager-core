@@ -24,7 +24,13 @@ use forge_host_support::{
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 
+use crate::{
+    command_line::{AgentCommand, WriteTarget},
+    frr::FrrVlanConfig,
+};
+
 mod command_line;
+mod frr;
 mod health;
 mod network_config_fetcher;
 
@@ -61,16 +67,77 @@ fn main() -> eyre::Result<()> {
         }
     };
 
-    let interface_id = agent.machine.interface_id;
-    let hardware_info = enumerate_hardware()?;
-    debug!("Successfully enumerated DPU hardware");
-
     // We need a multi-threaded runtime since background threads will queue work
     // on it, and the foreground thread might not be blocked onto the runtime
     // at all points in time
     let mut rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
+
+    match cmdline.cmd {
+        // "run" is the normal and default command
+        None | Some(AgentCommand::Run) => {
+            let machine_id = register(&mut rt, &agent)?;
+            run(&mut rt, &machine_id, &agent.forge_system.api_server);
+        }
+
+        // already done, the cmd allows us to do only this.
+        Some(AgentCommand::Hardware) => {
+            enumerate_hardware()?;
+        }
+
+        // One-off health check
+        Some(AgentCommand::Health) => {
+            let health_report = health::health_check();
+            println!("{health_report}");
+        }
+
+        // Output a templated file
+        // Normally this is (will be) done when receiving requests from carbide-api
+        Some(AgentCommand::Write(target)) => match target {
+            // Example:
+            // forge-dpu-agent
+            //     --config-path example_agent_config.toml
+            //     write frr
+            //     --path ~/Temp/frr.conf
+            //     --asn 1234
+            //     --loopback-ip 10.11.12.13
+            //     --vlan 1,bob
+            //     --vlan 2,bill
+            WriteTarget::Frr(opts) => {
+                let access_vlans = opts
+                    .vlan
+                    .into_iter()
+                    .map(|s| {
+                        let mut parts = s.split(',');
+                        FrrVlanConfig {
+                            id: parts.next().unwrap().parse().unwrap(),
+                            host_route: parts.next().unwrap().to_string(),
+                        }
+                    })
+                    .collect();
+                let contents = frr::build(frr::FrrConfig {
+                    asn: opts.asn,
+                    loopback_ip: opts.loopback_ip,
+                    is_import_default_route: opts.import_default_route,
+                    access_vlans,
+                })?;
+                std::fs::write(&opts.path, contents)?;
+                println!("Wrote {}", opts.path);
+            }
+        },
+    }
+    rt.shutdown_timeout(Duration::from_secs(2));
+
+    Ok(())
+}
+
+/// Discover hardware, register DPU with carbide-api, and return machine id
+fn register(rt: &mut tokio::runtime::Runtime, agent: &AgentConfig) -> Result<String, eyre::Report> {
+    let interface_id = agent.machine.interface_id;
+    let hardware_info = enumerate_hardware()?;
+    debug!("Successfully enumerated DPU hardware");
+
     let registration_data = rt.block_on(register_machine(
         &agent.forge_system.api_server,
         interface_id,
@@ -80,26 +147,7 @@ fn main() -> eyre::Result<()> {
     let machine_id = registration_data.machine_id;
     info!("Successfully discovered machine {machine_id} for interface {interface_id}");
 
-    match cmdline.cmd.as_str() {
-        // "run" is the normal and default command
-        "run" => run(&mut rt, &machine_id, &agent.forge_system.api_server),
-
-        // already done, the cmd allows us to do only this.
-        "hardware" => {}
-
-        // One-off health check
-        "health" => {
-            let health_report = health::health_check();
-            println!("{health_report}");
-        }
-
-        cmd => {
-            error!("Unknown command {cmd}. Run with '-h' for help.");
-        }
-    }
-    rt.shutdown_timeout(Duration::from_secs(2));
-
-    Ok(())
+    Ok(machine_id)
 }
 
 // main loop when running in daemon mode
