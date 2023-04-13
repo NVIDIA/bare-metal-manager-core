@@ -37,6 +37,11 @@ impl<W: Write> OtelStdoutExporter<W> {
     }
 }
 
+const IGNORED_REQUEST_METHODDS: &[&str] = &[
+    "GetManagedHostNetworkConfig",
+    "RecordManagedHostNetworkStatus",
+];
+
 #[async_trait]
 impl<W> SpanExporter for OtelStdoutExporter<W>
 where
@@ -45,6 +50,16 @@ where
     /// Export spans to stdout
     fn export(&mut self, batch: Vec<SpanData>) -> BoxFuture<'static, ExportResult> {
         for span in batch {
+            let method: String = span
+                .attributes
+                .get(&opentelemetry_semantic_conventions::trace::RPC_METHOD)
+                .map(|value| value.as_str().into_owned())
+                .unwrap_or_default();
+
+            if IGNORED_REQUEST_METHODDS.contains(&method.as_str()) {
+                continue;
+            }
+
             writeln!(
                 &mut self.writer,
                 "----\nSpan: {} [ID: {}, Parent: {}, Status: {:?}]",
