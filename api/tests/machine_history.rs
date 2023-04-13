@@ -43,7 +43,11 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     assert_eq!(
         text_history(machine.history()),
-        vec!["dpunotready".to_string(), "hostnotready".to_string(),]
+        vec![
+            "dpunotready".to_string(),
+            "dpunotready".to_string(),
+            "hostnotready".to_string(),
+        ]
     );
 
     let machine = Machine::find_one(

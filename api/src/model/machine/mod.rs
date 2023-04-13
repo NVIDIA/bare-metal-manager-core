@@ -90,6 +90,7 @@ pub enum ManagedHostState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum MachineState {
     Init,
+    WaitingForLeafCreation,
     WaitingForDiscovery,
     Discovered,
 }

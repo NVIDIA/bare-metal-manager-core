@@ -94,7 +94,7 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     env.run_machine_state_controller_iteration_until_state_matches(
         &dpu_machine_id,
         &handler,
-        2,
+        3,
         &mut txn,
         ManagedHostState::HostNotReady(carbide::model::machine::MachineState::Init),
     )

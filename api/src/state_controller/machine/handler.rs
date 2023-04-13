@@ -160,7 +160,7 @@ impl StateHandler for DpuMachineStateHandler {
 
     async fn handle_object_state(
         &self,
-        _machine_id: &MachineId,
+        machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -168,27 +168,43 @@ impl StateHandler for DpuMachineStateHandler {
     ) -> Result<(), StateHandlerError> {
         let managed_state = &state.managed_state;
 
-        if let ManagedHostState::DPUNotReady(MachineState::Init) = &managed_state {
-            // We don't do anything special here. Just march to Ready state if discovery is done.
-            if !discovered_after_state_transition(
-                state.dpu_snapshot.current.version,
-                state.dpu_snapshot.last_discovery_time,
-            )
-            .await?
-            {
-                return Ok(());
-            }
+        match &managed_state {
+            ManagedHostState::DPUNotReady(MachineState::Init) => {
+                // We are waiting for the `DiscoveryCompleted` RPC call to update the
+                // `last_discovery_time` timestamp.
+                // This indicates that all forge-scout actions have succeeded.
+                if !discovered_after_state_transition(
+                    state.dpu_snapshot.current.version,
+                    state.dpu_snapshot.last_discovery_time,
+                )
+                .await?
+                {
+                    return Ok(());
+                }
 
-            // Create leaf and wait for it to get loopback ip.
-            if Poll::Pending
-                == create_leaf_and_wait_for_loopback_ip(txn, &state.dpu_snapshot.machine_id, ctx)
+                *controller_state.modify() =
+                    ManagedHostState::DPUNotReady(MachineState::WaitingForLeafCreation);
+            }
+            ManagedHostState::DPUNotReady(MachineState::WaitingForLeafCreation) => {
+                // Create leaf and wait for it to get loopback ip.
+                if Poll::Pending
+                    == create_leaf_and_wait_for_loopback_ip(
+                        txn,
+                        &state.dpu_snapshot.machine_id,
+                        ctx,
+                    )
                     .await?
-            {
-                return Ok(());
-            }
+                {
+                    return Ok(());
+                }
 
-            *controller_state.modify() = ManagedHostState::HostNotReady(MachineState::Init);
+                *controller_state.modify() = ManagedHostState::HostNotReady(MachineState::Init);
+            }
+            state => {
+                log::warn!("Unhandled State {:?} for DPU machine {}", state, machine_id);
+            }
         }
+
         Ok(())
     }
 }
@@ -328,6 +344,12 @@ impl StateHandler for HostMachineStateHandler {
         if let ManagedHostState::HostNotReady(machine_state) = &managed_state {
             match machine_state {
                 MachineState::Init => {}
+                MachineState::WaitingForLeafCreation => {
+                    log::warn!(
+                        "Invalid State WaitingForLeafCreation for Host Machine {}",
+                        machine_id
+                    );
+                }
                 MachineState::WaitingForDiscovery => {
                     if !discovered_after_state_transition(
                         state.dpu_snapshot.current.version,
