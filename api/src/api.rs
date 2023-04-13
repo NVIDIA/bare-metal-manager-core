@@ -1107,7 +1107,8 @@ where
         &self,
         _request: Request<ValidateTenantPublicKeyRequest>,
     ) -> Result<Response<ValidateTenantPublicKeyResponse>, Status> {
-        todo!()
+        //TODO: actually implement this
+        Ok(Response::new(ValidateTenantPublicKeyResponse {}))
     }
 
     async fn discover_machine(
