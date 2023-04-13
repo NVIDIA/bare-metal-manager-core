@@ -148,6 +148,9 @@ write_files:
     encoding: b64
     permissions: '0644'
     content: {{ forge_agent_config_b64 }}
+  - path: /var/log/forge/forge-scout.log
+    permissions: '0644'
+    content: Not Started
 runcmd:
   - [ date, -s , '@{{ seconds_since_epoch }}' ]
   - [ hwclock, --systohc ]
@@ -156,7 +159,7 @@ runcmd:
   - [ /usr/bin/systemctl, enable, --now, systemd-timesyncd@mgmt ]
   - [ /usr/bin/timedatectl, set-ntp, true ]
   - [ chmod, +x, /opt/forge/forge-scout ]
-  - [ ip, vrf, exec, mgmt, /opt/forge/forge-scout, --api={{ api_url }}, auto-detect, --uuid={{ interface_id }} ]
+  - [ 'ip vrf exec mgmt /opt/forge/forge-scout --api={{ api_url }} auto-detect --uuid={{ interface_id }} > /var/log/forge/forge-scout.log']
   - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
   - [ /usr/bin/mlxconfig, -y, -d, /dev/mst/mt*_pciconf0, s, SRIOV_EN=True, NUM_OF_VFS=16, HIDE_PORT2_PF=True ]
   - [ dpkg, -i, /opt/forge/forge-dpu_1.0-1.deb ]
