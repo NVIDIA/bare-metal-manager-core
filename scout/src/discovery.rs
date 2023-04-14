@@ -15,8 +15,12 @@ use ::rpc::forge_tls_client;
 
 use crate::CarbideClientError;
 
-pub async fn run(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientError> {
-    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+pub async fn run(
+    forge_api: &str,
+    root_ca: String,
+    machine_id: &str,
+) -> Result<(), CarbideClientError> {
+    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
         .connect(forge_api)
         .await
         .map_err(|err| CarbideClientError::GenericError(err.to_string()))?;
@@ -32,8 +36,12 @@ pub async fn run(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientE
     Ok(())
 }
 
-pub async fn completed(forge_api: &str, machine_id: &str) -> Result<(), CarbideClientError> {
-    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+pub async fn completed(
+    forge_api: &str,
+    root_ca: String,
+    machine_id: &str,
+) -> Result<(), CarbideClientError> {
+    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
         .connect(forge_api)
         .await
         .map_err(|err| CarbideClientError::GenericError(err.to_string()))?;

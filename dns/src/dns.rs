@@ -49,7 +49,7 @@ impl RequestHandler for DnsServer {
         let message = MessageResponseBuilder::from_message_request(request);
 
         //TODO: i need to figure out how to inject the root ca path into this pod.  probably the same as the other ones but for now just leave it.
-        let client = forge_tls_client::ForgeTlsClient::new(Some(self.forge_root_ca_path.clone()))
+        let client = forge_tls_client::ForgeTlsClient::new(self.forge_root_ca_path.clone())
             .connect(self.url.clone())
             .await
             .unwrap_or_else(|err| {

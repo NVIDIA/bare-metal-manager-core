@@ -10,16 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use arc_swap::ArcSwap;
 use std::{
     sync::{atomic::AtomicBool, Arc},
     thread::sleep,
     time::Duration,
 };
-use tracing::{error, trace};
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client;
+use arc_swap::ArcSwap;
+use tracing::{error, trace};
 
 /// The desired DPU configuration for a ManagedHost - as fetched from the
 /// Forge Site Controller
@@ -74,6 +74,7 @@ impl Drop for NetworkConfigFetcher {
 
 impl NetworkConfigFetcher {
     pub fn new(config: NetworkConfigFetcherConfig) -> Self {
+        let root_ca = config.root_ca.clone();
         let state = Arc::new(NetworkConfigFetcherState {
             current: ArcSwap::default(),
             config,
@@ -82,7 +83,7 @@ impl NetworkConfigFetcher {
 
         let task_state = state.clone();
         let join_handle = std::thread::spawn(|| {
-            run_network_config_fetcher(task_state);
+            run_network_config_fetcher(root_ca, task_state);
         });
 
         Self {
@@ -104,10 +105,11 @@ pub struct NetworkConfigFetcherConfig {
     pub config_fetch_interval: Duration,
     pub machine_id: String,
     pub forge_api: String,
+    pub root_ca: String,
     pub runtime: tokio::runtime::Handle,
 }
 
-fn run_network_config_fetcher(state: Arc<NetworkConfigFetcherState>) {
+fn run_network_config_fetcher(root_ca: String, state: Arc<NetworkConfigFetcherState>) {
     loop {
         if state
             .is_cancelled
@@ -125,7 +127,7 @@ fn run_network_config_fetcher(state: Arc<NetworkConfigFetcherState>) {
         match state
             .config
             .runtime
-            .block_on(async { fetch_latest_network_config(&state).await })
+            .block_on(async { fetch_latest_network_config(root_ca.clone(), &state).await })
         {
             Ok(config) => {
                 state.current.store(Arc::new(Some(config)));
@@ -143,9 +145,10 @@ fn run_network_config_fetcher(state: Arc<NetworkConfigFetcherState>) {
 }
 
 async fn fetch_latest_network_config(
+    root_ca: String,
     state: &NetworkConfigFetcherState,
 ) -> Result<NetworkConfig, eyre::Error> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(None)
+    let mut client = match forge_tls_client::ForgeTlsClient::new(root_ca)
         .connect(state.config.forge_api.clone())
         .await
     {

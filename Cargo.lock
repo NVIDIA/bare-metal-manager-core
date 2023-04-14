@@ -4359,6 +4359,7 @@ name = "rpc"
 version = "0.0.1"
 dependencies = [
  "chrono",
+ "eyre",
  "hyper",
  "hyper-rustls",
  "lazy_static",

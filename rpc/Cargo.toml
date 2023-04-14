@@ -7,6 +7,7 @@ edition.workspace = true
 
 [dependencies]
 chrono = { version = "0.4.19", features = ["serde"] }
+eyre = "0.6"
 hyper = "0.14"
 hyper-rustls = { version = "0.23", features = ["http1", "http2"] }
 lazy_static = "1.4"

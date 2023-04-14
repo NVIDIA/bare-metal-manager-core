@@ -39,7 +39,7 @@ impl Machine {
         discovery: Discovery,
         url: &str,
         vendor_class: Option<VendorClass>,
-        forge_root_ca_path: Option<String>,
+        forge_root_ca_path: String,
     ) -> Result<Self, String> {
         match forge_tls_client::ForgeTlsClient::new(forge_root_ca_path)
             .connect(url)

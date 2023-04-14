@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::io::ErrorKind;
 use std::str::FromStr;
 use std::time::SystemTime;
 
@@ -17,6 +17,13 @@ pub type ForgeClientT = ForgeClient<hyper::Client<HttpsConnector<HttpConnector>,
 //this code was copy and pasted from the implementation of the same struct in sqlx::core,
 //and is only necessary for as long as we're optionally validating TLS
 struct DummyTlsVerifier;
+
+/// Where we bake the root CA in our containers
+pub const DEFAULT_ROOT_CA: &str = "/opt/forge/forge_root.pem";
+
+pub fn default_root_ca() -> &'static str {
+    DEFAULT_ROOT_CA
+}
 
 impl ServerCertVerifier for DummyTlsVerifier {
     fn verify_server_cert(
@@ -37,20 +44,12 @@ pub struct ForgeTlsClient {
     forge_root_ca_path: String,
 }
 
-pub type DynErrorPlusSendSync = dyn Error + Send + Sync;
-
 impl ForgeTlsClient {
-    pub fn new(forge_root_ca_path: Option<String>) -> Self {
-        Self {
-            forge_root_ca_path: forge_root_ca_path
-                .unwrap_or_else(|| "/opt/forge/forge_root.pem".to_string()),
-        }
+    pub fn new(forge_root_ca_path: String) -> Self {
+        Self { forge_root_ca_path }
     }
 
-    pub async fn connect<S: AsRef<str>>(
-        &self,
-        url: S,
-    ) -> Result<ForgeClientT, Box<DynErrorPlusSendSync>> {
+    pub async fn connect<S: AsRef<str>>(&self, url: S) -> Result<ForgeClientT, eyre::Report> {
         let mut roots = RootCertStore::empty();
         let uri = Uri::from_str(url.as_ref())?;
 
@@ -65,9 +64,17 @@ impl ForgeTlsClient {
                         let (_added, _ignored) = roots
                             .add_parsable_certificates(&rustls_pemfile::certs(&mut cert_cursor)?);
                     }
-                    Err(error) => {
-                        return Err(error.into());
-                    }
+                    Err(error) => match error.kind() {
+                        ErrorKind::NotFound => {
+                            return Err(eyre::eyre!(
+                                "Root CA file not found at '{}'",
+                                self.forge_root_ca_path
+                            ));
+                        }
+                        _ => {
+                            return Err(error.into());
+                        }
+                    },
                 }
             }
         }

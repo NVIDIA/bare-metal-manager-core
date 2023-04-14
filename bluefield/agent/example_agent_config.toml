@@ -1,6 +1,7 @@
 [forge-system]
 api-server = "https://172.20.0.14:1079"
 pxe-server = "http://127.0.0.1:8080"
+root-ca = "/opt/forge/forge_root.pem"
 
 [machine]
 interface-id = "3048d658-0b13-4a5e-91cc-f47e45a031f9"

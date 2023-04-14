@@ -11,6 +11,10 @@
  */
 use std::{env, fmt::Debug, fmt::Display};
 
+use ::rpc::forge;
+use ::rpc::forge::DomainSearchQuery;
+use ::rpc::forge::InterfaceSearchQuery;
+use ::rpc::forge_tls_client;
 use clap::Parser;
 use rocket::figment::Figment;
 use rocket::{
@@ -23,11 +27,6 @@ use rocket::{
 };
 use rocket_dyn_templates::Template;
 use serde::Serialize;
-
-use ::rpc::forge;
-use ::rpc::forge::DomainSearchQuery;
-use ::rpc::forge::InterfaceSearchQuery;
-use ::rpc::forge_tls_client;
 
 use crate::artifacts::ArtifactConfig;
 
@@ -48,7 +47,7 @@ pub struct RuntimeConfig {
     api_url: String,
     pxe_url: String,
     ntp_server: String,
-    forge_root_ca_path: Option<String>,
+    forge_root_ca_path: String,
 }
 
 pub enum RPCError<'a> {
@@ -326,6 +325,7 @@ fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
         ntp_server: figment
             .extract_inner::<String>("carbide_ntp_server")
             .map_err(|_| "Could not extract ntp_server from config")?,
-        forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH").ok(),
+        forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH")
+            .unwrap_or_else(|_| rpc::forge_tls_client::DEFAULT_ROOT_CA.to_string()),
     })
 }

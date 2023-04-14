@@ -53,6 +53,12 @@ pub struct ForgeSystemConfig {
         rename = "ntp-server"
     )]
     ntp_server: Option<String>,
+    #[serde(default = "default_root_ca", rename = "root-ca")]
+    pub root_ca: String,
+}
+
+fn default_root_ca() -> String {
+    rpc::forge_tls_client::default_root_ca().to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +84,7 @@ mod tests {
         let config = "[forge-system]
 api-server = \"https://127.0.0.1:1234\"
 pxe-server = \"http://127.0.0.1:8080\"
+root-ca = \"/opt/forge/forge_root.pem\"
 
 [machine]
 interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"

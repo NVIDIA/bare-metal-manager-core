@@ -12,15 +12,14 @@
 use std::fs;
 use std::str::FromStr;
 
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client;
 use procfs::Meminfo;
 use regex::Regex;
 use rlimit::Resource;
+use scout::CarbideClientError;
 use serde::Deserialize;
 use uname::uname;
-
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client;
-use scout::CarbideClientError;
 
 use crate::deprovision::cmdrun;
 use crate::CarbideClientResult;
@@ -415,14 +414,14 @@ fn is_host() -> bool {
     true
 }
 
-pub async fn run(api: &str, machine_id: &str) -> CarbideClientResult<()> {
+pub async fn run(api: &str, root_ca: String, machine_id: &str) -> CarbideClientResult<()> {
     log::info!("full deprovision starts.");
     if !is_host() {
         // do not send API cleanup_machine_completed
         return Ok(());
     }
     let info = do_cleanup(machine_id).await?;
-    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
         .connect(api)
         .await
         .map_err(|err| CarbideClientError::GenericError(err.to_string()))?;

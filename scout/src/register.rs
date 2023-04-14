@@ -18,13 +18,14 @@ use crate::CarbideClientError;
 
 pub async fn run(
     forge_api: &str,
+    root_ca: String,
     machine_interface_id: uuid::Uuid,
 ) -> Result<String, CarbideClientError> {
     let hardware_info = enumerate_hardware()?;
     log::info!("Successfully enumerated hardware");
 
     let registration_data =
-        register_machine(forge_api, machine_interface_id, hardware_info).await?;
+        register_machine(forge_api, root_ca, machine_interface_id, hardware_info).await?;
     let machine_id = registration_data.machine_id;
     log::info!("successfully discovered machine {machine_id} for interface {machine_interface_id}");
 

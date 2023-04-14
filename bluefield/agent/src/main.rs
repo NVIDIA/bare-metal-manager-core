@@ -52,7 +52,7 @@ fn main() -> eyre::Result<()> {
         .add_directive("tower=warn".parse()?)
         .add_directive("h2=warn".parse()?);
     tracing_subscriber::registry()
-        .with(fmt::Layer::default().pretty())
+        .with(fmt::Layer::default().compact())
         .with(env_filter)
         .try_init()?;
 
@@ -81,7 +81,12 @@ fn main() -> eyre::Result<()> {
         // "run" is the normal and default command
         None | Some(AgentCommand::Run) => {
             let machine_id = register(&mut rt, &agent)?;
-            run(&mut rt, &machine_id, &agent.forge_system.api_server);
+            run(
+                &mut rt,
+                &machine_id,
+                &agent.forge_system.api_server,
+                &agent.forge_system.root_ca,
+            );
         }
 
         // already done, the cmd allows us to do only this.
@@ -174,6 +179,7 @@ fn register(rt: &mut tokio::runtime::Runtime, agent: &AgentConfig) -> Result<Str
 
     let registration_data = rt.block_on(register_machine(
         &agent.forge_system.api_server,
+        agent.forge_system.root_ca.clone(),
         interface_id,
         hardware_info,
     ))?;
@@ -185,12 +191,13 @@ fn register(rt: &mut tokio::runtime::Runtime, agent: &AgentConfig) -> Result<Str
 }
 
 // main loop when running in daemon mode
-fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str) {
+fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root_ca: &str) {
     let network_config_fetcher = network_config_fetcher::NetworkConfigFetcher::new(
         network_config_fetcher::NetworkConfigFetcherConfig {
             config_fetch_interval: NETWORK_CONFIG_FETCH_PERIOD,
             machine_id: machine_id.to_string(),
             forge_api: forge_api.to_string(),
+            root_ca: root_ca.to_string(),
             runtime: rt.handle().to_owned(),
         },
     );
@@ -233,7 +240,7 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str) {
         };
 
         let mut client = match rt
-            .block_on(forge_tls_client::ForgeTlsClient::new(None).connect(forge_api))
+            .block_on(forge_tls_client::ForgeTlsClient::new(root_ca.to_string()).connect(forge_api))
         {
             Ok(client) => client,
             Err(err) => {

@@ -70,17 +70,17 @@ async fn main() -> Result<(), eyre::Report> {
 
     match config.subcmd {
         Command::Discovery(Discovery { uuid }) | Command::AutoDetect(AutoDetect { uuid }) => {
-            let machine_id = register::run(&config.api, uuid).await?;
+            let machine_id = register::run(&config.api, config.root_ca.clone(), uuid).await?;
             let mut retry_count = 0;
             const MAX_RETRY_COUNT: u64 = 5;
             const RETRY_TIMER: u64 = 30;
 
             // State machine handler needs 1-2 cycles to update host_adminIP to leaf.
             // In case by the time, host coems up and IP is still not updated, let's wait.
-            let mut action = query_api(&config.api, &machine_id).await?;
+            let mut action = query_api(&config.api, config.root_ca.clone(), &machine_id).await?;
             while Action::Retry == action && retry_count <= MAX_RETRY_COUNT {
                 tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_TIMER)).await;
-                action = query_api(&config.api, &machine_id).await?;
+                action = query_api(&config.api, config.root_ca.clone(), &machine_id).await?;
                 retry_count += 1;
             }
 
@@ -89,11 +89,11 @@ async fn main() -> Result<(), eyre::Report> {
                     //This is temporary. All cleanup must be done when API call Reset.
                     deprovision::run_no_api();
 
-                    discovery::run(&config.api, &machine_id).await?;
-                    discovery::completed(&config.api, &machine_id).await?;
+                    discovery::run(&config.api, config.root_ca.clone(), &machine_id).await?;
+                    discovery::completed(&config.api, config.root_ca.clone(), &machine_id).await?;
                 }
                 Action::Reset => {
-                    deprovision::run(&config.api, &machine_id).await?;
+                    deprovision::run(&config.api, config.root_ca.clone(), &machine_id).await?;
                 }
                 Action::Rebuild => {
                     unimplemented!("Rebuild not written yet");
@@ -109,20 +109,24 @@ async fn main() -> Result<(), eyre::Report> {
         }
 
         Command::Deprovision(d) => {
-            let machine_id = register::run(&config.api, d.uuid).await?;
-            deprovision::run(&config.api, &machine_id).await?;
+            let machine_id = register::run(&config.api, config.root_ca.clone(), d.uuid).await?;
+            deprovision::run(&config.api, config.root_ca.clone(), &machine_id).await?;
         }
     }
     Ok(())
 }
 
 /// Ask API if we need to do anything after discovery.
-async fn query_api(forge_api: &str, machine_id: &str) -> CarbideClientResult<Action> {
+async fn query_api(
+    forge_api: &str,
+    root_ca: String,
+    machine_id: &str,
+) -> CarbideClientResult<Action> {
     let query = rpc_forge::ForgeAgentControlRequest {
         machine_id: Some(machine_id.to_string().into()),
     };
     let request = tonic::Request::new(query);
-    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
         .connect(forge_api.to_string())
         .await
         .map_err(|err| CarbideClientError::TransportError(err.to_string()))?;

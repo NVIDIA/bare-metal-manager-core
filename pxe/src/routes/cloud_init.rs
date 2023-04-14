@@ -125,7 +125,7 @@ fn generate_forge_agent_config(
         api-server = \"{api_url}\"
         pxe-server = \"{pxe_url}\"
         ntp-server = \"{ntp_server}\"
-        
+
         [machine]
         interface-id = \"{machine_interface_id}\"
         mac-address = \"{mac_address}\"
@@ -240,7 +240,7 @@ mod tests {
             api_url: "https://127.0.0.1:8001".to_string(),
             pxe_url: "http://127.0.0.1:8080".to_string(),
             ntp_server: "127.0.0.2".to_string(),
-            forge_root_ca_path: None,
+            forge_root_ca_path: rpc::forge_tls_client::DEFAULT_ROOT_CA.to_string(),
         };
 
         let interface_id: uuid::Uuid = interface_id.parse().unwrap();

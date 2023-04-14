@@ -36,6 +36,7 @@ pub struct RegistrationData {
 /// Returns information about the machine that is known by the API server
 pub async fn register_machine(
     forge_api: &str,
+    root_ca: String,
     machine_interface_id: uuid::Uuid,
     hardware_info: rpc_discovery::DiscoveryInfo,
 ) -> Result<RegistrationData, RegistrationError> {
@@ -45,7 +46,7 @@ pub async fn register_machine(
             hardware_info,
         )),
     };
-    let mut client = forge_tls_client::ForgeTlsClient::new(None)
+    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
         .connect(forge_api.to_string())
         .await
         .map_err(|err| RegistrationError::TransportError(err.to_string()))?;

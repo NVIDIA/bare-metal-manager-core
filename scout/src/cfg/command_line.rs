@@ -26,6 +26,13 @@ pub(crate) struct Options {
     )]
     pub api: String,
 
+    #[clap(
+        long,
+        help = "Full path of root CA in PEM format",
+        default_value_t = rpc::forge_tls_client::DEFAULT_ROOT_CA.to_string(),
+    )]
+    pub root_ca: String,
+
     #[clap(subcommand)]
     pub subcmd: Command,
 }

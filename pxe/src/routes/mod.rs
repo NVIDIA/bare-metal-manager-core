@@ -21,7 +21,7 @@ impl RpcContext {
     async fn get_pxe_instructions(
         machine_id: rpc::MachineId,
         url: String,
-        forge_root_ca_path: Option<String>,
+        forge_root_ca_path: String,
     ) -> Result<String, String> {
         let mut client = forge_tls_client::ForgeTlsClient::new(forge_root_ca_path)
             .connect(url)
@@ -43,7 +43,7 @@ impl RpcContext {
     async fn get_instance(
         machine_id: rpc::MachineId,
         url: String,
-        forge_root_ca_path: Option<String>,
+        forge_root_ca_path: String,
     ) -> Result<rpc::Instance, String> {
         match forge_tls_client::ForgeTlsClient::new(forge_root_ca_path)
             .connect(url)
