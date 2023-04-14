@@ -44,6 +44,10 @@ pub enum AgentCommand {
 pub enum WriteTarget {
     #[clap(about = "Write frr.conf")]
     Frr(FrrOptions),
+    #[clap(about = "Write /etc/network/interfaces")]
+    Interfaces(InterfacesOptions),
+    #[clap(about = "Write /etc/supervisor/conf.d/default-isc-dhcp-relay.conf")]
+    Dhcp(DhcpOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -58,6 +62,31 @@ pub struct FrrOptions {
     pub import_default_route: bool,
     #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]
     pub vlan: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct InterfacesOptions {
+    #[clap(long, help = "Full path of interfaces file")]
+    pub path: String,
+    #[clap(long)]
+    pub loopback_ip: Ipv4Addr,
+    #[clap(long, help = "True for a HostAdminRequest, false for PortRequest")]
+    pub is_admin: bool,
+    #[clap(
+        long,
+        help = "Format is JSON see PortConfig in interfaces.rs. Repeats."
+    )]
+    pub port: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct DhcpOptions {
+    #[clap(long, help = "Full path of dhcp relay config file")]
+    pub path: String,
+    #[clap(long, help = "vlan numeric id. Repeats")]
+    pub vlan: Vec<u32>,
+    #[clap(long, help = "DHCP server IP address. Repets")]
+    pub dhcp: Vec<Ipv4Addr>,
 }
 
 impl Options {

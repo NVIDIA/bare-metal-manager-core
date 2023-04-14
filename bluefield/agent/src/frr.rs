@@ -14,6 +14,7 @@ use std::net::Ipv4Addr;
 
 use gtmpl_derive::Gtmpl;
 
+const _PATH: &str = "/etc/frr/frr.conf";
 const TMPL_FULL: &str = include_str!("../templates/frr.conf");
 
 const _TMPL_EMPTY: &str = "
@@ -92,7 +93,7 @@ mod tests {
     use super::{build, FrrConfig};
 
     #[test]
-    fn test_full() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_write_frr() -> Result<(), Box<dyn std::error::Error>> {
         let params = FrrConfig {
             asn: 65535,
             loopback_ip: [192, 168, 0, 1].into(),

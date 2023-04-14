@@ -27,11 +27,14 @@ use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 use crate::{
     command_line::{AgentCommand, WriteTarget},
     frr::FrrVlanConfig,
+    interfaces::PortConfig,
 };
 
 mod command_line;
+mod dhcp;
 mod frr;
 mod health;
+mod interfaces;
 mod network_config_fetcher;
 
 // Report HBN health every this long
@@ -121,6 +124,37 @@ fn main() -> eyre::Result<()> {
                     loopback_ip: opts.loopback_ip,
                     is_import_default_route: opts.import_default_route,
                     access_vlans,
+                })?;
+                std::fs::write(&opts.path, contents)?;
+                println!("Wrote {}", opts.path);
+            }
+
+            // Example:
+            // forge-dpu-agent
+            //    --config-path example_agent_config.toml
+            //    write interfaces
+            //    --path /home/graham/Temp/if
+            //    --loopback-ip 1.2.3.4
+            //    --port '{"host_interface": "pf0hpf", "vlan": 1, "vni": 3042, "gw_ip": "6.5.4.3", "gw_mask": "255.255.255.0", "is_isolated": false}'`
+            WriteTarget::Interfaces(opts) => {
+                let mut ports = Vec::with_capacity(opts.port.len());
+                for port_json in opts.port {
+                    let c: PortConfig = serde_json::from_str(&port_json)?;
+                    ports.push(c);
+                }
+                let contents = interfaces::build(interfaces::InterfacesConfig {
+                    loopback_ip: opts.loopback_ip,
+                    is_admin: opts.is_admin,
+                    ports,
+                })?;
+                std::fs::write(&opts.path, contents)?;
+                println!("Wrote {}", opts.path);
+            }
+
+            WriteTarget::Dhcp(opts) => {
+                let contents = dhcp::build(dhcp::DhcpConfig {
+                    vlan_ids: opts.vlan,
+                    dhcp_servers: opts.dhcp,
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);
