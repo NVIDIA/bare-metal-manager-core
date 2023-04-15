@@ -40,9 +40,9 @@ hdrpkg=linux-headers-generic
 cd $tmpdir
 #chipsecsrcfile=$softdir/chipsec.tar.gz
 chipsecsrcfile=$tmpdir/distr_chipsec.tar.gz
-wget -O ${chipsecsrcfile} https://github.com/chipsec/chipsec/archive/refs/tags/1.9.0.tar.gz
+wget -O ${chipsecsrcfile} https://github.com/chipsec/chipsec/archive/refs/tags/1.10.4.tar.gz
 
-shahash="098c292ee6a791508d3891d787d18111b2bda2cfcc34055fccdca794ec1656c8"
+shahash="60f3ed086568a22efecc0c43b2d4fecd7932734458fdd2917e2e4a479ef56895"
 echo -n "${shahash} ${chipsecsrcfile}" | sha256sum -c - --status
 
 if [ "$?" != "0" ]; then
@@ -74,5 +74,6 @@ EOF
 chmod +x /usr/sbin/chipsec_load_module.sh
 
 rm -f $chipsecsrcfile
-apt purge -y $hdrpkg nasm g++-10 gcc-10 gcc g++ gcc-9
+apt purge -y $hdrpkg nasm g++-10 gcc-10 gcc g++ gcc-9 python3-dev
 rm -r -f $tmpdir
+
