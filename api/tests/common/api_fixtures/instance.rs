@@ -56,7 +56,9 @@ pub async fn create_instance(
         &handler,
         2,
         &mut txn,
-        ManagedHostState::Assigned(carbide::model::machine::InstanceState::Ready),
+        ManagedHostState::Assigned {
+            instance_state: carbide::model::machine::InstanceState::Ready,
+        },
     )
     .await;
     txn.commit().await.unwrap();
@@ -85,7 +87,9 @@ pub async fn delete_instance(
         &handler,
         3,
         &mut txn,
-        ManagedHostState::WaitingForCleanup(CleanupState::HostCleanup),
+        ManagedHostState::WaitingForCleanup {
+            cleanup_state: CleanupState::HostCleanup,
+        },
     )
     .await;
     txn.commit().await.unwrap();
@@ -111,7 +115,9 @@ pub async fn delete_instance(
         &handler,
         3,
         &mut txn,
-        ManagedHostState::HostNotReady(MachineState::Discovered),
+        ManagedHostState::HostNotReady {
+            machine_state: MachineState::Discovered,
+        },
     )
     .await;
     txn.commit().await.unwrap();

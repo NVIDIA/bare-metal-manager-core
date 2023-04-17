@@ -96,7 +96,9 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
         &handler,
         3,
         &mut txn,
-        ManagedHostState::HostNotReady(carbide::model::machine::MachineState::Init),
+        ManagedHostState::HostNotReady {
+            machine_state: carbide::model::machine::MachineState::Init,
+        },
     )
     .await;
     txn.commit().await.unwrap();

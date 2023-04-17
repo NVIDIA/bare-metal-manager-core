@@ -123,7 +123,9 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
         &handler,
         2,
         &mut txn,
-        ManagedHostState::HostNotReady(carbide::model::machine::MachineState::WaitingForDiscovery),
+        ManagedHostState::HostNotReady {
+            machine_state: carbide::model::machine::MachineState::WaitingForDiscovery,
+        },
     )
     .await;
     txn.commit().await.unwrap();
@@ -148,7 +150,9 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
         &handler,
         1,
         &mut txn,
-        ManagedHostState::HostNotReady(carbide::model::machine::MachineState::Discovered),
+        ManagedHostState::HostNotReady {
+            machine_state: carbide::model::machine::MachineState::Discovered,
+        },
     )
     .await;
     txn.commit().await.unwrap();

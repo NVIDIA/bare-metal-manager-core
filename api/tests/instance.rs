@@ -216,7 +216,9 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
             .unwrap()
             .unwrap()
             .current_state(),
-        ManagedHostState::Assigned(InstanceState::Ready)
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready
+        }
     ));
     txn.commit().await.unwrap();
 

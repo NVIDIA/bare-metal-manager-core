@@ -790,7 +790,10 @@ where
             Some(m) => m,
         };
 
-        if let ManagedHostState::Assigned(InstanceState::Ready) = machine.current_state() {
+        if let ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        } = machine.current_state()
+        {
             if instance.deleted.is_some() {
                 return Err(Status::invalid_argument(format!(
                     "Instance {} is already marked for deletion.",
@@ -2003,7 +2006,9 @@ where
         let state = dpu_machine.current_state();
         let action = if is_dpu {
             match state {
-                ManagedHostState::DPUNotReady(MachineState::Init) => Action::Discovery,
+                ManagedHostState::DPUNotReady {
+                    machine_state: MachineState::Init,
+                } => Action::Discovery,
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
                     log::info!(
@@ -2015,11 +2020,13 @@ where
             }
         } else {
             match state {
-                ManagedHostState::HostNotReady(MachineState::Init) => Action::Retry,
-                ManagedHostState::HostNotReady(MachineState::WaitingForDiscovery) => {
-                    Action::Discovery
-                }
-                ManagedHostState::WaitingForCleanup(..) => Action::Reset,
+                ManagedHostState::HostNotReady {
+                    machine_state: MachineState::Init,
+                } => Action::Retry,
+                ManagedHostState::HostNotReady {
+                    machine_state: MachineState::WaitingForDiscovery,
+                } => Action::Discovery,
+                ManagedHostState::WaitingForCleanup { .. } => Action::Reset,
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
                     log::info!(

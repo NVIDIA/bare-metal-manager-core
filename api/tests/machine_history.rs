@@ -105,11 +105,11 @@ fn text_history(history: &Vec<MachineStateHistory>) -> Vec<String> {
         .map(|entry| {
             match entry.state {
                 ManagedHostState::Created => "created",
-                ManagedHostState::DPUNotReady(_) => "dpunotready",
-                ManagedHostState::HostNotReady(_) => "hostnotready",
+                ManagedHostState::DPUNotReady { .. } => "dpunotready",
+                ManagedHostState::HostNotReady { .. } => "hostnotready",
                 ManagedHostState::Ready => "ready",
-                ManagedHostState::Assigned(_) => "assigned",
-                ManagedHostState::WaitingForCleanup(_) => "waitingforcleanup",
+                ManagedHostState::Assigned { .. } => "assigned",
+                ManagedHostState::WaitingForCleanup { .. } => "waitingforcleanup",
                 ManagedHostState::ForceDeletion => "forcedeletion",
             }
             .to_string()

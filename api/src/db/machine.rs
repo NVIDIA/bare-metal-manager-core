@@ -301,16 +301,21 @@ impl Machine {
             None => {
                 // Choose appropriate state based on machine type dpu or host.
                 let state = if is_dpu {
-                    ManagedHostState::DPUNotReady(MachineState::Init)
+                    ManagedHostState::DPUNotReady {
+                        machine_state: MachineState::Init,
+                    }
                 } else {
                     // At this time, this should be same state of DPU. Even if not, it will be
                     // synced in next state change.
                     ManagedHostState::Created
                 };
+                let state_version = ConfigVersion::initial();
 
-                let query = "INSERT INTO machines(id) VALUES($1) RETURNING id";
+                let query = "INSERT INTO machines(id, controller_state_version, controller_state) VALUES($1, $2, $3) RETURNING id";
                 let row: (DbMachineId,) = sqlx::query_as(query)
                     .bind(&stable_machine_id_string)
+                    .bind(state_version.to_version_string())
+                    .bind(sqlx::types::Json(&state))
                     .fetch_one(&mut *txn)
                     .await
                     .map_err(|e| {

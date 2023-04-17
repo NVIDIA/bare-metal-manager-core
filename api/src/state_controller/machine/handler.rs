@@ -68,13 +68,13 @@ impl StateHandler for MachineStateHandler {
         let managed_state = &state.managed_state;
 
         match &managed_state {
-            ManagedHostState::DPUNotReady(_) => {
+            ManagedHostState::DPUNotReady { .. } => {
                 self.dpu_handler
                     .handle_object_state(machine_id, state, controller_state, txn, ctx)
                     .await?;
             }
 
-            ManagedHostState::HostNotReady(_) => {
+            ManagedHostState::HostNotReady { .. } => {
                 self.host_handler
                     .handle_object_state(machine_id, state, controller_state, txn, ctx)
                     .await?;
@@ -93,19 +93,20 @@ impl StateHandler for MachineStateHandler {
                         &ctx.services.vpc_api,
                     )
                     .await?;
-                    *controller_state.modify() =
-                        ManagedHostState::Assigned(InstanceState::WaitingForNetworkConfig);
+                    *controller_state.modify() = ManagedHostState::Assigned {
+                        instance_state: InstanceState::WaitingForNetworkConfig,
+                    };
                 }
             }
 
-            ManagedHostState::Assigned(_instance_state) => {
+            ManagedHostState::Assigned { instance_state: _ } => {
                 // Process changes needed for instance.
                 self.instance_handler
                     .handle_object_state(machine_id, state, controller_state, txn, ctx)
                     .await?;
             }
 
-            ManagedHostState::WaitingForCleanup(cleanup_state) => {
+            ManagedHostState::WaitingForCleanup { cleanup_state } => {
                 let Some(ref host_snapshot) = state.host_snapshot else {
                     return Ok(());
                 };
@@ -124,8 +125,9 @@ impl StateHandler for MachineStateHandler {
                         // Reboot host
                         restart_machine(host_snapshot, ctx).await?;
 
-                        *controller_state.modify() =
-                            ManagedHostState::HostNotReady(MachineState::Discovered);
+                        *controller_state.modify() = ManagedHostState::HostNotReady {
+                            machine_state: MachineState::Discovered,
+                        };
                     }
                     CleanupState::DisableBIOSBMCLockdown => {
                         log::error!("DisableBIOSBMCLockdown state is not implemented. Machine {} stuck in unimplemented state.", machine_id);
@@ -167,7 +169,9 @@ impl StateHandler for DpuMachineStateHandler {
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         match &state.managed_state {
-            ManagedHostState::DPUNotReady(MachineState::Init) => {
+            ManagedHostState::DPUNotReady {
+                machine_state: MachineState::Init,
+            } => {
                 // We are waiting for the `DiscoveryCompleted` RPC call to update the
                 // `last_discovery_time` timestamp.
                 // This indicates that all forge-scout actions have succeeded.
@@ -180,10 +184,13 @@ impl StateHandler for DpuMachineStateHandler {
                     return Ok(());
                 }
 
-                *controller_state.modify() =
-                    ManagedHostState::DPUNotReady(MachineState::WaitingForLeafCreation);
+                *controller_state.modify() = ManagedHostState::DPUNotReady {
+                    machine_state: MachineState::WaitingForLeafCreation,
+                };
             }
-            ManagedHostState::DPUNotReady(MachineState::WaitingForLeafCreation) => {
+            ManagedHostState::DPUNotReady {
+                machine_state: MachineState::WaitingForLeafCreation,
+            } => {
                 // Create leaf and wait for it to get loopback ip.
                 if Poll::Pending
                     == create_leaf_and_wait_for_loopback_ip(
@@ -196,7 +203,9 @@ impl StateHandler for DpuMachineStateHandler {
                     return Ok(());
                 }
 
-                *controller_state.modify() = ManagedHostState::HostNotReady(MachineState::Init);
+                *controller_state.modify() = ManagedHostState::HostNotReady {
+                    machine_state: MachineState::Init,
+                };
             }
             state => {
                 log::warn!("Unhandled State {:?} for DPU machine {}", state, machine_id);
@@ -286,7 +295,10 @@ impl StateHandler for HostMachineStateHandler {
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let managed_state = &state.managed_state;
-        if let ManagedHostState::HostNotReady(MachineState::Init) = &managed_state {
+        if let ManagedHostState::HostNotReady {
+            machine_state: MachineState::Init,
+        } = &managed_state
+        {
             // At this stage, no host machine is created. Only source of truth is
             // machine_interface.
             // If IP allocated => DHCP done and host is powered-on.
@@ -323,14 +335,15 @@ impl StateHandler for HostMachineStateHandler {
             {
                 return Ok(());
             }
-            *controller_state.modify() =
-                ManagedHostState::HostNotReady(MachineState::WaitingForDiscovery);
+            *controller_state.modify() = ManagedHostState::HostNotReady {
+                machine_state: MachineState::WaitingForDiscovery,
+            };
             return Ok(());
         }
 
         let Some(ref host_snapshot) = state.host_snapshot else {
             // But in any other state, except WaitingForDiscovery, host snapshot is mandatory. Raise Error.
-            if let ManagedHostState::HostNotReady(MachineState::WaitingForDiscovery) = &managed_state {
+            if let ManagedHostState::HostNotReady { machine_state: MachineState::WaitingForDiscovery} = &managed_state {
                 return Ok(());
             }
             return Err(StateHandlerError::HostSnapshotMissing(
@@ -339,7 +352,7 @@ impl StateHandler for HostMachineStateHandler {
             ));
         };
 
-        if let ManagedHostState::HostNotReady(machine_state) = &managed_state {
+        if let ManagedHostState::HostNotReady { machine_state } = &managed_state {
             match machine_state {
                 MachineState::Init => {}
                 MachineState::WaitingForLeafCreation => {
@@ -365,8 +378,9 @@ impl StateHandler for HostMachineStateHandler {
                     .await
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
-                    *controller_state.modify() =
-                        ManagedHostState::HostNotReady(MachineState::Discovered);
+                    *controller_state.modify() = ManagedHostState::HostNotReady {
+                        machine_state: MachineState::Discovered,
+                    };
                 }
 
                 MachineState::Discovered => {
@@ -482,7 +496,7 @@ impl StateHandler for InstanceStateHandler {
 
         let state = &state.managed_state;
 
-        if let ManagedHostState::Assigned(instance_state) = state {
+        if let ManagedHostState::Assigned { instance_state } = state {
             match instance_state {
                 InstanceState::Init => {
                     // we should not be here. This state to be used if state machine has not
@@ -519,7 +533,9 @@ impl StateHandler for InstanceStateHandler {
                     // Instance is ready.
                     // We can not determine if machine is rebooted successfully or not. Just leave
                     // it like this and declare Instance Ready.
-                    *controller_state.modify() = ManagedHostState::Assigned(InstanceState::Ready);
+                    *controller_state.modify() = ManagedHostState::Assigned {
+                        instance_state: InstanceState::Ready,
+                    };
                 }
                 InstanceState::Ready => {
                     // Machine is up after reboot. Hurrey. Instance is up.
@@ -533,8 +549,9 @@ impl StateHandler for InstanceStateHandler {
                             .try_delete_managed_resources(instance.instance_id)
                             .await?;
 
-                        *controller_state.modify() =
-                            ManagedHostState::Assigned(InstanceState::DeletingManagedResource);
+                        *controller_state.modify() = ManagedHostState::Assigned {
+                            instance_state: InstanceState::DeletingManagedResource,
+                        };
                     }
                 }
                 InstanceState::DeletingManagedResource => {
@@ -545,8 +562,9 @@ impl StateHandler for InstanceStateHandler {
                         .try_delete_managed_resources(instance.instance_id)
                         .await?
                     {
-                        *controller_state.modify() =
-                            ManagedHostState::Assigned(InstanceState::WaitingForNetworkReconfig);
+                        *controller_state.modify() = ManagedHostState::Assigned {
+                            instance_state: InstanceState::WaitingForNetworkReconfig,
+                        };
                     }
                 }
                 InstanceState::WaitingForNetworkReconfig => {
@@ -572,8 +590,9 @@ impl StateHandler for InstanceStateHandler {
                     // Reboot host
                     restart_machine(host_snapshot, ctx).await?;
 
-                    *controller_state.modify() =
-                        ManagedHostState::WaitingForCleanup(CleanupState::HostCleanup);
+                    *controller_state.modify() = ManagedHostState::WaitingForCleanup {
+                        cleanup_state: CleanupState::HostCleanup,
+                    };
                 }
             }
         }

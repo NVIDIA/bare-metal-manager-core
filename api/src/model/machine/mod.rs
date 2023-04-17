@@ -70,15 +70,15 @@ pub struct CurrentMachineState {
 /// used to derive state for DPU and Host both.
 pub enum ManagedHostState {
     /// DPU is not yet ready.
-    DPUNotReady(MachineState),
+    DPUNotReady { machine_state: MachineState },
     /// DPU is ready, Host is not yet Ready.
-    HostNotReady(MachineState),
+    HostNotReady { machine_state: MachineState },
     /// Host is Ready for instance creation.
     Ready,
     /// Host is assigned to an Instance.
-    Assigned(InstanceState),
+    Assigned { instance_state: InstanceState },
     /// Some cleanup is going on.
-    WaitingForCleanup(CleanupState),
+    WaitingForCleanup { cleanup_state: CleanupState },
     /// Intermediate state for machine to be created.
     /// This state is not processed anywhere. Correct satte is updated immediately.
     Created,
@@ -88,6 +88,7 @@ pub enum ManagedHostState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
 pub enum MachineState {
     Init,
     WaitingForLeafCreation,
@@ -96,6 +97,7 @@ pub enum MachineState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
 pub enum CleanupState {
     HostCleanup,
     DisableBIOSBMCLockdown,
@@ -103,6 +105,7 @@ pub enum CleanupState {
 
 /// Possible Instance state-machine implementation
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
 pub enum InstanceState {
     Init, // Instance is created but not picked by state machine yet.
     WaitingForNetworkConfig,
@@ -132,11 +135,15 @@ impl Display for CleanupState {
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ManagedHostState::DPUNotReady(s) => write!(f, "DPU/{}", s),
-            ManagedHostState::HostNotReady(s) => write!(f, "Host/{}", s),
+            ManagedHostState::DPUNotReady { machine_state } => write!(f, "DPU/{}", machine_state),
+            ManagedHostState::HostNotReady { machine_state } => write!(f, "Host/{}", machine_state),
             ManagedHostState::Ready => write!(f, "Ready"),
-            ManagedHostState::Assigned(s) => write!(f, "Assigned/{}", s),
-            ManagedHostState::WaitingForCleanup(s) => write!(f, "WaitingForCleanup/{}", s),
+            ManagedHostState::Assigned { instance_state } => {
+                write!(f, "Assigned/{}", instance_state)
+            }
+            ManagedHostState::WaitingForCleanup { cleanup_state } => {
+                write!(f, "WaitingForCleanup/{}", cleanup_state)
+            }
             ManagedHostState::ForceDeletion => write!(f, "ForceDeletion"),
             ManagedHostState::Created => write!(f, "Created"),
         }

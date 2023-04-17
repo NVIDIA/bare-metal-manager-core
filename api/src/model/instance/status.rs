@@ -64,7 +64,7 @@ impl InstanceStatus {
 
         let tenant_state = match machine_state {
             ManagedHostState::Ready => tenant::TenantState::Provisioning,
-            ManagedHostState::Assigned(instance_state) => match instance_state {
+            ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Init | InstanceState::WaitingForNetworkConfig => {
                     tenant::TenantState::Provisioning
                 }
