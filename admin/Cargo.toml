@@ -21,7 +21,7 @@ serde_json = "1"
 thiserror = "1"
 tokio = { workspace = true }
 toml = "0.7.3"
-tonic = "0.8"
+tonic = { workspace = true }
 uuid = "1.0"
 
 # local crate dependencies
