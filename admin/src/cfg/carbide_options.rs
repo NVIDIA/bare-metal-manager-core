@@ -104,6 +104,8 @@ pub enum RedfishCommand {
     Off,
     #[clap(about = "Power on a machine")]
     On,
+    #[clap(about = "List PCIe devices")]
+    PcieDevices,
     #[clap(about = "List pending operations")]
     Pending,
     #[clap(about = "Force restart")]

@@ -3,6 +3,7 @@ rustflags = ["-D", "warnings"]
 
 [registries]
 sw-ngc-forge-cargo-local = { index = "https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git" }
+cratesio = { index = "https://github.com/rust-lang/crates.io-index" }
 
 # This linker seems faster than default, but not everyone is using it yet
 #[target.x86_64-unknown-linux-gnu]

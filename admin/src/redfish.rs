@@ -12,6 +12,7 @@
 
 use color_eyre::eyre::eyre;
 use libredfish::{Boot, EnabledDisabled, SystemPowerControl};
+use prettytable::{row, Table};
 
 use super::cfg::carbide_options::RedfishCommand;
 use crate::cfg::carbide_options::RedfishAction;
@@ -68,6 +69,32 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             }
             On => {
                 redfish.power(SystemPowerControl::On)?;
+            }
+            PcieDevices => {
+                let mut table = Table::new();
+                table.set_titles(row![
+                    "ID",
+                    "Manufacturer",
+                    "Name",
+                    "Firmware version",
+                    "Part",
+                    "Serial",
+                    "Status",
+                ]);
+                for dev in redfish.pcie_devices()? {
+                    let status = dev.status.unwrap();
+                    table.add_row(row![
+                        dev.id.unwrap_or_default(),
+                        dev.manufacturer.unwrap(),
+                        dev.name.unwrap_or_default(),
+                        dev.firmware_version.unwrap_or_default(),
+                        dev.part_number.unwrap_or_default(),
+                        dev.serial_number.unwrap_or_default(),
+                        format!("{} {}", status.health, status.state),
+                    ]);
+                }
+                table.set_format(*prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+                table.printstd();
             }
             Pending => {
                 let pending = redfish.pending()?;

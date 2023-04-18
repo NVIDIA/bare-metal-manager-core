@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 color-eyre = "*"
-libredfish = { version = "0.6.0", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { version = "0.7.0", registry = "sw-ngc-forge-cargo-local" }
 log = "*"
 pretty_env_logger = "*"
 prettytable-rs = "^0.10"

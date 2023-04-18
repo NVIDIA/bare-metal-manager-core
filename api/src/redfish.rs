@@ -163,6 +163,10 @@ impl Redfish for RedfishSimClient {
     fn pending(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
         todo!()
     }
+
+    fn pcie_devices(&self) -> Result<Vec<libredfish::PCIeDevice>, RedfishError> {
+        todo!()
+    }
 }
 
 #[async_trait]
