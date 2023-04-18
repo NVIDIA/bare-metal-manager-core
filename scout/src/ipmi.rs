@@ -16,7 +16,8 @@ use std::process::Command;
 use std::time::Instant;
 
 use log::{debug, error};
-use rand::Rng;
+use rand::seq::SliceRandom;
+use rand::{thread_rng, Rng};
 use regex::Regex;
 use tokio::time::{sleep, Duration};
 use uname::uname;
@@ -288,7 +289,7 @@ fn generate_password() -> String {
 
     let mut rng = rand::thread_rng();
 
-    let password: String = (0..PASSWORD_LEN)
+    let mut password: Vec<char> = (0..PASSWORD_LEN)
         .map(|_| {
             let chid = rng.gen_range(0..CHARSET.len());
             let idx = rng.gen_range(0..CHARSET[chid].len());
@@ -296,7 +297,17 @@ fn generate_password() -> String {
         })
         .collect();
 
-    password
+    // Enforce 1 Uppercase, 1 lowercase, 1 symbol and 1 numeric value rule.
+    let mut positions_to_overlap = (0..PASSWORD_LEN).collect::<Vec<_>>();
+    positions_to_overlap.shuffle(&mut thread_rng());
+    let positions_to_overlap = positions_to_overlap.into_iter().take(CHARSET.len());
+
+    for (index, pos) in positions_to_overlap.enumerate() {
+        let char_index = rng.gen_range(0..CHARSET[index].len());
+        password[pos] = CHARSET[index][char_index] as char;
+    }
+
+    password.into_iter().collect()
 }
 
 fn set_ipmi_password(id: &String) -> CarbideClientResult<String> {
@@ -524,5 +535,32 @@ mod tests {
             fetch_ipmi_users_and_free_ids(Some("test/test_user_list_2.csv")).unwrap();
         assert!(free_users.iter().any(|user| user.id.as_str() == "5"));
         assert!(!free_users.iter().any(|user| user.id.as_str() == "3"));
+    }
+
+    #[tokio::test]
+    async fn test_generate_password() {
+        const UPPERCHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const LOWERCHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
+        const NUMCHARS: &[u8] = b"0123456789";
+        const EXTRACHARS: &[u8] = b"^%$@!~_";
+        const CHARSET: [&[u8]; 4] = [UPPERCHARS, LOWERCHARS, NUMCHARS, EXTRACHARS];
+        for _ in 0..500 {
+            let password = generate_password();
+            for charset in CHARSET {
+                let mut found = false;
+                for ch in charset {
+                    if password.contains(*ch as char) {
+                        found = true;
+                        break;
+                    }
+                }
+
+                assert!(
+                    found,
+                    "Charset {:?} is missing in password: {}",
+                    charset, password
+                );
+            }
+        }
     }
 }
