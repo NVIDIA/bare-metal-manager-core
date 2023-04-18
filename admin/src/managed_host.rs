@@ -12,8 +12,8 @@
 
 use ::rpc::forge::{MachineInterface, MachineType};
 use ::rpc::Machine;
-use log::warn;
 use prettytable::{row, Table};
+use tracing::warn;
 
 use super::{rpc, CarbideCliResult};
 use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};

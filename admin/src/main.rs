@@ -22,9 +22,9 @@ use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, NetworkSegment,
     OutputFormat, ResourcePool,
 };
-use log::LevelFilter;
 use prettytable::{row, Table};
 use serde::Deserialize;
+use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 
 mod cfg;
 mod domain;
@@ -188,16 +188,28 @@ async fn main() -> color_eyre::Result<()> {
     let config = CarbideOptions::load();
     let file_config = get_config_from_file();
 
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(match config.debug {
-            0 => LevelFilter::Info,
-            1 => {
-                // command line overrides config file
-                LevelFilter::Debug
+    // Log level is set from, in order of preference:
+    // 1. `--debug N` on cmd line
+    // 2. RUST_LOG environment variable
+    // 3. Level::Info
+    let mut env_filter = EnvFilter::from_default_env()
+        .add_directive("tower=warn".parse()?)
+        .add_directive("rustls=warn".parse()?)
+        .add_directive("h2=warn".parse()?);
+    if config.debug != 0 || env::var("RUST_LOG").is_err() {
+        env_filter = env_filter.add_directive(
+            match config.debug {
+                0 => LevelFilter::INFO,
+                1 => LevelFilter::DEBUG,
+                _ => LevelFilter::TRACE,
             }
-            _ => LevelFilter::Trace,
-        })
-        .init();
+            .into(),
+        );
+    }
+    tracing_subscriber::registry()
+        .with(fmt::Layer::default().compact())
+        .with(env_filter)
+        .try_init()?;
 
     env::set_var("RUST_BACKTRACE", "1");
     let carbide_api_url = get_carbide_api_url(config.carbide_api, file_config.as_ref());

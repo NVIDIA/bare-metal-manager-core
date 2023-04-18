@@ -13,6 +13,7 @@ use std::fs::read_to_string;
 
 use ::rpc::forge as forgerpc;
 use serde::Deserialize;
+use tracing::info;
 
 use super::CarbideCliResult;
 use crate::{rpc, Config};
@@ -32,7 +33,7 @@ pub async fn define_all_from(filename: &str, api_config: Config) -> CarbideCliRe
             ranges: d.ranges.into_iter().map(|r| r.into()).collect(),
         };
         let _ = rpc::define_resource_pool(rpc_req, api_config.clone()).await?;
-        log::info!("Pool {name} populated.");
+        info!("Pool {name} populated.");
     }
     Ok(())
 }
