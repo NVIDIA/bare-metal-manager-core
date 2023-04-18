@@ -5,21 +5,33 @@ use ::rpc::forge::{
 };
 use forge_credentials::{CredentialKey, CredentialProvider};
 
-use crate::{CarbideError, CarbideResult};
+use crate::{
+    model::{
+        machine::machine_id::{try_parse_machine_id, MachineId},
+        RpcDataConversionError,
+    },
+    CarbideError, CarbideResult,
+};
 
 pub struct UpdateCredentials {
-    machine_id: ::rpc::MachineId,
-    credentials: Vec<Credentials>,
+    pub machine_id: MachineId,
+    pub credentials: Vec<Credentials>,
 }
 
 impl TryFrom<MachineCredentialsUpdateRequest> for UpdateCredentials {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
-    fn try_from(user_credentials: MachineCredentialsUpdateRequest) -> CarbideResult<Self> {
+    fn try_from(
+        user_credentials: MachineCredentialsUpdateRequest,
+    ) -> Result<Self, RpcDataConversionError> {
+        let machine_id = try_parse_machine_id(
+            &user_credentials
+                .machine_id
+                .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?,
+        )?;
+
         Ok(Self {
-            machine_id: user_credentials.machine_id.ok_or_else(|| {
-                CarbideError::GenericError("missing or invalid machine_id".to_string())
-            })?,
+            machine_id,
             credentials: user_credentials.credentials,
         })
     }

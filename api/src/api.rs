@@ -12,6 +12,7 @@
 
 use std::convert::TryFrom;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -53,6 +54,7 @@ use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::{InstanceState, ManagedHostState};
+use crate::model::RpcDataConversionError;
 use crate::resource_pool::{DbResourcePool, ResourcePool, ResourcePoolError};
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 use crate::{
@@ -633,6 +635,7 @@ where
         log_request_data(&request);
 
         let request = InstanceAllocationRequest::try_from(request.into_inner())?;
+        log_machine_id(&request.machine_id);
         let instance_snapshot = allocate_instance(request, &self.database_connection).await?;
 
         Ok(Response::new(
@@ -708,6 +711,9 @@ where
             self.authorizer
                 .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
 
+        let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
+        log_machine_id(&machine_id);
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -716,8 +722,6 @@ where
                 e,
             ))
         })?;
-
-        let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
 
         let Some(snapshot) = DbSnapshotLoader::default()
             .load_machine_snapshot_for_host(&mut txn, &machine_id)
@@ -771,6 +775,8 @@ where
                     delete_instance.instance_id
                 )));
         };
+
+        log_machine_id(&instance.machine_id);
 
         // Change state to Decommissioned
         let machine = match Machine::find_one(
@@ -878,6 +884,7 @@ where
                 return Err(Status::not_found("Missing machine id"));
             }
         };
+        log_machine_id(&machine_id);
 
         let loader = DbSnapshotLoader::default();
         let mut txn = self.database_connection.begin().await.map_err(|e| {
@@ -917,6 +924,7 @@ where
                 return Err(Status::not_found("Missing machine id"));
             }
         };
+        log_machine_id(&machine_id);
 
         let hs = request
             .health
@@ -1010,6 +1018,7 @@ where
         })?;
 
         let machine_power_request = MachineBmcRequest::try_from(request.into_inner())?;
+        log_machine_id(&machine_power_request.machine_id);
 
         let instance = Instance::find_by_machine_id(&mut txn, &machine_power_request.machine_id)
             .await
@@ -1143,6 +1152,9 @@ where
         // Generate a stable Machine ID based on the hardware information
         // TODO: This should become an error if not enough information is available
         let stable_machine_id = MachineId::from_hardware_info(&hardware_info);
+        if let Some(id) = &stable_machine_id {
+            log_machine_id(id);
+        }
 
         let mut txn = self
             .database_connection
@@ -1209,6 +1221,7 @@ where
                 return Err(Status::invalid_argument("A machine UUID is required"));
             }
         };
+        log_machine_id(&machine_id);
 
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
@@ -1240,6 +1253,7 @@ where
                 return Err(Status::invalid_argument("A machine UUID is required"));
             }
         };
+        log_machine_id(&machine_id);
 
         // Load machine from DB
         let (machine, mut txn) = self
@@ -1278,6 +1292,8 @@ where
                 },
             )
             .await?;
+        log_machine_id(&machine_id);
+
         Ok(Response::new(rpc::Machine::from(machine)))
     }
 
@@ -1311,6 +1327,7 @@ where
         let machines = match (id, fqdn) {
             (Some(id), _) => {
                 let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
+                log_machine_id(&machine_id);
                 Machine::find(&mut txn, ObjectFilter::One(machine_id), search_config).await
             }
             (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, &fqdn, search_config).await,
@@ -1639,6 +1656,7 @@ where
             .map_err(CarbideError::from)?
         {
             Some(machine) => {
+                log_machine_id(machine.id());
                 if !machine.is_dpu() {
                     return Err(Status::not_found(format!(
                         "Searching for machine {} was found for '{query}', but it is not a DPU",
@@ -1736,12 +1754,17 @@ where
 
             // User provided machine_id
             (_, _, Some(machine_id)) => {
+                let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
+                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
+                })?;
+                log_machine_id(&machine_id);
+
                 // Load credentials from Vault
                 let credentials = self
                     .credential_provider
                     .get_credentials(CredentialKey::Bmc {
                         user_role: UserRoles::Administrator.to_string(),
-                        machine_id: machine_id.clone(),
+                        machine_id: machine_id.to_string(),
                     })
                     .await
                     .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
@@ -1801,6 +1824,8 @@ where
         request: Request<rpc::BmcMetaDataGetRequest>,
     ) -> Result<Response<rpc::BmcMetaDataGetResponse>, Status> {
         log_request_data(&request);
+        let request = BmcMetaDataGetRequest::try_from(request.into_inner())?;
+        log_machine_id(&request.machine_id);
 
         let mut txn = self
             .database_connection
@@ -1808,7 +1833,7 @@ where
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_bmc_meta_data", e))?;
 
-        let response = Ok(BmcMetaDataGetRequest::try_from(request.into_inner())?
+        let response = Ok(request
             .get_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
             .await
             .map(Response::new)?);
@@ -1824,7 +1849,7 @@ where
         &self,
         request: Request<rpc::BmcMetaDataUpdateRequest>,
     ) -> Result<Response<rpc::BmcMetaDataUpdateResponse>, Status> {
-        //Note: Be *careful* when logging this request: do not log the password!
+        // Note: Be *careful* when logging this request: do not log the password!
         tracing::Span::current().record(
             "request",
             format!(
@@ -1843,12 +1868,15 @@ where
             );
         }
 
+        let request = BmcMetaDataUpdateRequest::try_from(request.into_inner())?;
+        log_machine_id(&request.machine_id);
+
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin update_bmc_meta_data", e)
             })?;
 
-        let response = Ok(BmcMetaDataUpdateRequest::try_from(request.into_inner())?
+        let response = Ok(request
             .update_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
             .await
             .map(Response::new)?);
@@ -1868,7 +1896,11 @@ where
         // Doing that would make credentials show up in the log stream
         tracing::Span::current().record("request", "MachineCredentialsUpdateRequest { }");
 
-        Ok(UpdateCredentials::try_from(request.into_inner())?
+        let request =
+            UpdateCredentials::try_from(request.into_inner()).map_err(CarbideError::from)?;
+        log_machine_id(&request.machine_id);
+
+        Ok(request
             .update(self.credential_provider.as_ref())
             .await
             .map(Response::new)?)
@@ -1940,6 +1972,7 @@ where
             })?;
 
         let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
+        log_machine_id(&machine_id);
 
         let instance = Instance::find_by_machine_id(&mut txn, &machine_id)
             .await
@@ -1982,6 +2015,7 @@ where
                 return Err(Status::invalid_argument("Missing machine ID"));
             }
         };
+        log_machine_id(&machine_id);
 
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
@@ -2083,6 +2117,7 @@ where
                 return Ok(Response::new(response));
             }
         };
+        log_machine_id(machine.id());
 
         // TODO: This should maybe just use the snapshot loading functionality that the
         // state controller will use - which already contains the combined state
@@ -2658,6 +2693,11 @@ where
 
 fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
     tracing::Span::current().record("request", format!("{:?}", request.get_ref()));
+}
+
+/// Logs the Machine ID in the current tracing span
+fn log_machine_id(machine_id: &MachineId) {
+    tracing::Span::current().record("forge.machine_id", machine_id.to_string());
 }
 
 impl<C> Api<C>

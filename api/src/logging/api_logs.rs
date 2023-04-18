@@ -122,7 +122,9 @@ where
                 rpc.method = tracing::field::Empty,
                 rpc.service = tracing::field::Empty,
                 rpc.grpc.status_code = tracing::field::Empty,
-                rpc.grpc.status_description = tracing::field::Empty);
+                rpc.grpc.status_description = tracing::field::Empty,
+                start_time = format!("{:?}", chrono::Utc::now()),
+                forge.machine_id = tracing::field::Empty);
 
             // Try to extract the gRPC service and method from the URI
             let mut grpc_method: Option<String> = None;
