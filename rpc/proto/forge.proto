@@ -68,6 +68,8 @@ service Forge {
   rpc DiscoverMachine(MachineDiscoveryInfo) returns (MachineDiscoveryResult);
   rpc DiscoveryCompleted(MachineDiscoveryCompletedRequest) returns (MachineDiscoveryCompletedResponse);
   rpc CleanupMachineCompleted(MachineCleanupInfo) returns (MachineCleanupResult);
+  // Invoked by forge-scout whenever a certain Machine can not be properly acted on
+  rpc ReportForgeScoutError(ForgeScoutErrorReport) returns (ForgeScoutErrorReportResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
 
   // PRIVILEGED: Get a single machine
@@ -1112,6 +1114,19 @@ message MachineDiscoveryCompletedResponse { }
 
 message MachineCleanupResult {
   // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
+}
+
+message ForgeScoutErrorReport {
+  // Machine that encountered the error
+  // This might be null if the MachineId could not be resolved
+  MachineId machine_id = 1;
+  // Interface ID of the Machine that encountered the error
+  UUID machine_interface_id = 2;
+  // Error report
+  string error = 3;
+}
+
+message ForgeScoutErrorReportResult {
 }
 
 message VpcResourceState {

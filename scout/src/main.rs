@@ -9,16 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::forge_tls_client;
-use cfg::{AutoDetect, Command, Discovery, Options};
+use cfg::{AutoDetect, Command, Options};
 use log::LevelFilter;
 use once_cell::sync::Lazy;
-use rpc::forge as rpc_forge;
 use rpc::forge::forge_agent_control_response::Action;
+use rpc::{forge as rpc_forge, ForgeScoutErrorReport};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use tokio::sync::RwLock;
 
 mod cfg;
+mod client;
 mod deprovision;
 mod discovery;
 mod ipmi;
@@ -68,69 +68,118 @@ async fn main() -> Result<(), eyre::Report> {
         })
         .init();
 
-    match config.subcmd {
-        Command::Discovery(Discovery { uuid }) | Command::AutoDetect(AutoDetect { uuid }) => {
-            let machine_id = register::run(&config.api, config.root_ca.clone(), uuid).await?;
-            let mut retry_count = 0;
-            const MAX_RETRY_COUNT: u64 = 5;
-            const RETRY_TIMER: u64 = 30;
-
-            // State machine handler needs 1-2 cycles to update host_adminIP to leaf.
-            // In case by the time, host coems up and IP is still not updated, let's wait.
-            let mut action = query_api(&config.api, config.root_ca.clone(), &machine_id).await?;
-            while Action::Retry == action && retry_count <= MAX_RETRY_COUNT {
-                tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_TIMER)).await;
-                action = query_api(&config.api, config.root_ca.clone(), &machine_id).await?;
-                retry_count += 1;
+    let machine_interface_id = config.subcmd.machine_interface_id();
+    let machine_id =
+        match register::run(&config.api, config.root_ca.clone(), machine_interface_id).await {
+            Ok(machine_id) => machine_id,
+            Err(e) => {
+                report_scout_error(&config, None, machine_interface_id, &e).await?;
+                return Err(e.into());
             }
+        };
 
-            match action {
-                Action::Discovery => {
-                    //This is temporary. All cleanup must be done when API call Reset.
-                    deprovision::run_no_api();
-
-                    discovery::run(&config.api, config.root_ca.clone(), &machine_id).await?;
-                    discovery::completed(&config.api, config.root_ca.clone(), &machine_id).await?;
-                }
-                Action::Reset => {
-                    deprovision::run(&config.api, config.root_ca.clone(), &machine_id).await?;
-                }
-                Action::Rebuild => {
-                    unimplemented!("Rebuild not written yet");
-                }
-                Action::Noop => {}
-                Action::Retry => {
-                    log::error!(
-                        "Even after {} secs, still machine state is not updated.",
-                        MAX_RETRY_COUNT * RETRY_TIMER
-                    );
+    let action = match config.subcmd {
+        Command::AutoDetect(AutoDetect { .. }) => {
+            match query_api_with_retries(&config, &machine_id).await {
+                Ok(action) => action,
+                Err(e) => {
+                    report_scout_error(&config, Some(machine_id), machine_interface_id, &e).await?;
+                    return Err(e.into());
                 }
             }
         }
+        Command::Deprovision(_) => Action::Reset,
+    };
 
-        Command::Deprovision(d) => {
-            let machine_id = register::run(&config.api, config.root_ca.clone(), d.uuid).await?;
-            deprovision::run(&config.api, config.root_ca.clone(), &machine_id).await?;
+    if let Err(e) = handle_action(action, &machine_id, &config).await {
+        report_scout_error(&config, Some(machine_id), machine_interface_id, &e).await?;
+        return Err(e.into());
+    }
+
+    Ok(())
+}
+
+async fn handle_action(
+    action: Action,
+    machine_id: &str,
+    config: &Options,
+) -> Result<(), CarbideClientError> {
+    match action {
+        Action::Discovery => {
+            // This is temporary. All cleanup must be done when API call Reset.
+            deprovision::run_no_api();
+
+            discovery::run(config, machine_id).await?;
+            discovery::completed(config, machine_id).await?;
+        }
+        Action::Reset => {
+            deprovision::run(config, machine_id).await?;
+        }
+        Action::Rebuild => {
+            unimplemented!("Rebuild not written yet");
+        }
+        Action::Noop => {}
+        Action::Retry => {
+            panic!("Retrieved Retry action, which should be handled internally by query_api_with_retries");
         }
     }
     Ok(())
 }
 
+async fn report_scout_error(
+    config: &Options,
+    machine_id: Option<String>,
+    machine_interface_id: uuid::Uuid,
+    error: &impl std::error::Error,
+) -> CarbideClientResult<()> {
+    let request: tonic::Request<ForgeScoutErrorReport> =
+        tonic::Request::new(ForgeScoutErrorReport {
+            machine_id: machine_id.map(|id| id.into()),
+            machine_interface_id: Some(machine_interface_id.into()),
+            error: format!("{error:#}"), // Alternate representation also prints inner errors
+        });
+
+    let mut client = client::create_forge_client(config).await?;
+    let _response = client.report_forge_scout_error(request).await?.into_inner();
+    Ok(())
+}
+
 /// Ask API if we need to do anything after discovery.
-async fn query_api(
-    forge_api: &str,
-    root_ca: String,
-    machine_id: &str,
-) -> CarbideClientResult<Action> {
+async fn query_api(config: &Options, machine_id: &str) -> CarbideClientResult<Action> {
     let query = rpc_forge::ForgeAgentControlRequest {
         machine_id: Some(machine_id.to_string().into()),
     };
     let request = tonic::Request::new(query);
-    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
-        .connect(forge_api.to_string())
-        .await
-        .map_err(|err| CarbideClientError::TransportError(err.to_string()))?;
+    let mut client = client::create_forge_client(config).await?;
     let response = client.forge_agent_control(request).await?.into_inner();
     let action = Action::try_from(response.action)?;
     Ok(action)
+}
+
+async fn query_api_with_retries(config: &Options, machine_id: &str) -> CarbideClientResult<Action> {
+    let mut attempts = 0;
+    const MAX_RETRY_COUNT: u64 = 5;
+    const RETRY_TIMER: u64 = 30;
+
+    // State machine handler needs 1-2 cycles to update host_adminIP to leaf.
+    // In case by the time, host coems up and IP is still not updated, let's wait.
+    loop {
+        let action = query_api(config, machine_id).await?;
+        attempts += 1;
+
+        if action != Action::Retry {
+            return Ok(action);
+        }
+
+        // +1 for the initial attempt which happens immediately
+        if attempts == 1 + MAX_RETRY_COUNT {
+            return Err(CarbideClientError::GenericError(format!(
+                "Retrieved no Action for machine {} after {} secs",
+                machine_id,
+                MAX_RETRY_COUNT * RETRY_TIMER
+            )));
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_TIMER)).await;
+    }
 }

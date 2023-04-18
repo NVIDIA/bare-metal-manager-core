@@ -41,21 +41,21 @@ pub(crate) struct Options {
 pub(crate) enum Command {
     #[clap(about = "Fetch command from Forge API server")]
     AutoDetect(AutoDetect),
-    #[clap(about = "Run discovery")]
-    Discovery(Discovery),
     #[clap(about = "Run deprovision")]
     Deprovision(Deprovision),
 }
 
-#[derive(Parser)]
-pub struct AutoDetect {
-    // This is a machine_INTERFACE_id, not a machine_id
-    #[clap(short, long, require_equals(true))]
-    pub uuid: uuid::Uuid,
+impl Command {
+    pub fn machine_interface_id(&self) -> uuid::Uuid {
+        match self {
+            Command::AutoDetect(command) => command.uuid,
+            Command::Deprovision(command) => command.uuid,
+        }
+    }
 }
 
 #[derive(Parser)]
-pub struct Discovery {
+pub struct AutoDetect {
     // This is a machine_INTERFACE_id, not a machine_id
     #[clap(short, long, require_equals(true))]
     pub uuid: uuid::Uuid,

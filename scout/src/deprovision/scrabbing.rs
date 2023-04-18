@@ -13,7 +13,6 @@ use std::fs;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client;
 use procfs::Meminfo;
 use regex::Regex;
 use rlimit::Resource;
@@ -21,6 +20,8 @@ use scout::CarbideClientError;
 use serde::Deserialize;
 use uname::uname;
 
+use crate::cfg::Options;
+use crate::client::create_forge_client;
 use crate::deprovision::cmdrun;
 use crate::CarbideClientResult;
 use crate::IN_QEMU_VM;
@@ -414,17 +415,14 @@ fn is_host() -> bool {
     true
 }
 
-pub async fn run(api: &str, root_ca: String, machine_id: &str) -> CarbideClientResult<()> {
+pub(crate) async fn run(config: &Options, machine_id: &str) -> CarbideClientResult<()> {
     log::info!("full deprovision starts.");
     if !is_host() {
         // do not send API cleanup_machine_completed
         return Ok(());
     }
     let info = do_cleanup(machine_id).await?;
-    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
-        .connect(api)
-        .await
-        .map_err(|err| CarbideClientError::GenericError(err.to_string()))?;
+    let mut client = create_forge_client(config).await?;
     let request = tonic::Request::new(info);
     client.cleanup_machine_completed(request).await?;
     Ok(())

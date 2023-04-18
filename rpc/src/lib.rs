@@ -27,14 +27,15 @@ use prost::Message;
 
 pub use crate::protos::forge::{
     self, forge_agent_control_response, machine_credentials_update_request::CredentialPurpose,
-    machine_discovery_info::DiscoveryData, Domain, DomainList, Instance, InstanceAllocationRequest,
-    InstanceConfig, InstanceInterfaceConfig, InstanceInterfaceStatus,
-    InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
-    InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
-    InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
-    MachineId, MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment,
-    NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState,
-    TenantConfig, TenantState, Uuid,
+    machine_discovery_info::DiscoveryData, Domain, DomainList, ForgeScoutErrorReport,
+    ForgeScoutErrorReportResult, Instance, InstanceAllocationRequest, InstanceConfig,
+    InstanceInterfaceConfig, InstanceInterfaceStatus, InstanceInterfaceStatusObservation,
+    InstanceList, InstanceNetworkConfig, InstanceNetworkStatus, InstanceNetworkStatusObservation,
+    InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus, InterfaceFunctionType, Machine,
+    MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent, MachineId, MachineInterface,
+    MachineList, NetworkPrefixEvent, NetworkSegment, NetworkSegmentList,
+    ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState, TenantConfig,
+    TenantState, Uuid,
 };
 
 pub use crate::protos::forge::{

@@ -1268,6 +1268,22 @@ where
         Ok(Response::new(rpc::MachineCleanupResult {}))
     }
 
+    /// Invoked by forge-scout whenever a certain Machine can not be properly acted on
+    async fn report_forge_scout_error(
+        &self,
+        request: tonic::Request<rpc::ForgeScoutErrorReport>,
+    ) -> Result<tonic::Response<rpc::ForgeScoutErrorReportResult>, tonic::Status> {
+        log_request_data(&request);
+        if let Some(machine_id) = request.get_ref().machine_id.as_ref() {
+            let machine_id = try_parse_machine_id(machine_id).map_err(CarbideError::from)?;
+            log_machine_id(&machine_id);
+        }
+
+        // `log_request_data` will already provide us the error message
+        // Therefore we don't have to do anything else
+        Ok(Response::new(rpc::ForgeScoutErrorReportResult {}))
+    }
+
     async fn discover_dhcp(
         &self,
         request: Request<rpc::DhcpDiscovery>,
@@ -1284,6 +1300,7 @@ where
         log_request_data(&request);
 
         let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
+        log_machine_id(&machine_id);
         let (machine, _) = self
             .load_machine(
                 &machine_id,
@@ -1292,7 +1309,6 @@ where
                 },
             )
             .await?;
-        log_machine_id(&machine_id);
 
         Ok(Response::new(rpc::Machine::from(machine)))
     }

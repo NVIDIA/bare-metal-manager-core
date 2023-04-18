@@ -11,19 +11,11 @@
  */
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client;
 
-use crate::CarbideClientError;
+use crate::{cfg::Options, client::create_forge_client, CarbideClientError};
 
-pub async fn run(
-    forge_api: &str,
-    root_ca: String,
-    machine_id: &str,
-) -> Result<(), CarbideClientError> {
-    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
-        .connect(forge_api)
-        .await
-        .map_err(|err| CarbideClientError::GenericError(err.to_string()))?;
+pub(crate) async fn run(config: &Options, machine_id: &str) -> Result<(), CarbideClientError> {
+    let mut client = create_forge_client(config).await?;
     if let Err(err) = crate::users::create_users(&mut client, machine_id).await {
         log::error!("Error while setting up users. {}", err.to_string());
     }
@@ -36,15 +28,11 @@ pub async fn run(
     Ok(())
 }
 
-pub async fn completed(
-    forge_api: &str,
-    root_ca: String,
+pub(crate) async fn completed(
+    config: &Options,
     machine_id: &str,
 ) -> Result<(), CarbideClientError> {
-    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
-        .connect(forge_api)
-        .await
-        .map_err(|err| CarbideClientError::GenericError(err.to_string()))?;
+    let mut client = create_forge_client(config).await?;
     let request = tonic::Request::new(rpc::MachineDiscoveryCompletedRequest {
         machine_id: Some(machine_id.to_string().into()),
     });
