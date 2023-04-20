@@ -269,22 +269,26 @@ impl Machine {
     ///
     pub async fn get_or_create(
         txn: &mut Transaction<'_, Postgres>,
-        stable_machine_id: Option<MachineId>,
+        stable_machine_id: &MachineId,
         mut interface: MachineInterface,
         is_dpu: bool,
     ) -> CarbideResult<Self> {
-        let stable_machine_id_string = stable_machine_id.map(|id| id.to_string());
+        let stable_machine_id_string = stable_machine_id.to_string();
 
         match &interface.machine_id {
             // GET
             Some(machine_id) => {
+                if machine_id != stable_machine_id {
+                    return Err(CarbideError::GenericError(format!(
+                        "Database inconsistency: MachineId {} on interface {} does not match stable machine ID {} which now uses this interface",
+                        machine_id, interface.id(),
+                        stable_machine_id)));
+                }
+
                 match Machine::find_one(&mut *txn, machine_id, MachineSearchConfig::default())
                     .await?
                 {
-                    Some(machine) => {
-                        // TODO: Verify that the Stable Machine ID matches?
-                        Ok(machine)
-                    }
+                    Some(machine) => Ok(machine),
                     None => {
                         log::warn!(
                             "Interface ID {} refers to missing machine {machine_id}",
@@ -322,12 +326,19 @@ impl Machine {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
                     })?;
                 let machine_id = row.0.into_inner();
-                let machine = Machine::find_one(txn, &machine_id, MachineSearchConfig::default())
-                    .await?
-                    .ok_or_else(|| CarbideError::NotFoundError {
-                        kind: "machine",
-                        id: machine_id.to_string(),
-                    })?;
+                if machine_id != *stable_machine_id {
+                    return Err(CarbideError::DatabaseInconsistencyOnMachineCreate(
+                        stable_machine_id.clone(),
+                    ));
+                }
+
+                let machine =
+                    Machine::find_one(txn, stable_machine_id, MachineSearchConfig::default())
+                        .await?
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "machine",
+                            id: stable_machine_id.to_string(),
+                        })?;
                 machine.advance(txn, state, None).await?;
 
                 interface

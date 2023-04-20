@@ -16,10 +16,18 @@ use itertools::Itertools;
 use log::LevelFilter;
 use mac_address::MacAddress;
 
-use carbide::db::machine_interface::MachineInterface;
+use carbide::{
+    db::machine_interface::MachineInterface, model::machine::machine_id::try_parse_machine_id,
+};
 
 mod common;
-use common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS;
+use common::api_fixtures::{
+    create_test_env,
+    dpu::create_dpu_machine,
+    host::{create_host_hardware_info, host_discover_dhcp, FIXTURE_HOST_MAC_ADDRESS},
+    FIXTURE_DHCP_RELAY_ADDRESS,
+};
+use rpc::forge::forge_server::Forge;
 
 #[ctor::ctor]
 fn setup() {
@@ -92,6 +100,42 @@ async fn test_machine_discovery_with_domain(
         .addresses()
         .iter()
         .any(|item| item.address == "192.0.2.3".parse().unwrap()));
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_reject_host_machine_with_disabled_tpm(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone(), Default::default());
+    let dpu_machine_id = create_dpu_machine(&env).await;
+    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+
+    let host_machine_interface_id =
+        host_discover_dhcp(&env, FIXTURE_HOST_MAC_ADDRESS, &dpu_machine_id).await;
+
+    let mut hardware_info = create_host_hardware_info();
+    hardware_info.tpm_ek_certificate = None;
+
+    let response = env
+        .api
+        .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+            machine_interface_id: Some(host_machine_interface_id.clone()),
+            discovery_data: Some(rpc::DiscoveryData::Info(
+                rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
+            )),
+        }))
+        .await;
+    let err = response.expect_err("Expected DiscoverMachine request to fail");
+    assert!(err.to_string().contains(&format!(
+        "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {}",
+        host_machine_interface_id
+    )));
+
+    // We shouldn't have created any machine
+    let machines = env.find_machines(None, None, false).await;
+    assert!(machines.machines.is_empty());
 
     Ok(())
 }

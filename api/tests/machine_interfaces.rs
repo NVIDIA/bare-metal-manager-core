@@ -75,7 +75,7 @@ async fn only_one_primary_interface_per_machine(
     .await?;
 
     let machine_id = MachineId::from_hardware_info(&create_dpu_hardware_info()).unwrap();
-    let new_machine = Machine::get_or_create(&mut txn, Some(machine_id), new_interface, false)
+    let new_machine = Machine::get_or_create(&mut txn, &machine_id, new_interface, false)
         .await
         .expect("Unable to create machine");
 

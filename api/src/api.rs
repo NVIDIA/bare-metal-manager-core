@@ -1140,20 +1140,35 @@ where
 
         let machine_discovery_info = request.into_inner();
 
+        let interface_id = match &machine_discovery_info.machine_interface_id {
+            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::invalid_argument("An interface UUID is required"));
+            }
+        };
+
         let discovery_data = machine_discovery_info
             .discovery_data
             .map(|data| match data {
                 rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
             })
             .ok_or_else(|| Status::invalid_argument("Discovery data is not populated"))?;
-
         let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
 
         // Generate a stable Machine ID based on the hardware information
-        // TODO: This should become an error if not enough information is available
-        let stable_machine_id = MachineId::from_hardware_info(&hardware_info);
-        if let Some(id) = &stable_machine_id {
-            log_machine_id(id);
+        let stable_machine_id = MachineId::from_hardware_info(&hardware_info).ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {}", interface_id),
+            )
+        })?;
+        log_machine_id(&stable_machine_id);
+
+        if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_none() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {}",
+                interface_id
+            ))
+            .into());
         }
 
         let mut txn = self
@@ -1162,37 +1177,24 @@ where
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin discover_machine", e))?;
 
-        let interface_id = match &machine_discovery_info.machine_interface_id {
-            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::invalid_argument("An interface UUID is required"));
-            }
-        };
-
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
         let machine = Machine::get_or_create(
             &mut txn,
-            stable_machine_id,
+            &stable_machine_id,
             interface,
             hardware_info.is_dpu(),
         )
         .await
         .map(rpc::Machine::from)?;
 
-        let machine_id = match &machine.id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::not_found("Missing machine"));
-            }
-        };
-
         let loopback_ip = if hardware_info.is_dpu() {
-            self.allocate_loopback_ip(&machine_id.to_string()).await?
+            self.allocate_loopback_ip(&stable_machine_id.to_string())
+                .await?
         } else {
             None
         };
 
-        MachineTopology::create(&mut txn, &machine_id, &hardware_info, loopback_ip).await?;
+        MachineTopology::create(&mut txn, &stable_machine_id, &hardware_info, loopback_ip).await?;
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {
             machine_id: machine.id,

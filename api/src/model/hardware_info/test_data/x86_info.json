@@ -790,5 +790,6 @@
                 "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
             }
         }
-    ]
+    ],
+    "tpm_ek_certificate": "U29tZSBhcmJpdHJhcnkgYmFzZTY0"
 }

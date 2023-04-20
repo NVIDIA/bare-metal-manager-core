@@ -284,7 +284,11 @@ impl MachineInterface {
     ) -> CarbideResult<(Self, bool)> {
         match machines {
             None => {
-                log::info!("No existing machine with mac address {} using network with relay: {}, creating one.", mac_address, relay);
+                log::info!(
+                    "Found no existing machine with mac address {} using network with relay: {}",
+                    mac_address,
+                    relay
+                );
                 Ok((
                     MachineInterface::validate_existing_mac_and_create(
                         &mut *txn,
@@ -324,7 +328,7 @@ impl MachineInterface {
         match &existing_mac.len() {
             0 => {
                 log::debug!(
-                    "No existing mac address[{0}] exists yet, creating one.",
+                    "No existing machine_interface with mac address[{0}] exists yet, creating one.",
                     mac_address
                 );
                 match NetworkSegment::for_relay(txn, relay).await? {
