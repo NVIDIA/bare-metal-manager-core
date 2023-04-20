@@ -190,7 +190,9 @@ container:
   hostAliases: []
   # carbideApi.hostAliases -- carbide pods host aliases
   # https://kubernetes.io/docs/concepts/services-networking/add-entries-to-pod-etc-hosts-with-host-aliases/
-  podLabels: {}
+  podLabels:
+    carbide_api_pod: "yes"
+    forge_pod: "yes"
   # carbideApi.podLabels -- Extra labels for carbide pods
   # ref: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
   podAnnotations: {}

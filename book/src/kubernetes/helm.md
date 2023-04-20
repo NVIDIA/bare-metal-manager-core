@@ -43,7 +43,8 @@ helm repo update
 
 Helm chart changes can be verified using the following steps:
 
-1. Enter the path which contains the helm chart - e.g. `charts/carbideApi`
+1. Enter the path which contains the helm chart - e.g. `charts/carbideApi`<br>
+*** DO NOT RUN FROM REPO ROOT*** it may consume the machine.
 2. Fetch the dependencies for this chart:
    ```
    helm dependency build

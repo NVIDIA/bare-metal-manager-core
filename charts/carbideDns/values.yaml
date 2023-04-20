@@ -49,7 +49,7 @@ container:
   image:
     registry: nvcr.io
     # carbideDns.image.registry -- carbide image registry
-    repository: nvidian/forge/nvmetal-carbide
+    repository: nvidian/nvforge/nvmetal-carbide
     # carbideDns.image.repository -- carbide image repository
     tag: latest
     # carbideDns.image.tag -- carbide image tag (immutable tags are recommended)
@@ -170,7 +170,9 @@ container:
   hostAliases: []
   # carbideDns.hostAliases -- carbide pods host aliases
   # https://kubernetes.io/docs/concepts/services-networking/add-entries-to-pod-etc-hosts-with-host-aliases/
-  podLabels: {}
+  podLabels:
+    carbide_dns_pod: "yes"
+    forge_pod: "yes"
   # carbideDns.podLabels -- Extra labels for carbide pods
   # ref: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
   podAnnotations: {}

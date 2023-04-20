@@ -22,7 +22,8 @@
 - [Bootable Artifacts](bootable_artifacts.md)
 - [Bootstrap New Cluster](kubernetes/bootstrap.md)
 - [Local Development](development.md)
-  - [Docker](docker/development.md)
+  - [Kubernetes](kubernetes/development.md)
+  - [Docker (deprecated)](docker/development.md)
   - [Running a PXE Client in a VM](development/vm_pxe_client.md)
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
 - [Data Model / DB Schema](development/schema.md)
@@ -31,7 +32,6 @@
 
 # Kubernetes
 
-- [Local Development](kubernetes/development.md)
 - [Helm](kubernetes/helm.md)
 - [TLS](kubernetes/tls.md)
 

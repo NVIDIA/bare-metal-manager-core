@@ -129,6 +129,12 @@ dependencies = [
   {name="test-instance-forge-docker", path="include/Makefile-bootstrap.toml"}
 ]
 
+[tasks.bootstrap-forge-kube]
+workspace = false
+dependencies = [
+  {name="build-bootstrap-forge-kube", path="include/Makefile-bootstrap.toml"}
+]
+
 [tasks.update-kube-structs]
 workspace = false
 dependencies = [
@@ -159,3 +165,18 @@ args = ["--no-default-features"]
 
 [tasks.clippy-ci-flow]
 condition = { env_set = [ "CARGO_MAKE_RUN_CLIPPY" ] }
+
+[tasks.helmupdate]
+workspace = false
+description = "Runs helm dependency builds in the right directories"
+script = '''
+for dir in charts/*/
+do
+  cd $dir
+  helm dep update
+  helm dep build
+  cd -
+done
+
+'''
+

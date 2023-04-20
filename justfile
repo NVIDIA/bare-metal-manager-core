@@ -1,12 +1,12 @@
 #set shell := ["bash", "-uc"]
-export DOCKER_BUILDKIT := "1"
+export DOCKER_BUILDKIT := "1" 
 
 components_dir := "api pxe dns dhcp"
 components_name := "carbide-api carbide-pxe carbide-dns dhcp scout"
 
 # Start cargo-watch for components "{{components}}"
 watch:
-  parallel --link  -j+0 --tty --tag cargo --color=always watch --why -C {1} -s \"${REPO_ROOT}/.skaffold/build {2}\" ::: {{components_dir}} ::: {{components_name}}
+  mkdir -p .skaffold/cache && mkdir -p .skaffold/target && parallel --link  -j+0 --tty --tag cargo --color=always watch --why -C {1} -s \"${REPO_ROOT}/.skaffold/build {2}\" ::: {{components_dir}} ::: {{components_name}}
 
 _dockerbuild NAME FILE CONTEXT=(invocation_directory()):
   DOCKER_BUILDKIT=1 docker build -t {{NAME}} -f {{FILE}} {{CONTEXT}}

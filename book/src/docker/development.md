@@ -1,5 +1,7 @@
+ 
 ## Docker development workflow
 
+### This Workflow Is Deprecateded! Use the [Kubernetes Workflow](../kubernetes/development.md)
 [The docker compose configuration file](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/docker-compose.yml) contains all of the
 software in the control plane in order to make requests to a working Carbide
 installation.

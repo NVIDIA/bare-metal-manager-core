@@ -199,7 +199,9 @@ container:
   hostAliases: []
   # carbidePxe.hostAliases -- carbide pods host aliases
   # https://kubernetes.io/docs/concepts/services-networking/add-entries-to-pod-etc-hosts-with-host-aliases/
-  podLabels: {}
+  podLabels:
+    carbide_pxe_pod: "yes"
+    forge_pod: "yes"
   # carbidePxe.podLabels -- Extra labels for carbide pods
   # ref: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
   podAnnotations: {}

@@ -1,3 +1,0 @@
-export PGHOST=localhost
-export PGUSER=carbide_development
-export PGPASSWORD=notforprod
