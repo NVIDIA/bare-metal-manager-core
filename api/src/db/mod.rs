@@ -16,6 +16,7 @@ pub mod dhcp_entry;
 pub mod dhcp_record;
 pub mod domain;
 pub mod dpu_machine;
+pub mod ib_subnet;
 pub mod instance;
 pub mod instance_address;
 pub mod instance_type;

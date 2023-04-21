@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod config_version;
 pub mod hardware_info;
+pub mod ib_subnet;
 pub mod instance;
 pub mod machine;
 pub mod network_segment;
