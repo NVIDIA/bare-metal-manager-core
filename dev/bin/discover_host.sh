@@ -19,8 +19,8 @@ fi
 
 API_SERVER_IP=$1
 API_SERVER_PORT=$2
-HOST_DATA_FILE=$3/host_dhcp_discovery.json
-DPU_DATA_FILE=$3/dpu_machine_discovery.json
+HOST_DHCP_FILE=$3/host_dhcp_discovery.json
+HOST_MACHINE_FILE=$3/host_machine_discovery.json
 
 # Determine the CircuitId that our host needs to use
 # We use the first network segment that we can find
@@ -31,19 +31,13 @@ echo "Circuit ID is $CIRCUIT_ID"
 # Simulate the DHCP request of a x86 host
 # IMPORTANT: This only works a single time, because the loopback IP used in this request is hardcoded
 # And that hardcoded IP will only be assigned to the first DPU that is discovered
-HOST_DHCP_REQUEST=$(jq --arg circuit_id "$CIRCUIT_ID" '.circuit_id = $circuit_id' "$HOST_DATA_FILE")
+HOST_DHCP_REQUEST=$(jq --arg circuit_id "$CIRCUIT_ID" '.circuit_id = $circuit_id' "$HOST_DHCP_FILE")
 RESULT=$(echo "$HOST_DHCP_REQUEST" | grpcurl -d @ -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoverDhcp)
 MACHINE_INTERFACE_ID=$(echo "$RESULT" | jq ".machineInterfaceId.value" | tr -d '"')
 echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
 
 # Simulate the Machine discovery request of a x86 host
-DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' "$DPU_DATA_FILE")
-DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//aarch64/x86_64}
-DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//Dpu123/Host123}
-DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuBoard123/HostBoard123}
-DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuChassis123/HostChassis123}
-DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuProductName234/HostProductName234}
-DISCOVER_MACHINE_REQUEST=${DISCOVER_MACHINE_REQUEST//DpuSysVendor234/HostSysVendor234}
+DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' "$HOST_MACHINE_FILE")
 
 # Assuming ManagedHost is Host/Init state now.
 RESULT=$(echo "$DISCOVER_MACHINE_REQUEST" | grpcurl -d @ -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoverMachine)
