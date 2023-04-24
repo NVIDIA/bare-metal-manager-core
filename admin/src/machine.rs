@@ -243,13 +243,14 @@ pub async fn handle_show(
 }
 
 pub async fn force_delete(
-    query: ForceDeleteMachineQuery,
+    mut query: ForceDeleteMachineQuery,
     api_config: Config,
 ) -> CarbideCliResult<()> {
     const RETRY_TIME: Duration = Duration::from_secs(5);
-    const MAX_WAIT_TIME: Duration = Duration::from_secs(60 * 10);
+    const MAX_WAIT_TIME: Duration = Duration::from_secs(60 * 20);
 
     let start = std::time::Instant::now();
+    let mut dpu_machine_id = String::new();
 
     loop {
         let response = rpc::machine_admin_force_delete(query.clone(), api_config.clone()).await?;
@@ -258,9 +259,26 @@ pub async fn force_delete(
             serde_json::to_string_pretty(&response).unwrap()
         );
 
+        if dpu_machine_id.is_empty() && !response.dpu_machine_id.is_empty() {
+            dpu_machine_id = response.dpu_machine_id.clone();
+        }
+
         if response.all_done {
-            println!("Force delete succeeded");
-            break;
+            println!("Force delete for {} succeeded", query.machine);
+
+            // If we only searched for a Machine, then the DPU might be left behind
+            // since the site controller can't look up the DPU by host machine ID anymore.
+            // To also clean up the DPU, we modify our query and continue to delete
+            if !dpu_machine_id.is_empty() && query.machine != dpu_machine_id {
+                println!(
+                    "Starting to delete potentially stale DPU machine {}",
+                    dpu_machine_id
+                );
+                query.machine = dpu_machine_id.clone();
+            } else {
+                // No DPU to delete
+                break;
+            }
         }
 
         if start.elapsed() > MAX_WAIT_TIME {
