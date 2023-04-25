@@ -37,6 +37,7 @@ mod dhcp;
 mod human_hash;
 pub mod instance;
 pub mod ipmi;
+mod ipxe;
 pub mod kubernetes;
 pub mod logging;
 pub mod model;

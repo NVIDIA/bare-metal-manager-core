@@ -51,6 +51,7 @@ use crate::db::dpu_machine::DpuMachine;
 use crate::db::ipmi::UserRoles;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
+use crate::ipxe::PxeInstructions;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::{InstanceState, ManagedHostState};
@@ -1980,7 +1981,7 @@ where
 
     async fn get_pxe_instructions(
         &self,
-        request: Request<rpc::MachineId>,
+        request: Request<rpc::PxeInstructionRequest>,
     ) -> Result<Response<rpc::PxeInstructions>, Status> {
         log_request_data(&request);
 
@@ -1989,25 +1990,20 @@ where
                 CarbideError::DatabaseError(file!(), "begin get_pxe_instructions", e)
             })?;
 
-        let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
-        log_machine_id(&machine_id);
+        let request = request.into_inner();
 
-        let instance = Instance::find_by_machine_id(&mut txn, &machine_id)
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "machine",
-                id: machine_id.to_string(),
-            })?;
-
-        let pxe_script = if instance.use_custom_pxe_on_boot {
-            Instance::use_custom_ipxe_on_next_boot(&machine_id, false, &mut txn)
-                .await
-                .map_err(CarbideError::from)?;
-            instance.tenant_config.custom_ipxe
-        } else {
-            "exit".to_string()
+        let interface_id = match request.interface_id {
+            None => {
+                return Err(Status::invalid_argument("Interface ID is missing."));
+            }
+            Some(interface_id) => Uuid::try_from(interface_id)
+                .map_err(|e| Status::invalid_argument(format!("Interface ID is invalid: {}", e)))?,
         };
+
+        let arch = rpc::MachineArchitecture::from_i32(request.arch)
+            .ok_or(Status::invalid_argument("Unknown arch received."))?;
+        let pxe_script =
+            PxeInstructions::get_pxe_instructions(&mut txn, interface_id, arch).await?;
 
         txn.commit()
             .await

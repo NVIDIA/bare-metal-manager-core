@@ -208,7 +208,6 @@ mod tests {
         };
 
         let machine = Machine {
-            architecture: Some(rpc::forge::MachineArchitecture::Arm),
             interface: interface.clone(),
             domain: rpc::Domain {
                 id: None,

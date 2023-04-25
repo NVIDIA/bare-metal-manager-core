@@ -19,7 +19,8 @@ pub struct RpcContext;
 
 impl RpcContext {
     async fn get_pxe_instructions(
-        machine_id: rpc::MachineId,
+        arch: rpc::MachineArchitecture,
+        machine_interface_id: rocket::serde::uuid::Uuid,
         url: String,
         forge_root_ca_path: String,
     ) -> Result<String, String> {
@@ -27,7 +28,13 @@ impl RpcContext {
             .connect(url)
             .await
             .map_err(|err| err.to_string())?;
-        let request = tonic::Request::new(machine_id.clone());
+        let interface_id = Some(rpc::Uuid {
+            value: machine_interface_id.to_string(),
+        });
+        let request = tonic::Request::new(rpc::PxeInstructionRequest {
+            arch: arch as i32,
+            interface_id: interface_id.clone(),
+        });
         client
             .get_pxe_instructions(request)
             .await
@@ -35,7 +42,7 @@ impl RpcContext {
             .map_err(|error| {
                 format!(
                     "Error in updating build needed flag for instance for machine {:?}; Error: {}.",
-                    machine_id, error
+                    interface_id, error
                 )
             })
     }

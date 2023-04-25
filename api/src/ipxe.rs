@@ -1,0 +1,159 @@
+pub use ::rpc::forge as rpc;
+use sqlx::{Postgres, Transaction};
+
+use crate::{
+    db::{
+        instance::Instance,
+        machine::{Machine, MachineSearchConfig},
+        machine_interface::MachineInterface,
+    },
+    model::machine::ManagedHostState,
+    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
+    CarbideError,
+};
+
+pub struct PxeInstructions;
+
+#[derive(serde::Serialize)]
+pub enum InstructionGenerator {
+    X86 {
+        kernel: String,
+        command_line: String,
+    },
+    Arm {
+        kernel: String,
+        command_line: String,
+        initrd: String,
+    },
+}
+
+impl InstructionGenerator {
+    fn serialize_pxe_instructions(&self) -> String {
+        match self {
+            InstructionGenerator::Arm {
+                kernel,
+                command_line,
+                initrd,
+            } => {
+                let output = format!(
+                    r#"
+kernel {} initrd=initrd.img {} ||
+imgfetch --name initrd.img {} ||
+boot ||
+"#,
+                    kernel, command_line, initrd
+                );
+                output
+            }
+            InstructionGenerator::X86 {
+                kernel,
+                command_line,
+            } => {
+                let output = format!(
+                    r#"
+kernel {} {} ||
+boot ||
+"#,
+                    kernel, command_line
+                );
+                output
+            }
+        }
+    }
+}
+
+impl PxeInstructions {
+    fn get_pxe_instruction_for_arch(
+        arch: rpc::MachineArchitecture,
+        machine_interface_id: uuid::Uuid,
+    ) -> String {
+        match arch {
+            rpc::MachineArchitecture::Arm => {
+                    InstructionGenerator::Arm {
+                        kernel: "${base-url}/internal/aarch64/carbide.efi".to_string(),
+                        command_line: format!("console=tty0 console=ttyS0 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=auto-detect bfnet=oob_net0:dhcp bfks=${{cloudinit-url}}/user-data machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                        initrd: "${base-url}/internal/aarch64/carbide.root".to_string(),
+                }
+            }
+            rpc::MachineArchitecture::X86 => {
+                InstructionGenerator::X86 {
+                        kernel: "${base-url}/internal/x86_64/carbide.efi".to_string(),
+                        command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console=ttyS0 ip=dhcp cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                }
+            }
+        }.serialize_pxe_instructions()
+    }
+
+    pub async fn get_pxe_instructions(
+        txn: &mut Transaction<'_, Postgres>,
+        interface_id: uuid::Uuid,
+        arch: rpc::MachineArchitecture,
+    ) -> Result<String, CarbideError> {
+        let interface = MachineInterface::find_one(txn, interface_id).await?;
+        let machine_id = match interface.machine_id {
+            None => {
+                return Ok(PxeInstructions::get_pxe_instruction_for_arch(
+                    arch,
+                    interface_id,
+                ));
+            }
+            Some(machine_id) => machine_id,
+        };
+
+        let machine = Machine::find_one(txn, &machine_id, MachineSearchConfig::default())
+            .await
+            .map_err(|e| {
+                CarbideError::InvalidArgument(format!("Get machine failed, Error: {}", e))
+            })?
+            .ok_or(CarbideError::InvalidArgument(
+                "Invalid machine id. Not found in db.".to_string(),
+            ))?;
+
+        // Check if dpu
+        if machine.is_dpu() {
+            return Ok("exit 1".to_string());
+        }
+
+        let machine_snapshot = DbSnapshotLoader::default()
+            .load_machine_snapshot_for_host(txn, machine.id())
+            .await?;
+
+        let pxe_script = match &machine_snapshot.managed_state {
+            ManagedHostState::Ready
+            | ManagedHostState::HostNotReady { .. }
+            | ManagedHostState::WaitingForCleanup { .. } => {
+                Self::get_pxe_instruction_for_arch(arch, interface_id)
+            }
+            ManagedHostState::Assigned { .. } => {
+                let instance = Instance::find_by_machine_id(txn, &machine_id)
+                    .await
+                    .map_err(CarbideError::from)?
+                    .ok_or(CarbideError::NotFoundError {
+                        kind: "machine",
+                        id: machine_id.to_string(),
+                    })?;
+
+                if instance.use_custom_pxe_on_boot {
+                    Instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
+                        .await
+                        .map_err(CarbideError::from)?;
+                    instance.tenant_config.custom_ipxe
+                } else {
+                    "exit".to_string()
+                }
+            }
+            x => {
+                format!(
+                    r#"
+echo could not continue boot due to invalid status - {} ||
+sleep 5 ||
+exit ||
+"#,
+                    x
+                )
+            }
+        };
+
+        Ok(pxe_script)
+    }
+}

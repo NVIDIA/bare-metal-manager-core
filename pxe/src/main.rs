@@ -36,10 +36,15 @@ mod routes;
 
 #[derive(Debug)]
 pub struct Machine {
-    architecture: Option<forge::MachineArchitecture>,
     interface: forge::MachineInterface,
     domain: forge::Domain,
     machine: Option<forge::Machine>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MachineInterface {
+    architecture: Option<forge::MachineArchitecture>,
+    interface_id: rocket::serde::uuid::Uuid,
 }
 
 #[derive(Clone)]
@@ -120,26 +125,6 @@ impl<'r> FromRequest<'r> for Machine {
     type Error = RPCError<'r>;
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
-        let buildarch = match request.query_value::<&str>("buildarch") {
-            Some(Ok(buildarch)) => match buildarch {
-                "arm64" => Some(forge::MachineArchitecture::Arm),
-                "x86_64" => Some(forge::MachineArchitecture::X86),
-                arch => {
-                    eprintln!("invalid architecture: {:#?}", arch);
-                    return request::Outcome::Failure((
-                        Status::BadRequest,
-                        RPCError::InvalidBuildArch,
-                    ));
-                }
-            },
-            Some(Err(errs)) => {
-                return request::Outcome::Failure((
-                    Status::BadRequest,
-                    RPCError::MalformedBuildArch(errs),
-                ));
-            }
-            None => None,
-        };
         let uuid = match request.query_value::<rocket::serde::uuid::Uuid>("uuid") {
             Some(Ok(uuid)) => uuid,
             Some(Err(errs)) => {
@@ -227,7 +212,6 @@ impl<'r> FromRequest<'r> for Machine {
 
         match interface.machine_id.clone() {
             None => request::Outcome::Success(Machine {
-                architecture: buildarch,
                 interface,
                 domain,
                 machine: None,
@@ -236,7 +220,6 @@ impl<'r> FromRequest<'r> for Machine {
                 let request = tonic::Request::new(machine_id);
                 match client.get_machine(request).await {
                     Ok(machine) => request::Outcome::Success(Machine {
-                        architecture: buildarch,
                         interface,
                         domain,
                         machine: Some(machine.into_inner()),
@@ -247,6 +230,68 @@ impl<'r> FromRequest<'r> for Machine {
                 }
             }
         }
+    }
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for MachineInterface {
+    type Error = RPCError<'r>;
+
+    async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
+        let architecture = match request.query_value::<&str>("buildarch") {
+            Some(Ok(buildarch)) => match buildarch {
+                "arm64" => Some(forge::MachineArchitecture::Arm),
+                "x86_64" => Some(forge::MachineArchitecture::X86),
+                arch => {
+                    eprintln!("invalid architecture: {:#?}", arch);
+                    return request::Outcome::Failure((
+                        Status::BadRequest,
+                        RPCError::InvalidBuildArch,
+                    ));
+                }
+            },
+            Some(Err(errs)) => {
+                return request::Outcome::Failure((
+                    Status::BadRequest,
+                    RPCError::MalformedBuildArch(errs),
+                ));
+            }
+            None => None,
+        };
+        let interface_id = match request.query_value::<rocket::serde::uuid::Uuid>("uuid") {
+            Some(Ok(uuid)) => uuid,
+            Some(Err(errs)) => {
+                return request::Outcome::Failure((
+                    Status::BadRequest,
+                    RPCError::MalformedMachineId(errs),
+                ));
+            }
+            None => {
+                eprintln!("{:#?}", request.param::<rocket::serde::uuid::Uuid>(0));
+                match request.param::<rocket::serde::uuid::Uuid>(0) {
+                    Some(uuid) => match uuid {
+                        Ok(uuid) => uuid,
+                        Err(_) => {
+                            return request::Outcome::Failure((
+                                Status::BadRequest,
+                                RPCError::MissingMachineId,
+                            ));
+                        }
+                    },
+                    None => {
+                        return request::Outcome::Failure((
+                            Status::BadRequest,
+                            RPCError::MissingMachineId,
+                        ));
+                    }
+                }
+            }
+        };
+
+        request::Outcome::Success(Self {
+            architecture,
+            interface_id,
+        })
     }
 }
 
