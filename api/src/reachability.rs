@@ -16,13 +16,19 @@ pub enum ReachabilityError {
 
     #[error("Spawning blocking thread failed. Error: {0}")]
     SpawnBlockingThreadFailed(String),
+
+    #[error("Host is not updated.")]
+    HostNotUpdated,
 }
 
 pub type ReachabilityResult<T> = Result<T, ReachabilityError>;
 
 // Trait to implement various conditions to validate if host is in acceptable state (UP or Down).
 #[async_trait]
-pub trait Reachability: Sync {
+pub trait Reachability: Send + Sync + 'static {
+    /// Method to build new instance
+    fn build(&self, host: IpAddr, expected_state: ExpectedState) -> Box<dyn Reachability>;
+
     /// Method to check if host fulfills needed condition.
     async fn check_condition(&self) -> ReachabilityResult<bool>;
 
@@ -38,7 +44,7 @@ pub trait Reachability: Sync {
 
 pub async fn wait_for_requested_state(
     duration: Duration,
-    handler: impl Reachability,
+    handler: Box<dyn Reachability>,
 ) -> ReachabilityResult<()> {
     match tokio::time::timeout(duration, handler.await_condition()).await {
         Err(_) => Err(ReachabilityError::TokioTimeout),
@@ -46,28 +52,36 @@ pub async fn wait_for_requested_state(
     }
 }
 
+#[derive(Default)]
 pub enum ExpectedState {
+    #[default]
     Alive,
     Dead,
 }
+
+#[derive(Default)]
 pub struct PingReachabilityChecker {
-    host: IpAddr,
+    host: Option<IpAddr>,
     expected_state: ExpectedState,
 }
 
-impl PingReachabilityChecker {
-    pub fn new(host: IpAddr, expected_state: ExpectedState) -> Self {
-        PingReachabilityChecker {
-            host,
-            expected_state,
-        }
-    }
-}
+#[derive(Default)]
+pub struct TestPingReachabilityChecker {}
 
 #[async_trait]
 impl Reachability for PingReachabilityChecker {
+    fn build(&self, host: IpAddr, expected_state: ExpectedState) -> Box<dyn Reachability> {
+        Box::new(PingReachabilityChecker {
+            host: Some(host),
+            expected_state,
+        })
+    }
+
     async fn check_condition(&self) -> ReachabilityResult<bool> {
-        let host = self.host.to_string();
+        let host = self
+            .host
+            .ok_or(ReachabilityError::HostNotUpdated)?
+            .to_string();
         let status = tokio::task::spawn_blocking(move || {
             // Should we use some library instead of Command?
             Command::new("ping")
@@ -92,6 +106,17 @@ impl Reachability for PingReachabilityChecker {
     }
 }
 
+#[async_trait]
+impl Reachability for TestPingReachabilityChecker {
+    fn build(&self, _host: IpAddr, _expected_state: ExpectedState) -> Box<dyn Reachability> {
+        Box::new(TestPingReachabilityChecker {})
+    }
+
+    async fn check_condition(&self) -> ReachabilityResult<bool> {
+        Ok(true)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
@@ -102,7 +127,7 @@ mod tests {
     async fn test_wait_for_host_down() {
         assert!(wait_for_requested_state(
             Duration::from_secs(5),
-            PingReachabilityChecker::new(
+            PingReachabilityChecker::default().build(
                 IpAddr::V4(Ipv4Addr::new(
                     255, 123, 253, 5, // Some random IP which is not reachable from system
                 )),
@@ -117,7 +142,7 @@ mod tests {
     async fn test_wait_for_host_down_fail() {
         assert!(wait_for_requested_state(
             Duration::from_secs(2),
-            PingReachabilityChecker::new(
+            PingReachabilityChecker::default().build(
                 IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1,)),
                 ExpectedState::Dead,
             ),
@@ -130,7 +155,7 @@ mod tests {
     async fn test_wait_for_host_up() {
         assert!(wait_for_requested_state(
             Duration::from_secs(5),
-            PingReachabilityChecker::new(
+            PingReachabilityChecker::default().build(
                 IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1,)),
                 ExpectedState::Alive,
             ),
@@ -143,7 +168,7 @@ mod tests {
     async fn test_wait_for_host_up_fail() {
         assert!(wait_for_requested_state(
             Duration::from_secs(2),
-            PingReachabilityChecker::new(
+            PingReachabilityChecker::default().build(
                 IpAddr::V4(Ipv4Addr::new(
                     255, 123, 253, 5, // Some random IP which is not reachable from system
                 )),

@@ -27,6 +27,7 @@ use ::rpc::protos::forge::{
     UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
     ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
+use chrono::Duration;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use futures_util::future::BoxFuture;
 use http::header::USER_AGENT;
@@ -56,7 +57,9 @@ use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::model::RpcDataConversionError;
+use crate::reachability::PingReachabilityChecker;
 use crate::resource_pool::{DbResourcePool, ResourcePool, ResourcePoolError};
+use crate::state_controller::controller::ReachabilityParams;
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 use crate::{
     auth, cfg,
@@ -1044,7 +1047,7 @@ where
         })?;
 
         let _ = machine_power_request
-            .invoke_bmc_command(self.database_connection.clone())
+            .reboot_machine(self.database_connection.clone(), self.redfish_pool.clone())
             .await?;
 
         Ok(Response::new(rpc::InstancePowerResult {}))
@@ -2833,6 +2836,10 @@ where
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.machine_state_controller_iteration_time)
                 .state_handler(Arc::new(MachineStateHandler::default()))
+                .reachability_params(ReachabilityParams {
+                    checker: Arc::new(PingReachabilityChecker::default()),
+                    dpu_wait_time: Duration::minutes(5),
+                })
                 .build()
                 .expect("Unable to build MachineStateController");
 
@@ -2852,6 +2859,10 @@ where
             .state_handler(Arc::new(NetworkSegmentStateHandler::new(
                 service_config.network_segment_drain_time,
             )))
+            .reachability_params(ReachabilityParams {
+                checker: Arc::new(PingReachabilityChecker::default()),
+                dpu_wait_time: Duration::minutes(5),
+            })
             .build()
             .expect("Unable to build NetworkSegmentController");
 

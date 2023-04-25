@@ -41,7 +41,7 @@ mod ipxe;
 pub mod kubernetes;
 pub mod logging;
 pub mod model;
-mod reachability;
+pub mod reachability;
 pub mod redfish;
 pub mod resource_pool;
 pub mod state_controller;

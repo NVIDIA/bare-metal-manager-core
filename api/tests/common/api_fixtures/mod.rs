@@ -23,9 +23,10 @@ use carbide::{
         machine_id::{try_parse_machine_id, MachineId},
         ManagedHostState,
     },
+    reachability::TestPingReachabilityChecker,
     redfish::RedfishSim,
     state_controller::{
-        controller::StateControllerIO,
+        controller::{ReachabilityParams, StateControllerIO},
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
         network_segment::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
@@ -35,6 +36,7 @@ use carbide::{
         },
     },
 };
+use chrono::Duration;
 use rpc::forge::{
     forge_server::Forge, BmcMetaDataUpdateRequest, ForgeAgentControlRequest,
     ForgeAgentControlResponse, MachineDiscoveryCompletedRequest,
@@ -72,6 +74,7 @@ pub struct TestEnv {
     pub vpc_api: Arc<VpcApiSim>,
     pub machine_state_controller_io: MachineStateControllerIO,
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
+    pub reachability_params: ReachabilityParams,
 }
 
 impl TestEnv {
@@ -95,6 +98,7 @@ impl TestEnv {
             redfish_client_pool: self.redfish_sim.clone(),
             vpc_api: self.vpc_api.clone(),
             forge_api,
+            reachability_params: self.reachability_params.clone(),
             pool_vlan_id: None,
             pool_vni: None,
         }
@@ -228,6 +232,10 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
         vpc_api,
         machine_state_controller_io: MachineStateControllerIO::default(),
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
+        reachability_params: ReachabilityParams {
+            checker: Arc::new(TestPingReachabilityChecker::default()),
+            dpu_wait_time: Duration::seconds(0),
+        },
     }
 }
 

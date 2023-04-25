@@ -20,6 +20,7 @@ use tokio::{sync::oneshot, task::JoinSet};
 use crate::{
     kubernetes::VpcApi,
     model::config_version::{ConfigVersion, Versioned},
+    reachability::Reachability,
     redfish::RedfishClientPool,
     resource_pool::ResourcePool,
     state_controller::{
@@ -378,6 +379,13 @@ pub struct Builder<IO: StateControllerIO> {
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
     pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
     pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
+    reachability_params: Option<ReachabilityParams>,
+}
+
+#[derive(Clone)]
+pub struct ReachabilityParams {
+    pub dpu_wait_time: chrono::Duration,
+    pub checker: Arc<dyn Reachability>,
 }
 
 impl<IO: StateControllerIO> Builder<IO> {
@@ -398,6 +406,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             >::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
             forge_api: None,
+            reachability_params: None,
             pool_vlan_id: None,
             pool_vni: None,
         }
@@ -427,6 +436,13 @@ impl<IO: StateControllerIO> Builder<IO> {
             .take()
             .ok_or(StateControllerBuildError::MissingArgument("forge_api"))?;
 
+        let reachability_params =
+            self.reachability_params
+                .take()
+                .ok_or(StateControllerBuildError::MissingArgument(
+                    "reachability_params",
+                ))?;
+
         let (stop_sender, stop_receiver) = oneshot::channel();
 
         if self.max_concurrency == 0 {
@@ -444,6 +460,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             vpc_api,
             redfish_client_pool,
             forge_api,
+            reachability_params,
             pool_vlan_id: self.pool_vlan_id.take(),
             pool_vni: self.pool_vni.take(),
         });
@@ -516,6 +533,12 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// in parallel.
     pub fn max_concurrency(mut self, max_concurrency: usize) -> Self {
         self.max_concurrency = max_concurrency;
+        self
+    }
+
+    /// Configures the parameters used to check DPU's reachability.
+    pub fn reachability_params(mut self, reachability_params: ReachabilityParams) -> Self {
+        self.reachability_params = Some(reachability_params);
         self
     }
 

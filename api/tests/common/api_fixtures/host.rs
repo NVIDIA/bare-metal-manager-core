@@ -148,7 +148,7 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
     env.run_machine_state_controller_iteration_until_state_matches(
         dpu_machine_id,
         &handler,
-        1,
+        3,
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: carbide::model::machine::MachineState::Discovered,

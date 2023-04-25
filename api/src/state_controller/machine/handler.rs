@@ -29,13 +29,16 @@ use crate::{
         dpu_machine::DpuMachine, instance::DeleteInstance, instance_address::InstanceAddress,
         machine_interface::MachineInterface, vpc_resource_leaf::VpcResourceLeaf,
     },
-    ipmi, kubernetes,
+    kubernetes,
     model::{
         config_version::ConfigVersion,
         instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId},
         machine::{
-            machine_id::MachineId, CleanupState, InstanceState, MachineSnapshot, MachineState,
-            ManagedHostState, ManagedHostStateSnapshot,
+            machine_id::MachineId,
+            CleanupState, InstanceState, LockdownInfo,
+            LockdownMode::{self, Enable},
+            LockdownState, MachineSnapshot, MachineState, ManagedHostState,
+            ManagedHostStateSnapshot,
         },
     },
     state_controller::state_handler::{
@@ -371,15 +374,15 @@ impl StateHandler for HostMachineStateHandler {
                         return Ok(());
                     }
                     // Enable Bios/BMC lockdown now.
-                    ipmi::enable_lockdown_reset_machine(
-                        &host_snapshot.machine_id,
-                        ctx.services.pool.clone(),
-                    )
-                    .await
-                    .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+                    lockdown_host(host_snapshot, ctx, true).await?;
 
                     *controller_state.modify() = ManagedHostState::HostNotReady {
-                        machine_state: MachineState::Discovered,
+                        machine_state: MachineState::WaitingForLockdown {
+                            lockdown_info: LockdownInfo {
+                                state: LockdownState::TimeWaitForDPUDown,
+                                mode: Enable,
+                            },
+                        },
                     };
                 }
 
@@ -395,6 +398,51 @@ impl StateHandler for HostMachineStateHandler {
                     }
                     // Machine is ready for Instance Creation.
                     *controller_state.modify() = ManagedHostState::Ready;
+                }
+
+                MachineState::WaitingForLockdown { lockdown_info } => {
+                    match lockdown_info.state {
+                        LockdownState::TimeWaitForDPUDown => {
+                            // Lets wait for some time before checking if DPU is up or not.
+                            // Waiting is needed because DPU takes some time to go down. If we check DPU
+                            // reachability before it goes down, it will give us wrong result.
+                            let expected_time = state.dpu_snapshot.current.version.timestamp()
+                                + ctx.services.reachability_params.dpu_wait_time;
+                            let current_time = Utc::now();
+
+                            if current_time >= expected_time {
+                                *controller_state.modify() = ManagedHostState::HostNotReady {
+                                    machine_state: MachineState::WaitingForLockdown {
+                                        lockdown_info: LockdownInfo {
+                                            state: LockdownState::WaitForDPUUp,
+                                            mode: lockdown_info.mode.clone(),
+                                        },
+                                    },
+                                };
+                            }
+                        }
+                        LockdownState::WaitForDPUUp => {
+                            let checker = ctx.services.reachability_params.checker.build(
+                                state.dpu_ssh_ip_address.ip(),
+                                crate::reachability::ExpectedState::Alive,
+                            );
+
+                            // Wait until DPU is reachable (ping test)
+                            if checker
+                                .check_condition()
+                                .await
+                                .map_err(|e| StateHandlerError::GenericError(e.into()))?
+                            {
+                                // reboot host
+                                restart_machine(host_snapshot, ctx).await?;
+                                if LockdownMode::Enable == lockdown_info.mode {
+                                    *controller_state.modify() = ManagedHostState::HostNotReady {
+                                        machine_state: MachineState::Discovered,
+                                    };
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -587,6 +635,7 @@ impl StateHandler for InstanceStateHandler {
                     .await
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
+                    // TODO: TPM cleanup
                     // Reboot host
                     restart_machine(host_snapshot, ctx).await?;
 
@@ -625,12 +674,57 @@ async fn restart_machine(
 
     // Since libredfish calls are thread blocking and we are inside an async function,
     // we have to delegate the actual call into a threadpool
-    tokio::task::spawn_blocking(move || client.power(libredfish::SystemPowerControl::ForceRestart))
+    tokio::task::spawn_blocking(move || {
+        client.boot_once(libredfish::Boot::Pxe)?;
+        client.power(libredfish::SystemPowerControl::ForceRestart)
+    })
+    .await
+    .map_err(|e| {
+        StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
+    })?
+    .map_err(|e| StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e)))?;
+
+    Ok(())
+}
+
+/// Issues a lockdown and reboot request command to a host.
+async fn lockdown_host(
+    machine_snapshot: &MachineSnapshot,
+    ctx: &StateHandlerContext<'_>,
+    enable: bool,
+) -> Result<(), StateHandlerError> {
+    let bmc_ip =
+        machine_snapshot
+            .bmc_info
+            .ip
+            .as_deref()
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: machine_snapshot.machine_id.to_string(),
+                missing: "bmc_info.ip",
+            })?;
+
+    let client = ctx
+        .services
+        .redfish_client_pool
+        .create_client(&machine_snapshot.machine_id, bmc_ip, None)
         .await
-        .map_err(|e| {
-            StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
-        })?
-        .map_err(|e| StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e)))?;
+        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+
+    // Since libredfish calls are thread blocking and we are inside an async function,
+    // we have to delegate the actual call into a threadpool
+    tokio::task::spawn_blocking(move || {
+        if enable {
+            client.lockdown(libredfish::EnabledDisabled::Enabled)?;
+            // TODO: TPM cleanup
+        }
+        client.boot_once(libredfish::Boot::Pxe)?;
+        client.power(libredfish::SystemPowerControl::ForceRestart)
+    })
+    .await
+    .map_err(|e| {
+        StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
+    })?
+    .map_err(|e| StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e)))?;
 
     Ok(())
 }

@@ -28,7 +28,10 @@ use crate::db::dpu_machine::DpuMachine;
 use crate::db::instance::Instance;
 use crate::db::ipmi::{BmcMetaDataGetRequest, UserRoles};
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
-use crate::reachability::{wait_for_requested_state, PingReachabilityChecker, ReachabilityError};
+use crate::reachability::{
+    wait_for_requested_state, PingReachabilityChecker, Reachability, ReachabilityError,
+};
+use crate::redfish::RedfishClientPool;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -127,7 +130,8 @@ async fn observe_dpu_state_and_reboot_host(
     // Wait until DPU goes down.
     match wait_for_requested_state(
         Duration::from_secs(300),
-        PingReachabilityChecker::new(dpu.address().ip(), crate::reachability::ExpectedState::Dead),
+        PingReachabilityChecker::default()
+            .build(dpu.address().ip(), crate::reachability::ExpectedState::Dead),
     )
     .await
     {
@@ -152,7 +156,7 @@ async fn observe_dpu_state_and_reboot_host(
     // Wait for DPU to come up.
     wait_for_requested_state(
         Duration::from_secs(600),
-        PingReachabilityChecker::new(
+        PingReachabilityChecker::default().build(
             dpu.address().ip(),
             crate::reachability::ExpectedState::Alive,
         ),
@@ -625,6 +629,58 @@ impl MachineBmcRequest {
             self.machine_id
         );
         Ok(task_id)
+    }
+
+    pub async fn reboot_machine(
+        &self,
+        pool: sqlx::PgPool,
+        redfish_pool: Arc<dyn RedfishClientPool>,
+    ) -> CarbideResult<()> {
+        let mut txn = pool
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin invoke_bmc_command", e))?;
+
+        let role = UserRoles::Administrator;
+        let (bmc_ip, _) = BmcMetaDataGetRequest {
+            machine_id: self.machine_id.clone(),
+            role,
+        }
+        .get_bmc_host_ip(&mut txn)
+        .await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit invoke_bmc_command", e))?;
+
+        let client = redfish_pool
+            .create_client(&self.machine_id, &bmc_ip, None)
+            .await
+            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+        let boot_with_custom_ipxe = self.boot_with_custom_ipxe;
+
+        // Since libredfish calls are thread blocking and we are inside an async function,
+        // we have to delegate the actual call into a threadpool
+        tokio::task::spawn_blocking(move || {
+            if boot_with_custom_ipxe {
+                client.boot_once(libredfish::Boot::Pxe)?;
+            }
+            client.power(libredfish::SystemPowerControl::ForceRestart)
+        })
+        .await
+        .map_err(|e| {
+            CarbideError::GenericError(format!("Failed redfish ForceRestart subtask: {}", e))
+        })?
+        .map_err(|e| CarbideError::GenericError(format!("Failed to restart machine: {}", e)))?;
+
+        log::info!(
+            "Started bmc operation {:?} for machine_id {}",
+            self.operation,
+            self.machine_id
+        );
+
+        Ok(())
     }
 }
 

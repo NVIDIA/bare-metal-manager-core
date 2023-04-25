@@ -129,7 +129,7 @@ impl Redfish for RedfishSimClient {
     }
 
     fn lockdown(&self, _target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
-        todo!()
+        Ok(())
     }
 
     fn lockdown_status(&self) -> Result<libredfish::Status, RedfishError> {
@@ -146,7 +146,7 @@ impl Redfish for RedfishSimClient {
     }
 
     fn boot_once(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
-        todo!()
+        Ok(())
     }
 
     fn boot_first(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {

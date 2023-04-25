@@ -13,6 +13,7 @@
 use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
+use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 
 use super::{config_version::ConfigVersion, instance::snapshot::InstanceSnapshot};
@@ -30,6 +31,7 @@ pub const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 pub struct ManagedHostStateSnapshot {
     pub host_snapshot: Option<MachineSnapshot>,
     pub dpu_snapshot: MachineSnapshot,
+    pub dpu_ssh_ip_address: IpNetwork,
     /// If there is an instance provisioned on top of the machine, this holds
     /// it's state
     pub instance: Option<InstanceSnapshot>,
@@ -80,7 +82,7 @@ pub enum ManagedHostState {
     /// Some cleanup is going on.
     WaitingForCleanup { cleanup_state: CleanupState },
     /// Intermediate state for machine to be created.
-    /// This state is not processed anywhere. Correct satte is updated immediately.
+    /// This state is not processed anywhere. Correct state is updated immediately.
     Created,
     /// A forced deletion process has been triggered by the admin CLI
     /// State controller will no longer manage the Machine
@@ -94,6 +96,17 @@ pub enum MachineState {
     WaitingForLeafCreation,
     WaitingForDiscovery,
     Discovered,
+    /// Lockdown handling.
+    WaitingForLockdown {
+        lockdown_info: LockdownInfo,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub struct LockdownInfo {
+    pub state: LockdownState,
+    pub mode: LockdownMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -101,6 +114,24 @@ pub enum MachineState {
 pub enum CleanupState {
     HostCleanup,
     DisableBIOSBMCLockdown,
+}
+
+/// Substates of enabling/disabling lockdown
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")] // No tag requried - this is not nested
+pub enum LockdownState {
+    /// We simply wait in this state for a certain amount of time to allow the
+    /// DPU to go down. Besides waiting to other checks are performed.
+    TimeWaitForDPUDown,
+    /// In this state we check whether the DPU restarted and is reachable again
+    WaitForDPUUp,
+}
+
+/// Whether lockdown should be enabled or disabled in an operation
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")] // No tag required - this will never be nested
+pub enum LockdownMode {
+    Enable,
 }
 
 /// Possible Instance state-machine implementation
@@ -127,6 +158,12 @@ impl Display for InstanceState {
 }
 
 impl Display for CleanupState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Display for LockdownState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }

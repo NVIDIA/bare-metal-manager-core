@@ -21,6 +21,8 @@ use crate::{
     state_controller::snapshot_loader::SnapshotLoaderError,
 };
 
+use super::controller::ReachabilityParams;
+
 /// Services that are accessible to the `StateHandler`
 pub struct StateHandlerServices {
     /// A database connection pool that can be used for additional queries
@@ -34,6 +36,9 @@ pub struct StateHandlerServices {
 
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
+
+    // Reachability params to check if DPU is up or not.
+    pub reachability_params: ReachabilityParams,
 
     /// Resource pool for VNI (VXLAN ID) allocate/release
     /// None if VPC is managing this data

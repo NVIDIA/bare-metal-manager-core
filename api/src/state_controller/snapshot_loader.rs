@@ -12,6 +12,7 @@
 
 use crate::{
     db::{
+        dpu_machine::DpuMachine,
         instance::{
             config::network::load_instance_network_config,
             status::network::load_instance_network_status_observation, Instance,
@@ -146,6 +147,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             }
         };
 
+        let dpu = DpuMachine::find_by_host_machine_id(txn, dpu_machine_id).await?;
         let snapshot = ManagedHostStateSnapshot {
             host_snapshot: if let Some(host) = host {
                 Some(get_machine_snapshot(txn, host.id()).await?)
@@ -153,6 +155,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
                 None
             },
             dpu_snapshot: dpu_snapshot.clone(),
+            dpu_ssh_ip_address: *dpu.address(),
             instance: instance_snapshot,
             managed_state: dpu_snapshot.current.state,
         };
