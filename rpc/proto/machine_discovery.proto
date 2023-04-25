@@ -34,6 +34,9 @@ message DiscoveryInfo {
 
   // Enumerates discovered infiniband interfaces on the host
   repeated InfinibandInterface infiniband_interfaces = 9;
+
+  // DPU specific data
+  optional DpuData dpu_info = 10;
 }
 
 message NetworkInterface {
@@ -86,4 +89,13 @@ message PciDeviceProperties{
   string path = 3;
   sint32 numa_node = 4;
   optional string description = 5;
+}
+
+message DpuData {
+  string part_number = 1;
+  string part_description = 2;
+  string product_version = 3;
+  string factory_mac_address = 4;
+  string firmware_version = 5;
+  string firmware_date = 6;
 }

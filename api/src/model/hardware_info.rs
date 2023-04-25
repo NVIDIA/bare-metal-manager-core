@@ -34,6 +34,8 @@ pub struct HardwareInfo {
     #[serde(default)]
     pub dmi_data: Option<DmiData>,
     pub tpm_ek_certificate: Option<TpmEkCertificate>,
+    #[serde(default)]
+    pub dpu_info: Option<DpuData>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +109,22 @@ pub struct DmiData {
     pub product_name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sys_vendor: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DpuData {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub part_number: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub part_description: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub product_version: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub factory_mac_address: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub firmware_version: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub firmware_date: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -288,6 +306,36 @@ impl TryFrom<DmiData> for rpc::machine_discovery::DmiData {
     }
 }
 
+impl TryFrom<rpc::machine_discovery::DpuData> for DpuData {
+    type Error = RpcDataConversionError;
+
+    fn try_from(data: rpc::machine_discovery::DpuData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            part_number: data.part_number,
+            part_description: data.part_description,
+            product_version: data.product_version,
+            factory_mac_address: data.factory_mac_address,
+            firmware_version: data.firmware_version,
+            firmware_date: data.firmware_date,
+        })
+    }
+}
+
+impl TryFrom<DpuData> for rpc::machine_discovery::DpuData {
+    type Error = RpcDataConversionError;
+
+    fn try_from(data: DpuData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            part_number: data.part_number,
+            part_description: data.part_description,
+            product_version: data.product_version,
+            factory_mac_address: data.factory_mac_address,
+            firmware_version: data.firmware_version,
+            firmware_date: data.firmware_date,
+        })
+    }
+}
+
 impl TryFrom<rpc::machine_discovery::NetworkInterface> for NetworkInterface {
     type Error = RpcDataConversionError;
 
@@ -411,6 +459,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             nvme_devices: try_convert_vec(info.nvme_devices)?,
             dmi_data: info.dmi_data.map(DmiData::try_from).transpose()?,
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
+            dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
         })
     }
 }
@@ -433,6 +482,10 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
             tpm_ek_certificate: info
                 .tpm_ek_certificate
                 .map(|cert| base64::encode(cert.into_bytes())),
+            dpu_info: info
+                .dpu_info
+                .map(rpc::machine_discovery::DpuData::try_from)
+                .transpose()?,
         })
     }
 }

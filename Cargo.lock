@@ -1850,6 +1850,7 @@ dependencies = [
  "libudev",
  "log",
  "procfs",
+ "regex",
  "rpc",
  "serde",
  "thiserror",

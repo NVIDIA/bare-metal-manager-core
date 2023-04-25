@@ -18,8 +18,10 @@ use std::{
 
 use ::rpc::machine_discovery as rpc_discovery;
 use libudev::Device;
+use log::error;
 use uname::uname;
 
+mod dpu;
 mod tpm;
 
 const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
@@ -491,6 +493,17 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         }
     };
 
+    let dpu_vpd = match arch {
+        CpuArchitecture::Aarch64 => match dpu::get_dpu_info() {
+            Ok(dpu_data) => Some(dpu_data),
+            Err(e) => {
+                log::error!("Could not get DPU data: {:?}", e);
+                None
+            }
+        },
+        CpuArchitecture::X86_64 => None,
+    };
+
     log::debug!("Discovered Disks - {:?}", disks);
     log::debug!("Discovered CPUs: {:?}", cpus);
     log::debug!("Discovered NICS: {:?}", nics);
@@ -498,6 +511,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     log::debug!("Discovered NVMES: {:?}", nvmes);
     log::debug!("Discovered DMI: {:?}", dmi);
     log::debug!("Discovered Machine Architecture: {}", info.machine.as_str());
+    log::debug!("Discovered DPU: {:?}", dpu_vpd);
     if let Some(cert) = tpm_ek_certificate.as_ref() {
         log::debug!("TPM EK certificate (base64): {}", cert);
     }
@@ -511,5 +525,6 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         dmi_data: Some(dmi),
         machine_type: info.machine.as_str().to_owned(),
         tpm_ek_certificate,
+        dpu_info: dpu_vpd,
     })
 }
