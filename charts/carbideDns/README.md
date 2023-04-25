@@ -8,7 +8,7 @@ A Helm chart for carbide-dns
 
 | Repository | Name | Version |
 |------------|------|---------|
-| https://helm.ngc.nvidia.com/nvidian/forge | common | 2.2.1 |
+| https://helm.ngc.nvidia.com/nvidian/nvforge | common | 2.2.1 |
 
 ## Values
 
@@ -49,7 +49,7 @@ A Helm chart for carbide-dns
 | container.image.pullPolicy | string | `"IfNotPresent"` |  |
 | container.image.pullSecrets[0] | string | `"imagepullsecret"` |  |
 | container.image.registry | string | `"nvcr.io"` |  |
-| container.image.repository | string | `"nvidian/forge/nvmetal-carbide"` |  |
+| container.image.repository | string | `"nvidian/nvforge/nvmetal-carbide"` |  |
 | container.image.tag | string | `"latest"` |  |
 | container.initContainers | list | `[]` |  |
 | container.lifecycleHooks | object | `{}` |  |
@@ -157,7 +157,7 @@ A Helm chart for carbide-dns
 | volumePermissions.image.pullPolicy | string | `"IfNotPresent"` | Bitnami Shell image pull policy |
 | volumePermissions.image.pullSecrets | list | `[]` | Bitnami Shell image pull secrets Optionally specify an array of imagePullSecrets. Secrets must be manually created in the namespace. ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/ |
 | volumePermissions.image.registry | string | `"nvcr.io"` | Bitnami Shell image registry |
-| volumePermissions.image.repository | string | `"nvidia/forge/bitnami-shell"` | Bitnami Shell image repository |
+| volumePermissions.image.repository | string | `"nvidia/nvforge/bitnami-shell"` | Bitnami Shell image repository |
 | volumePermissions.image.tag | string | `"latest"` | Bitnami Shell image tag (immutable tags are recommended) |
 | volumePermissions.resources.limits | object | `{}` | The resources limits for the init container |
 | volumePermissions.resources.requests | object | `{}` | The requested resources for the init container |

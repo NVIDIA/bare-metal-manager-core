@@ -8,7 +8,7 @@ variables:
   VAULT_NAMESPACE: ngc
   VAULT_JWT_PATH: auth/gitlab/login
   NAME_SPACE: forge-system
-  HELM_NGC: https://helm.ngc.nvidia.com/nvidian/forge
+  HELM_NGC: https://helm.ngc.nvidia.com/nvidian/nvforge
   HELM_NGC_STG: https://helm.stg.ngc.nvidia.com/nvidia/nvforge
   SAST_EXCLUDED_PATHS: "/doc,/examples,/spec,README*"
   HELM_CACHE_HOME: ${CI_PROJECT_DIR}/helm/.cache

@@ -19,7 +19,7 @@ type: application
 dependencies:
   - name: common
     version: 2.2.1
-    repository: https://helm.ngc.nvidia.com/nvidian/forge
+    repository: https://helm.ngc.nvidia.com/nvidian/nvforge
     tags:
       - bitnami-common
 

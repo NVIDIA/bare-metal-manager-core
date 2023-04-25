@@ -67,7 +67,7 @@ container:
   image:
     registry: nvcr.io
     # carbideApi.image.registry -- carbide image registry
-    repository: nvidian/forge/nvmetal-carbide
+    repository: nvidian/nvforge/nvmetal-carbide
     # carbideApi.image.repository -- carbide image repository
     tag: latest
     # carbideApi.image.tag -- carbide image tag (immutable tags are recommended)
@@ -497,7 +497,7 @@ volumePermissions:
     # ref: https://hub.docker.com/r/bitnami/bitnami-shell/tags/
     registry: nvcr.io
     # volumePermissions.image.registry -- Bitnami Shell image registry
-    repository: nvidian/forge/bitnami-shell
+    repository: nvidian/nvforge/bitnami-shell
     # volumePermissions.image.repository -- Bitnami Shell image repository
     tag: latest
     # volumePermissions.image.tag -- Bitnami Shell image tag (immutable tags are recommended)
