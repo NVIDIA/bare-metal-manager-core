@@ -772,6 +772,10 @@ impl VpcApiSim {
             config,
         }
     }
+
+    pub fn num_leafs(&self) -> usize {
+        self.state.lock().unwrap().leafs.len()
+    }
 }
 
 #[derive(Debug)]

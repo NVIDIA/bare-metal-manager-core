@@ -133,7 +133,8 @@ impl Redfish for RedfishSimClient {
     }
 
     fn lockdown_status(&self) -> Result<libredfish::Status, RedfishError> {
-        todo!()
+        // TODO: Return the real lockdown status based on the simulated host
+        Err(RedfishError::NoContent)
     }
 
     fn setup_serial_console(&self) -> Result<(), RedfishError> {

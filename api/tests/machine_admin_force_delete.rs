@@ -15,20 +15,21 @@ use log::LevelFilter;
 use carbide::{
     db::{
         machine::{Machine, MachineSearchConfig},
-        machine_interface::MachineInterface,
         machine_state_history::MachineStateHistory,
         machine_topology::MachineTopology,
         vpc_resource_leaf::VpcResourceLeaf,
     },
-    model::machine::machine_id::try_parse_machine_id,
+    model::machine::machine_id::{try_parse_machine_id, MachineId},
 };
 
 use ::rpc::forge::{forge_server::Forge, AdminForceDeleteMachineRequest};
 
 pub mod common;
 use common::api_fixtures::{
-    create_test_env,
+    create_managed_host, create_test_env,
     dpu::{create_dpu_machine, FIXTURE_DPU_BMC_IP_ADDRESS},
+    host::{host_discover_dhcp, FIXTURE_HOST_BMC_IP_ADDRESS, FIXTURE_HOST_MAC_ADDRESS},
+    TestEnv,
 };
 
 #[ctor::ctor]
@@ -66,75 +67,223 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
         .is_ok());
     txn.rollback().await.unwrap();
 
-    let response = env
-        .api
-        .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
-            host_query: dpu_machine_id.to_string(),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert!(!response.all_done);
-    let response = env
-        .api
-        .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
-            host_query: dpu_machine_id.to_string(),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_eq!(response.dpu_machine_id, dpu_machine_id.to_string());
+    let mut response = force_delete(&env, &dpu_machine_id).await;
+    validate_initial_delete_response(&response, None, &dpu_machine_id);
     assert_eq!(
         response.dpu_machine_interface_id,
         dpu_machine.interfaces()[0].id().to_string()
     );
-    assert_eq!(response.managed_host_machine_id, "");
-    assert_eq!(response.dpu_bmc_ip, FIXTURE_DPU_BMC_IP_ADDRESS);
 
+    let mut delete_attempts = 0;
+    while !response.all_done && delete_attempts < 10 {
+        response = force_delete(&env, &dpu_machine_id).await;
+        delete_attempts += 10;
+    }
+    assert!(
+        response.all_done,
+        "DPU must be deleted after at most 10 attempts"
+    );
+
+    // Validate that the DPU is gone
+    validate_machine_deletion(&env, &dpu_machine_id).await;
+    // Check that the leaf is released
+    assert_eq!(env.vpc_api.num_leafs(), 0);
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone(), Default::default());
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let mut response = force_delete(&env, &dpu_machine_id).await;
+    validate_initial_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
+
+    let mut delete_attempts = 0;
+    while !response.all_done && delete_attempts < 10 {
+        response = force_delete(&env, &dpu_machine_id).await;
+        delete_attempts += 10;
+    }
+    assert!(
+        response.all_done,
+        "Host must be deleted after at most 10 attempts"
+    );
+
+    for id in [host_machine_id, dpu_machine_id] {
+        validate_machine_deletion(&env, &id).await;
+    }
+    // Check that the leaf is released
+    assert_eq!(env.vpc_api.num_leafs(), 0);
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone(), Default::default());
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let mut response = force_delete(&env, &host_machine_id).await;
+    validate_initial_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
+
+    let mut delete_attempts = 0;
+    while !response.all_done && delete_attempts < 10 {
+        response = force_delete(&env, &host_machine_id).await;
+        delete_attempts += 10;
+    }
+    assert!(
+        response.all_done,
+        "Host must be deleted after at most 10 attempts"
+    );
+
+    // The host machine should be now be gone in the API
+    assert!(env
+        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .is_empty());
+    // The dpu machine should still exist - we just can't look it up anymore based on
+    // a non-existing DPU machine. Therefore `all_done` was set
+    assert!(!env
+        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .is_empty());
+
+    // Continue deleting based on the DPU machine ID
+    delete_attempts = 0;
+    response.all_done = false;
+    while !response.all_done && delete_attempts < 10 {
+        response = force_delete(&env, &dpu_machine_id).await;
+        delete_attempts += 10;
+    }
+    assert!(
+        response.all_done,
+        "DPU must be deleted after at most 10 attempts"
+    );
+
+    // Everything should be gone now
+    for id in [host_machine_id, dpu_machine_id] {
+        validate_machine_deletion(&env, &id).await;
+    }
+    // Check that the leaf is released
+    assert_eq!(env.vpc_api.num_leafs(), 0);
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone(), Default::default());
+    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
+    let host_machine_interface_id =
+        host_discover_dhcp(&env, FIXTURE_HOST_MAC_ADDRESS, &dpu_machine_id.clone()).await;
+
+    // The MachineInterface for the host should now exist and be linked to the DPU
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(host_machine_interface_id.clone()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    assert_eq!(
+        iface.attached_dpu_machine_id,
+        Some(dpu_machine_id.to_string().into())
+    );
+
+    let mut response = force_delete(&env, &dpu_machine_id).await;
+    validate_initial_delete_response(&response, None, &dpu_machine_id);
+
+    let mut delete_attempts = 0;
+    while !response.all_done && delete_attempts < 10 {
+        response = force_delete(&env, &dpu_machine_id).await;
+        delete_attempts += 10;
+    }
+    assert!(
+        response.all_done,
+        "DPU must be deleted after at most 10 attempts"
+    );
+
+    validate_machine_deletion(&env, &dpu_machine_id).await;
+    // Check that the leaf is released
+    assert_eq!(env.vpc_api.num_leafs(), 0);
+
+    // The MachineInterface for the host should still exist
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(host_machine_interface_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    assert_eq!(iface.attached_dpu_machine_id, None);
+}
+
+async fn force_delete(
+    env: &TestEnv,
+    machine_id: &MachineId,
+) -> rpc::forge::AdminForceDeleteMachineResponse {
+    env.api
+        .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: machine_id.to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+}
+
+fn validate_initial_delete_response(
+    response: &rpc::forge::AdminForceDeleteMachineResponse,
+    host_machine_id: Option<&MachineId>,
+    dpu_machine_id: &MachineId,
+) {
+    assert!(!response.all_done);
+    assert_eq!(response.dpu_machine_id, dpu_machine_id.to_string());
+    assert_eq!(
+        response.managed_host_machine_id,
+        host_machine_id.map(|id| id.to_string()).unwrap_or_default()
+    );
+    assert_eq!(response.dpu_bmc_ip, FIXTURE_DPU_BMC_IP_ADDRESS);
+    if host_machine_id.is_some() {
+        assert_eq!(response.managed_host_bmc_ip, FIXTURE_HOST_BMC_IP_ADDRESS);
+    } else {
+        assert!(response.managed_host_bmc_ip.is_empty());
+    }
+}
+
+/// Validates that the Machine has been fully deleted
+async fn validate_machine_deletion(env: &TestEnv, machine_id: &MachineId) {
     // The machine should be now be gone in the API
     let response = env
-        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        .find_machines(Some(machine_id.to_string().into()), None, true)
         .await;
     assert!(response.machines.is_empty());
 
     // And it should also be gone on the DB layer
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     assert!(
-        Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .is_none()
     );
+    assert!(
+        MachineTopology::find_by_machine_ids(&mut txn, &[machine_id.clone()])
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     // The history should remain in table.
     assert!(
-        !MachineStateHistory::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+        !MachineStateHistory::find_by_machine_ids(&mut txn, &[machine_id.clone()])
             .await
             .unwrap()
             .is_empty()
     );
-    // And the topology
-    assert!(
-        MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-            .await
-            .unwrap()
-            .is_empty()
-    );
-    // And the leaf table entry
-    assert!(VpcResourceLeaf::find(&mut txn, &dpu_machine_id)
-        .await
-        .is_err());
-
-    // The associated interface should not point to any machine anymore
-    let iface = MachineInterface::find_one(&mut txn, *dpu_machine.interfaces()[0].id())
-        .await
-        .unwrap();
-    assert!(iface.attached_dpu_machine_id().is_none());
     txn.rollback().await.unwrap();
-
-    // TODO: Check that the leaf is released
 }
 
-// TODO: Test deletion for Machines with hosts and instances
+// TODO: Test deletion for machines with active instances on them
