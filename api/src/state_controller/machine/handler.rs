@@ -717,7 +717,6 @@ async fn lockdown_host(
             client.lockdown(libredfish::EnabledDisabled::Enabled)?;
             // TODO: TPM cleanup
         }
-        client.boot_once(libredfish::Boot::Pxe)?;
         client.power(libredfish::SystemPowerControl::ForceRestart)
     })
     .await

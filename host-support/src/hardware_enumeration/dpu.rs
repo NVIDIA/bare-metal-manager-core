@@ -85,14 +85,7 @@ fn get_flint_query() -> Result<String, DpuEnumerationError> {
             .map_err(|x| DpuEnumerationError::GenericError(x.to_string()))
     } else {
         Cmd::default()
-            .args(vec![
-                "-c",
-                "flint",
-                "-d",
-                "/dev/mst/mt*_pciconf0",
-                "q",
-                "full",
-            ])
+            .args(vec!["-c", "flint -d /dev/mst/mt*_pciconf0 q full"])
             .output()
     }
 }
