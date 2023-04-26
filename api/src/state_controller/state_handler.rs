@@ -128,7 +128,7 @@ impl<'a, S> std::ops::DerefMut for ControllerStateModifier<'a, S> {
 /// as input, and can take any decisions to advance the Object state.
 #[async_trait::async_trait]
 pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
-    type ObjectId;
+    type ObjectId: Clone + std::fmt::Display + std::fmt::Debug;
     type State;
     type ControllerState;
 
@@ -190,8 +190,11 @@ impl<I, S, CS> Default for NoopStateHandler<I, S, CS> {
 }
 
 #[async_trait::async_trait]
-impl<I: Send + Sync + 'static, S: Send + Sync + 'static, CS: Send + Sync + 'static> StateHandler
-    for NoopStateHandler<I, S, CS>
+impl<
+        I: Clone + std::fmt::Display + std::fmt::Debug + Send + Sync + 'static,
+        S: Send + Sync + 'static,
+        CS: Send + Sync + 'static,
+    > StateHandler for NoopStateHandler<I, S, CS>
 {
     type State = S;
     type ControllerState = CS;

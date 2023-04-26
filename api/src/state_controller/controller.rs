@@ -59,7 +59,7 @@ pub struct StateController<IO: StateControllerIO> {
 /// and how it loads the objects state.
 #[async_trait::async_trait]
 pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
-    type ObjectId: Send + Sync + 'static + Clone;
+    type ObjectId: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static + Clone;
     type State: Send + Sync + 'static;
     type ControllerState: Send + Sync + 'static;
 
@@ -237,7 +237,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
             // Note that this inner async block is required to be able to use
             // the ? operator in the inner block, and then return a `Result`
             // from the other outer block.
-            let result: Result<(), StateHandlerError> = async move {
+            let result: Result<(), StateHandlerError> = async {
                 let mut txn = services.pool.begin().await?;
                 let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
                 let mut controller_state = io
@@ -281,9 +281,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
             .await;
 
             if let Err(e) = &result {
-                // TODO: Print object ID - but this requires lots of changes for
-                // making it implement Debug/Display
-                tracing::warn!("State handler returned error: {:?}", e);
+                tracing::warn!("State handler for {} returned error: {:?}", object_id, e);
             }
 
             result
