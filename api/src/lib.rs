@@ -247,7 +247,10 @@ impl From<CarbideError> for tonic::Status {
             }
         }
         if !printed {
-            log::error!("{from}");
+            match from {
+                CarbideError::NotImplemented => {}
+                _ => log::error!("{from}"),
+            }
         }
 
         // TODO: There's many more mapped to `Status::internal` which are likely
