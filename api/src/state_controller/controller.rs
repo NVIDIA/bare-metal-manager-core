@@ -294,23 +294,23 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
     // even thought the next controller iteration already started.
     // Therefore we drain the `task_set` here completely and record all errors
     // before returning.
-    let mut errors: Vec<IterationError> = vec![];
+    let mut last_join_error: Option<tokio::task::JoinError> = None;
     while let Some(result) = task_set.join_next().await {
         match result {
             Err(join_error) => {
-                // Since we only want to return a single error and prefer to return
-                // the panic information, we push it at front
-                errors.insert(0, join_error.into());
+                last_join_error = Some(join_error);
             }
-            Ok(Err(handler_error)) => {
-                errors.push(handler_error.into());
+            Ok(Err(_handler_error)) => {
+                // Since we log StateHandlerErrors including the objectId inside the
+                // handling task themselves, we don't have to forward these errors.
+                // This avoids double logging of the results of individual tasks.
             }
             Ok(Ok(())) => {}
         }
     }
 
-    if !errors.is_empty() {
-        return Err(errors.swap_remove(0));
+    if let Some(err) = last_join_error.take() {
+        return Err(err.into());
     }
 
     Ok(())
