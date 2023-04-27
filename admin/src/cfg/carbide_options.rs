@@ -108,15 +108,15 @@ pub enum RedfishCommand {
     PcieDevices,
     #[clap(about = "List pending operations")]
     Pending,
-    #[clap(about = "Force restart")]
+    #[clap(about = "Force restart, apply pending BMC settings")]
     Reset,
-    #[clap(about = "Graceful restart")]
+    #[clap(about = "Graceful host-only restart, does not apply BMC settings")]
     Restart,
     #[clap(about = "Enable serial console")]
     SerialEnable,
     #[clap(about = "Serial console status")]
     SerialStatus,
-    #[clap(about = "Graceful shutdown")]
+    #[clap(about = "Graceful host shutdown")]
     Shutdown,
     #[clap(about = "Clear Trusted Platform Module (TPM)")]
     TpmReset,
