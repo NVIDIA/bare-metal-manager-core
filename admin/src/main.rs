@@ -211,7 +211,6 @@ async fn main() -> color_eyre::Result<()> {
         .with(env_filter)
         .try_init()?;
 
-    env::set_var("RUST_BACKTRACE", "1");
     let carbide_api_url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());

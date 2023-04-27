@@ -92,6 +92,8 @@ pub enum RedfishCommand {
     BootOnceHdd,
     #[clap(about = "On next boot only, boot from PXE")]
     BootOncePxe,
+    #[clap(about = "Delete all pending jobs")]
+    ClearPending,
     #[clap(about = "Is this thing on?")]
     GetPowerState,
     #[clap(about = "Disable BMC/BIOS lockdown")]

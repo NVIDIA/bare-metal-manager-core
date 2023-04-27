@@ -50,6 +50,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             BootOncePxe => {
                 redfish.boot_once(Boot::Pxe)?;
             }
+            ClearPending => {
+                redfish.clear_pending()?;
+            }
             GetPowerState => {
                 println!("{}", redfish.get_power_state()?);
             }

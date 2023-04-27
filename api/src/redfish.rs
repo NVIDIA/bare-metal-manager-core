@@ -165,6 +165,10 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
+    fn clear_pending(&self) -> Result<(), RedfishError> {
+        todo!()
+    }
+
     fn pcie_devices(&self) -> Result<Vec<libredfish::PCIeDevice>, RedfishError> {
         todo!()
     }
