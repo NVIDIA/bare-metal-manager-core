@@ -211,26 +211,20 @@ async fn main() -> color_eyre::Result<()> {
         .with(env_filter)
         .try_init()?;
 
+    // Commands that don't talk to Carbide API
+    if let CarbideCommand::Redfish(ra) = config.commands {
+        return redfish::action(ra).await;
+    }
+
     let carbide_api_url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
-
     let api_config = Config {
         carbide_api_url,
         forge_root_ca_path,
     };
 
-    let mut output_file = if let Some(filename) = config.output {
-        Box::new(
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(filename)?,
-        ) as Box<dyn std::io::Write>
-    } else {
-        Box::new(std::io::stdout()) as Box<dyn std::io::Write>
-    };
-
+    // Command do talk to Carbide API
     match config.commands {
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
@@ -307,6 +301,16 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::ManagedHost(managed_host) => match managed_host {
             ManagedHost::Show(managed_host) => {
+                let mut output_file = if let Some(filename) = config.output {
+                    Box::new(
+                        OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .open(filename)?,
+                    ) as Box<dyn std::io::Write>
+                } else {
+                    Box::new(std::io::stdout()) as Box<dyn std::io::Write>
+                };
                 managed_host::handle_show(&mut output_file, managed_host, config.format, api_config)
                     .await?
             }
@@ -316,8 +320,9 @@ async fn main() -> color_eyre::Result<()> {
                 resource_pool::define_all_from(&def.filename, api_config).await?;
             }
         },
-        CarbideCommand::Redfish(ra) => {
-            redfish::action(ra).await?;
+        CarbideCommand::Redfish(_) => {
+            // Handled earlier
+            unreachable!();
         }
     }
 
