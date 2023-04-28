@@ -11,16 +11,19 @@
  */
 
 use std::{
+    net::Ipv4Addr,
     thread::sleep,
     time::{Duration, SystemTime},
 };
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client;
+use eyre::WrapErr;
 use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
+use network_config_fetcher::NetworkConfig;
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 
@@ -29,6 +32,8 @@ use crate::{
     frr::FrrVlanConfig,
     interfaces::PortConfig,
 };
+
+const TODO_IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
 mod command_line;
 mod dhcp;
@@ -50,6 +55,8 @@ fn main() -> eyre::Result<()> {
 
     let env_filter = EnvFilter::from_default_env()
         .add_directive("tower=warn".parse()?)
+        .add_directive("rustls=warn".parse()?)
+        .add_directive("hyper=warn".parse()?)
         .add_directive("h2=warn".parse()?);
     tracing_subscriber::registry()
         .with(fmt::Layer::default().compact())
@@ -125,7 +132,7 @@ fn main() -> eyre::Result<()> {
                     })
                     .collect();
                 let contents = frr::build(frr::FrrConfig {
-                    asn: opts.asn,
+                    asn: opts.asn as u64,
                     loopback_ip: opts.loopback_ip,
                     is_import_default_route: opts.import_default_route,
                     access_vlans,
@@ -158,6 +165,7 @@ fn main() -> eyre::Result<()> {
 
             WriteTarget::Dhcp(opts) => {
                 let contents = dhcp::build(dhcp::DhcpConfig {
+                    uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
                     vlan_ids: opts.vlan,
                     dhcp_servers: opts.dhcp,
                 })?;
@@ -211,8 +219,21 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root
         }
         first = false;
 
-        let network_config = network_config_reader.read();
-        trace!("Desired network config is {:?}", network_config);
+        if let Some(ref network_config) = *network_config_reader.read() {
+            debug!("Desired network config is {:?}", network_config);
+            if false {
+                // work in progress
+                if let Err(err) = write_dhcp_relay_config(network_config) {
+                    error!("write_dhcp_relay_config: {err:#}");
+                }
+                if let Err(err) = write_interfaces(network_config) {
+                    error!("write_interfaces: {err:#}");
+                }
+                if let Err(err) = write_frr(network_config) {
+                    error!("write_frr: {err:#}");
+                }
+            }
+        }
 
         let health_report = health::health_check();
         trace!("{} health is {}", machine_id, health_report);
@@ -244,17 +265,78 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root
         {
             Ok(client) => client,
             Err(err) => {
-                error!("Could not connect to Forge API server at {forge_api}. Will retry. {err}");
+                error!("Could not connect to Forge API server at {forge_api}. Will retry. {err:#}");
                 continue;
             }
         };
         let request = tonic::Request::new(observation);
 
         if let Err(err) = rt.block_on(client.record_managed_host_network_status(request)) {
-            error!(
-                "Error while executing the record_machine_network_status gRPC call: {}",
-                err.to_string()
-            );
+            error!("Error while executing the record_machine_network_status gRPC call: {err:#}");
         }
     }
+}
+
+fn write_dhcp_relay_config(_netconf: &NetworkConfig) -> Result<(), eyre::Report> {
+    let next_contents = dhcp::build(dhcp::DhcpConfig {
+        uplinks: vec![],
+        vlan_ids: vec![],
+        dhcp_servers: vec![],
+    })?;
+    std::fs::write(dhcp::PATH_NEXT, next_contents.clone())
+        .wrap_err_with(|| format!("fs::write {}", dhcp::PATH_NEXT))?;
+    trace!("Wrote {}", dhcp::PATH_NEXT);
+
+    let current = std::fs::read_to_string(dhcp::PATH)
+        .wrap_err_with(|| format!("fs::read_to_string {}", dhcp::PATH))?;
+    if current != next_contents {
+        debug!("Applying new DHCP relay config");
+        std::fs::rename(dhcp::PATH_NEXT, dhcp::PATH)?;
+        dhcp::reload()?;
+    }
+
+    Ok(())
+}
+
+fn write_interfaces(_netconf: &NetworkConfig) -> Result<(), eyre::Report> {
+    let next_contents = interfaces::build(interfaces::InterfacesConfig {
+        loopback_ip: TODO_IP,
+        is_admin: false,
+        ports: vec![],
+    })?;
+    std::fs::write(interfaces::PATH_NEXT, next_contents.clone())
+        .wrap_err_with(|| format!("fs::write {}", interfaces::PATH_NEXT))?;
+    trace!("Wrote {}", interfaces::PATH_NEXT);
+
+    let current = std::fs::read_to_string(interfaces::PATH)
+        .wrap_err_with(|| format!("fs::read_to_string {}", interfaces::PATH))?;
+    if current != next_contents {
+        debug!("Applying new /etc/network/interfaces config");
+        std::fs::rename(interfaces::PATH_NEXT, interfaces::PATH)?;
+        interfaces::reload()?;
+    }
+
+    Ok(())
+}
+
+fn write_frr(_netconf: &NetworkConfig) -> Result<(), eyre::Report> {
+    let next_contents = frr::build(frr::FrrConfig {
+        asn: 0,
+        loopback_ip: TODO_IP,
+        is_import_default_route: false,
+        access_vlans: vec![],
+    })?;
+    std::fs::write(frr::PATH_NEXT, next_contents.clone())
+        .wrap_err_with(|| format!("fs::write {}", frr::PATH_NEXT))?;
+    trace!("Wrote {}", frr::PATH_NEXT);
+
+    let current = std::fs::read_to_string(frr::PATH)
+        .wrap_err_with(|| format!("fs::read_to_string {}", frr::PATH))?;
+    if current != next_contents {
+        debug!("Applying new frr.conf config");
+        std::fs::rename(frr::PATH_NEXT, frr::PATH)?;
+        frr::reload()?;
+    }
+
+    Ok(())
 }

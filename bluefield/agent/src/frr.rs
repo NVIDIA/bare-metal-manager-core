@@ -10,11 +10,12 @@
  *   its affiliates is strictly prohibited.
  */
 
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, process::Command};
 
 use gtmpl_derive::Gtmpl;
 
-const _PATH: &str = "/etc/frr/frr.conf";
+pub const PATH: &str = "/etc/frr/frr.conf";
+pub const PATH_NEXT: &str = "/etc/frr/frr.conf.NEXT";
 const TMPL_FULL: &str = include_str!("../templates/frr.conf");
 
 const _TMPL_EMPTY: &str = "
@@ -51,9 +52,23 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
     gtmpl::template(TMPL_FULL, params).map_err(|e| e.into())
 }
 
+pub fn reload() -> Result<(), eyre::Report> {
+    let out = Command::new("/usr/lib/frr/frrinit.sh")
+        .arg("reload")
+        .output()?;
+    if !out.status.success() {
+        return Err(eyre::eyre!(
+            "Failed reloading frr.conf with '/usr/lib/frr/frrinit.sh reload'. \nSTDOUT: {}\nSTDERR: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        ));
+    }
+    Ok(())
+}
+
 /// What we need in order to generate an frr.conf
 pub struct FrrConfig {
-    pub asn: i64,
+    pub asn: u64,
     pub loopback_ip: Ipv4Addr,
     pub is_import_default_route: bool,
     pub access_vlans: Vec<FrrVlanConfig>,
@@ -78,7 +93,7 @@ struct TmplFrrConfigVLAN {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl)]
 struct TmplFrrConfigParameters {
-    ASN: i64,
+    ASN: u64,
     LoopbackIP: String,
     UplinkPeerGroup: String,
     Uplinks: Vec<String>,
