@@ -17,7 +17,7 @@ use std::convert::From;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
-use ::rpc::forge::{self as rpc};
+use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
@@ -33,7 +33,7 @@ use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
-use crate::model::machine::network::MachineNetworkStatus;
+use crate::model::machine::network::{MachineNetworkStatus, ManagedHostNetworkConfig};
 use crate::model::machine::{BmcInfo, MachineState, ManagedHostState};
 use crate::{CarbideError, CarbideResult};
 
@@ -77,6 +77,10 @@ pub struct Machine {
     /// The current state of the machine.
     state: Versioned<ManagedHostState>,
 
+    /// The current network state of the machine, excluding the tenant related
+    /// configuration. The latter will be tracked as part of the InstanceNetworkConfig.
+    managed_host_network_config: Versioned<ManagedHostNetworkConfig>,
+
     /// A list of [MachineStateHistory] that this machine has experienced
     history: Vec<MachineStateHistory>,
 
@@ -115,6 +119,13 @@ impl<'r> FromRow<'r, PgRow> for Machine {
 
         let vpc_leaf_id: Option<DbMachineId> = row.try_get("vpc_leaf_id")?;
 
+        let network_config_version_str: &str = row.try_get("network_config_version")?;
+        let network_config_version = network_config_version_str
+            .parse()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let network_config: sqlx::types::Json<ManagedHostNetworkConfig> =
+            row.try_get("network_config")?;
+
         Ok(Machine {
             id,
             vpc_leaf_id: vpc_leaf_id.map(|id| id.0),
@@ -122,6 +133,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
             state: Versioned::new(controller_state.0, controller_state_version),
+            managed_host_network_config: Versioned::new(network_config.0, network_config_version),
             history: Vec::new(),
             interfaces: Vec::new(),
             hardware_info: None,
@@ -248,6 +260,12 @@ impl Machine {
         self.hardware_info.as_ref()
     }
 
+    /// The current network state of the machine, excluding the tenant related
+    /// configuration. The latter will be tracked as part of the InstanceNetworkConfig.
+    pub fn managed_host_network_config(&self) -> &Versioned<ManagedHostNetworkConfig> {
+        &self.managed_host_network_config
+    }
+
     pub async fn exists(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
@@ -315,11 +333,16 @@ impl Machine {
                 };
                 let state_version = ConfigVersion::initial();
 
-                let query = "INSERT INTO machines(id, controller_state_version, controller_state) VALUES($1, $2, $3) RETURNING id";
+                let network_config_version = ConfigVersion::initial();
+                let network_config = ManagedHostNetworkConfig::initial();
+
+                let query = "INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config) VALUES($1, $2, $3, $4, $5) RETURNING id";
                 let row: (DbMachineId,) = sqlx::query_as(query)
                     .bind(&stable_machine_id_string)
                     .bind(state_version.to_version_string())
                     .bind(sqlx::types::Json(&state))
+                    .bind(network_config_version.to_version_string())
+                    .bind(sqlx::types::Json(&network_config))
                     .fetch_one(&mut *txn)
                     .await
                     .map_err(|e| {
@@ -878,6 +901,37 @@ SELECT m.id FROM
     /// Returns the MachineType based on hardware info.
     pub fn machine_type(&self) -> MachineType {
         self.id.machine_type()
+    }
+
+    /// Updates the desired network configuration for a host
+    pub async fn try_update_managed_host_network_config(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        expected_version: ConfigVersion,
+        new_state: &ManagedHostNetworkConfig,
+    ) -> Result<bool, DatabaseError> {
+        // TODO: We currently need to persist the state on the DPU since it exists
+        // earlier than the host. But we might want to replicate it to the host machine,
+        // as we do with `controller_state`.
+
+        let expected_version_str = expected_version.to_version_string();
+        let next_version = expected_version.increment();
+        let next_version_str = next_version.to_version_string();
+
+        let query = "UPDATE machines SET network_config_version=$1, network_config=$2::json where id=$3::uuid AND network_config_version=$4 returning id";
+        let query_result: Result<DbMachineId, _> = sqlx::query_as(query)
+            .bind(&next_version_str)
+            .bind(sqlx::types::Json(new_state))
+            .bind(machine_id.to_string())
+            .bind(&expected_version_str)
+            .fetch_one(&mut *txn)
+            .await;
+
+        match query_result {
+            Ok(_machine_id) => Ok(true),
+            Err(sqlx::Error::RowNotFound) => Ok(false),
+            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+        }
     }
 }
 

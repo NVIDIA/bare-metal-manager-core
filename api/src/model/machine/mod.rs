@@ -16,7 +16,12 @@ use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 
-use super::{config_version::ConfigVersion, instance::snapshot::InstanceSnapshot};
+use self::network::ManagedHostNetworkConfig;
+
+use super::{
+    config_version::{ConfigVersion, Versioned},
+    instance::snapshot::InstanceSnapshot,
+};
 use crate::model::hardware_info::HardwareInfo;
 
 pub mod machine_id;
@@ -27,7 +32,7 @@ pub const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 pub const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 
 /// Represents the current state of `Machine`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ManagedHostStateSnapshot {
     pub host_snapshot: Option<MachineSnapshot>,
     pub dpu_snapshot: MachineSnapshot,
@@ -39,12 +44,14 @@ pub struct ManagedHostStateSnapshot {
 }
 
 /// Represents the current state of `Machine`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct MachineSnapshot {
     /// Machine ID
     pub machine_id: MachineId,
     /// Hardware Information that was discovered about this Machine
     pub hardware_info: Option<HardwareInfo>,
+    /// The desired network configuration for this machine
+    pub network_config: Versioned<ManagedHostNetworkConfig>,
     /// BMC related information
     pub bmc_info: BmcInfo,
     /// Desired state of the machine

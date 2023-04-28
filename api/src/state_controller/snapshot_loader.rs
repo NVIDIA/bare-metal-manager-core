@@ -105,6 +105,7 @@ pub async fn get_machine_snapshot(
         machine_id: machine_id.clone(),
         bmc_info: machine.bmc_info().clone(),
         hardware_info: machine.hardware_info().cloned(),
+        network_config: machine.managed_host_network_config().clone(),
         current: CurrentMachineState {
             state: machine.current_state(),
             version: machine.current_version(),
