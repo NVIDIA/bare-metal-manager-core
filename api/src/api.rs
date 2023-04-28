@@ -55,7 +55,7 @@ use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::ipxe::PxeInstructions;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatus;
-use crate::model::machine::{InstanceState, ManagedHostState};
+use crate::model::machine::ManagedHostState;
 use crate::model::RpcDataConversionError;
 use crate::reachability::PingReachabilityChecker;
 use crate::resource_pool::{DbResourcePool, ResourcePool, ResourcePoolError};
@@ -774,54 +774,23 @@ where
         .map_err(CarbideError::from)?;
 
         let Some(instance) = instance.last() else {
-                return Err(Status::invalid_argument(format!(
-                    "Supplied invalid UUID: {}. Could not find associated instance.",
-                    delete_instance.instance_id
-                )));
+            return Err(Status::invalid_argument(format!(
+                "Supplied invalid UUID: {}. Could not find associated instance.",
+                delete_instance.instance_id
+            )));
         };
 
         log_machine_id(&instance.machine_id);
 
-        // Change state to Decommissioned
-        let machine = match Machine::find_one(
-            &mut txn,
-            &instance.machine_id,
-            MachineSearchConfig::default(),
-        )
-        .await
-        .map_err(CarbideError::from)?
-        {
-            None => {
-                return Err(Status::invalid_argument(format!(
-                    "Supplied invalid UUID: {}",
-                    instance.machine_id
-                )));
-            }
-            Some(m) => m,
-        };
-
-        if let ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready,
-        } = machine.current_state()
-        {
-            if instance.deleted.is_some() {
-                return Err(Status::invalid_argument(format!(
-                    "Instance {} is already marked for deletion.",
-                    delete_instance.instance_id,
-                )));
-            }
+        if instance.deleted.is_some() {
             log::info!(
-                "Marking instance {} for deletion.",
-                delete_instance.instance_id
-            );
-            let _ = delete_instance.mark_as_deleted(&mut txn).await?;
-        } else {
-            return Err(Status::invalid_argument(format!(
-                "Could not release instance {} given machine state {:?}",
+                "Instance {} is already marked for deletion.",
                 delete_instance.instance_id,
-                machine.current_state()
-            )));
+            );
+            return Ok(Response::new(rpc::InstanceReleaseResult {}));
         }
+
+        let _ = delete_instance.mark_as_deleted(&mut txn).await?;
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
