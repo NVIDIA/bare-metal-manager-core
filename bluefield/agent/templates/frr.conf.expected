@@ -18,7 +18,6 @@ neighbor FORGE_UPLINK timers 3 9
 neighbor FORGE_UPLINK timers connect 10
 neighbor FORGE_UPLINK advertisement-interval 0
 no neighbor FORGE_UPLINK capability extended-nexthop
-
 neighbor p0_sf interface peer-group FORGE_UPLINK
 neighbor p1_sf interface peer-group FORGE_UPLINK
 ! Address families

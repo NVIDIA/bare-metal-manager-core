@@ -58,8 +58,6 @@ pub struct FrrOptions {
     pub asn: i64,
     #[clap(long)]
     pub loopback_ip: Ipv4Addr,
-    #[clap(long)]
-    pub import_default_route: bool,
     #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]
     pub vlan: Vec<String>,
 }

@@ -35,11 +35,7 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
     let params = TmplFrrConfigParameters {
         ASN: conf.asn,
         LoopbackIP: conf.loopback_ip.to_string(),
-        UplinkPeerGroup: "FORGE_UPLINK".to_string(),
         Uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
-        ToUnderlayRouteFilterName: "FORGE_TO_UNDERLAY".to_string(),
-        FromUnderlayRouteFilterName: "FORGE_FROM_UNDERLAY".to_string(),
-        ImportDefaultRouteOnly: conf.is_import_default_route,
         AccessVLANs: conf
             .access_vlans
             .into_iter()
@@ -49,7 +45,18 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
             })
             .collect(),
     };
-    gtmpl::template(TMPL_FULL, params).map_err(|e| e.into())
+    match gtmpl::template(TMPL_FULL, params) {
+        Ok(s) =>
+        // we indent the template for readability. remove those indents.
+        {
+            Ok(s.lines()
+                .map(|l| l.trim_start())
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n")
+        }
+        Err(err) => Err(err.into()),
+    }
 }
 
 pub fn reload() -> Result<(), eyre::Report> {
@@ -70,7 +77,6 @@ pub fn reload() -> Result<(), eyre::Report> {
 pub struct FrrConfig {
     pub asn: u64,
     pub loopback_ip: Ipv4Addr,
-    pub is_import_default_route: bool,
     pub access_vlans: Vec<FrrVlanConfig>,
 }
 
@@ -95,11 +101,7 @@ struct TmplFrrConfigVLAN {
 struct TmplFrrConfigParameters {
     ASN: u64,
     LoopbackIP: String,
-    UplinkPeerGroup: String,
     Uplinks: Vec<String>,
-    ToUnderlayRouteFilterName: String,
-    FromUnderlayRouteFilterName: String,
-    ImportDefaultRouteOnly: bool,
     AccessVLANs: Vec<TmplFrrConfigVLAN>,
 }
 
@@ -112,11 +114,20 @@ mod tests {
         let params = FrrConfig {
             asn: 65535,
             loopback_ip: [192, 168, 0, 1].into(),
-            is_import_default_route: true,
             access_vlans: vec![],
         };
         let output = build(params)?;
-        assert_eq!(output, include_str!("../templates/frr.conf.expected"));
+        let expected = include_str!("../templates/frr.conf.expected");
+        if output != expected {
+            for (g, e) in output.lines().zip(expected.lines()) {
+                if g != e {
+                    println!("Line differs:");
+                    println!("GOT: {}", g);
+                    println!("EXP: {}", e);
+                }
+            }
+        }
+        assert_eq!(output, expected);
 
         Ok(())
     }

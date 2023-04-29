@@ -134,7 +134,6 @@ fn main() -> eyre::Result<()> {
                 let contents = frr::build(frr::FrrConfig {
                     asn: opts.asn as u64,
                     loopback_ip: opts.loopback_ip,
-                    is_import_default_route: opts.import_default_route,
                     access_vlans,
                 })?;
                 std::fs::write(&opts.path, contents)?;
@@ -323,7 +322,6 @@ fn write_frr(_netconf: &NetworkConfig) -> Result<(), eyre::Report> {
     let next_contents = frr::build(frr::FrrConfig {
         asn: 0,
         loopback_ip: TODO_IP,
-        is_import_default_route: false,
         access_vlans: vec![],
     })?;
     std::fs::write(frr::PATH_NEXT, next_contents.clone())
