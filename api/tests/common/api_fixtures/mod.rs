@@ -35,6 +35,7 @@ use carbide::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerServices,
         },
     },
+    vpc::VpcData,
 };
 use chrono::Duration;
 use rpc::forge::{
@@ -87,11 +88,9 @@ impl TestEnv {
             Authorizer::new(Arc::new(NoopEngine {})),
             self.redfish_sim.clone(),
             self.vpc_api.clone(),
+            VpcData::default(),
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
-            None,
-            None,
-            None,
         ));
         StateHandlerServices {
             pool: self.pool.clone(),
@@ -217,11 +216,9 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
         Authorizer::new(Arc::new(NoopEngine {})),
         redfish_sim.clone(),
         vpc_api.clone(),
+        VpcData::default(),
         "not a real pemfile path".to_string(),
         "not a real keyfile path".to_string(),
-        None,
-        None,
-        None,
     );
 
     TestEnv {

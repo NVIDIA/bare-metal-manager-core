@@ -11,17 +11,11 @@
  */
 use clap::{ArgAction, Parser};
 
-// TODO(ajf): always look at crate root
-const DEFAULT_CONFIG_PATH: &str = ".config.toml";
-
 #[derive(Parser)]
 #[clap(name = "carbide-api")]
 pub struct Options {
     #[clap(short, long, action = ArgAction::Count)]
     pub debug: u8,
-
-    #[clap(long, default_value = DEFAULT_CONFIG_PATH)]
-    pub config: String,
 
     #[clap(subcommand)]
     pub sub_cmd: Command,
@@ -65,6 +59,16 @@ pub struct Daemon {
     /// False means VPC manages it as a Kubernetes CRD.
     #[clap(long)]
     pub manage_vpc: bool,
+
+    /// ASN: Autonomous System Number
+    /// Fixed per environment. Used by forge-dpu-agent to write frr.conf (routing).
+    ///
+    // Move this to per-site toml configuration file once that exists.
+    //
+    // TODO: Remove the default value, we must pass this in every environment. Is currently in
+    // vpc.yaml as defaultASN. Default allows for smoother rollout.
+    #[clap(long, default_value = "65535")]
+    pub asn: u64,
 
     /// List of DHCP servers that should be announced
     /// TODO: The env variable approach at the moment will just accept a single

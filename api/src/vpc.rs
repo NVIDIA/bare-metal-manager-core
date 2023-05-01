@@ -24,10 +24,12 @@ const METRICS_RESOURCEPOOL_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Default)]
 pub struct VpcData {
+    pub asn: u64,
+    pub dhcp_servers: Vec<String>,
     pub pool_loopback_ip: Option<Arc<dyn ResourcePool<Ipv4Addr>>>,
     pub pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
     pub pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
-    pub rp_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>>,
+    pub rp_stats: Option<Arc<Mutex<HashMap<String, ResourcePoolStats>>>>,
 }
 
 /// Create VPC's resource pools (for loopback IP, VNI, etc) and
@@ -87,6 +89,7 @@ pub async fn enable(database_connection: sqlx::PgPool) -> VpcData {
         pool_loopback_ip,
         pool_vlan_id,
         pool_vni,
-        rp_stats,
+        rp_stats: Some(rp_stats),
+        ..Default::default()
     }
 }

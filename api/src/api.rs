@@ -116,11 +116,9 @@ pub struct Api<C: CredentialProvider> {
     authorizer: auth::Authorizer,
     redfish_pool: Arc<dyn RedfishClientPool>,
     vpc_api: Arc<dyn VpcApi>,
+    vpc_data: vpc::VpcData,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
-    pool_loopback_ip: Option<Arc<dyn ResourcePool<Ipv4Addr>>>,
-    pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
-    pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
 }
 
 #[tonic::async_trait]
@@ -851,13 +849,13 @@ where
         log_request_data(&request);
 
         let request = request.into_inner();
-        let machine_id = match &request.machine_id {
+        let dpu_machine_id = match &request.machine_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
                 return Err(Status::not_found("Missing machine id"));
             }
         };
-        log_machine_id(&machine_id);
+        log_machine_id(&dpu_machine_id);
 
         let loader = DbSnapshotLoader::default();
         let mut txn = self.database_connection.begin().await.map_err(|e| {
@@ -865,9 +863,14 @@ where
         })?;
 
         let snapshot = loader
-            .load_machine_snapshot(&mut txn, &machine_id)
+            .load_machine_snapshot(&mut txn, &dpu_machine_id)
             .await
             .map_err(CarbideError::from)?;
+        if snapshot.host_snapshot.is_none() {
+            return Err(Status::not_found(format!(
+                "Machine not found for DPU '{dpu_machine_id}'"
+            )));
+        }
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -2319,7 +2322,7 @@ where
             let actual_dpu_machine = DpuMachine::find_by_machine_id(&mut txn, dpu_machine.id())
                 .await
                 .map_err(CarbideError::from)?;
-            if let Some(pool) = self.pool_loopback_ip.as_ref() {
+            if let Some(pool) = self.vpc_data.pool_loopback_ip.as_ref() {
                 // Forge is managing loopback IPs
                 if let Some(loopback_ip) = actual_dpu_machine.loopback_ip() {
                     pool.release(loopback_ip)
@@ -2697,11 +2700,9 @@ where
         authorizer: auth::Authorizer,
         redfish_pool: Arc<dyn RedfishClientPool>,
         vpc_api: Arc<dyn VpcApi>,
+        vpc_data: vpc::VpcData,
         identity_pemfile_path: String,
         identity_keyfile_path: String,
-        pool_loopback_ip: Option<Arc<dyn ResourcePool<Ipv4Addr>>>,
-        pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
-        pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
     ) -> Self {
         Self {
             database_connection,
@@ -2709,11 +2710,9 @@ where
             authorizer,
             redfish_pool,
             vpc_api,
+            vpc_data,
             identity_pemfile_path,
             identity_keyfile_path,
-            pool_loopback_ip,
-            pool_vlan_id,
-            pool_vni,
         }
     }
 
@@ -2759,19 +2758,21 @@ where
         )
         .await?;
 
-        let vpc_data = if daemon_config.manage_vpc {
+        let mut vpc_data = if daemon_config.manage_vpc {
             // Forge will own and manage VPC data
             vpc::enable(database_connection.clone()).await
         } else {
             // VPC (Go CRD) will own and manage it's data
             vpc::VpcData::default()
         };
+        vpc_data.dhcp_servers = daemon_config.dhcp_server.clone();
+        vpc_data.asn = daemon_config.asn;
 
         let health_pool = database_connection.clone();
         start_export_service_health_metrics(ServiceHealthContext {
             meter: meter.clone(),
             database_pool: health_pool,
-            resource_pool_stats: vpc_data.rp_stats,
+            resource_pool_stats: vpc_data.rp_stats.take().unwrap(),
         });
 
         let sc_pool_vlan_id = vpc_data.pool_vlan_id.clone();
@@ -2782,11 +2783,9 @@ where
             authorizer,
             shared_redfish_pool.clone(),
             vpc_api.clone(),
+            vpc_data,
             daemon_config.identity_pemfile_path.clone(),
             daemon_config.identity_keyfile_path.clone(),
-            vpc_data.pool_loopback_ip,
-            vpc_data.pool_vlan_id,
-            vpc_data.pool_vni,
         ));
 
         // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
@@ -2874,10 +2873,11 @@ where
     /// If the pool exists but is empty or has en error, return that.
     async fn allocate_loopback_ip(&self, owner_id: &str) -> Result<Option<Ipv4Addr>, Status> {
         use crate::resource_pool::OwnerType;
-        if self.pool_loopback_ip.is_none() {
+        if self.vpc_data.pool_loopback_ip.is_none() {
             return Ok(None);
         }
         match self
+            .vpc_data
             .pool_loopback_ip
             .as_ref()
             .unwrap()
@@ -2904,10 +2904,11 @@ where
     /// If the pool exists but is empty or has en error, return that.
     async fn allocate_vni(&self, owner_id: &str) -> Result<Option<i32>, Status> {
         use crate::resource_pool::OwnerType;
-        if self.pool_vni.is_none() {
+        if self.vpc_data.pool_vni.is_none() {
             return Ok(None);
         }
         match self
+            .vpc_data
             .pool_vni
             .as_ref()
             .unwrap()
@@ -2934,10 +2935,11 @@ where
     /// If the pool exists but is empty or has en error, return that.
     async fn allocate_vlan_id(&self, owner_id: &str) -> Result<Option<i16>, Status> {
         use crate::resource_pool::OwnerType;
-        if self.pool_vlan_id.is_none() {
+        if self.vpc_data.pool_vlan_id.is_none() {
             return Ok(None);
         }
         match self
+            .vpc_data
             .pool_vlan_id
             .as_ref()
             .unwrap()
