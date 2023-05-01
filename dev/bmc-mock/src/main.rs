@@ -68,8 +68,21 @@ async fn main() {
             post(set_system_power),
         ).with_state(state);
 
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let config = RustlsConfig::from_pem_file(root.join("cert.pem"), root.join("key.pem"))
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    let root = match manifest_dir.try_exists() {
+        Ok(false) => Path::new("/opt/carbide"),
+        Err(error) => panic!(
+            "Could not determine if CARGO_MANIFEST_DIR exists: {}",
+            error
+        ),
+        Ok(true) => manifest_dir,
+    };
+
+    let cert_file = root.join("cert.pem");
+    let key_file = root.join("key.pem");
+    info!("Loading {:?} and {:?}", cert_file, key_file);
+    let config = RustlsConfig::from_pem_file(cert_file, key_file)
         .await
         .unwrap();
 

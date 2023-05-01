@@ -21,6 +21,7 @@ API_SERVER_IP=$1
 API_SERVER_PORT=$2
 HOST_DHCP_FILE=$3/host_dhcp_discovery.json
 HOST_MACHINE_FILE=$3/host_machine_discovery.json
+BMC_METADATA_FILE=$3/update_bmc_metadata.json
 
 # Determine the CircuitId that our host needs to use
 # We use the first network segment that we can find
@@ -45,7 +46,8 @@ HOST_MACHINE_ID=$(echo "$RESULT" | jq ".machineId.id" | tr -d '"')
 grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/ForgeAgentControl
 
 # Give it a BMC IP and credentials
-grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"ip\": \"host.docker.internal:1266\", \"data\": [{\"user\": \"forge_admin\", \"password\": \"notforprod\", \"role\": 1}], \"request_type\": 1 }" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/UpdateBMCMetaData
+UPDATE_BMC_METADATA=$(jq --arg machine_id "$HOST_MACHINE_ID" '.machine_id.id = $machine_id' "$BMC_METADATA_FILE")
+grpcurl -d "$UPDATE_BMC_METADATA" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/UpdateBMCMetaData
 echo "Created HOST Machine with ID $HOST_MACHINE_ID. Starting discovery and waiting for it to reach in WaitingForDiscovery state."
 
 # Wait until host reaches discovered state.
@@ -53,24 +55,50 @@ i=0
 MACHINE_STATE=""
 while [[ $MACHINE_STATE != "Host/WaitingForDiscovery" && $i -lt $MAX_RETRY ]]; do
   sleep 10
+
+
   MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
   echo "Checking machine state. Waiting for it to be in Host/WaitingForDiscovery state. Current: $MACHINE_STATE"
   i=$((i+1))
 done
 
 if [[ $i == "$MAX_RETRY" ]]; then
-  echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."
+  echo "Even after $MAX_RETRY retries, Host did not come in Host/WaitingForDiscovery state."
   exit 1
 fi
 
 # Mark discovery complete
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
 
+echo "updating machine interface address ${MACHINE_INTERFACE_ID}"
+${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='127.0.0.2' where interface_id='${MACHINE_INTERFACE_ID}';"
+
+# the time wait state is a fixed 5 minutes
+sleep 305
+
+# Wait until host reaches WaitForDPUUp
+i=0
+LOCKDOWN_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | cut -d ' ' -f 7)
+while [[ $LOCKDOWN_STATE == "TimeWaitForDPUDown," && $i -lt $MAX_RETRY ]]; do
+  # The state machine waits for 5 minutes to give the DPU the change to restart
+  sleep 10
+
+  LOCKDOWN_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | cut -d ' ' -f 7)
+  echo "Checking lockdown state. Waiting for it to leave TimeWaitForDPUDown state. Current: $LOCKDOWN_STATE"
+  i=$((i+1))
+done
+
+if [[ $i == "$MAX_RETRY" ]]; then
+  echo "Even after $MAX_RETRY retries, Host did not reach WaitForDPUUp lockdown state."
+  exit 1
+fi
+
 # Wait until host reaches discovered state.
 i=0
-MACHINE_STATE=""
+MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
 while [[ $MACHINE_STATE != "Host/Discovered" && $i -lt $MAX_RETRY ]]; do
   sleep 10
+
   MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
   echo "Checking machine state. Waiting for it to be in Host/Discovered state. Current: $MACHINE_STATE"
   i=$((i+1))
@@ -88,6 +116,7 @@ i=0
 MACHINE_STATE=""
 while [[ $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
   sleep 10
+
   MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
   echo "Checking machine state. Waiting for it to be in Ready state. Current: $MACHINE_STATE"
   i=$((i+1))

@@ -1,0 +1,14 @@
+{
+  "machine_id": {
+    "id": "$HOST_MACHINE_ID"
+  },
+  "ip": "192.168.252.78:1266",
+  "data": [
+    {
+      "user": "forge_admin",
+      "password": "notforprod",
+      "role": 1
+    }
+  ],
+  "request_type": 1
+}

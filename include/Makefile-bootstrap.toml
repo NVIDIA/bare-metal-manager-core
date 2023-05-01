@@ -17,8 +17,8 @@ script = '''
 #!/usr/bin/env bash
 set -e
 
-source ${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env/envrc
 DATA_PATH=${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env
+source ${DATA_PATH}/envrc
 
 echo using data path ${DATA_PATH}
 
@@ -39,14 +39,7 @@ echo Segment: $segment
 
 $REPO_ROOT/dev/bin/discover_dpu.sh $API_SERVER_IP $API_SERVER_PORT ${DATA_PATH}
 
-if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
-  CARBIDE_API_POD=$(kubectl get pod --context minikube --namespace forge-system -l='carbide_api_pod=yes' -o json | jq -r '.items[0].metadata.name')
-  echo "running psql inside pod ${CARBIDE_API_POD}"
-  kubectl exec --context minikube --namespace forge-system -it ${CARBIDE_API_POD} -- \
-    bash -c 'psql postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME} -c "UPDATE vpc_resource_leafs SET loopback_ip_address='"'${RELAY_ADDRESS}'"';"'
-else
-  psql -t -c "UPDATE vpc_resource_leafs SET loopback_ip_address='$RELAY_ADDRESS';"
-fi
+$REPO_ROOT/dev/bin/psql.sh "UPDATE vpc_resource_leafs SET loopback_ip_address='${RELAY_ADDRESS}';"
 
 echo "Waiting for the network segment to become ready"
 echo "If this step fails, run ${REPO_ROOT}/dev/bin/discover_host.sh manually"

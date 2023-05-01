@@ -1,6 +1,7 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # This is called from parallel CLI and creates a docker task for each component passed
 # Each component gets its own cargo cache and cargo_target_dir
+
 docker run --rm -v $REPO_ROOT:/carbide \
   -e CARGO_TARGET_DIR=/target/$1 \
   -e CARGO_HOME=/cache/cargo/$1 \

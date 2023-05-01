@@ -1,8 +1,8 @@
 #set shell := ["bash", "-uc"]
 export DOCKER_BUILDKIT := "1" 
 
-components_dir := "api pxe dns dhcp"
-components_name := "carbide-api carbide-pxe carbide-dns dhcp scout"
+components_dir := "api pxe dns dhcp bmc-mock"
+components_name := "carbide-api carbide-pxe carbide-dns dhcp scout bmc-mock"
 
 # Start cargo-watch for components "{{components}}"
 watch:

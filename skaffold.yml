@@ -36,6 +36,12 @@ build:
       sync:
         infer:
           - "libdhcp.so"
+    - image: registry.minikube/bmc-mock
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.bmc-mock.localdev
+      sync:
+        infer:
+          - "bmc-mock"
 
 deploy:
   statusCheckDeadlineSeconds: 300
@@ -106,4 +112,23 @@ deploy:
           useTLS: true
           carbideDnsServerIPs:
             - "192.168.252.79"
+      - name: bmc-mock
+        chartPath: charts/bmc-mock
+        namespace: forge-system
+        setValueTemplates:
+          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_bmc_mock}}"
+          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_bmc_mock}}"
+          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_bmc_mock}}"
+          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_bmc_mock}}"
+        setValues:
+          container.image.pullPolicy: "IfNotPresent"
+          container.image.pullSecrets: []
+          container.command:
+            - /bin/sh
+            - -c
+            - /opt/carbide/bmc-mock
+          authPermissiveMode: true
+          service.type: LoadBalancer
+          service.LoadBalancerIP: "192.168.252.78"
+          dhcpServerIp: "10.96.0.67"
 
