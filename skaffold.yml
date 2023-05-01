@@ -111,7 +111,7 @@ deploy:
           carbidePxeIpAddress: 192.168.252.76
           useTLS: true
           carbideDnsServerIPs:
-            - "192.168.252.79"
+            - "192.168.252.83"
       - name: bmc-mock
         chartPath: charts/bmc-mock
         namespace: forge-system
