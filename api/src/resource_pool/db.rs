@@ -15,7 +15,10 @@ use std::{marker::PhantomData, str::FromStr};
 use sqlx::Row;
 
 use super::{OwnerType, ResourcePool, ResourcePoolError};
-use crate::db::DatabaseError;
+use crate::{
+    db::DatabaseError,
+    model::{config_version::ConfigVersion, resource_pool::ResourcePoolEntryState},
+};
 
 // Max values we can bind to a Postgres SQL statement;
 const BIND_LIMIT: usize = 65535;
@@ -51,11 +54,18 @@ where
     <T as FromStr>::Err: std::error::Error,
 {
     async fn populate(&self, all_values: Vec<T>) -> Result<(), ResourcePoolError> {
+        let free_state = ResourcePoolEntryState::Free;
+        let initial_version = ConfigVersion::initial();
+        let version_str = initial_version.to_string();
+
         for vals in all_values.chunks(BIND_LIMIT / 2) {
-            let query = "INSERT INTO resource_pool(name, value) ";
+            let query = "INSERT INTO resource_pool(name, value, state, state_version) ";
             let mut qb = sqlx::QueryBuilder::new(query);
             qb.push_values(vals.iter(), |mut b, v| {
-                b.push_bind(&self.name).push_bind(v.to_string());
+                b.push_bind(&self.name)
+                    .push_bind(v.to_string())
+                    .push_bind(sqlx::types::Json(&free_state))
+                    .push_bind(&version_str);
             });
             qb.push("ON CONFLICT (name, value) DO NOTHING");
             let q = qb.build();
@@ -76,24 +86,31 @@ where
         }
         let query = "
 WITH allocate AS (
- SELECT value FROM resource_pool
-    WHERE name = $1 AND owner_id IS NULL
+ SELECT id, value FROM resource_pool
+    WHERE name = $1 AND state = $2
     ORDER BY random()
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
 UPDATE resource_pool SET
-	owner_type=$2,
-	owner_id=$3,
-	allocated=NOW()
+    state=$3,
+    allocated=NOW()
 FROM allocate
-WHERE name = $1 AND resource_pool.value = allocate.value
+WHERE resource_pool.id = allocate.id
 RETURNING allocate.value
 ";
+        let free_state = ResourcePoolEntryState::Free;
+        let allocated_state = ResourcePoolEntryState::Allocated {
+            owner: owner_id.to_string(),
+            owner_type: owner_type.to_string(),
+        };
+
+        // TODO: We should probably update the `state_version` field too. But
+        // it's hard to do this inside the SQL query.
         let (allocated,): (String,) = sqlx::query_as(query)
             .bind(&self.name)
-            .bind(owner_type.to_string())
-            .bind(owner_id)
+            .bind(sqlx::types::Json(&free_state))
+            .bind(sqlx::types::Json(&allocated_state))
             .fetch_one(&self.database_connection)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -111,14 +128,16 @@ RETURNING allocate.value
     }
 
     async fn release(&self, value: T) -> Result<(), ResourcePoolError> {
+        // TODO: If we would get passed the current owner, we could guard on that
+        // so that nothing else could release the value
         let query = "
 UPDATE resource_pool SET
-  owner_type = NULL,
-  owner_id = NULL,
-  allocated = NULL
-WHERE name = $1 AND value = $2
+  allocated = NULL,
+  state = $1
+WHERE name = $2 AND value = $3
 ";
         sqlx::query(query)
+            .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
             .bind(&self.name)
             .bind(&value.to_string())
             .execute(&self.database_connection)
@@ -130,10 +149,12 @@ WHERE name = $1 AND value = $2
     async fn stats(&self) -> Result<super::ResourcePoolStats, ResourcePoolError> {
         // Will do an index scan on idx_resource_pools_name, same as without the FILTER, so doing
         // both at once is faster than two queries.
-        let query = "SELECT COUNT(*) FILTER (WHERE owner_id IS NOT NULL) AS used,
-                            COUNT(*) FILTER (WHERE owner_id IS NULL) AS free
-                    FROM resource_pool WHERE NAME = $1";
+        let free_state = ResourcePoolEntryState::Free;
+        let query = "SELECT COUNT(*) FILTER (WHERE state != $1) AS used,
+                            COUNT(*) FILTER (WHERE state = $1) AS free
+                    FROM resource_pool WHERE NAME = $2";
         let s: super::ResourcePoolStats = sqlx::query_as(query)
+            .bind(sqlx::types::Json(free_state))
             .bind(&self.name)
             .fetch_one(&self.database_connection)
             .await

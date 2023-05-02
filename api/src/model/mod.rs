@@ -31,6 +31,7 @@ pub mod ib_subnet;
 pub mod instance;
 pub mod machine;
 pub mod network_segment;
+pub mod resource_pool;
 pub mod tenant;
 
 /// Enumerates errors that can occur when converting from the RPC data format
