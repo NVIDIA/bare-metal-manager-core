@@ -58,7 +58,7 @@ where
         let initial_version = ConfigVersion::initial();
         let version_str = initial_version.to_string();
 
-        for vals in all_values.chunks(BIND_LIMIT / 2) {
+        for vals in all_values.chunks(BIND_LIMIT / 4) {
             let query = "INSERT INTO resource_pool(name, value, state, state_version) ";
             let mut qb = sqlx::QueryBuilder::new(query);
             qb.push_values(vals.iter(), |mut b, v| {
