@@ -987,6 +987,10 @@ message AdminForceDeleteMachineResponse {
 
     uint32 deleted_managed_resources = 31;
     uint32 deleted_leafs = 32;
+    // Managed resource deletion has been started, but could not be finished
+    bool managed_resource_deletion_pending = 33;
+    // Leaf deletion has been started, but could not be finished
+    bool leaf_deletion_pending = 34;
 
     // The Machines lockdown state before it was attempted to unlock the Machine
     string initial_lockdown_state = 41;

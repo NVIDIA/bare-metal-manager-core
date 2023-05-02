@@ -2201,6 +2201,7 @@ where
                     response.deleted_managed_resources = 1;
                 }
                 Poll::Pending => {
+                    response.managed_resource_deletion_pending = true;
                     response.all_done = false;
                     return Ok(Response::new(response));
                 }
@@ -2303,10 +2304,10 @@ where
                 .map_err(CarbideError::from)?
             {
                 Poll::Ready(()) => {
-                    // TODO: Get the actual number back and set it
                     response.deleted_leafs = 1;
                 }
                 Poll::Pending => {
+                    response.leaf_deletion_pending = true;
                     response.all_done = false;
                     return Ok(Response::new(response));
                 }
