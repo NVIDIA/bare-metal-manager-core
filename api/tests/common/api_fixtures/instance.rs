@@ -85,6 +85,33 @@ pub async fn delete_instance(
     env.run_machine_state_controller_iteration_until_state_matches(
         dpu_machine_id,
         &handler,
+        1,
+        &mut txn,
+        ManagedHostState::Assigned {
+            instance_state: carbide::model::machine::InstanceState::BootingWithDiscoveryImage,
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        host_machine_id,
+        carbide::db::machine::MachineSearchConfig {
+            include_history: true,
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    machine.update_reboot_time(&mut txn).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        dpu_machine_id,
+        &handler,
         3,
         &mut txn,
         ManagedHostState::WaitingForCleanup {

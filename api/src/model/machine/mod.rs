@@ -148,6 +148,7 @@ pub enum InstanceState {
     Init, // Instance is created but not picked by state machine yet.
     WaitingForNetworkConfig,
     Ready,
+    BootingWithDiscoveryImage,
     DeletingManagedResource,
     WaitingForNetworkReconfig,
 }

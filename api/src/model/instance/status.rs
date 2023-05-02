@@ -70,6 +70,7 @@ impl InstanceStatus {
                 }
                 InstanceState::Ready => tenant::TenantState::Ready,
                 InstanceState::DeletingManagedResource
+                | InstanceState::BootingWithDiscoveryImage
                 | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
             },
             _ => {

@@ -7,7 +7,7 @@ use crate::{
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
     },
-    model::machine::ManagedHostState,
+    model::machine::{InstanceState, ManagedHostState},
     state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     CarbideError,
 };
@@ -89,6 +89,17 @@ impl PxeInstructions {
         interface_id: uuid::Uuid,
         arch: rpc::MachineArchitecture,
     ) -> Result<String, CarbideError> {
+        let error_instructions = |x: &ManagedHostState| -> String {
+            format!(
+                r#"
+echo could not continue boot due to invalid state - {} ||
+sleep 5 ||
+exit ||
+"#,
+                x
+            )
+        };
+
         let interface = MachineInterface::find_one(txn, interface_id).await?;
         let machine_id = match interface.machine_id {
             None => {
@@ -124,34 +135,32 @@ impl PxeInstructions {
             | ManagedHostState::WaitingForCleanup { .. } => {
                 Self::get_pxe_instruction_for_arch(arch, interface_id)
             }
-            ManagedHostState::Assigned { .. } => {
-                let instance = Instance::find_by_machine_id(txn, &machine_id)
-                    .await
-                    .map_err(CarbideError::from)?
-                    .ok_or(CarbideError::NotFoundError {
-                        kind: "machine",
-                        id: machine_id.to_string(),
-                    })?;
-
-                if instance.use_custom_pxe_on_boot {
-                    Instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
+            ManagedHostState::Assigned { instance_state } => match instance_state {
+                InstanceState::Ready => {
+                    let instance = Instance::find_by_machine_id(txn, &machine_id)
                         .await
-                        .map_err(CarbideError::from)?;
-                    instance.tenant_config.custom_ipxe
-                } else {
-                    "exit".to_string()
+                        .map_err(CarbideError::from)?
+                        .ok_or(CarbideError::NotFoundError {
+                            kind: "machine",
+                            id: machine_id.to_string(),
+                        })?;
+
+                    if instance.use_custom_pxe_on_boot {
+                        Instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
+                            .await
+                            .map_err(CarbideError::from)?;
+                        instance.tenant_config.custom_ipxe
+                    } else {
+                        "exit".to_string()
+                    }
                 }
-            }
-            x => {
-                format!(
-                    r#"
-echo could not continue boot due to invalid status - {} ||
-sleep 5 ||
-exit ||
-"#,
-                    x
-                )
-            }
+                InstanceState::BootingWithDiscoveryImage => {
+                    PxeInstructions::get_pxe_instruction_for_arch(arch, interface_id)
+                }
+
+                _ => error_instructions(&machine_snapshot.managed_state),
+            },
+            x => error_instructions(x),
         };
 
         Ok(pxe_script)

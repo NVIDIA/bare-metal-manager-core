@@ -542,9 +542,7 @@ impl StateHandler for InstanceStateHandler {
             return Err(StateHandlerError::GenericError(eyre!("Instance is empty at this point. Cleanup is needed for dpu: {}.", machine_id)));
         };
 
-        let state = &state.managed_state;
-
-        if let ManagedHostState::Assigned { instance_state } = state {
+        if let ManagedHostState::Assigned { instance_state } = &state.managed_state {
             match instance_state {
                 InstanceState::Init => {
                     // we should not be here. This state to be used if state machine has not
@@ -591,16 +589,34 @@ impl StateHandler for InstanceStateHandler {
                     // try_delete_managed_resources function is async. We have to move out of Ready
                     // state as soon as possible, to indicate that delete process is started. In next cycle, this function must return Poll::Ready if all managed resources are deleted, else keep retrying, but in next state.
                     if instance.delete_requested {
-                        let _ = ctx
-                            .services
-                            .vpc_api
-                            .try_delete_managed_resources(instance.instance_id)
-                            .await?;
+                        // Reboot host. Host will boot with carbide discovery image now. Changes
+                        // are done in get_pxe_instructions api.
+                        // User will loose all access to instance now.
+                        restart_machine(host_snapshot, ctx).await?;
 
                         *controller_state.modify() = ManagedHostState::Assigned {
-                            instance_state: InstanceState::DeletingManagedResource,
+                            instance_state: InstanceState::BootingWithDiscoveryImage,
                         };
                     }
+                }
+                InstanceState::BootingWithDiscoveryImage => {
+                    if !rebooted(
+                        state.dpu_snapshot.current.version,
+                        host_snapshot.last_reboot_time,
+                    )
+                    .await?
+                    {
+                        return Ok(());
+                    }
+                    let _ = ctx
+                        .services
+                        .vpc_api
+                        .try_delete_managed_resources(instance.instance_id)
+                        .await?;
+
+                    *controller_state.modify() = ManagedHostState::Assigned {
+                        instance_state: InstanceState::DeletingManagedResource,
+                    };
                 }
                 InstanceState::DeletingManagedResource => {
                     // Wait until Managed resources are deleted now.
