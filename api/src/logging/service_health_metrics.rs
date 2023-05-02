@@ -21,7 +21,7 @@ use crate::resource_pool::ResourcePoolStats;
 pub struct ServiceHealthContext {
     pub meter: Meter,
     pub database_pool: sqlx::PgPool,
-    pub resource_pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>>,
+    pub resource_pool_stats: Option<Arc<Mutex<HashMap<String, ResourcePoolStats>>>>,
 }
 
 /// Starts to export server health metrics
@@ -71,10 +71,12 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
                 &[],
             );
 
-            for (name, stats) in health_context.resource_pool_stats.lock().unwrap().iter() {
-                let name_attr = KeyValue::new("pool", name.to_string());
-                pool_used.observe(cx, stats.used as u64, &[name_attr.clone()]);
-                pool_free.observe(cx, stats.free as u64, &[name_attr]);
+            if let Some(rp_stats) = &health_context.resource_pool_stats {
+                for (name, stats) in rp_stats.lock().unwrap().iter() {
+                    let name_attr = KeyValue::new("pool", name.to_string());
+                    pool_used.observe(cx, stats.used as u64, &[name_attr.clone()]);
+                    pool_free.observe(cx, stats.free as u64, &[name_attr]);
+                }
             }
         })
         .unwrap();

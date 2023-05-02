@@ -2772,7 +2772,7 @@ where
         start_export_service_health_metrics(ServiceHealthContext {
             meter: meter.clone(),
             database_pool: health_pool,
-            resource_pool_stats: vpc_data.rp_stats.take().unwrap(),
+            resource_pool_stats: vpc_data.rp_stats.take(),
         });
 
         let sc_pool_vlan_id = vpc_data.pool_vlan_id.clone();
