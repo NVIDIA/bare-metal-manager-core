@@ -55,6 +55,12 @@ async fn main() {
             rf!("Managers/:manager_id/Attributes"), // no slash at end
             patch(update_manager_attributes),
         )
+        .route(rf!("Managers/:manager_id/Oem/Dell/DellAttributes/:manager_id"),
+            patch(update_manager_attributes_long),
+        )
+        .route(rf!("Managers/:manager_id/Oem/Dell/DellAttributes/:manager_id"),
+            get(get_manager_attributes),
+        )
         .route(rf!("Managers/:manager_id/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue"),
             post(delete_job_queue),
         )
@@ -151,6 +157,19 @@ async fn update_manager_attributes(
 ) -> impl IntoResponse {
     debug!("update_manager_attributes {manager_id}, body: {body}");
     StatusCode::OK
+}
+
+async fn update_manager_attributes_long(
+    AxumPath((manager_id, _)): AxumPath<(String, String)>,
+    body: String,
+) -> impl IntoResponse {
+    debug!("update_manager_attributes_long {manager_id}, body: {body}");
+    StatusCode::OK
+}
+
+async fn get_manager_attributes() -> impl IntoResponse {
+    let out = include_str!("../manager-attributes.json");
+    out
 }
 
 async fn delete_job_queue(
