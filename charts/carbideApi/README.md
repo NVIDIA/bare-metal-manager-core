@@ -119,6 +119,7 @@ A Helm chart for nvidia forge component carbide-api
 | ingress.tls | bool | `false` | Enable TLS configuration for the host defined at `ingress.hostname` parameter TLS certificates will be retrieved from a TLS secret with name: `{{- printf "%s-tls" .Values.ingress.hostname }}` You can:   - Use the `ingress.secrets` parameter to create this TLS secret   - Rely on cert-manager to create it by setting the corresponding annotations   - Rely on Helm to create self-signed certificates by setting `ingress.selfSigned=true` |
 | kubeVersion | string | `""` | Override Kubernetes version |
 | listenAddress | string | `"0.0.0.0"` | What IP address to bind and listen on |
+| manageVpc | bool | `false` | Choose whether Carbide owns the VPC data: loopback IP, VNI and VLAN_ID allocations. False means VPC will allocate those values |
 | metricsService.ports.http | int | `1080` | The port that exposes the /metrics endpoint for carbide-api |
 | metricsService.targetPorts.http | int | `1080` | The container port that exposes the /metrics endpoint for carbide-api |
 | nameOverride | string | `"carbide-api"` | String to partially override common.names.name |

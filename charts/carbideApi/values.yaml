@@ -46,6 +46,8 @@ dhcpServerIp: "169.254.254.254"
 # dhcpserver -- IP Address of DHCP server
 authPermissiveMode: false
 # authPermissiveMode -- Override the auth engine when it denies a request, and permit anything.
+manageVpc: false
+# manageVpc -- Choose whether Carbide owns the VPC data: loopback IP, VNI and VLAN_ID allocations. False means VPC will allocate those values
 identityKeyfilePath: /run/secrets/spiffe.io/tls.key
 # identityKeyfilePath: where the server's identity key file is located on disk
 identityPemfilePath: /run/secrets/spiffe.io/tls.crt
