@@ -15,6 +15,8 @@ use std::sync::Arc;
 use http::Request;
 use serde::{Deserialize, Serialize};
 
+mod casbin_engine;
+
 // Principal: something like an account, service, address, or other
 // identity that we can treat as the "subject" in a subject-action-object
 // construction.
@@ -140,10 +142,6 @@ pub trait PolicyEngine {
 }
 
 pub type PolicyEngineObject = (dyn PolicyEngine + Send + Sync);
-
-mod casbin_engine;
-
-pub use casbin_engine::CasbinEngine;
 
 #[derive(Clone)]
 pub struct Authorizer {
