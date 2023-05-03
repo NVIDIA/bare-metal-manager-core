@@ -12,9 +12,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use http::{header, HeaderMap, Request, Response};
+use http::Request;
 use serde::{Deserialize, Serialize};
-use tower_http::auth::AuthorizeRequest;
 
 // Principal: something like an account, service, address, or other
 // identity that we can treat as the "subject" in a subject-action-object
@@ -402,98 +401,6 @@ pub mod forge_spiffe {
     pub enum ForgeSpiffeContextError {
         #[error("{0}")]
         ContextError(String),
-    }
-}
-
-// This is intended to be hooked into tower-http's
-// RequireAuthorizationLayer::custom() middleware layer.
-#[derive(Clone)]
-pub struct CarbideAuth {
-    jwt_validator: jwt::TokenValidator,
-    permissive_mode: bool,
-}
-
-impl Default for CarbideAuth {
-    fn default() -> Self {
-        let jwt_validator = jwt::TokenValidator::new();
-        let permissive_mode = false;
-
-        Self {
-            jwt_validator,
-            permissive_mode,
-        }
-    }
-}
-
-impl CarbideAuth {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn _add_jwt_key(
-        &mut self,
-        algorithm: Algorithm,
-        key_spec: KeySpec,
-        decoding_key: DecodingKey,
-    ) {
-        self.jwt_validator
-            ._add_key(algorithm, key_spec, decoding_key);
-    }
-
-    pub fn set_permissive_mode(&mut self, mode: bool) {
-        self.permissive_mode = mode;
-    }
-
-    fn try_jwt_validation(&self, headers: &HeaderMap) -> Result<CarbideAuthClaims, AuthError> {
-        let auth_header = headers
-            .get(header::AUTHORIZATION)
-            .ok_or(AuthError::NoAuthHeader)?;
-
-        let bearer_token = {
-            //
-            // auth_header is currently an http::HeaderValue, let's make
-            // it stringy.
-            let auth_header = auth_header
-                .to_str()
-                .map_err(|_| AuthError::UnparseableAuthHeader)?;
-
-            let (auth_scheme, auth_credentials) = auth_header
-                .split_once(' ')
-                .ok_or(AuthError::UnparseableAuthHeader)?;
-
-            // A bearer token is all we know how to deal with.
-            (auth_scheme == "Bearer")
-                .then_some(auth_credentials)
-                .ok_or_else(|| AuthError::UnsupportedAuthType(String::from(auth_scheme)))?
-        };
-
-        self.jwt_validator.validate(bearer_token)
-    }
-}
-
-impl<B> AuthorizeRequest<B> for CarbideAuth {
-    type ResponseBody = tonic::body::BoxBody;
-
-    fn authorize(&mut self, request: &mut Request<B>) -> Result<(), Response<Self::ResponseBody>> {
-        let jwt_validation = self.try_jwt_validation(request.headers());
-
-        let mut request_auth =
-            authorization::RequestAuth::new(jwt_validation.and_then(|claims| claims.try_into()));
-        if self.permissive_mode {
-            request_auth.set_permissive(self.permissive_mode);
-        }
-
-        // Any subsequent layers can retrieve this struct with something
-        // like this:
-        //
-        // let request_auth: RequestAuth = request.extensions.get();
-
-        request.extensions_mut().insert(request_auth);
-
-        // We don't try to enforce anything here, so the layers under us
-        // are responsible for doing their own authorization checks using
-        // the RequestAuth extension we added.
-        Ok(())
     }
 }
 
