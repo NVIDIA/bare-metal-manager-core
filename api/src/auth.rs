@@ -182,7 +182,8 @@ impl Authorizer {
         policy_path: &Path,
         permissive_mode: bool,
     ) -> Result<Self, AuthorizerError> {
-        let engine = CasbinEngine::new(casbin_engine::ModelType::BasicAcl, policy_path)
+        use casbin_engine::{CasbinEngine, ModelType};
+        let engine = CasbinEngine::new(ModelType::BasicAcl, policy_path)
             .await
             .map_err(|e| AuthorizerError::InitializationError(e.to_string()))?;
         let engine_object: Arc<PolicyEngineObject> = Arc::new(engine);
