@@ -709,7 +709,7 @@ pub enum AuthError {
     InsufficientPrivilegeLevel(String),
 }
 
-mod jwt {
+pub mod jwt {
     use std::collections::HashMap;
 
     use jsonwebtoken::{decode, decode_header, Validation};
