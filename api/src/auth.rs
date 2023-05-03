@@ -16,8 +16,6 @@ use http::{header, HeaderMap, Request, Response};
 use serde::{Deserialize, Serialize};
 use tower_http::auth::AuthorizeRequest;
 
-pub use jwt::{Algorithm, DecodingKey, KeySpec};
-
 // Principal: something like an account, service, address, or other
 // identity that we can treat as the "subject" in a subject-action-object
 // construction.
