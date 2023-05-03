@@ -23,8 +23,16 @@ source ${DATA_PATH}/envrc
 echo using data path ${DATA_PATH}
 
 echo Populating resource pools
-echo ${REPO_ROOT}/target/debug/forge-admin-cli -c https://${API_SERVER_IP}:${API_SERVER_PORT} resource-pool define -f ${DATA_PATH}/resource_pools.toml
-${REPO_ROOT}/target/debug/forge-admin-cli -c https://${API_SERVER_IP}:${API_SERVER_PORT} resource-pool define -f ${DATA_PATH}/resource_pools.toml
+if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
+  echo ${REPO_ROOT}/target/debug/forge-admin-cli -c https://${API_SERVER_IP}:${API_SERVER_PORT} resource-pool define -f ${DATA_PATH}/resource_pools.toml
+  ${REPO_ROOT}/target/debug/forge-admin-cli -c https://${API_SERVER_IP}:${API_SERVER_PORT} resource-pool define -f ${DATA_PATH}/resource_pools.toml
+  # Switch to this after validating. The DATA_PATH will at least need to be changed
+  # echo kubectl exec -ti deploy/carbide-api -n forge-system -- /opt/carbide/forge-admin-cli -c https://${API_SERVER_IP}:${API_SERVER_PORT} resource-pool define -f ${DATA_PATH}/resource_pools.toml
+  # kubectl exec -ti deploy/carbide-api -n forge-system -- /opt/carbide/forge-admin-cli -c https://${API_SERVER_IP}:${API_SERVER_PORT} resource-pool define -f ${DATA_PATH}/resource_pools.toml
+else
+  echo docker exec -ti carbide_carbide-api_1 /opt/forge-admin-cli/debug/forge-admin-cli -c https://${API_SERVER_IP}:${API_SERVER_PORT} resource-pool define -f /app/code/dev/docker-env/resource_pools.toml
+  docker exec -ti carbide_carbide-api_1 /opt/forge-admin-cli/debug/forge-admin-cli -c https://${API_SERVER_IP}:${API_SERVER_PORT} resource-pool define -f /app/code/dev/docker-env/resource_pools.toml
+fi
 
 vpc=$(grpcurl -d '{"name":"test_vpc"}' -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/CreateVpc | jq ".id.value" | tr -d '"')
 echo "vpc: $vpc"
