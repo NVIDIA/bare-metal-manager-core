@@ -773,6 +773,12 @@ mod jwt {
         }
     }
 
+    impl Default for TokenValidator {
+        fn default() -> Self {
+            TokenValidator::new()
+        }
+    }
+
     #[derive(Clone, Eq, PartialEq, Hash)]
     pub struct TokenSigSpec {
         algorithm: Algorithm,
