@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 // identity that we can treat as the "subject" in a subject-action-object
 // construction.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub enum Principal {
     CertificateIdentity(String),
     // JWT(Claims),
@@ -64,7 +63,6 @@ pub enum PrincipalError {
     SpiffeRecognitionError(#[from] forge_spiffe::ForgeSpiffeContextError),
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub enum Action {
     Create,
@@ -449,7 +447,6 @@ pub mod authorization {
     }
 
     #[derive(Debug, Clone)]
-    #[allow(dead_code)] //TODO: remove this once auth is used
     pub enum PrivilegeRequirement {
         Require(Privilege),
         Unprivileged,
@@ -457,7 +454,6 @@ pub mod authorization {
 
     impl PrivilegeRequirement {
         // Enforce requirement against a request.
-        #[allow(dead_code)] //TODO: remove this once auth is used
         pub fn authorize_request<B>(&self, request: &Request<B>) -> Result<(), AuthError> {
             let request_auth = request.extensions().get::<RequestAuth>();
             self.authorize(request_auth)
