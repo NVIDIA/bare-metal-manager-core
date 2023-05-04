@@ -170,3 +170,14 @@ async fn test_update_network_segment_all(
 
     Ok(())
 }
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_network_exists(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let segments = NetworkSegment::admin(&mut txn).await?;
+
+    assert_eq!(segments.id, FIXTURE_NETWORK_SEGMENT_ID);
+
+    Ok(())
+}

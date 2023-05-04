@@ -76,22 +76,8 @@ ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='12
 # the time wait state is a fixed 5 minutes
 sleep 305
 
-# Wait until host reaches WaitForDPUUp
-i=0
-LOCKDOWN_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | cut -d ' ' -f 7)
-while [[ $LOCKDOWN_STATE == "TimeWaitForDPUDown," && $i -lt $MAX_RETRY ]]; do
-  # The state machine waits for 5 minutes to give the DPU the change to restart
-  sleep 10
-
-  LOCKDOWN_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | cut -d ' ' -f 7)
-  echo "Checking lockdown state. Waiting for it to leave TimeWaitForDPUDown state. Current: $LOCKDOWN_STATE"
-  i=$((i+1))
-done
-
-if [[ $i == "$MAX_RETRY" ]]; then
-  echo "Even after $MAX_RETRY retries, Host did not reach WaitForDPUUp lockdown state."
-  exit 1
-fi
+# WaitForDPUUp is temp state as in local env we are trying to ping localhost.
+# Let's move to discovered state.
 
 # Wait until host reaches discovered state.
 i=0

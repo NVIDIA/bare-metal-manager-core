@@ -739,7 +739,12 @@ async fn lockdown_host(
     .map_err(|e| {
         StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
     })?
-    .map_err(|e| StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e)))?;
+    .map_err(|e| {
+        StateHandlerError::GenericError(eyre!(
+            "Failed to restart machine during lockdown handling: {}",
+            e
+        ))
+    })?;
 
     Ok(())
 }

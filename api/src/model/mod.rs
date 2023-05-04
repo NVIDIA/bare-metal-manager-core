@@ -62,6 +62,8 @@ pub enum RpcDataConversionError {
     MissingArgument(&'static str),
     #[error("Machine state {0} is invalid")]
     InvalidMachineState(String),
+    #[error("Invalid NetworkSegmentType {0} is received.")]
+    InvalidNetworkSegmentType(i32),
 }
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`

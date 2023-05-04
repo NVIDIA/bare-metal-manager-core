@@ -393,6 +393,12 @@ message NetworkSegmentStateHistory {
   google.protobuf.Timestamp time = 3;
 }
 
+enum NetworkSegmentType {
+  TENANT = 0;
+  ADMIN = 1;
+  UNDERLAY = 2;
+}
+
 message NetworkSegment {
   UUID id = 1;
   UUID vpc_id = 2;
@@ -413,9 +419,12 @@ message NetworkSegment {
   google.protobuf.Timestamp created = 11;
   google.protobuf.Timestamp updated = 12;
   google.protobuf.Timestamp deleted = 13;
+
+  NetworkSegmentType segment_type = 14;
 }
 
 message NetworkSegmentCreationRequest {
+
   UUID vpc_id = 2;
 
   string name = 3;
@@ -424,6 +433,9 @@ message NetworkSegmentCreationRequest {
   optional int32 mtu = 5;
 
   repeated NetworkPrefix prefixes = 6;
+
+  NetworkSegmentType segment_type = 7;
+
 }
 
 // A request to update the configuration of a network segment

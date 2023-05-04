@@ -38,7 +38,8 @@ vpc=$(grpcurl -d '{"name":"test_vpc"}' -insecure $API_SERVER_IP:$API_SERVER_PORT
 echo "vpc: $vpc"
 domain=$(grpcurl -d '{"name":"forge.local"}' -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/CreateDomain | jq ".id.value" | tr -d '"')
 echo "domain: $domain"
-segment=$(grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"prefixes\":[{\"prefix\":\"${NET_PREFIX}\",\"gateway\":\"${NET_GATEWAY}\",\"reserve_first\":100}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/CreateNetworkSegment | jq ".id.value" | tr -d '"')
+echo "Creating ADMIN Network Segment"
+segment=$(grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"segment_type\":1, \"prefixes\":[{\"prefix\":\"${NET_PREFIX}\",\"gateway\":\"${NET_GATEWAY}\",\"reserve_first\":100}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/CreateNetworkSegment | jq ".id.value" | tr -d '"')
 echo "segment: $segment"
 
 RELAY_ADDRESS=$(jq '.relay_address' $DATA_PATH/host_dhcp_discovery.json | tr -d '"')

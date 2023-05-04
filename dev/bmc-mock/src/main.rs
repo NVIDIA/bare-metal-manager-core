@@ -72,7 +72,8 @@ async fn main() {
         .route(
             rf!("Systems/:manager_id/Actions/ComputerSystem.Reset"),
             post(set_system_power),
-        ).with_state(state);
+        )
+        .with_state(state);
 
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
 

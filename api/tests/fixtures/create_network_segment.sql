@@ -1,4 +1,4 @@
-INSERT INTO network_segments (id, name, subdomain_id, mtu, vpc_id, version, controller_state_version, controller_state) VALUES (
+INSERT INTO network_segments (id, name, subdomain_id, mtu, vpc_id, version, controller_state_version, controller_state, network_segment_type) VALUES (
 	'91609f10-c91d-470d-a260-6293ea0c1200',
 	'integration_test',
 	'1ebec7c1-114f-4793-a9e4-63f3d22b5b5e',
@@ -6,7 +6,8 @@ INSERT INTO network_segments (id, name, subdomain_id, mtu, vpc_id, version, cont
 	'60cef902-9779-4666-8362-c9bb4b37184f',
 	'V1-T1666644937952267',
 	'V1-T1666644937952267',
-	'{"state":"ready"}'
+	'{"state":"ready"}',
+	'admin'
 );
 
 INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved, circuit_id) VALUES (

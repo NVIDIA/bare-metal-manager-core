@@ -14,7 +14,7 @@ use std::str::FromStr;
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::machine_interface::MachineInterface;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use carbide::db::network_segment::{NetworkSegment, NewNetworkSegment};
+use carbide::db::network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment};
 use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
 use carbide::db::vpc::Vpc;
 use carbide::db::UuidKeyedObjectFilter;
@@ -59,6 +59,7 @@ async fn create_network_segment_with_api(
         }],
         subdomain_id: None,
         vpc_id: None,
+        segment_type: rpc::forge::NetworkSegmentType::Admin as i32,
     };
     if use_subdomain {
         request.subdomain_id = Some(FIXTURE_CREATED_DOMAIN_UUID.into());
@@ -120,6 +121,10 @@ async fn test_network_segment_lifecycle_impl(
     assert!(segment.created.is_some());
     assert!(segment.deleted.is_none());
     assert_eq!(segment.state(), rpc::forge::TenantState::Provisioning);
+    assert_eq!(
+        segment.segment_type,
+        rpc::forge::NetworkSegmentType::Admin as i32
+    );
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
     let prefix_id: uuid::Uuid = segment
         .prefixes
@@ -306,6 +311,7 @@ async fn test_advance_network_prefix_state(
         subdomain_id: None,
         mtu: 1500i32,
         vpc_id: Some(vpc.id),
+        segment_type: NetworkSegmentType::Admin,
 
         prefixes: vec![
             NewNetworkPrefix {

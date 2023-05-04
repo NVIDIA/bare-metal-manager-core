@@ -344,6 +344,7 @@ mod tests {
                     history: Vec::new(),
                     vlan_id: None,
                     vni: None,
+                    segment_type: crate::db::network_segment::NetworkSegmentType::Tenant,
                 }
             })
             .collect_vec();

@@ -67,6 +67,13 @@ async fn convert_network_to_nice_format(
                 get_domain_name(segment.subdomain_id.clone(), api_config).await
             ),
         ),
+        (
+            "TYPE",
+            format!(
+                "{:?}",
+                forgerpc::NetworkSegmentType::from_i32(segment.segment_type).unwrap_or_default()
+            ),
+        ),
     ];
     for (key, value) in data {
         writeln!(&mut lines, "{:<width$}: {}", key, value)?;
@@ -161,7 +168,8 @@ async fn convert_network_to_nice_table(
         "MTU",
         "Prefixes",
         "Circuit Ids",
-        "Version"
+        "Version",
+        "Type"
     ]);
 
     for segment in segments.network_segments {
@@ -190,6 +198,10 @@ async fn convert_network_to_nice_table(
                 .collect::<Vec<String>>()
                 .join(", "),
             segment.version,
+            format!(
+                "{:?}",
+                forgerpc::NetworkSegmentType::from_i32(segment.segment_type).unwrap_or_default()
+            ),
         ]);
     }
 

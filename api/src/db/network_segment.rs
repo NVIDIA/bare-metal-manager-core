@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::net::IpAddr;
+use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use ::rpc::protos::forge::TenantState;
@@ -24,6 +25,7 @@ use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
+use crate::model::RpcDataConversionError;
 use crate::{
     db::{
         instance_address::InstanceAddress,
@@ -75,6 +77,8 @@ pub struct NetworkSegment {
 
     pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
     pub vni: Option<i32>,
+
+    pub segment_type: NetworkSegmentType,
 }
 
 impl NetworkSegment {
@@ -82,6 +86,15 @@ impl NetworkSegment {
     pub fn is_marked_as_deleted(&self) -> bool {
         self.deleted.is_some()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+#[sqlx(type_name = "network_segment_type_t")]
+pub enum NetworkSegmentType {
+    Tenant = 0,
+    Admin,
+    Underlay,
 }
 
 #[derive(Debug)]
@@ -93,6 +106,38 @@ pub struct NewNetworkSegment {
     pub prefixes: Vec<NewNetworkPrefix>,
     pub vlan_id: Option<i16>,
     pub vni: Option<i32>,
+    pub segment_type: NetworkSegmentType,
+}
+
+impl TryFrom<i32> for NetworkSegmentType {
+    type Error = RpcDataConversionError;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Ok(match value {
+            x if x == rpc::NetworkSegmentType::Tenant as i32 => NetworkSegmentType::Tenant,
+            x if x == rpc::NetworkSegmentType::Admin as i32 => NetworkSegmentType::Admin,
+            x if x == rpc::NetworkSegmentType::Underlay as i32 => NetworkSegmentType::Underlay,
+            _ => {
+                return Err(RpcDataConversionError::InvalidNetworkSegmentType(value));
+            }
+        })
+    }
+}
+
+impl FromStr for NetworkSegmentType {
+    type Err = CarbideError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "tenant" => NetworkSegmentType::Tenant,
+            "admin" => NetworkSegmentType::Admin,
+            "tor" => NetworkSegmentType::Underlay,
+            _ => {
+                return Err(CarbideError::DatabaseTypeConversionError(format!(
+                    "Invalid segment type {} reveived from Database.",
+                    s
+                )))
+            }
+        })
+    }
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -127,6 +172,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             history: Vec::new(),
             vlan_id: row.try_get("vlan_id").unwrap_or_default(),
             vni: row.try_get("vni_id").unwrap_or_default(),
+            segment_type: row.try_get("network_segment_type")?,
         })
     }
 }
@@ -179,6 +225,7 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
                 .collect::<Result<Vec<NewNetworkPrefix>, CarbideError>>()?,
             vlan_id: None,
             vni: None,
+            segment_type: value.segment_type.try_into()?,
         })
     }
 }
@@ -230,6 +277,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             vpc_id: src.vpc_id.map(rpc::Uuid::from),
             state: state as i32,
             history,
+            segment_type: src.segment_type as i32,
         })
     }
 }
@@ -252,8 +300,9 @@ impl NewNetworkSegment {
                 controller_state_version,
                 controller_state,
                 vlan_id,
-                vni_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                vni_id,
+                network_segment_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *";
         let mut segment: NetworkSegment = sqlx::query_as(query)
             .bind(&self.name)
@@ -265,6 +314,7 @@ impl NewNetworkSegment {
             .bind(sqlx::types::Json(&controller_state))
             .bind(self.vlan_id)
             .bind(self.vni)
+            .bind(self.segment_type)
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -567,6 +617,15 @@ INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id
 WHERE network_prefixes.circuit_id=$1";
         sqlx::query_as(query)
             .bind(circuit_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    /// This method returns Admin network segment.
+    pub async fn admin(txn: &mut Transaction<'_, Postgres>) -> Result<Self, DatabaseError> {
+        let query = "SELECT * FROM network_segments WHERE network_segment_type = 'admin'";
+        sqlx::query_as(query)
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
