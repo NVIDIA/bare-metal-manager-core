@@ -110,6 +110,9 @@ impl<T> PrincipalExtractor for tonic::Request<T> {
     }
 }
 
+// An Authorization is sort of like a ticket that says we're allowed to do the
+// thing we're trying to do, and specifically which Principal was permitted to
+// do it.
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Authorization {
