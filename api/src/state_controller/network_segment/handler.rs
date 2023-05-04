@@ -73,6 +73,12 @@ impl StateHandler for NetworkSegmentStateHandler {
                         Poll::Ready(result) => {
                             NetworkPrefix::update_circuit_id(txn, prefix.id, result.circuit_id)
                                 .await?;
+                            if let Some(vlan_id) = result.vlan_id {
+                                NetworkSegment::update_vlan_id(txn, *segment_id, vlan_id).await?;
+                            }
+                            if let Some(vni) = result.vni {
+                                NetworkSegment::update_vni(txn, *segment_id, vni).await?;
+                            }
                         }
                         Poll::Pending => {
                             // We have to retry this. But we let the loop

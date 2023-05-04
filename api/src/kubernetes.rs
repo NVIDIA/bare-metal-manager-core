@@ -188,6 +188,8 @@ pub enum VpcApiDeletionResult {
 pub struct VpcApiCreateResourceGroupResult {
     /// The Circuit ID which was assigned by VPC
     pub circuit_id: String,
+    pub vlan_id: Option<i32>,
+    pub vni: Option<i32>,
 }
 
 /// Interactions with forge-vpc
@@ -737,7 +739,15 @@ fn resource_group_creation_result_from_state(
                 .dhcp_circ_id
                 .clone()
                 .expect("Status confirmed that the circuit ID is set");
-            Poll::Ready(VpcApiCreateResourceGroupResult { circuit_id })
+            let (vlan_id, vni) = match &status.fabric_network_configuration {
+                Some(net) => (net.vlan_id, net.vni),
+                None => (None, None),
+            };
+            Poll::Ready(VpcApiCreateResourceGroupResult {
+                circuit_id,
+                vlan_id,
+                vni,
+            })
         }
         _ => Poll::Pending,
     }
@@ -807,6 +817,8 @@ struct VpcApiSimState {
     /// Enumerates which IPs we've already allocated for leafs
     /// At the start it will be none
     used_loopback_ip_suffixes: HashSet<u8>,
+    // ID to use for vni / vlan_id. Increment before use.
+    alloc_id: u32,
 }
 
 #[derive(Debug)]
@@ -866,6 +878,8 @@ impl VpcApi for VpcApiSim {
             if entry.creation_attempts >= self.config.required_creation_attempts {
                 Ok(Poll::Ready(VpcApiCreateResourceGroupResult {
                     circuit_id: entry.circuit_id.clone(),
+                    vlan_id: entry.spec.vlan_id.map(|v| v as i32),
+                    vni: entry.spec.vni,
                 }))
             } else {
                 Ok(Poll::Pending)
@@ -882,7 +896,16 @@ impl VpcApi for VpcApiSim {
                 },
             );
             if self.config.required_creation_attempts == 1 {
-                Ok(Poll::Ready(VpcApiCreateResourceGroupResult { circuit_id }))
+                let v_id = {
+                    let mut guard = self.state.lock().unwrap();
+                    guard.alloc_id += 1;
+                    guard.alloc_id as i32
+                };
+                Ok(Poll::Ready(VpcApiCreateResourceGroupResult {
+                    circuit_id,
+                    vlan_id: Some(v_id),
+                    vni: Some(v_id),
+                }))
             } else {
                 // We mimic the behavior of real VPC - the status isn't immediately available
                 Ok(Poll::Pending)
