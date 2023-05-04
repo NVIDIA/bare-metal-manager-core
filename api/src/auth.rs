@@ -414,9 +414,6 @@ pub struct CarbideAuthClaims {
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum AuthError {
-    #[error("JWT error {0}")]
-    JWTError(#[from] jsonwebtoken::errors::Error),
-
     #[error("JWT decode error {0}")]
     JWTDecodeError(jsonwebtoken::errors::Error),
 
@@ -425,21 +422,6 @@ pub enum AuthError {
 
     #[error("Unknown signer key and algorithm pair")]
     UnrecognizedSigSpec,
-
-    #[error("No HTTP Authorization header was found")]
-    NoAuthHeader,
-
-    #[error("Unparseable HTTP Authorization header")]
-    UnparseableAuthHeader,
-
-    #[error("Unsupported Authorization type {0}")]
-    UnsupportedAuthType(String),
-
-    #[error("Invalid JWT claims: {0}")]
-    InvalidJWTClaims(String),
-
-    #[error("Insufficient privilege level: {0}")]
-    InsufficientPrivilegeLevel(String),
 }
 
 pub mod jwt {
