@@ -23,6 +23,12 @@ HOST_DHCP_FILE=$3/host_dhcp_discovery.json
 HOST_MACHINE_FILE=$3/host_machine_discovery.json
 BMC_METADATA_FILE=$3/update_bmc_metadata.json
 
+# Relies on the assumption that the DPU is the only entry
+DPU_INTERFACE_INFO=$(${REPO_ROOT}/dev/bin/psql.sh "select ROW_TO_JSON(interfaces) from (select interface_id,address from machine_interface_addresses) as interfaces;" |tr -d '[:space:]')
+DPU_INTERFACE_ID=$(jq -rn "${DPU_INTERFACE_INFO}.interface_id")
+DPU_INTERFACE_ADDR=$(jq -rn "${DPU_INTERFACE_INFO}.address")
+
+echo "DPU INFO: ${DPU_INTERFACE_ID} ${DPU_INTERFACE_ADDR}"
 # Determine the CircuitId that our host needs to use
 # We use the first network segment that we can find
 RESULT=$(grpcurl -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindNetworkSegments)
@@ -70,14 +76,11 @@ fi
 # Mark discovery complete
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
 
-echo "updating machine interface address ${MACHINE_INTERFACE_ID}"
-${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='127.0.0.2' where interface_id='${MACHINE_INTERFACE_ID}';"
-
 # the time wait state is a fixed 5 minutes
-sleep 305
+sleep 300
 
-# WaitForDPUUp is temp state as in local env we are trying to ping localhost.
-# Let's move to discovered state.
+echo "updating machine interface address for machine interface ${DPU_INTERFACE_ID}"
+${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='127.0.0.2' where interface_id='${DPU_INTERFACE_ID}';"
 
 # Wait until host reaches discovered state.
 i=0
@@ -89,6 +92,8 @@ while [[ $MACHINE_STATE != "Host/Discovered" && $i -lt $MAX_RETRY ]]; do
   echo "Checking machine state. Waiting for it to be in Host/Discovered state. Current: $MACHINE_STATE"
   i=$((i+1))
 done
+
+${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='${DPU_INTERFACE_ADDR}' where interface_id='${DPU_INTERFACE_ID}';"
 
 if [[ $i == "$MAX_RETRY" ]]; then
   echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."

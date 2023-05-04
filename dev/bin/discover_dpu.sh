@@ -25,7 +25,6 @@ DATA_DIR=$3
 RESULT=`grpcurl -d @ -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoverDhcp < "${DATA_DIR}/dpu_dhcp_discovery.json"`
 MACHINE_INTERFACE_ID=$(echo $RESULT | jq ".machineInterfaceId.value" | tr -d '"')
 echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
-${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='127.0.0.1' where interface_id='${MACHINE_INTERFACE_ID}'"
 
 # Simulate the Machine discovery request of a DPU
 DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' "${DATA_DIR}/dpu_machine_discovery.json")
