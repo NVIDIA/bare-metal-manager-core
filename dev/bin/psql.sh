@@ -3,9 +3,8 @@
 SQL_QUERY=$1
 
 if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
-  CARBIDE_API_POD=$(kubectl get pod --context minikube --namespace forge-system -l='carbide_api_pod=yes' -o json | jq -r '.items[0].metadata.name')
-  kubectl exec --context minikube --namespace forge-system -it ${CARBIDE_API_POD} -- bash -c 'psql -t postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME} -c '"\"${SQL_QUERY}\""
+  kubectl exec --context minikube --namespace forge-system -it deploy/carbide-api -- bash -c 'psql -P pager=off -t postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME} -c '"\"${SQL_QUERY}\""
 else
-  psql -t -c "${SQL_QUERY}"
+  psql -t -P pager=off -c "${SQL_QUERY}"
 fi
 

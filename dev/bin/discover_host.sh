@@ -8,11 +8,11 @@ set -eo pipefail
 # `discover_dpu.sh` to create DPU first and `discover_host.sh` to create host again
 
 MAX_RETRY=10
-if [ $# -ne 3 ]; then
+if [ $# -ne 4 ]; then
   echo
-  echo "Must provide api_server_ip, api_server_port, and data directory as positional arguments"
+  echo "Must provide api_server_ip, api_server_port, data directory and discovery mode as positional arguments"
   echo
-  echo "    $0" '<api_server_ip> <api_server_port> <data_dir>'
+  echo "    $0" '<api_server_ip> <api_server_port> <data_dir> [full|dhcp-only]'
   echo
   exit 1
 fi
@@ -22,11 +22,13 @@ API_SERVER_PORT=$2
 HOST_DHCP_FILE=$3/host_dhcp_discovery.json
 HOST_MACHINE_FILE=$3/host_machine_discovery.json
 BMC_METADATA_FILE=$3/update_bmc_metadata.json
+DISCOVERY_MODE=$4
 
 # Relies on the assumption that the DPU is the only entry
-DPU_INTERFACE_INFO=$(${REPO_ROOT}/dev/bin/psql.sh "select ROW_TO_JSON(interfaces) from (select interface_id,address from machine_interface_addresses) as interfaces;" |tr -d '[:space:]')
-DPU_INTERFACE_ID=$(jq -rn "${DPU_INTERFACE_INFO}.interface_id")
-DPU_INTERFACE_ADDR=$(jq -rn "${DPU_INTERFACE_INFO}.address")
+DPU_INFO=$(grpcurl -d "{\"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines)
+DPU_INTERFACE_ID=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].id.value")
+DPU_INTERFACE_ADDR=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].address[0]")
+DPU_INTERFACE_ADDR=${DPU_INTERFACE_ADDR%/*}
 
 echo "DPU INFO: ${DPU_INTERFACE_ID} ${DPU_INTERFACE_ADDR}"
 # Determine the CircuitId that our host needs to use
@@ -42,6 +44,10 @@ HOST_DHCP_REQUEST=$(jq --arg circuit_id "$CIRCUIT_ID" '.circuit_id = $circuit_id
 RESULT=$(echo "$HOST_DHCP_REQUEST" | grpcurl -d @ -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoverDhcp)
 MACHINE_INTERFACE_ID=$(echo "$RESULT" | jq ".machineInterfaceId.value" | tr -d '"')
 echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
+if [ "${DISCOVERY_MODE}" == "dhcp-only" ]
+then
+  exit 0
+fi
 
 # Simulate the Machine discovery request of a x86 host
 DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' "$HOST_MACHINE_FILE")
@@ -79,7 +85,7 @@ RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure
 # the time wait state is a fixed 5 minutes
 sleep 300
 
-echo "updating machine interface address for machine interface ${DPU_INTERFACE_ID}"
+echo "updating machine interface address for machine interface ${DPU_INTERFACE_ID} to 127.0.0.2"
 ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='127.0.0.2' where interface_id='${DPU_INTERFACE_ID}';"
 
 # Wait until host reaches discovered state.
@@ -93,6 +99,7 @@ while [[ $MACHINE_STATE != "Host/Discovered" && $i -lt $MAX_RETRY ]]; do
   i=$((i+1))
 done
 
+echo "updating machine interface address for machine interface ${DPU_INTERFACE_ID} to ${DPU_INTERFACE_ID}"
 ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='${DPU_INTERFACE_ADDR}' where interface_id='${DPU_INTERFACE_ID}';"
 
 if [[ $i == "$MAX_RETRY" ]]; then

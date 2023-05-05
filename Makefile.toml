@@ -117,22 +117,68 @@ workspace = false
 command = "cargo"
 args = ["license", "--avoid-build-deps", "--avoid-dev-deps", "--json"]
 
+
+
+[tasks.bootstrap-forge-base-docker]
+category = "Bootstrap"
+workspace = false
+env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
+dependencies = [
+  {name="build-bootstrap-forge-base-docker", path="include/Makefile-bootstrap.toml"}
+]
+[tasks.bootstrap-forge-base-kube]
+category = "Bootstrap"
+workspace = false
+env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
+dependencies = [
+  {name="build-bootstrap-forge-base-kube", path="include/Makefile-bootstrap.toml"}
+]
+
+
+[tasks.bootstrap-forge-dpu-discovery-docker]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  {name="build-bootstrap-forge-dpu-discovery-docker", path="include/Makefile-bootstrap.toml"}
+]
+[tasks.bootstrap-forge-dpu-discovery-kube]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  {name="build-bootstrap-forge-dpu-discovery-kube", path="include/Makefile-bootstrap.toml"}
+]
+
+[tasks.bootstrap-forge-vmhost-init-docker]
+category = "Bootstrap"
+workspace = false
+run_task = [
+  {name="build-bootstrap-forge-vmhost-init-docker", path="include/Makefile-bootstrap.toml"}
+]
+[tasks.bootstrap-forge-vmhost-init-kube]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  {name="build-bootstrap-forge-vmhost-init-kube", path="include/Makefile-bootstrap.toml"}
+]
+
 [tasks.bootstrap-forge-docker]
+category = "Bootstrap"
 workspace = false
 dependencies = [
   {name="build-bootstrap-forge-docker", path="include/Makefile-bootstrap.toml"}
 ]
+[tasks.bootstrap-forge-kube]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  {name="build-bootstrap-forge-kube", path="include/Makefile-bootstrap.toml"}
+]
+
 
 [tasks.test-instance-forge-docker]
 workspace = false
 dependencies = [
   {name="test-instance-forge-docker", path="include/Makefile-bootstrap.toml"}
-]
-
-[tasks.bootstrap-forge-kube]
-workspace = false
-dependencies = [
-  {name="build-bootstrap-forge-kube", path="include/Makefile-bootstrap.toml"}
 ]
 
 [tasks.update-kube-structs]
