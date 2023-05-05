@@ -37,6 +37,15 @@ hdrpkg=linux-headers-generic
 
 #pip3 install setuptools
 
+cat >/etc/systemd/network/dhcp.network <<EOF
+[Match]
+Name=en*
+
+[Network]
+DHCP=yes
+EOF
+systemctl enable systemd-networkd
+
 cd $tmpdir
 #chipsecsrcfile=$softdir/chipsec.tar.gz
 chipsecsrcfile=$tmpdir/distr_chipsec.tar.gz
