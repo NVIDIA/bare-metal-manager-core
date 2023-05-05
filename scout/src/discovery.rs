@@ -10,16 +10,25 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge as rpc;
+use forge_host_support::ipmi;
+use log::warn;
 
 use crate::{cfg::Options, client::create_forge_client, CarbideClientError};
+use ::rpc::forge as rpc;
 
 pub(crate) async fn run(config: &Options, machine_id: &str) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
     if let Err(err) = crate::users::create_users(&mut client, machine_id).await {
         log::error!("Error while setting up users. {}", err.to_string());
     }
-    crate::ipmi::update_ipmi_creds(&mut client, machine_id)
+
+    let mut ipmi_users = Vec::default();
+    match ipmi::set_ipmi_creds() {
+        Ok(ipmi_user) => ipmi_users.push(ipmi_user),
+        Err(error) => warn!("Failed to update bmc user: {:?}", error),
+    }
+
+    ipmi::send_bmc_metadata_update(&mut client, machine_id, ipmi_users)
         .await
         .map_err(|err| {
             log::error!("Error while setting up IPMI. {}", err.to_string());

@@ -103,7 +103,6 @@ pub async fn get_machine_snapshot(
 
     let snapshot = MachineSnapshot {
         machine_id: machine_id.clone(),
-        bmc_info: machine.bmc_info().clone(),
         hardware_info: machine.hardware_info().cloned(),
         network_config: machine.managed_host_network_config().clone(),
         current: CurrentMachineState {
@@ -113,6 +112,7 @@ pub async fn get_machine_snapshot(
         last_discovery_time: machine.last_discovery_time(),
         last_reboot_time: machine.last_reboot_time(),
         last_cleanup_time: machine.last_cleanup_time(),
+        bmc_ip: machine.bmc_ip().cloned(),
     };
 
     Ok(snapshot)

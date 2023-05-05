@@ -26,7 +26,10 @@ use carbide::{
 pub mod common;
 use common::api_fixtures::{
     create_managed_host, create_test_env,
-    dpu::{create_dpu_machine, FIXTURE_DPU_MAC_ADDRESS},
+    dpu::{
+        create_dpu_machine, FIXTURE_DPU_BMC_FIRMWARE_VERSION, FIXTURE_DPU_BMC_IP_ADDRESS,
+        FIXTURE_DPU_BMC_MAC_ADDRESS, FIXTURE_DPU_BMC_VERSION, FIXTURE_DPU_MAC_ADDRESS,
+    },
 };
 
 #[ctor::ctor]
@@ -49,6 +52,24 @@ async fn test_find_machine_by_id(pool: sqlx::PgPool) {
         .expect("expect DPU to be found");
     assert_eq!(*machine.id(), dpu_machine_id);
     assert!(machine.is_dpu());
+    assert!(machine.hardware_info().is_some());
+    let hardware_info = machine
+        .hardware_info()
+        .expect("No hardware_info for machine");
+    let bmc_info = hardware_info
+        .bmc_info
+        .as_ref()
+        .expect("No BMC info in hardware_info for machine");
+    assert_eq!(
+        machine.bmc_ip().cloned(),
+        Some(FIXTURE_DPU_BMC_IP_ADDRESS.to_owned())
+    );
+    assert_eq!(bmc_info.mac, Some(FIXTURE_DPU_BMC_MAC_ADDRESS.to_owned()));
+    assert_eq!(bmc_info.version, Some(FIXTURE_DPU_BMC_VERSION.to_owned()));
+    assert_eq!(
+        bmc_info.firmware_version,
+        Some(FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_owned())
+    );
 
     // We shouldn't find a machine that doesn't exist
     let mut new_id = dpu_machine_id.to_string();

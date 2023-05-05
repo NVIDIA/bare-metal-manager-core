@@ -15,4 +15,5 @@
 
 pub mod agent_config;
 pub mod hardware_enumeration;
+pub mod ipmi;
 pub mod registration;

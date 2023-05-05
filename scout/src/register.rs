@@ -21,7 +21,7 @@ pub async fn run(
     root_ca: String,
     machine_interface_id: uuid::Uuid,
 ) -> Result<String, CarbideClientError> {
-    let hardware_info = enumerate_hardware()?;
+    let hardware_info = enumerate_hardware().await?;
     log::info!("Successfully enumerated hardware");
 
     let registration_data =

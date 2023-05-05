@@ -290,7 +290,6 @@ pub async fn update_bmc_metadata(
     machine_id: rpc::MachineId,
     bmc_ip_address: &str,
     admin_user: String,
-    bmc_mac_address: String,
 ) {
     let _response = env
         .api
@@ -303,7 +302,6 @@ pub async fn update_bmc_metadata(
                 role: rpc::forge::UserRoles::Administrator as i32,
             }],
             request_type: rpc::forge::BmcRequestType::Redfish as i32,
-            mac: bmc_mac_address,
         }))
         .await
         .unwrap()

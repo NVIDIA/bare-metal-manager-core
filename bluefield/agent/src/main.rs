@@ -98,7 +98,7 @@ fn main() -> eyre::Result<()> {
 
         // already done, the cmd allows us to do only this.
         Some(AgentCommand::Hardware) => {
-            enumerate_hardware()?;
+            rt.block_on(enumerate_hardware())?;
         }
 
         // One-off health check
@@ -181,7 +181,7 @@ fn main() -> eyre::Result<()> {
 /// Discover hardware, register DPU with carbide-api, and return machine id
 fn register(rt: &mut tokio::runtime::Runtime, agent: &AgentConfig) -> Result<String, eyre::Report> {
     let interface_id = agent.machine.interface_id;
-    let hardware_info = enumerate_hardware()?;
+    let hardware_info = rt.block_on(enumerate_hardware())?;
     debug!("Successfully enumerated DPU hardware");
 
     let registration_data = rt.block_on(register_machine(

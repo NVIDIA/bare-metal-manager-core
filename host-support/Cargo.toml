@@ -20,6 +20,7 @@ toml = "0.5.10"
 tonic = { workspace = true }
 uname = "0.1"
 uuid = "1.0"
+rand = "0.8"
 
 # local crate dependencies
 rpc = { path = "../rpc" }

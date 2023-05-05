@@ -37,6 +37,9 @@ message DiscoveryInfo {
 
   // DPU specific data
   optional DpuData dpu_info = 10;
+
+  // Ipmi information about the bmc
+  BmcInfo bmc_info = 11;
 }
 
 message NetworkInterface {
@@ -98,4 +101,10 @@ message DpuData {
   string factory_mac_address = 4;
   string firmware_version = 5;
   string firmware_date = 6;
+}
+
+message BmcInfo {
+  optional string mac = 1;
+  optional string version = 2;
+  optional string firmware_version = 3;
 }

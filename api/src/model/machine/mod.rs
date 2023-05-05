@@ -52,8 +52,6 @@ pub struct MachineSnapshot {
     pub hardware_info: Option<HardwareInfo>,
     /// The desired network configuration for this machine
     pub network_config: Versioned<ManagedHostNetworkConfig>,
-    /// BMC related information
-    pub bmc_info: BmcInfo,
     /// Desired state of the machine
     pub current: CurrentMachineState,
     /// Last discovery request from scout.
@@ -62,6 +60,8 @@ pub struct MachineSnapshot {
     pub last_reboot_time: Option<DateTime<Utc>>,
     /// Last Cleanup completed messge received from scout.
     pub last_cleanup_time: Option<DateTime<Utc>>,
+    /// the ip of the bmc.  this may be updated outside discovery, so is not kept in hardware_info
+    pub bmc_ip: Option<String>,
 }
 
 /// Represents the current state of `Machine`
@@ -196,8 +196,30 @@ impl Display for ManagedHostState {
 }
 
 /// BMC related information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BmcInfo {
-    pub ip: Option<String>,
     pub mac: Option<String>,
+    pub version: Option<String>,
+    pub firmware_version: Option<String>,
+}
+
+impl From<BmcInfo> for ::rpc::machine_discovery::BmcInfo {
+    fn from(value: BmcInfo) -> Self {
+        ::rpc::machine_discovery::BmcInfo {
+            mac: value.mac,
+            version: value.version,
+            firmware_version: value.firmware_version,
+        }
+    }
+}
+
+impl From<::rpc::machine_discovery::BmcInfo> for BmcInfo {
+    fn from(value: rpc::machine_discovery::BmcInfo) -> Self {
+        BmcInfo {
+            mac: value.mac,
+            version: value.version,
+            firmware_version: value.firmware_version,
+        }
+    }
 }

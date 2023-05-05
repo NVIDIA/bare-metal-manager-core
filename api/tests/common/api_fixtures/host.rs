@@ -138,7 +138,6 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
         host_rpc_machine_id.clone(),
         FIXTURE_HOST_BMC_IP_ADDRESS,
         FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
-        FIXTURE_HOST_BMC_MAC_ADDRESS.to_string(),
     )
     .await;
 

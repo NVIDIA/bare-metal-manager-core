@@ -181,7 +181,7 @@ pub fn routes() -> Vec<Route> {
 
 #[cfg(test)]
 mod tests {
-    use rpc::forge::{BmcInfo, MachineType};
+    use rpc::forge::MachineType;
 
     use super::*;
 
@@ -228,10 +228,7 @@ mod tests {
                 interfaces: vec![interface],
                 discovery_info: None,
                 machine_type: MachineType::Dpu as i32,
-                bmc_info: Some(BmcInfo {
-                    ip: None,
-                    mac: None,
-                }),
+                bmc_ip: None,
             }),
         };
 

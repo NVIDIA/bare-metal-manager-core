@@ -26,7 +26,7 @@ use uuid::Uuid;
 use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::instance::Instance;
-use crate::db::ipmi::{BmcMetaDataGetRequest, UserRoles};
+use crate::db::ipmi::{BmcMetaDataGetRequest, MachineBmcInformation, UserRoles};
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::reachability::{
     wait_for_requested_state, PingReachabilityChecker, Reachability, ReachabilityError,
@@ -600,18 +600,18 @@ impl MachineBmcRequest {
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin invoke_bmc_command", e))?;
 
         let role = UserRoles::Administrator;
-        let (ip, _) = BmcMetaDataGetRequest {
+        let bmc_info = BmcMetaDataGetRequest {
             machine_id: self.machine_id.clone(),
             role,
         }
-        .get_bmc_host_ip(&mut txn)
+        .get_bmc_information(&mut txn)
         .await?;
 
         txn.commit()
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit invoke_bmc_command", e))?;
 
-        let ipmi_command = IpmiCommand::new(ip, self.machine_id.clone(), role);
+        let ipmi_command = IpmiCommand::new(bmc_info.address, self.machine_id.clone(), role);
 
         let task_id = match self.operation {
             Operation::Reset => ipmi_command.power_reset(&pool).await?,
@@ -642,11 +642,11 @@ impl MachineBmcRequest {
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin invoke_bmc_command", e))?;
 
         let role = UserRoles::Administrator;
-        let (bmc_ip, _) = BmcMetaDataGetRequest {
+        let MachineBmcInformation { address } = BmcMetaDataGetRequest {
             machine_id: self.machine_id.clone(),
             role,
         }
-        .get_bmc_host_ip(&mut txn)
+        .get_bmc_information(&mut txn)
         .await?;
 
         txn.commit()
@@ -654,7 +654,7 @@ impl MachineBmcRequest {
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit invoke_bmc_command", e))?;
 
         let client = redfish_pool
-            .create_client(&self.machine_id, &bmc_ip, None)
+            .create_client(&self.machine_id, &address, None)
             .await
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
