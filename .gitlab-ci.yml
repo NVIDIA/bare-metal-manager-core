@@ -207,6 +207,11 @@ build-boot-artifacts-aarch64:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
   tags:
     - aarch64
+  artifacts:
+    paths:
+      - pxe/static/blobs/internal/aarch64/
+    when: always
+    expire_in: 1 day
   rules:
     - if: $CI_COMMIT_TAG
 
