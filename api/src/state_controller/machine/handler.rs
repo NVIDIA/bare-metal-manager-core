@@ -689,15 +689,12 @@ async fn restart_machine(
 
     // Since libredfish calls are thread blocking and we are inside an async function,
     // we have to delegate the actual call into a threadpool
-    tokio::task::spawn_blocking(move || {
-        client.boot_once(libredfish::Boot::Pxe)?;
-        client.power(libredfish::SystemPowerControl::ForceRestart)
-    })
-    .await
-    .map_err(|e| {
-        StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
-    })?
-    .map_err(|e| StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e)))?;
+    tokio::task::spawn_blocking(move || client.power(libredfish::SystemPowerControl::ForceRestart))
+        .await
+        .map_err(|e| {
+            StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
+        })?
+        .map_err(|e| StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e)))?;
 
     Ok(())
 }
