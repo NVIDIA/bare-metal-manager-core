@@ -48,6 +48,7 @@ DHCP=yes
 ClientIdentifier=mac
 EOF
 systemctl enable systemd-networkd
+systemctl enable systemd-timesyncd
 
 cd $tmpdir
 #chipsecsrcfile=$softdir/chipsec.tar.gz

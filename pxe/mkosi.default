@@ -26,7 +26,6 @@ Packages=
      memtester
      nasm
      net-tools
-     ntp
      nvme-cli
      openssh-server
      pciutils
@@ -35,6 +34,7 @@ Packages=
      python3-setuptools
      python3-pip
      smartmontools
+     systemd-timesyncd
      telnet
      tpm2-tools
      vim-nox
