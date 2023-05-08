@@ -13,14 +13,10 @@
 use std::fmt;
 use std::str::FromStr;
 
-use async_trait::async_trait;
+use crate::CarbideError;
 
 mod db;
 pub use db::DbResourcePool;
-mod memory;
-pub use memory::MemoryResourcePool;
-
-use crate::CarbideError;
 
 /// DPU VPC loopback IP pool
 /// Must match a pool defined in dev/resource_pools.toml
@@ -33,29 +29,6 @@ pub const VNI: &str = "vni";
 /// vlan-id pool. ResourceGroup / FabricNetworkConfiguration
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VLANID: &str = "vlan-id";
-
-#[async_trait]
-pub trait ResourcePool<T>: Send + Sync
-where
-    T: ToString + FromStr,
-{
-    /// Put some resources into the pool, so they can be allocated later.
-    /// This needs to be called before `allocate` can return anything.
-    async fn populate(&self, values: Vec<T>) -> Result<(), ResourcePoolError>;
-
-    /// Get a resource from the pool
-    async fn allocate(
-        &self,
-        for_owner_type: OwnerType,
-        for_owner_id: &str,
-    ) -> Result<T, ResourcePoolError>;
-
-    /// Return a resource to the pool
-    async fn release(&self, value: T) -> Result<(), ResourcePoolError>;
-
-    /// Count how many (used, unused) values are in the pool
-    async fn stats(&self) -> Result<ResourcePoolStats, ResourcePoolError>;
-}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum OwnerType {
@@ -105,9 +78,9 @@ pub enum ResourcePoolError {
     #[error("Value is not currently allocated, cannot release")]
     NotAllocated,
     #[error("Internal database error: {0}")]
-    DbError(#[from] crate::db::DatabaseError),
+    Db(#[from] crate::db::DatabaseError),
     #[error("Cannot convert '{v}' to {pool_name}'s pool type for {owner_type} {owner_id}: {e}")]
-    ParseError {
+    Parse {
         e: String,
         v: String,
         pool_name: String,

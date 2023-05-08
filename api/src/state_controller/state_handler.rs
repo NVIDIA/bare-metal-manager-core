@@ -12,16 +12,15 @@
 
 use std::sync::Arc;
 
+use super::controller::ReachabilityParams;
 use crate::{
     db::DatabaseError,
     kubernetes::{VpcApi, VpcApiError},
     model::machine::{machine_id::MachineId, ManagedHostState},
     redfish::RedfishClientPool,
-    resource_pool::{ResourcePool, ResourcePoolError},
+    resource_pool::{DbResourcePool, ResourcePoolError},
     state_controller::snapshot_loader::SnapshotLoaderError,
 };
-
-use super::controller::ReachabilityParams;
 
 /// Services that are accessible to the `StateHandler`
 pub struct StateHandlerServices {
@@ -42,11 +41,11 @@ pub struct StateHandlerServices {
 
     /// Resource pool for VNI (VXLAN ID) allocate/release
     /// None if VPC is managing this data
-    pub pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
+    pub pool_vlan_id: Option<Arc<DbResourcePool<i16>>>,
 
     /// Resource pool for VLAN ID alllocate/release
     /// None if VPC is managing this data
-    pub pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
+    pub pool_vni: Option<Arc<DbResourcePool<i32>>>,
 }
 
 /// Context parameter passed to `StateHandler`

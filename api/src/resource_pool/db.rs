@@ -12,9 +12,9 @@
 
 use std::{marker::PhantomData, str::FromStr};
 
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 
-use super::{OwnerType, ResourcePool, ResourcePoolError};
+use super::{OwnerType, ResourcePoolError};
 use crate::{
     db::DatabaseError,
     model::{config_version::ConfigVersion, resource_pool::ResourcePoolEntryState},
@@ -29,7 +29,6 @@ where
     <T as FromStr>::Err: std::error::Error,
 {
     name: String,
-    database_connection: sqlx::PgPool,
     value_type: PhantomData<T>,
 }
 
@@ -38,22 +37,20 @@ where
     T: ToString + FromStr + Send + Sync + 'static,
     <T as FromStr>::Err: std::error::Error,
 {
-    pub fn new(name: String, db_pool: sqlx::PgPool) -> DbResourcePool<T> {
+    pub fn new(name: String) -> DbResourcePool<T> {
         DbResourcePool {
             name,
-            database_connection: db_pool,
             value_type: PhantomData,
         }
     }
-}
 
-#[async_trait::async_trait]
-impl<T> ResourcePool<T> for DbResourcePool<T>
-where
-    T: ToString + FromStr + Send + Sync + 'static,
-    <T as FromStr>::Err: std::error::Error,
-{
-    async fn populate(&self, all_values: Vec<T>) -> Result<(), ResourcePoolError> {
+    /// Put some resources into the pool, so they can be allocated later.
+    /// This needs to be called before `allocate` can return anything.
+    pub async fn populate(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        all_values: Vec<T>,
+    ) -> Result<(), ResourcePoolError> {
         let free_state = ResourcePoolEntryState::Free;
         let initial_version = ConfigVersion::initial();
         let version_str = initial_version.to_string();
@@ -69,19 +66,21 @@ where
             });
             qb.push("ON CONFLICT (name, value) DO NOTHING");
             let q = qb.build();
-            q.execute(&self.database_connection)
+            q.execute(&mut *txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         }
         Ok(())
     }
 
-    async fn allocate(
+    /// Get a resource from the pool
+    pub async fn allocate<'c>(
         &self,
+        txn: &mut Transaction<'c, Postgres>,
         owner_type: OwnerType,
         owner_id: &str,
     ) -> Result<T, ResourcePoolError> {
-        if self.stats().await?.free == 0 {
+        if self.stats(&mut *txn).await?.free == 0 {
             return Err(ResourcePoolError::Empty);
         }
         let query = "
@@ -111,23 +110,27 @@ RETURNING allocate.value
             .bind(&self.name)
             .bind(sqlx::types::Json(&free_state))
             .bind(sqlx::types::Json(&allocated_state))
-            .fetch_one(&self.database_connection)
+            .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        let out =
-            allocated
-                .parse()
-                .map_err(|e: <T as FromStr>::Err| ResourcePoolError::ParseError {
-                    e: e.to_string(),
-                    v: allocated,
-                    pool_name: self.name.clone(),
-                    owner_type: owner_type.to_string(),
-                    owner_id: owner_id.to_string(),
-                })?;
+        let out = allocated
+            .parse()
+            .map_err(|e: <T as FromStr>::Err| ResourcePoolError::Parse {
+                e: e.to_string(),
+                v: allocated,
+                pool_name: self.name.clone(),
+                owner_type: owner_type.to_string(),
+                owner_id: owner_id.to_string(),
+            })?;
         Ok(out)
     }
 
-    async fn release(&self, value: T) -> Result<(), ResourcePoolError> {
+    /// Return a resource to the pool
+    pub async fn release(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        value: T,
+    ) -> Result<(), ResourcePoolError> {
         // TODO: If we would get passed the current owner, we could guard on that
         // so that nothing else could release the value
         let query = "
@@ -140,13 +143,20 @@ WHERE name = $2 AND value = $3
             .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
             .bind(&self.name)
             .bind(&value.to_string())
-            .execute(&self.database_connection)
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
 
-    async fn stats(&self) -> Result<super::ResourcePoolStats, ResourcePoolError> {
+    /// Count how many (used, unused) values are in the pool
+    pub async fn stats<'c, E>(
+        &self,
+        executor: E,
+    ) -> Result<super::ResourcePoolStats, ResourcePoolError>
+    where
+        E: sqlx::Executor<'c, Database = Postgres>,
+    {
         // Will do an index scan on idx_resource_pools_name, same as without the FILTER, so doing
         // both at once is faster than two queries.
         let free_state = ResourcePoolEntryState::Free;
@@ -156,7 +166,7 @@ WHERE name = $2 AND value = $3
         let s: super::ResourcePoolStats = sqlx::query_as(query)
             .bind(sqlx::types::Json(free_state))
             .bind(&self.name)
-            .fetch_one(&self.database_connection)
+            .fetch_one(executor)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(s)

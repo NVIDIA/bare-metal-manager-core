@@ -35,6 +35,7 @@ use http::{header::AUTHORIZATION, StatusCode};
 use hyper::server::conn::Http;
 use hyper::{Request as HyperRequest, Response as HyperResponse};
 use opentelemetry::metrics::Meter;
+use sqlx::{Postgres, Transaction};
 use tokio::net::TcpListener;
 use tokio_rustls::{
     rustls::{Certificate, PrivateKey, ServerConfig},
@@ -58,7 +59,7 @@ use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::ManagedHostState;
 use crate::model::RpcDataConversionError;
 use crate::reachability::PingReachabilityChecker;
-use crate::resource_pool::{DbResourcePool, ResourcePool, ResourcePoolError};
+use crate::resource_pool::{DbResourcePool, ResourcePoolError};
 use crate::state_controller::controller::ReachabilityParams;
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 use crate::{
@@ -515,8 +516,12 @@ where
             })?;
 
         let mut new_network_segment = NewNetworkSegment::try_from(request.into_inner())?;
-        new_network_segment.vlan_id = self.allocate_vlan_id(&new_network_segment.name).await?;
-        new_network_segment.vni = self.allocate_vni(&new_network_segment.name).await?;
+        new_network_segment.vlan_id = self
+            .allocate_vlan_id(&mut txn, &new_network_segment.name)
+            .await?;
+        new_network_segment.vni = self
+            .allocate_vni(&mut txn, &new_network_segment.name)
+            .await?;
         let network_segment = new_network_segment
             .persist(&mut txn)
             .await
@@ -1164,7 +1169,7 @@ where
         .map(rpc::Machine::from)?;
 
         let loopback_ip = if hardware_info.is_dpu() {
-            self.allocate_loopback_ip(&stable_machine_id.to_string())
+            self.allocate_loopback_ip(&mut txn, &stable_machine_id.to_string())
                 .await?
         } else {
             None
@@ -2326,7 +2331,7 @@ where
             if let Some(pool) = self.vpc_data.pool_loopback_ip.as_ref() {
                 // Forge is managing loopback IPs
                 if let Some(loopback_ip) = actual_dpu_machine.loopback_ip() {
-                    pool.release(loopback_ip)
+                    pool.release(&mut txn, loopback_ip)
                         .await
                         .map_err(CarbideError::from)?
                 }
@@ -2358,28 +2363,36 @@ where
         let pool_type = rpc::ResourcePoolType::try_from(def.pool_type)
             .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
         let name = &def.name;
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin admin_define_resource_pool", e)
+        })?;
         for range in def.ranges {
             match pool_type {
                 rpc::ResourcePoolType::Ipv4 => {
                     let values = expand_ip_range(&range.start, &range.end)
                         .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
                     let num_values = values.len();
-                    let pool =
-                        DbResourcePool::new(name.to_string(), self.database_connection.clone());
-                    pool.populate(values).await.map_err(CarbideError::from)?;
+                    let pool = DbResourcePool::new(name.to_string());
+                    pool.populate(&mut txn, values)
+                        .await
+                        .map_err(CarbideError::from)?;
                     tracing::debug!("Populated IP resource pool {name} with {num_values} values");
                 }
                 rpc::ResourcePoolType::Integer => {
                     let values = expand_int_range(&range.start, &range.end)
                         .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
                     let num_values = values.len();
-                    let pool =
-                        DbResourcePool::new(name.to_string(), self.database_connection.clone());
-                    pool.populate(values).await.map_err(CarbideError::from)?;
+                    let pool = DbResourcePool::new(name.to_string());
+                    pool.populate(&mut txn, values)
+                        .await
+                        .map_err(CarbideError::from)?;
                     tracing::debug!("Populated int resource pool {name} with {num_values} values");
                 }
             };
         }
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "end admin_define_resource_pool", e)
+        })?;
         Ok(Response::new(rpc::DefineResourcePoolResponse {}))
     }
 }
@@ -2872,7 +2885,11 @@ where
     ///
     /// If the pool doesn't exist return None.
     /// If the pool exists but is empty or has en error, return that.
-    async fn allocate_loopback_ip(&self, owner_id: &str) -> Result<Option<Ipv4Addr>, Status> {
+    async fn allocate_loopback_ip(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        owner_id: &str,
+    ) -> Result<Option<Ipv4Addr>, Status> {
         use crate::resource_pool::OwnerType;
         if self.vpc_data.pool_loopback_ip.is_none() {
             return Ok(None);
@@ -2882,7 +2899,7 @@ where
             .pool_loopback_ip
             .as_ref()
             .unwrap()
-            .allocate(OwnerType::Machine, owner_id)
+            .allocate(txn, OwnerType::Machine, owner_id)
             .await
         {
             Ok(val) => Ok(Some(val)),
@@ -2903,7 +2920,11 @@ where
     ///
     /// If the pool doesn't exist return None.
     /// If the pool exists but is empty or has en error, return that.
-    async fn allocate_vni(&self, owner_id: &str) -> Result<Option<i32>, Status> {
+    async fn allocate_vni(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        owner_id: &str,
+    ) -> Result<Option<i32>, Status> {
         use crate::resource_pool::OwnerType;
         if self.vpc_data.pool_vni.is_none() {
             return Ok(None);
@@ -2913,7 +2934,7 @@ where
             .pool_vni
             .as_ref()
             .unwrap()
-            .allocate(OwnerType::NetworkSegment, owner_id)
+            .allocate(txn, OwnerType::NetworkSegment, owner_id)
             .await
         {
             Ok(val) => Ok(Some(val)),
@@ -2934,7 +2955,11 @@ where
     ///
     /// If the pool doesn't exist return None.
     /// If the pool exists but is empty or has en error, return that.
-    async fn allocate_vlan_id(&self, owner_id: &str) -> Result<Option<i16>, Status> {
+    async fn allocate_vlan_id(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        owner_id: &str,
+    ) -> Result<Option<i16>, Status> {
         use crate::resource_pool::OwnerType;
         if self.vpc_data.pool_vlan_id.is_none() {
             return Ok(None);
@@ -2944,7 +2969,7 @@ where
             .pool_vlan_id
             .as_ref()
             .unwrap()
-            .allocate(OwnerType::NetworkSegment, owner_id)
+            .allocate(txn, OwnerType::NetworkSegment, owner_id)
             .await
         {
             Ok(val) => Ok(Some(val)),

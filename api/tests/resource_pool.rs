@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use carbide::resource_pool::ResourcePoolStats as St;
-use carbide::resource_pool::{DbResourcePool, OwnerType, ResourcePool, ResourcePoolError};
+use carbide::resource_pool::{DbResourcePool, OwnerType, ResourcePoolError};
 use log::LevelFilter;
 use sqlx::migrate::MigrateDatabase;
 
@@ -27,62 +27,104 @@ fn setup() {
 
 #[sqlx::test]
 async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let pool = DbResourcePool::new("test_simple".to_string(), db_pool);
+    let mut txn = db_pool.begin().await?;
+    let pool = DbResourcePool::new("test_simple".to_string());
 
     // one value in the pool
-    pool.populate(vec!["1".to_string()]).await?;
+    pool.populate(&mut txn, vec!["1".to_string()]).await?;
 
     // which we get
-    let allocated = pool.allocate(OwnerType::Machine, "123").await?;
+    let allocated = pool.allocate(&mut txn, OwnerType::Machine, "123").await?;
     assert_eq!(allocated, "1");
-    assert_eq!(pool.stats().await?, St { used: 1, free: 0 });
+    assert_eq!(pool.stats(&mut txn).await?, St { used: 1, free: 0 });
 
     // no more values
-    match pool.allocate(OwnerType::Machine, "id456").await {
+    match pool.allocate(&mut txn, OwnerType::Machine, "id456").await {
         Err(ResourcePoolError::Empty) => {} // expected
         Err(err) => panic!("Unexpected err: {err}"),
         Ok(_) => panic!("Pool should be empty"),
     }
 
     // return the value
-    pool.release(allocated).await?;
+    pool.release(&mut txn, allocated).await?;
 
     // and then there was one
-    assert_eq!(pool.stats().await?, St { used: 0, free: 1 });
+    assert_eq!(pool.stats(&mut txn).await?, St { used: 0, free: 1 });
 
+    txn.rollback().await?;
     Ok(())
 }
 
 #[sqlx::test]
 async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let pool1 = DbResourcePool::new("test_multiple_1".to_string(), db_pool.clone());
-    let pool2 = DbResourcePool::new("test_multiple_2".to_string(), db_pool.clone());
-    let pool3 = DbResourcePool::new("test_multiple_3".to_string(), db_pool);
+    let mut txn = db_pool.begin().await?;
+    let pool1 = DbResourcePool::new("test_multiple_1".to_string());
+    let pool2 = DbResourcePool::new("test_multiple_2".to_string());
+    let pool3 = DbResourcePool::new("test_multiple_3".to_string());
 
-    pool1.populate((1..=10).collect::<Vec<_>>()).await?;
-    pool2.populate((1..=100).collect::<Vec<_>>()).await?;
-    pool3.populate((1..=500).collect::<Vec<_>>()).await?;
+    pool1
+        .populate(&mut txn, (1..=10).collect::<Vec<_>>())
+        .await?;
+    pool2
+        .populate(&mut txn, (1..=100).collect::<Vec<_>>())
+        .await?;
+    pool3
+        .populate(&mut txn, (1..=500).collect::<Vec<_>>())
+        .await?;
 
-    assert_eq!(pool1.stats().await?, St { used: 0, free: 10 });
-    assert_eq!(pool2.stats().await?, St { used: 0, free: 100 });
-    assert_eq!(pool3.stats().await?, St { used: 0, free: 500 });
+    assert_eq!(pool1.stats(&mut txn).await?, St { used: 0, free: 10 });
+    assert_eq!(pool2.stats(&mut txn).await?, St { used: 0, free: 100 });
+    assert_eq!(pool3.stats(&mut txn).await?, St { used: 0, free: 500 });
 
     let mut got = Vec::with_capacity(10);
     for _ in 1..=10 {
-        got.push(pool2.allocate(OwnerType::Machine, "my_id").await.unwrap());
+        got.push(
+            pool2
+                .allocate(&mut txn, OwnerType::Machine, "my_id")
+                .await
+                .unwrap(),
+        );
     }
 
-    assert_eq!(pool1.stats().await?, St { used: 0, free: 10 });
-    assert_eq!(pool2.stats().await?, St { used: 10, free: 90 });
-    assert_eq!(pool3.stats().await?, St { used: 0, free: 500 });
+    assert_eq!(pool1.stats(&mut txn).await?, St { used: 0, free: 10 });
+    assert_eq!(pool2.stats(&mut txn).await?, St { used: 10, free: 90 });
+    assert_eq!(pool3.stats(&mut txn).await?, St { used: 0, free: 500 });
 
     for val in got {
-        pool2.release(val).await?;
+        pool2.release(&mut txn, val).await?;
     }
 
-    assert_eq!(pool1.stats().await?, St { used: 0, free: 10 });
-    assert_eq!(pool2.stats().await?, St { used: 0, free: 100 });
-    assert_eq!(pool3.stats().await?, St { used: 0, free: 500 });
+    assert_eq!(pool1.stats(&mut txn).await?, St { used: 0, free: 10 });
+    assert_eq!(pool2.stats(&mut txn).await?, St { used: 0, free: 100 });
+    assert_eq!(pool3.stats(&mut txn).await?, St { used: 0, free: 500 });
+
+    txn.rollback().await?;
+    Ok(())
+}
+
+#[sqlx::test]
+async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let pool = DbResourcePool::new("test_rollback".to_string());
+
+    // Pool has a single value
+    let mut txn = db_pool.begin().await?;
+    pool.populate(&mut txn, vec![1]).await?;
+    txn.commit().await?;
+
+    // Which we allocate then rollback
+    let mut txn = db_pool.begin().await?;
+    pool.allocate(&mut txn, OwnerType::Machine, "my_id").await?;
+    assert_eq!(pool.stats(&mut txn).await?, St { used: 1, free: 0 });
+    txn.rollback().await?;
+
+    // The single value should be available
+    assert_eq!(pool.stats(&db_pool).await?, St { used: 0, free: 1 });
+    let mut txn = db_pool.begin().await?;
+    pool.allocate(&mut txn, OwnerType::Machine, "my_id").await?;
+    txn.commit().await?;
+
+    // And now it's really allocated
+    assert_eq!(pool.stats(&db_pool).await?, St { used: 1, free: 0 });
 
     Ok(())
 }
@@ -99,26 +141,28 @@ async fn test_parallel() -> Result<(), eyre::Report> {
     let m = sqlx::migrate!();
     m.run(&db_pool).await?;
 
-    let pool = Arc::new(DbResourcePool::new(
-        "test_parallel".to_string(),
-        db_pool.clone(),
-    ));
-    pool.populate((1..=5_000).map(|i| i.to_string()).collect())
+    let mut txn = db_pool.begin().await?;
+    let pool = Arc::new(DbResourcePool::new("test_parallel".to_string()));
+    pool.populate(&mut txn, (1..=5_000).map(|i| i.to_string()).collect())
         .await?;
+    txn.commit().await?;
 
     let mut handles = Vec::with_capacity(50);
     let all_values = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
     for i in 0..50 {
         let all_values = all_values.clone();
         let p = pool.clone();
+        let db_pool_c = db_pool.clone();
         let handle = tokio::task::spawn(async move {
             let mut got = Vec::with_capacity(100);
             for _ in 0..100 {
+                let mut txn = db_pool_c.begin().await.unwrap();
                 got.push(
-                    p.allocate(OwnerType::Machine, &i.to_string())
+                    p.allocate(&mut txn, OwnerType::Machine, &i.to_string())
                         .await
                         .unwrap(),
                 );
+                txn.commit().await.unwrap();
             }
             all_values.lock().await.extend(got.clone());
         });

@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use crate::resource_pool::{self, DbResourcePool, ResourcePool, ResourcePoolStats};
+use crate::resource_pool::{self, DbResourcePool, ResourcePoolStats};
 
 /// How often to update the resource pool metrics
 const METRICS_RESOURCEPOOL_INTERVAL: Duration = Duration::from_secs(60);
@@ -26,9 +26,9 @@ const METRICS_RESOURCEPOOL_INTERVAL: Duration = Duration::from_secs(60);
 pub struct VpcData {
     pub asn: u64,
     pub dhcp_servers: Vec<String>,
-    pub pool_loopback_ip: Option<Arc<dyn ResourcePool<Ipv4Addr>>>,
-    pub pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
-    pub pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
+    pub pool_loopback_ip: Option<Arc<DbResourcePool<Ipv4Addr>>>,
+    pub pool_vlan_id: Option<Arc<DbResourcePool<i16>>>,
+    pub pool_vni: Option<Arc<DbResourcePool<i32>>>,
     pub rp_stats: Option<Arc<Mutex<HashMap<String, ResourcePoolStats>>>>,
 }
 
@@ -37,18 +37,14 @@ pub struct VpcData {
 ///
 /// Pools must also be created in the database: `forge-admin-cli resource-pool define`
 pub async fn enable(database_connection: sqlx::PgPool) -> VpcData {
-    let pool_loopback_ip: Option<Arc<dyn ResourcePool<Ipv4Addr>>> =
-        Some(Arc::new(DbResourcePool::new(
-            resource_pool::LOOPBACK_IP.to_string(),
-            database_connection.clone(),
-        )));
-    let pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>> = Some(Arc::new(DbResourcePool::new(
+    let pool_loopback_ip: Option<Arc<DbResourcePool<Ipv4Addr>>> = Some(Arc::new(
+        DbResourcePool::new(resource_pool::LOOPBACK_IP.to_string()),
+    ));
+    let pool_vlan_id: Option<Arc<DbResourcePool<i16>>> = Some(Arc::new(DbResourcePool::new(
         resource_pool::VLANID.to_string(),
-        database_connection.clone(),
     )));
-    let pool_vni: Option<Arc<dyn ResourcePool<i32>>> = Some(Arc::new(DbResourcePool::new(
+    let pool_vni: Option<Arc<DbResourcePool<i32>>> = Some(Arc::new(DbResourcePool::new(
         resource_pool::VNI.to_string(),
-        database_connection,
     )));
 
     // resource pool metrics
@@ -60,9 +56,9 @@ pub async fn enable(database_connection: sqlx::PgPool) -> VpcData {
     let pool_vni_2 = pool_vni.as_ref().unwrap().clone();
     tokio::spawn(async move {
         loop {
-            let l_ip = pool_l_ip_2.stats().await;
-            let vlan_id = pool_vlan_id_2.stats().await;
-            let vni = pool_vni_2.stats().await;
+            let l_ip = pool_l_ip_2.stats(&database_connection).await;
+            let vlan_id = pool_vlan_id_2.stats(&database_connection).await;
+            let vni = pool_vni_2.stats(&database_connection).await;
             {
                 let mut m = rp_stats_bg.lock().unwrap();
                 if let Ok(l_ip) = l_ip {

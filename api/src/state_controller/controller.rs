@@ -22,7 +22,7 @@ use crate::{
     model::config_version::{ConfigVersion, Versioned},
     reachability::Reachability,
     redfish::RedfishClientPool,
-    resource_pool::ResourcePool,
+    resource_pool::DbResourcePool,
     state_controller::{
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
@@ -375,8 +375,8 @@ pub struct Builder<IO: StateControllerIO> {
         >,
     >,
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
-    pool_vlan_id: Option<Arc<dyn ResourcePool<i16>>>,
-    pool_vni: Option<Arc<dyn ResourcePool<i32>>>,
+    pool_vlan_id: Option<Arc<DbResourcePool<i16>>>,
+    pool_vni: Option<Arc<DbResourcePool<i32>>>,
     reachability_params: Option<ReachabilityParams>,
 }
 
@@ -505,13 +505,13 @@ impl<IO: StateControllerIO> Builder<IO> {
     }
 
     /// Configures the resource pool for allocation / release VLAN IDs
-    pub fn pool_vlan_id(mut self, pool_vlan_id: Arc<dyn ResourcePool<i16>>) -> Self {
+    pub fn pool_vlan_id(mut self, pool_vlan_id: Arc<DbResourcePool<i16>>) -> Self {
         self.pool_vlan_id = Some(pool_vlan_id);
         self
     }
 
     /// Configures the resource pool for allocation / release VNI (VXLAN IDs)
-    pub fn pool_vni(mut self, pool_vni: Arc<dyn ResourcePool<i32>>) -> Self {
+    pub fn pool_vni(mut self, pool_vni: Arc<DbResourcePool<i32>>) -> Self {
         self.pool_vni = Some(pool_vni);
         self
     }
