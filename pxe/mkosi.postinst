@@ -43,6 +43,9 @@ Name=en*
 
 [Network]
 DHCP=yes
+
+[DHCP]
+ClientIdentifier=mac
 EOF
 systemctl enable systemd-networkd
 
