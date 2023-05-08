@@ -403,6 +403,19 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> HardwareEnumerationResult
         let _ = Cmd::new("racadm")
             .args(["set", idrac_user_str.as_str(), "0x1ff"])
             .output()?;
+        // set idrac forge_admin user sol related privileges
+        let idrac_ipmilan_str = format!("iDRAC.Users.{id}.IpmiLanPrivilege");
+        let _ = Cmd::new("racadm")
+            .args(["set", idrac_ipmilan_str.as_str(), "4"])
+            .output()?;
+        let idrac_ipmisol_str = format!("iDRAC.Users.{id}.IpmiSerialPrivilege");
+        let _ = Cmd::new("racadm")
+            .args(["set", idrac_ipmisol_str.as_str(), "4"])
+            .output()?;
+        let idrac_solenable_str = format!("iDRAC.Users.{id}.SolEnable");
+        let _ = Cmd::new("racadm")
+            .args(["set", idrac_solenable_str.as_str(), "1"])
+            .output()?;
     }
 
     Ok(())
