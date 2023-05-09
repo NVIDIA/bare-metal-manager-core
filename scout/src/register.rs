@@ -13,6 +13,7 @@
 use forge_host_support::{
     hardware_enumeration::enumerate_hardware, registration::register_machine,
 };
+use log::info;
 
 use crate::CarbideClientError;
 
@@ -22,12 +23,12 @@ pub async fn run(
     machine_interface_id: uuid::Uuid,
 ) -> Result<String, CarbideClientError> {
     let hardware_info = enumerate_hardware()?;
-    log::info!("Successfully enumerated hardware");
+    info!("Successfully enumerated hardware");
 
     let registration_data =
         register_machine(forge_api, root_ca, machine_interface_id, hardware_info).await?;
     let machine_id = registration_data.machine_id;
-    log::info!("successfully discovered machine {machine_id} for interface {machine_interface_id}");
+    info!("successfully discovered machine {machine_id} for interface {machine_interface_id}");
 
     Ok(machine_id)
 }
