@@ -373,7 +373,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     Ok(())
 }
 
-fn set_ipmi_sol() -> CarbideClientResult<()> {
+fn set_ipmi_sol(id: &String) -> CarbideClientResult<()> {
     // failures for these 3 commands are okay to ignore, some BMCs may not handle them correctly.
     let _ = Cmd::default()
         .args(vec!["sol", "set", "set-in-progress", "set-complete", "1"])
@@ -384,7 +384,7 @@ fn set_ipmi_sol() -> CarbideClientResult<()> {
         .output()?;
 
     let _ = Cmd::default()
-        .args(vec!["sol", "payload", "enable", "1", "1"])
+        .args(vec!["sol", "payload", "enable", "1", id])
         .output()?;
 
     Ok(())
@@ -438,7 +438,7 @@ fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String, String)> {
     }
 
     // set ipmi sol parameters
-    if let Err(e) = set_ipmi_sol() {
+    if let Err(e) = set_ipmi_sol(&forge_admin_user.id) {
         error!("Failed to enable SOL: {}", e);
     }
 
