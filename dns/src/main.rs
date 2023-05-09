@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use cfg::{Command, Options};
-use log::LevelFilter;
+use tracing::log::LevelFilter;
 
 mod cfg;
 mod dns;
@@ -18,6 +18,10 @@ mod dns;
 #[tokio::main]
 async fn main() -> Result<(), eyre::Report> {
     let config = Options::load();
+    if config.version {
+        println!("{}", forge_version::version!());
+        return Ok(());
+    }
 
     pretty_env_logger::formatted_timed_builder()
         .filter_level(match config.debug {
@@ -33,7 +37,14 @@ async fn main() -> Result<(), eyre::Report> {
         })
         .init();
 
-    match config.sub_cmd {
+    let sub_cmd = match &config.sub_cmd {
+        None => {
+            eprintln!("error: 'forge-dns' requires a subcommand but one was not provided. Re-run with '--help'.");
+            return Ok(());
+        }
+        Some(s) => s,
+    };
+    match sub_cmd {
         Command::Run(ref config) => dns::DnsServer::run(config).await?,
     }
 

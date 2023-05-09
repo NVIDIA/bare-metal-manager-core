@@ -13,11 +13,14 @@ use clap::{ArgAction, Parser};
 
 #[derive(Parser)]
 pub(crate) struct Options {
+    #[clap(long, default_value = "false", help = "Print version number and exit")]
+    pub version: bool,
+
     #[clap(short, long, action = ArgAction::Count)]
     pub debug: u8,
 
     #[clap(subcommand)]
-    pub sub_cmd: Command,
+    pub sub_cmd: Option<Command>,
 }
 
 #[derive(Parser)]

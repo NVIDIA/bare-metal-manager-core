@@ -68,10 +68,12 @@ x509-parser = { version = "0.14", features = ["verify"] }
 
 #only local dependencies here please
 forge_credentials = { path = "../forge_credentials" }
+forge-version = { path = "../version" }
 rpc = { path = "../rpc" }
 
 [build-dependencies]
 tonic-build = "0.8"
+forge-version = { path = "../version" }
 
 [dev-dependencies]
 rstest = "0.13.0"

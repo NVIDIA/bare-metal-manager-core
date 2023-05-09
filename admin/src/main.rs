@@ -186,6 +186,10 @@ async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
     let config = CarbideOptions::load();
+    if config.version {
+        println!("{}", forge_version::version!());
+        return Ok(());
+    }
     let file_config = get_config_from_file();
 
     // Log level is set from, in order of preference:
@@ -212,7 +216,7 @@ async fn main() -> color_eyre::Result<()> {
         .try_init()?;
 
     // Commands that don't talk to Carbide API
-    if let CarbideCommand::Redfish(ra) = config.commands {
+    if let Some(CarbideCommand::Redfish(ra)) = config.commands {
         return redfish::action(ra).await;
     }
 
@@ -224,8 +228,16 @@ async fn main() -> color_eyre::Result<()> {
         forge_root_ca_path,
     };
 
+    let command = match config.commands {
+        None => {
+            eprintln!("error: 'forge-admin-cli' requires a subcommand but one was not provided. Re-run with '--help'.");
+            return Ok(());
+        }
+        Some(s) => s,
+    };
+
     // Command do talk to Carbide API
-    match config.commands {
+    match command {
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
                 machine::handle_show(machine, config.format == OutputFormat::Json, api_config)

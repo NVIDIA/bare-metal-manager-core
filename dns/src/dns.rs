@@ -18,6 +18,7 @@ use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientT};
 use eyre::Report;
 use tokio::net::{TcpListener, UdpSocket};
+use tracing::{error, info, warn};
 use trust_dns_server::authority::MessageResponseBuilder;
 use trust_dns_server::client::op::{Header, ResponseCode};
 use trust_dns_server::client::rr::{DNSClass, Name, RData};
@@ -70,7 +71,7 @@ impl RequestHandler for DnsServer {
                     q_type: Some(1),
                 });
 
-                log::info!("Sending {} to api server", request_info.query.original());
+                info!("Sending {} to api server", request_info.query.original());
 
                 let record: Option<Record> =
                     match DnsServer::retrieve_record(client, carbide_dns_request).await {
@@ -86,7 +87,7 @@ impl RequestHandler for DnsServer {
                             Some(a_record)
                         }
                         Err(e) => {
-                            log::warn!(
+                            warn!(
                                 "Unable to find record: {} error was {}",
                                 request_info.query.name(),
                                 e
@@ -108,7 +109,7 @@ impl RequestHandler for DnsServer {
                 response_info.unwrap()
             }
             _ => {
-                log::warn!("Unsupported query type: {}", request.query());
+                warn!("Unsupported query type: {}", request.query());
                 let response = MessageResponseBuilder::from_message_request(request);
                 response_handle
                     .send_response(response.error_msg(request.header(), ResponseCode::NotImp))
@@ -133,7 +134,7 @@ impl DnsServer {
     ) -> Result<Ipv4Addr, Report> {
         let response = client.lookup_record(request).await?;
 
-        log::info!("Received response from API server");
+        info!("Received response from API server");
 
         response
             .into_inner()
@@ -151,7 +152,7 @@ impl DnsServer {
 
         let api = DnsServer::new(&carbide_url, forge_root_ca_path);
 
-        log::info!("Connecting to carbide-api at {:?}", &carbide_url);
+        info!("Connecting to carbide-api at {:?}", &carbide_url);
 
         let mut server = ServerFuture::new(api);
 
@@ -161,15 +162,19 @@ impl DnsServer {
         let tcp_socket = TcpListener::bind(&daemon_config.listen).await?;
         server.register_listener(tcp_socket, Duration::new(5, 0));
 
-        log::info!("Started DNS server on {:?}", &daemon_config.listen);
+        info!(
+            "Started DNS server on {:?} version {}",
+            &daemon_config.listen,
+            forge_version::version!()
+        );
 
         match server.block_until_done().await {
             Ok(()) => {
-                log::info!("Carbide-dns is stopping");
+                info!("Carbide-dns is stopping");
             }
             Err(e) => {
                 let error_msg = format!("Carbide-dns has encountered and error: {}", e);
-                log::error!("{}", error_msg);
+                error!("{}", error_msg);
                 panic!("{}", error_msg);
             }
         }

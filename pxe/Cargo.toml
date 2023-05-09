@@ -15,6 +15,7 @@ async-compression = { version = "0.3.14", features = ["tokio", "gzip"] }
 base64 = "0.13"
 clap = { workspace = true }
 eui48 = { version = "1", default-features = false } # disable feature rustc-serialize
+forge-version = { path = "../version" }
 futures = "0.3.24"
 futures-util = "0.3.24"
 hex = "0.4.3"
@@ -37,6 +38,7 @@ rpc = { path = "../rpc" }
 
 [build-dependencies]
 tonic-build = "0.8.0"
+forge-version = { path = "../version" }
 
 [dev-dependencies]
 rand = "*"

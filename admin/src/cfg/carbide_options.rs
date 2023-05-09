@@ -13,10 +13,11 @@ use clap::{ArgGroup, Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
-#[clap(propagate_version = true)]
 #[clap(author = "Slack channel #swngc-forge-dev")]
-#[clap(version = "0.0.2")]
 pub struct CarbideOptions {
+    #[clap(long, default_value = "false", help = "Print version number and exit")]
+    pub version: bool,
+
     #[clap(short, long, env = "CARBIDE_API_URL")]
     #[clap(
         help = "Default to CARBIDE_API_URL environment variable or $HOME/.config/carbide_api_cli.json file."
@@ -39,7 +40,7 @@ pub struct CarbideOptions {
     pub debug: u8,
 
     #[clap(subcommand)]
-    pub commands: CarbideCommand,
+    pub commands: Option<CarbideCommand>,
 }
 
 #[derive(Parser, Debug)]

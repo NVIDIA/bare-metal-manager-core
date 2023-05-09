@@ -52,6 +52,10 @@ const NETWORK_CONFIG_FETCH_PERIOD: Duration = Duration::from_secs(30);
 
 fn main() -> eyre::Result<()> {
     let cmdline = command_line::Options::load();
+    if cmdline.version {
+        println!("{}", forge_version::version!());
+        return Ok(());
+    }
 
     let env_filter = EnvFilter::from_default_env()
         .add_directive("tower=warn".parse()?)

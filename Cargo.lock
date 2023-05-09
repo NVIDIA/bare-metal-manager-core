@@ -23,6 +23,7 @@ version = "0.0.1"
 dependencies = [
  "clap 4.2.1",
  "color-eyre",
+ "forge-version",
  "libredfish",
  "prettytable-rs",
  "rpc",
@@ -45,6 +46,7 @@ dependencies = [
  "clap 4.2.1",
  "eyre",
  "forge-host-support",
+ "forge-version",
  "gtmpl",
  "gtmpl_derive",
  "gtmpl_value",
@@ -669,6 +671,7 @@ dependencies = [
  "ctor",
  "data-encoding",
  "eyre",
+ "forge-version",
  "forge_credentials",
  "futures",
  "futures-util",
@@ -729,15 +732,16 @@ dependencies = [
  "async-trait",
  "clap 4.2.1",
  "eyre",
+ "forge-version",
  "futures",
  "itertools",
- "log",
  "pretty_env_logger",
  "rpc",
  "rstest 0.17.0",
  "thiserror",
  "tokio",
  "tonic",
+ "tracing",
  "trust-dns-server",
 ]
 
@@ -749,6 +753,7 @@ dependencies = [
  "base64 0.13.1",
  "clap 4.2.1",
  "eui48",
+ "forge-version",
  "futures",
  "futures-util",
  "hex",
@@ -1860,6 +1865,10 @@ dependencies = [
  "uname",
  "uuid 1.3.0",
 ]
+
+[[package]]
+name = "forge-version"
+version = "0.1.0"
 
 [[package]]
 name = "forge_credentials"
@@ -4672,6 +4681,7 @@ dependencies = [
  "efivar",
  "eyre",
  "forge-host-support",
+ "forge-version",
  "forge_credentials",
  "lazy_static",
  "libc",

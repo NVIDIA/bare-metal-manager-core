@@ -14,9 +14,10 @@ path = "src/main.rs"
 async-trait = "0.1.43"
 clap = { workspace = true }
 eyre = "*"
+forge-version = { path = "../version" }
 futures = "0.3"
 itertools = "*"
-log = { version = "*" }
+tracing = { version = "*" }
 pretty_env_logger = "*"
 rpc = { path = "../rpc" }
 thiserror = "1.0"
@@ -26,3 +27,6 @@ trust-dns-server = { version = "0.21.1" }
 
 [dev-dependencies]
 rstest = "*"
+
+[build-dependencies]
+forge-version = { path = "../version" }

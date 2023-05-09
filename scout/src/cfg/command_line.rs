@@ -14,6 +14,9 @@ use clap::{ArgAction, Parser};
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
+    #[clap(long, default_value = "false", help = "Print version number and exit")]
+    pub version: bool,
+
     #[clap(short, long, action = ArgAction::Count)]
     pub debug: u8,
 
@@ -34,7 +37,7 @@ pub(crate) struct Options {
     pub root_ca: String,
 
     #[clap(subcommand)]
-    pub subcmd: Command,
+    pub subcmd: Option<Command>,
 }
 
 #[derive(Parser)]

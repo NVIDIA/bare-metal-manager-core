@@ -66,6 +66,9 @@ pub enum RPCError<'a> {
 
 #[derive(Parser, Debug)]
 struct Args {
+    #[clap(long, default_value = "false", help = "Print version number and exit")]
+    pub version: bool,
+
     #[clap(short, long, default_value = "static")]
     static_dir: String,
 }
@@ -298,6 +301,10 @@ impl<'r> FromRequest<'r> for MachineInterface {
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
     let opts = Args::parse();
+    if opts.version {
+        println!("{}", forge_version::version!());
+        return Ok(());
+    }
 
     let static_path = std::path::Path::new(&opts.static_dir);
 
@@ -328,6 +335,7 @@ async fn main() -> Result<(), rocket::Error> {
         }
     }
 
+    println!("Start carbide-pxe version {}", forge_version::version!());
     rocket::build()
         .mount("/api/v0/pxe", routes::ipxe::routes())
         .mount("/api/v0/cloud-init", routes::cloud_init::routes())

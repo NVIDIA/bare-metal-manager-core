@@ -51,6 +51,11 @@ async fn check_if_running_in_qemu() {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), eyre::Report> {
     let config = Options::load();
+    if config.version {
+        println!("{}", forge_version::version!());
+        return Ok(());
+    }
+
     check_if_running_in_qemu().await;
 
     pretty_env_logger::formatted_timed_builder()
@@ -68,7 +73,15 @@ async fn main() -> Result<(), eyre::Report> {
         })
         .init();
 
-    let machine_interface_id = config.subcmd.machine_interface_id();
+    let subcmd = match &config.subcmd {
+        None => {
+            eprintln!("error: 'forge-scout' requires a subcommand but one was not provided. Re-run with '--help'.");
+            return Ok(());
+        }
+        Some(s) => s,
+    };
+
+    let machine_interface_id = subcmd.machine_interface_id();
     let machine_id =
         match register::run(&config.api, config.root_ca.clone(), machine_interface_id).await {
             Ok(machine_id) => machine_id,
@@ -78,7 +91,7 @@ async fn main() -> Result<(), eyre::Report> {
             }
         };
 
-    let action = match config.subcmd {
+    let action = match subcmd {
         Command::AutoDetect(AutoDetect { .. }) => {
             match query_api_with_retries(&config, &machine_id).await {
                 Ok(action) => action,

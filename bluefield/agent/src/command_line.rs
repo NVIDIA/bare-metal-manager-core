@@ -16,6 +16,9 @@ use clap::Parser;
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
+    #[clap(long, default_value = "false", help = "Print version number and exit")]
+    pub version: bool,
+
     /// The path to the forge agent configuration file
     /// This file will hold data in the `AgentConfig` format
     #[clap(long, default_value = "/etc/forge/config.toml")]

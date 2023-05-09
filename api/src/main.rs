@@ -29,12 +29,17 @@ use opentelemetry::{
 };
 use opentelemetry_semantic_conventions as semcov;
 use sqlx::PgPool;
+use tracing::{error, info};
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let config = Options::load();
+    if config.version {
+        println!("{}", forge_version::version!());
+        return Ok(());
+    }
 
     // This defines attributes that are set on the exported logs **and** metrics
     let service_telemetry_attributes = sdk::Resource::new(vec![
@@ -110,7 +115,15 @@ async fn main() -> eyre::Result<()> {
         .with(telemetry)
         .try_init()?;
 
-    match config.sub_cmd {
+    let sub_cmd = match &config.sub_cmd {
+        None => {
+            error!("error: 'carbide-api' requires a subcommand but one was not provided. Re-run with '--help'.");
+            return Ok(());
+        }
+        Some(s) => s,
+    };
+    info!("Start carbide-api version {}", forge_version::version!());
+    match sub_cmd {
         Command::Migrate(ref m) => {
             log::debug!("Running migrations");
             let pool = PgPool::connect(&m.datastore[..]).await?;
