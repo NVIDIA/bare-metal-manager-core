@@ -17,3 +17,4 @@ dev/kube/kind/ci/*
 **/*.tgz
 **/**/.mkosi*
 .skaffold/*/**
+cscope.*
