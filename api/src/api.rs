@@ -2145,8 +2145,8 @@ where
             if let Some(iface) = host_machine.interfaces().get(0) {
                 response.managed_host_machine_interface_id = iface.id().to_string();
             }
-            if let Some(ip) = host_machine.bmc_ip() {
-                response.managed_host_bmc_ip = ip.to_owned();
+            if let Some(ip) = host_machine.bmc_info().ip.as_ref() {
+                response.managed_host_bmc_ip = ip.to_string();
             }
         }
         if let Some(dpu_machine) = &dpu_machine {
@@ -2154,8 +2154,8 @@ where
             if let Some(iface) = dpu_machine.interfaces().get(0) {
                 response.dpu_machine_interface_id = iface.id().to_string();
             }
-            if let Some(ip) = dpu_machine.bmc_ip() {
-                response.dpu_bmc_ip = ip.to_owned();
+            if let Some(ip) = dpu_machine.bmc_info().ip.as_ref() {
+                response.dpu_bmc_ip = ip.to_string();
             }
         }
         if let Some(instance_id) = &instance_id {
@@ -2219,7 +2219,7 @@ where
         }
 
         if let Some(machine) = &host_machine {
-            if let Some(ip) = machine.bmc_ip() {
+            if let Some(ip) = machine.bmc_info().ip.as_deref() {
                 tracing::info!(
                     "BMC ip {} for machine {} was found. Trying to perform Bios unlock",
                     ip,

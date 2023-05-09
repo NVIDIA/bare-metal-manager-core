@@ -673,8 +673,9 @@ async fn restart_machine(
 ) -> Result<(), StateHandlerError> {
     let bmc_ip =
         machine_snapshot
-            .bmc_ip
-            .as_ref()
+            .bmc_info
+            .ip
+            .as_deref()
             .ok_or_else(|| StateHandlerError::MissingData {
                 object_id: machine_snapshot.machine_id.to_string(),
                 missing: "bmc_info.ip",
@@ -707,7 +708,8 @@ async fn lockdown_host(
 ) -> Result<(), StateHandlerError> {
     let bmc_ip =
         machine_snapshot
-            .bmc_ip
+            .bmc_info
+            .ip
             .as_deref()
             .ok_or_else(|| StateHandlerError::MissingData {
                 object_id: machine_snapshot.machine_id.to_string(),

@@ -34,7 +34,7 @@ use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatus, ManagedHostNetworkConfig};
-use crate::model::machine::{MachineState, ManagedHostState};
+use crate::model::machine::{BmcInfo, MachineState, ManagedHostState};
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -90,6 +90,9 @@ pub struct Machine {
     /// The Hardware information that was discoverd for this machine
     hardware_info: Option<HardwareInfo>,
 
+    /// The BMC info for this machine
+    bmc_info: BmcInfo,
+
     /// Last time when machine came up.
     last_reboot_time: Option<DateTime<Utc>>,
 
@@ -98,9 +101,6 @@ pub struct Machine {
 
     /// Last time when discovery finished.
     last_discovery_time: Option<DateTime<Utc>>,
-
-    /// the ip of the bmc.  this may be updated outside discovery, so is not kept in hardware_info
-    bmc_ip: Option<String>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -137,10 +137,13 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             history: Vec::new(),
             interfaces: Vec::new(),
             hardware_info: None,
+            bmc_info: BmcInfo {
+                ip: None,
+                mac: None,
+            },
             last_reboot_time: row.try_get("last_reboot_time")?,
             last_cleanup_time: row.try_get("last_cleanup_time")?,
             last_discovery_time: row.try_get("last_discovery_time")?,
-            bmc_ip: None,
         })
     }
 }
@@ -235,7 +238,7 @@ impl From<Machine> for rpc::Machine {
                     }
                 }
             }),
-            bmc_ip: machine.bmc_ip,
+            bmc_info: Some(rpc::BmcInfo{ip: machine.bmc_info.ip, mac: machine.bmc_info.mac}),
         }
     }
 }
@@ -247,14 +250,14 @@ impl Machine {
         self.id.machine_type().is_dpu()
     }
 
+    /// BMC related information
+    pub fn bmc_info(&self) -> &BmcInfo {
+        &self.bmc_info
+    }
+
     /// Hardware information
     pub fn hardware_info(&self) -> Option<&HardwareInfo> {
         self.hardware_info.as_ref()
-    }
-
-    /// BMC ip address
-    pub fn bmc_ip(&self) -> Option<&String> {
-        self.bmc_ip.as_ref()
     }
 
     /// The current network state of the machine, excluding the tenant related
@@ -583,7 +586,8 @@ SELECT m.id FROM
 
             if let Some(topo) = topologies_for_machine.get(&machine.id) {
                 machine.hardware_info = Some(topo.topology().discovery_data.info.clone());
-                machine.bmc_ip = topo.topology().ipmi_ip.clone();
+                machine.bmc_info.ip = topo.topology().ipmi_ip.clone();
+                machine.bmc_info.mac = topo.topology().ipmi_mac.clone();
             }
 
             if machine.hardware_info.is_none() {
@@ -611,10 +615,10 @@ SELECT m.id FROM
 
         let mut topologies =
             MachineTopology::find_latest_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
-
         if let Some(topology) = topologies.remove(&self.id) {
             self.hardware_info = Some(topology.topology().discovery_data.info.clone());
-            self.bmc_ip = topology.topology().ipmi_ip.clone();
+            self.bmc_info.ip = topology.topology().ipmi_ip.clone();
+            self.bmc_info.mac = topology.topology().ipmi_mac.clone();
         }
 
         Ok(())

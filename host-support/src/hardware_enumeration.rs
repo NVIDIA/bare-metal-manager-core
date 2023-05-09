@@ -16,7 +16,6 @@ use std::{
     str::{FromStr, Utf8Error},
 };
 
-use crate::ipmi;
 use ::rpc::machine_discovery as rpc_discovery;
 use libudev::Device;
 use log::error;
@@ -62,30 +61,7 @@ pub enum HardwareEnumerationError {
     InvalidMacAddress(String),
     #[error("CPU architecture {0} is not supported")]
     UnsupportedCpuArchitecture(String),
-    #[error("Subprocess {0} with arguments {1:?} failed with output: {2}")]
-    SubprocessError(String, Vec<String>, String),
-    #[error("Regex error {0}")]
-    RegexError(#[from] regex::Error),
-    #[error("Generic Tonic status error {0}")]
-    TonicStatusError(#[from] tonic::Status),
 }
-
-impl HardwareEnumerationError {
-    pub fn subprocess_error(
-        command: &std::process::Command,
-        output: &std::process::Output,
-    ) -> Self {
-        return Self::SubprocessError(
-            command.get_program().to_string_lossy().to_string(),
-            command
-                .get_args()
-                .map(|arg| arg.to_string_lossy().to_string())
-                .collect::<Vec<String>>(),
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        );
-    }
-}
-pub type HardwareEnumerationResult<T> = Result<T, HardwareEnumerationError>;
 
 fn convert_udev_to_mac(udev: String) -> Result<String, HardwareEnumerationError> {
     // udevs format is enx112233445566 first, then the string of octets without a colon
@@ -181,8 +157,7 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> Result<i32, HardwareEnu
     }
 }
 
-pub async fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError>
-{
+pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
     let context = libudev::Context::new()?;
 
     // uname to detect type
@@ -541,7 +516,6 @@ pub async fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, Hardwa
         log::debug!("TPM EK certificate (base64): {}", cert);
     }
 
-    let bmc_info = ipmi::get_bmc_info().await?;
     Ok(rpc_discovery::DiscoveryInfo {
         network_interfaces: nics,
         infiniband_interfaces: ibs,
@@ -552,6 +526,5 @@ pub async fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, Hardwa
         machine_type: info.machine.as_str().to_owned(),
         tpm_ek_certificate,
         dpu_info: dpu_vpd,
-        bmc_info: Some(bmc_info),
     })
 }

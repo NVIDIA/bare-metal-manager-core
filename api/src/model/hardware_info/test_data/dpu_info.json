@@ -199,10 +199,5 @@
                 "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
             }
         }
-    ],
-    "bmc_info" : {
-        "mac": "11:22:33:44:55:66",
-        "version": "2.1",
-        "firmware_version": "3.2"
-    }
+    ]
 }

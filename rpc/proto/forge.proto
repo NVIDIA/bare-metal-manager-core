@@ -784,6 +784,11 @@ enum MachineType {
   HOST = 2;
 }
 
+message BmcInfo {
+  optional string ip = 1;
+  optional string mac = 2;
+}
+
 message Machine {
   MachineId id = 1;
 
@@ -808,8 +813,7 @@ message Machine {
   // Machine type if it is a DPU or HOST.
   MachineType machine_type = 11;
 
-  // the ip of the bmc.  this may be updated outside discovery, so is not kept in hardware_info
-  optional string bmc_ip = 12;
+  BmcInfo bmc_info = 12;
 }
 
 // The most recent tenant related status
@@ -1032,6 +1036,7 @@ message BMCMetaDataGetResponse {
     string ip = 1;
     string user = 2;
     string password = 3;
+    string mac = 4;
 }
 
 message BMCMetaDataUpdateRequest {
@@ -1045,6 +1050,7 @@ message BMCMetaDataUpdateRequest {
     string ip = 2;
     repeated DataItem data = 3;
     BMCRequestType request_type = 4;
+    string mac = 5;
 }
 
 message BMCMetaDataUpdateResponse {}

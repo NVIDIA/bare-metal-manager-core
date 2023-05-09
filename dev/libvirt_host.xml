@@ -50,7 +50,7 @@
 		</controller>
 		<interface type='bridge'>
 			<mac address='00:11:22:33:44:66'/>
-			<source bridge='virbr1'/>
+			<source bridge='carbide0'/>
 			<target dev='carbidevm'/>
 		</interface>
 		<tpm model='tpm-tis'>

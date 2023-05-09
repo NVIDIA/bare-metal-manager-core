@@ -22,11 +22,13 @@ use regex::Regex;
 use tokio::time::{sleep, Duration};
 use uname::uname;
 
-use crate::hardware_enumeration::{HardwareEnumerationError, HardwareEnumerationResult};
-use ::rpc::forge::{self as rpc, BmcMetaDataUpdateRequest};
+use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientT;
+use forge_host_support::hardware_enumeration::{CpuArchitecture, HardwareEnumerationError};
 
-use super::hardware_enumeration::CpuArchitecture;
+use crate::CarbideClientError;
+use crate::CarbideClientResult;
+use crate::IN_QEMU_VM;
 
 const PASSWORD_LEN: usize = 16;
 
@@ -55,12 +57,12 @@ impl fmt::Display for IpmitoolRoles {
 }
 
 impl IpmitoolRoles {
-    fn convert(&self) -> HardwareEnumerationResult<rpc::UserRoles> {
+    fn convert(&self) -> Result<rpc::UserRoles, CarbideClientError> {
         match self {
             IpmitoolRoles::_User => Ok(rpc::UserRoles::User),
             IpmitoolRoles::Administrator => Ok(rpc::UserRoles::Administrator),
             IpmitoolRoles::_Operator => Ok(rpc::UserRoles::Operator),
-            _ => Err(HardwareEnumerationError::GenericError(
+            _ => Err(CarbideClientError::GenericError(
                 "Not implemented".to_string(),
             )),
         }
@@ -71,30 +73,27 @@ const FORGE_ADMIN_USER_NAME: &str = "forge_admin";
 
 #[derive(Debug)]
 struct IpmiInfo {
-    machine_id: String,
-    ipmi_users: Vec<IpmiUser>,
-    bmc_ip: String,
-}
-
-#[derive(Debug)]
-pub struct IpmiUser {
     user: String,
     role: IpmitoolRoles,
     password: String,
 }
 
-impl TryInto<rpc::BmcMetaDataUpdateRequest> for IpmiInfo {
-    type Error = HardwareEnumerationError;
-
-    fn try_into(self) -> HardwareEnumerationResult<BmcMetaDataUpdateRequest> {
+impl IpmiInfo {
+    fn convert(
+        value: Vec<IpmiInfo>,
+        machine_id: &str,
+        ip: String,
+        mac: String,
+    ) -> Result<rpc::BmcMetaDataUpdateRequest, CarbideClientError> {
         let mut bmc_meta_data = rpc::BmcMetaDataUpdateRequest {
-            machine_id: Some(self.machine_id.into()),
-            ip: self.bmc_ip,
+            machine_id: Some(machine_id.to_string().into()),
+            ip,
             data: Vec::new(),
             request_type: rpc::BmcRequestType::Ipmi as i32,
+            mac,
         };
 
-        for v in self.ipmi_users {
+        for v in value {
             bmc_meta_data
                 .data
                 .push(rpc::bmc_meta_data_update_request::DataItem {
@@ -136,7 +135,7 @@ impl Cmd {
         self
     }
 
-    fn output(mut self) -> HardwareEnumerationResult<String> {
+    fn output(mut self) -> CarbideClientResult<String> {
         if cfg!(test) {
             return Ok("test string".to_string());
         }
@@ -144,17 +143,14 @@ impl Cmd {
         let output = self
             .command
             .output()
-            .map_err(|x| HardwareEnumerationError::GenericError(x.to_string()))?;
+            .map_err(|x| CarbideClientError::GenericError(x.to_string()))?;
 
         if !output.status.success() {
-            return Err(HardwareEnumerationError::subprocess_error(
-                &self.command,
-                &output,
-            ));
+            return Err(CarbideClientError::subprocess_error(&self.command, &output));
         }
 
         String::from_utf8(output.stdout).map_err(|_| {
-            HardwareEnumerationError::GenericError(format!(
+            CarbideClientError::GenericError(format!(
                 "Result of IPMI command {:?} with args {:?} is invalid UTF8",
                 self.command.get_program(),
                 self.command.get_args().collect::<Vec<&OsStr>>()
@@ -163,96 +159,52 @@ impl Cmd {
     }
 }
 
-fn run_ipmi_lan_print_cmd() -> HardwareEnumerationResult<String> {
+fn get_lan_print() -> CarbideClientResult<String> {
     if cfg!(test) {
         std::fs::read_to_string("test/lan_print.txt")
-            .map_err(|x| HardwareEnumerationError::GenericError(x.to_string()))
+            .map_err(|x| CarbideClientError::GenericError(x.to_string()))
     } else {
         Cmd::default().args(vec!["lan", "print"]).output()
     }
 }
 
-fn run_ipmi_bmc_info_cmd() -> HardwareEnumerationResult<String> {
-    if cfg!(test) {
-        std::fs::read_to_string("test/bmc_info.txt")
-            .map_err(|x| HardwareEnumerationError::GenericError(x.to_string()))
-    } else {
-        Cmd::default().args(vec!["bmc", "info"]).output()
+fn fetch_ipmi_network_config() -> CarbideClientResult<(String, String)> {
+    let ip_pattern = Regex::new("IP Address *: (.*?)$")?;
+    let mac_pattern = Regex::new("MAC Address *: (.*?)$")?;
+    log::info!("Fetching BMC Network Config.");
+    let output = get_lan_print()?;
+    let ip = output
+        .lines()
+        .filter_map(|line| ip_pattern.captures(line))
+        .map(|x| x[1].trim().to_string())
+        .take(1)
+        .collect::<Vec<String>>();
+
+    if ip.is_empty() {
+        log::error!("Could not find IP address. Output: {}", output);
+        return Err(CarbideClientError::GenericError(
+            "Could not find IP address.".to_string(),
+        ));
     }
+
+    let mac = output
+        .lines()
+        .filter_map(|line| mac_pattern.captures(line))
+        .map(|x| x[1].trim().to_string())
+        .take(1)
+        .collect::<Vec<String>>();
+
+    if mac.is_empty() {
+        log::error!("Could not find MAC address. Output: {}", output);
+        return Err(CarbideClientError::GenericError(
+            "Could not find MAC address.".to_string(),
+        ));
+    }
+    debug!("BMC IP: {} MAC: {}", ip[0], mac[0]);
+    Ok((ip[0].clone(), mac[0].clone()))
 }
 
-pub fn fetch_bmc_network_config() -> HardwareEnumerationResult<(String, String)> {
-    let versions_pattern = Regex::new("(?s)IP Address *: (.*?)\n.*MAC Address *: (.*?)\n")?;
-    debug!("Fetching BMC Network Information.");
-    let output = run_ipmi_lan_print_cmd()?;
-    let captures =
-        versions_pattern
-            .captures(&output)
-            .ok_or(HardwareEnumerationError::GenericError(
-                "Could not find BMC network information.".to_string(),
-            ))?;
-
-    let bmc_ip = match captures.get(1) {
-        Some(device_version) => device_version.as_str().to_owned(),
-        None => {
-            return Err(HardwareEnumerationError::GenericError(
-                "Could not find bmc ip.".to_string(),
-            ))
-        }
-    };
-
-    let bmc_mac = match captures.get(2) {
-        Some(device_version) => device_version.as_str().to_owned(),
-        None => {
-            return Err(HardwareEnumerationError::GenericError(
-                "Could not find bmc mac.".to_string(),
-            ))
-        }
-    };
-
-    debug!("BMC IP: {} BMC MAC: {}", bmc_ip, bmc_mac);
-
-    Ok((bmc_ip, bmc_mac))
-}
-
-pub fn fetch_bmc_info() -> HardwareEnumerationResult<(String, String)> {
-    let versions_pattern = Regex::new("Device Revision *: (.*?)\n.*Firmware Revision *: (.*?)\n")?;
-    debug!("Fetching BMC Version Information.");
-    let output = run_ipmi_bmc_info_cmd()?;
-    let captures =
-        versions_pattern
-            .captures(&output)
-            .ok_or(HardwareEnumerationError::GenericError(
-                "Could not find BMC information.".to_string(),
-            ))?;
-
-    let device_version = match captures.get(1) {
-        Some(device_version) => device_version.as_str().to_owned(),
-        None => {
-            return Err(HardwareEnumerationError::GenericError(
-                "Could not find device version.".to_string(),
-            ))
-        }
-    };
-
-    let firmware_version = match captures.get(2) {
-        Some(device_version) => device_version.as_str().to_owned(),
-        None => {
-            return Err(HardwareEnumerationError::GenericError(
-                "Could not find firmware version.".to_string(),
-            ))
-        }
-    };
-
-    debug!(
-        "BMC device version: {} firmware version: {}",
-        device_version, firmware_version
-    );
-
-    Ok((device_version, firmware_version))
-}
-
-fn get_user_list(test_list: Option<&str>) -> HardwareEnumerationResult<String> {
+fn get_user_list(test_list: Option<&str>) -> CarbideClientResult<String> {
     log::info!("Fetching current configured users list.");
     if let Some(test_list) = test_list {
         use std::fs;
@@ -302,7 +254,7 @@ impl IpmiUserRecord {
 
 fn fetch_ipmi_users_and_free_ids(
     test_list: Option<&str>,
-) -> HardwareEnumerationResult<(VecDeque<IpmiUserRecord>, HashMap<String, IpmiUserRecord>)> {
+) -> CarbideClientResult<(VecDeque<IpmiUserRecord>, HashMap<String, IpmiUserRecord>)> {
     let output = get_user_list(test_list)?;
 
     let (free_users, existing_users): (VecDeque<IpmiUserRecord>, VecDeque<IpmiUserRecord>) = output
@@ -321,7 +273,7 @@ fn fetch_ipmi_users_and_free_ids(
     Ok((free_users, existing_users))
 }
 
-fn create_ipmi_user(id: &str, user: &str) -> HardwareEnumerationResult<()> {
+fn create_ipmi_user(id: &str, user: &str) -> CarbideClientResult<()> {
     let _ = Cmd::default()
         .args(vec!["user", "set", "name", id, user])
         .output()?;
@@ -358,7 +310,7 @@ fn generate_password() -> String {
     password.into_iter().collect()
 }
 
-fn set_ipmi_password(id: &String) -> HardwareEnumerationResult<String> {
+fn set_ipmi_password(id: &String) -> CarbideClientResult<String> {
     let password = generate_password();
     log::info!("Updating password for id {}", id);
     let _ = Cmd::default()
@@ -368,7 +320,7 @@ fn set_ipmi_password(id: &String) -> HardwareEnumerationResult<String> {
     Ok(password)
 }
 
-fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> HardwareEnumerationResult<()> {
+fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     log::info!("Setting privileges for id {}", id);
     let role = format!("privilege={}", role as u8);
 
@@ -421,7 +373,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> HardwareEnumerationResult
     Ok(())
 }
 
-fn set_ipmi_sol() -> HardwareEnumerationResult<()> {
+fn set_ipmi_sol() -> CarbideClientResult<()> {
     // failures for these 3 commands are okay to ignore, some BMCs may not handle them correctly.
     let _ = Cmd::default()
         .args(vec!["sol", "set", "set-in-progress", "set-complete", "1"])
@@ -438,7 +390,8 @@ fn set_ipmi_sol() -> HardwareEnumerationResult<()> {
     Ok(())
 }
 
-pub fn set_ipmi_creds() -> HardwareEnumerationResult<IpmiUser> {
+fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String, String)> {
+    let (ip, mac) = fetch_ipmi_network_config()?;
     let (mut free_users, existing_users) = fetch_ipmi_users_and_free_ids(None)?;
 
     // first, we create users, if we need to.
@@ -458,7 +411,7 @@ pub fn set_ipmi_creds() -> HardwareEnumerationResult<IpmiUser> {
                 create_ipmi_user(free_user.id.as_str(), FORGE_ADMIN_USER_NAME)?;
                 free_user
             } else {
-                return Err(HardwareEnumerationError::GenericError(format!(
+                return Err(CarbideClientError::GenericError(format!(
                     "Insufficient free ids to create user. Failed for user: {}",
                     FORGE_ADMIN_USER_NAME
                 )));
@@ -489,42 +442,26 @@ pub fn set_ipmi_creds() -> HardwareEnumerationResult<IpmiUser> {
         error!("Failed to enable SOL: {}", e);
     }
 
-    Ok(IpmiUser {
-        user: FORGE_ADMIN_USER_NAME.to_string(),
-        role: IpmitoolRoles::Administrator,
-        password,
-    })
+    Ok((
+        IpmiInfo {
+            user: FORGE_ADMIN_USER_NAME.to_string(),
+            role: IpmitoolRoles::Administrator,
+            password,
+        },
+        ip,
+        mac,
+    ))
 }
 
-pub async fn get_bmc_info() -> HardwareEnumerationResult<::rpc::machine_discovery::BmcInfo> {
-    wait_until_ipmi_is_ready().await?;
-
-    let (_ip, mac) = fetch_bmc_network_config()?;
-    let (version, firmware_version) = fetch_bmc_info()?;
-
-    let bmc_info = ::rpc::machine_discovery::BmcInfo {
-        mac: Some(mac),
-        version: Some(version),
-        firmware_version: Some(firmware_version),
-    };
-
-    Ok(bmc_info)
-}
-
-pub async fn send_bmc_metadata_update(
+pub async fn retrieve_ipmi_network(
     forge_client: &mut ForgeClientT,
     machine_id: &str,
-    ipmi_users: Vec<IpmiUser>,
-) -> HardwareEnumerationResult<()> {
-    let (bmc_ip, _) = fetch_bmc_network_config()?;
+) -> CarbideClientResult<()> {
+    wait_until_ipmi_is_ready().await?;
 
-    let ipmi_info = IpmiInfo {
-        machine_id: machine_id.to_owned(),
-        ipmi_users,
-        bmc_ip,
-    };
-
-    let bmc_metadata = ipmi_info.try_into()?;
+    let (ip, mac) = fetch_ipmi_network_config()?;
+    let bmc_metadata: rpc::BmcMetaDataUpdateRequest =
+        IpmiInfo::convert(vec![], machine_id, ip, mac)?;
 
     let request = tonic::Request::new(bmc_metadata);
     forge_client.update_bmc_meta_data(request).await?;
@@ -532,7 +469,27 @@ pub async fn send_bmc_metadata_update(
     Ok(())
 }
 
-async fn wait_until_ipmi_is_ready() -> HardwareEnumerationResult<()> {
+pub async fn update_ipmi_creds(
+    forge_client: &mut ForgeClientT,
+    machine_id: &str,
+) -> CarbideClientResult<()> {
+    if IN_QEMU_VM.read().await.in_qemu {
+        return retrieve_ipmi_network(forge_client, machine_id).await;
+    }
+
+    wait_until_ipmi_is_ready().await?;
+
+    let (ipmi_info, ip, mac) = set_ipmi_creds()?;
+    let bmc_metadata: rpc::BmcMetaDataUpdateRequest =
+        IpmiInfo::convert(vec![ipmi_info], machine_id, ip, mac)?;
+
+    let request = tonic::Request::new(bmc_metadata);
+    forge_client.update_bmc_meta_data(request).await?;
+
+    Ok(())
+}
+
+async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
     let now = Instant::now();
     const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 12);
     const RETRY_TIME: Duration = Duration::from_secs(5);
@@ -551,7 +508,7 @@ async fn wait_until_ipmi_is_ready() -> HardwareEnumerationResult<()> {
     }
 
     // Reached here, means MAX_TIMEOUT passed and yet ipmitool command is still failing.
-    Err(HardwareEnumerationError::GenericError(format!(
+    Err(CarbideClientError::GenericError(format!(
         "Max timout ({} seconds) is elapsed and still ipmitool is failed.",
         MAX_TIMEOUT.as_secs(),
     )))
@@ -571,12 +528,10 @@ mod tests {
 
     static EXPECTED_IP: &str = "127.0.0.2";
     static EXPECTED_MAC: &str = "10:70:fd:18:0f:be";
-    static EXPECTED_BMC_VERSION: &str = "1";
-    static EXPECTED_BMC_FIRMWARE_VERSION: &str = "5.10";
 
     #[tokio::test]
     async fn test_ipmi_ip() {
-        let (ip, mac) = fetch_bmc_network_config().unwrap();
+        let (ip, mac) = fetch_ipmi_network_config().unwrap();
 
         assert_eq!(ip, EXPECTED_IP);
         assert_eq!(mac, EXPECTED_MAC);
@@ -593,14 +548,6 @@ mod tests {
             fetch_ipmi_users_and_free_ids(Some("test/test_user_list_2.csv")).unwrap();
         assert!(free_users.iter().any(|user| user.id.as_str() == "5"));
         assert!(!free_users.iter().any(|user| user.id.as_str() == "3"));
-    }
-
-    #[tokio::test]
-    async fn test_bmc_info() {
-        let (bmc_device_version, bmc_firmware_version) = fetch_bmc_info().unwrap();
-
-        assert_eq!(bmc_device_version, EXPECTED_BMC_VERSION);
-        assert_eq!(bmc_firmware_version, EXPECTED_BMC_FIRMWARE_VERSION);
     }
 
     #[tokio::test]

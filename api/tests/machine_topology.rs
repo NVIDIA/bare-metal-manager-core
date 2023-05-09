@@ -154,8 +154,7 @@ async fn test_topology_missing_mac_field(pool: PgPool) {
 
     let mut txn = pool.begin().await.unwrap();
 
-    let query = r#"UPDATE machine_topologies SET topology = (SELECT topology::jsonb #- '{discovery_data,Info,bmc_info,mac}'
-    FROM machine_topologies WHERE machine_id=$1) where machine_id=$1;"#;
+    let query = r#"UPDATE machine_topologies SET topology = (SELECT topology::jsonb - 'ipmi_mac' FROM machine_topologies WHERE machine_id=$1) where machine_id=$1;"#;
 
     sqlx::query(query)
         .bind(rpc_machine_id.to_string())
@@ -168,9 +167,6 @@ async fn test_topology_missing_mac_field(pool: PgPool) {
     let machines = env.find_machines(Some(rpc_machine_id), None, true).await;
 
     let machine = machines.machines.first().unwrap();
-    let bmc_info = match machine.discovery_info.as_ref() {
-        Some(discovery_info) => discovery_info.bmc_info.clone().unwrap(),
-        None => panic!("bmc_info is none!"),
-    };
+    let bmc_info = machine.bmc_info.as_ref().unwrap();
     assert!(bmc_info.mac.is_none());
 }

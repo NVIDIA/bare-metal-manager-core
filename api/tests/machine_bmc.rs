@@ -63,6 +63,7 @@ async fn machine_bmc_credential_update(pool: PgPool) {
                 password: x.2.to_string(),
             })
             .collect::<Vec<BmcMetadataItem>>(),
+        mac: "01:02:03:04:05:06".to_string(),
     }
     .update_bmc_meta_data(&mut txn, &credentials_provider)
     .await

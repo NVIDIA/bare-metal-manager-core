@@ -21,6 +21,7 @@ mod cfg;
 mod client;
 mod deprovision;
 mod discovery;
+mod ipmi;
 mod register;
 mod users;
 

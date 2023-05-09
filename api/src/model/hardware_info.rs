@@ -18,8 +18,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{try_convert_vec, RpcDataConversionError};
 
-use super::machine::BmcInfo;
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HardwareInfo {
     #[serde(default)]
@@ -38,8 +36,6 @@ pub struct HardwareInfo {
     pub tpm_ek_certificate: Option<TpmEkCertificate>,
     #[serde(default)]
     pub dpu_info: Option<DpuData>,
-    #[serde(default)]
-    pub bmc_info: Option<BmcInfo>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -464,7 +460,6 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             dmi_data: info.dmi_data.map(DmiData::try_from).transpose()?,
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
             dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
-            bmc_info: info.bmc_info.map(BmcInfo::from),
         })
     }
 }
@@ -491,7 +486,6 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .dpu_info
                 .map(rpc::machine_discovery::DpuData::try_from)
                 .transpose()?,
-            bmc_info: info.bmc_info.map(rpc::machine_discovery::BmcInfo::from),
         })
     }
 }
