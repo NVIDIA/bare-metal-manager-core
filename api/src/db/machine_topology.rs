@@ -138,8 +138,7 @@ impl MachineTopology {
                 .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
             if machine_id.machine_type().is_dpu() {
-                // TODO new does an INSERT and `update_loopback_ip_address` does an UPDATE
-                // fix so it's a single DB calls
+                // TODO part VPC, remove once it's replaced
                 let mut new_leaf = NewVpcResourceLeaf::new(machine_id.clone())
                     .persist(&mut *txn)
                     .await?;

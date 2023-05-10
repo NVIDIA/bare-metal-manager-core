@@ -35,10 +35,11 @@ use crate::db::network_prefix::NetworkPrefix;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId};
 use crate::model::machine::machine_id::MachineId;
-use crate::model::machine::DPU_PHYSICAL_NETWORK_INTERFACE;
 use crate::vpc_resources::{
     leaf, managed_resource, resource_group, BlueFieldInterface, VpcResource, VpcResourceStatus,
 };
+
+const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LeafData {
@@ -734,7 +735,7 @@ fn leaf_spec_from_dpu_machine(dpu: &DpuMachine, host_address: IpAddr) -> leaf::L
             host_address.to_string(),
         )])),
         host_interfaces: Some(crate::vpc_resources::host_interfaces(dpu.machine_id())),
-        forge_managed_lookback_ip: dpu.loopback_ip().map(|x| x.to_string()),
+        forge_managed_lookback_ip: dpu.vpc_loopback_ip().map(|x| x.to_string()),
     }
 }
 
@@ -977,7 +978,7 @@ impl VpcApi for VpcApiSim {
                 Ok(Poll::Pending)
             }
         } else {
-            let loopback_ip: Ipv4Addr = match dpu.loopback_ip() {
+            let loopback_ip: Ipv4Addr = match dpu.vpc_loopback_ip() {
                 Some(l_ip) => {
                     // Forge has already assigned it
                     l_ip

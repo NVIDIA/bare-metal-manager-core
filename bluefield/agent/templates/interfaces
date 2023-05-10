@@ -30,7 +30,7 @@ iface vlan{{ .VlanID }}
 {{- if .VNIDevice }}
 auto {{ .VNIDevice }}
 iface {{ .VNIDevice }}
-    bridge-vlan-vni-map {{ range .PortConfigs }}{{ if gt .VNI 0}} {{.VlanID}}={{.VNI}} {{end}}{{ end }}
+    bridge-vlan-vni-map{{ range .PortConfigs }}{{ if gt .VNI 0}}  {{.VlanID}}={{.VNI}}{{end}}{{ end }}
     bridge-learning off
 {{- end }}
 

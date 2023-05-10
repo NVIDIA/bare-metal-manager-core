@@ -55,6 +55,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tokio",
  "tonic",

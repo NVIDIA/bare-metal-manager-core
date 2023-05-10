@@ -11,32 +11,27 @@
  */
 
 use std::{
-    net::Ipv4Addr,
     thread::sleep,
     time::{Duration, SystemTime},
 };
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client;
-use eyre::WrapErr;
 use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
-use network_config_fetcher::NetworkConfig;
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 
 use crate::{
     command_line::{AgentCommand, WriteTarget},
     frr::FrrVlanConfig,
-    interfaces::PortConfig,
 };
-
-const TODO_IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
 mod command_line;
 mod dhcp;
+mod ethernet_virtualization;
 mod frr;
 mod health;
 mod interfaces;
@@ -49,6 +44,8 @@ const MAIN_LOOP_PERIOD: Duration = Duration::from_secs(30);
 
 /// How often we fetch the desired network configuration for a host
 const NETWORK_CONFIG_FETCH_PERIOD: Duration = Duration::from_secs(30);
+
+const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 
 fn main() -> eyre::Result<()> {
     let cmdline = command_line::Options::load();
@@ -130,13 +127,14 @@ fn main() -> eyre::Result<()> {
                     .map(|s| {
                         let mut parts = s.split(',');
                         FrrVlanConfig {
-                            id: parts.next().unwrap().parse().unwrap(),
-                            host_route: parts.next().unwrap().to_string(),
+                            vlan_id: parts.next().unwrap().parse().unwrap(),
+                            ip: parts.next().unwrap().to_string(),
                         }
                     })
                     .collect();
                 let contents = frr::build(frr::FrrConfig {
                     asn: opts.asn as u64,
+                    uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     loopback_ip: opts.loopback_ip,
                     access_vlans,
                 })?;
@@ -150,17 +148,19 @@ fn main() -> eyre::Result<()> {
             //    write interfaces
             //    --path /home/graham/Temp/if
             //    --loopback-ip 1.2.3.4
-            //    --port '{"host_interface": "pf0hpf", "vlan": 1, "vni": 3042, "gw_ip": "6.5.4.3", "gw_mask": "255.255.255.0", "is_isolated": false}'`
+            //    --vni-device ""
+            //    --network '{"interface_name": "pf0hpf", "vlan": 1, "vni": 3042, "gateway_cidr": "6.5.4.3/24"}'`
             WriteTarget::Interfaces(opts) => {
-                let mut ports = Vec::with_capacity(opts.port.len());
-                for port_json in opts.port {
-                    let c: PortConfig = serde_json::from_str(&port_json)?;
-                    ports.push(c);
+                let mut networks = Vec::with_capacity(opts.network.len());
+                for net_json in opts.network {
+                    let c: interfaces::Network = serde_json::from_str(&net_json)?;
+                    networks.push(c);
                 }
                 let contents = interfaces::build(interfaces::InterfacesConfig {
+                    uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     loopback_ip: opts.loopback_ip,
-                    is_admin: opts.is_admin,
-                    ports,
+                    vni_device: opts.vni_device,
+                    networks,
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);
@@ -168,7 +168,7 @@ fn main() -> eyre::Result<()> {
 
             WriteTarget::Dhcp(opts) => {
                 let contents = dhcp::build(dhcp::DhcpConfig {
-                    uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
+                    uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     vlan_ids: opts.vlan,
                     dhcp_servers: opts.dhcp,
                 })?;
@@ -223,19 +223,7 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root
         first = false;
 
         if let Some(ref network_config) = *network_config_reader.read() {
-            debug!("Desired network config is {:?}", network_config);
-            if false {
-                // work in progress
-                if let Err(err) = write_dhcp_relay_config(network_config) {
-                    error!("write_dhcp_relay_config: {err:#}");
-                }
-                if let Err(err) = write_interfaces(network_config) {
-                    error!("write_interfaces: {err:#}");
-                }
-                if let Err(err) = write_frr(network_config) {
-                    error!("write_frr: {err:#}");
-                }
-            }
+            ethernet_virtualization::update(network_config);
         }
 
         let health_report = health::health_check();
@@ -278,67 +266,4 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root
             error!("Error while executing the record_machine_network_status gRPC call: {err:#}");
         }
     }
-}
-
-fn write_dhcp_relay_config(_netconf: &NetworkConfig) -> Result<(), eyre::Report> {
-    let next_contents = dhcp::build(dhcp::DhcpConfig {
-        uplinks: vec![],
-        vlan_ids: vec![],
-        dhcp_servers: vec![],
-    })?;
-    std::fs::write(dhcp::PATH_NEXT, next_contents.clone())
-        .wrap_err_with(|| format!("fs::write {}", dhcp::PATH_NEXT))?;
-    trace!("Wrote {}", dhcp::PATH_NEXT);
-
-    let current = std::fs::read_to_string(dhcp::PATH)
-        .wrap_err_with(|| format!("fs::read_to_string {}", dhcp::PATH))?;
-    if current != next_contents {
-        debug!("Applying new DHCP relay config");
-        std::fs::rename(dhcp::PATH_NEXT, dhcp::PATH)?;
-        dhcp::reload()?;
-    }
-
-    Ok(())
-}
-
-fn write_interfaces(_netconf: &NetworkConfig) -> Result<(), eyre::Report> {
-    let next_contents = interfaces::build(interfaces::InterfacesConfig {
-        loopback_ip: TODO_IP,
-        is_admin: false,
-        ports: vec![],
-    })?;
-    std::fs::write(interfaces::PATH_NEXT, next_contents.clone())
-        .wrap_err_with(|| format!("fs::write {}", interfaces::PATH_NEXT))?;
-    trace!("Wrote {}", interfaces::PATH_NEXT);
-
-    let current = std::fs::read_to_string(interfaces::PATH)
-        .wrap_err_with(|| format!("fs::read_to_string {}", interfaces::PATH))?;
-    if current != next_contents {
-        debug!("Applying new /etc/network/interfaces config");
-        std::fs::rename(interfaces::PATH_NEXT, interfaces::PATH)?;
-        interfaces::reload()?;
-    }
-
-    Ok(())
-}
-
-fn write_frr(_netconf: &NetworkConfig) -> Result<(), eyre::Report> {
-    let next_contents = frr::build(frr::FrrConfig {
-        asn: 0,
-        loopback_ip: TODO_IP,
-        access_vlans: vec![],
-    })?;
-    std::fs::write(frr::PATH_NEXT, next_contents.clone())
-        .wrap_err_with(|| format!("fs::write {}", frr::PATH_NEXT))?;
-    trace!("Wrote {}", frr::PATH_NEXT);
-
-    let current = std::fs::read_to_string(frr::PATH)
-        .wrap_err_with(|| format!("fs::read_to_string {}", frr::PATH))?;
-    if current != next_contents {
-        debug!("Applying new frr.conf config");
-        std::fs::rename(frr::PATH_NEXT, frr::PATH)?;
-        frr::reload()?;
-    }
-
-    Ok(())
 }

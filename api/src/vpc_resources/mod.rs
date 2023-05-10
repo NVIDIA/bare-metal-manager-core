@@ -9,22 +9,23 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::BTreeMap;
 use std::time::SystemTime;
 
-use crate::model::instance::config::network::InterfaceFunctionId;
-use crate::model::machine::machine_id::MachineId;
-use crate::model::machine::{
-    DPU_PHYSICAL_NETWORK_INTERFACE, DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER,
-};
 use chrono::DateTime;
 use itertools::Itertools;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use std::collections::BTreeMap;
+
+use crate::model::instance::config::network::InterfaceFunctionId;
+use crate::model::machine::machine_id::MachineId;
 
 pub mod configuration_resource_pool;
 pub mod leaf;
 pub mod managed_resource;
 pub mod resource_group;
+
+const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
+const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 
 pub trait VpcResource {
     type Status: VpcResourceStatus;
@@ -223,9 +224,10 @@ pub fn host_interfaces(dpu_machine_id: &MachineId) -> BTreeMap<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ::rstest_reuse::*;
     use rstest::rstest;
+
+    use super::*;
 
     const BASE_TIME: &str = "2022-09-29T16:40:49Z";
     const NEW_TIME: &str = "2022-09-29T18:40:49Z";

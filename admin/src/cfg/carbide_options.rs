@@ -59,6 +59,8 @@ pub enum CarbideCommand {
     ResourcePool(ResourcePool),
     #[clap(about = "Redfish BMC actions")]
     Redfish(RedfishAction),
+    #[clap(about = "Migrate data, see sub-command", subcommand)]
+    Migrate(MigrateAction),
 }
 
 #[derive(Parser, Debug)]
@@ -126,17 +128,33 @@ pub enum RedfishCommand {
 }
 
 #[derive(Parser, Debug)]
+pub enum MigrateAction {
+    #[clap(
+        about = "Prepare for VPC migration. Read VNI and VLAN_ID from Kubernetes, write them to Postgres."
+    )]
+    Vpc,
+}
+
+#[derive(Parser, Debug)]
 pub enum Machine {
     #[clap(about = "Display Machine information")]
     Show(ShowMachine),
     #[clap(about = "Print DPU admin SSH username:password")]
     DpuSshCredentials(MachineQuery),
-    #[clap(about = "Print network status of all machines")]
-    NetworkStatus,
+    #[clap(subcommand, about = "Networking information")]
+    Network(NetworkCommand),
     #[clap(about = "Reboot a machine")]
     Reboot(BMCConfigForReboot),
     #[clap(about = "Force delete a machine")]
     ForceDelete(ForceDeleteMachineQuery),
+}
+
+#[derive(Parser, Debug)]
+pub enum NetworkCommand {
+    #[clap(about = "Print network status of all machines")]
+    Status,
+    #[clap(about = "Machine network configuration, used by VPC.")]
+    Config(NetworkConfigQuery),
 }
 
 #[derive(Parser, Debug)]
@@ -182,6 +200,12 @@ pub struct ForceDeleteMachineQuery {
         help = "UUID, IPv4, MAC or hostnmame of the host or DPU machine to delete"
     )]
     pub machine: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct NetworkConfigQuery {
+    #[clap(long, require_equals(true), required(true), help = "DPU machine id")]
+    pub machine_id: String,
 }
 
 #[derive(Parser, Debug)]

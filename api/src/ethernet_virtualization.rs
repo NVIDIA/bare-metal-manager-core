@@ -17,13 +17,27 @@ use std::{
     time::Duration,
 };
 
-use crate::resource_pool::{self, DbResourcePool, ResourcePoolStats};
+pub use ::rpc::forge as rpc;
+use sqlx::{Postgres, Transaction};
+use tonic::Status;
+
+use crate::{
+    db::{
+        machine_interface::MachineInterface, machine_interface_address::MachineInterfaceAddress,
+        network_segment::NetworkSegment,
+    },
+    model::machine::machine_id::MachineId,
+    resource_pool::{self, DbResourcePool, ResourcePoolStats},
+    CarbideError,
+};
 
 /// How often to update the resource pool metrics
 const METRICS_RESOURCEPOOL_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Default)]
-pub struct VpcData {
+pub struct EthVirtData {
+    // true if carbide API owns VPC data
+    pub is_enabled: bool,
     pub asn: u64,
     pub dhcp_servers: Vec<String>,
     pub pool_loopback_ip: Option<Arc<DbResourcePool<Ipv4Addr>>>,
@@ -32,11 +46,11 @@ pub struct VpcData {
     pub rp_stats: Option<Arc<Mutex<HashMap<String, ResourcePoolStats>>>>,
 }
 
-/// Create VPC's resource pools (for loopback IP, VNI, etc) and
+/// Create ethernet virtualization resource pools (for loopback IP, VNI, etc) and
 /// start background task to provide OpenTelemetry metrics.
 ///
 /// Pools must also be created in the database: `forge-admin-cli resource-pool define`
-pub async fn enable(database_connection: sqlx::PgPool) -> VpcData {
+pub async fn enable(database_connection: sqlx::PgPool) -> EthVirtData {
     let pool_loopback_ip: Option<Arc<DbResourcePool<Ipv4Addr>>> = Some(Arc::new(
         DbResourcePool::new(resource_pool::LOOPBACK_IP.to_string()),
     ));
@@ -81,11 +95,49 @@ pub async fn enable(database_connection: sqlx::PgPool) -> VpcData {
         }
     });
 
-    VpcData {
+    EthVirtData {
+        is_enabled: true,
         pool_loopback_ip,
         pool_vlan_id,
         pool_vni,
         rp_stats: Some(rp_stats),
         ..Default::default()
     }
+}
+
+pub async fn admin_network(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+) -> Result<(rpc::FlatInterfaceConfig, uuid::Uuid), tonic::Status> {
+    let admin_segment = NetworkSegment::admin(txn)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let prefix = match admin_segment.prefixes.get(0) {
+        Some(p) => p,
+        None => {
+            return Err(Status::internal(format!(
+                "Admin network segment '{}' has no network_prefix, expected 1",
+                admin_segment.id,
+            )));
+        }
+    };
+
+    let interface =
+        MachineInterface::find_by_machine_and_segment(txn, machine_id, admin_segment.id)
+            .await
+            .map_err(CarbideError::from)?;
+
+    let address = MachineInterfaceAddress::find_ipv4_for_interface(txn, interface.id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let cfg = rpc::FlatInterfaceConfig {
+        function: rpc::InterfaceFunctionType::PhysicalFunction.into(),
+        vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
+        vni: 0, // admin isn't an overlay network, so no vni
+        gateway: prefix.gateway_cidr().unwrap_or_default(),
+        ip: address.address.ip().to_string(),
+    };
+    Ok((cfg, interface.id))
 }

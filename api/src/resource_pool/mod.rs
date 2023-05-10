@@ -77,6 +77,8 @@ pub enum ResourcePoolError {
     Empty,
     #[error("Value is not currently allocated, cannot release")]
     NotAllocated,
+    #[error("Value is not available for allocating, cannot mark as allocated")]
+    NotAvailable,
     #[error("Internal database error: {0}")]
     Db(#[from] crate::db::DatabaseError),
     #[error("Cannot convert '{v}' to {pool_name}'s pool type for {owner_type} {owner_id}: {e}")]

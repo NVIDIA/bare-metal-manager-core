@@ -18,15 +18,18 @@ use crate::{
             status::network::load_instance_network_status_observation, Instance,
         },
         machine::Machine,
-        DatabaseError,
+        machine_interface::MachineInterface,
+        machine_interface_address::MachineInterfaceAddress,
+        network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
+        DatabaseError, UuidKeyedObjectFilter,
     },
     model::{
         instance::{
             config::InstanceConfig, snapshot::InstanceSnapshot, status::InstanceStatusObservations,
         },
         machine::{
-            machine_id::MachineId, CurrentMachineState, MachineSnapshot, ManagedHostState,
-            ManagedHostStateSnapshot,
+            machine_id::MachineId, CurrentMachineState, MachineInterfaceSnapshot, MachineSnapshot,
+            ManagedHostState, ManagedHostStateSnapshot,
         },
     },
 };
@@ -101,11 +104,30 @@ pub async fn get_machine_snapshot(
     .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
     .ok_or(SnapshotLoaderError::MachineNotFound(machine_id.clone()))?;
 
+    let network_config = machine.network_config().clone();
+    let vpc_loopback_ip = if machine.is_dpu() {
+        match network_config.loopback_ip {
+            // the new way, VCP is replaced
+            Some(_ip) => None,
+            None => {
+                // old way, check if VPC gave it to us
+                let dpu_machine = DpuMachine::find_by_machine_id(txn, machine_id)
+                    .await
+                    .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
+                dpu_machine.vpc_loopback_ip()
+            }
+        }
+    } else {
+        // Only DPU's have loopback IPs
+        None
+    };
+
     let snapshot = MachineSnapshot {
         machine_id: machine_id.clone(),
         bmc_info: machine.bmc_info().clone(),
         hardware_info: machine.hardware_info().cloned(),
-        network_config: machine.managed_host_network_config().clone(),
+        network_config,
+        interfaces: interface_to_snapshot(txn, machine.interfaces()).await?,
         current: CurrentMachineState {
             state: machine.current_state(),
             version: machine.current_version(),
@@ -113,9 +135,59 @@ pub async fn get_machine_snapshot(
         last_discovery_time: machine.last_discovery_time(),
         last_reboot_time: machine.last_reboot_time(),
         last_cleanup_time: machine.last_cleanup_time(),
+        vpc_loopback_ip,
     };
 
     Ok(snapshot)
+}
+
+pub async fn interface_to_snapshot(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    interfaces: &[MachineInterface],
+) -> Result<Vec<MachineInterfaceSnapshot>, SnapshotLoaderError> {
+    let mut out = Vec::new();
+    for iface in interfaces {
+        let segments = NetworkSegment::find(
+            txn,
+            UuidKeyedObjectFilter::One(iface.segment_id()),
+            NetworkSegmentSearchConfig::default(),
+        )
+        .await?;
+        // machine_interfaces to network_segments is many-to-one, so this can only be 0 or 1
+        if segments.len() != 1 {
+            return Err(SnapshotLoaderError::GenericError(eyre::eyre!(
+                "Interface {} has {} segments, expected 1",
+                iface.id,
+                segments.len()
+            )));
+        }
+        let segment = &segments[0];
+
+        let prefix = match segment.prefixes.get(0) {
+            Some(p) => p,
+            None => {
+                return Err(SnapshotLoaderError::GenericError(eyre::eyre!(
+                    "Network segment '{}' has no network prefixes, expected 1",
+                    segment.id,
+                )));
+            }
+        };
+
+        // One IPv4 and potentially many IPv6, find the IPv4
+        let address = MachineInterfaceAddress::find_ipv4_for_interface(txn, iface.id).await?;
+
+        out.push(MachineInterfaceSnapshot {
+            id: iface.id,
+            hostname: iface.hostname().to_string(),
+            is_primary: iface.primary_interface(),
+            mac_address: iface.mac_address.to_string(),
+            ip_address: address.address.ip(),
+            vlan_id: segment.vlan_id.unwrap_or_default() as u32,
+            vni: segment.vni.map(|v| v as u32).unwrap_or_default(), // we only have this if `--manage-vpc`
+            gateway_cidr: prefix.gateway_cidr().unwrap_or_default(),
+        });
+    }
+    Ok(out)
 }
 
 #[async_trait::async_trait]

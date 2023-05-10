@@ -18,6 +18,7 @@ use carbide::{
     api::Api,
     auth::{Authorizer, NoopEngine},
     db::machine::Machine,
+    ethernet_virtualization::EthVirtData,
     kubernetes::{VpcApiSim, VpcApiSimConfig},
     model::machine::{
         machine_id::{try_parse_machine_id, MachineId},
@@ -35,7 +36,6 @@ use carbide::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerServices,
         },
     },
-    vpc::VpcData,
 };
 use chrono::Duration;
 use rpc::forge::{
@@ -88,7 +88,7 @@ impl TestEnv {
             Authorizer::new(Arc::new(NoopEngine {})),
             self.redfish_sim.clone(),
             self.vpc_api.clone(),
-            VpcData::default(),
+            EthVirtData::default(),
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
         ));
@@ -216,7 +216,7 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
         Authorizer::new(Arc::new(NoopEngine {})),
         redfish_sim.clone(),
         vpc_api.clone(),
-        VpcData::default(),
+        EthVirtData::default(),
         "not a real pemfile path".to_string(),
         "not a real keyfile path".to_string(),
     );

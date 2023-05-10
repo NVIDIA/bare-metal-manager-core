@@ -35,6 +35,7 @@ pub mod cfg;
 pub mod credentials;
 pub mod db;
 mod dhcp;
+pub mod ethernet_virtualization;
 mod human_hash;
 pub mod instance;
 pub mod ipmi;
@@ -46,7 +47,6 @@ pub mod reachability;
 pub mod redfish;
 pub mod resource_pool;
 pub mod state_controller;
-pub mod vpc;
 pub mod vpc_resources;
 
 /// Represents various Errors that can occur throughout the system.

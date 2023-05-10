@@ -237,6 +237,25 @@ pub async fn get_all_managed_host_network_status(
     .await
 }
 
+pub async fn get_managed_host_network_config(
+    id: String,
+    api_config: Config,
+) -> CarbideCliResult<rpc::ManagedHostNetworkConfigResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ManagedHostNetworkConfigRequest {
+            machine_id: Some(rpc::MachineId { id }),
+        });
+        let all = client
+            .get_managed_host_network_config(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(all)
+    })
+    .await
+}
+
 pub async fn machine_admin_force_delete(
     query: ForceDeleteMachineQuery,
     api_config: Config,
@@ -300,6 +319,23 @@ pub async fn define_resource_pool(
         let request = tonic::Request::new(req);
         let out = client
             .admin_define_resource_pool(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(out)
+    })
+    .await
+}
+
+pub async fn migrate_vpc(
+    vals: Vec<rpc::VpcVname>,
+    api_config: &Config,
+) -> CarbideCliResult<rpc::MigrateVpcResponse> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let req = rpc::MigrateVpcRequest { vnames: vals };
+        let request = tonic::Request::new(req);
+        let out = client
+            .migrate_vpc(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;

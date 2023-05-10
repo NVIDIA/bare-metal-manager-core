@@ -11,7 +11,7 @@
  */
 
 use std::convert::TryFrom;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::task::Poll;
@@ -46,6 +46,7 @@ use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
@@ -53,13 +54,14 @@ use crate::db::dpu_machine::DpuMachine;
 use crate::db::ipmi::UserRoles;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
+use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipxe::PxeInstructions;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatus;
-use crate::model::machine::ManagedHostState;
+use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::model::RpcDataConversionError;
 use crate::reachability::PingReachabilityChecker;
-use crate::resource_pool::{DbResourcePool, ResourcePoolError};
+use crate::resource_pool::{DbResourcePool, OwnerType, ResourcePoolError};
 use crate::state_controller::controller::ReachabilityParams;
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 use crate::{
@@ -83,6 +85,7 @@ use crate::{
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
         DatabaseError, ObjectFilter, UuidKeyedObjectFilter,
     },
+    ethernet_virtualization,
     instance::{allocate_instance, InstanceAllocationRequest},
     ipmi::{ipmi_handler, MachineBmcRequest, RealIpmiCommandHandler},
     kubernetes::{VpcApi, VpcApiImpl, VpcApiSim},
@@ -105,11 +108,19 @@ use crate::{
         },
         snapshot_loader::DbSnapshotLoader,
     },
-    vpc, CarbideError, CarbideResult,
+    CarbideError, CarbideResult,
 };
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
+
+// vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
+// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
+const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
+
+// If you set this to true forge-dpu-agent will start writing the HBN files (frr.conf, etc)
+// If you leave it false forge-dpu-agent will write files with a .TEST extension.
+const ETH_VIRT_PRODUCTION_MODE: bool = false;
 
 pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
@@ -117,7 +128,7 @@ pub struct Api<C: CredentialProvider> {
     authorizer: auth::Authorizer,
     redfish_pool: Arc<dyn RedfishClientPool>,
     vpc_api: Arc<dyn VpcApi>,
-    vpc_data: vpc::VpcData,
+    eth_data: ethernet_virtualization::EthVirtData,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
 }
@@ -853,6 +864,11 @@ where
     ) -> Result<tonic::Response<rpc::ManagedHostNetworkConfigResponse>, tonic::Status> {
         log_request_data(&request);
 
+        if !self.eth_data.is_enabled {
+            // Carbide API does not own VPC data, forge-dpu-agent should not do anything
+            return Err(CarbideError::NotImplemented.into());
+        }
+
         let request = request.into_inner();
         let dpu_machine_id = match &request.machine_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
@@ -876,6 +892,45 @@ where
                 "Machine not found for DPU '{dpu_machine_id}'"
             )));
         }
+        let loopback_ip = match snapshot.dpu_snapshot.loopback_ip() {
+            Some(ip) => ip,
+            None => {
+                return Err(Status::failed_precondition(format!(
+                    "Machine {dpu_machine_id} needs discovery. Does not have a loopback IP yet."
+                )));
+            }
+        };
+
+        // By default we are on the admin network.
+        // Exception is if a tenant instance is assigned and either waiting for network config or ready.
+        let use_admin_network = match &snapshot.instance {
+            Some(instance) => !matches!(
+                instance.machine_state,
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::WaitingForNetworkConfig | InstanceState::Ready
+                }
+            ),
+            None => true,
+        };
+
+        let (admin_interface_rpc, admin_interface_id) =
+            ethernet_virtualization::admin_network(&mut txn, &dpu_machine_id).await?;
+
+        let mut tenant_interfaces = Vec::with_capacity(snapshot.dpu_snapshot.interfaces.len());
+        for iface in snapshot
+            .dpu_snapshot
+            .interfaces
+            .iter()
+            .filter(|f| f.id != admin_interface_id)
+        {
+            tenant_interfaces.push(rpc::FlatInterfaceConfig {
+                function: rpc::InterfaceFunctionType::VirtualFunction.into(),
+                vlan_id: iface.vlan_id,
+                vni: iface.vni,
+                gateway: iface.gateway_cidr.clone(),
+                ip: iface.ip_address.to_string(),
+            });
+        }
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -886,10 +941,39 @@ where
             ))
         })?;
 
-        // TODO: Extract network state from Machine State. Loading the Machine state
-        // should contain it (and already contains the instance state)
-        let _ = snapshot;
-        Err(CarbideError::NotImplemented.into())
+        let host_config = rpc::ManagedHostNetworkConfig {
+            loopback_ip: loopback_ip.to_string(),
+        };
+
+        let resp = rpc::ManagedHostNetworkConfigResponse {
+            is_production_mode: ETH_VIRT_PRODUCTION_MODE,
+            asn: self.eth_data.asn,
+            dhcp_servers: self.eth_data.dhcp_servers.clone(),
+            vni_device: if use_admin_network {
+                "".to_string()
+            } else {
+                HBN_SINGLE_VLAN_DEVICE.to_string()
+            },
+            managed_host_config: Some(host_config),
+            managed_host_config_version: snapshot
+                .dpu_snapshot
+                .network_config
+                .version
+                .to_version_string(),
+            use_admin_network,
+            admin_interface: Some(admin_interface_rpc),
+            tenant_interfaces,
+            instance_config_version: if use_admin_network {
+                "".to_string()
+            } else {
+                snapshot
+                    .instance
+                    .unwrap()
+                    .network_config_version
+                    .to_version_string()
+            },
+        };
+        Ok(Response::new(resp))
     }
 
     async fn record_managed_host_network_status(
@@ -1159,7 +1243,7 @@ where
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin discover_machine", e))?;
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
-        let machine = Machine::get_or_create(
+        let (db_machine, is_new) = Machine::get_or_create(
             &mut txn,
             &stable_machine_id,
             interface,
@@ -1167,13 +1251,22 @@ where
         )
         .await?;
 
-        let loopback_ip = if hardware_info.is_dpu() {
-            self.allocate_loopback_ip(&mut txn, &stable_machine_id.to_string())
-                .await?
+        let loopback_ip = if is_new && hardware_info.is_dpu() {
+            // We discovered a new machine, give it a loopback IP
+            let loopback_ip = self
+                .allocate_loopback_ip(&mut txn, &stable_machine_id.to_string())
+                .await?;
+            let (mut netconf, version) = db_machine.network_config().clone().take();
+            netconf.loopback_ip = loopback_ip;
+            Machine::try_update_network_config(&mut txn, &stable_machine_id, version, &netconf)
+                .await
+                .map_err(CarbideError::from)?;
+            loopback_ip
         } else {
             None
         };
 
+        // Once VPC goes away we can remove passing loopback_ip here
         MachineTopology::create(&mut txn, &stable_machine_id, &hardware_info, loopback_ip).await?;
 
         // Create Host proactively.
@@ -1183,14 +1276,14 @@ where
             let _ = MachineInterface::create_host_machine_interface_proactively(
                 &mut txn,
                 &Some(hardware_info),
-                machine.id(),
+                db_machine.id(),
             )
             .await?;
             // Create host machine with temporary ID.
         }
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {
-            machine_id: rpc::Machine::from(machine).id,
+            machine_id: Some(stable_machine_id.to_string().into()),
         }));
 
         txn.commit()
@@ -2340,9 +2433,12 @@ where
             let actual_dpu_machine = DpuMachine::find_by_machine_id(&mut txn, dpu_machine.id())
                 .await
                 .map_err(CarbideError::from)?;
-            if let Some(pool) = self.vpc_data.pool_loopback_ip.as_ref() {
-                // Forge is managing loopback IPs
-                if let Some(loopback_ip) = actual_dpu_machine.loopback_ip() {
+            if let Some(pool) = self.eth_data.pool_loopback_ip.as_ref() {
+                // Forge is managing loopback IPs..
+                let l_ip = dpu_machine
+                    .loopback_ip() // .. and owns ethernet virtualization.
+                    .or_else(|| actual_dpu_machine.vpc_loopback_ip()); // .. and sends them to VPC.
+                if let Some(loopback_ip) = l_ip {
                     pool.release(&mut txn, loopback_ip)
                         .await
                         .map_err(CarbideError::from)?
@@ -2406,6 +2502,139 @@ where
             CarbideError::DatabaseError(file!(), "end admin_define_resource_pool", e)
         })?;
         Ok(Response::new(rpc::DefineResourcePoolResponse {}))
+    }
+
+    async fn migrate_vpc(
+        &self,
+        request: Request<rpc::MigrateVpcRequest>,
+    ) -> Result<tonic::Response<rpc::MigrateVpcResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin migrate_vpc ", e))?;
+
+        for vname in req.vnames {
+            let segment =
+                match NetworkSegment::find_by_circuit_id(&mut txn, &vname.dhcp_circuit_id).await {
+                    Err(_) => {
+                        // this happens, it's probably fine
+                        info!(
+                            "migrate_vpc no network segment for circuit_id {}, skipping.",
+                            vname.dhcp_circuit_id
+                        );
+                        continue;
+                    }
+                    Ok(segment) => segment,
+                };
+
+            if segment.vlan_id.is_none() || segment.vlan_id.unwrap() != vname.vlan_id as i16 {
+                NetworkSegment::update_vlan_id(&mut txn, segment.id, vname.vlan_id as i32)
+                    .await
+                    .map_err(CarbideError::from)?;
+                match self.eth_data.pool_vlan_id.as_ref() {
+                    Some(pool) => {
+                        pool.mark_allocated(
+                            &mut txn,
+                            vname.vlan_id as i16,
+                            OwnerType::NetworkSegment,
+                            &segment.id.to_string(),
+                        )
+                        .await
+                        .map_err(CarbideError::from)?;
+                    }
+                    None => {
+                        warn!("Missing vlan_id resource pool. Did you run 'forge-admin-cli resource-pool define'?");
+                    }
+                }
+                debug!("Segment {} copied vlan_id {}", segment.id, vname.vlan_id);
+            }
+
+            if segment.vni.is_none() || segment.vni.unwrap() as u32 != vname.vni {
+                NetworkSegment::update_vni(&mut txn, segment.id, vname.vni as i32)
+                    .await
+                    .map_err(CarbideError::from)?;
+                match self.eth_data.pool_vni.as_ref() {
+                    Some(pool) => {
+                        pool.mark_allocated(
+                            &mut txn,
+                            vname.vni as i32,
+                            OwnerType::NetworkSegment,
+                            &segment.id.to_string(),
+                        )
+                        .await
+                        .map_err(CarbideError::from)?;
+                    }
+                    None => {
+                        warn!("Missing vni resource pool. Did you run 'forge-admin-cli resource-pool define'?");
+                    }
+                }
+                debug!("Segment {} copied vni {}", segment.id, vname.vni);
+            }
+        }
+
+        // Copy vpc_resource_leaf.loopback_ip to machines.network_config.loopback_ip
+        let dpus = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+            .await
+            .map_err(CarbideError::from)?
+            .into_iter()
+            .filter(|m| m.is_dpu());
+        for machine in dpus {
+            let leaf = match VpcResourceLeaf::find(&mut txn, machine.id()).await {
+                Ok(leaf) => leaf,
+                Err(err) => {
+                    info!("No leaf loopback_ip for machine {}. {err}.", machine.id());
+                    continue;
+                }
+            };
+            let (mut netconf, version) = machine.network_config().clone().take();
+            let vpc_loopback = match leaf.loopback_ip_address() {
+                Some(IpAddr::V4(val)) => Some(*val),
+                _ => {
+                    warn!("Machine {} has invalid loopback", machine.id());
+                    continue;
+                }
+            };
+            if vpc_loopback == netconf.loopback_ip {
+                debug!("Machine {} already migrated loopback", machine.id());
+                continue;
+            }
+            netconf.loopback_ip = vpc_loopback;
+            Machine::try_update_network_config(&mut txn, machine.id(), version, &netconf)
+                .await
+                .map_err(CarbideError::from)?;
+
+            match self.eth_data.pool_loopback_ip.as_ref() {
+                Some(pool) => {
+                    pool.mark_allocated(
+                        &mut txn,
+                        vpc_loopback.unwrap(), // we know it's Some
+                        OwnerType::Machine,
+                        &machine.id().to_string(),
+                    )
+                    .await
+                    .map_err(CarbideError::from)?;
+                }
+                None => {
+                    warn!("Missing loopback_ip resource pool. Did you run 'forge-admin-cli resource-pool define' or 'forge-admin-cli migrate vpc'?");
+                }
+            }
+
+            debug!(
+                "Machine {} copied loopback {:?}",
+                machine.id(),
+                netconf.loopback_ip
+            );
+        }
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "end migrate_vpc", e))?;
+
+        Ok(Response::new(rpc::MigrateVpcResponse {}))
     }
 }
 
@@ -2726,7 +2955,7 @@ where
         authorizer: auth::Authorizer,
         redfish_pool: Arc<dyn RedfishClientPool>,
         vpc_api: Arc<dyn VpcApi>,
-        vpc_data: vpc::VpcData,
+        eth_data: ethernet_virtualization::EthVirtData,
         identity_pemfile_path: String,
         identity_keyfile_path: String,
     ) -> Self {
@@ -2736,7 +2965,7 @@ where
             authorizer,
             redfish_pool,
             vpc_api,
-            vpc_data,
+            eth_data,
             identity_pemfile_path,
             identity_keyfile_path,
         }
@@ -2784,32 +3013,32 @@ where
         )
         .await?;
 
-        let mut vpc_data = if daemon_config.manage_vpc {
+        let mut eth_data = if daemon_config.manage_vpc {
             // Forge will own and manage VPC data
-            vpc::enable(database_connection.clone()).await
+            ethernet_virtualization::enable(database_connection.clone()).await
         } else {
             // VPC (Go CRD) will own and manage it's data
-            vpc::VpcData::default()
+            ethernet_virtualization::EthVirtData::default()
         };
-        vpc_data.dhcp_servers = daemon_config.dhcp_server.clone();
-        vpc_data.asn = daemon_config.asn;
+        eth_data.dhcp_servers = daemon_config.dhcp_server.clone();
+        eth_data.asn = daemon_config.asn;
 
         let health_pool = database_connection.clone();
         start_export_service_health_metrics(ServiceHealthContext {
             meter: meter.clone(),
             database_pool: health_pool,
-            resource_pool_stats: vpc_data.rp_stats.take(),
+            resource_pool_stats: eth_data.rp_stats.take(),
         });
 
-        let sc_pool_vlan_id = vpc_data.pool_vlan_id.clone();
-        let sc_pool_vni = vpc_data.pool_vni.clone();
+        let sc_pool_vlan_id = eth_data.pool_vlan_id.clone();
+        let sc_pool_vni = eth_data.pool_vni.clone();
         let api_service = Arc::new(Self::new(
             credential_provider.clone(),
             database_connection.clone(),
             authorizer,
             shared_redfish_pool.clone(),
             vpc_api.clone(),
-            vpc_data,
+            eth_data,
             daemon_config.identity_pemfile_path.clone(),
             daemon_config.identity_keyfile_path.clone(),
         ));
@@ -2882,7 +3111,7 @@ where
                 ));
             }
             Ok(None) => {
-                log::info!("no machine for {machine_id}");
+                info!("no machine for {machine_id}");
                 return Err(CarbideError::NotFoundError {
                     kind: "machine",
                     id: machine_id.to_string(),
@@ -2902,12 +3131,11 @@ where
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
     ) -> Result<Option<Ipv4Addr>, Status> {
-        use crate::resource_pool::OwnerType;
-        if self.vpc_data.pool_loopback_ip.is_none() {
+        if self.eth_data.pool_loopback_ip.is_none() {
             return Ok(None);
         }
         match self
-            .vpc_data
+            .eth_data
             .pool_loopback_ip
             .as_ref()
             .unwrap()
@@ -2937,12 +3165,11 @@ where
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
     ) -> Result<Option<i32>, Status> {
-        use crate::resource_pool::OwnerType;
-        if self.vpc_data.pool_vni.is_none() {
+        if self.eth_data.pool_vni.is_none() {
             return Ok(None);
         }
         match self
-            .vpc_data
+            .eth_data
             .pool_vni
             .as_ref()
             .unwrap()
@@ -2972,12 +3199,11 @@ where
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
     ) -> Result<Option<i16>, Status> {
-        use crate::resource_pool::OwnerType;
-        if self.vpc_data.pool_vlan_id.is_none() {
+        if self.eth_data.pool_vlan_id.is_none() {
             return Ok(None);
         }
         match self
-            .vpc_data
+            .eth_data
             .pool_vlan_id
             .as_ref()
             .unwrap()

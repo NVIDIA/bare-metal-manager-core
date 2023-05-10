@@ -10,14 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    net::{IpAddr, Ipv4Addr},
+};
 
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 
 use self::network::ManagedHostNetworkConfig;
-
 use super::{
     config_version::{ConfigVersion, Versioned},
     instance::snapshot::InstanceSnapshot,
@@ -27,9 +29,6 @@ use crate::model::hardware_info::HardwareInfo;
 pub mod machine_id;
 pub mod network;
 use machine_id::MachineId;
-
-pub const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
-pub const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
@@ -51,9 +50,13 @@ pub struct MachineSnapshot {
     /// Hardware Information that was discovered about this Machine
     pub hardware_info: Option<HardwareInfo>,
     /// The desired network configuration for this machine
+    /// Includes the loopback_ip address. Do not query that
+    /// directly, use `.loopback_ip()` instead.
     pub network_config: Versioned<ManagedHostNetworkConfig>,
     /// BMC related information
     pub bmc_info: BmcInfo,
+    /// Network interfaces
+    pub interfaces: Vec<MachineInterfaceSnapshot>,
     /// Desired state of the machine
     pub current: CurrentMachineState,
     /// Last discovery request from scout.
@@ -62,6 +65,15 @@ pub struct MachineSnapshot {
     pub last_reboot_time: Option<DateTime<Utc>>,
     /// Last Cleanup completed messge received from scout.
     pub last_cleanup_time: Option<DateTime<Utc>>,
+    /// Loopback IP of DPU if VPC is still managing things (old)
+    /// Do not query directly, use `.loopback_ip()` instead.
+    pub vpc_loopback_ip: Option<Ipv4Addr>,
+}
+
+impl MachineSnapshot {
+    pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
+        self.network_config.loopback_ip.or(self.vpc_loopback_ip)
+    }
 }
 
 /// Represents the current state of `Machine`
@@ -200,4 +212,16 @@ impl Display for ManagedHostState {
 pub struct BmcInfo {
     pub ip: Option<String>,
     pub mac: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineInterfaceSnapshot {
+    pub id: uuid::Uuid,
+    pub hostname: String,
+    pub is_primary: bool,
+    pub mac_address: String,
+    pub ip_address: IpAddr,
+    pub vlan_id: u32,
+    pub vni: u32,
+    pub gateway_cidr: String,
 }

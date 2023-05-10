@@ -79,7 +79,7 @@ pub struct Machine {
 
     /// The current network state of the machine, excluding the tenant related
     /// configuration. The latter will be tracked as part of the InstanceNetworkConfig.
-    managed_host_network_config: Versioned<ManagedHostNetworkConfig>,
+    network_config: Versioned<ManagedHostNetworkConfig>,
 
     /// A list of [MachineStateHistory] that this machine has experienced
     history: Vec<MachineStateHistory>,
@@ -133,7 +133,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
             state: Versioned::new(controller_state.0, controller_state_version),
-            managed_host_network_config: Versioned::new(network_config.0, network_config_version),
+            network_config: Versioned::new(network_config.0, network_config_version),
             history: Vec::new(),
             interfaces: Vec::new(),
             hardware_info: None,
@@ -262,8 +262,12 @@ impl Machine {
 
     /// The current network state of the machine, excluding the tenant related
     /// configuration. The latter will be tracked as part of the InstanceNetworkConfig.
-    pub fn managed_host_network_config(&self) -> &Versioned<ManagedHostNetworkConfig> {
-        &self.managed_host_network_config
+    pub fn network_config(&self) -> &Versioned<ManagedHostNetworkConfig> {
+        &self.network_config
+    }
+
+    pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
+        self.network_config().loopback_ip
     }
 
     pub async fn exists(
@@ -279,6 +283,7 @@ impl Machine {
     }
 
     /// Load a Machine object matching an interface, creating it if not already present.
+    /// Returns a tuple of (Machine, bool did_we_just_create_it)
     ///
     /// Arguments:
     ///
@@ -290,7 +295,7 @@ impl Machine {
         stable_machine_id: &MachineId,
         mut interface: MachineInterface,
         is_dpu: bool,
-    ) -> CarbideResult<Self> {
+    ) -> CarbideResult<(Self, bool)> {
         let stable_machine_id_string = stable_machine_id.to_string();
 
         match &interface.machine_id {
@@ -306,7 +311,7 @@ impl Machine {
                 match Machine::find_one(&mut *txn, machine_id, MachineSearchConfig::default())
                     .await?
                 {
-                    Some(machine) => Ok(machine),
+                    Some(machine) => Ok((machine, false)),
                     None => {
                         log::warn!(
                             "Interface ID {} refers to missing machine {machine_id}",
@@ -334,7 +339,7 @@ impl Machine {
                 let state_version = ConfigVersion::initial();
 
                 let network_config_version = ConfigVersion::initial();
-                let network_config = ManagedHostNetworkConfig::initial();
+                let network_config = ManagedHostNetworkConfig::default();
 
                 let query = "INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config) VALUES($1, $2, $3, $4, $5) RETURNING id";
                 let row: (DbMachineId,) = sqlx::query_as(query)
@@ -367,7 +372,7 @@ impl Machine {
                 interface
                     .associate_interface_with_machine(txn, &machine.id)
                     .await?;
-                Ok(machine)
+                Ok((machine, true))
             }
         }
     }
@@ -452,6 +457,7 @@ SELECT m.id FROM
     }
 
     /// Returns the list of Interfaces this machine owns
+    /// Includes the admin interface.
     pub fn interfaces(&self) -> &Vec<MachineInterface> {
         &self.interfaces
     }
@@ -904,7 +910,7 @@ SELECT m.id FROM
     }
 
     /// Updates the desired network configuration for a host
-    pub async fn try_update_managed_host_network_config(
+    pub async fn try_update_network_config(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         expected_version: ConfigVersion,
@@ -918,7 +924,9 @@ SELECT m.id FROM
         let next_version = expected_version.increment();
         let next_version_str = next_version.to_version_string();
 
-        let query = "UPDATE machines SET network_config_version=$1, network_config=$2::json where id=$3::uuid AND network_config_version=$4 returning id";
+        let query = "UPDATE machines SET network_config_version=$1, network_config=$2::json
+            WHERE id=$3 AND network_config_version=$4
+            RETURNING id";
         let query_result: Result<DbMachineId, _> = sqlx::query_as(query)
             .bind(&next_version_str)
             .bind(sqlx::types::Json(new_state))

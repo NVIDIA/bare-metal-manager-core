@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
+
 use carbide::{
     db::{
         address_selection_strategy::AddressSelectionStrategy, machine::Machine,
@@ -21,7 +23,6 @@ use carbide::{
 use log::LevelFilter;
 use mac_address::MacAddress;
 use sqlx::{Connection, Postgres};
-use std::str::FromStr;
 
 pub mod common;
 use common::api_fixtures::{
@@ -75,9 +76,10 @@ async fn only_one_primary_interface_per_machine(
     .await?;
 
     let machine_id = MachineId::from_hardware_info(&create_dpu_hardware_info()).unwrap();
-    let new_machine = Machine::get_or_create(&mut txn, &machine_id, new_interface, false)
-        .await
-        .expect("Unable to create machine");
+    let (new_machine, _is_new) =
+        Machine::get_or_create(&mut txn, &machine_id, new_interface, false)
+            .await
+            .expect("Unable to create machine");
 
     txn.commit().await.unwrap();
 

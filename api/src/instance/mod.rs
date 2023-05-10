@@ -159,7 +159,7 @@ pub async fn circuit_id_to_function_id(
     instance_id: uuid::Uuid,
     circuit_id: String,
 ) -> CarbideResult<InterfaceFunctionId> {
-    let segment = NetworkSegment::find_by_circuit_id(&mut *txn, circuit_id.clone()).await?;
+    let segment = NetworkSegment::find_by_circuit_id(&mut *txn, &circuit_id).await?;
     let network_config = load_instance_network_config(&mut *txn, instance_id)
         .await?
         .value;

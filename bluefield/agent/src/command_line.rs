@@ -71,13 +71,13 @@ pub struct InterfacesOptions {
     pub path: String,
     #[clap(long)]
     pub loopback_ip: Ipv4Addr,
-    #[clap(long, help = "True for a HostAdminRequest, false for PortRequest")]
-    pub is_admin: bool,
+    #[clap(long, help = "Blank for admin network, vxlan5555 for tenant networks")]
+    pub vni_device: String,
     #[clap(
         long,
         help = "Format is JSON see PortConfig in interfaces.rs. Repeats."
     )]
-    pub port: Vec<String>,
+    pub network: Vec<String>,
 }
 
 #[derive(Parser, Debug)]

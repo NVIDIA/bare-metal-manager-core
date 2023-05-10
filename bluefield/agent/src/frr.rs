@@ -12,10 +12,10 @@
 
 use std::{net::Ipv4Addr, process::Command};
 
+use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
 
-pub const PATH: &str = "/etc/frr/frr.conf";
-pub const PATH_NEXT: &str = "/etc/frr/frr.conf.NEXT";
+pub const PATH: &str = "/var/lib/hbn/etc/frr/frr.conf";
 const TMPL_FULL: &str = include_str!("../templates/frr.conf");
 
 const _TMPL_EMPTY: &str = "
@@ -35,19 +35,19 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
     let params = TmplFrrConfigParameters {
         ASN: conf.asn,
         LoopbackIP: conf.loopback_ip.to_string(),
-        Uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
+        Uplinks: conf.uplinks,
         AccessVLANs: conf
             .access_vlans
             .into_iter()
             .map(|c| TmplFrrConfigVLAN {
-                ID: c.id,
-                HostRoute: c.host_route,
+                ID: c.vlan_id,
+                HostRoute: format!("{}/32", c.ip),
             })
             .collect(),
     };
     match gtmpl::template(TMPL_FULL, params) {
         Ok(s) =>
-        // we indent the template for readability. remove those indents.
+        // we indent the template for readability. remove those indents, but not the blank lines
         {
             Ok(s.lines()
                 .map(|l| l.trim_start())
@@ -62,7 +62,8 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
 pub fn reload() -> Result<(), eyre::Report> {
     let out = Command::new("/usr/lib/frr/frrinit.sh")
         .arg("reload")
-        .output()?;
+        .output()
+        .wrap_err("/usr/lib/frr/frrinit.sh")?;
     if !out.status.success() {
         return Err(eyre::eyre!(
             "Failed reloading frr.conf with '/usr/lib/frr/frrinit.sh reload'. \nSTDOUT: {}\nSTDERR: {}",
@@ -77,12 +78,13 @@ pub fn reload() -> Result<(), eyre::Report> {
 pub struct FrrConfig {
     pub asn: u64,
     pub loopback_ip: Ipv4Addr,
+    pub uplinks: Vec<String>,
     pub access_vlans: Vec<FrrVlanConfig>,
 }
 
 pub struct FrrVlanConfig {
-    pub id: u32,
-    pub host_route: String,
+    pub vlan_id: u32,
+    pub ip: String,
 }
 
 //
@@ -113,21 +115,24 @@ mod tests {
     fn test_write_frr() -> Result<(), Box<dyn std::error::Error>> {
         let params = FrrConfig {
             asn: 65535,
+            uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
             loopback_ip: [192, 168, 0, 1].into(),
             access_vlans: vec![],
         };
         let output = build(params)?;
-        let expected = include_str!("../templates/frr.conf.expected");
+        let expected = include_str!("../templates/tests/frr.conf.expected");
+        let mut has_error = false;
         if output != expected {
             for (g, e) in output.lines().zip(expected.lines()) {
                 if g != e {
+                    has_error = true;
                     println!("Line differs:");
                     println!("GOT: {}", g);
                     println!("EXP: {}", e);
                 }
             }
         }
-        assert_eq!(output, expected);
+        assert!(!has_error);
 
         Ok(())
     }

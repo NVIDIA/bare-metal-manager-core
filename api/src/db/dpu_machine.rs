@@ -42,7 +42,7 @@ pub struct DpuMachine {
     _mac_address: MacAddress,
     address: IpNetwork,
     _hostname: String,
-    loopback_ip: Option<Ipv4Addr>,
+    vpc_loopback_ip: Option<Ipv4Addr>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -67,7 +67,7 @@ impl<'r> FromRow<'r, PgRow> for DpuMachine {
             _mac_address: row.try_get("mac_address")?,
             address: row.try_get("address")?,
             _hostname: row.try_get("hostname")?,
-            loopback_ip,
+            vpc_loopback_ip: loopback_ip,
         })
     }
 }
@@ -97,9 +97,10 @@ impl DpuMachine {
         &self._hostname
     }
 
-    // None if it's not been assigned yet
-    pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
-        self.loopback_ip
+    // The loopback IP that VPC assigned. None if it's not been assigned yet.
+    // Once VPC goes away this will be replaced by machine.network_config.loopback_ip
+    pub fn vpc_loopback_ip(&self) -> Option<Ipv4Addr> {
+        self.vpc_loopback_ip
     }
 
     /// Retrieves the IDs of all active Machines - which are machines that are not in

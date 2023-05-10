@@ -159,6 +159,12 @@ service Forge {
 
   // Create or edit a resource pool
   rpc AdminDefineResourcePool(DefineResourcePoolRequest) returns (DefineResourcePoolResponse);
+
+  // Fill in VPC date by migrating it from Kubernetes
+  // - Fill in VNI and VLAN_ID on network_segment
+  // - Mark values as taken in resource pool (including loopback_ip)
+  // - Copy loopback_ip into machines.network_config
+  rpc MigrateVPC(MigrateVPCRequest) returns (MigrateVPCResponse);
 }
 
 message MachineId {
@@ -967,10 +973,50 @@ message ManagedHostNetworkConfigRequest {
 }
 
 message ManagedHostNetworkConfigResponse {
-  ManagedHostNetworkConfig managed_host_config = 1;
-  string managed_host_config_version = 2;
-  // TODO: Should be augmented by the active InstanceConfig
-  // Either here, or as field inside `ManagedHostNetworkConfig`
+  // Should forge-dpu-agent right the real files.
+  // false means to append .TEST to filenames to run in parallel with VPC
+  bool is_production_mode = 1;
+
+  // ASN and DHCP servers are not versioned, they are fixed on process start
+
+  // ASN
+  uint64 asn = 2;
+  // DHCP servers that the host DHCP requests should be relayed to
+  repeated string dhcp_servers = 3;
+
+  // "" when on admin network, "vxlan5555" otherwise.
+  // vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
+  // same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
+  // VNI device is not versioned
+  string vni_device = 4;
+
+  ManagedHostNetworkConfig managed_host_config = 5;
+  string managed_host_config_version = 6;
+
+  bool use_admin_network = 7;
+  FlatInterfaceConfig admin_interface = 8;
+
+  repeated FlatInterfaceConfig tenant_interfaces = 9;
+  // Blank if on the admin network, matches DB instances.network_config if there's a tenant
+  string instance_config_version = 10;
+}
+
+// Network configuration for a managed host (host + DPU pair) managed by Forge
+message ManagedHostNetworkConfig {
+  // DPU loopback IP
+  string loopback_ip = 1;
+}
+
+message FlatInterfaceConfig {
+    InterfaceFunctionType function = 1;
+    // aka circuit_id
+    uint32 vlan_id = 2;
+    // vxlan id
+    uint32 vni = 3;
+    // in CIDR notation
+    string gateway = 4;
+    // host admin ip for admin network, host ip for tenant
+    string ip = 5;
 }
 
 message ManagedHostNetworkStatusRequest {}
@@ -1195,22 +1241,6 @@ enum InterfaceFunctionType {
   VIRTUAL_FUNCTION = 1;
 }
 
-// Network configuration for a managed host (host + DPU pair) managed by Forge
-message ManagedHostNetworkConfig {
-  // Enables access to the Forge admin network for the x86 host
-  bool admin_network_enabled = 1;
-  // TODO: Do we need the mapping from interface to IP as in the current Leaf spec
-  // or multiple IPs for IPv4 vs IPv6?
-  string host_admin_ip = 2;
-  // DHCP server that the Host DHCP requests should be relayed to
-  repeated string dhcp_servers = 3;
-
-  // TODOs:
-  // 1. Do we want to keep the ability of maintainence_mode?
-  // 2. Do we need any other information out of what is currently defined in
-  //    the admin NetworkSegment?
-}
-
 // What forge-dpu-agent reports. Will grow over time.
 message ManagedHostNetworkStatusObservation {
   MachineId dpu_machine_id = 1;
@@ -1415,6 +1445,16 @@ message DefineResourcePoolRequest {
 }
 
 message DefineResourcePoolResponse {}
+
+message MigrateVPCRequest{
+    repeated VpcVname vnames = 1;
+}
+message VpcVname {
+    string dhcp_circuit_id = 1;
+    uint32 vlan_id = 2;
+    uint32 vni = 3;
+}
+message MigrateVPCResponse{}
 
 message Range {
     string start = 1;

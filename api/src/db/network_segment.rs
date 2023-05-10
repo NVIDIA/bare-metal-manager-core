@@ -591,7 +591,6 @@ impl NetworkSegment {
 
     pub async fn update(
         &self,
-
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<NetworkSegment, DatabaseError> {
         let query = "
@@ -618,7 +617,7 @@ RETURNING *";
 
     pub async fn find_by_circuit_id(
         txn: &mut Transaction<'_, Postgres>,
-        circuit_id: String,
+        circuit_id: &str,
     ) -> Result<Self, DatabaseError> {
         let query = "
 SELECT network_segments.* FROM network_segments

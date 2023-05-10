@@ -19,8 +19,8 @@ use ::rpc::{
     MachineId,
 };
 use cfg::carbide_options::{
-    CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, NetworkSegment,
-    OutputFormat, ResourcePool,
+    CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, MigrateAction,
+    NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
 };
 use prettytable::{row, Table};
 use serde::Deserialize;
@@ -31,6 +31,7 @@ mod domain;
 mod instance;
 mod machine;
 mod managed_host;
+mod migrate;
 mod network;
 mod redfish;
 mod resource_pool;
@@ -251,36 +252,43 @@ async fn main() -> color_eyre::Result<()> {
                     println!("{}:{}", cred.username, cred.password);
                 }
             }
-            Machine::NetworkStatus => {
-                let all_status = rpc::get_all_managed_host_network_status(api_config)
-                    .await?
-                    .all;
-                if all_status.is_empty() {
-                    println!("No reported network status");
-                } else {
-                    let mut table = Table::new();
-                    table.add_row(row![
-                        "Observed at",
-                        "DPU machine ID",
-                        "Is healthy?",
-                        "Checks passed",
-                        "Checks failed",
-                        "First failure"
-                    ]);
-                    for mut st in all_status.into_iter().filter(|st| st.health.is_some()) {
-                        let h = st.health.take().unwrap();
+            Machine::Network(cmd) => match cmd {
+                NetworkCommand::Status => {
+                    let all_status = rpc::get_all_managed_host_network_status(api_config)
+                        .await?
+                        .all;
+                    if all_status.is_empty() {
+                        println!("No reported network status");
+                    } else {
+                        let mut table = Table::new();
                         table.add_row(row![
-                            st.observed_at.unwrap(),
-                            st.dpu_machine_id.unwrap(),
-                            h.is_healthy,
-                            h.passed.join(","),
-                            h.failed.join(","),
-                            h.message.unwrap_or_default(),
+                            "Observed at",
+                            "DPU machine ID",
+                            "Is healthy?",
+                            "Checks passed",
+                            "Checks failed",
+                            "First failure"
                         ]);
+                        for mut st in all_status.into_iter().filter(|st| st.health.is_some()) {
+                            let h = st.health.take().unwrap();
+                            table.add_row(row![
+                                st.observed_at.unwrap(),
+                                st.dpu_machine_id.unwrap(),
+                                h.is_healthy,
+                                h.passed.join(","),
+                                h.failed.join(","),
+                                h.message.unwrap_or_default(),
+                            ]);
+                        }
+                        table.printstd();
                     }
-                    table.printstd();
                 }
-            }
+                NetworkCommand::Config(query) => {
+                    let config =
+                        rpc::get_managed_host_network_config(query.machine_id, api_config).await?;
+                    println!("{config:?}");
+                }
+            },
             Machine::Reboot(c) => {
                 let bmc_auth = match (c.username, c.password, c.machine) {
                     (Some(user), Some(password), _) => rpc::RebootAuth::Direct { user, password },
@@ -331,6 +339,9 @@ async fn main() -> color_eyre::Result<()> {
             ResourcePool::Define(def) => {
                 resource_pool::define_all_from(&def.filename, api_config).await?;
             }
+        },
+        CarbideCommand::Migrate(migration) => match migration {
+            MigrateAction::Vpc => migrate::vpc(api_config).await?,
         },
         CarbideCommand::Redfish(_) => {
             // Handled earlier

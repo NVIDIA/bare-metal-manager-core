@@ -33,6 +33,18 @@ impl MachineInterfaceAddress {
         self.address.is_ipv6()
     }
 
+    pub async fn find_ipv4_for_interface(
+        txn: &mut Transaction<'_, Postgres>,
+        interface_id: Uuid,
+    ) -> Result<MachineInterfaceAddress, DatabaseError> {
+        let query = "SELECT * FROM machine_interface_addresses WHERE interface_id = $1 AND family(address) = 4";
+        sqlx::query_as(query)
+            .bind(interface_id)
+            .fetch_one(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
     pub async fn find_for_interface(
         txn: &mut Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,

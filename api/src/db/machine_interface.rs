@@ -607,6 +607,21 @@ impl MachineInterface {
 
         Ok(machine_interface)
     }
+
+    pub async fn find_by_machine_and_segment(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        segment_id: uuid::Uuid,
+    ) -> Result<Self, DatabaseError> {
+        let query =
+            "SELECT * FROM machine_interfaces WHERE machine_id = $1 AND segment_id = $2::uuid";
+        sqlx::query_as(query)
+            .bind(machine_id.to_string())
+            .bind(segment_id)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
 }
 
 #[async_trait::async_trait]
@@ -615,7 +630,7 @@ impl UsedIpResolver for UsedAdminNetworkIpResolver {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<(IpNetwork,)>, DatabaseError> {
-        let query: &str = "
+        let query = "
 SELECT address FROM machine_interface_addresses
 INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
 INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id

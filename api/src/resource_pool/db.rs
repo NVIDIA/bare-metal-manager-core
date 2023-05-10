@@ -171,6 +171,30 @@ WHERE name = $2 AND value = $3
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(s)
     }
+
+    /// Mark this value as already taken. Used during migration from K8s resource pools.
+    pub async fn mark_allocated(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        value: T,
+        owner_type: OwnerType,
+        owner_id: &str,
+    ) -> Result<(), ResourcePoolError> {
+        let state = ResourcePoolEntryState::Allocated {
+            owner: owner_id.to_string(),
+            owner_type: owner_type.to_string(),
+        };
+        let query =
+            "UPDATE resource_pool SET allocated = NOW(), state = $1 WHERE name = $2 AND value = $3";
+        sqlx::query(query)
+            .bind(sqlx::types::Json(state))
+            .bind(&self.name)
+            .bind(&value.to_string())
+            .execute(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
 }
 
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for super::ResourcePoolStats {

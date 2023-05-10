@@ -43,6 +43,12 @@ impl<T> Versioned<T> {
     pub fn as_ref(&self) -> Versioned<&T> {
         Versioned::new(&self.value, self.version)
     }
+
+    // Split the value and version out, consuming the Versioned.
+    // Necessary for DB update calls that check the version.
+    pub fn take(self) -> (T, ConfigVersion) {
+        (self.value, self.version)
+    }
 }
 
 impl<T> Deref for Versioned<T> {

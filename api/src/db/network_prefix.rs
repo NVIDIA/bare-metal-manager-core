@@ -87,6 +87,11 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
 }
 
 impl NetworkPrefix {
+    pub fn gateway_cidr(&self) -> Option<String> {
+        self.gateway
+            .map(|g| format!("{}/{}", g.ip(), self.prefix.prefix()))
+    }
+
     // Search for specific prefix
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,

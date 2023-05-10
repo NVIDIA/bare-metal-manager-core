@@ -21,18 +21,10 @@ use ::rpc::forge_tls_client;
 use arc_swap::ArcSwap;
 use tracing::{error, trace};
 
-/// The desired DPU configuration for a ManagedHost - as fetched from the
-/// Forge Site Controller
-#[derive(Debug)]
-pub struct NetworkConfig {
-    pub config: rpc::ManagedHostNetworkConfig,
-    pub config_version: String,
-}
-
 /// An interface for reading the latest received network configuration for
 /// a Forge host
 pub trait NetworkConfigReader {
-    fn read(&self) -> Arc<Option<NetworkConfig>>;
+    fn read(&self) -> Arc<Option<rpc::ManagedHostNetworkConfigResponse>>;
 }
 
 struct NetworkConfigReaderImpl {
@@ -42,13 +34,13 @@ struct NetworkConfigReaderImpl {
 impl NetworkConfigReader for NetworkConfigReaderImpl {
     /// Reads the latest desired network configuration obtained from the Forge
     /// Site controller
-    fn read(&self) -> Arc<Option<NetworkConfig>> {
+    fn read(&self) -> Arc<Option<rpc::ManagedHostNetworkConfigResponse>> {
         self.state.current.load_full()
     }
 }
 
 struct NetworkConfigFetcherState {
-    current: ArcSwap<Option<NetworkConfig>>,
+    current: ArcSwap<Option<rpc::ManagedHostNetworkConfigResponse>>,
     config: NetworkConfigFetcherConfig,
     is_cancelled: AtomicBool,
 }
@@ -147,7 +139,7 @@ fn run_network_config_fetcher(root_ca: String, state: Arc<NetworkConfigFetcherSt
 async fn fetch_latest_network_config(
     root_ca: String,
     state: &NetworkConfigFetcherState,
-) -> Result<NetworkConfig, eyre::Error> {
+) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Error> {
     let mut client = match forge_tls_client::ForgeTlsClient::new(root_ca)
         .connect(state.config.forge_api.clone())
         .await
@@ -176,17 +168,5 @@ async fn fetch_latest_network_config(
         }
     };
 
-    let managed_host_config = match config.managed_host_config {
-        Some(config) => config,
-        None => {
-            return Err(eyre::eyre!(
-                "managed_host_config field is missing in GetManagedHostNetworkConfig call"
-            ));
-        }
-    };
-
-    Ok(NetworkConfig {
-        config: managed_host_config,
-        config_version: config.managed_host_config_version,
-    })
+    Ok(config)
 }

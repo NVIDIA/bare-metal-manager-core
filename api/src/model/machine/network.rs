@@ -1,4 +1,4 @@
-use std::{net::IpAddr, time::SystemTime};
+use std::{net::Ipv4Addr, time::SystemTime};
 
 use chrono::{DateTime, Utc};
 use rpc::forge as rpc;
@@ -68,29 +68,10 @@ impl From<MachineNetworkStatus> for rpc::ManagedHostNetworkStatusObservation {
     }
 }
 
-/// Desired network configuration for an instance
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-// TODO: serde renames? defaults for missing fields?
+/// Desired network configuration for an instance.
+/// This is persisted to a Postgres JSON column, so only use Option
+/// fields for easier migrations.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManagedHostNetworkConfig {
-    /// Enables access to the Forge admin network for the x86 host
-    admin_network_enabled: bool,
-    /// TODO: Do we need the mapping from interface to IP as in the current Leaf spec
-    /// or multiple IPs for IPv4 vs IPv6?
-    host_admin_ip: Option<IpAddr>,
-    /// DHCP server that the Host DHCP requests should be relayed to
-    dhcp_servers: Vec<String>, // TODO: IpAddr vs String?
-}
-
-impl ManagedHostNetworkConfig {
-    /// Network config for a branch new machine
-    pub fn initial() -> ManagedHostNetworkConfig {
-        ManagedHostNetworkConfig {
-            // we are on the admin network until a tenant arrives
-            admin_network_enabled: true,
-            // assigned during DHCP
-            host_admin_ip: None,
-            // assigned during DHCP?
-            dhcp_servers: vec![],
-        }
-    }
+    pub loopback_ip: Option<Ipv4Addr>,
 }
