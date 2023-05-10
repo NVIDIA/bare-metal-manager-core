@@ -1,203 +1,206 @@
 {
-    "cpus": [
-        {
-            "core": 0,
-            "node": 2,
-            "model": "0x1",
-            "number": 0,
-            "socket": 2,
-            "vendor": "0x41",
-            "frequency": "400.00"
-        },
-        {
-            "core": 0,
-            "node": 2,
-            "model": "0x1",
-            "number": 1,
-            "socket": 2,
-            "vendor": "0x41",
-            "frequency": "400.00"
-        },
-        {
-            "core": 0,
-            "node": 2,
-            "model": "0x1",
-            "number": 2,
-            "socket": 2,
-            "vendor": "0x41",
-            "frequency": "400.00"
-        },
-        {
-            "core": 0,
-            "node": 2,
-            "model": "0x1",
-            "number": 3,
-            "socket": 2,
-            "vendor": "0x41",
-            "frequency": "400.00"
-        },
-        {
-            "core": 0,
-            "node": 2,
-            "model": "0x1",
-            "number": 4,
-            "socket": 2,
-            "vendor": "0x41",
-            "frequency": "400.00"
-        },
-        {
-            "core": 0,
-            "node": 2,
-            "model": "0x1",
-            "number": 5,
-            "socket": 2,
-            "vendor": "0x41",
-            "frequency": "400.00"
-        },
-        {
-            "core": 0,
-            "node": 2,
-            "model": "0x1",
-            "number": 6,
-            "socket": 2,
-            "vendor": "0x41",
-            "frequency": "400.00"
-        },
-        {
-            "core": 0,
-            "node": 2,
-            "model": "0x1",
-            "number": 7,
-            "socket": 2,
-            "vendor": "0x41",
-            "frequency": "400.00"
-        }
-    ],
-    "machine_type": "aarch64",
-    "nvme_devices": [
-        {
-            "model": "NO_MODEL",
-            "firmware_rev": "NO_FIRMWARE_REV"
-        }
-    ],
-    "dmi_data": {
-        "board_name": "",
-        "board_version": "",
-        "bios_version": "",
-        "bios_date": "02/02/1971",
-        "product_serial": "Dpu123",
-        "board_serial": "DpuBoard123",
-        "chassis_serial": "DpuChassis123",
-        "product_name": "Dpu Product Name",
-        "sys_vendor": "Dpu Sys Vendor"
+  "cpus": [
+    {
+      "core": 0,
+      "node": 2,
+      "model": "0x1",
+      "number": 0,
+      "socket": 2,
+      "vendor": "0x41",
+      "frequency": "400.00"
     },
-    "block_devices": [
-        {
-            "model": "NO_MODEL",
-            "serial": "NO_SERIAL",
-            "revision": "NO_REVISION"
-        },
-        {
-            "model": "NO_MODEL",
-            "serial": "NO_SERIAL",
-            "revision": "NO_REVISION"
-        },
-        {
-            "model": "NO_MODEL",
-            "serial": "NO_SERIAL",
-            "revision": "NO_REVISION"
-        },
-        {
-            "model": "NO_MODEL",
-            "serial": "NO_SERIAL",
-            "revision": "NO_REVISION"
-        },
-        {
-            "model": "NO_MODEL",
-            "serial": "NO_SERIAL",
-            "revision": "NO_REVISION"
-        }
-    ],
-    "network_interfaces": [
-        {
-            "mac_address": "02:21:d6:91:84:dd",
-            "pci_properties": {
-                "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/mlx5_core.sf.2/net/enp3s0f0s0",
-                "device": "0xa2d6",
-                "vendor": "0x15b3",
-                "numa_node": 2147483647,
-                "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
-            }
-        },
-        {
-            "mac_address": "ch: 64",
-            "pci_properties": {
-                "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/en3f0pf0sf0",
-                "device": "0xa2d6",
-                "vendor": "0x15b3",
-                "numa_node": -1,
-                "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
-            }
-        },
-        {
-            "mac_address": "08:c0:eb:cb:0e:8c",
-            "pci_properties": {
-                "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/p0",
-                "device": "0xa2d6",
-                "vendor": "0x15b3",
-                "numa_node": -1,
-                "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
-            }
-        },
-        {
-            "mac_address": "ch: 64",
-            "pci_properties": {
-                "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/pf0hpf",
-                "device": "0xa2d6",
-                "vendor": "0x15b3",
-                "numa_node": -1,
-                "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
-            }
-        },
-        {
-            "mac_address": "02:f2:ac: 5c:9e:dc",
-            "pci_properties": {
-                "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/mlx5_core.sf.3/net/enp3s0f1s0",
-                "device": "0xa2d6",
-                "vendor": "0x15b3",
-                "numa_node": 2147483647,
-                "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
-            }
-        },
-        {
-            "mac_address": "ch: 64",
-            "pci_properties": {
-                "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/net/en3f1pf1sf0",
-                "device": "0xa2d6",
-                "vendor": "0x15b3",
-                "numa_node": -1,
-                "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
-            }
-        },
-        {
-            "mac_address": "08:c0:eb:cb:0e:8d",
-            "pci_properties": {
-                "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/net/p1",
-                "device": "0xa2d6",
-                "vendor": "0x15b3",
-                "numa_node": -1,
-                "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
-            }
-        },
-        {
-            "mac_address": "ch: 64",
-            "pci_properties": {
-                "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/net/pf1hpf",
-                "device": "0xa2d6",
-                "vendor": "0x15b3",
-                "numa_node": -1,
-                "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
-            }
-        }
-    ]
+    {
+      "core": 0,
+      "node": 2,
+      "model": "0x1",
+      "number": 1,
+      "socket": 2,
+      "vendor": "0x41",
+      "frequency": "400.00"
+    },
+    {
+      "core": 0,
+      "node": 2,
+      "model": "0x1",
+      "number": 2,
+      "socket": 2,
+      "vendor": "0x41",
+      "frequency": "400.00"
+    },
+    {
+      "core": 0,
+      "node": 2,
+      "model": "0x1",
+      "number": 3,
+      "socket": 2,
+      "vendor": "0x41",
+      "frequency": "400.00"
+    },
+    {
+      "core": 0,
+      "node": 2,
+      "model": "0x1",
+      "number": 4,
+      "socket": 2,
+      "vendor": "0x41",
+      "frequency": "400.00"
+    },
+    {
+      "core": 0,
+      "node": 2,
+      "model": "0x1",
+      "number": 5,
+      "socket": 2,
+      "vendor": "0x41",
+      "frequency": "400.00"
+    },
+    {
+      "core": 0,
+      "node": 2,
+      "model": "0x1",
+      "number": 6,
+      "socket": 2,
+      "vendor": "0x41",
+      "frequency": "400.00"
+    },
+    {
+      "core": 0,
+      "node": 2,
+      "model": "0x1",
+      "number": 7,
+      "socket": 2,
+      "vendor": "0x41",
+      "frequency": "400.00"
+    }
+  ],
+  "machine_type": "aarch64",
+  "nvme_devices": [
+    {
+      "model": "NO_MODEL",
+      "firmware_rev": "NO_FIRMWARE_REV"
+    }
+  ],
+  "dmi_data": {
+    "board_name": "",
+    "board_version": "",
+    "bios_version": "",
+    "bios_date": "02/02/1971",
+    "product_serial": "Dpu123",
+    "board_serial": "DpuBoard123",
+    "chassis_serial": "DpuChassis123",
+    "product_name": "Dpu Product Name",
+    "sys_vendor": "Dpu Sys Vendor"
+  },
+  "block_devices": [
+    {
+      "model": "NO_MODEL",
+      "serial": "NO_SERIAL",
+      "revision": "NO_REVISION"
+    },
+    {
+      "model": "NO_MODEL",
+      "serial": "NO_SERIAL",
+      "revision": "NO_REVISION"
+    },
+    {
+      "model": "NO_MODEL",
+      "serial": "NO_SERIAL",
+      "revision": "NO_REVISION"
+    },
+    {
+      "model": "NO_MODEL",
+      "serial": "NO_SERIAL",
+      "revision": "NO_REVISION"
+    },
+    {
+      "model": "NO_MODEL",
+      "serial": "NO_SERIAL",
+      "revision": "NO_REVISION"
+    }
+  ],
+  "network_interfaces": [
+    {
+      "mac_address": "02:21:d6:91:84:dd",
+      "pci_properties": {
+        "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/mlx5_core.sf.2/net/enp3s0f0s0",
+        "device": "0xa2d6",
+        "vendor": "0x15b3",
+        "numa_node": 2147483647,
+        "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
+      }
+    },
+    {
+      "mac_address": "ch: 64",
+      "pci_properties": {
+        "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/en3f0pf0sf0",
+        "device": "0xa2d6",
+        "vendor": "0x15b3",
+        "numa_node": -1,
+        "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
+      }
+    },
+    {
+      "mac_address": "08:c0:eb:cb:0e:8c",
+      "pci_properties": {
+        "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/p0",
+        "device": "0xa2d6",
+        "vendor": "0x15b3",
+        "numa_node": -1,
+        "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
+      }
+    },
+    {
+      "mac_address": "ch: 64",
+      "pci_properties": {
+        "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/pf0hpf",
+        "device": "0xa2d6",
+        "vendor": "0x15b3",
+        "numa_node": -1,
+        "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
+      }
+    },
+    {
+      "mac_address": "02:f2:ac: 5c:9e:dc",
+      "pci_properties": {
+        "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/mlx5_core.sf.3/net/enp3s0f1s0",
+        "device": "0xa2d6",
+        "vendor": "0x15b3",
+        "numa_node": 2147483647,
+        "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
+      }
+    },
+    {
+      "mac_address": "ch: 64",
+      "pci_properties": {
+        "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/net/en3f1pf1sf0",
+        "device": "0xa2d6",
+        "vendor": "0x15b3",
+        "numa_node": -1,
+        "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
+      }
+    },
+    {
+      "mac_address": "08:c0:eb:cb:0e:8d",
+      "pci_properties": {
+        "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/net/p1",
+        "device": "0xa2d6",
+        "vendor": "0x15b3",
+        "numa_node": -1,
+        "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
+      }
+    },
+    {
+      "mac_address": "ch: 64",
+      "pci_properties": {
+        "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/net/pf1hpf",
+        "device": "0xa2d6",
+        "vendor": "0x15b3",
+        "numa_node": -1,
+        "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
+      }
+    }
+  ],
+  "dpu_info": {
+    "factory_mac_address": "03:11:21:31:41:52"
+  }
 }

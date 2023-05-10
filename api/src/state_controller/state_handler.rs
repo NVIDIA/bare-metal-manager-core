@@ -167,6 +167,8 @@ pub enum StateHandlerError {
     DBError(#[from] DatabaseError),
     #[error("Error releasing from resource pool: {0}")]
     PoolReleaseError(#[from] ResourcePoolError),
+    #[error("Invalid host state {1} for DPU {0}.")]
+    InvalidHostState(MachineId, ManagedHostState),
 }
 
 /// A `StateHandler` implementation which does nothing

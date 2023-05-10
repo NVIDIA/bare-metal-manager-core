@@ -429,6 +429,15 @@ impl NetworkSegment {
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments One", e))?,
         };
 
+        Self::update_prefix_into_network_segment_list(txn, search_config, &mut all_records).await?;
+        Ok(all_records)
+    }
+
+    async fn update_prefix_into_network_segment_list(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        search_config: NetworkSegmentSearchConfig,
+        all_records: &mut Vec<NetworkSegment>,
+    ) -> Result<(), DatabaseError> {
         let all_uuids = all_records
             .iter()
             .map(|record| record.id)
@@ -448,7 +457,7 @@ impl NetworkSegment {
             HashMap::new()
         };
 
-        for record in &mut all_records {
+        for record in all_records {
             if let Some(prefixes) = grouped_prefixes.remove(&record.id) {
                 record.prefixes = prefixes;
             } else {
@@ -469,7 +478,7 @@ impl NetworkSegment {
             }
         }
 
-        Ok(all_records)
+        Ok(())
     }
 
     /// Updates the network segment state that is owned by the state controller
@@ -625,10 +634,28 @@ WHERE network_prefixes.circuit_id=$1";
     /// This method returns Admin network segment.
     pub async fn admin(txn: &mut Transaction<'_, Postgres>) -> Result<Self, DatabaseError> {
         let query = "SELECT * FROM network_segments WHERE network_segment_type = 'admin'";
-        sqlx::query_as(query)
-            .fetch_one(&mut *txn)
+        let mut segments: Vec<NetworkSegment> = sqlx::query_as(query)
+            .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        if segments.is_empty() {
+            return Err(DatabaseError::new(
+                file!(),
+                line!(),
+                query,
+                sqlx::Error::RowNotFound,
+            ));
+        }
+
+        Self::update_prefix_into_network_segment_list(
+            txn,
+            NetworkSegmentSearchConfig::default(),
+            &mut segments,
+        )
+        .await?;
+
+        Ok(segments.remove(0))
     }
 
     pub async fn update_vlan_id(

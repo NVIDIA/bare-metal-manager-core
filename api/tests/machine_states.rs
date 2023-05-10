@@ -46,7 +46,11 @@ impl VpcApi for MockVpcApi {
         Ok(Poll::Ready(()))
     }
 
-    async fn try_create_leaf(&self, _dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
+    async fn try_create_leaf(
+        &self,
+        _dpu: DpuMachine,
+        _address: IpAddr,
+    ) -> Result<Poll<IpAddr>, VpcApiError> {
         Ok(Poll::Ready(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))))
     }
 

@@ -235,7 +235,11 @@ pub trait VpcApi: Send + Sync + 'static + std::fmt::Debug {
     /// - Ok(Poll::Pending) if the creation is in progress. The method should
     ///   be called again later to retrieve the final result.
     /// - Err if the creation attempt failed
-    async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError>;
+    async fn try_create_leaf(
+        &self,
+        dpu: DpuMachine,
+        host_address: IpAddr,
+    ) -> Result<Poll<IpAddr>, VpcApiError>;
 
     /// Updates a Leaf CRD with the admin IP that was allocated for the
     /// host that is attached to the DPU
@@ -440,9 +444,13 @@ impl VpcApi for VpcApiImpl {
         .await
     }
 
-    async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
+    async fn try_create_leaf(
+        &self,
+        dpu: DpuMachine,
+        host_address: IpAddr,
+    ) -> Result<Poll<IpAddr>, VpcApiError> {
         let leaf_name = leaf_name(dpu.machine_id());
-        let spec = leaf_spec_from_dpu_machine(&dpu);
+        let spec = leaf_spec_from_dpu_machine(&dpu, host_address);
 
         let api: Api<leaf::Leaf> = Api::namespaced(self.client.clone(), FORGE_KUBE_NAMESPACE);
 
@@ -707,7 +715,7 @@ where
     }
 }
 
-fn leaf_spec_from_dpu_machine(dpu: &DpuMachine) -> leaf::LeafSpec {
+fn leaf_spec_from_dpu_machine(dpu: &DpuMachine, host_address: IpAddr) -> leaf::LeafSpec {
     leaf::LeafSpec {
         control: Some(leaf::LeafControl {
             maintenance_mode: Some(false),
@@ -723,7 +731,7 @@ fn leaf_spec_from_dpu_machine(dpu: &DpuMachine) -> leaf::LeafSpec {
         }),
         host_admin_i_ps: Some(BTreeMap::from([(
             DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
-            "".to_string(),
+            host_address.to_string(),
         )])),
         host_interfaces: Some(crate::vpc_resources::host_interfaces(dpu.machine_id())),
         forge_managed_lookback_ip: dpu.loopback_ip().map(|x| x.to_string()),
@@ -932,9 +940,13 @@ impl VpcApi for VpcApiSim {
         }
     }
 
-    async fn try_create_leaf(&self, dpu: DpuMachine) -> Result<Poll<IpAddr>, VpcApiError> {
+    async fn try_create_leaf(
+        &self,
+        dpu: DpuMachine,
+        host_address: IpAddr,
+    ) -> Result<Poll<IpAddr>, VpcApiError> {
         let leaf_name = leaf_name(dpu.machine_id());
-        let spec = leaf_spec_from_dpu_machine(&dpu);
+        let spec = leaf_spec_from_dpu_machine(&dpu, host_address);
 
         let mut guard = self.state.lock().unwrap();
 

@@ -23,7 +23,6 @@ use crate::{
         instance::Instance,
         machine::Machine,
         machine_interface::MachineInterface,
-        vpc_resource_leaf::VpcResourceLeaf,
     },
     dhcp::allocation::DhcpError,
     CarbideError, CarbideResult,
@@ -118,14 +117,13 @@ pub async fn discover_dhcp(
         return Ok(response);
     }
 
-    let (mut machine_interface, newly_created_interface) =
-        MachineInterface::find_or_create_machine_interface(
-            &mut txn,
-            existing_machine,
-            parsed_mac,
-            parsed_relay,
-        )
-        .await?;
+    let machine_interface = MachineInterface::find_or_create_machine_interface(
+        &mut txn,
+        existing_machine,
+        parsed_mac,
+        parsed_relay,
+    )
+    .await?;
 
     // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
     if let Some(vendor) = vendor_string {
@@ -158,52 +156,8 @@ pub async fn discover_dhcp(
             .map_err(CarbideError::from)?
             .into();
 
-    if newly_created_interface {
-        handle_new_machine_interface(&mut txn, relay_ip, &mut machine_interface).await?;
-    }
-
     txn.commit()
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "commit discover_dhcp 2", e))?;
     Ok(Response::new(record))
-}
-
-async fn handle_new_machine_interface(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    relay_ip: IpAddr,
-    machine_interface: &mut MachineInterface,
-) -> CarbideResult<()> {
-    let resource = VpcResourceLeaf::find_by_loopback_ip(&mut *txn, relay_ip).await?;
-
-    // we're using the presence of the mapping as a "tell" for whether this is a DPU -- we literally
-    // fail provisioning of a leaf if it doesn't have this loopback assigned, precisely so that we
-    // can create this mapping.  The only way for it to not be present for a given relay address is
-    // if this is a DPU coming up for the very first time. In this case we need to do nothing -- because
-    // the provisioning step in 'discover_machine' is going to create this mapping for us.
-    if let Some(_resource_leaf) = resource {
-        // we need to go look at our mapping and get the assigned leaf ID for this relay address
-        // Statemachine handler will take care of updating leaf now.
-
-        let dpu_machine_interface =
-            VpcResourceLeaf::find_associated_dpu_machine_interface(&mut *txn, relay_ip).await?;
-
-        if let Some(machine_id) = dpu_machine_interface.machine_id {
-            machine_interface
-                .associate_interface_with_dpu_machine(&mut *txn, &machine_id)
-                .await?;
-        } else {
-            log::error!(
-                "Could not associate dpu with x86: {}, {}",
-                dpu_machine_interface.id(),
-                relay_ip
-            )
-        }
-    } else {
-        log::info!(
-            "VpcResourceLeaf not found, using relay ip: {} assuming this is DPU DHCPDISCOVER",
-            relay_ip
-        )
-    }
-
-    Ok(())
 }

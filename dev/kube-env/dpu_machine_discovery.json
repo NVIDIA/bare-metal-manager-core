@@ -196,6 +196,9 @@
                     "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
                 }
             }
-        ]
+        ],
+        "dpu_info": {
+            "factory_mac_address": "00:11:22:33:44:66"
+        }
     }
 }

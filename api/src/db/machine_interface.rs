@@ -26,6 +26,7 @@ use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::NetworkSegment;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::MachineId;
 use crate::{CarbideError, CarbideResult};
 
@@ -190,14 +191,7 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
     ) -> Result<Vec<MachineInterface>, DatabaseError> {
-        // TODO: This is broken as is - because it doesn't load the addresses in the same format
-        // that `find_by_machine_ids` and `find_by` does
-        let query = "SELECT * FROM machine_interfaces mi WHERE mi.mac_address = $1::macaddr";
-        sqlx::query_as(query)
-            .bind(macaddr)
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        MachineInterface::find_by(txn, ObjectFilter::One(macaddr.to_string()), "mac_address").await
     }
 
     pub async fn find_by_machine_ids(
@@ -281,7 +275,7 @@ impl MachineInterface {
         machines: Option<MachineId>,
         mac_address: MacAddress,
         relay: IpAddr,
-    ) -> CarbideResult<(Self, bool)> {
+    ) -> CarbideResult<Self> {
         match machines {
             None => {
                 log::info!(
@@ -289,21 +283,18 @@ impl MachineInterface {
                     mac_address,
                     relay
                 );
-                Ok((
-                    MachineInterface::validate_existing_mac_and_create(
-                        &mut *txn,
-                        mac_address,
-                        relay,
-                    )
-                    .await?,
-                    true,
-                ))
+                Ok(MachineInterface::validate_existing_mac_and_create(
+                    &mut *txn,
+                    mac_address,
+                    relay,
+                )
+                .await?)
             }
             Some(_) => {
                 let mut ifcs =
                     MachineInterface::find_by_mac_address(&mut *txn, mac_address).await?;
                 match ifcs.len() {
-                    1 => Ok((ifcs.remove(0), false)),
+                    1 => Ok(ifcs.remove(0)),
                     n => {
                         log::warn!(
                             "{0} existing mac address ({1}) for network segment (relay ip: {2})",
@@ -567,6 +558,54 @@ impl MachineInterface {
                     machine_id
                 ))
             })
+    }
+
+    /// This function creates Proactive Host Machine Interface with all available information.
+    /// Parsed Mac: Found in DPU's topology data
+    /// Relay IP: Taken from fixed Admin network segment. Relay IP is used only to identify related
+    /// segment.
+    pub async fn create_host_machine_interface_proactively(
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        hardware_info: &Option<HardwareInfo>,
+        dpu_id: &MachineId,
+    ) -> Result<Self, CarbideError> {
+        let admin_network = NetworkSegment::admin(txn).await?;
+
+        // Using gateway IP as relay IP. This is just to enable next algorithm to find related network
+        // segment.
+        let prefix = admin_network
+            .prefixes
+            .iter()
+            .filter(|x| x.prefix.is_ipv4())
+            .last()
+            .ok_or(CarbideError::AdminNetworkNotConfigured)?;
+
+        let Some(gateway) = prefix.gateway.map(|x|x.ip()) else {
+            return Err(CarbideError::AdminNetworkNotConfigured);
+        };
+
+        // Host mac is stored at DPU topology data.
+        let host_mac = hardware_info
+            .as_ref()
+            .map(|x| x.factory_mac_address())
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "Hardware Info",
+                id: dpu_id.to_string(),
+            })??;
+
+        let existing_machine = Machine::find_existing_machine(txn, host_mac, gateway)
+            .await
+            .map_err(CarbideError::from)?;
+
+        let mut machine_interface =
+            Self::find_or_create_machine_interface(txn, existing_machine, host_mac, gateway)
+                .await?;
+
+        machine_interface
+            .associate_interface_with_dpu_machine(txn, dpu_id)
+            .await?;
+
+        Ok(machine_interface)
     }
 }
 

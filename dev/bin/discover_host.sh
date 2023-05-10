@@ -43,7 +43,7 @@ echo "Circuit ID is $CIRCUIT_ID"
 HOST_DHCP_REQUEST=$(jq --arg circuit_id "$CIRCUIT_ID" '.circuit_id = $circuit_id' "$HOST_DHCP_FILE")
 RESULT=$(echo "$HOST_DHCP_REQUEST" | grpcurl -d @ -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoverDhcp)
 MACHINE_INTERFACE_ID=$(echo "$RESULT" | jq ".machineInterfaceId.value" | tr -d '"')
-echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
+echo "Using Machine Interface with ID $MACHINE_INTERFACE_ID"
 if [ "${DISCOVERY_MODE}" == "dhcp-only" ]
 then
   exit 0
@@ -60,30 +60,15 @@ grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SER
 # Give it a BMC IP and credentials
 UPDATE_BMC_METADATA=$(jq --arg machine_id "$HOST_MACHINE_ID" '.machine_id.id = $machine_id' "$BMC_METADATA_FILE")
 grpcurl -d "$UPDATE_BMC_METADATA" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/UpdateBMCMetaData
-echo "Created HOST Machine with ID $HOST_MACHINE_ID. Starting discovery and waiting for it to reach in WaitingForDiscovery state."
-
-# Wait until host reaches discovered state.
-i=0
-MACHINE_STATE=""
-while [[ $MACHINE_STATE != "Host/WaitingForDiscovery" && $i -lt $MAX_RETRY ]]; do
-  sleep 10
-
-
-  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
-  echo "Checking machine state. Waiting for it to be in Host/WaitingForDiscovery state. Current: $MACHINE_STATE"
-  i=$((i+1))
-done
-
-if [[ $i == "$MAX_RETRY" ]]; then
-  echo "Even after $MAX_RETRY retries, Host did not come in Host/WaitingForDiscovery state."
-  exit 1
-fi
+echo "Created HOST Machine with ID $HOST_MACHINE_ID. Starting discovery."
 
 # Mark discovery complete
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
 
+echo "Waiting for lockdown to complete."
 # the time wait state is a fixed 5 minutes
 sleep 300
+echo "Lockdown wait is over."
 
 echo "updating machine interface address for machine interface ${DPU_INTERFACE_ID} to 127.0.0.2"
 ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='127.0.0.2' where interface_id='${DPU_INTERFACE_ID}';"

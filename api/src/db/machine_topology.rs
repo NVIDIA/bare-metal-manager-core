@@ -178,6 +178,8 @@ impl MachineTopology {
                         }
                     }
                 }
+
+                //
             }
             Ok(Some(res))
         }

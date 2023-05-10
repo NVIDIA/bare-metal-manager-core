@@ -12,8 +12,9 @@
 
 //! Describes hardware that is discovered by Forge
 
-use std::collections::HashSet;
+use std::{collections::HashSet, str::FromStr};
 
+use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{try_convert_vec, RpcDataConversionError};
@@ -490,6 +491,15 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum HardwareInfoError {
+    #[error("DPU Info is missing.")]
+    MissingDpuInfo,
+
+    #[error("Mac address conversion error: {0}")]
+    MacAddressConversionError(#[from] MacParseError),
+}
+
 impl HardwareInfo {
     /// Returns whether the machine is deemed to be a DPU based on some properties
     ///
@@ -511,6 +521,15 @@ impl HardwareInfo {
         // Update list with id's we care about
         let dpu_pci_ids = HashSet::from(["0x15b3:0xa2d6", "0x1af4:0x1000"]);
         does_attributes_contain_dpu_pci_ids(&dpu_pci_ids, &network_interfaces[..])
+    }
+
+    /// This function returns factory_mac_address from dpu_info.
+    pub fn factory_mac_address(&self) -> Result<MacAddress, HardwareInfoError> {
+        let Some(ref dpu_info) = self.dpu_info else {
+            return Err(HardwareInfoError::MissingDpuInfo);
+        };
+
+        Ok(MacAddress::from_str(&dpu_info.factory_mac_address)?)
     }
 }
 

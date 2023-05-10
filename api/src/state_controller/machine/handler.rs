@@ -194,11 +194,40 @@ impl StateHandler for DpuMachineStateHandler {
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::WaitingForLeafCreation,
             } => {
+                let host_mac = state
+                    .dpu_snapshot
+                    .hardware_info
+                    .as_ref()
+                    .map(|x| x.factory_mac_address())
+                    .ok_or_else(|| StateHandlerError::MissingData {
+                        object_id: machine_id.to_string(),
+                        missing: "Hardwarre Info",
+                    })?
+                    .map_err(|_| StateHandlerError::MissingData {
+                        object_id: machine_id.to_string(),
+                        missing: "dpu_info/factory_mac_address",
+                    })?;
+
+                let host_mi = MachineInterface::find_by_mac_address(txn, host_mac).await?;
+                let host_address = host_mi
+                    .get(0)
+                    .ok_or_else(|| StateHandlerError::MissingData {
+                        object_id: machine_id.to_string(),
+                        missing: "Host Interface",
+                    })?
+                    .addresses()
+                    .get(0)
+                    .ok_or_else(|| StateHandlerError::MissingData {
+                        object_id: machine_id.to_string(),
+                        missing: "Host Address",
+                    })?;
+
                 // Create leaf and wait for it to get loopback ip.
                 if Poll::Pending
                     == create_leaf_and_wait_for_loopback_ip(
                         txn,
                         &state.dpu_snapshot.machine_id,
+                        host_address.address.ip(),
                         ctx,
                     )
                     .await?
@@ -207,7 +236,7 @@ impl StateHandler for DpuMachineStateHandler {
                 }
 
                 *controller_state.modify() = ManagedHostState::HostNotReady {
-                    machine_state: MachineState::Init,
+                    machine_state: MachineState::WaitingForDiscovery,
                 };
             }
             state => {
@@ -262,12 +291,18 @@ pub struct HostMachineStateHandler {}
 pub async fn create_leaf_and_wait_for_loopback_ip(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     dpu_machine_id: &MachineId,
+    host_address: IpAddr,
     ctx: &mut StateHandlerContext<'_>,
 ) -> Result<Poll<()>, StateHandlerError> {
     let dpu = DpuMachine::find_by_machine_id(txn, dpu_machine_id)
         .await
         .map_err(|err| StateHandlerError::GenericError(err.into()))?;
-    match ctx.services.vpc_api.try_create_leaf(dpu).await? {
+    match ctx
+        .services
+        .vpc_api
+        .try_create_leaf(dpu, host_address)
+        .await?
+    {
         Poll::Pending => Ok(Poll::Pending),
         Poll::Ready(ip_address) => {
             // Update loopback ip in table.
@@ -294,55 +329,10 @@ impl StateHandler for HostMachineStateHandler {
         machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let managed_state = &state.managed_state;
-        if let ManagedHostState::HostNotReady {
-            machine_state: MachineState::Init,
-        } = &managed_state
-        {
-            // At this stage, no host machine is created. Only source of truth is
-            // machine_interface.
-            // If IP allocated => DHCP done and host is powered-on.
-            // try_updating_leaf.
-            let Some(machine_interface) = MachineInterface::find_host_primary_interface_by_dpu_id(txn, machine_id).await? else {
-                    log::info!("Still host interface is not created for dpu_id: {}.", machine_id);
-                    return Ok(());
-            };
-
-            // Find associated machine_interface with host where dpu id = machine_id;
-            let ip_address = match machine_interface.addresses().last() {
-                Some(address) => match address.address.ip() {
-                    IpAddr::V4(addr) => addr,
-                    x => {
-                        return Err(StateHandlerError::GenericError(eyre!(
-                            "Invalid address {:?} for machine: {}",
-                            x,
-                            machine_id
-                        )));
-                    }
-                },
-                None => {
-                    // Not an error for this scenario.
-                    log::info!("Still host IP is not allocated to dpu_id: {}.", machine_id);
-                    return Ok(());
-                }
-            };
-            if ctx
-                .services
-                .vpc_api
-                .try_update_leaf(machine_id, ip_address)
-                .await?
-                .is_pending()
-            {
-                return Ok(());
-            }
-            *controller_state.modify() = ManagedHostState::HostNotReady {
-                machine_state: MachineState::WaitingForDiscovery,
-            };
-            return Ok(());
-        }
 
         let Some(ref host_snapshot) = state.host_snapshot else {
             // But in any other state, except WaitingForDiscovery, host snapshot is mandatory. Raise Error.
@@ -357,7 +347,12 @@ impl StateHandler for HostMachineStateHandler {
 
         if let ManagedHostState::HostNotReady { machine_state } = &managed_state {
             match machine_state {
-                MachineState::Init => {}
+                MachineState::Init => {
+                    return Err(StateHandlerError::InvalidHostState(
+                        machine_id.clone(),
+                        managed_state.clone(),
+                    ));
+                }
                 MachineState::WaitingForLeafCreation => {
                     log::warn!(
                         "Invalid State WaitingForLeafCreation for Host Machine {}",

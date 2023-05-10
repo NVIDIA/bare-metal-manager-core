@@ -45,20 +45,20 @@ fi
 
 # Mark discovery complete
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
-echo "DPU discovery completed. Waiting for it reached in Host/Init state."
+echo "DPU discovery completed. Waiting for it reached in Host/WaitingForDiscovery state."
 
 # Wait until DPU becomes ready
 i=0
 MACHINE_STATE=""
-while [[ $MACHINE_STATE != "Host/Init" && $i -lt $MAX_RETRY ]]; do
+while [[ $MACHINE_STATE != "Host/WaitingForDiscovery" && $i -lt $MAX_RETRY ]]; do
   sleep 10
   MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
-  echo "Checking machine state. Waiting for it to be in Host/Init state. Current: $MACHINE_STATE"
+  echo "Checking machine state. Waiting for it to be in Host/WaitingForDiscovery state. Current: $MACHINE_STATE"
   i=$((i+1))
 done
 
 if [[ $i == "$MAX_RETRY" ]]; then
-  echo "Even after $MAX_RETRY retries, DPU did not come in Host/Init state."
+  echo "Even after $MAX_RETRY retries, DPU did not come in Host/WaitingForDiscovery state."
   exit 1
 fi
 

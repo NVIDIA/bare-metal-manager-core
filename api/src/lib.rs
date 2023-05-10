@@ -17,6 +17,7 @@ use ::rstest_reuse;
 use dhcp::allocation::DhcpError;
 use kubernetes::VpcApiError;
 use mac_address::MacAddress;
+use model::hardware_info::HardwareInfoError;
 use model::machine::machine_id::MachineId;
 use model::{
     config_version::{ConfigVersion, ParseConfigVersionError},
@@ -128,6 +129,9 @@ pub enum CarbideError {
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
     NetworkSegmentsExhausted(String),
 
+    #[error("Admin network is not configured.")]
+    AdminNetworkNotConfigured,
+
     #[error("Network has attached VPC or Subdomain : {0}")]
     NetworkSegmentDelete(String),
 
@@ -223,6 +227,9 @@ pub enum CarbideError {
 
     #[error("Resource pool error: {0}")]
     ResourcePoolError(#[from] resource_pool::ResourcePoolError),
+
+    #[error("Hardware info error: {0}")]
+    HardwareInfoError(#[from] HardwareInfoError),
 }
 
 impl From<CarbideError> for tonic::Status {

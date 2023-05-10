@@ -1165,8 +1165,7 @@ where
             interface,
             hardware_info.is_dpu(),
         )
-        .await
-        .map(rpc::Machine::from)?;
+        .await?;
 
         let loopback_ip = if hardware_info.is_dpu() {
             self.allocate_loopback_ip(&mut txn, &stable_machine_id.to_string())
@@ -1177,8 +1176,21 @@ where
 
         MachineTopology::create(&mut txn, &stable_machine_id, &hardware_info, loopback_ip).await?;
 
+        // Create Host proactively.
+        if hardware_info.is_dpu() {
+            // In case host interface is created, this method will return existing one, instead
+            // creating new everytime.
+            let _ = MachineInterface::create_host_machine_interface_proactively(
+                &mut txn,
+                &Some(hardware_info),
+                machine.id(),
+            )
+            .await?;
+            // Create host machine with temporary ID.
+        }
+
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {
-            machine_id: machine.id,
+            machine_id: rpc::Machine::from(machine).id,
         }));
 
         txn.commit()

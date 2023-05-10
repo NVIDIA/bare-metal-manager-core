@@ -13,6 +13,7 @@
 //! Contains DPU related fixtures
 
 use carbide::{
+    db::machine_interface::MachineInterface,
     model::{
         hardware_info::HardwareInfo,
         machine::{machine_id::try_parse_machine_id, ManagedHostState},
@@ -94,15 +95,24 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     env.run_machine_state_controller_iteration_until_state_matches(
         &dpu_machine_id,
         &handler,
-        3,
+        4,
         &mut txn,
         ManagedHostState::HostNotReady {
-            machine_state: carbide::model::machine::MachineState::Init,
+            machine_state: carbide::model::machine::MachineState::WaitingForDiscovery,
         },
     )
     .await;
     txn.commit().await.unwrap();
 
+    // There should be two MI, one for DPU and one for host.
+    let mut txn = env.pool.begin().await.unwrap();
+    let query = "select * from machine_interfaces";
+    let mi = sqlx::query_as::<_, MachineInterface>(query)
+        .fetch_all(&mut txn)
+        .await
+        .unwrap();
+    assert_eq!(mi.len(), 2);
+    txn.commit().await.unwrap();
     dpu_rpc_machine_id
 }
 
