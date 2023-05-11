@@ -18,7 +18,6 @@ Discussion happens on #swngc-forge-dev slack channel.
 If you're new or bored, feel free to do one of these:
 
 - How to configure libvirt for qemu based PXE booting on EFI
-- How to configure DHCP relay to the docker-compose constellation
 - Document how to run the Ci/CD tests that gitlab does, locally
 
 ## If you see something, say something
