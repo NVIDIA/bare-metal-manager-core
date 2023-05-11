@@ -919,14 +919,20 @@ where
             ethernet_virtualization::admin_network(&mut txn, &host.machine_id).await?;
 
         let mut tenant_interfaces = Vec::with_capacity(snapshot.dpu_snapshot.interfaces.len());
-        for iface in snapshot
+        for (i, iface) in snapshot
             .dpu_snapshot
             .interfaces
             .iter()
             .filter(|f| f.id != admin_interface_id)
+            .enumerate()
         {
+            use ::rpc::InterfaceFunctionType::*;
             tenant_interfaces.push(rpc::FlatInterfaceConfig {
-                function: rpc::InterfaceFunctionType::VirtualFunction.into(),
+                function: if i == 0 {
+                    PhysicalFunction.into()
+                } else {
+                    VirtualFunction.into()
+                },
                 vlan_id: iface.vlan_id,
                 vni: iface.vni,
                 gateway: iface.gateway_cidr.clone(),
