@@ -107,7 +107,7 @@ pub async fn enable(database_connection: sqlx::PgPool) -> EthVirtData {
 
 pub async fn admin_network(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: &MachineId,
+    host_machine_id: &MachineId,
 ) -> Result<(rpc::FlatInterfaceConfig, uuid::Uuid), tonic::Status> {
     let admin_segment = NetworkSegment::admin(txn)
         .await
@@ -124,7 +124,7 @@ pub async fn admin_network(
     };
 
     let interface =
-        MachineInterface::find_by_machine_and_segment(txn, machine_id, admin_segment.id)
+        MachineInterface::find_by_machine_and_segment(txn, host_machine_id, admin_segment.id)
             .await
             .map_err(CarbideError::from)?;
 

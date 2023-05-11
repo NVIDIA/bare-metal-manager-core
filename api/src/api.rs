@@ -887,11 +887,13 @@ where
             .load_machine_snapshot(&mut txn, &dpu_machine_id)
             .await
             .map_err(CarbideError::from)?;
-        if snapshot.host_snapshot.is_none() {
+
+        let Some(host) = snapshot.host_snapshot else {
             return Err(Status::not_found(format!(
-                "Machine not found for DPU '{dpu_machine_id}'"
+                "DPU '{dpu_machine_id}' has no host, cannot continue"
             )));
-        }
+        };
+
         let loopback_ip = match snapshot.dpu_snapshot.loopback_ip() {
             Some(ip) => ip,
             None => {
@@ -914,7 +916,7 @@ where
         };
 
         let (admin_interface_rpc, admin_interface_id) =
-            ethernet_virtualization::admin_network(&mut txn, &dpu_machine_id).await?;
+            ethernet_virtualization::admin_network(&mut txn, &host.machine_id).await?;
 
         let mut tenant_interfaces = Vec::with_capacity(snapshot.dpu_snapshot.interfaces.len());
         for iface in snapshot
