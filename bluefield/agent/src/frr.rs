@@ -10,9 +10,8 @@
  *   its affiliates is strictly prohibited.
  */
 
-use std::{net::Ipv4Addr, process::Command};
+use std::net::Ipv4Addr;
 
-use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
 
 pub const PATH: &str = "/var/lib/hbn/etc/frr/frr.conf";
@@ -29,6 +28,8 @@ vrf default
 exit-vrf
 !---- CUE snippets ----
 ";
+
+pub const RELOAD_CMD: &str = "/usr/lib/frr/frrinit.sh reload";
 
 /// Generate frr.conf
 pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
@@ -57,21 +58,6 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
         }
         Err(err) => Err(err.into()),
     }
-}
-
-pub fn reload() -> Result<(), eyre::Report> {
-    let out = Command::new("/usr/lib/frr/frrinit.sh")
-        .arg("reload")
-        .output()
-        .wrap_err("/usr/lib/frr/frrinit.sh")?;
-    if !out.status.success() {
-        return Err(eyre::eyre!(
-            "Failed reloading frr.conf with '/usr/lib/frr/frrinit.sh reload'. \nSTDOUT: {}\nSTDERR: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr),
-        ));
-    }
-    Ok(())
 }
 
 /// What we need in order to generate an frr.conf

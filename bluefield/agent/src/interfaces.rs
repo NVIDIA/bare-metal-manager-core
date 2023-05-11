@@ -10,9 +10,8 @@
  *   its affiliates is strictly prohibited.
  */
 
-use std::{net::Ipv4Addr, process::Command};
+use std::net::Ipv4Addr;
 
-use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
 
@@ -24,6 +23,7 @@ source /etc/network/interfaces.d/*.intf
 auto lo
 iface lo inet loopback
 ";
+pub const RELOAD_CMD: &str = "ifreload -a";
 
 /// Generate interfaces file
 pub fn build(conf: InterfacesConfig) -> Result<String, eyre::Report> {
@@ -43,21 +43,6 @@ pub fn build(conf: InterfacesConfig) -> Result<String, eyre::Report> {
         VNIDevice: conf.vni_device,
     };
     gtmpl::template(TMPL_FULL, params).map_err(|e| e.into())
-}
-
-pub fn reload() -> Result<(), eyre::Report> {
-    let out = Command::new("ifreload")
-        .arg("-a")
-        .output()
-        .wrap_err("ifreload")?;
-    if !out.status.success() {
-        return Err(eyre::eyre!(
-            "Failed reloading etc/network/interfaces with 'ifreload -a'. \nSTDOUT: {}\nSTDERR: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr),
-        ));
-    }
-    Ok(())
 }
 
 pub struct InterfacesConfig {

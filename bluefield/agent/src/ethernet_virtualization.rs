@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{net::Ipv4Addr, path::Path};
+use std::{net::Ipv4Addr, path::Path, process::Command};
 
 use ::rpc::forge as rpc;
 use eyre::WrapErr;
 use tracing::{debug, error, trace};
 
-use crate::{dhcp, frr, interfaces};
+use crate::{dhcp, frr, hbn, interfaces};
 
 // VPC writes these to various HBN config files
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
@@ -81,7 +81,7 @@ fn write_dhcp_relay_config(
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         vlan_ids,
     })?;
-    write(next_contents, path, "DHCP relay", dhcp::reload)
+    write(next_contents, path, "DHCP relay", dhcp::RELOAD_CMD)
 }
 
 fn write_interfaces(
@@ -147,7 +147,7 @@ fn write_interfaces(
         next_contents,
         path,
         "/etc/network/interfaces",
-        interfaces::reload,
+        interfaces::RELOAD_CMD,
     )
 }
 
@@ -191,7 +191,7 @@ fn write_frr(path: &str, nc: &rpc::ManagedHostNetworkConfigResponse) -> Result<(
         loopback_ip,
         access_vlans,
     })?;
-    write(next_contents, path, "frr.conf", frr::reload)
+    write(next_contents, path, "frr.conf", frr::RELOAD_CMD)
 }
 
 // Update configuration file
@@ -199,7 +199,7 @@ fn write(
     next_contents: String,
     path: &str,
     file_type: &str,
-    reload: fn() -> Result<(), eyre::Report>,
+    reload_cmd: &'static str,
 ) -> Result<(), eyre::Report> {
     // later we will remove the tmp file on drop, but for now it may help with debugging
     let path_tmp = format!("{path}.TMP");
@@ -216,9 +216,26 @@ fn write(
     if should_write {
         debug!("Applying new {file_type} config");
         std::fs::rename(path_tmp, path).wrap_err("rename")?;
-        reload().wrap_err("reload")?;
+        reload(reload_cmd).wrap_err("reload")?;
     }
 
+    Ok(())
+}
+
+// Run the given command inside HBN container
+fn reload(reload_cmd: &'static str) -> Result<(), eyre::Report> {
+    let container_id = hbn::get_hbn_container_id()?;
+    let out = Command::new("/usr/bin/crictl")
+        .args(["exec", "-it", &container_id, "bash", "-c", reload_cmd])
+        .output()
+        .wrap_err(reload_cmd)?;
+    if !out.status.success() {
+        return Err(eyre::eyre!(
+            "Failed reloading with '{reload_cmd}'. \nSTDOUT: {}\nSTDERR: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        ));
+    }
     Ok(())
 }
 

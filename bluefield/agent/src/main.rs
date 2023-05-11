@@ -11,6 +11,7 @@
  */
 
 use std::{
+    process::Command,
     thread::sleep,
     time::{Duration, SystemTime},
 };
@@ -33,6 +34,7 @@ mod command_line;
 mod dhcp;
 mod ethernet_virtualization;
 mod frr;
+mod hbn;
 mod health;
 mod interfaces;
 mod network_config_fetcher;
@@ -266,4 +268,15 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root
             error!("Error while executing the record_machine_network_status gRPC call: {err:#}");
         }
     }
+}
+
+pub fn pretty_cmd(c: &Command) -> String {
+    format!(
+        "{} {}",
+        c.get_program().to_string_lossy(),
+        c.get_args()
+            .map(|x| x.to_string_lossy())
+            .collect::<Vec<std::borrow::Cow<'_, str>>>()
+            .join(" ")
+    )
 }

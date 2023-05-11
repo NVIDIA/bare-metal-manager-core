@@ -15,6 +15,8 @@ use std::{collections::HashMap, fmt, path::PathBuf, process::Command, str::FromS
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
+use crate::hbn;
+
 const HBN_DAEMONS_FILE: &str = "/var/lib/hbn/etc/frr/daemons";
 const EXPECTED_FILES: [&str; 4] = [
     "/var/lib/hbn/etc/frr/frr.conf",
@@ -29,7 +31,7 @@ const EXPECTED_SERVICES: [&str; 4] = ["frr", "isc-dhcp-relay-default", "nl2doca"
 pub fn health_check() -> HealthReport {
     let mut hr = HealthReport::new();
 
-    let container_id = match get_hbn_container_id() {
+    let container_id = match hbn::get_hbn_container_id() {
         Ok(id) => id,
         Err(err) => {
             hr.failed(HealthCheck::ContainerExists, err.to_string());
@@ -37,7 +39,6 @@ pub fn health_check() -> HealthReport {
         }
     };
     hr.passed(HealthCheck::ContainerExists);
-    debug!("Container ID: {container_id}");
 
     check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES);
     check_network_stats(&mut hr, &container_id);
@@ -364,13 +365,13 @@ fn run_in_container(
     if need_success && !out.status.success() {
         debug!(
             "STDERR {}: {}",
-            pretty_cmd(cmd),
+            super::pretty_cmd(cmd),
             String::from_utf8_lossy(&out.stderr)
         );
         return Err(eyre::eyre!(
             "{} for cmd '{}'",
             out.status, // includes the string "exit status"
-            pretty_cmd(cmd)
+            super::pretty_cmd(cmd)
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
@@ -398,42 +399,6 @@ fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {
         m.insert(parts[0].to_string(), state);
     }
     Ok(SctlStatus { m })
-}
-
-fn get_hbn_container_id() -> eyre::Result<String> {
-    let mut sudo = Command::new("sudo");
-    let cmd = sudo.args(["crictl", "ps", "--name=doca-hbn", "-o=json"]);
-    let out = cmd.output()?;
-    if !out.status.success() {
-        debug!(
-            "STDERR {}: {}",
-            pretty_cmd(cmd),
-            String::from_utf8_lossy(&out.stderr)
-        );
-        return Err(eyre::eyre!("{} for cmd '{}'", out.status, pretty_cmd(cmd)));
-    }
-
-    parse_container_id(&String::from_utf8_lossy(&out.stdout))
-}
-
-fn parse_container_id(json: &str) -> eyre::Result<String> {
-    let o: CrictlOut = serde_json::from_str(json)?;
-    if o.containers.is_empty() {
-        return Err(eyre::eyre!(
-            "crictl JSON output has empty 'containers' array. Is doca-hbn running?"
-        ));
-    }
-    Ok(o.containers[0].id.clone())
-}
-
-#[derive(Deserialize, Debug)]
-struct CrictlOut {
-    containers: Vec<Container>,
-}
-
-#[derive(Deserialize, Debug)]
-struct Container {
-    id: String,
 }
 
 struct SctlStatus {
@@ -497,56 +462,9 @@ enum SctlState {
     Fatal,
 }
 
-fn pretty_cmd(c: &Command) -> String {
-    format!(
-        "{} {}",
-        c.get_program().to_string_lossy(),
-        c.get_args()
-            .map(|x| x.to_string_lossy())
-            .collect::<Vec<std::borrow::Cow<'_, str>>>()
-            .join(" ")
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{check_bgp, parse_container_id, parse_status, SctlState};
-
-    const CRICTL_OUT: &str = r#"
-{
-  "containers": [
-    {
-      "id": "f11d4746b230d51598bac048331072597a87303fede8c1812e01612c496bbc43",
-      "podSandboxId": "b5703f93d448f305b391c2583384b7d1a4e2266c35d12b0e0f2f01fe5083f93d",
-      "metadata": {
-        "name": "doca-hbn",
-        "attempt": 0
-      },
-      "image": {
-        "image": "sha256:05f1047133f9852bd739590fa53071cc6f6eb7cce0a695ce981ddba81317c368",
-        "annotations": {
-        }
-      },
-      "imageRef": "sha256:05f1047133f9852bd739590fa53071cc6f6eb7cce0a695ce981ddba81317c368",
-      "state": "CONTAINER_RUNNING",
-      "createdAt": "1678127057518777146",
-      "labels": {
-        "io.kubernetes.container.name": "doca-hbn",
-        "io.kubernetes.pod.name": "doca-hbn-service-idaho-hamper.forge.local",
-        "io.kubernetes.pod.namespace": "default",
-        "io.kubernetes.pod.uid": "949491dc6d16952d446a7d0e80da5b18"
-      },
-      "annotations": {
-        "io.kubernetes.container.hash": "ee4ee15b",
-        "io.kubernetes.container.restartCount": "0",
-        "io.kubernetes.container.terminationMessagePath": "/dev/termination-log",
-        "io.kubernetes.container.terminationMessagePolicy": "File",
-        "io.kubernetes.pod.terminationGracePeriod": "30"
-      }
-    }
-  ]
-}
-"#;
+    use super::{check_bgp, parse_status, SctlState};
 
     // Should these gaps be tabs? Yes. Are they tabs? No. `supervisorctl` outputs spaces.
     const SUPERVISORCTL_STATUS_OUT: &str = r#"
@@ -567,15 +485,6 @@ sysctl-apply                     EXITED    Mar 06 06:24 PM
 
     const BGP_SUMMARY_JSON_SUCCESS: &str = include_str!("hbn_bgp_summary.json");
     const BGP_SUMMARY_JSON_FAIL: &str = include_str!("hbn_bgp_summary_fail.json");
-
-    #[test]
-    fn test_parse_container_id() -> eyre::Result<()> {
-        assert_eq!(
-            parse_container_id(CRICTL_OUT)?,
-            "f11d4746b230d51598bac048331072597a87303fede8c1812e01612c496bbc43"
-        );
-        Ok(())
-    }
 
     #[test]
     fn test_parse_supervisorctl_status() -> eyre::Result<()> {
