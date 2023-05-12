@@ -1,7 +1,6 @@
 default:
   image: urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86_64/forge-helm:v0.0.1-562-g9399319c
 
-
 variables:
   VAULT_JWT_ROLE: forge-ci
   VAULT_ADDR: https://prod.vault.nvidia.com
@@ -123,6 +122,7 @@ generate_pipelines:
     - prep
 
 trigger:generate_pipelines:
+  when: always
   variables:
     PARENT_PIPELINE_ID: $CI_PIPELINE_ID
     PARENT_CI_JOB_TOKEN: $CI_JOB_TOKEN
