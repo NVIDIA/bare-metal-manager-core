@@ -25,7 +25,10 @@ pub fn build() {
     );
     println!(
         "cargo:rustc-env=FORGE_BUILD_GIT_TAG={}",
-        run("git", &["describe", "--tags", "--first-parent", "--always"])
+        run(
+            "git",
+            &["describe", "--tags", "--first-parent", "--always", "HEAD"]
+        )
     );
     println!(
         "cargo:rustc-env=FORGE_BUILD_GIT_HASH={}",
@@ -47,9 +50,14 @@ pub fn build() {
 // If the current user is not the owner of the repo root (containing .git), then
 // git will exit with status 128 "fatal: detected dubious ownership".
 // This happens in containers.
+// Exit code 128 means many things, this just handles one of them.
 //
 // "git config --add" is not idempotent, so only do this if we have to.
 fn allow_git() {
+    if let Ok(symbolic_ref) = Command::new("git").arg("symbolic-ref").arg("HEAD").output() {
+        println!("cargo:warning=git symbolic-ref HEAD is '{symbolic_ref:?}'");
+    }
+
     match Command::new("git").arg("status").status() {
         Err(err) => {
             println!("cargo:warning=build.rs error running 'git status': {err}.")
