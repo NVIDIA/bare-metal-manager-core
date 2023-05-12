@@ -51,7 +51,7 @@ pub fn build() {
 // "git config --add" is not idempotent, so only do this if we have to.
 fn allow_git() {
     match Command::new("git")
-        .args(&["rev-parse", "--short=8", "HEAD"])
+        .args(["rev-parse", "--short=8", "HEAD"])
         .status()
     {
         Err(err) => {
