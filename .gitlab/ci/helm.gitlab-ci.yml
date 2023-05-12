@@ -7,8 +7,9 @@ variables:
   VAULT_NAMESPACE: ngc
   VAULT_JWT_PATH: auth/gitlab/login
   NAME_SPACE: forge-system
-  HELM_NGC: https://helm.ngc.nvidia.com/nvidian/nvforge
-  HELM_NGC_STG: https://helm.stg.ngc.nvidia.com/nvidia/nvforge
+  HELM_NGC_PROD: https://helm.ngc.nvidia.com/nvidian/nvforge
+  HELM_NGC_DEVEL: https://helm.ngc.nvidia.com/nvidian/nvforge-devel
+  HELM_NGC_OLDSTG: https://helm.stg.ngc.nvidia.com/nvidia/nvforge
   SAST_EXCLUDED_PATHS: "/doc,/examples,/spec,README*"
   HELM_CACHE_HOME: ${CI_PROJECT_DIR}/helm/.cache
   HELM_CONFIG_HOME: ${CI_PROJECT_DIR}/helm/.config
@@ -72,8 +73,9 @@ prep:
      echo "HELM_REPOSITORY_CACHE=${HELM_REPOSITORY_CACHE}" >> environment.env
      echo "HELM_REPOSITORY_CONFIG=${HELM_REPOSITORY_CONFIG}" >> environment.env
      echo "PARENT_PIPELINE_ID=${CI_PIPELINE_ID}" >> environment.env
-     helm repo add ngc $HELM_NGC  --username=\$oauthtoken --password=$NVCR_PASS
-     helm repo add stgngc $HELM_NGC_STG --username=\$oauthtoken --password=$STG_NVCR_PASS
+     helm repo add ngc $HELM_NGC_PROD  --username=\$oauthtoken --password=$NVCR_PASS
+     helm repo add develngc $HELM_NGC_DEVEL --username=\$oauthtoken --password=$NVCR_PASS
+     helm repo add oldstgngc $HELM_NGC_OLDSTG --username=\$oauthtoken --password=$STG_NVCR_PASS
      helm repo update
      #- environment.env
   artifacts:

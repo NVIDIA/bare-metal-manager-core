@@ -33,7 +33,6 @@ stages:
   - build
   - test
   - publish
-  - e2e-test
   - deploy
   - doc
   - security
@@ -46,17 +45,19 @@ include:
   - local: .gitlab/ci/helm.gitlab-ci.yml
 
 
-nightly_tests:
-  stage: e2e-test
-  image:
-    name: $TOOLS_IMAGE_REPO
-  needs: [build-push-kustomize]
-  rules:
-    - if: $CI_DEFAULT_BRANCH == $CI_COMMIT_REF_NAME && $CI_PIPELINE_SOURCE == "schedule"
-  script:
-    - echo "Nothing to run at this moment"
-
 build:
+  rules:
+    - when: never
+
+build-push-helm:
+  rules:
+    - when: never
+
+build-push-kustomize:
+  rules:
+    - when: never
+
+prepare-kustomize-for-scan:
   rules:
     - when: never
 
