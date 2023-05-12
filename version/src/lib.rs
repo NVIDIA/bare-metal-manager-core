@@ -14,7 +14,7 @@ use std::process::Command;
 
 /// Set build script environment variables. Call this from a build script.
 pub fn build() {
-    allow_git();
+    git_allow();
     println!(
         "cargo:rustc-env=FORGE_BUILD_USER={}",
         option_env!("USER").unwrap_or_default()
@@ -24,23 +24,26 @@ pub fn build() {
         option_env!("HOSTNAME").unwrap_or_default()
     );
     println!(
-        "cargo:rustc-env=FORGE_BUILD_GIT_TAG={}",
-        run(
-            "git",
-            &["describe", "--tags", "--first-parent", "--always", "HEAD"]
-        )
-    );
-    println!(
-        "cargo:rustc-env=FORGE_BUILD_GIT_HASH={}",
-        run("git", &["rev-parse", "--short=8", "HEAD"])
-    );
-    println!(
         "cargo:rustc-env=FORGE_BUILD_DATE={}",
         run("date", &["--iso-8601", "--utc"])
     );
     println!(
         "cargo:rustc-env=FORGE_BUILD_RUSTC_VERSION={}",
         run(option_env!("RUSTC").unwrap_or("rustc"), &["--version"])
+    );
+
+    // Latest checked out short SHA.
+    // We don't use `git rev-parse HEAD` because in CI that points to refs/heads/master which
+    // doesn't exist.
+    let rev = run("git", &["log", "-1", "--format=%h"]);
+    println!("cargo:rustc-env=FORGE_BUILD_GIT_HASH={rev}");
+
+    println!(
+        "cargo:rustc-env=FORGE_BUILD_GIT_TAG={}",
+        run(
+            "git",
+            &["describe", "--tags", "--first-parent", "--always", &rev]
+        )
     );
 
     // Only re-calculate all of this when there's a new commit
@@ -53,24 +56,20 @@ pub fn build() {
 // Exit code 128 means many things, this just handles one of them.
 //
 // "git config --add" is not idempotent, so only do this if we have to.
-fn allow_git() {
-    if let Ok(symbolic_ref) = Command::new("git").arg("symbolic-ref").arg("HEAD").output() {
-        println!("cargo:warning=git symbolic-ref HEAD is '{symbolic_ref:?}'");
-    }
-
+fn git_allow() {
     match Command::new("git").arg("status").status() {
         Err(err) => {
             println!("cargo:warning=build.rs error running 'git status': {err}.")
         }
         Ok(status) => match status.code() {
-            Some(128) => mark_safe_directory(),
+            Some(128) => git_mark_safe_directory(),
             Some(_) => {}
             None => {}
         },
     }
 }
 
-fn mark_safe_directory() {
+fn git_mark_safe_directory() {
     let repo_root = option_env!("REPO_ROOT")
         .or(option_env!("CONTAINER_REPO_ROOT"))
         .unwrap_or(r#"*"#);
@@ -82,27 +81,12 @@ fn mark_safe_directory() {
 
 /// Run a command from a build script returning it's stdout, logging errors with cargo:warning
 fn run(cmd: &str, args: &[&str]) -> String {
-    println!("cargo:warning=Running '{cmd} {}'", args.join(" ")); // TEMP
-
     let output = match Command::new(cmd).args(args).output() {
         Ok(output) => {
             if !output.status.success() {
                 println!(
-                    "cargo:warning=build.rs {} running '{cmd} {}'",
-                    output.status, // renders as "exit status: {code}"
+                    "cargo:warning=build.rs failed running '{cmd} {}': '{output:?}'",
                     args.join(" ")
-                );
-                println!(
-                    "cargo:warning=STDOUT {}",
-                    String::from_utf8_lossy(&output.stdout)
-                        .to_string()
-                        .replace('\n', ". ")
-                );
-                println!(
-                    "cargo:warning=STDERR {}",
-                    String::from_utf8_lossy(&output.stderr)
-                        .to_string()
-                        .replace('\n', ". ")
                 );
                 return String::new();
             }
@@ -116,7 +100,7 @@ fn run(cmd: &str, args: &[&str]) -> String {
             return String::new();
         }
     };
-    String::from_utf8_lossy(&output.stdout).to_string()
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
 /// Version as a string. `version::build()` must have been called previously in build script.
@@ -124,10 +108,10 @@ fn run(cmd: &str, args: &[&str]) -> String {
 macro_rules! version {
     () => {
         format!(
-            "git_tag={}, git_sha={}, build_date={}, rust_version={}, build_user={}, build_hostname={}",
+            "build_version={}, build_date={}, git_sha={}, rust_version={}, build_user={}, build_hostname={}",
             option_env!("FORGE_BUILD_GIT_TAG").unwrap_or_default(),
-            option_env!("FORGE_BUILD_GIT_HASH").unwrap_or_default(),
             option_env!("FORGE_BUILD_DATE").unwrap_or_default(),
+            option_env!("FORGE_BUILD_GIT_HASH").unwrap_or_default(),
             option_env!("FORGE_BUILD_RUSTC_VERSION").unwrap_or_default(),
             option_env!("FORGE_BUILD_USER").unwrap_or_default(),
             option_env!("FORGE_BUILD_HOSTNAME").unwrap_or_default(),
