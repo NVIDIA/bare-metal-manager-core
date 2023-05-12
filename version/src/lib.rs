@@ -50,9 +50,12 @@ pub fn build() {
 //
 // "git config --add" is not idempotent, so only do this if we have to.
 fn allow_git() {
-    match Command::new("git").arg("status").status() {
+    match Command::new("git")
+        .args(&["rev-parse", "--short=8", "HEAD"])
+        .status()
+    {
         Err(err) => {
-            println!("cargo:warning=build.rs error running 'git status': {err}.")
+            println!("cargo:warning=build.rs error running 'git rev-parse --short=8 HEAD': {err}.")
         }
         Ok(status) => match status.code() {
             Some(128) => mark_safe_directory(),
