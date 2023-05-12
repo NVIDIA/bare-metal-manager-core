@@ -274,9 +274,9 @@ publish:${base}:
      export HELM_REPOSITORY_CONFIG="${HELM_REPOSITORY_CONFIG}"
      export HELM_PLUGINS="${HELM_PLUGINS}"
      cd ${CI_PROJECT_DIR}/charts/${base}
-     helm cm-push ${base}-${VERSION} ngc
-     helm cm-push ${base}-${VERSION} develngc
-     helm cm-push ${base}-${VERSION} oldstgngc
+     helm cm-push ${base}-${VERSION}.tgz ngc
+     helm cm-push ${base}-${VERSION}.tgz develngc
+     helm cm-push ${base}-${VERSION}.tgz oldstgngc
   needs:
     - pipeline: "${PARENT_PIPELINE_ID}"
       job: prep
