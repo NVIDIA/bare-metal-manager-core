@@ -60,6 +60,10 @@ build-push-kustomize:
   rules:
     - when: never
 
+notify-security-report:
+  rules:
+    - when: never
+
 prepare-kustomize-for-scan:
   rules:
     - when: never
