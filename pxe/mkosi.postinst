@@ -16,6 +16,19 @@ mkdir -p $tmpdir
 cd $tmpdir
 softdir=/distr
 
+# Install nvidia proprietary driver and utilities
+find /lib/modules -name "*nouveau.ko" | xargs rm -f
+ls -1 /lib/modules | xargs depmod
+echo "blacklist nouveau" >> /etc/modprobe.d/blacklist.conf
+echo "deb http://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list
+dpkg --purge --force-all mir-graphics-drivers-nvidia
+dpkg --purge --force-all libnvidia-egl-wayland1
+# refer https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
+wget https://developer.download.nvidia.com/compute/cuda/repos/debian11/x86_64/cuda-keyring_1.1-1_all.deb
+dpkg -i cuda-keyring_1.1-1_all.deb
+apt update
+apt install -y cuda-drivers
+
 # Install racadm
 apt install -y dmidecode
 wget https://linux.dell.com/repo/community/openmanage/10300/focal/pool/main/s/srvadmin-idracadm8/srvadmin-idracadm8_10.3.0.0_amd64.deb
