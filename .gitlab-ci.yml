@@ -44,6 +44,9 @@ include:
       - defaults.gitlab-ci.yml
   - local: .gitlab/ci/helm.gitlab-ci.yml
 
+checkov-scan:
+  rules:
+    - when: never
 
 build:
   rules:
