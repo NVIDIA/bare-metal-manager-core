@@ -100,6 +100,5 @@ EOF
 chmod +x /usr/sbin/chipsec_load_module.sh
 
 rm -f $chipsecsrcfile
-apt purge -y $hdrpkg nasm g++-10 gcc-10 gcc g++ gcc-9 python3-dev
 rm -r -f $tmpdir
 
