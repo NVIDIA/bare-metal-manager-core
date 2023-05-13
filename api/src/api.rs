@@ -3023,13 +3023,17 @@ where
 
         let mut eth_data = if daemon_config.manage_vpc {
             // Forge will own and manage VPC data
-            ethernet_virtualization::enable(database_connection.clone()).await
+            if daemon_config.asn == 0 {
+                eyre::bail!("fatal: carbide-api requires a valid `--asn` when managing VPC");
+            }
+            let mut ethd = ethernet_virtualization::enable(database_connection.clone()).await;
+            ethd.asn = daemon_config.asn;
+            ethd
         } else {
             // VPC (Go CRD) will own and manage it's data
             ethernet_virtualization::EthVirtData::default()
         };
         eth_data.dhcp_servers = daemon_config.dhcp_server.clone();
-        eth_data.asn = daemon_config.asn;
 
         let health_pool = database_connection.clone();
         start_export_service_health_metrics(ServiceHealthContext {

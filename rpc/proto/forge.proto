@@ -980,7 +980,7 @@ message ManagedHostNetworkConfigResponse {
   // ASN and DHCP servers are not versioned, they are fixed on process start
 
   // ASN
-  uint64 asn = 2;
+  uint32 asn = 2;
   // DHCP servers that the host DHCP requests should be relayed to
   repeated string dhcp_servers = 3;
 

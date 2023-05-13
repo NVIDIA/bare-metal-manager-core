@@ -65,13 +65,13 @@ pub struct Daemon {
 
     /// ASN: Autonomous System Number
     /// Fixed per environment. Used by forge-dpu-agent to write frr.conf (routing).
+    /// Only required if manage_vpc is true, hence the default.
+    /// We check for 0 on startup and bail if manage_vpc is true.
     ///
     // Move this to per-site toml configuration file once that exists.
     //
-    // TODO: Remove the default value, we must pass this in every environment. Is currently in
-    // vpc.yaml as defaultASN. Default allows for smoother rollout.
-    #[clap(long, default_value = "65535")]
-    pub asn: u64,
+    #[clap(long, default_value = "0")]
+    pub asn: u32,
 
     /// List of DHCP servers that should be announced
     /// TODO: The env variable approach at the moment will just accept a single

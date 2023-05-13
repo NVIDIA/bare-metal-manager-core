@@ -58,7 +58,7 @@ pub struct FrrOptions {
     #[clap(long, help = "Full path of frr.conf")]
     pub path: String,
     #[clap(long)]
-    pub asn: i64,
+    pub asn: u32,
     #[clap(long)]
     pub loopback_ip: Ipv4Addr,
     #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]

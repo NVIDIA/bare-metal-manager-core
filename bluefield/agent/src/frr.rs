@@ -62,7 +62,7 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
 
 /// What we need in order to generate an frr.conf
 pub struct FrrConfig {
-    pub asn: u64,
+    pub asn: u32,
     pub loopback_ip: Ipv4Addr,
     pub uplinks: Vec<String>,
     pub access_vlans: Vec<FrrVlanConfig>,
@@ -87,7 +87,7 @@ struct TmplFrrConfigVLAN {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl)]
 struct TmplFrrConfigParameters {
-    ASN: u64,
+    ASN: u32,
     LoopbackIP: String,
     Uplinks: Vec<String>,
     AccessVLANs: Vec<TmplFrrConfigVLAN>,

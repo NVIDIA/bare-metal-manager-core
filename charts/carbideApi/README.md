@@ -120,6 +120,7 @@ A Helm chart for nvidia forge component carbide-api
 | kubeVersion | string | `""` | Override Kubernetes version |
 | listenAddress | string | `"0.0.0.0"` | What IP address to bind and listen on |
 | manageVpc | bool | `false` | Choose whether Carbide owns the VPC data: loopback IP, VNI and VLAN_ID allocations. False means VPC will allocate those values |
+| asn | int | `0` | Autonomous System Number for the site |
 | metricsService.ports.http | int | `1080` | The port that exposes the /metrics endpoint for carbide-api |
 | metricsService.targetPorts.http | int | `1080` | The container port that exposes the /metrics endpoint for carbide-api |
 | nameOverride | string | `"carbide-api"` | String to partially override common.names.name |

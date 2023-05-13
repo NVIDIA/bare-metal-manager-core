@@ -135,7 +135,7 @@ fn main() -> eyre::Result<()> {
                     })
                     .collect();
                 let contents = frr::build(frr::FrrConfig {
-                    asn: opts.asn as u64,
+                    asn: opts.asn,
                     uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     loopback_ip: opts.loopback_ip,
                     access_vlans,

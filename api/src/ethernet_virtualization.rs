@@ -38,7 +38,7 @@ const METRICS_RESOURCEPOOL_INTERVAL: Duration = Duration::from_secs(60);
 pub struct EthVirtData {
     // true if carbide API owns VPC data
     pub is_enabled: bool,
-    pub asn: u64,
+    pub asn: u32,
     pub dhcp_servers: Vec<String>,
     pub pool_loopback_ip: Option<Arc<DbResourcePool<Ipv4Addr>>>,
     pub pool_vlan_id: Option<Arc<DbResourcePool<i16>>>,
