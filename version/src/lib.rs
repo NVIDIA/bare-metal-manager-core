@@ -32,19 +32,17 @@ pub fn build() {
         run(option_env!("RUSTC").unwrap_or("rustc"), &["--version"])
     );
 
-    // Latest checked out short SHA.
-    // We don't use `git rev-parse HEAD` because in CI that points to refs/heads/master which
-    // doesn't exist.
-    let rev = run("git", &["log", "-1", "--format=%h"]);
-    println!("cargo:rustc-env=FORGE_BUILD_GIT_HASH={rev}");
+    // For these two in CI we use the env var, locally we query git
 
-    println!(
-        "cargo:rustc-env=FORGE_BUILD_GIT_TAG={}",
-        run(
-            "git",
-            &["describe", "--tags", "--first-parent", "--always", &rev]
-        )
-    );
+    let sha = option_env!("CI_COMMIT_SHORT_SHA")
+        .map(String::from)
+        .unwrap_or_else(|| run("git", &["rev-parse", "--short=8", "HEAD"]));
+    println!("cargo:rustc-env=FORGE_BUILD_GIT_HASH={sha}");
+
+    let build_version = option_env!("VERSION")
+        .map(String::from)
+        .unwrap_or_else(|| run("git", &["describe", "--tags", "--first-parent", "--always"]));
+    println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG={build_version}");
 
     // Only re-calculate all of this when there's a new commit
     println!("cargo:rerun-if-changed=.git/HEAD");
