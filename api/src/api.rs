@@ -909,31 +909,28 @@ where
             None => true,
         };
 
-        let (admin_interface_rpc, admin_interface_id) =
+        let admin_interface_rpc =
             ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
                 .await?;
 
-        let mut tenant_interfaces = Vec::with_capacity(snapshot.dpu_snapshot.interfaces.len());
-        for (i, iface) in snapshot
-            .dpu_snapshot
-            .interfaces
-            .iter()
-            .filter(|f| f.id != admin_interface_id)
-            .enumerate()
-        {
-            use ::rpc::InterfaceFunctionType::*;
-            tenant_interfaces.push(rpc::FlatInterfaceConfig {
-                function: if i == 0 {
-                    PhysicalFunction.into()
-                } else {
-                    VirtualFunction.into()
-                },
-                vlan_id: iface.vlan_id,
-                vni: iface.vni,
-                gateway: iface.gateway_cidr.clone(),
-                ip: iface.ip_address.to_string(),
-            });
-        }
+        let tenant_interfaces = match &snapshot.instance {
+            None => vec![],
+            Some(instance) => {
+                let interfaces = &instance.config.network.interfaces;
+                let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
+                for iface in interfaces {
+                    tenant_interfaces.push(
+                        ethernet_virtualization::tenant_network(
+                            &mut txn,
+                            instance.instance_id,
+                            iface,
+                        )
+                        .await?,
+                    );
+                }
+                tenant_interfaces
+            }
+        };
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(

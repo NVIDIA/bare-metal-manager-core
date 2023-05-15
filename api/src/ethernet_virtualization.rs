@@ -23,10 +23,13 @@ use tonic::Status;
 
 use crate::{
     db::{
-        machine_interface::MachineInterface, machine_interface_address::MachineInterfaceAddress,
-        network_segment::NetworkSegment,
+        instance_address::InstanceAddress,
+        machine_interface::MachineInterface,
+        machine_interface_address::MachineInterfaceAddress,
+        network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
+        UuidKeyedObjectFilter,
     },
-    model::machine::machine_id::MachineId,
+    model::{instance::config::network::InstanceInterfaceConfig, machine::machine_id::MachineId},
     resource_pool::{self, DbResourcePool, ResourcePoolStats},
     CarbideError,
 };
@@ -108,7 +111,7 @@ pub async fn enable(database_connection: sqlx::PgPool) -> EthVirtData {
 pub async fn admin_network(
     txn: &mut Transaction<'_, Postgres>,
     host_machine_id: &MachineId,
-) -> Result<(rpc::FlatInterfaceConfig, uuid::Uuid), tonic::Status> {
+) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     let admin_segment = NetworkSegment::admin(txn)
         .await
         .map_err(CarbideError::from)?;
@@ -139,5 +142,54 @@ pub async fn admin_network(
         gateway: prefix.gateway_cidr().unwrap_or_default(),
         ip: address.address.ip().to_string(),
     };
-    Ok((cfg, interface.id))
+    Ok(cfg)
+}
+
+pub async fn tenant_network(
+    txn: &mut Transaction<'_, Postgres>,
+    instance_id: uuid::Uuid,
+    iface: &InstanceInterfaceConfig,
+) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
+    let segments = &NetworkSegment::find(
+        txn,
+        UuidKeyedObjectFilter::One(iface.network_segment_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+    let Some(segment) = segments.get(0) else {
+        return Err(Status::internal(format!(
+            "Tenant network segment id '{}' matched more than one segment",
+            iface.network_segment_id
+        )));
+    };
+    let Some(prefix) = segment.prefixes.get(0) else {
+        return Err(Status::internal(format!(
+            "Tenant network segment '{}' has no network_prefix, expected 1",
+            segment.id,
+        )));
+    };
+    let Some(prefix_circuit_id) = &prefix.circuit_id else {
+        return Err(Status::internal(format!("Tenant network prefix '{}' missing circuit_id", prefix.id)));
+    };
+    let addresses =
+        &InstanceAddress::find_for_instance(txn, UuidKeyedObjectFilter::One(instance_id))
+            .await
+            .map_err(CarbideError::from)?
+            .remove(&instance_id)
+            .expect("InstanceAddress::find_for_instance didn't return give instance_id");
+    let Some(address) = addresses.iter().find(|a| a.circuit_id == *prefix_circuit_id) else {
+        return Err(Status::internal(format!(
+            "Instance '{instance_id}' has no addresses for circuit {prefix_circuit_id}",
+        )));
+    };
+
+    let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
+    Ok(rpc::FlatInterfaceConfig {
+        function: rpc_ft.into(),
+        vlan_id: segment.vlan_id.unwrap_or_default() as u32,
+        vni: segment.vni.unwrap_or_default() as u32,
+        gateway: prefix.gateway_cidr().unwrap_or_default(),
+        ip: address.address.to_string(),
+    })
 }
