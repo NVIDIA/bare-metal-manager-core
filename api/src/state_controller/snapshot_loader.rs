@@ -81,6 +81,8 @@ pub enum SnapshotLoaderError {
     MachineNotFound(MachineId),
     #[error("DPU for host machine with ID {0} was not found.")]
     DPUNotFound(MachineId),
+    #[error("Host for dpu machine with ID {0} was not found.")]
+    HostNotFound(MachineId),
     #[error("Expected 1 instance with id {0} found {1}")]
     MultipleInstances(uuid::Uuid, usize),
     #[error("State handling generic error: {0}")]
@@ -197,36 +199,25 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         dpu_machine_id: &MachineId,
     ) -> Result<ManagedHostStateSnapshot, SnapshotLoaderError> {
-        let host = Machine::find_host_by_dpu_machine_id(txn, dpu_machine_id)
+        let Some(host) = Machine::find_host_by_dpu_machine_id(txn, dpu_machine_id)
             .await
-            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
+            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))? else {
+            return Err(SnapshotLoaderError::HostNotFound(dpu_machine_id.clone()));
+        };
 
         let dpu_snapshot = get_machine_snapshot(txn, dpu_machine_id).await?;
-        let instance_snapshot = match &host {
+        let instance_id = Instance::find_id_by_machine_id(txn, host.id()).await?;
+        let instance_snapshot = match instance_id {
+            Some(instance_id) => Some(
+                self.load_instance_snapshot(txn, instance_id, dpu_snapshot.current.state.clone())
+                    .await?,
+            ),
             None => None,
-            Some(machine) => {
-                let instance_id = Instance::find_id_by_machine_id(txn, machine.id()).await?;
-                match instance_id {
-                    Some(instance_id) => Some(
-                        self.load_instance_snapshot(
-                            txn,
-                            instance_id,
-                            dpu_snapshot.current.state.clone(),
-                        )
-                        .await?,
-                    ),
-                    None => None,
-                }
-            }
         };
 
         let dpu = DpuMachine::find_by_host_machine_id(txn, dpu_machine_id).await?;
         let snapshot = ManagedHostStateSnapshot {
-            host_snapshot: if let Some(host) = host {
-                Some(get_machine_snapshot(txn, host.id()).await?)
-            } else {
-                None
-            },
+            host_snapshot: get_machine_snapshot(txn, host.id()).await?,
             dpu_snapshot: dpu_snapshot.clone(),
             dpu_ssh_ip_address: *dpu.address(),
             instance: instance_snapshot,

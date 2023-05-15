@@ -564,9 +564,10 @@ impl MachineInterface {
     /// Parsed Mac: Found in DPU's topology data
     /// Relay IP: Taken from fixed Admin network segment. Relay IP is used only to identify related
     /// segment.
+    /// Retunrs: Machine Interface, True if new interface is created.
     pub async fn create_host_machine_interface_proactively(
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        hardware_info: &Option<HardwareInfo>,
+        hardware_info: Option<&HardwareInfo>,
         dpu_id: &MachineId,
     ) -> Result<Self, CarbideError> {
         let admin_network = NetworkSegment::admin(txn).await?;
@@ -586,7 +587,6 @@ impl MachineInterface {
 
         // Host mac is stored at DPU topology data.
         let host_mac = hardware_info
-            .as_ref()
             .map(|x| x.factory_mac_address())
             .ok_or_else(|| CarbideError::NotFoundError {
                 kind: "Hardware Info",

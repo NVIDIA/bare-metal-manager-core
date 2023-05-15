@@ -73,6 +73,23 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
         .await
         .unwrap();
 
+    let host_machine_interface = MachineInterface::create_host_machine_interface_proactively(
+        &mut txn,
+        Some(&hardware_info),
+        machine.id(),
+    )
+    .await?;
+
+    let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&hardware_info)
+        .ok_or_else(|| CarbideError::InvalidArgument("hardware info".to_string()))?;
+    let _ = Machine::get_or_create(
+        &mut txn,
+        &predicted_machine_id,
+        host_machine_interface,
+        false,
+    )
+    .await?;
+
     txn.commit()
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;

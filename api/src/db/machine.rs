@@ -941,6 +941,48 @@ SELECT m.id FROM
             Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
         }
     }
+
+    /// Replaces predicted host id with stable host id.
+    /// Once forge receives DiscoveryData from Host, forge can create StableMachineId.
+    /// This StableMachineId must replace existing PredictedHostId in db.
+    /// State machine does not act on receiving discoverydata, but discoverycompleted message,
+    /// so updating host id must not interfere state machine handling.
+    pub async fn try_sync_stable_id_with_current_machine_id_for_host(
+        txn: &mut Transaction<'_, Postgres>,
+        current_machine_id: &Option<MachineId>,
+        stable_machine_id: &MachineId,
+    ) -> Result<Self, CarbideError> {
+        let Some(current_machine_id) = current_machine_id else {
+            return Err(
+                CarbideError::NotFoundError {
+                    kind: "machine_id", 
+                    id: stable_machine_id.to_string()
+                }
+            );
+        };
+
+        // This is repeated call. Machine is already updated with stable ID.
+        if !current_machine_id.machine_type().is_predicted_host() {
+            return match Self::find_one(txn, current_machine_id, MachineSearchConfig::default())
+                .await?
+            {
+                Some(machine) => Ok(machine),
+                None => Err(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: current_machine_id.to_string(),
+                }),
+            };
+        }
+
+        let query = "UPDATE machines SET id=$1 WHERE id=$2 RETURNING *";
+        let res = sqlx::query_as::<_, Machine>(query)
+            .bind(stable_machine_id.to_string())
+            .bind(current_machine_id.to_string())
+            .fetch_one(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(res)
+    }
 }
 
 #[cfg(test)]

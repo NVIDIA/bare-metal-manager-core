@@ -122,6 +122,10 @@ impl MachineType {
     pub fn is_host(self) -> bool {
         self == MachineType::Host
     }
+
+    pub fn is_predicted_host(self) -> bool {
+        self == MachineType::PredictedHost
+    }
 }
 
 impl std::fmt::Display for MachineType {

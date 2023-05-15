@@ -19,7 +19,7 @@ use carbide::{
         machine_topology::MachineTopology,
         vpc_resource_leaf::VpcResourceLeaf,
     },
-    model::machine::machine_id::{try_parse_machine_id, MachineId},
+    model::machine::machine_id::{try_parse_machine_id, MachineId, MachineType},
 };
 
 use ::rpc::forge::{forge_server::Forge, AdminForceDeleteMachineRequest};
@@ -65,10 +65,16 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     assert!(VpcResourceLeaf::find(&mut txn, &dpu_machine_id)
         .await
         .is_ok());
+
+    let host = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+        .await
+        .unwrap()
+        .unwrap();
+
     txn.rollback().await.unwrap();
 
     let mut response = force_delete(&env, &dpu_machine_id).await;
-    validate_initial_delete_response(&response, None, &dpu_machine_id);
+    validate_initial_delete_response(&response, Some(host.id()), &dpu_machine_id);
     assert_eq!(
         response.dpu_machine_interface_id,
         dpu_machine.interfaces()[0].id().to_string()
@@ -190,8 +196,15 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
         Some(dpu_machine_id.to_string().into())
     );
 
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
     let mut response = force_delete(&env, &dpu_machine_id).await;
-    validate_initial_delete_response(&response, None, &dpu_machine_id);
+    validate_initial_delete_response(&response, Some(host.id()), &dpu_machine_id);
 
     let mut delete_attempts = 0;
     while !response.all_done && delete_attempts < 10 {
@@ -246,8 +259,10 @@ fn validate_initial_delete_response(
         host_machine_id.map(|id| id.to_string()).unwrap_or_default()
     );
     assert_eq!(response.dpu_bmc_ip, FIXTURE_DPU_BMC_IP_ADDRESS);
-    if host_machine_id.is_some() {
-        assert_eq!(response.managed_host_bmc_ip, FIXTURE_HOST_BMC_IP_ADDRESS);
+    if let Some(host_machine_id) = host_machine_id {
+        if host_machine_id.machine_type() == MachineType::Host {
+            assert_eq!(response.managed_host_bmc_ip, FIXTURE_HOST_BMC_IP_ADDRESS);
+        }
     } else {
         assert!(response.managed_host_bmc_ip.is_empty());
     }

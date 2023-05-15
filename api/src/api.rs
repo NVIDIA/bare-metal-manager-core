@@ -888,12 +888,6 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let Some(host) = snapshot.host_snapshot else {
-            return Err(Status::not_found(format!(
-                "DPU '{dpu_machine_id}' has no host, cannot continue"
-            )));
-        };
-
         let loopback_ip = match snapshot.dpu_snapshot.loopback_ip() {
             Some(ip) => ip,
             None => {
@@ -916,7 +910,8 @@ where
         };
 
         let (admin_interface_rpc, admin_interface_id) =
-            ethernet_virtualization::admin_network(&mut txn, &host.machine_id).await?;
+            ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
+                .await?;
 
         let mut tenant_interfaces = Vec::with_capacity(snapshot.dpu_snapshot.interfaces.len());
         for (i, iface) in snapshot
@@ -1251,27 +1246,40 @@ where
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin discover_machine", e))?;
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
-        let (db_machine, is_new) = Machine::get_or_create(
-            &mut txn,
-            &stable_machine_id,
-            interface,
-            hardware_info.is_dpu(),
-        )
-        .await?;
+        let (machine, loopback_ip) = if hardware_info.is_dpu() {
+            let (db_machine, is_new) = Machine::get_or_create(
+                &mut txn,
+                &stable_machine_id,
+                interface,
+                hardware_info.is_dpu(),
+            )
+            .await?;
 
-        let loopback_ip = if is_new && hardware_info.is_dpu() {
-            // We discovered a new machine, give it a loopback IP
-            let loopback_ip = self
-                .allocate_loopback_ip(&mut txn, &stable_machine_id.to_string())
-                .await?;
-            let (mut netconf, version) = db_machine.network_config().clone().take();
-            netconf.loopback_ip = loopback_ip;
-            Machine::try_update_network_config(&mut txn, &stable_machine_id, version, &netconf)
-                .await
-                .map_err(CarbideError::from)?;
-            loopback_ip
+            let loopback_ip = if is_new {
+                let loopback_ip = self
+                    .allocate_loopback_ip(&mut txn, &stable_machine_id.to_string())
+                    .await?;
+                let (mut netconf, version) = db_machine.network_config().clone().take();
+                netconf.loopback_ip = loopback_ip;
+                Machine::try_update_network_config(&mut txn, &stable_machine_id, version, &netconf)
+                    .await
+                    .map_err(CarbideError::from)?;
+                loopback_ip
+            } else {
+                None
+            };
+            (db_machine, loopback_ip)
         } else {
-            None
+            // Now we know stable machine id for host. Let's update it in db.
+            (
+                Machine::try_sync_stable_id_with_current_machine_id_for_host(
+                    &mut txn,
+                    &interface.machine_id,
+                    &stable_machine_id,
+                )
+                .await?,
+                None,
+            )
         };
 
         // Once VPC goes away we can remove passing loopback_ip here
@@ -1281,13 +1289,34 @@ where
         if hardware_info.is_dpu() {
             // In case host interface is created, this method will return existing one, instead
             // creating new everytime.
-            let _ = MachineInterface::create_host_machine_interface_proactively(
+            let machine_interface = MachineInterface::create_host_machine_interface_proactively(
                 &mut txn,
-                &Some(hardware_info),
-                db_machine.id(),
+                Some(&hardware_info),
+                machine.id(),
             )
             .await?;
-            // Create host machine with temporary ID.
+
+            // Create host machine with temporary ID if no machine is attached.
+            if machine_interface.machine_id.is_none() {
+                let predicted_machine_id =
+                    MachineId::host_id_from_dpu_hardware_info(&hardware_info).ok_or_else(|| {
+                        CarbideError::InvalidArgument("hardware info".to_string())
+                    })?;
+                let mi_id = machine_interface.id;
+                let (proactive_machine, _) = Machine::get_or_create(
+                    &mut txn,
+                    &predicted_machine_id,
+                    machine_interface,
+                    false,
+                )
+                .await?;
+
+                log::info!(
+                    "Created host machine proactively (MI:{}, Machine:{})",
+                    mi_id,
+                    proactive_machine.id(),
+                );
+            }
         }
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {

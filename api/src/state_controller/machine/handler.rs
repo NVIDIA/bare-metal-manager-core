@@ -27,7 +27,7 @@ use sqlx::Postgres;
 use crate::{
     db::{
         dpu_machine::DpuMachine, instance::DeleteInstance, instance_address::InstanceAddress,
-        machine_interface::MachineInterface, vpc_resource_leaf::VpcResourceLeaf,
+        vpc_resource_leaf::VpcResourceLeaf,
     },
     kubernetes,
     model::{
@@ -110,15 +110,11 @@ impl StateHandler for MachineStateHandler {
             }
 
             ManagedHostState::WaitingForCleanup { cleanup_state } => {
-                let Some(ref host_snapshot) = state.host_snapshot else {
-                    return Ok(());
-                };
-
                 match cleanup_state {
                     CleanupState::HostCleanup => {
                         if !cleanedup_after_state_transition(
-                            host_snapshot.current.version,
-                            host_snapshot.last_cleanup_time,
+                            state.host_snapshot.current.version,
+                            state.host_snapshot.last_cleanup_time,
                         )
                         .await?
                         {
@@ -126,7 +122,7 @@ impl StateHandler for MachineStateHandler {
                         }
 
                         // Reboot host
-                        restart_machine(host_snapshot, ctx).await?;
+                        restart_machine(&state.host_snapshot, ctx).await?;
 
                         *controller_state.modify() = ManagedHostState::HostNotReady {
                             machine_state: MachineState::Discovered,
@@ -194,40 +190,25 @@ impl StateHandler for DpuMachineStateHandler {
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::WaitingForLeafCreation,
             } => {
-                let host_mac = state
-                    .dpu_snapshot
-                    .hardware_info
-                    .as_ref()
-                    .map(|x| x.factory_mac_address())
-                    .ok_or_else(|| StateHandlerError::MissingData {
-                        object_id: machine_id.to_string(),
-                        missing: "Hardwarre Info",
-                    })?
-                    .map_err(|_| StateHandlerError::MissingData {
-                        object_id: machine_id.to_string(),
-                        missing: "dpu_info/factory_mac_address",
-                    })?;
-
-                let host_mi = MachineInterface::find_by_mac_address(txn, host_mac).await?;
-                let host_address = host_mi
-                    .get(0)
+                //TODO: In multi DPU setup, only one machine interface should be Primary per host.
+                let host_address = state
+                    .host_snapshot
+                    .interfaces
+                    .iter()
+                    .filter(|x| x.is_primary)
+                    .last()
                     .ok_or_else(|| StateHandlerError::MissingData {
                         object_id: machine_id.to_string(),
                         missing: "Host Interface",
                     })?
-                    .addresses()
-                    .get(0)
-                    .ok_or_else(|| StateHandlerError::MissingData {
-                        object_id: machine_id.to_string(),
-                        missing: "Host Address",
-                    })?;
+                    .ip_address;
 
                 // Create leaf and wait for it to get loopback ip.
                 if Poll::Pending
                     == create_leaf_and_wait_for_loopback_ip(
                         txn,
                         &state.dpu_snapshot.machine_id,
-                        host_address.address.ip(),
+                        host_address,
                         ctx,
                     )
                     .await?
@@ -332,25 +313,12 @@ impl StateHandler for HostMachineStateHandler {
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
-        let managed_state = &state.managed_state;
-
-        let Some(ref host_snapshot) = state.host_snapshot else {
-            // But in any other state, except WaitingForDiscovery, host snapshot is mandatory. Raise Error.
-            if let ManagedHostState::HostNotReady { machine_state: MachineState::WaitingForDiscovery} = &managed_state {
-                return Ok(());
-            }
-            return Err(StateHandlerError::HostSnapshotMissing(
-                machine_id.clone(),
-                managed_state.clone(),
-            ));
-        };
-
-        if let ManagedHostState::HostNotReady { machine_state } = &managed_state {
+        if let ManagedHostState::HostNotReady { machine_state } = &state.managed_state {
             match machine_state {
                 MachineState::Init => {
                     return Err(StateHandlerError::InvalidHostState(
                         machine_id.clone(),
-                        managed_state.clone(),
+                        state.managed_state.clone(),
                     ));
                 }
                 MachineState::WaitingForLeafCreation => {
@@ -362,14 +330,14 @@ impl StateHandler for HostMachineStateHandler {
                 MachineState::WaitingForDiscovery => {
                     if !discovered_after_state_transition(
                         state.dpu_snapshot.current.version,
-                        host_snapshot.last_discovery_time,
+                        state.host_snapshot.last_discovery_time,
                     )
                     .await?
                     {
                         return Ok(());
                     }
                     // Enable Bios/BMC lockdown now.
-                    lockdown_host(host_snapshot, ctx, true).await?;
+                    lockdown_host(&state.host_snapshot, ctx, true).await?;
 
                     *controller_state.modify() = ManagedHostState::HostNotReady {
                         machine_state: MachineState::WaitingForLockdown {
@@ -385,7 +353,7 @@ impl StateHandler for HostMachineStateHandler {
                     // Check if machine is rebooted. If yes, move to Ready state.
                     if !rebooted(
                         state.dpu_snapshot.current.version,
-                        host_snapshot.last_reboot_time,
+                        state.host_snapshot.last_reboot_time,
                     )
                     .await?
                     {
@@ -429,7 +397,7 @@ impl StateHandler for HostMachineStateHandler {
                                 .map_err(|e| StateHandlerError::GenericError(e.into()))?
                             {
                                 // reboot host
-                                restart_machine(host_snapshot, ctx).await?;
+                                restart_machine(&state.host_snapshot, ctx).await?;
                                 if LockdownMode::Enable == lockdown_info.mode {
                                     *controller_state.modify() = ManagedHostState::HostNotReady {
                                         machine_state: MachineState::Discovered,
@@ -529,10 +497,6 @@ impl StateHandler for InstanceStateHandler {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
-        let Some(ref host_snapshot) = state.host_snapshot else {
-            return Ok(());
-        };
-
         let Some(ref instance) = state.instance else {
             return Err(StateHandlerError::GenericError(eyre!("Instance is empty at this point. Cleanup is needed for dpu: {}.", machine_id)));
         };
@@ -569,7 +533,7 @@ impl StateHandler for InstanceStateHandler {
                     .await?;
 
                     // Reboot host
-                    restart_machine(host_snapshot, ctx).await?;
+                    restart_machine(&state.host_snapshot, ctx).await?;
 
                     // Instance is ready.
                     // We can not determine if machine is rebooted successfully or not. Just leave
@@ -587,7 +551,7 @@ impl StateHandler for InstanceStateHandler {
                         // Reboot host. Host will boot with carbide discovery image now. Changes
                         // are done in get_pxe_instructions api.
                         // User will loose all access to instance now.
-                        restart_machine(host_snapshot, ctx).await?;
+                        restart_machine(&state.host_snapshot, ctx).await?;
 
                         *controller_state.modify() = ManagedHostState::Assigned {
                             instance_state: InstanceState::BootingWithDiscoveryImage,
@@ -597,7 +561,7 @@ impl StateHandler for InstanceStateHandler {
                 InstanceState::BootingWithDiscoveryImage => {
                     if !rebooted(
                         state.dpu_snapshot.current.version,
-                        host_snapshot.last_reboot_time,
+                        state.host_snapshot.last_reboot_time,
                     )
                     .await?
                     {
@@ -648,7 +612,7 @@ impl StateHandler for InstanceStateHandler {
 
                     // TODO: TPM cleanup
                     // Reboot host
-                    restart_machine(host_snapshot, ctx).await?;
+                    restart_machine(&state.host_snapshot, ctx).await?;
 
                     *controller_state.modify() = ManagedHostState::WaitingForCleanup {
                         cleanup_state: CleanupState::HostCleanup,

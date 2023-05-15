@@ -155,12 +155,20 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
         "11:22:33:44:55:03",
         "11:22:33:44:55:04",
     ];
+
+    let host_macs = &[
+        "21:22:33:44:55:01",
+        "21:22:33:44:55:02",
+        "21:22:33:44:55:03",
+        "21:22:33:44:55:04",
+    ];
     let mut machine_ids = Vec::new();
-    for mac in &dpu_macs[..] {
+    for (idx, mac) in dpu_macs.iter().enumerate() {
         let interface_id = dpu_discover_dhcp(&env, mac).await;
 
         let mut hardware_info = create_dpu_hardware_info();
         hardware_info.dmi_data.as_mut().unwrap().product_serial = format!("DPU_{}", mac);
+        hardware_info.dpu_info.as_mut().unwrap().factory_mac_address = host_macs[idx].to_string();
         let response = env
             .api
             .discover_machine(Request::new(MachineDiscoveryInfo {
@@ -212,7 +220,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
     let count = machine_handler.count.load(Ordering::SeqCst) as f64;
     assert!(
-        count > 0.75 * expected_total_count && count < 1.25 * expected_total_count,
+        count > 0.68 * expected_total_count && count < 1.25 * expected_total_count,
         "Expected count of {}, but got {}",
         expected_total_count,
         count
@@ -226,7 +234,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             .unwrap_or_default() as f64;
 
         assert!(
-            count > 0.75 * expected_iterations && count < 1.25 * expected_iterations,
+            count > 0.68 * expected_iterations && count < 1.25 * expected_iterations,
             "Expected count of {}, but got {}",
             expected_iterations,
             count

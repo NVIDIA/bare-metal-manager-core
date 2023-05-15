@@ -152,8 +152,6 @@ pub enum StateHandlerError {
     VpcApiError(#[from] VpcApiError),
     #[error("Machine not found: {0}")]
     MachineNotFoundError(MachineId),
-    #[error("Host snapshot is missing for DPU {0} in state: {1}")]
-    HostSnapshotMissing(MachineId, ManagedHostState),
     // TODO: This should be replaced - but requires downstream errors to migrate
     // off from CarbideError
     #[error("Unable to load snapshot: {0}")]
