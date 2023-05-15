@@ -184,11 +184,11 @@ impl StateHandlerError {
             StateHandlerError::TransactionError(_) => "transaction_error",
             StateHandlerError::VpcApiError(_) => "vpc_api_error",
             StateHandlerError::MachineNotFoundError(_) => "machine_not_found_error",
-            StateHandlerError::HostSnapshotMissing(_, _) => "host_snapshot_missing",
             StateHandlerError::GenericError(_) => "generic_error",
             StateHandlerError::MissingData { .. } => "missing_data",
             StateHandlerError::DBError(_) => "db_error",
             StateHandlerError::PoolReleaseError(_) => "pool_release_error",
+            StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",
         }
     }
 }
