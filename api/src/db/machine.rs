@@ -29,12 +29,13 @@ use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
+use crate::model::bmc_info::BmcInfo;
 use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatus, ManagedHostNetworkConfig};
-use crate::model::machine::{BmcInfo, MachineState, ManagedHostState};
+use crate::model::machine::{MachineState, ManagedHostState};
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -140,6 +141,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             bmc_info: BmcInfo {
                 ip: None,
                 mac: None,
+                version: None,
+                firmware_version: None,
             },
             last_reboot_time: row.try_get("last_reboot_time")?,
             last_cleanup_time: row.try_get("last_cleanup_time")?,
@@ -238,7 +241,7 @@ impl From<Machine> for rpc::Machine {
                     }
                 }
             }),
-            bmc_info: Some(rpc::BmcInfo{ip: machine.bmc_info.ip, mac: machine.bmc_info.mac}),
+            bmc_info: Some(machine.bmc_info.into()),
         }
     }
 }
@@ -592,8 +595,7 @@ SELECT m.id FROM
 
             if let Some(topo) = topologies_for_machine.get(&machine.id) {
                 machine.hardware_info = Some(topo.topology().discovery_data.info.clone());
-                machine.bmc_info.ip = topo.topology().ipmi_ip.clone();
-                machine.bmc_info.mac = topo.topology().ipmi_mac.clone();
+                machine.bmc_info = topo.topology().bmc_info.clone();
             }
 
             if machine.hardware_info.is_none() {
@@ -623,8 +625,7 @@ SELECT m.id FROM
             MachineTopology::find_latest_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
         if let Some(topology) = topologies.remove(&self.id) {
             self.hardware_info = Some(topology.topology().discovery_data.info.clone());
-            self.bmc_info.ip = topology.topology().ipmi_ip.clone();
-            self.bmc_info.mac = topology.topology().ipmi_mac.clone();
+            self.bmc_info = topology.topology().bmc_info.clone();
         }
 
         Ok(())

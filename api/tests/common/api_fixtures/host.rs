@@ -43,6 +43,8 @@ pub const FIXTURE_HOST_MAC_ADDRESS: &str = "03:11:21:31:41:52";
 
 pub const FIXTURE_HOST_BMC_IP_ADDRESS: &str = "233.233.233.3";
 pub const FIXTURE_HOST_BMC_MAC_ADDRESS: &str = "11:22:33:44:55:67";
+pub const FIXTURE_HOST_BMC_VERSION: &str = "4.3";
+pub const FIXTURE_HOST_BMC_FIRMWARE_VERSION: &str = "5.4";
 
 pub const FIXTURE_HOST_BMC_ADMIN_USER_NAME: &str = "forge_admin_host";
 
@@ -139,6 +141,8 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
         FIXTURE_HOST_BMC_IP_ADDRESS,
         FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
         FIXTURE_HOST_BMC_MAC_ADDRESS.to_string(),
+        FIXTURE_HOST_BMC_VERSION.to_owned(),
+        FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
     )
     .await;
 

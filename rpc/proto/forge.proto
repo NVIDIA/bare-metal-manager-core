@@ -793,6 +793,8 @@ enum MachineType {
 message BmcInfo {
   optional string ip = 1;
   optional string mac = 2;
+  optional string version = 3;
+  optional string firmware_version = 4;
 }
 
 message Machine {
@@ -1093,10 +1095,9 @@ message BMCMetaDataUpdateRequest {
     }
 
     MachineId machine_id = 1;
-    string ip = 2;
-    repeated DataItem data = 3;
-    BMCRequestType request_type = 4;
-    string mac = 5;
+    repeated DataItem data = 2;
+    BMCRequestType request_type = 3;
+    BmcInfo bmc_info = 4;
 }
 
 message BMCMetaDataUpdateResponse {}

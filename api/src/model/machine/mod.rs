@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use self::network::ManagedHostNetworkConfig;
 use super::{
+    bmc_info::BmcInfo,
     config_version::{ConfigVersion, Versioned},
     instance::snapshot::InstanceSnapshot,
 };
@@ -205,13 +206,6 @@ impl Display for ManagedHostState {
             ManagedHostState::Created => write!(f, "Created"),
         }
     }
-}
-
-/// BMC related information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BmcInfo {
-    pub ip: Option<String>,
-    pub mac: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

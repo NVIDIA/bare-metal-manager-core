@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use carbide::model::bmc_info::BmcInfo;
 use carbide::model::machine::machine_id::try_parse_machine_id;
 use log::LevelFilter;
 use sqlx::PgPool;
@@ -54,7 +55,6 @@ async fn machine_bmc_credential_update(pool: PgPool) {
     let credentials_provider = TestCredentialProvider::new();
     BmcMetaDataUpdateRequest {
         machine_id: dpu_machine_id.clone(),
-        ip: "127.0.0.2".to_string(),
         data: DATA
             .iter()
             .map(|x| BmcMetadataItem {
@@ -63,7 +63,13 @@ async fn machine_bmc_credential_update(pool: PgPool) {
                 password: x.2.to_string(),
             })
             .collect::<Vec<BmcMetadataItem>>(),
-        mac: "01:02:03:04:05:06".to_string(),
+
+        bmc_info: BmcInfo {
+            ip: Some("127.0.0.2".to_string()),
+            mac: Some("01:02:03:04:05:06".to_string()),
+            version: Some("1".to_string()),
+            firmware_version: Some("2".to_string()),
+        },
     }
     .update_bmc_meta_data(&mut txn, &credentials_provider)
     .await
@@ -86,6 +92,7 @@ async fn machine_bmc_credential_update(pool: PgPool) {
         assert_eq!(response.ip, "127.0.0.2".to_string());
         assert_eq!(response.user, d.1.to_string());
         assert_eq!(response.password, d.2.to_string());
+        assert_eq!(response.mac, "01:02:03:04:05:06".to_string());
     }
 }
 

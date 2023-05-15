@@ -231,6 +231,8 @@ mod tests {
                 bmc_info: Some(BmcInfo {
                     ip: None,
                     mac: None,
+                    version: None,
+                    firmware_version: None,
                 }),
             }),
         };

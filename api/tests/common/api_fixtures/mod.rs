@@ -39,7 +39,7 @@ use carbide::{
 };
 use chrono::Duration;
 use rpc::forge::{
-    forge_server::Forge, BmcMetaDataUpdateRequest, ForgeAgentControlRequest,
+    forge_server::Forge, BmcInfo, BmcMetaDataUpdateRequest, ForgeAgentControlRequest,
     ForgeAgentControlResponse, MachineDiscoveryCompletedRequest,
 };
 use sqlx::PgPool;
@@ -292,19 +292,27 @@ pub async fn update_bmc_metadata(
     bmc_ip_address: &str,
     admin_user: String,
     bmc_mac_address: String,
+    bmc_version: String,
+    bmc_firmware_version: String,
 ) {
+    let bmc_info = BmcInfo {
+        ip: Some(bmc_ip_address.to_owned()),
+        mac: Some(bmc_mac_address.to_owned()),
+        version: Some(bmc_version),
+        firmware_version: Some(bmc_firmware_version),
+    };
+
     let _response = env
         .api
         .update_bmc_meta_data(Request::new(BmcMetaDataUpdateRequest {
             machine_id: Some(machine_id),
-            ip: bmc_ip_address.to_string(),
             data: vec![rpc::forge::bmc_meta_data_update_request::DataItem {
                 user: admin_user,
                 password: "notforprod".to_string(),
                 role: rpc::forge::UserRoles::Administrator as i32,
             }],
             request_type: rpc::forge::BmcRequestType::Redfish as i32,
-            mac: bmc_mac_address,
+            bmc_info: Some(bmc_info),
         }))
         .await
         .unwrap()

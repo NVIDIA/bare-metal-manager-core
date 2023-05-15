@@ -22,13 +22,13 @@ use regex::Regex;
 use tokio::time::{sleep, Duration};
 use uname::uname;
 
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, BmcInfo, BmcMetaDataUpdateRequest};
 use ::rpc::forge_tls_client::ForgeClientT;
 use forge_host_support::hardware_enumeration::{CpuArchitecture, HardwareEnumerationError};
 
 use crate::CarbideClientError;
 use crate::CarbideClientResult;
-use crate::IN_QEMU_VM;
+//use crate::IN_QEMU_VM;
 
 const PASSWORD_LEN: usize = 16;
 
@@ -72,39 +72,10 @@ impl IpmitoolRoles {
 const FORGE_ADMIN_USER_NAME: &str = "forge_admin";
 
 #[derive(Debug)]
-struct IpmiInfo {
+pub struct IpmiUser {
     user: String,
     role: IpmitoolRoles,
     password: String,
-}
-
-impl IpmiInfo {
-    fn convert(
-        value: Vec<IpmiInfo>,
-        machine_id: &str,
-        ip: String,
-        mac: String,
-    ) -> Result<rpc::BmcMetaDataUpdateRequest, CarbideClientError> {
-        let mut bmc_meta_data = rpc::BmcMetaDataUpdateRequest {
-            machine_id: Some(machine_id.to_string().into()),
-            ip,
-            data: Vec::new(),
-            request_type: rpc::BmcRequestType::Ipmi as i32,
-            mac,
-        };
-
-        for v in value {
-            bmc_meta_data
-                .data
-                .push(rpc::bmc_meta_data_update_request::DataItem {
-                    user: v.user.clone(),
-                    password: v.password.clone(),
-                    role: v.role.convert()? as i32,
-                });
-        }
-
-        Ok(bmc_meta_data)
-    }
 }
 
 struct Cmd {
@@ -167,41 +138,82 @@ fn get_lan_print() -> CarbideClientResult<String> {
         Cmd::default().args(vec!["lan", "print"]).output()
     }
 }
+fn get_bmc_info() -> CarbideClientResult<String> {
+    if cfg!(test) {
+        std::fs::read_to_string("test/bmc_info.txt")
+            .map_err(|x| CarbideClientError::GenericError(x.to_string()))
+    } else {
+        Cmd::default().args(vec!["bmc", "info"]).output()
+    }
+}
 
-fn fetch_ipmi_network_config() -> CarbideClientResult<(String, String)> {
-    let ip_pattern = Regex::new("IP Address *: (.*?)$")?;
-    let mac_pattern = Regex::new("MAC Address *: (.*?)$")?;
-    log::info!("Fetching BMC Network Config.");
+fn fetch_bmc_network_config() -> CarbideClientResult<(Option<String>, Option<String>)> {
+    let versions_pattern = Regex::new("(?s)IP Address *: (.*?)\n.*MAC Address *: (.*?)\n")?;
+    debug!("Fetching BMC Network Information.");
     let output = get_lan_print()?;
-    let ip = output
-        .lines()
-        .filter_map(|line| ip_pattern.captures(line))
-        .map(|x| x[1].trim().to_string())
-        .take(1)
-        .collect::<Vec<String>>();
+    let captures = versions_pattern
+        .captures(&output)
+        .ok_or(CarbideClientError::GenericError(
+            "Could not find BMC network information.".to_string(),
+        ))?;
 
-    if ip.is_empty() {
-        log::error!("Could not find IP address. Output: {}", output);
-        return Err(CarbideClientError::GenericError(
-            "Could not find IP address.".to_string(),
-        ));
-    }
+    let bmc_ip = captures.get(1).and_then(|m| {
+        let match_str = m.as_str();
+        if match_str.trim().is_empty() {
+            None
+        } else {
+            Some(match_str.to_owned())
+        }
+    });
 
-    let mac = output
-        .lines()
-        .filter_map(|line| mac_pattern.captures(line))
-        .map(|x| x[1].trim().to_string())
-        .take(1)
-        .collect::<Vec<String>>();
+    let bmc_mac = captures.get(2).and_then(|m| {
+        let match_str = m.as_str();
+        if match_str.trim().is_empty() {
+            None
+        } else {
+            Some(match_str.to_owned())
+        }
+    });
 
-    if mac.is_empty() {
-        log::error!("Could not find MAC address. Output: {}", output);
-        return Err(CarbideClientError::GenericError(
-            "Could not find MAC address.".to_string(),
-        ));
-    }
-    debug!("BMC IP: {} MAC: {}", ip[0], mac[0]);
-    Ok((ip[0].clone(), mac[0].clone()))
+    debug!("BMC IP: {:?} BMC MAC: {:?}", bmc_ip, bmc_mac);
+
+    Ok((bmc_ip, bmc_mac))
+}
+
+fn fetch_bmc_info() -> CarbideClientResult<(Option<String>, Option<String>)> {
+    let versions_pattern = Regex::new("Device Revision *: (.*?)\n.*Firmware Revision *: (.*?)\n")?;
+    debug!("Fetching BMC Version Information.");
+    let output = get_bmc_info()?;
+    let captures = versions_pattern
+        .captures(&output)
+        .ok_or(CarbideClientError::GenericError(
+            "Could not find BMC information.".to_string(),
+        ))?;
+
+    let device_version = captures.get(1).and_then(|m| {
+        let match_str = m.as_str();
+        if match_str.trim().is_empty() {
+            None
+        } else {
+            Some(match_str.to_owned())
+        }
+    });
+
+    let firmware_version = captures.get(2).and_then(|m| {
+        let match_str = m.as_str();
+        if match_str.trim().is_empty() {
+            None
+        } else {
+            Some(match_str.to_owned())
+        }
+    });
+
+    debug!(
+        "BMC device version: {:?} firmware version: {:?}",
+        device_version, firmware_version
+    );
+
+    Ok((device_version, firmware_version))
 }
 
 fn get_user_list(test_list: Option<&str>) -> CarbideClientResult<String> {
@@ -390,8 +402,7 @@ fn set_ipmi_sol(id: &String) -> CarbideClientResult<()> {
     Ok(())
 }
 
-fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String, String)> {
-    let (ip, mac) = fetch_ipmi_network_config()?;
+pub fn set_ipmi_creds() -> CarbideClientResult<IpmiUser> {
     let (mut free_users, existing_users) = fetch_ipmi_users_and_free_ids(None)?;
 
     // first, we create users, if we need to.
@@ -442,48 +453,48 @@ fn set_ipmi_creds() -> CarbideClientResult<(IpmiInfo, String, String)> {
         error!("Failed to enable SOL: {}", e);
     }
 
-    Ok((
-        IpmiInfo {
-            user: FORGE_ADMIN_USER_NAME.to_string(),
-            role: IpmitoolRoles::Administrator,
-            password,
-        },
-        ip,
-        mac,
-    ))
+    Ok(IpmiUser {
+        user: FORGE_ADMIN_USER_NAME.to_string(),
+        role: IpmitoolRoles::Administrator,
+        password,
+    })
 }
 
-pub async fn retrieve_ipmi_network(
+pub async fn send_bmc_metadata_update(
     forge_client: &mut ForgeClientT,
     machine_id: &str,
+    ipmi_users: Vec<IpmiUser>,
 ) -> CarbideClientResult<()> {
     wait_until_ipmi_is_ready().await?;
 
-    let (ip, mac) = fetch_ipmi_network_config()?;
-    let bmc_metadata: rpc::BmcMetaDataUpdateRequest =
-        IpmiInfo::convert(vec![], machine_id, ip, mac)?;
+    let (bmc_ip, bmc_mac) = fetch_bmc_network_config()?;
+    let (bmc_version, bmc_firmware_version) = fetch_bmc_info()?;
 
-    let request = tonic::Request::new(bmc_metadata);
-    forge_client.update_bmc_meta_data(request).await?;
+    let data = ipmi_users
+        .into_iter()
+        .map(|u| {
+            let role = u.role.convert()?;
+            Ok(rpc::bmc_meta_data_update_request::DataItem {
+                user: u.user,
+                password: u.password,
+                role: role as i32,
+            })
+        })
+        .collect::<Result<Vec<_>, CarbideClientError>>()?;
 
-    Ok(())
-}
+    let bmc_metadata_request = BmcMetaDataUpdateRequest {
+        machine_id: Some(machine_id.to_owned().into()),
+        data,
+        request_type: rpc::BmcRequestType::Ipmi as i32,
+        bmc_info: Some(BmcInfo {
+            ip: bmc_ip,
+            mac: bmc_mac,
+            version: bmc_version,
+            firmware_version: bmc_firmware_version,
+        }),
+    };
 
-pub async fn update_ipmi_creds(
-    forge_client: &mut ForgeClientT,
-    machine_id: &str,
-) -> CarbideClientResult<()> {
-    if IN_QEMU_VM.read().await.in_qemu {
-        return retrieve_ipmi_network(forge_client, machine_id).await;
-    }
-
-    wait_until_ipmi_is_ready().await?;
-
-    let (ipmi_info, ip, mac) = set_ipmi_creds()?;
-    let bmc_metadata: rpc::BmcMetaDataUpdateRequest =
-        IpmiInfo::convert(vec![ipmi_info], machine_id, ip, mac)?;
-
-    let request = tonic::Request::new(bmc_metadata);
+    let request = tonic::Request::new(bmc_metadata_request);
     forge_client.update_bmc_meta_data(request).await?;
 
     Ok(())
@@ -528,13 +539,15 @@ mod tests {
 
     static EXPECTED_IP: &str = "127.0.0.2";
     static EXPECTED_MAC: &str = "10:70:fd:18:0f:be";
+    static EXPECTED_BMC_VERSION: &str = "1";
+    static EXPECTED_BMC_FIRMWARE_VERSION: &str = "5.10";
 
     #[tokio::test]
     async fn test_ipmi_ip() {
-        let (ip, mac) = fetch_ipmi_network_config().unwrap();
+        let (ip, mac) = fetch_bmc_network_config().unwrap();
 
-        assert_eq!(ip, EXPECTED_IP);
-        assert_eq!(mac, EXPECTED_MAC);
+        assert_eq!(ip, Some(EXPECTED_IP.to_owned()));
+        assert_eq!(mac, Some(EXPECTED_MAC.to_owned()));
     }
 
     #[tokio::test]
@@ -575,5 +588,16 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_bmc_info() {
+        let (bmc_device_version, bmc_firmware_version) = fetch_bmc_info().unwrap();
+
+        assert_eq!(bmc_device_version, Some(EXPECTED_BMC_VERSION.to_owned()));
+        assert_eq!(
+            bmc_firmware_version,
+            Some(EXPECTED_BMC_FIRMWARE_VERSION.to_owned())
+        );
     }
 }

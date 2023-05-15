@@ -27,6 +27,7 @@ use crate::bg::{CurrentState, Status, TaskState};
 use crate::db::dpu_machine::DpuMachine;
 use crate::db::instance::Instance;
 use crate::db::ipmi::{BmcMetaDataGetRequest, UserRoles};
+use crate::model::bmc_info::BmcInfo;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::reachability::{
     wait_for_requested_state, PingReachabilityChecker, Reachability, ReachabilityError,
@@ -600,18 +601,23 @@ impl MachineBmcRequest {
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin invoke_bmc_command", e))?;
 
         let role = UserRoles::Administrator;
-        let (ip, _) = BmcMetaDataGetRequest {
+        let bmc_info = BmcMetaDataGetRequest {
             machine_id: self.machine_id.clone(),
             role,
         }
-        .get_bmc_host_ip(&mut txn)
+        .get_bmc_information(&mut txn)
         .await?;
 
         txn.commit()
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit invoke_bmc_command", e))?;
 
-        let ipmi_command = IpmiCommand::new(ip, self.machine_id.clone(), role);
+        let Some(bmc_ip) = bmc_info.ip else {
+            log::error!("IP address is missing for BMC");
+            return Err(CarbideError::InvalidArgument("Missing IP adress for BMC".to_owned()));
+        };
+
+        let ipmi_command = IpmiCommand::new(bmc_ip, self.machine_id.clone(), role);
 
         let task_id = match self.operation {
             Operation::Reset => ipmi_command.power_reset(&pool).await?,
@@ -642,12 +648,17 @@ impl MachineBmcRequest {
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin invoke_bmc_command", e))?;
 
         let role = UserRoles::Administrator;
-        let (bmc_ip, _) = BmcMetaDataGetRequest {
+        let BmcInfo { ip, .. } = BmcMetaDataGetRequest {
             machine_id: self.machine_id.clone(),
             role,
         }
-        .get_bmc_host_ip(&mut txn)
+        .get_bmc_information(&mut txn)
         .await?;
+
+        let Some(bmc_ip) = ip else {
+            log::error!("IP address is missing for BMC");
+            return Err(CarbideError::InvalidArgument("Missing IP adress for BMC".to_owned()));
+        };
 
         txn.commit()
             .await

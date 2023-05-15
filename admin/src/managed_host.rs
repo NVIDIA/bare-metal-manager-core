@@ -12,81 +12,101 @@
 
 use ::rpc::forge::{MachineInterface, MachineType};
 use ::rpc::Machine;
-use prettytable::{row, Table};
+use prettytable::{row, Row, Table};
+use serde::Serialize;
 use tracing::warn;
 
-use super::{rpc, CarbideCliResult};
 use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
 use crate::Config;
 
+use super::{rpc, CarbideCliResult};
+
+use std::convert::From;
+
 const UNKNOWN: &str = "Unknown";
 
-fn get_serial_and_version(machine: &Machine) -> (String, String) {
-    machine
-        .discovery_info
-        .as_ref()
-        .map_or((UNKNOWN.to_owned(), UNKNOWN.to_owned()), |di| {
-            di.dmi_data
-                .as_ref()
-                .map_or((UNKNOWN.to_owned(), UNKNOWN.to_owned()), |dmi| {
-                    let bios_version = if !dmi.bios_version.is_empty() {
-                        dmi.bios_version.clone()
-                    } else {
-                        UNKNOWN.to_owned()
-                    };
-                    let chassis_serial = if !dmi.chassis_serial.is_empty() {
-                        dmi.chassis_serial.clone()
-                    } else {
-                        UNKNOWN.to_owned()
-                    };
-
-                    (chassis_serial, bios_version)
-                })
-        })
+macro_rules! get_dmi_data_from_machine {
+    ($m:ident, $d:ident) => {
+        $m.discovery_info
+            .as_ref()
+            .and_then(|di| di.dmi_data.as_ref())
+            .and_then(|dd| {
+                if dd.$d.trim().is_empty() {
+                    None
+                } else {
+                    Some(dd.$d.clone())
+                }
+            })
+    };
 }
 
-fn get_bmc_info(machine: &Machine) -> (String, String) {
-    match machine.bmc_info.as_ref() {
-        Some(bmc_info) => (
-            bmc_info
-                .ip
-                .as_ref()
-                .map_or(UNKNOWN.to_owned(), |ip| ip.clone()),
-            bmc_info
-                .mac
-                .as_ref()
-                .map_or(UNKNOWN.to_owned(), |mac| mac.clone()),
-        ),
-        None => (UNKNOWN.to_owned(), UNKNOWN.to_owned()),
+macro_rules! get_bmc_info_from_machine {
+    ($m:ident, $d:ident) => {
+        $m.bmc_info
+            .as_ref()
+            .and_then(|bi| bi.$d.as_ref())
+            .and_then(|value| {
+                if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(value.clone())
+                }
+            })
+    };
+}
+
+#[derive(Default, Serialize)]
+struct ManagedHostOutput {
+    hostname: Option<String>,
+    machine_id: Option<String>,
+    host_serial_number: Option<String>,
+    host_bios_version: Option<String>,
+    host_bmc_ip: Option<String>,
+    host_bmc_mac: Option<String>,
+    host_bmc_version: Option<String>,
+    host_bmc_firmware_version: Option<String>,
+    dpu_machine_id: Option<String>,
+    dpu_serial_number: Option<String>,
+    dpu_bios_version: Option<String>,
+    dpu_bmc_ip: Option<String>,
+    dpu_bmc_mac: Option<String>,
+    dpu_bmc_version: Option<String>,
+    dpu_bmc_firmware_version: Option<String>,
+    dpu_oob_ip: Option<String>,
+    dpu_oob_mac: Option<String>,
+}
+
+impl From<ManagedHostOutput> for Row {
+    fn from(value: ManagedHostOutput) -> Self {
+        row![
+            value.hostname.unwrap_or(UNKNOWN.to_owned()),
+            value.machine_id.unwrap_or(UNKNOWN.to_owned()),
+            value.host_serial_number.unwrap_or(UNKNOWN.to_owned()),
+            value.host_bios_version.unwrap_or(UNKNOWN.to_owned()),
+            value.host_bmc_ip.unwrap_or(UNKNOWN.to_owned()),
+            value.host_bmc_mac.unwrap_or(UNKNOWN.to_owned()),
+            value.host_bmc_version.unwrap_or(UNKNOWN.to_owned()),
+            value
+                .host_bmc_firmware_version
+                .unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_machine_id.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_serial_number.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_bios_version.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_bmc_ip.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_bmc_mac.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_bmc_version.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_bmc_firmware_version.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_oob_ip.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_oob_mac.unwrap_or(UNKNOWN.to_owned()),
+        ]
     }
 }
 
-fn convert_managed_hosts_to_nice_output(machines: Vec<Machine>) -> Box<Table> {
-    let mut table = Table::new();
-
-    // TODO additional discovery work needed for remaining information
-    table.add_row(row![
-        "Hostname",
-        "Machine ID",
-        "Host BMC IP",
-        "Host BMC MAC",
-        //        "Host BMC Firmware Version",
-        //        "Host BMC Version",
-        //        "Host BMC Serial Number",
-        "Host Serial Number",
-        "Host BIOS Version",
-        // DPU IPMI data not shown because it is reliably available
-        //        "DPU BMC IP",
-        //        "DPU BMC MAC",
-        "DPU OOB IP",
-        "DPU OOB MAC",
-        //        "DPU Firmware Version",
-        //        "DPU BMC Version",
-        "DPU Serial Number",
-        "DPU Bios Version",
-    ]);
+fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
+    let mut result = Vec::default();
 
     for machine in machines.iter() {
+        let mut managed_host_output = ManagedHostOutput::default();
         if machine.machine_type != MachineType::Host as i32 {
             continue;
         }
@@ -119,92 +139,79 @@ fn convert_managed_hosts_to_nice_output(machines: Vec<Machine>) -> Box<Table> {
         }
 
         let primary_interface = &machine_interfaces[0];
-        let hostname = primary_interface.hostname.to_owned();
-        let (host_serial_number, host_bios_version) = get_serial_and_version(machine);
-        let (host_bmc_ip, host_bmc_mac) = get_bmc_info(machine);
 
-        let (
-            dpu_oob_ip,
-            dpu_oob_mac,
-            dpu_serial_number,
-            dpu_bios_version,
-            _dpu_bmc_ip,
-            _dpu_bmc_mac,
-        ) = if let Some(dpu_machine_id) = primary_interface.attached_dpu_machine_id.as_ref() {
-            let dpu_machine = machines
-                .iter()
-                .find(|m| m.id.as_ref().map_or(false, |id| id == dpu_machine_id));
+        managed_host_output.machine_id = Some(machine_id.to_string());
+        managed_host_output.host_serial_number =
+            get_dmi_data_from_machine!(machine, chassis_serial);
+        managed_host_output.host_bios_version = get_dmi_data_from_machine!(machine, bios_version);
+        managed_host_output.host_bmc_ip = get_bmc_info_from_machine!(machine, ip);
+        managed_host_output.host_bmc_mac = get_bmc_info_from_machine!(machine, mac);
+        managed_host_output.host_bmc_version = get_bmc_info_from_machine!(machine, version);
+        managed_host_output.host_bmc_firmware_version =
+            get_bmc_info_from_machine!(machine, firmware_version);
 
-            let (dpu_serial_number, dpu_bios_version, dpu_bmc_ip, dpu_bmc_mac) = match dpu_machine {
-                Some(dpu_machine) => {
-                    let (dpu_serial_number, dpu_bios_version) = get_serial_and_version(dpu_machine);
-                    let (dpu_bmc_ip, dpu_bmc_mac) = get_bmc_info(machine);
+        if let Some(dpu_machine_id) = primary_interface.attached_dpu_machine_id.as_ref() {
+            if dpu_machine_id != machine_id {
+                let dpu_machine = machines
+                    .iter()
+                    .find(|m| m.id.as_ref().map_or(false, |id| id == dpu_machine_id));
 
-                    (dpu_serial_number, dpu_bios_version, dpu_bmc_ip, dpu_bmc_mac)
-                }
-                None => {
-                    warn!(
-                        "DPU Not found for machine id {:?}",
-                        primary_interface.attached_dpu_machine_id
-                    );
-                    (
-                        UNKNOWN.to_owned(),
-                        UNKNOWN.to_owned(),
-                        UNKNOWN.to_owned(),
-                        UNKNOWN.to_owned(),
-                    )
-                }
-            };
+                if let Some(dpu_machine) = dpu_machine {
+                    managed_host_output.dpu_machine_id = Some(dpu_machine_id.to_string());
+                    managed_host_output.dpu_serial_number =
+                        get_dmi_data_from_machine!(dpu_machine, chassis_serial);
+                    managed_host_output.dpu_bios_version =
+                        get_dmi_data_from_machine!(dpu_machine, bios_version);
+                    managed_host_output.dpu_bmc_ip = get_bmc_info_from_machine!(dpu_machine, ip);
+                    managed_host_output.dpu_bmc_mac = get_bmc_info_from_machine!(dpu_machine, mac);
+                    managed_host_output.dpu_bmc_version =
+                        get_bmc_info_from_machine!(dpu_machine, version);
+                    managed_host_output.dpu_bmc_firmware_version =
+                        get_bmc_info_from_machine!(dpu_machine, firmware_version);
 
-            machine
-                .interfaces
-                .iter()
-                .find(|x| x.primary_interface)
-                .map_or(
-                    (
-                        UNKNOWN.to_owned(),
-                        UNKNOWN.to_owned(),
-                        UNKNOWN.to_owned(),
-                        UNKNOWN.to_owned(),
-                        UNKNOWN.to_owned(),
-                        UNKNOWN.to_owned(),
-                    ),
-                    |primary_interface| {
-                        (
-                            primary_interface.address.join(","),
-                            primary_interface.mac_address.to_owned(),
-                            dpu_serial_number,
-                            dpu_bios_version,
-                            dpu_bmc_ip,
-                            dpu_bmc_mac,
-                        )
-                    },
-                )
-        } else {
-            (
-                UNKNOWN.to_owned(),
-                UNKNOWN.to_owned(),
-                UNKNOWN.to_owned(),
-                UNKNOWN.to_owned(),
-                UNKNOWN.to_owned(),
-                UNKNOWN.to_owned(),
-            )
+                    if let Some(primary_interface) =
+                        dpu_machine.interfaces.iter().find(|x| x.primary_interface)
+                    {
+                        managed_host_output.dpu_oob_ip = Some(primary_interface.address.join(","));
+                        managed_host_output.dpu_oob_mac =
+                            Some(primary_interface.mac_address.to_owned());
+                    }
+                };
+            }
         };
 
-        table.add_row(row![
-            hostname,
-            machine_id,
-            host_bmc_ip,
-            host_bmc_mac,
-            host_serial_number,
-            host_bios_version,
-            //dpu_bmc_ip,
-            //dpu_bmc_mac,
-            dpu_oob_ip,
-            dpu_oob_mac,
-            dpu_serial_number,
-            dpu_bios_version,
-        ]);
+        result.push(managed_host_output);
+    }
+
+    result
+}
+
+fn convert_managed_hosts_to_nice_output(managed_hosts: Vec<ManagedHostOutput>) -> Box<Table> {
+    let mut table = Table::new();
+
+    // TODO additional discovery work needed for remaining information
+    table.add_row(row![
+        "Hostname",
+        "Machine ID",
+        "Host Serial Number",
+        "Host BIOS Version",
+        "Host BMC IP",
+        "Host BMC MAC",
+        "Host BMC Version",
+        "Host BMC Firmware Version",
+        "DPU Machine ID",
+        "DPU Serial Number",
+        "DPU Bios Version",
+        "DPU BMC IP",
+        "DPU BMC MAC",
+        "DPU BMC Version",
+        "DPU Firmware Version",
+        "DPU OOB IP",
+        "DPU OOB MAC",
+    ]);
+
+    for managed_host in managed_hosts {
+        table.add_row(managed_host.into());
     }
 
     table.into()
@@ -215,20 +222,22 @@ async fn show_managed_hosts(
     output_format: OutputFormat,
     machines: Vec<Machine>,
 ) -> CarbideCliResult<()> {
+    let managed_hosts = get_managed_host_output(machines);
+
     match output_format {
-        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&machines).unwrap()),
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&managed_hosts).unwrap()),
         OutputFormat::Csv => {
-            let result = convert_managed_hosts_to_nice_output(machines);
+            let result = convert_managed_hosts_to_nice_output(managed_hosts);
 
             if let Err(error) = result.to_csv(output) {
                 warn!("Error writing csv data: {}", error);
             }
         }
         _ => {
-            let result = convert_managed_hosts_to_nice_output(machines);
+            let result = convert_managed_hosts_to_nice_output(managed_hosts);
 
             if let Err(error) = result.print(output) {
-                warn!("Error writing csv data: {}", error);
+                warn!("Error writing table data: {}", error);
             }
         }
     }

@@ -25,6 +25,7 @@ use std::ops::{Deref, DerefMut};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
+pub mod bmc_info;
 pub mod config_version;
 pub mod hardware_info;
 pub mod ib_subnet;

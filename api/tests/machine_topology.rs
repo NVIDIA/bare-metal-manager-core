@@ -154,7 +154,7 @@ async fn test_topology_missing_mac_field(pool: PgPool) {
 
     let mut txn = pool.begin().await.unwrap();
 
-    let query = r#"UPDATE machine_topologies SET topology = (SELECT topology::jsonb - 'ipmi_mac' FROM machine_topologies WHERE machine_id=$1) where machine_id=$1;"#;
+    let query = r#"UPDATE machine_topologies SET topology = (SELECT topology::jsonb #- '{bmc_info,mac}' FROM machine_topologies WHERE machine_id=$1) where machine_id=$1;"#;
 
     sqlx::query(query)
         .bind(rpc_machine_id.to_string())

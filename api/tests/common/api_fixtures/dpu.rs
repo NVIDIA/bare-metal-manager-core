@@ -43,6 +43,8 @@ pub const FIXTURE_DPU_MAC_ADDRESS: &str = "01:11:21:31:41:51";
 /// We might need a more extensive BMC simulation for this
 pub const FIXTURE_DPU_BMC_IP_ADDRESS: &str = "233.233.233.2";
 pub const FIXTURE_DPU_BMC_MAC_ADDRESS: &str = "11:22:33:44:55:66";
+pub const FIXTURE_DPU_BMC_VERSION: &str = "2.1";
+pub const FIXTURE_DPU_BMC_FIRMWARE_VERSION: &str = "3.2";
 
 pub const FIXTURE_DPU_BMC_ADMIN_USER_NAME: &str = "forge_admin";
 
@@ -87,6 +89,8 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
         FIXTURE_DPU_BMC_IP_ADDRESS,
         FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
         FIXTURE_DPU_BMC_MAC_ADDRESS.to_string(),
+        FIXTURE_DPU_BMC_VERSION.to_owned(),
+        FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_owned(),
     )
     .await;
 

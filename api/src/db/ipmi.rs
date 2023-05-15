@@ -17,9 +17,11 @@ use ::rpc::forge as rpc;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
 use sqlx::{Postgres, Transaction};
 
 use super::{machine::DbMachineId, DatabaseError};
+use crate::model::bmc_info::BmcInfo;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::{CarbideError, CarbideResult};
 
@@ -52,12 +54,6 @@ pub struct BmcMetaDataGetRequest {
     pub role: UserRoles,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct MachineHostInformation {
-    pub address: String,
-    pub mac: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BmcMetadataItem {
     pub username: String,
@@ -67,9 +63,8 @@ pub struct BmcMetadataItem {
 
 pub struct BmcMetaDataUpdateRequest {
     pub machine_id: MachineId,
-    pub ip: String,
     pub data: Vec<BmcMetadataItem>,
-    pub mac: String,
+    pub bmc_info: BmcInfo,
 }
 
 impl From<rpc::UserRoles> for UserRoles {
@@ -141,8 +136,8 @@ impl BmcMetaDataGetRequest {
     where
         C: CredentialProvider + ?Sized,
     {
-        let (address, mac) = self.get_bmc_host_ip(txn).await?;
-
+        let bmc_info = self.get_bmc_information(txn).await?;
+        tracing::info!("got bmc_info: {:?}", bmc_info);
         let credentials = credential_provider
             .get_credentials(CredentialKey::Bmc {
                 machine_id: self.machine_id.to_string(),
@@ -158,30 +153,25 @@ impl BmcMetaDataGetRequest {
         };
 
         Ok(rpc::BmcMetaDataGetResponse {
-            ip: address,
-            mac,
+            ip: bmc_info.ip.unwrap_or_default(),
+            mac: bmc_info.mac.unwrap_or_default(),
             user: username,
             password,
         })
     }
 
-    pub async fn get_bmc_host_ip(
+    pub async fn get_bmc_information(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<(String, String), DatabaseError> {
-        let query = r#"SELECT machine_topologies.topology->>'ipmi_ip' as address, machine_topologies.topology->>'ipmi_mac' as mac
-            FROM machine_topologies WHERE machine_id=$1"#;
-        sqlx::query_as::<_, MachineHostInformation>(query)
+    ) -> Result<BmcInfo, DatabaseError> {
+        let query = r#"SELECT machine_topologies.topology->>'bmc_info' as bmc_info FROM machine_topologies WHERE machine_id=$1"#;
+        let bmc_info = sqlx::query_as::<_, BmcInfo>(query)
             .bind(self.machine_id.to_string())
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-            .map(|machine_host_information| {
-                (
-                    machine_host_information.address,
-                    machine_host_information.mac.unwrap_or("".to_owned()),
-                )
-            })
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(bmc_info)
     }
 }
 
@@ -207,9 +197,8 @@ impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
                     return Err(CarbideError::GenericError("Machine id is null".to_string()));
                 }
             },
-            ip: request.ip,
-            mac: request.mac,
             data,
+            bmc_info: request.bmc_info.unwrap_or_default().into(),
         })
     }
 }
@@ -243,21 +232,18 @@ impl BmcMetaDataUpdateRequest {
         Ok(())
     }
 
-    async fn update_ipmi_network_into_topologies(
+    async fn update_bmc_network_into_topologies(
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         // A entry with same machine id is already created by discover_machine call.
         // Just update json by adding a ipmi_ip entry.
-        let query = "
-UPDATE machine_topologies
-SET topology = jsonb_set(jsonb_set(topology, '{ipmi_mac}', $2, true), '{ipmi_ip}', $1, true)
-WHERE machine_id=$3
-RETURNING machine_id";
+        let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}', $1, true) WHERE machine_id=$2 RETURNING machine_id";
+        let bmc_info: BmcInfo = self.bmc_info.clone();
+        tracing::info!("put bmc_info: {:?}", bmc_info);
 
         let _: Option<(DbMachineId,)> = sqlx::query_as(query)
-            .bind(&json!(self.ip))
-            .bind(&json!(self.mac))
+            .bind(&json!(bmc_info))
             .bind(self.machine_id.to_string())
             .fetch_optional(&mut *txn)
             .await
@@ -270,7 +256,7 @@ RETURNING machine_id";
         txn: &mut Transaction<'_, Postgres>,
         credential_provider: &impl CredentialProvider,
     ) -> CarbideResult<rpc::BmcMetaDataUpdateResponse> {
-        self.update_ipmi_network_into_topologies(txn).await?;
+        self.update_bmc_network_into_topologies(txn).await?;
         self.insert_into_credentials_store(credential_provider)
             .await?;
         Ok(rpc::BmcMetaDataUpdateResponse {})

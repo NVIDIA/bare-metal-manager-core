@@ -1990,13 +1990,17 @@ where
         &self,
         request: Request<rpc::BmcMetaDataUpdateRequest>,
     ) -> Result<Response<rpc::BmcMetaDataUpdateResponse>, Status> {
+        let Some(bmc_info) = request.get_ref().bmc_info.clone() else {
+            return Err(CarbideError::InvalidArgument("Missing BMC Information".to_owned()).into());
+        };
+
         // Note: Be *careful* when logging this request: do not log the password!
         tracing::Span::current().record(
             "request",
             format!(
                 "BmcMetadataUpdateRequest machine_id: {:?} ip: {:?} request_type: {:?}",
                 request.get_ref().machine_id,
-                request.get_ref().ip,
+                bmc_info.ip,
                 request.get_ref().request_type
             ),
         );

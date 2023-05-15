@@ -22,6 +22,7 @@ use sqlx::{FromRow, Postgres, Row, Transaction};
 use super::DatabaseError;
 use crate::db::machine::{DbMachineId, Machine, MachineSearchConfig};
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
+use crate::model::bmc_info::BmcInfo;
 use crate::model::{hardware_info::HardwareInfo, machine::machine_id::MachineId};
 use crate::{CarbideError, CarbideResult};
 
@@ -70,12 +71,11 @@ pub struct DiscoveryData {
 pub struct TopologyData {
     /// Stores the hardware information that was fetched during discovery
     pub discovery_data: DiscoveryData,
-    /// The BMC IP of the machine
+    /// The BMC information of the machine
     /// Note that this field is currently side-injected via the
     /// `crate::crate::db::ipmi::BmcMetaDataUpdateRequest::update_bmc_meta_data`
     /// Therefore no `write` function can be found here.
-    pub ipmi_ip: Option<String>,
-    pub ipmi_mac: Option<String>,
+    pub bmc_info: BmcInfo,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -125,8 +125,12 @@ impl MachineTopology {
                 discovery_data: DiscoveryData {
                     info: hardware_info.clone(),
                 },
-                ipmi_ip: None,
-                ipmi_mac: None,
+                bmc_info: BmcInfo {
+                    ip: None,
+                    mac: None,
+                    version: None,
+                    firmware_version: None,
+                },
             };
 
             let query = "INSERT INTO machine_topologies VALUES ($1, $2::json) RETURNING *";
