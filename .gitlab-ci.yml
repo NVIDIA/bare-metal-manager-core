@@ -128,9 +128,11 @@ build-cargo:
     name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
   variables:
     CARGO_MAKE_SKIP_CODECOV: "true"
+    CI_COMMIT_SHORT_SHA: $CI_COMMIT_SHORT_SHA
     DATABASE_URL: "postgresql://%2Fvar%2Frun%2Fpostgresql"
     SCCACHE_DIR: /sccache
     RUSTC_WRAPPER: sccache
+    VERSION: $VERSION
   script:
     - /etc/init.d/postgresql start
     - sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
