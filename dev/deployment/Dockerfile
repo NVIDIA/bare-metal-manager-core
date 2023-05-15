@@ -9,16 +9,20 @@
 # its affiliates is strictly prohibited.
 FROM urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v0.0.1-470-g80a16ba9 as builder
 
+ARG CI_COMMIT_SHORT_SHA
+ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
+
+ARG VERSION
+ENV VERSION $VERSION
+
 RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
 COPY . ./
 # if you modify this, you must keep it in sync with ${PROJECT_ROOT}/.gitlab-ci.yml (the build-cargo stanza) or you will notice merge-request build failures.
 RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
-  export CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA && \
   export DATABASE_URL="postgresql://%2Fvar%2Frun%2Fpostgresql" && \
   export SCCACHE_DIR=/sccache && \
   export RUST_WRAPPER=sccache && \
-  export VERSION=$VERSION && \
   /etc/init.d/postgresql start && \
   sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
   createdb root && \
