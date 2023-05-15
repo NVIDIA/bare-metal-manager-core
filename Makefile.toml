@@ -13,8 +13,8 @@ REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_P
 CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = ["CARBIDE_ENVIRONMENT"] } }
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
-CI_COMMIT_SHORT_SHA = { script = ["echo ${CI_COMMIT_SHORT_SHA}"], condition = {env_set = ["CI_COMMIT_SHORT_SHA"]}}
-VERSION = { script = ["echo ${VERSION}"], condition = {env_set = ["VERSION"]}}
+GKTEST_CI_COMMIT_SHORT_SHA = { script = ["echo ${CI_COMMIT_SHORT_SHA}"], condition = {env_set = ["CI_COMMIT_SHORT_SHA"]}}
+GKTEST_VERSION = { script = ["echo ${VERSION}"], condition = {env_set = ["VERSION"]}}
 
 [tasks.book]
 workspace = false

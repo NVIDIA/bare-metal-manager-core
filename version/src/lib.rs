@@ -35,9 +35,11 @@ pub fn build() {
     // For these two in CI we use the env var, locally we query git
 
     println!(
-        "cargo:warning=CI_COMMIT_SHORT_SHA '{:?}', VERSION '{:?}'",
+        "cargo:warning=CI_COMMIT_SHORT_SHA '{:?}', VERSION '{:?}', test versions '{:?}', '{:?}'",
         option_env!("CI_COMMIT_SHORT_SHA"),
         option_env!("VERSION"),
+        option_env!("GKTEST_CI_COMMIT_SHORT_SHA"),
+        option_env!("GKTEST_VERSION"),
     );
 
     let sha = option_env!("CI_COMMIT_SHORT_SHA")
