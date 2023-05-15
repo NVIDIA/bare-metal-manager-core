@@ -258,7 +258,7 @@ mod tests {
             vlan_id: 1,
             vni: 1001,
             gateway: "10.217.5.123/28".to_string(),
-            ip: "10.217.5.123".to_string(),
+            ip: "10.217.5.123/32".to_string(),
         };
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
@@ -266,14 +266,14 @@ mod tests {
                 vlan_id: 196,
                 vni: 1025196,
                 gateway: "10.217.5.169/29".to_string(),
-                ip: "10.217.5.170".to_string(),
+                ip: "10.217.5.170/32".to_string(),
             },
             rpc::FlatInterfaceConfig {
                 function: rpc::InterfaceFunctionType::PhysicalFunction.into(),
                 vlan_id: 185,
                 vni: 1025185,
                 gateway: "10.217.5.161/30".to_string(),
-                ip: "10.217.5.162".to_string(),
+                ip: "10.217.5.162/32".to_string(),
             },
         ];
         let netconf = rpc::ManagedHostNetworkConfig {

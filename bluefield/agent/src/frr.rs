@@ -42,7 +42,7 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
             .into_iter()
             .map(|c| TmplFrrConfigVLAN {
                 ID: c.vlan_id,
-                HostRoute: format!("{}/32", c.ip),
+                HostRoute: c.ip,
             })
             .collect(),
     };
