@@ -3095,6 +3095,7 @@ where
         let _machine_state_controller_handle =
             StateController::<MachineStateControllerIO>::builder()
                 .database(database_connection.clone())
+                .meter("forge_machines", meter.clone())
                 .redfish_client_pool(shared_redfish_pool.clone())
                 .vpc_api(vpc_api.clone())
                 .forge_api(api_service.clone())
@@ -3109,6 +3110,7 @@ where
 
         let mut ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
             .database(database_connection)
+            .meter("forge_network_segments", meter.clone())
             .redfish_client_pool(shared_redfish_pool.clone())
             .vpc_api(vpc_api)
             .forge_api(api_service.clone());

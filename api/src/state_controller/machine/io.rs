@@ -84,4 +84,54 @@ impl StateControllerIO for MachineStateControllerIO {
 
         Ok(())
     }
+
+    fn metric_state_names(state: &ManagedHostState) -> (&'static str, &'static str) {
+        use crate::model::machine::{CleanupState, InstanceState, MachineState};
+
+        fn machine_state_name(machine_state: &MachineState) -> &'static str {
+            match machine_state {
+                MachineState::Init => "init",
+                MachineState::WaitingForLeafCreation => "waitingforleafcreation",
+                MachineState::WaitingForDiscovery => "waitingfordiscovery",
+                MachineState::Discovered => "discovered",
+                MachineState::WaitingForLockdown { .. } => "waitingforlockdown",
+            }
+        }
+
+        fn instance_state_name(instance_state: &InstanceState) -> &'static str {
+            match instance_state {
+                InstanceState::Init => "init",
+                InstanceState::WaitingForNetworkConfig => "waitingfornetworkconfig",
+                InstanceState::Ready => "ready",
+                InstanceState::BootingWithDiscoveryImage => "bootingwithdiscoveryimage",
+                InstanceState::DeletingManagedResource => "deletingmanagedresource",
+                InstanceState::WaitingForNetworkReconfig => "waitingfornetworkreconfig",
+            }
+        }
+
+        fn cleanup_state_name(cleanup_state: &CleanupState) -> &'static str {
+            match cleanup_state {
+                CleanupState::HostCleanup => "hostcleanup",
+                CleanupState::DisableBIOSBMCLockdown => "disablebmclockdown",
+            }
+        }
+
+        match state {
+            ManagedHostState::DPUNotReady { machine_state } => {
+                ("dpunotready", machine_state_name(machine_state))
+            }
+            ManagedHostState::HostNotReady { machine_state } => {
+                ("hostnotready", machine_state_name(machine_state))
+            }
+            ManagedHostState::Ready => ("ready", ""),
+            ManagedHostState::Assigned { instance_state } => {
+                ("assigned", instance_state_name(instance_state))
+            }
+            ManagedHostState::WaitingForCleanup { cleanup_state } => {
+                ("waitingforcleanup", cleanup_state_name(cleanup_state))
+            }
+            ManagedHostState::Created => ("created", ""),
+            ManagedHostState::ForceDeletion => ("forcedeletion", ""),
+        }
+    }
 }

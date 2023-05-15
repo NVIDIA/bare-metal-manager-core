@@ -97,6 +97,7 @@ impl TestEnv {
             redfish_client_pool: self.redfish_sim.clone(),
             vpc_api: self.vpc_api.clone(),
             forge_api,
+            meter: None,
             reachability_params: self.reachability_params.clone(),
             pool_vlan_id: None,
             pool_vni: None,

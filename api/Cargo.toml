@@ -14,6 +14,7 @@ name = "carbide-api"
 path = "src/main.rs"
 
 [dependencies]
+arc-swap = "1.6"
 async-trait = "*"
 base64 = "0.13"
 casbin = "2.0"

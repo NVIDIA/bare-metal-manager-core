@@ -87,4 +87,23 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
                 .await?;
         Ok(())
     }
+
+    fn metric_state_names(state: &NetworkSegmentControllerState) -> (&'static str, &'static str) {
+        use crate::model::network_segment::NetworkSegmentDeletionState;
+
+        fn deletion_state_name(deletion_state: &NetworkSegmentDeletionState) -> &'static str {
+            match deletion_state {
+                NetworkSegmentDeletionState::DrainAllocatedIps { .. } => "drainallocatedips",
+                NetworkSegmentDeletionState::DeleteVPCResourceGroups => "deletevpcresourcegroups",
+            }
+        }
+
+        match state {
+            NetworkSegmentControllerState::Provisioning => ("provisioning", ""),
+            NetworkSegmentControllerState::Ready => ("ready", ""),
+            NetworkSegmentControllerState::Deleting { deletion_state } => {
+                ("deleting", deletion_state_name(deletion_state))
+            }
+        }
+    }
 }

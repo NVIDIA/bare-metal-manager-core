@@ -12,14 +12,15 @@
 
 use std::sync::Arc;
 
-use super::controller::ReachabilityParams;
+use opentelemetry::metrics::Meter;
+
 use crate::{
     db::DatabaseError,
     kubernetes::{VpcApi, VpcApiError},
     model::machine::{machine_id::MachineId, ManagedHostState},
     redfish::RedfishClientPool,
     resource_pool::{DbResourcePool, ResourcePoolError},
-    state_controller::snapshot_loader::SnapshotLoaderError,
+    state_controller::{controller::ReachabilityParams, snapshot_loader::SnapshotLoaderError},
 };
 
 /// Services that are accessible to the `StateHandler`
@@ -46,6 +47,9 @@ pub struct StateHandlerServices {
     /// Resource pool for VLAN ID alllocate/release
     /// None if VPC is managing this data
     pub pool_vni: Option<Arc<DbResourcePool<i32>>>,
+
+    /// Meter for emitting metrics
+    pub meter: Option<Meter>,
 }
 
 /// Context parameter passed to `StateHandler`
@@ -167,6 +171,26 @@ pub enum StateHandlerError {
     PoolReleaseError(#[from] ResourcePoolError),
     #[error("Invalid host state {1} for DPU {0}.")]
     InvalidHostState(MachineId, ManagedHostState),
+}
+
+impl StateHandlerError {
+    /// Returns the label that will be used to identify the error in metrics
+    ///
+    /// This will be a simplified description of the error, to avoid having too
+    /// many metric dimensions.
+    pub fn metric_label(&self) -> &'static str {
+        match self {
+            StateHandlerError::LoadSnapshotError(_) => "load_snapshot_error",
+            StateHandlerError::TransactionError(_) => "transaction_error",
+            StateHandlerError::VpcApiError(_) => "vpc_api_error",
+            StateHandlerError::MachineNotFoundError(_) => "machine_not_found_error",
+            StateHandlerError::HostSnapshotMissing(_, _) => "host_snapshot_missing",
+            StateHandlerError::GenericError(_) => "generic_error",
+            StateHandlerError::MissingData { .. } => "missing_data",
+            StateHandlerError::DBError(_) => "db_error",
+            StateHandlerError::PoolReleaseError(_) => "pool_release_error",
+        }
+    }
 }
 
 /// A `StateHandler` implementation which does nothing

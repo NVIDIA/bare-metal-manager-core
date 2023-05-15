@@ -15,6 +15,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use arc_swap::ArcSwapOption;
+use opentelemetry::metrics::Meter;
 use tokio::{sync::oneshot, task::JoinSet};
 
 use crate::{
@@ -24,6 +26,7 @@ use crate::{
     redfish::RedfishClientPool,
     resource_pool::DbResourcePool,
     state_controller::{
+        metrics::{IterationMetrics, ObjectHandlerMetrics, StateControllerMetricEmitter},
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
             ControllerStateReader, NoopStateHandler, StateHandler, StateHandlerContext,
@@ -51,8 +54,28 @@ pub struct StateController<IO: StateControllerIO> {
             ObjectId = IO::ObjectId,
         >,
     >,
+    metric_holder: Arc<MetricHolder>,
     stop_receiver: oneshot::Receiver<()>,
     config: Config,
+}
+
+/// Stores Metric data shared between the Controller and the OpenTelemetry background task
+struct MetricHolder {
+    emitter: Option<StateControllerMetricEmitter>,
+    last_iteration_metrics: ArcSwapOption<IterationMetrics>,
+}
+
+impl MetricHolder {
+    pub fn new(meter: Option<Meter>, object_type_for_metrics: &str) -> Self {
+        let emitter = meter
+            .as_ref()
+            .map(|meter| StateControllerMetricEmitter::new(object_type_for_metrics, meter.clone()));
+
+        Self {
+            emitter,
+            last_iteration_metrics: ArcSwapOption::const_empty(),
+        }
+    }
 }
 
 /// This trait defines on what objects a state controller instance will act,
@@ -61,7 +84,7 @@ pub struct StateController<IO: StateControllerIO> {
 pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     type ObjectId: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static + Clone;
     type State: Send + Sync + 'static;
-    type ControllerState: Send + Sync + 'static;
+    type ControllerState: std::fmt::Debug + Send + Sync + 'static + Clone;
 
     /// Returns the name of the table in the database that will be used for advisory locking
     ///
@@ -98,6 +121,12 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
         old_version: ConfigVersion,
         new_state: Self::ControllerState,
     ) -> Result<(), SnapshotLoaderError>;
+
+    /// Returns the names that should be used in metrics for a given object state
+    /// The first returned value is the value that will be used for the main `state`
+    /// attribute on each metric. The 2nd value - if not empty - will be used for
+    /// an optional substate attribute.
+    fn metric_state_names(state: &Self::ControllerState) -> (&'static str, &'static str);
 }
 
 /// Creates the query that will be used for advisory locking of a postgres table
@@ -176,13 +205,29 @@ impl<IO: StateControllerIO> StateController<IO> {
             return Err(IterationError::LockError);
         }
         tracing::debug!("State controller acquired the lock {}", IO::db_lock_name());
-        handle_controller_iteration::<IO>(
+
+        let mut metrics = IterationMetrics::default();
+        let iteration_result = handle_controller_iteration::<IO>(
             &self.io,
             &self.state_handler,
             &self.handler_services,
             &self.config,
+            &mut metrics,
         )
-        .await?;
+        .await;
+
+        // Immediately emit latency metrics
+        if let Some(emitter) = self.metric_holder.emitter.as_ref() {
+            emitter.emit_latency_metrics(&metrics);
+        }
+
+        // Cache all other metrics that have been captured in this iteration
+        // Those will be queried by OTEL on demand
+        self.metric_holder
+            .last_iteration_metrics
+            .store(Some(Arc::new(metrics)));
+
+        iteration_result?;
 
         txn.commit().await?;
 
@@ -201,6 +246,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
     >,
     handler_services: &Arc<StateHandlerServices>,
     config: &Config,
+    iteration_metrics: &mut IterationMetrics,
 ) -> Result<(), IterationError> {
     // We start by grabbing a list of objects that should be active
     // The list might change until we fetch more data. However that should be ok:
@@ -233,6 +279,15 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                 .await
                 .expect("Semaphore can't be closed");
 
+            let mut metrics = ObjectHandlerMetrics::<IO> {
+                state: None,
+                handler_latency: Duration::from_secs(0),
+                time_in_state: Duration::from_secs(0),
+                error: None,
+            };
+
+            let start = Instant::now();
+
             // Note that this inner async block is required to be able to use
             // the ? operator in the inner block, and then return a `Result`
             // from the other outer block.
@@ -242,6 +297,12 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                 let mut controller_state = io
                     .load_controller_state(&mut txn, &object_id, &snapshot)
                     .await?;
+                metrics.state = Some(controller_state.value.clone());
+                // Unwrap uses a very large duration as default to show something is wrong
+                metrics.time_in_state = chrono::Utc::now()
+                    .signed_duration_since(controller_state.version.timestamp())
+                    .to_std()
+                    .unwrap_or(Duration::from_secs(60 * 60 * 24));
 
                 let mut ctx = StateHandlerContext {
                     services: &services,
@@ -279,11 +340,13 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
             }
             .await;
 
+            metrics.handler_latency = start.elapsed();
+
             if let Err(e) = &result {
                 tracing::warn!("State handler for {} returned error: {:?}", object_id, e);
             }
 
-            result
+            (metrics, result)
         });
     }
 
@@ -299,12 +362,16 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
             Err(join_error) => {
                 last_join_error = Some(join_error);
             }
-            Ok(Err(_handler_error)) => {
+            Ok((mut metrics, Err(handler_error))) => {
+                metrics.error = Some(handler_error);
+                iteration_metrics.merge_object_handling_metrics(&metrics);
                 // Since we log StateHandlerErrors including the objectId inside the
                 // handling task themselves, we don't have to forward these errors.
                 // This avoids double logging of the results of individual tasks.
             }
-            Ok(Ok(())) => {}
+            Ok((metrics, Ok(()))) => {
+                iteration_metrics.merge_object_handling_metrics(&metrics);
+            }
         }
     }
 
@@ -335,6 +402,8 @@ struct Config {
     iteration_time: Duration,
     /// Maximum concurrency level
     max_concurrency: usize,
+    /// The name that will be assigned for state controller metrics
+    object_type_for_metrics: String,
 }
 
 /// A remote handle for the state controller
@@ -366,6 +435,8 @@ pub struct Builder<IO: StateControllerIO> {
     vpc_api: Option<Arc<dyn VpcApi>>,
     iteration_time: Option<Duration>,
     max_concurrency: usize,
+    object_type_for_metrics: Option<String>,
+    meter: Option<Meter>,
     state_handler: Arc<
         dyn StateHandler<
             State = IO::State,
@@ -402,6 +473,8 @@ impl<IO: StateControllerIO> Builder<IO> {
                 IO::ControllerState,
             >::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
+            meter: None,
+            object_type_for_metrics: None,
             forge_api: None,
             reachability_params: None,
             pool_vlan_id: None,
@@ -415,6 +488,9 @@ impl<IO: StateControllerIO> Builder<IO> {
             .database
             .take()
             .ok_or(StateControllerBuildError::MissingArgument("database"))?;
+
+        let object_type_for_metrics = self.object_type_for_metrics.take();
+        let meter = self.meter.take();
 
         let redfish_client_pool =
             self.redfish_client_pool
@@ -450,6 +526,8 @@ impl<IO: StateControllerIO> Builder<IO> {
         let config = Config {
             iteration_time: self.iteration_time.unwrap_or(DEFAULT_ITERATION_TIME),
             max_concurrency: self.max_concurrency,
+            object_type_for_metrics: object_type_for_metrics
+                .unwrap_or_else(|| "undefined".to_string()),
         };
 
         let handler_services = Arc::new(StateHandlerServices {
@@ -460,7 +538,28 @@ impl<IO: StateControllerIO> Builder<IO> {
             reachability_params,
             pool_vlan_id: self.pool_vlan_id.take(),
             pool_vni: self.pool_vni.take(),
+            meter: meter.clone(),
         });
+
+        // This defines the shared storage location for metrics between the state handler
+        // and the OTEL framework
+        let metric_holder = Arc::new(MetricHolder::new(meter, &config.object_type_for_metrics));
+        // Now configure OpenTelemetry to fetch those metrics via a callback
+        // This callback will get executed whenever OTEL needs to publish metrics
+        if let Some(meter) = handler_services.meter.as_ref() {
+            let metric_holder_clone = metric_holder.clone();
+            meter
+                .register_callback(move |otel_cx| {
+                    if let Some(emitter) = metric_holder_clone.emitter.as_ref() {
+                        if let Some(metrics) =
+                            metric_holder_clone.last_iteration_metrics.load_full()
+                        {
+                            emitter.emit_gauges(&metrics, otel_cx);
+                        }
+                    }
+                })
+                .unwrap();
+        }
 
         let controller = StateController::<IO> {
             stop_receiver,
@@ -469,6 +568,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             handler_services,
             io: Arc::new(IO::default()),
             state_handler: self.state_handler.clone(),
+            metric_holder,
         };
         tokio::spawn(async move { controller.run().await });
 
@@ -488,6 +588,13 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures the utilized database
     pub fn database(mut self, db: sqlx::PgPool) -> Self {
         self.database = Some(db);
+        self
+    }
+
+    /// Configures the Meter that will be used for emitting metrics
+    pub fn meter(mut self, object_type_for_metrics: impl Into<String>, meter: Meter) -> Self {
+        self.object_type_for_metrics = Some(object_type_for_metrics.into());
+        self.meter = Some(meter);
         self
     }
 
