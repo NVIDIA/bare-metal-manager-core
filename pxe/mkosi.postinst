@@ -15,6 +15,14 @@ tmpdir=/tmp/tmpins
 mkdir -p $tmpdir
 cd $tmpdir
 softdir=/distr
+apt install -y debconf-utils
+echo '
+keyboard-configuration  keyboard-configuration/modelcode        string  pc105
+keyboard-configuration  keyboard-configuration/variant  select  English (US)
+' > kbd.conf
+debconf-set-selections < kbd.conf
+apt install -y keyboard-configuration
+dpkg-reconfigure keyboard-configuration -f noninteractive
 
 # Install nvidia proprietary driver and utilities
 find /lib/modules -name "*nouveau.ko" | xargs rm -f
