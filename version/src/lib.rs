@@ -34,6 +34,16 @@ pub fn build() {
 
     // For these two in CI we use the env var, locally we query git
 
+    println!(
+        "cargo:warning=CI_COMMIT_SHORT_SHA '{:?}', VERSION '{:?}'",
+        option_env!("CI_COMMIT_SHORT_SHA"),
+        option_env!("VERSION"),
+    );
+
+    for (key, value) in std::env::vars_os() {
+        println!("cargo:warning={key:?}: {value:?}");
+    }
+
     let sha = option_env!("CI_COMMIT_SHORT_SHA")
         .map(String::from)
         .unwrap_or_else(|| run("git", &["rev-parse", "--short=8", "HEAD"]));
