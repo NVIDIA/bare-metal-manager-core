@@ -9,11 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::env;
-use std::process::Command;
 
+// dhcp package should only every be built for x86_64 arch
 #[cfg(target_arch = "x86_64")]
 fn main() {
+    use std::env;
+    use std::process::Command;
+
     let kea_include_path =
         env::var("KEA_INCLUDE_PATH").unwrap_or_else(|_| "/usr/include/kea".to_string());
     let kea_bin_path = env::var("KEA_BIN_PATH").unwrap_or_else(|_| "/usr/bin".to_string());
@@ -65,3 +67,6 @@ fn main() {
     println!("cargo:rustc-link-lib=kea-util");
     println!("cargo:rustc-link-lib=kea-exceptions");
 }
+
+#[cfg(not(target_arch = "x86_64"))]
+fn main() {}
