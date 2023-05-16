@@ -273,6 +273,10 @@ impl Machine {
         self.network_config().loopback_ip
     }
 
+    pub fn use_admin_network(&self) -> bool {
+        self.network_config().use_admin_network.unwrap_or(true)
+    }
+
     pub async fn exists(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
@@ -956,7 +960,7 @@ SELECT m.id FROM
         let Some(current_machine_id) = current_machine_id else {
             return Err(
                 CarbideError::NotFoundError {
-                    kind: "machine_id", 
+                    kind: "machine_id",
                     id: stable_machine_id.to_string()
                 }
             );

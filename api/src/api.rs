@@ -58,7 +58,7 @@ use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ipxe::PxeInstructions;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatus;
-use crate::model::machine::{InstanceState, ManagedHostState};
+use crate::model::machine::ManagedHostState;
 use crate::model::RpcDataConversionError;
 use crate::reachability::PingReachabilityChecker;
 use crate::resource_pool::{DbResourcePool, OwnerType, ResourcePoolError};
@@ -896,18 +896,7 @@ where
                 )));
             }
         };
-
-        // By default we are on the admin network.
-        // Exception is if a tenant instance is assigned and either waiting for network config or ready.
-        let use_admin_network = match &snapshot.instance {
-            Some(instance) => !matches!(
-                instance.machine_state,
-                ManagedHostState::Assigned {
-                    instance_state: InstanceState::WaitingForNetworkConfig | InstanceState::Ready
-                }
-            ),
-            None => true,
-        };
+        let use_admin_network = snapshot.dpu_snapshot.use_admin_network();
 
         let admin_interface_rpc =
             ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
@@ -1258,6 +1247,7 @@ where
                     .await?;
                 let (mut netconf, version) = db_machine.network_config().clone().take();
                 netconf.loopback_ip = loopback_ip;
+                netconf.use_admin_network = Some(true);
                 Machine::try_update_network_config(&mut txn, &stable_machine_id, version, &netconf)
                     .await
                     .map_err(CarbideError::from)?;

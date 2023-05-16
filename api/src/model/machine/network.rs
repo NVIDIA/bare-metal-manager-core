@@ -74,4 +74,5 @@ impl From<MachineNetworkStatus> for rpc::ManagedHostNetworkStatusObservation {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManagedHostNetworkConfig {
     pub loopback_ip: Option<Ipv4Addr>,
+    pub use_admin_network: Option<bool>,
 }

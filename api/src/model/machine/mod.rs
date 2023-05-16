@@ -75,6 +75,9 @@ impl MachineSnapshot {
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
         self.network_config.loopback_ip.or(self.vpc_loopback_ip)
     }
+    pub fn use_admin_network(&self) -> bool {
+        self.network_config.use_admin_network.unwrap_or(true)
+    }
 }
 
 /// Represents the current state of `Machine`

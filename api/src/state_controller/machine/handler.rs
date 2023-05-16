@@ -27,7 +27,7 @@ use sqlx::Postgres;
 use crate::{
     db::{
         dpu_machine::DpuMachine, instance::DeleteInstance, instance_address::InstanceAddress,
-        vpc_resource_leaf::VpcResourceLeaf,
+        machine::Machine, vpc_resource_leaf::VpcResourceLeaf,
     },
     kubernetes,
     model::{
@@ -532,6 +532,11 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await?;
 
+                    // Switch to using the network we just created for the tenant
+                    let (mut netconf, version) = state.dpu_snapshot.network_config.clone().take();
+                    netconf.use_admin_network = Some(false);
+                    Machine::try_update_network_config(txn, machine_id, version, &netconf).await?;
+
                     // Reboot host
                     restart_machine(&state.host_snapshot, ctx).await?;
 
@@ -601,6 +606,11 @@ impl StateHandler for InstanceStateHandler {
                     {
                         return Ok(());
                     }
+
+                    // Tenant is gone and so is their network, switch back to admin network
+                    let (mut netconf, version) = state.dpu_snapshot.network_config.clone().take();
+                    netconf.use_admin_network = Some(true);
+                    Machine::try_update_network_config(txn, machine_id, version, &netconf).await?;
 
                     // Delete from database now. Once done, reboot and move to next state.
                     DeleteInstance {
