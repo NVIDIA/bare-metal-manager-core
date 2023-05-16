@@ -140,6 +140,11 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
 
         let primary_interface = &machine_interfaces[0];
 
+        managed_host_output.hostname = if primary_interface.hostname.trim().is_empty() {
+            None
+        } else {
+            Some(primary_interface.hostname.clone())
+        };
         managed_host_output.machine_id = Some(machine_id.to_string());
         managed_host_output.host_serial_number =
             get_dmi_data_from_machine!(machine, chassis_serial);
