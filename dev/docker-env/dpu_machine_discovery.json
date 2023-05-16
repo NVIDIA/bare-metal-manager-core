@@ -200,6 +200,11 @@
       }
     ],
     "dpu_info": {
+      "part_number": "MBF2H536C-CECO_Ax_Bx",
+      "firmware_date": "24.11.2022",
+      "product_version": "24.35.2000",
+      "firmware_version": "24.35.2000",
+      "part_description": "BlueField-2 P-Series DPU 100GbE Dual-Port QSFP56; integrated BMC; PCIe Gen4 x16; Secure Boot Enabled; Crypto Enabled; 32GB on-board DDR; 1GbE OOB management; FHHL",
       "factory_mac_address": "00:11:22:33:44:66"
     }
   }
