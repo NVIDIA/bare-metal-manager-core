@@ -16,12 +16,14 @@ use std::{
     str::{FromStr, Utf8Error},
 };
 
+use crate::cmd::CmdError;
 use ::rpc::machine_discovery as rpc_discovery;
 use libudev::Device;
 use log::error;
 use uname::uname;
 
 mod dpu;
+mod gpu;
 mod tpm;
 
 const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
@@ -61,7 +63,11 @@ pub enum HardwareEnumerationError {
     InvalidMacAddress(String),
     #[error("CPU architecture {0} is not supported")]
     UnsupportedCpuArchitecture(String),
+    #[error("Command error {0}")]
+    CmdError(#[from] CmdError),
 }
+
+pub type HardwareEnumerationResult<T> = Result<T, HardwareEnumerationError>;
 
 fn convert_udev_to_mac(udev: String) -> Result<String, HardwareEnumerationError> {
     // udevs format is enx112233445566 first, then the string of octets without a colon
@@ -504,12 +510,21 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         CpuArchitecture::X86_64 => None,
     };
 
-    log::debug!("Discovered Disks - {:?}", disks);
+    let gpus = match gpu::discover_gpus() {
+        Ok(gpus) => gpus,
+        Err(error) => {
+            log::error!("Failed to enumerate GPUs: {}", error);
+            vec![]
+        }
+    };
+
+    log::debug!("Discovered Disks: {:?}", disks);
     log::debug!("Discovered CPUs: {:?}", cpus);
     log::debug!("Discovered NICS: {:?}", nics);
     log::debug!("Discovered IBS: {:?}", ibs);
     log::debug!("Discovered NVMES: {:?}", nvmes);
     log::debug!("Discovered DMI: {:?}", dmi);
+    log::debug!("Discovered GPUs: {:?}", gpus);
     log::debug!("Discovered Machine Architecture: {}", info.machine.as_str());
     log::debug!("Discovered DPU: {:?}", dpu_vpd);
     if let Some(cert) = tpm_ek_certificate.as_ref() {
@@ -526,5 +541,6 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         machine_type: info.machine.as_str().to_owned(),
         tpm_ek_certificate,
         dpu_info: dpu_vpd,
+        gpus,
     })
 }

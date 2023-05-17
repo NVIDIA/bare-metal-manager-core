@@ -9,9 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::ffi::OsStr;
-use std::process::Command;
 
+use crate::cmd::{Cmd, CmdError};
 use log::error;
 use regex::Regex;
 use rpc::machine_discovery::DpuData;
@@ -19,74 +18,22 @@ use rpc::machine_discovery::DpuData;
 #[derive(thiserror::Error, Debug)]
 pub enum DpuEnumerationError {
     #[error("DPU enumeration error: {0}")]
-    GenericError(String),
-    #[error("Mellanox Firmware Tools {0} {1:?} failed with error: {2}")]
-    MftErr(String, Vec<String>, String),
+    Generic(String),
     #[error("Regex error {0}")]
-    RegexError(#[from] regex::Error),
-}
-
-struct Cmd {
-    command: Command,
-}
-
-impl Default for Cmd {
-    fn default() -> Self {
-        Cmd {
-            command: Command::new("bash"),
-        }
-    }
-}
-
-impl Cmd {
-    fn args<I, S>(mut self, args: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-    {
-        self.command.args(args);
-        self
-    }
-
-    fn output(mut self) -> Result<String, DpuEnumerationError> {
-        if cfg!(test) {
-            return Ok("test string".to_string());
-        }
-
-        let output = self
-            .command
-            .output()
-            .map_err(|x| DpuEnumerationError::GenericError(x.to_string()))?;
-
-        if !output.status.success() {
-            return Err(DpuEnumerationError::MftErr(
-                self.command.get_program().to_string_lossy().to_string(),
-                self.command
-                    .get_args()
-                    .map(|arg| arg.to_string_lossy().to_string())
-                    .collect::<Vec<String>>(),
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            ));
-        }
-
-        String::from_utf8(output.stdout).map_err(|_| {
-            DpuEnumerationError::GenericError(format!(
-                "Result of command {:?} with args {:?} is invalid UTF8",
-                self.command.get_program(),
-                self.command.get_args().collect::<Vec<&OsStr>>()
-            ))
-        })
-    }
+    Regex(#[from] regex::Error),
+    #[error("Command error {0}")]
+    Cmd(#[from] CmdError),
 }
 
 fn get_flint_query() -> Result<String, DpuEnumerationError> {
     if cfg!(test) {
         std::fs::read_to_string("test/flint_query.txt")
-            .map_err(|x| DpuEnumerationError::GenericError(x.to_string()))
+            .map_err(|x| DpuEnumerationError::Generic(x.to_string()))
     } else {
-        Cmd::default()
+        Cmd::new("bash")
             .args(vec!["-c", "flint -d /dev/mst/mt*_pciconf0 q full"])
             .output()
+            .map_err(DpuEnumerationError::from)
     }
 }
 
@@ -107,7 +54,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if fw_ver.is_empty() {
-        return Err(DpuEnumerationError::GenericError(
+        return Err(DpuEnumerationError::Generic(
             "Could not find firmware version.".to_string(),
         ));
     }
@@ -119,7 +66,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if fw_date.is_empty() {
-        return Err(DpuEnumerationError::GenericError(
+        return Err(DpuEnumerationError::Generic(
             "Could not find firmware date.".to_string(),
         ));
     }
@@ -132,7 +79,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if part_number.is_empty() {
-        return Err(DpuEnumerationError::GenericError(
+        return Err(DpuEnumerationError::Generic(
             "Could not find part number.".to_string(),
         ));
     }
@@ -145,7 +92,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if device_description.is_empty() {
-        return Err(DpuEnumerationError::GenericError(
+        return Err(DpuEnumerationError::Generic(
             "Could not find device description.".to_string(),
         ));
     }
@@ -158,7 +105,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if product_version.is_empty() {
-        return Err(DpuEnumerationError::GenericError(
+        return Err(DpuEnumerationError::Generic(
             "Could not find product version.".to_string(),
         ));
     }
@@ -171,7 +118,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if factory_mac_address.is_empty() {
-        return Err(DpuEnumerationError::GenericError(
+        return Err(DpuEnumerationError::Generic(
             "Could not find factory mac address.".to_string(),
         ));
     }

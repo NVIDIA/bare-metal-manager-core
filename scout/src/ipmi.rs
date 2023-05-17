@@ -10,11 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::{HashMap, VecDeque};
-use std::ffi::OsStr;
 use std::fmt;
-use std::process::Command;
 use std::time::Instant;
 
+use forge_host_support::cmd::Cmd;
 use log::{debug, error};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -24,7 +23,9 @@ use uname::uname;
 
 use ::rpc::forge::{self as rpc, BmcInfo, BmcMetaDataUpdateRequest};
 use ::rpc::forge_tls_client::ForgeClientT;
-use forge_host_support::hardware_enumeration::{CpuArchitecture, HardwareEnumerationError};
+use forge_host_support::hardware_enumeration::{
+    CpuArchitecture, HardwareEnumerationError, HardwareEnumerationResult,
+};
 
 use crate::CarbideClientError;
 use crate::CarbideClientResult;
@@ -78,64 +79,15 @@ pub struct IpmiUser {
     password: String,
 }
 
-struct Cmd {
-    command: Command,
-}
-
-impl Default for Cmd {
-    fn default() -> Self {
-        Cmd {
-            command: Command::new("ipmitool"),
-        }
-    }
-}
-
-impl Cmd {
-    pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
-        Self {
-            command: Command::new(program),
-        }
-    }
-
-    fn args<I, S>(mut self, args: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-    {
-        self.command.args(args);
-        self
-    }
-
-    fn output(mut self) -> CarbideClientResult<String> {
-        if cfg!(test) {
-            return Ok("test string".to_string());
-        }
-
-        let output = self
-            .command
-            .output()
-            .map_err(|x| CarbideClientError::GenericError(x.to_string()))?;
-
-        if !output.status.success() {
-            return Err(CarbideClientError::subprocess_error(&self.command, &output));
-        }
-
-        String::from_utf8(output.stdout).map_err(|_| {
-            CarbideClientError::GenericError(format!(
-                "Result of IPMI command {:?} with args {:?} is invalid UTF8",
-                self.command.get_program(),
-                self.command.get_args().collect::<Vec<&OsStr>>()
-            ))
-        })
-    }
-}
-
 fn get_lan_print() -> CarbideClientResult<String> {
     if cfg!(test) {
         std::fs::read_to_string("test/lan_print.txt")
             .map_err(|x| CarbideClientError::GenericError(x.to_string()))
     } else {
-        Cmd::default().args(vec!["lan", "print"]).output()
+        Cmd::new("ipmitool")
+            .args(vec!["lan", "print"])
+            .output()
+            .map_err(CarbideClientError::from)
     }
 }
 fn get_bmc_info() -> CarbideClientResult<String> {
@@ -143,7 +95,10 @@ fn get_bmc_info() -> CarbideClientResult<String> {
         std::fs::read_to_string("test/bmc_info.txt")
             .map_err(|x| CarbideClientError::GenericError(x.to_string()))
     } else {
-        Cmd::default().args(vec!["bmc", "info"]).output()
+        Cmd::new("ipmitool")
+            .args(vec!["bmc", "info"])
+            .output()
+            .map_err(CarbideClientError::from)
     }
 }
 
@@ -222,9 +177,10 @@ fn get_user_list(test_list: Option<&str>) -> CarbideClientResult<String> {
         use std::fs;
         Ok(fs::read_to_string(test_list).unwrap())
     } else {
-        Cmd::default()
+        Cmd::new("ipmitool")
             .args(vec!["user", "list", "1", "-c"])
             .output()
+            .map_err(CarbideClientError::from)
     }
 }
 
@@ -285,10 +241,11 @@ fn fetch_ipmi_users_and_free_ids(
     Ok((free_users, existing_users))
 }
 
-fn create_ipmi_user(id: &str, user: &str) -> CarbideClientResult<()> {
-    let _ = Cmd::default()
+fn create_ipmi_user(id: &str, user: &str) -> HardwareEnumerationResult<()> {
+    let _ = Cmd::new("ipmitool")
         .args(vec!["user", "set", "name", id, user])
-        .output()?;
+        .output()
+        .map_err(HardwareEnumerationError::from)?;
     Ok(())
 }
 
@@ -325,7 +282,7 @@ fn generate_password() -> String {
 fn set_ipmi_password(id: &String) -> CarbideClientResult<String> {
     let password = generate_password();
     log::info!("Updating password for id {}", id);
-    let _ = Cmd::default()
+    let _ = Cmd::new("ipmitool")
         .args(vec!["user", "set", "password", id, &password])
         .output()?;
     log::debug!("Updated password {} for id {}", password, id);
@@ -337,10 +294,12 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     let role = format!("privilege={}", role as u8);
 
     // Enable user
-    let _ = Cmd::default().args(vec!["user", "enable", id]).output()?;
+    let _ = Cmd::new("ipmitool")
+        .args(vec!["user", "enable", id])
+        .output()?;
 
     // Set user privilege and channel access
-    let _ = Cmd::default()
+    let _ = Cmd::new("ipmitool")
         .args(vec![
             "channel",
             "setaccess",
@@ -354,7 +313,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
         .output()?;
 
     // Enable TCP/LAN access
-    let _ = Cmd::default()
+    let _ = Cmd::new("ipmitool")
         .args(vec!["lan", "set", "1", "access", "on"])
         .output(); // Ignore it as this command might fail in some cards.
 
@@ -387,15 +346,15 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
 
 fn set_ipmi_sol(id: &String) -> CarbideClientResult<()> {
     // failures for these 3 commands are okay to ignore, some BMCs may not handle them correctly.
-    let _ = Cmd::default()
+    let _ = Cmd::new("ipmitool")
         .args(vec!["sol", "set", "set-in-progress", "set-complete", "1"])
         .output()?;
 
-    let _ = Cmd::default()
+    let _ = Cmd::new("ipmitool")
         .args(vec!["sol", "set", "enabled", "true", "1"])
         .output()?;
 
-    let _ = Cmd::default()
+    let _ = Cmd::new("ipmitool")
         .args(vec!["sol", "payload", "enable", "1", id])
         .output()?;
 
@@ -506,7 +465,11 @@ async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
     const RETRY_TIME: Duration = Duration::from_secs(5);
 
     while now.elapsed() <= MAX_TIMEOUT {
-        if Cmd::default().args(vec!["lan", "print"]).output().is_ok() {
+        if Cmd::new("ipmitool")
+            .args(vec!["lan", "print"])
+            .output()
+            .is_ok()
+        {
             log::info!("ipmitool ready after {} seconds", now.elapsed().as_secs());
             return Ok(());
         } else {

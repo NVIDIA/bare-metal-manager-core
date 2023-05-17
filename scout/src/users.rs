@@ -1,11 +1,11 @@
 use std::path::Path;
 
+use forge_host_support::cmd::Cmd;
 use pwhash::sha512_crypt;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 
 use ::rpc::forge::{
     machine_credentials_update_request::CredentialPurpose,
@@ -13,7 +13,7 @@ use ::rpc::forge::{
 };
 use ::rpc::forge_tls_client::ForgeClientT;
 
-use crate::{CarbideClientError, CarbideClientResult};
+use crate::CarbideClientResult;
 
 pub async fn create_users(
     forge_client: &mut ForgeClientT,
@@ -49,18 +49,11 @@ async fn create_login_user() -> CarbideClientResult<Credentials> {
 
     let ssh_passwd_hash = sha512_crypt::hash(randomly_generated_ssh_password.as_str())?;
 
-    let mut command = Command::new("groupadd");
-    command.args(["--system", "--gid", FORGE_GROUP_ID, SSH_GROUP_NAME]);
-    let output = command.output().await?;
-    if !output.status.success() {
-        return Err(CarbideClientError::subprocess_error(
-            command.as_std(),
-            &output,
-        ));
-    }
+    Cmd::new("groupadd")
+        .args(["--system", "--gid", FORGE_GROUP_ID, SSH_GROUP_NAME])
+        .output()?;
 
-    let mut command = Command::new("useradd");
-    let output = command
+    Cmd::new("useradd")
         .args([
             "--password",
             ssh_passwd_hash.as_str(),
@@ -77,14 +70,7 @@ async fn create_login_user() -> CarbideClientResult<Credentials> {
             "adm,dialout,cdrom,floppy,sudo,audio,dip,video,plugdev,netdev,lxd",
             SSH_USERNAME,
         ])
-        .output()
-        .await?;
-    if !output.status.success() {
-        return Err(CarbideClientError::subprocess_error(
-            command.as_std(),
-            &output,
-        ));
-    }
+        .output()?;
 
     //this is not a typo, the directory is *called* sudoers.d
     let sudoers_dot_d = Path::new("/etc/sudoers.d");

@@ -65,6 +65,7 @@ struct ManagedHostOutput {
     host_bmc_mac: Option<String>,
     host_bmc_version: Option<String>,
     host_bmc_firmware_version: Option<String>,
+    host_gpu_count: usize,
     dpu_machine_id: Option<String>,
     dpu_serial_number: Option<String>,
     dpu_bios_version: Option<String>,
@@ -89,6 +90,7 @@ impl From<ManagedHostOutput> for Row {
             value
                 .host_bmc_firmware_version
                 .unwrap_or(UNKNOWN.to_owned()),
+            value.host_gpu_count,
             value.dpu_machine_id.unwrap_or(UNKNOWN.to_owned()),
             value.dpu_serial_number.unwrap_or(UNKNOWN.to_owned()),
             value.dpu_bios_version.unwrap_or(UNKNOWN.to_owned()),
@@ -154,6 +156,10 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
         managed_host_output.host_bmc_version = get_bmc_info_from_machine!(machine, version);
         managed_host_output.host_bmc_firmware_version =
             get_bmc_info_from_machine!(machine, firmware_version);
+        managed_host_output.host_gpu_count = machine
+            .discovery_info
+            .as_ref()
+            .map_or(0, |di| di.gpus.len());
 
         if let Some(dpu_machine_id) = primary_interface.attached_dpu_machine_id.as_ref() {
             if dpu_machine_id != machine_id {
@@ -204,6 +210,7 @@ fn convert_managed_hosts_to_nice_output(managed_hosts: Vec<ManagedHostOutput>) -
         "Host BMC MAC",
         "Host BMC Version",
         "Host BMC Firmware Version",
+        "Host GPU Count",
         "DPU Machine ID",
         "DPU Serial Number",
         "DPU Bios Version",

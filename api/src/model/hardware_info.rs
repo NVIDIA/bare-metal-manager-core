@@ -37,6 +37,8 @@ pub struct HardwareInfo {
     pub tpm_ek_certificate: Option<TpmEkCertificate>,
     #[serde(default)]
     pub dpu_info: Option<DpuData>,
+    #[serde(default)]
+    pub gpus: Vec<Gpu>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +142,18 @@ pub struct PciDeviceProperties {
     pub numa_node: i32,
     #[serde(default)]
     pub description: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Gpu {
+    name: String,
+    serial: String,
+    driver_version: String,
+    vbios_version: String,
+    inforom_version: String,
+    total_memory: String,
+    frequency: String,
+    pci_bus_id: String,
 }
 
 /// TPM endorsement key certificate
@@ -439,6 +453,36 @@ impl TryFrom<PciDeviceProperties> for rpc::machine_discovery::PciDevicePropertie
     }
 }
 
+impl From<rpc::machine_discovery::Gpu> for Gpu {
+    fn from(value: rpc::machine_discovery::Gpu) -> Self {
+        Gpu {
+            name: value.name,
+            serial: value.serial,
+            driver_version: value.driver_version,
+            vbios_version: value.vbios_version,
+            inforom_version: value.inforom_version,
+            total_memory: value.total_memory,
+            frequency: value.frequency,
+            pci_bus_id: value.pci_bus_id,
+        }
+    }
+}
+
+impl From<Gpu> for rpc::machine_discovery::Gpu {
+    fn from(value: Gpu) -> Self {
+        rpc::machine_discovery::Gpu {
+            name: value.name,
+            serial: value.serial,
+            driver_version: value.driver_version,
+            vbios_version: value.vbios_version,
+            inforom_version: value.inforom_version,
+            total_memory: value.total_memory,
+            frequency: value.frequency,
+            pci_bus_id: value.pci_bus_id,
+        }
+    }
+}
+
 impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
     type Error = RpcDataConversionError;
 
@@ -451,6 +495,8 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             })
             .transpose()?;
 
+        let gpus = info.gpus.into_iter().map(Gpu::from).collect();
+
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
             infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
@@ -461,6 +507,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             dmi_data: info.dmi_data.map(DmiData::try_from).transpose()?,
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
             dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
+            gpus,
         })
     }
 }
@@ -487,6 +534,11 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .dpu_info
                 .map(rpc::machine_discovery::DpuData::try_from)
                 .transpose()?,
+            gpus: info
+                .gpus
+                .into_iter()
+                .map(rpc::machine_discovery::Gpu::from)
+                .collect(),
         })
     }
 }

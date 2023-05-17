@@ -9,31 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::process::Command;
-
+use forge_host_support::cmd::Cmd;
 use scout::CarbideClientError;
 
 pub fn run_prog(cmd: String) -> Result<String, CarbideClientError> {
     let mut cmdpar = cmd.split(' ');
-    let mut command = Command::new(cmdpar.next().unwrap());
-    for par in cmdpar {
-        command.arg(par);
-    }
-
-    let output = command.output().map_err(|e| {
-        CarbideClientError::SubprocessError(
-            command.get_program().to_string_lossy().to_string(),
-            command
-                .get_args()
-                .map(|arg| arg.to_string_lossy().to_string())
-                .collect::<Vec<String>>(),
-            format!("Failed to spawn process: {}", e),
-        )
-    })?;
-
-    if !output.status.success() {
-        return Err(CarbideClientError::subprocess_error(&command, &output));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let command = Cmd::new(cmdpar.next().unwrap());
+    command
+        .args(cmdpar)
+        .output()
+        .map_err(CarbideClientError::from)
 }

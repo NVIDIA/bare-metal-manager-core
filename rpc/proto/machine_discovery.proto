@@ -37,6 +37,8 @@ message DiscoveryInfo {
 
   // DPU specific data
   optional DpuData dpu_info = 10;
+
+  repeated Gpu gpus = 11;
 }
 
 message NetworkInterface {
@@ -98,4 +100,15 @@ message DpuData {
   string factory_mac_address = 4;
   string firmware_version = 5;
   string firmware_date = 6;
+}
+
+message Gpu {
+  string name = 1;
+  string serial = 2;
+  string driver_version = 3;
+  string vbios_version = 4; 
+  string inforom_version = 5;
+  string total_memory = 6;
+  string frequency = 7;
+  string pci_bus_id = 8;
 }

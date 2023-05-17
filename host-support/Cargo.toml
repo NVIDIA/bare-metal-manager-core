@@ -23,3 +23,4 @@ uuid = "1.0"
 
 # local crate dependencies
 rpc = { path = "../rpc" }
+csv = "1.2.1"

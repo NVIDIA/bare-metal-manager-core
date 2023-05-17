@@ -14,5 +14,6 @@
 //! Forge managed hosts
 
 pub mod agent_config;
+pub mod cmd;
 pub mod hardware_enumeration;
 pub mod registration;

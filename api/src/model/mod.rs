@@ -65,6 +65,8 @@ pub enum RpcDataConversionError {
     InvalidMachineState(String),
     #[error("Invalid NetworkSegmentType {0} is received.")]
     InvalidNetworkSegmentType(i32),
+    #[error("Pci Device Info {0} is invalid")]
+    InvalidPciDeviceInfo(String),
 }
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`
