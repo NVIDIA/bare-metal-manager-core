@@ -12,22 +12,16 @@
 
 //! State Handler implementation for Machines
 
-use std::{
-    collections::{hash_map::RandomState, HashMap},
-    net::IpAddr,
-    task::Poll,
-    time::SystemTime,
-};
+use std::{net::IpAddr, task::Poll, time::SystemTime};
 
 use chrono::{DateTime, Utc};
 use eyre::eyre;
 use rpc::{InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation};
-use sqlx::Postgres;
 
 use crate::{
     db::{
-        dpu_machine::DpuMachine, instance::DeleteInstance, instance_address::InstanceAddress,
-        machine::Machine, vpc_resource_leaf::VpcResourceLeaf,
+        dpu_machine::DpuMachine, instance::DeleteInstance, machine::Machine,
+        vpc_resource_leaf::VpcResourceLeaf,
     },
     kubernetes,
     model::{
@@ -418,32 +412,16 @@ async fn record_instance_network_observation(
     network_config: InstanceNetworkConfig,
     instance_id: uuid::Uuid,
     network_config_version: ConfigVersion,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
     ctx: &mut StateHandlerContext<'_>,
 ) -> Result<(), StateHandlerError> {
-    let ip_details: HashMap<uuid::Uuid, IpAddr, RandomState> = HashMap::from_iter(
-        InstanceAddress::get_allocated_address(txn, instance_id)
-            .await
-            .map_err(|e| StateHandlerError::GenericError(e.into()))?
-            .into_iter()
-            .map(|x| (x.segment_id, x.address.ip())),
-    );
-
     let mut iface_observations: Vec<InstanceInterfaceStatusObservation> =
         Vec::with_capacity(network_config.interfaces.len());
     for iface in network_config.interfaces.iter() {
-        let address = ip_details.get(&iface.network_segment_id);
-
-        let address = match address {
-            Some(address) => address,
-            None => {
-                let error = format!(
-                    "Failed to retrieve Ip Address for instance {} and function ID {:?}",
-                    instance_id, iface.function_id
-                );
-                return Err(StateHandlerError::GenericError(eyre!(error)));
-            }
-        };
+        let addresses = iface
+            .ip_addrs
+            .iter()
+            .map(|prefix_and_addr| prefix_and_addr.1.to_string())
+            .collect();
 
         iface_observations.push(InstanceInterfaceStatusObservation {
             function_type: rpc::InterfaceFunctionType::from(iface.function_id.function_type())
@@ -453,7 +431,7 @@ async fn record_instance_network_observation(
                 InterfaceFunctionId::VirtualFunctionId { id } => Some(id as u32),
             },
             mac_address: None,
-            addresses: vec![address.to_string()],
+            addresses,
         });
     }
 
@@ -527,7 +505,6 @@ impl StateHandler for InstanceStateHandler {
                         instance.config.network.clone(),
                         instance.instance_id,
                         instance.network_config_version,
-                        txn,
                         ctx,
                     )
                     .await?;

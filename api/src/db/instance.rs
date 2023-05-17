@@ -24,7 +24,7 @@ use super::{DatabaseError, UuidKeyedObjectFilter};
 use crate::{
     db::{instance_address::InstanceAddress, machine::DbMachineId},
     model::{
-        config_version::Versioned,
+        config_version::{ConfigVersion, Versioned},
         instance::{
             config::{network::InstanceNetworkConfig, tenant_config::TenantConfig},
             status::network::InstanceNetworkStatusObservation,
@@ -215,6 +215,39 @@ WHERE v.loopback_ip_address=$1";
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(())
+    }
+
+    /// Updates the desired network configuration for an instance
+    pub async fn update_network_config(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+        expected_version: ConfigVersion,
+        new_state: &InstanceNetworkConfig,
+        increment_version: bool,
+    ) -> Result<(), DatabaseError> {
+        let expected_version_str = expected_version.to_version_string();
+        let next_version = if increment_version {
+            expected_version.increment()
+        } else {
+            expected_version
+        };
+        let next_version_str = next_version.to_version_string();
+
+        let query = "UPDATE instances SET network_config_version=$1, network_config=$2::json
+            WHERE id=$3 AND network_config_version=$4
+            RETURNING id";
+        let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
+            .bind(&next_version_str)
+            .bind(sqlx::types::Json(new_state))
+            .bind(instance_id)
+            .bind(&expected_version_str)
+            .fetch_one(&mut *txn)
+            .await;
+
+        match query_result {
+            Ok((_instance_id,)) => Ok(()),
+            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+        }
     }
 }
 

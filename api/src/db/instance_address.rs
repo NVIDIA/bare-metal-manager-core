@@ -23,6 +23,7 @@ use super::{
     UuidKeyedObjectFilter,
 };
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::model::config_version::Versioned;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::ConfigValidationError;
 use crate::CarbideResult;
@@ -31,6 +32,7 @@ use crate::{model::instance::config::network::InstanceNetworkConfig, CarbideErro
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceSegmentAddress {
     pub segment_id: Uuid,
+    pub prefix_id: Uuid,
     pub address: IpNetwork,
 }
 
@@ -83,23 +85,6 @@ impl InstanceAddress {
         }
         .into_iter()
         .into_group_map_by(|address| address.instance_id))
-    }
-
-    pub async fn get_allocated_address(
-        txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
-    ) -> Result<Vec<InstanceSegmentAddress>, DatabaseError> {
-        let query = "
-SELECT network_segments.id as segment_id, instance_addresses.address as address
-FROM instance_addresses
-INNER JOIN network_prefixes ON network_prefixes.circuit_id = instance_addresses.circuit_id
-INNER JOIN network_segments ON network_segments.id = network_prefixes.segment_id
-WHERE instance_addresses.instance_id = $1::uuid";
-        query_as(query)
-            .bind(instance_id)
-            .fetch_all(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn delete(
@@ -180,11 +165,15 @@ WHERE network_prefixes.segment_id = $1::uuid";
         Ok(address_count.max(0) as usize)
     }
 
+    /// Tries to allocate IP addresses for a tenant network configuration
+    /// Returns the updated configuration which includes allocated addresses
     pub async fn allocate(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: uuid::Uuid,
-        instance_network: &InstanceNetworkConfig,
-    ) -> CarbideResult<Vec<InstanceSegmentAddress>> {
+        instance_network: &Versioned<InstanceNetworkConfig>,
+    ) -> CarbideResult<Versioned<InstanceNetworkConfig>> {
+        let mut updated_config = instance_network.clone();
+
         // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
         // We're potentially about to insert a couple rows, so create a savepoint.
         let mut inner_txn = txn
@@ -195,7 +184,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
         let segments = NetworkSegment::find(
             &mut inner_txn,
             crate::db::UuidKeyedObjectFilter::List(
-                &instance_network
+                &updated_config
                     .interfaces
                     .iter()
                     .map(|x| x.network_segment_id)
@@ -205,7 +194,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
         )
         .await?;
 
-        InstanceAddress::validate(&segments, instance_network)?;
+        InstanceAddress::validate(&segments, &updated_config.value)?;
 
         let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
         sqlx::query(query)
@@ -214,7 +203,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         // Assign all addresses in one shot.
-        for iface in &instance_network.interfaces {
+        for iface in &mut updated_config.value.interfaces {
             let segment = match segments
                 .iter()
                 .find(|x| x.id() == &iface.network_segment_id)
@@ -261,16 +250,18 @@ WHERE network_prefixes.segment_id = $1::uuid";
 
             let query = "INSERT INTO instance_addresses (instance_id, circuit_id, address)
                          VALUES ($1::uuid, $2, $3::inet)";
-            for address in allocated_addresses {
+            for (prefix_id, address) in allocated_addresses {
+                let address = address?;
                 sqlx::query(query)
                     .bind(instance_id)
                     .bind(circuit_id.to_owned())
-                    .bind(address?)
+                    .bind(address)
                     .fetch_all(&mut *inner_txn)
                     .await
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
                     })?;
+                iface.ip_addrs.insert(prefix_id, address);
             }
         }
 
@@ -279,9 +270,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), "commit", e)))?;
 
-        InstanceAddress::get_allocated_address(&mut *txn, instance_id)
-            .await
-            .map_err(CarbideError::from)
+        Ok(updated_config)
     }
 }
 
@@ -361,6 +350,7 @@ mod tests {
                 InstanceInterfaceConfig {
                     function_id,
                     network_segment_id,
+                    ip_addrs: HashMap::default(),
                 }
             })
             .collect();

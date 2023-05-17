@@ -413,7 +413,7 @@ impl MachineInterface {
             })?;
 
         let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
-        for address in allocated_addresses {
+        for (_prefix_id, address) in allocated_addresses {
             sqlx::query(query)
                 .bind(interface_id.0)
                 .bind(address?)

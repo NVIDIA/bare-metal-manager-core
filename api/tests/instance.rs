@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, time::SystemTime};
+use std::{collections::HashMap, net::IpAddr, time::SystemTime};
 
 use chrono::Utc;
 use log::LevelFilter;
@@ -142,8 +142,13 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .await
         .unwrap();
     assert_eq!(network_config.version.version_nr(), 1);
+    let mut network_config_no_addresses = network_config.value.clone();
+    for iface in network_config_no_addresses.interfaces.iter_mut() {
+        assert_eq!(iface.ip_addrs.len(), 1);
+        iface.ip_addrs.clear();
+    }
     assert_eq!(
-        network_config.value,
+        network_config_no_addresses,
         InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID)
     );
 
@@ -184,6 +189,15 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
     assert_eq!(record.address().ip().to_string(), "192.0.2.3");
+    assert_eq!(
+        &record.address().ip(),
+        network_config.value.interfaces[0]
+            .ip_addrs
+            .iter()
+            .next()
+            .unwrap()
+            .1
+    );
     let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
@@ -283,12 +297,19 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
+    let pf_addr = *snapshot.config.network.interfaces[0]
+        .ip_addrs
+        .iter()
+        .next()
+        .unwrap()
+        .1;
+
     let mut updated_network_status = InstanceNetworkStatusObservation {
         config_version: snapshot.network_config_version,
         interfaces: vec![InstanceInterfaceStatusObservation {
             function_id: InterfaceFunctionId::PhysicalFunctionId {},
             mac_address: None,
-            addresses: Vec::new(),
+            addresses: vec![pf_addr],
         }],
         observed_at: Utc::now(),
     };
@@ -320,13 +341,10 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         vec![InstanceInterfaceStatus {
             function_id: InterfaceFunctionId::PhysicalFunctionId {},
             mac_address: None,
-            addresses: Vec::new(),
+            addresses: vec![pf_addr],
         }]
     );
 
-    updated_network_status.interfaces[0]
-        .addresses
-        .push("112.113.114.115".parse().unwrap());
     updated_network_status.interfaces[0].mac_address =
         Some(MacAddress::new([11, 12, 13, 14, 15, 16]).into());
     update_instance_network_status_observation(&mut txn, instance_id, &updated_network_status)
@@ -354,7 +372,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         vec![InstanceInterfaceStatus {
             function_id: InterfaceFunctionId::PhysicalFunctionId {},
             mac_address: Some(MacAddress::new([11, 12, 13, 14, 15, 16])),
-            addresses: vec!["112.113.114.115".parse().unwrap()],
+            addresses: vec![pf_addr],
         }]
     );
 
@@ -434,7 +452,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         vec![InstanceInterfaceStatus {
             function_id: InterfaceFunctionId::PhysicalFunctionId {},
             mac_address: Some(MacAddress::new([11, 12, 13, 14, 15, 16])),
-            addresses: vec!["112.113.114.115".parse().unwrap()],
+            addresses: vec![pf_addr],
         }]
     );
 
@@ -490,8 +508,14 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         .instance
         .expect("Expected instance snapshot to be available");
     assert_eq!(instance_snapshot.network_config_version.version_nr(), 1);
+
+    // We expect IP addresses to be allocated. but we can't compare them to the
+    // request since they are automatically and randomly assigned
+    let mut network_config = instance_snapshot.config.network.clone();
+    assert_eq!(network_config.interfaces[0].ip_addrs.len(), 1);
+    network_config.interfaces[0].ip_addrs.clear();
     assert_eq!(
-        instance_snapshot.config.network,
+        network_config,
         InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID)
     );
 
@@ -603,7 +627,36 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
             .unwrap(),
         1
     );
+
+    // The addresses should show up in the internal config
+    let snapshot_loader = DbSnapshotLoader::default();
+    let snapshot = snapshot_loader
+        .load_machine_snapshot(&mut txn, &dpu_machine_id)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
+    let instance_snapshot = snapshot.instance.unwrap();
+    let network_config = instance_snapshot.config.network;
+    assert_eq!(network_config.interfaces[0].ip_addrs.len(), 1);
+    assert_eq!(
+        network_config.interfaces[0]
+            .ip_addrs
+            .iter()
+            .next()
+            .unwrap()
+            .1,
+        &"192.0.2.3".parse::<IpAddr>().unwrap()
+    );
+    assert_eq!(network_config.interfaces[1].ip_addrs.len(), 1);
+    assert_eq!(
+        network_config.interfaces[1]
+            .ip_addrs
+            .iter()
+            .next()
+            .unwrap()
+            .1,
+        &"192.0.3.3".parse::<IpAddr>().unwrap()
+    );
 
     let segment_ip = HashMap::from([(None, "192.0.2.3"), (Some(1), "192.0.3.3")]);
 

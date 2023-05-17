@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::hash_map::RandomState;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -30,7 +29,6 @@ use uuid::Uuid;
 
 use crate::db::constants::FORGE_KUBE_NAMESPACE;
 use crate::db::dpu_machine::DpuMachine;
-use crate::db::instance_address::InstanceAddress;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId};
@@ -88,14 +86,6 @@ pub async fn create_managed_resource(
 ) -> Result<Poll<()>, VpcApiError> {
     let mut managed_resources = Vec::new();
 
-    let ip_details: HashMap<Uuid, IpAddr, RandomState> = HashMap::from_iter(
-        InstanceAddress::get_allocated_address(txn, instance_id)
-            .await
-            .map_err(|e| VpcApiError::GenericError(e.into()))?
-            .into_iter()
-            .map(|x| (x.segment_id, x.address.ip())),
-    );
-
     for iface in &network_config.interfaces {
         // find_by_segmentcan CAN return max two prefixes, one for ipv4 and another for ipv6
         // Ipv4 is needed for now.
@@ -119,9 +109,7 @@ pub async fn create_managed_resource(
             BlueFieldInterface::new(iface.function_id.clone()).leaf_interface_id(dpu_machine_id),
         );
 
-        let host_interface_ip = ip_details
-            .get(&iface.network_segment_id)
-            .map(|ip| ip.to_string());
+        let host_interface_ip = iface.ip_addrs.get(&prefix.id).map(|ip| ip.to_string());
         let managed_resource_spec = managed_resource::ManagedResourceSpec {
             state: None,
             dpu_i_ps: None,

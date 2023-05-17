@@ -315,7 +315,7 @@ mod tests {
     use crate::model::instance::config::network::InstanceInterfaceConfig;
 
     use super::*;
-    use std::fmt::Write;
+    use std::{collections::HashMap, fmt::Write};
 
     #[test]
     fn serialize_network_status_observation() {
@@ -382,20 +382,30 @@ mod tests {
 
     fn network_config() -> InstanceNetworkConfig {
         let base_uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1400");
 
         InstanceNetworkConfig {
             interfaces: vec![
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::PhysicalFunctionId {},
                     network_segment_id: base_uuid,
+                    ip_addrs: HashMap::from([(prefix_uuid, "127.0.0.1".parse().unwrap())]),
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
                     network_segment_id: uuid::Uuid::from_u128(base_uuid.as_u128() + 1),
+                    ip_addrs: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.as_u128() + 1),
+                        "127.0.0.2".parse().unwrap(),
+                    )]),
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::VirtualFunctionId { id: 2 },
                     network_segment_id: uuid::Uuid::from_u128(base_uuid.as_u128() + 2),
+                    ip_addrs: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.as_u128() + 2),
+                        "127.0.0.3".parse().unwrap(),
+                    )]),
                 },
             ],
         }

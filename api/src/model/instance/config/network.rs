@@ -10,7 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -128,6 +131,7 @@ impl InstanceNetworkConfig {
             interfaces: vec![InstanceInterfaceConfig {
                 function_id: InterfaceFunctionId::PhysicalFunctionId {},
                 network_segment_id,
+                ip_addrs: HashMap::default(),
             }],
         }
     }
@@ -200,6 +204,7 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
             interfaces.push(InstanceInterfaceConfig {
                 function_id,
                 network_segment_id,
+                ip_addrs: HashMap::default(),
             });
         }
 
@@ -290,6 +295,9 @@ pub struct InstanceInterfaceConfig {
     pub function_id: InterfaceFunctionId,
     /// The network segment this interface is attached to
     pub network_segment_id: Uuid,
+    /// The IP address we allocated for each network prefix for this interface
+    /// This is not populated if we have not allocated IP addresses yet.
+    pub ip_addrs: HashMap<uuid::Uuid, IpAddr>,
     // TODO: Security group
 }
 
@@ -341,20 +349,26 @@ mod tests {
     fn serialize_interface_config() {
         let function_id = InterfaceFunctionId::PhysicalFunctionId {};
         let network_segment_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let network_prefix_1 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201");
+        let mut ip_addrs = HashMap::new();
+        ip_addrs.insert(network_prefix_1, "192.168.1.2".parse().unwrap());
+
+        // Test plain serialization without inserting ip addresses. The
         let interface = InstanceInterfaceConfig {
             function_id,
             network_segment_id,
+            ip_addrs,
         };
-
         let serialized = serde_json::to_string(&interface).unwrap();
-        assert_eq!(serialized, "{\"function_id\":{\"type\":\"physical\"},\"network_segment_id\":\"91609f10-c91d-470d-a260-6293ea0c1200\"}");
+        assert_eq!(serialized, "{\"function_id\":{\"type\":\"physical\"},\"network_segment_id\":\"91609f10-c91d-470d-a260-6293ea0c1200\",\"ip_addrs\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2\"}}");
+
         assert_eq!(
             serde_json::from_str::<InstanceInterfaceConfig>(&serialized).unwrap(),
             interface
         );
     }
 
-    /// Creats a valid instance network configuration using the maximum
+    /// Creates a valid instance network configuration using the maximum
     /// amount of interface
     const BASE_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c0000");
     fn create_valid_network_config() -> InstanceNetworkConfig {
@@ -370,6 +384,7 @@ mod tests {
                 InstanceInterfaceConfig {
                     function_id,
                     network_segment_id,
+                    ip_addrs: HashMap::default(),
                 }
             })
             .collect();

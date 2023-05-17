@@ -136,11 +136,30 @@ pub async fn allocate_instance(
         )));
     }
 
+    // This persists the instance with initial configs, but this is lacking the config
+    // for related items we are allocating. At this point in time mostly the allocated
+    // IPs for the instance.
+    // We allocate those now in a separate call and update `Instance`. This is ok
+    // because the transaction doesn't become visible until committed anyway.
+    // We can't allocate IPs before creating the instance, because the IP table
+    // requires the InstanceId as owner reference.
     let instance = new_instance.persist(&mut txn).await?;
     // TODO: Should we check that the network segment actually belongs to the
     // tenant?
 
-    InstanceAddress::allocate(&mut txn, *instance.id(), &network_config.value).await?;
+    // Allocate IPs. This also updates the `InstanceNetworkConfig` to store the IPs
+    let network_config =
+        InstanceAddress::allocate(&mut txn, *instance.id(), &network_config).await?;
+    // Persist the updated `InstanceNetworkConfig`
+    // We need to retain version 1
+    Instance::update_network_config(
+        &mut txn,
+        instance.id,
+        network_config.version,
+        &network_config.value,
+        false,
+    )
+    .await?;
 
     // Machine will be rebooted once managed resource creation is successful.
     let snapshot = DbSnapshotLoader::default()

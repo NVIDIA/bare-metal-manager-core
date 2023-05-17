@@ -23,7 +23,6 @@ use tonic::Status;
 
 use crate::{
     db::{
-        instance_address::InstanceAddress,
         machine_interface::MachineInterface,
         machine_interface_address::MachineInterfaceAddress,
         network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
@@ -163,33 +162,30 @@ pub async fn tenant_network(
             iface.network_segment_id
         )));
     };
-    let Some(prefix) = segment.prefixes.get(0) else {
-        return Err(Status::internal(format!(
-            "Tenant network segment '{}' has no network_prefix, expected 1",
-            segment.id,
-        )));
-    };
-    let Some(prefix_circuit_id) = &prefix.circuit_id else {
-        return Err(Status::internal(format!("Tenant network prefix '{}' missing circuit_id", prefix.id)));
-    };
-    let addresses =
-        &InstanceAddress::find_for_instance(txn, UuidKeyedObjectFilter::One(instance_id))
-            .await
-            .map_err(CarbideError::from)?
-            .remove(&instance_id)
-            .expect("InstanceAddress::find_for_instance didn't return give instance_id");
-    let Some(address) = addresses.iter().find(|a| a.circuit_id == *prefix_circuit_id) else {
-        return Err(Status::internal(format!(
-            "Instance '{instance_id}' has no addresses for circuit {prefix_circuit_id}",
-        )));
-    };
+
+    let v4_prefix = segment
+        .prefixes
+        .iter()
+        .find(|prefix| prefix.prefix.is_ipv4())
+        .ok_or_else(|| {
+            Status::internal(format!(
+                "No IPv4 prefix is available for instance {} on segment {}",
+                instance_id, segment.id
+            ))
+        })?;
+    let address = iface.ip_addrs.get(&v4_prefix.id).ok_or_else(|| {
+        Status::internal(format!(
+            "No IPv4 address is available for instance {} on segment {}",
+            instance_id, segment.id
+        ))
+    })?;
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
     Ok(rpc::FlatInterfaceConfig {
         function: rpc_ft.into(),
         vlan_id: segment.vlan_id.unwrap_or_default() as u32,
         vni: segment.vni.unwrap_or_default() as u32,
-        gateway: prefix.gateway_cidr().unwrap_or_default(),
-        ip: address.address.to_string(),
+        gateway: v4_prefix.gateway_cidr().unwrap_or_default(),
+        ip: address.to_string(),
     })
 }

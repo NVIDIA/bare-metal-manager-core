@@ -59,6 +59,7 @@ pub enum DhcpError {
 // Trying to decouple from NetworkSegment as much as possible.
 #[derive(Debug)]
 struct Prefix {
+    id: uuid::Uuid,
     prefix: IpNetwork,
     gateway: Option<IpNetwork>,
     num_reserved: i32,
@@ -85,6 +86,7 @@ impl IpAllocator {
                         .prefixes
                         .iter()
                         .map(|x| Prefix {
+                            id: x.id,
                             prefix: x.prefix,
                             gateway: x.gateway,
                             num_reserved: x.num_reserved,
@@ -99,16 +101,21 @@ impl IpAllocator {
 }
 
 impl Iterator for IpAllocator {
-    type Item = CarbideResult<IpAddr>;
+    /// The Item is a tuple that returns the prefix ID and the allocated IP for that prefix
+    type Item = (uuid::Uuid, CarbideResult<IpAddr>);
+
     fn next(&mut self) -> Option<Self::Item> {
         if self.prefixes.is_empty() {
             return None;
         }
         let segment_prefix = self.prefixes.remove(0);
         if !segment_prefix.prefix.is_ipv4() {
-            return Some(Err(CarbideError::from(DhcpError::OnlyIpv4Supported(
-                segment_prefix.prefix,
-            ))));
+            return Some((
+                segment_prefix.id,
+                Err(CarbideError::from(DhcpError::OnlyIpv4Supported(
+                    segment_prefix.prefix,
+                ))),
+            ));
         }
 
         let mut excluded_ips: PatriciaMap<()> = PatriciaMap::new();
@@ -152,7 +159,8 @@ impl Iterator for IpAllocator {
 
         // Iterate over all the IPs until we find one that's not in the map, that's our
         // first free IPs
-        Some(
+        Some((
+            segment_prefix.id,
             segment_prefix
                 .prefix
                 .iter()
@@ -164,7 +172,7 @@ impl Iterator for IpAllocator {
                 })
                 .ok_or_else(|| DhcpError::PrefixExhausted(segment_prefix.prefix.ip()))
                 .map_err(CarbideError::from),
-        )
+        ))
     }
 }
 
@@ -174,45 +182,54 @@ mod tests {
 
     #[test]
     fn test_ip_allocation() {
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
+                id: prefix_id,
                 prefix: IpNetwork::V4("10.1.1.0/24".parse().unwrap()),
                 gateway: Some(IpNetwork::V4("10.1.1.1".parse().unwrap())),
                 num_reserved: 1,
             }],
             used_ips: vec![],
         };
-        assert_eq!(
-            "10.1.1.2".parse::<IpAddr>().unwrap(),
-            allocator.next().unwrap().unwrap()
-        );
+        let result = allocator.next().unwrap();
+        assert_eq!(result.0, prefix_id);
+        assert_eq!("10.1.1.2".parse::<IpAddr>().unwrap(), result.1.unwrap());
         assert!(allocator.next().is_none());
     }
 
     #[test]
     fn test_ip_allocation_ipv6_fail() {
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
+                id: prefix_id,
                 prefix: IpNetwork::V6("ff01::0/32".parse().unwrap()),
                 gateway: None,
                 num_reserved: 1,
             }],
             used_ips: vec![],
         };
-        assert!(allocator.next().unwrap().is_err());
+        let result = allocator.next().unwrap();
+        assert_eq!(result.0, prefix_id);
+        assert!(result.1.is_err());
         assert!(allocator.next().is_none());
     }
 
     #[test]
     fn test_ip_allocation_ipv4_and_6() {
+        let prefix_id1 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_id2 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201");
         let mut allocator = IpAllocator {
             prefixes: vec![
                 Prefix {
+                    id: prefix_id1,
                     prefix: IpNetwork::V4("10.1.1.0/24".parse().unwrap()),
                     gateway: Some(IpNetwork::V4("10.1.1.1".parse().unwrap())),
                     num_reserved: 1,
                 },
                 Prefix {
+                    id: prefix_id2,
                     prefix: IpNetwork::V6("ff01::0/32".parse().unwrap()),
                     gateway: None,
                     num_reserved: 1,
@@ -220,25 +237,30 @@ mod tests {
             ],
             used_ips: vec![],
         };
-        assert_eq!(
-            "10.1.1.2".parse::<IpAddr>().unwrap(),
-            allocator.next().unwrap().unwrap()
-        );
-        assert!(allocator.next().unwrap().is_err());
+        let result = allocator.next().unwrap();
+        assert_eq!(result.0, prefix_id1);
+        assert_eq!("10.1.1.2".parse::<IpAddr>().unwrap(), result.1.unwrap());
+        let result = allocator.next().unwrap();
+        assert_eq!(result.0, prefix_id2);
+        assert!(result.1.is_err());
         assert!(allocator.next().is_none());
     }
 
     #[test]
     fn test_ip_allocation_prefix_exhausted() {
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
+                id: prefix_id,
                 prefix: IpNetwork::V4("10.1.1.0/30".parse().unwrap()),
                 gateway: Some(IpNetwork::V4("10.1.1.1".parse().unwrap())),
                 num_reserved: 4,
             }],
             used_ips: vec![],
         };
-        assert!(allocator.next().unwrap().is_err());
+        let result = allocator.next().unwrap();
+        assert_eq!(result.0, prefix_id);
+        assert!(result.1.is_err());
         assert!(allocator.next().is_none());
     }
 }
