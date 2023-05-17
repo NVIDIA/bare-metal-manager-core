@@ -10,16 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 use carbide::db::network_segment::NetworkSegment;
-use log::LevelFilter;
 
 pub mod common;
 use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Warn)
-        .init();
+    common::test_logging::init();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]

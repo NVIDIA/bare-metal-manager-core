@@ -9,8 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
-
 use carbide::db::{machine::Machine, machine_state_history::MachineStateHistory};
 use carbide::model::machine::{machine_id::try_parse_machine_id, ManagedHostState};
 
@@ -19,9 +17,7 @@ use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]

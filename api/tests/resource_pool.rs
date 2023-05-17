@@ -15,14 +15,13 @@ use std::sync::Arc;
 
 use carbide::resource_pool::ResourcePoolStats as St;
 use carbide::resource_pool::{DbResourcePool, OwnerType, ResourcePoolError};
-use log::LevelFilter;
 use sqlx::migrate::MigrateDatabase;
+
+mod common;
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 #[sqlx::test]

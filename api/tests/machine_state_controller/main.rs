@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
 
 #[path = "../common/mod.rs"]
 pub mod common;
@@ -18,7 +17,5 @@ mod snapshot_loader;
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }

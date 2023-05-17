@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
 
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
@@ -30,9 +29,7 @@ use common::api_fixtures::{
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]

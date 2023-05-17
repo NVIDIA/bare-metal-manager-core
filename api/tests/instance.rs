@@ -12,7 +12,6 @@
 use std::{collections::HashMap, net::IpAddr, time::SystemTime};
 
 use chrono::Utc;
-use log::LevelFilter;
 use mac_address::MacAddress;
 
 use ::rpc::forge::forge_server::Forge;
@@ -67,9 +66,7 @@ pub mod common;
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]

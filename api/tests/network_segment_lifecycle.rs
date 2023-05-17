@@ -21,7 +21,6 @@ use carbide::db::UuidKeyedObjectFilter;
 use carbide::kubernetes::VpcApiSimConfig;
 use carbide::model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState};
 use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
-use log::LevelFilter;
 use mac_address::MacAddress;
 
 pub mod common;
@@ -32,9 +31,7 @@ use tonic::Request;
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 const FIXTURE_CREATED_DOMAIN_UUID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");

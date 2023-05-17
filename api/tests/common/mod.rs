@@ -16,3 +16,4 @@
 
 pub mod api_fixtures;
 pub mod test_credentials;
+pub mod test_logging;

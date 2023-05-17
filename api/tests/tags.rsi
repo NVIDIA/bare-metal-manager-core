@@ -9,15 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use log::LevelFilter;
-
 use carbide::db::tags::{Tag, TagAssociation, TagCreate, TagDelete, TagTargetKind, TagsList};
+
+mod common;
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Warn)
-        .init();
+    common::test_logging::init();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]

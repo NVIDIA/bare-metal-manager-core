@@ -20,7 +20,6 @@ use carbide::{
     model::machine::machine_id::MachineId,
     CarbideError,
 };
-use log::LevelFilter;
 use mac_address::MacAddress;
 use sqlx::{Connection, Postgres};
 
@@ -32,9 +31,7 @@ use common::api_fixtures::{
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 async fn get_fixture_network_segment(

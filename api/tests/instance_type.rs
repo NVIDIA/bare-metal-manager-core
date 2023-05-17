@@ -12,13 +12,12 @@
 use carbide::db::instance_type::{
     DeactivateInstanceType, InstanceType, NewInstanceType, UpdateInstanceType,
 };
-use log::LevelFilter;
+
+mod common;
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 #[sqlx::test]

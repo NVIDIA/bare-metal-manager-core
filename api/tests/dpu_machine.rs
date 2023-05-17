@@ -15,16 +15,13 @@ use carbide::{
     kubernetes::VpcApiSimConfig,
     model::machine::machine_id::try_parse_machine_id,
 };
-use log::LevelFilter;
 
 pub mod common;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 /// This is just a random MachineId to simulate fetching a Machine that doesn't exist
@@ -61,6 +58,7 @@ async fn test_find_machine_by_loopback(
 
     assert_eq!(machine_interface.machine_id.unwrap(), dpu_machine_id);
     assert_eq!(machine_interface.id, *dpu_machine._machine_interface_id());
+
     Ok(())
 }
 

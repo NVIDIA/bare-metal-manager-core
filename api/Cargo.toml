@@ -39,7 +39,6 @@ opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
 opentelemetry-semantic-conventions = "0.10.0"
 opentelemetry-prometheus = "0.11"
 patricia_tree = "^0"
-pretty_env_logger = "*"
 prometheus = "0.13"
 rand = "0.8"
 schemars = "*"

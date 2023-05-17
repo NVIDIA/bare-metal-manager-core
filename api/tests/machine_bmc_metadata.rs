@@ -12,7 +12,6 @@
 
 use carbide::model::bmc_info::BmcInfo;
 use carbide::model::machine::machine_id::try_parse_machine_id;
-use log::LevelFilter;
 use sqlx::PgPool;
 
 use carbide::db::bmc_metadata::{
@@ -30,9 +29,7 @@ const DATA: [(UserRoles, &str, &str); 3] = [
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Debug)
-        .init();
+    common::test_logging::init();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]

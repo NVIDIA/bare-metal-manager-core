@@ -13,7 +13,6 @@
 use carbide::db::vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
 use carbide::db::UuidKeyedObjectFilter;
 use carbide::CarbideError;
-use log::LevelFilter;
 
 pub mod common;
 
@@ -21,9 +20,7 @@ const FIXTURE_CREATED_VPC_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 #[sqlx::test]

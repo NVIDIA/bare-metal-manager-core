@@ -12,15 +12,13 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use log::LevelFilter;
-
 use carbide::db::vpc_resource_leaf::{NewVpcResourceLeaf, VpcResourceLeaf};
+
+mod common;
 
 #[ctor::ctor]
 fn setup() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Error)
-        .init();
+    common::test_logging::init();
 }
 
 const DPU_MACHINE_ID: &str = "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
