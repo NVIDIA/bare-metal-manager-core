@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 use cfg::{AutoDetect, Command, Options};
-use log::LevelFilter;
 use once_cell::sync::Lazy;
 use rpc::forge::forge_agent_control_response::Action;
 use rpc::{forge as rpc_forge, ForgeScoutErrorReport};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use tokio::sync::RwLock;
+use tracing::metadata::LevelFilter;
+use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 
 mod cfg;
 mod client;
@@ -58,25 +59,22 @@ async fn main() -> Result<(), eyre::Report> {
 
     check_if_running_in_qemu().await;
 
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(match config.debug {
-            0 => LevelFilter::Info,
-            1 => {
-                // command line overrides config file
-                std::env::set_var("RUST_BACKTRACE", "1");
-                LevelFilter::Debug
-            }
-            _ => {
-                std::env::set_var("RUST_BACKTRACE", "1");
-                LevelFilter::Trace
-            }
-        })
-        .init();
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        .add_directive("tower=warn".parse()?)
+        .add_directive("rustls=warn".parse()?)
+        .add_directive("hyper=warn".parse()?)
+        .add_directive("h2=warn".parse()?);
+    tracing_subscriber::registry()
+        .with(fmt::Layer::default().compact())
+        .with(env_filter)
+        .try_init()?;
 
     let subcmd = match &config.subcmd {
         None => {
-            eprintln!("error: 'forge-scout' requires a subcommand but one was not provided. Re-run with '--help'.");
-            return Ok(());
+            eprintln!("'forge-scout' requires a subcommand but one was not provided. Re-run with '--help'.");
+            std::process::exit(1);
         }
         Some(s) => s,
     };

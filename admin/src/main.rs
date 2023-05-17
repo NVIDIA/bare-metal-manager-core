@@ -197,14 +197,15 @@ async fn main() -> color_eyre::Result<()> {
     // 1. `--debug N` on cmd line
     // 2. RUST_LOG environment variable
     // 3. Level::Info
-    let mut env_filter = EnvFilter::from_default_env()
+    let mut env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
         .add_directive("tower=warn".parse()?)
         .add_directive("rustls=warn".parse()?)
         .add_directive("h2=warn".parse()?);
-    if config.debug != 0 || env::var("RUST_LOG").is_err() {
+    if config.debug != 0 {
         env_filter = env_filter.add_directive(
             match config.debug {
-                0 => LevelFilter::INFO,
                 1 => LevelFilter::DEBUG,
                 _ => LevelFilter::TRACE,
             }

@@ -22,7 +22,7 @@ use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, metadata::LevelFilter, trace};
 use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 
 use crate::{
@@ -56,7 +56,9 @@ fn main() -> eyre::Result<()> {
         return Ok(());
     }
 
-    let env_filter = EnvFilter::from_default_env()
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
         .add_directive("tower=warn".parse()?)
         .add_directive("rustls=warn".parse()?)
         .add_directive("hyper=warn".parse()?)

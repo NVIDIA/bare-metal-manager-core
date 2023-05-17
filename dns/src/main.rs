@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use cfg::{Command, Options};
-use tracing::log::LevelFilter;
+use tracing::metadata::LevelFilter;
+use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 
 mod cfg;
 mod dns;
@@ -23,19 +24,17 @@ async fn main() -> Result<(), eyre::Report> {
         return Ok(());
     }
 
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(match config.debug {
-            0 => LevelFilter::Info,
-            1 => {
-                std::env::set_var("RUST_BACKTRACE", "1");
-                LevelFilter::Debug
-            }
-            _ => {
-                std::env::set_var("RUST_BACKTRACE", "1");
-                LevelFilter::Trace
-            }
-        })
-        .init();
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        .add_directive("tower=warn".parse()?)
+        .add_directive("rustls=warn".parse()?)
+        .add_directive("hyper=warn".parse()?)
+        .add_directive("h2=warn".parse()?);
+    tracing_subscriber::registry()
+        .with(fmt::Layer::default().compact())
+        .with(env_filter)
+        .try_init()?;
 
     let sub_cmd = match &config.sub_cmd {
         None => {

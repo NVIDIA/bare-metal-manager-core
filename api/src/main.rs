@@ -74,22 +74,23 @@ async fn main() -> eyre::Result<()> {
 
     // This configures the tracing framework
     // We ignore a lot of spans and events from 3rd party frameworks
-    let env_filter = EnvFilter::from_default_env()
-        .add_directive(
+    let mut env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+    if config.debug != 0 {
+        env::set_var("RUST_BACKTRACE", "1");
+        env_filter = env_filter.add_directive(
             match config.debug {
-                0 => LevelFilter::INFO,
                 1 => {
                     // command line overrides config file
-                    env::set_var("RUST_BACKTRACE", "1");
                     LevelFilter::DEBUG
                 }
-                _ => {
-                    env::set_var("RUST_BACKTRACE", "1");
-                    LevelFilter::TRACE
-                }
+                _ => LevelFilter::TRACE,
             }
             .into(),
-        )
+        );
+    }
+    env_filter = env_filter
         .add_directive("sqlxmq::runner=warn".parse()?)
         .add_directive("rustify=error".parse()?)
         .add_directive("vaultrs=error".parse()?)

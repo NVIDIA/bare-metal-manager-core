@@ -17,12 +17,12 @@ eyre = "*"
 forge-version = { path = "../version" }
 futures = "0.3"
 itertools = "*"
-tracing = { version = "*" }
-pretty_env_logger = "*"
 rpc = { path = "../rpc" }
 thiserror = "1.0"
 tokio = { workspace = true }
 tonic = { workspace = true }
+tracing = "*"
+tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 trust-dns-server = { version = "0.21.1" }
 
 [dev-dependencies]

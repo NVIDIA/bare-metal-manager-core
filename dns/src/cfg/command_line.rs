@@ -9,15 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::{ArgAction, Parser};
+use clap::Parser;
 
 #[derive(Parser)]
 pub(crate) struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
     pub version: bool,
-
-    #[clap(short, long, action = ArgAction::Count)]
-    pub debug: u8,
 
     #[clap(subcommand)]
     pub sub_cmd: Option<Command>,

@@ -37,7 +37,12 @@ use tracing_subscriber::prelude::*;
 
 #[tokio::main]
 async fn main() {
-    let env_filter = EnvFilter::from_default_env().add_directive(LevelFilter::DEBUG.into());
+    let env_filter = EnvFilter::from_default_env()
+        .add_directive(LevelFilter::DEBUG.into())
+        .add_directive("tower=warn".parse().unwrap())
+        .add_directive("rustls=warn".parse().unwrap())
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("h2=warn".parse().unwrap());
 
     tracing_subscriber::registry()
         .with(Layer::default().compact())

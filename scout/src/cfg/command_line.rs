@@ -9,16 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::{ArgAction, Parser};
+use clap::Parser;
 
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
     pub version: bool,
-
-    #[clap(short, long, action = ArgAction::Count)]
-    pub debug: u8,
 
     #[clap(
         short,
