@@ -24,7 +24,6 @@ use model::{
     ConfigValidationError, RpcDataConversionError,
 };
 use reachability::ReachabilityError;
-use rust_fsm::TransitionImpossibleError;
 use state_controller::snapshot_loader::SnapshotLoaderError;
 use tonic::Status;
 
@@ -51,7 +50,7 @@ pub mod vpc_resources;
 /// Represents various Errors that can occur throughout the system.
 ///
 /// CarbideError is a way to represent and enrich lower-level errors with specific business logic
-/// that can be handled (e.g. MachineStateTransitionViolation).
+/// that can be handled.
 ///
 /// It uses `thiserror` to adapt lower-level errors to this type.
 ///
@@ -98,12 +97,6 @@ pub enum CarbideError {
     #[error("{0}")]
     DBError(#[from] db::DatabaseError),
 
-    #[error("Could not transition across states in the state machine: {0}")]
-    InvalidState(TransitionImpossibleError),
-
-    #[error("Invalid machine state transition: {0}")]
-    MachineStateTransitionViolation(String, Option<String>),
-
     #[error("Database type conversion error")]
     DatabaseTypeConversionError(String),
 
@@ -115,12 +108,6 @@ pub enum CarbideError {
 
     #[error("No network segment defined for relay address: {0}")]
     NoNetworkSegmentsForRelay(IpAddr),
-
-    #[error("Unable to generate ephemeral hostname from uuid: {0}")]
-    HostnameGenerationError(String),
-
-    #[error("Attempted to retrieve the next IP from a network segment without a subnet for that address family: {0}")]
-    NetworkSegmentMissingAddressFamilyError(String),
 
     #[error("Duplicate MAC address for network: {0}")]
     NetworkSegmentDuplicateMacAddress(MacAddress),
@@ -146,20 +133,11 @@ pub enum CarbideError {
     #[error("A unique identifier was not specified for an existing object.  Please specify an identifier")]
     IdentifierNotSpecifiedForObject(),
 
-    #[error("The Domain named {0} already exists. Domain names must be unique")]
-    DuplicateDomain(String),
-
     #[error("The Domain name {0} contains illegal characters")]
     InvalidDomainName(String),
 
-    #[error("The domain name object {0} does not exist")]
-    UnknownDomain(uuid::Uuid),
-
     #[error("Only one interface per machine can be marked as primary")]
     OnePrimaryInterface,
-
-    #[error("Duplicate record for {0} that should be unique: {1}")]
-    DuplicateRecordIdentifier(&'static str, uuid::Uuid),
 
     #[error("Find one returned no results but should return one for uuid - {0}")]
     FindOneReturnedNoResultsError(uuid::Uuid),
@@ -170,23 +148,8 @@ pub enum CarbideError {
     #[error("JSON Parse failure - {0}")]
     JSONParseError(#[from] serde_json::Error),
 
-    #[error("Kubernetes Client Error - {0}")]
-    KubeClientError(kube::Error),
-
-    #[error("Tokio Timeout Error - {0}")]
-    TokioTimeoutError(String),
-
     #[error("Tokio Task Join Error {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),
-
-    #[error("Kube Runtime Wait Error - {0}")]
-    KubeWaitError(#[from] kube::runtime::wait::Error),
-
-    #[error("Multiple IP assigned by DHCP - {0}")]
-    DHCPMultipleIPAssigned(String),
-
-    #[error("Invalid value received in Enum - {0}")]
-    InvalidValueInEnum(String),
 
     #[error("Can not convert between RPC data model and internal data model - {0}")]
     RpcDataConversionError(#[from] RpcDataConversionError),
@@ -274,17 +237,6 @@ impl From<CarbideError> for tonic::Status {
             }
             other => Status::internal(other.to_string()),
         }
-    }
-}
-
-/// Converts a kube::Error to a CarbideError
-///
-/// https://docs.rs/kube/latest/kube/error/enum.Error.html
-/// kube::error::Error contains all possible errors when working with kube_client
-///
-impl From<kube::Error> for CarbideError {
-    fn from(err: kube::Error) -> CarbideError {
-        Self::KubeClientError(err)
     }
 }
 

@@ -15,7 +15,6 @@ mac_address = "*"
 prost = "*"
 prost-build = "*"
 prost-types = "*"
-rust-fsm = "0.6.0"
 rustls-pemfile = "1.0"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"

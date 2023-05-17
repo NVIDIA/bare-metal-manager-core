@@ -699,7 +699,6 @@ dependencies = [
  "rpc",
  "rstest 0.13.0",
  "rstest_reuse",
- "rust-fsm",
  "rustls-pemfile",
  "schemars",
  "serde",
@@ -4379,7 +4378,6 @@ dependencies = [
  "prost",
  "prost-build",
  "prost-types",
- "rust-fsm",
  "rustls-pemfile",
  "serde",
  "serde_json",
@@ -4452,25 +4450,6 @@ checksum = "f9b5aed35457441e7e0db509695ba3932d4c47e046777141c167efe584d0ec17"
 dependencies = [
  "quote",
  "rustc_version 0.4.0",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "rust-fsm"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "021d7de715253e45ad24a2fbb0725a0f7f271fd8d3163b130bd65ce2816a860d"
-dependencies = [
- "rust-fsm-dsl",
-]
-
-[[package]]
-name = "rust-fsm-dsl"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a66b1273014079e4cf2b04aad1f3a2849e26e9a106f0411be2b1c15c23a791a"
-dependencies = [
- "quote",
  "syn 1.0.109",
 ]
 
