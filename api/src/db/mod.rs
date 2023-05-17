@@ -11,6 +11,7 @@
  */
 pub mod address_selection_strategy;
 pub mod auth;
+pub mod bmc_metadata;
 pub mod constants;
 pub mod dhcp_entry;
 pub mod dhcp_record;
@@ -20,7 +21,6 @@ pub mod ib_subnet;
 pub mod instance;
 pub mod instance_address;
 pub mod instance_type;
-pub mod ipmi;
 pub mod machine;
 pub mod machine_interface;
 pub mod machine_interface_address;

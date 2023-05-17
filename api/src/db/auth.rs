@@ -15,7 +15,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 
 use super::DatabaseError;
-use crate::db::ipmi::UserRoles;
+use crate::db::bmc_metadata::UserRoles;
 
 #[derive(Clone, Debug)]
 pub struct SshKeyValidationRequest {

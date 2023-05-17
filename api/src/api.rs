@@ -50,8 +50,8 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
+use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_machine::DpuMachine;
-use crate::db::ipmi::UserRoles;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
@@ -69,13 +69,13 @@ use crate::{
     credentials::UpdateCredentials,
     db::{
         auth::SshKeyValidationRequest,
+        bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         domain::Domain,
         domain::NewDomain,
         instance::{
             status::network::update_instance_network_status_observation, DeleteInstance, Instance,
         },
         instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
-        ipmi::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         machine::Machine,
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
@@ -87,7 +87,6 @@ use crate::{
     },
     ethernet_virtualization,
     instance::{allocate_instance, InstanceAllocationRequest},
-    ipmi::{ipmi_handler, MachineBmcRequest, RealIpmiCommandHandler},
     kubernetes::{VpcApi, VpcApiImpl, VpcApiSim},
     logging::{
         api_logs::LogLayer,
@@ -1071,22 +1070,44 @@ where
             ))
         })?;
 
-        let machine_power_request = MachineBmcRequest::try_from(request.into_inner())?;
-        log_machine_id(&machine_power_request.machine_id);
+        let request = request.into_inner();
+        let machine_id = match &request.machine_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::invalid_argument("A machine UUID is required"));
+            }
+        };
+        log_machine_id(&machine_id);
 
-        let instance = Instance::find_by_machine_id(&mut txn, &machine_power_request.machine_id)
+        let loader = DbSnapshotLoader::default();
+        let snapshot = loader
+            .load_machine_snapshot_for_host(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?;
-        if instance.is_none() {
+        if snapshot.instance.is_none() {
             return Err(Status::invalid_argument(format!(
                 "Supplied invalid UUID: {}",
-                machine_power_request.machine_id
+                machine_id
             )));
         }
+        let bmc_ip =
+            snapshot
+                .host_snapshot
+                .bmc_info
+                .ip
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "bmc_ip",
+                    id: machine_id.to_string(),
+                })?;
 
-        machine_power_request
-            .set_custom_pxe_on_next_boot(&mut txn)
-            .await?;
+        Instance::use_custom_ipxe_on_next_boot(
+            &machine_id,
+            request.boot_with_custom_ipxe,
+            &mut txn,
+        )
+        .await
+        .map_err(CarbideError::from)?;
+
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -1096,9 +1117,28 @@ where
             ))
         })?;
 
-        let _ = machine_power_request
-            .reboot_machine(self.database_connection.clone(), self.redfish_pool.clone())
-            .await?;
+        // TODO: The API call should maybe not directly trigger the reboot
+        // but instead queue it for the state handler. That will avoid racing
+        // with other internal reboot requests from the state handler.
+        let client = self
+            .redfish_pool
+            .create_client(&machine_id, &bmc_ip, None)
+            .await
+            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+        // Since libredfish calls are thread blocking and we are inside an async function,
+        // we have to delegate the actual call into a threadpool
+        tokio::task::spawn_blocking(move || {
+            if request.boot_with_custom_ipxe {
+                client.boot_once(libredfish::Boot::Pxe)?;
+            }
+            client.power(libredfish::SystemPowerControl::ForceRestart)
+        })
+        .await
+        .map_err(|e| {
+            CarbideError::GenericError(format!("Failed redfish ForceRestart subtask: {}", e))
+        })?
+        .map_err(|e| CarbideError::GenericError(format!("Failed to restart machine: {}", e)))?;
 
         Ok(Response::new(rpc::InstancePowerResult {}))
     }
@@ -3034,7 +3074,6 @@ where
             Arc::new(VpcApiSim::default())
         };
 
-        let conn_clone = database_connection.clone();
         let authorizer = auth::Authorizer::build_casbin(
             &daemon_config.casbin_policy_file,
             daemon_config.auth_permissive_mode,
@@ -3075,14 +3114,8 @@ where
             daemon_config.identity_keyfile_path.clone(),
         ));
 
-        // handle should be stored in a variable. If is is dropped by compiler, main event will be dropped.
-        let _handle = ipmi_handler(
-            conn_clone,
-            RealIpmiCommandHandler {},
-            credential_provider.clone(),
-        )
-        .await?;
-
+        // handles need to be stored in a variable
+        // If they are assigned to _ then the destructor will be immediately called
         let _machine_state_controller_handle =
             StateController::<MachineStateControllerIO>::builder()
                 .database(database_connection.clone())

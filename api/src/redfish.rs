@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
 use libredfish::{Endpoint, Redfish, RedfishError};
 
-use crate::{db::ipmi::UserRoles, model::machine::machine_id::MachineId};
+use crate::{db::bmc_metadata::UserRoles, model::machine::machine_id::MachineId};
 
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
