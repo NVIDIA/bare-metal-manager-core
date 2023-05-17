@@ -21,7 +21,7 @@ use super::DatabaseError;
 #[derive(Debug, FromRow)]
 pub struct DhcpEntry {
     pub machine_interface_id: uuid::Uuid,
-    pub vendor_class: String,
+    pub vendor_string: String,
 }
 
 impl DhcpEntry {
@@ -40,16 +40,18 @@ impl DhcpEntry {
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<DhcpEntry, DatabaseError> {
+    ) -> Result<(), DatabaseError> {
         let query = "
 INSERT INTO dhcp_entries (machine_interface_id, vendor_string)
 VALUES ($1::uuid, $2::varchar)
-RETURNING *";
-        sqlx::query_as(query)
+ON CONFLICT DO NOTHING";
+        let _result = sqlx::query(query)
             .bind(self.machine_interface_id)
-            .bind(&self.vendor_class)
-            .fetch_one(&mut *txn)
+            .bind(&self.vendor_string)
+            .execute(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 }

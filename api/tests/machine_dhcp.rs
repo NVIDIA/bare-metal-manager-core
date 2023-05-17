@@ -15,7 +15,9 @@ use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 use std::str::FromStr;
 
-use carbide::db::{machine_interface::MachineInterface, vpc_resource_leaf::VpcResourceLeaf};
+use carbide::db::{
+    dhcp_entry::DhcpEntry, machine_interface::MachineInterface, vpc_resource_leaf::VpcResourceLeaf,
+};
 
 mod common;
 use common::api_fixtures::{
@@ -23,7 +25,7 @@ use common::api_fixtures::{
     dpu::create_dpu_machine,
     instance::{create_instance, FIXTURE_CIRCUIT_ID, FIXTURE_CIRCUIT_ID_1},
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
-    FIXTURE_DHCP_RELAY_ADDRESS,
+    TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
 };
 
 #[ctor::ctor]
@@ -250,6 +252,71 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     assert_eq!(response.address, "192.0.3.3/32".to_owned());
     assert_eq!(response.prefix, "192.0.3.0/24".to_owned());
     assert_eq!(response.gateway.unwrap(), "192.0.3.1/32".to_owned());
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn machine_interface_discovery_persists_vendor_strings(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    async fn assert_vendor_strings_equal(
+        pool: &sqlx::PgPool,
+        interface_id: &uuid::Uuid,
+        expected: &[&str],
+    ) {
+        let mut txn = pool.clone().begin().await.unwrap();
+        let entry = DhcpEntry::find_by_interface_id(&mut txn, interface_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            entry
+                .iter()
+                .map(|e| e.vendor_string.as_str())
+                .collect::<Vec<&str>>(),
+            expected
+        );
+        txn.rollback().await.unwrap();
+    }
+
+    async fn dhcp_with_vendor(
+        env: &TestEnv,
+        mac_address: MacAddress,
+        vendor_string: Option<String>,
+    ) -> rpc::protos::forge::DhcpRecord {
+        env.api
+            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+                mac_address: mac_address.to_string(),
+                relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
+                vendor_string,
+                link_address: None,
+                circuit_id: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+    }
+
+    let env = create_test_env(pool.clone(), Default::default());
+    let mac_address = MacAddress::from_str("ab:cd:ff:ff:ff:ff").unwrap();
+
+    let response = dhcp_with_vendor(&env, mac_address, Some("vendor1".to_string())).await;
+    let interface_id: uuid::Uuid = response
+        .machine_interface_id
+        .expect("machine_interface_id must be set")
+        .try_into()
+        .unwrap();
+    assert_vendor_strings_equal(&pool, &interface_id, &["vendor1"]).await;
+
+    let _ = dhcp_with_vendor(&env, mac_address, Some("vendor2".to_string())).await;
+    assert_vendor_strings_equal(&pool, &interface_id, &["vendor1", "vendor2"]).await;
+
+    let _ = dhcp_with_vendor(&env, mac_address, None).await;
+    assert_vendor_strings_equal(&pool, &interface_id, &["vendor1", "vendor2"]).await;
+
+    // DHCP with a previously known vendor string
+    // This should not fail
+    let _ = dhcp_with_vendor(&env, mac_address, Some("vendor2".to_string())).await;
+
     Ok(())
 }
 

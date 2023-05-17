@@ -49,7 +49,7 @@ async fn handle_dhcp_for_instance(
         )
         .await
         .map_err(|x| {
-            log::error!(
+            tracing::error!(
                 "DHCP request failed for {}, {:?} with {}.",
                 instance.id,
                 circuit_id,
@@ -62,7 +62,7 @@ async fn handle_dhcp_for_instance(
         })?
         .try_into()?;
 
-        log::info!(
+        tracing::info!(
             "Returning DHCP response for instance {}, circuit_id: {}, record: {:?}",
             instance.id,
             circuit_id_parsed,
@@ -129,14 +129,14 @@ pub async fn discover_dhcp(
     if let Some(vendor) = vendor_string {
         let res = DhcpEntry {
             machine_interface_id: *machine_interface.id(),
-            vendor_class: vendor,
+            vendor_string: vendor,
         }
         .persist(&mut txn)
         .await;
         match res {
-            Ok(_) => {} // do nothing on ok result
+            Ok(()) => {} // do nothing on ok result
             Err(e) => {
-                log::debug!("Could not persist dhcp entry {}", e)
+                tracing::error!("Could not persist dhcp entry {}", e)
             } // This should not fail the discover call, dhcp happens many times
         }
     }
