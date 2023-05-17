@@ -2,7 +2,9 @@
   "machine_id": {
     "id": "$HOST_MACHINE_ID"
   },
-  "ip": "host.docker.internal:1266",
+  "bmc_info": {
+    "ip": "host.docker.internal:1266"
+  },
   "data": [
     {
       "user": "forge_admin",
