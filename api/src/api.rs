@@ -3209,12 +3209,13 @@ where
             Arc::new(VpcApiSim::default())
         };
 
-        let ib_fabric_manager: Arc<dyn IBFabricManager> = if daemon_config.kubernetes {
-            // TODO(k82cn): connect to IBFabricManager.
-            ib::connect(&daemon_config.ib_fabric_manager)
-        } else {
-            ib::local_ib_fabric_manager()
-        };
+        let ib_fabric_manager: Arc<dyn IBFabricManager> =
+            if let Some(fabric_manager) = daemon_config.ib_fabric_manager.as_ref() {
+                // TODO(k82cn): connect to IBFabricManager.
+                ib::connect(fabric_manager)
+            } else {
+                ib::local_ib_fabric_manager()
+            };
 
         let authorizer = auth::Authorizer::build_casbin(
             &daemon_config.casbin_policy_file,
@@ -3264,6 +3265,7 @@ where
                 .meter("forge_machines", meter.clone())
                 .redfish_client_pool(shared_redfish_pool.clone())
                 .vpc_api(vpc_api.clone())
+                .ib_fabric_manager(ib_fabric_manager.clone())
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.machine_state_controller_iteration_time)
                 .state_handler(Arc::new(MachineStateHandler::default()))
@@ -3279,6 +3281,7 @@ where
             .meter("forge_network_segments", meter.clone())
             .redfish_client_pool(shared_redfish_pool.clone())
             .vpc_api(vpc_api.clone())
+            .ib_fabric_manager(ib_fabric_manager.clone())
             .forge_api(api_service.clone());
         if let Some(pool_vlan_id) = sc_pool_vlan_id {
             ns_builder = ns_builder.pool_vlan_id(pool_vlan_id);
@@ -3301,9 +3304,14 @@ where
         let ib_data = ib::pool::enable();
         let _ibsubnet_controller_handle = StateController::<IBSubnetStateControllerIO>::builder()
             .database(database_connection.clone())
+            .redfish_client_pool(shared_redfish_pool.clone())
             .vpc_api(vpc_api.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
             .pool_pkey(ib_data.pool_pkey.clone())
+            .reachability_params(ReachabilityParams {
+                checker: Arc::new(PingReachabilityChecker::default()),
+                dpu_wait_time: Duration::minutes(5),
+            })
             .forge_api(api_service.clone())
             .iteration_time(service_config.network_segment_state_controller_iteration_time)
             .state_handler(Arc::new(IBSubnetStateHandler::new(

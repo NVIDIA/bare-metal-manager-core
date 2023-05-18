@@ -56,7 +56,7 @@ pub struct Daemon {
 
     /// A connection string for the utilized IBFabricManager
     #[clap(long, require_equals(true), env = "IBFABRIC_MANAGER_URL")]
-    pub ib_fabric_manager: String,
+    pub ib_fabric_manager: Option<String>,
 
     /// Enable kubernetes integrations
     #[clap(short, long)]

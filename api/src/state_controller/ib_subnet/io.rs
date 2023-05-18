@@ -33,7 +33,7 @@ impl StateControllerIO for IBSubnetStateControllerIO {
     type ControllerState = IBSubnetControllerState;
 
     fn db_lock_name() -> &'static str {
-        "ib_subnet_controller_lock"
+        "ibsubnet_controller_lock"
     }
 
     async fn list_objects(
