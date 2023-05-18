@@ -146,7 +146,7 @@ impl VpcApi for MockVpcApi {
     "../../fixtures/create_network_segment",
 ))]
 async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     // Insert some machines
     let dpu_macs = &[

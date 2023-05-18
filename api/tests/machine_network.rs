@@ -28,7 +28,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
-    let test = api_fixtures::create_test_env(pool.clone(), Default::default());
+    let test = api_fixtures::create_test_env(pool.clone(), Default::default()).await;
     let dpu_machine_id = api_fixtures::dpu::create_dpu_machine(&test).await;
 
     // Fetch a Machines network config
@@ -44,7 +44,7 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_status(pool: sqlx::PgPool) {
-    let test = api_fixtures::create_test_env(pool.clone(), Default::default());
+    let test = api_fixtures::create_test_env(pool.clone(), Default::default()).await;
     let dpu_machine_id = api_fixtures::dpu::create_dpu_machine(&test).await;
 
     // At first there are no network status

@@ -27,6 +27,7 @@ use carbide::{
     },
     reachability::TestPingReachabilityChecker,
     redfish::RedfishSim,
+    resource_pool::DbResourcePool,
     state_controller::{
         controller::{ReachabilityParams, StateControllerIO},
         ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
@@ -76,6 +77,7 @@ pub struct TestEnv {
     pub redfish_sim: Arc<RedfishSim>,
     pub vpc_api: Arc<VpcApiSim>,
     pub ib_fabric_manager: Arc<dyn ib::IBFabricManager>,
+    pub pool_pkey: Arc<DbResourcePool<i16>>,
     pub machine_state_controller_io: MachineStateControllerIO,
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
     pub reachability_params: ReachabilityParams,
@@ -85,7 +87,7 @@ pub struct TestEnv {
 impl TestEnv {
     /// Creates an instance of StateHandlerServices that are suitable for this
     /// test environment
-    pub async fn state_handler_services(&self) -> StateHandlerServices {
+    pub fn state_handler_services(&self) -> StateHandlerServices {
         let forge_api = Arc::new(Api::new(
             self.credential_provider.clone(),
             self.pool.clone(),
@@ -97,17 +99,6 @@ impl TestEnv {
             "not a real keyfile path".to_string(),
         ));
 
-        let ib_data = ib::pool::enable();
-
-        // Populate pkey for test.
-        let mut txn = self.pool.begin().await.unwrap();
-        ib_data
-            .pool_pkey
-            .populate(&mut txn, (1..100).collect())
-            .await
-            .unwrap();
-        txn.commit().await.unwrap();
-
         StateHandlerServices {
             pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
@@ -118,7 +109,7 @@ impl TestEnv {
             reachability_params: self.reachability_params.clone(),
             pool_vlan_id: None,
             pool_vni: None,
-            pool_pkey: Some(ib_data.pool_pkey),
+            pool_pkey: Some(self.pool_pkey.clone()),
         }
     }
 
@@ -132,7 +123,7 @@ impl TestEnv {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         expected_state: ManagedHostState,
     ) {
-        let services = Arc::new(self.state_handler_services().await);
+        let services = Arc::new(self.state_handler_services());
         for _ in 0..max_iterations {
             run_state_controller_iteration(
                 &services,
@@ -162,7 +153,7 @@ impl TestEnv {
         dpu_machine_id: MachineId,
         handler: &MachineStateHandler,
     ) {
-        let services = Arc::new(self.state_handler_services().await);
+        let services = Arc::new(self.state_handler_services());
         run_state_controller_iteration(
             &services,
             &self.pool,
@@ -180,7 +171,7 @@ impl TestEnv {
         segment_id: uuid::Uuid,
         handler: &NetworkSegmentStateHandler,
     ) {
-        let services = Arc::new(self.state_handler_services().await);
+        let services = Arc::new(self.state_handler_services());
         run_state_controller_iteration(
             &services,
             &self.pool,
@@ -198,7 +189,7 @@ impl TestEnv {
         segment_id: uuid::Uuid,
         handler: &IBSubnetStateHandler,
     ) {
-        let services = Arc::new(self.state_handler_services().await);
+        let services = Arc::new(self.state_handler_services());
         run_state_controller_iteration(
             &services,
             &self.pool,
@@ -242,7 +233,7 @@ pub struct TestEnvConfig {
 /// This retuns the `Api` object instance which can be used to simulate calls against
 /// the Forge site controller, as well as mocks for dependent services that
 /// can be inspected and passed to other systems.
-pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
+pub async fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
     let credential_provider = Arc::new(TestCredentialProvider::new());
     let vpc_api = Arc::new(VpcApiSim::with_config(config.vpc_sim_config));
     let redfish_sim = Arc::new(RedfishSim::default());
@@ -259,6 +250,17 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
         "not a real keyfile path".to_string(),
     );
 
+    let ib_data = ib::pool::enable();
+
+    // Populate pkey for test.
+    let mut txn = pool.begin().await.unwrap();
+    ib_data
+        .pool_pkey
+        .populate(&mut txn, (1..100).collect())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
     TestEnv {
         api,
         credential_provider,
@@ -266,6 +268,7 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
         redfish_sim,
         vpc_api,
         ib_fabric_manager,
+        pool_pkey: ib_data.pool_pkey.clone(),
         machine_state_controller_io: MachineStateControllerIO::default(),
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
         reachability_params: ReachabilityParams {

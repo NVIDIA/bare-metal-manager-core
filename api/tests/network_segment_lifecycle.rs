@@ -112,7 +112,7 @@ async fn test_network_segment_lifecycle_impl(
         required_deletion_attempts: 2,
         ..Default::default()
     };
-    let env = create_test_env(pool.clone(), TestEnvConfig { vpc_sim_config });
+    let env = create_test_env(pool.clone(), TestEnvConfig { vpc_sim_config }).await;
 
     let segment = create_network_segment_with_api(&env.api, use_subdomain, use_vpc).await;
     assert!(segment.created.is_some());
@@ -344,7 +344,7 @@ async fn test_advance_network_prefix_state(
 async fn test_network_segment_delete_fails_with_associated_machine_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = create_test_env(pool.clone(), Default::default()).api;
+    let api = create_test_env(pool.clone(), Default::default()).await.api;
     let segment = create_network_segment_with_api(&api, false, false).await;
 
     let mut txn = pool.begin().await?;
@@ -394,7 +394,7 @@ async fn test_network_segment_max_history_length(
         required_deletion_attempts: 2,
         ..Default::default()
     };
-    let env = create_test_env(pool.clone(), TestEnvConfig { vpc_sim_config });
+    let env = create_test_env(pool.clone(), TestEnvConfig { vpc_sim_config }).await;
 
     let segment = create_network_segment_with_api(&env.api, true, true).await;
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();

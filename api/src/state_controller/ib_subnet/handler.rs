@@ -44,21 +44,16 @@ impl IBSubnetStateHandler {
         ctx: &mut StateHandlerContext<'_>,
         owner_id: &str,
     ) -> Result<i16, StateHandlerError> {
-        if ctx.services.pool_pkey.is_none() {
-            return Err(StateHandlerError::MissingData {
-                object_id: owner_id.to_string(),
-                missing: "pool pkey",
-            });
-        }
+        let pool =
+            ctx.services
+                .pool_pkey
+                .as_ref()
+                .ok_or_else(|| StateHandlerError::MissingData {
+                    object_id: owner_id.to_string(),
+                    missing: "pool pkey",
+                })?;
 
-        match ctx
-            .services
-            .pool_pkey
-            .as_ref()
-            .unwrap()
-            .allocate(txn, OwnerType::IBSubnet, owner_id)
-            .await
-        {
+        match pool.allocate(txn, OwnerType::IBSubnet, owner_id).await {
             Ok(val) => Ok(val),
             Err(_) => Err(StateHandlerError::PoolAllocateError {
                 owner_id: owner_id.to_string(),

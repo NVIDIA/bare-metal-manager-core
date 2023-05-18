@@ -34,7 +34,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn machine_bmc_credential_update(pool: PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     // TODO: This probably should test with a host machine instead of a DPU,
     // since for DPUs we don't really store BMC credentials
     let dpu_rpc_machine_id = create_dpu_machine(&env).await;

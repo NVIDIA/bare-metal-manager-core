@@ -53,7 +53,9 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default()).api;
+    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default())
+        .await
+        .api;
 
     // Inititially 0 addresses are allocated on the segment
     let mut txn = pool.begin().await?;
@@ -108,7 +110,9 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn test_multiple_machines_dhcp_with_api(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default()).api;
+    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default())
+        .await
+        .api;
 
     // Inititially 0 addresses are allocated on the segment
     let mut txn = pool.begin().await?;
@@ -167,7 +171,7 @@ async fn test_multiple_machines_dhcp_with_api(
 async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone(), Default::default());
+    let env = common::api_fixtures::create_test_env(pool.clone(), Default::default()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = pool
@@ -293,7 +297,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
             .into_inner()
     }
 
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let mac_address = MacAddress::from_str("ab:cd:ff:ff:ff:ff").unwrap();
 
     let response = dhcp_with_vendor(&env, mac_address, Some("vendor1".to_string())).await;
@@ -321,7 +325,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
 async fn test_dpu_machine_dhcp_for_existing_dpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     let dpu_machine_id = create_dpu_machine(&env).await;
 

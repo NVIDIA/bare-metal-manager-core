@@ -58,7 +58,7 @@ async fn get_segment_state(api: &TestApi, ibsubnet_id: uuid::Uuid) -> TenantStat
 async fn test_ib_subnet_lifecycle_impl(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     let segment =
         create_ib_subnet_with_api(&env.api, FIXTURE_CREATED_IB_SUBNET_NAME.to_string()).await;

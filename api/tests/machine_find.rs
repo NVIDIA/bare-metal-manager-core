@@ -35,7 +35,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
@@ -63,7 +63,7 @@ async fn test_find_machine_by_id(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
@@ -90,7 +90,7 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
@@ -129,7 +129,7 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
@@ -162,7 +162,7 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
@@ -190,7 +190,7 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let machines = env.find_machines(None, None, true).await;
@@ -208,7 +208,7 @@ async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_machine_dpu_excluded(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let machines = env.find_machines(None, None, false).await;

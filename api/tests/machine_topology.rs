@@ -146,7 +146,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_topology_missing_mac_field(pool: PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let rpc_machine_id = create_dpu_machine(&env).await;
 
     let mut txn = pool.begin().await.unwrap();

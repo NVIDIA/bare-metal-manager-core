@@ -37,7 +37,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
 
@@ -94,7 +94,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut response = force_delete(&env, &dpu_machine_id).await;
@@ -119,7 +119,7 @@ async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPo
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut response = force_delete(&env, &host_machine_id).await;
@@ -171,7 +171,7 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let host_machine_interface_id =
         host_discover_dhcp(&env, FIXTURE_HOST_MAC_ADDRESS, &dpu_machine_id.clone()).await;

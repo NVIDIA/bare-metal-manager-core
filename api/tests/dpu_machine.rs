@@ -40,7 +40,8 @@ async fn test_find_machine_by_loopback(
     let env = create_test_env(
         pool.clone(),
         common::api_fixtures::TestEnvConfig { vpc_sim_config },
-    );
+    )
+    .await;
     let dpu_rpc_machine_id = create_dpu_machine(&env).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
@@ -64,7 +65,7 @@ async fn test_find_machine_by_loopback(
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_dpu_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let dpu_rpc_machine_id = create_dpu_machine(&env).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 

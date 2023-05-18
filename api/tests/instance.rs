@@ -71,7 +71,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_crud_instance(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = pool
@@ -261,7 +261,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let network = Some(rpc::InstanceNetworkConfig {
@@ -459,7 +459,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let snapshot_loader = DbSnapshotLoader::default();
@@ -531,7 +531,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
 
     let dpu_machine_id = create_dpu_machine(&env).await;
 
@@ -565,7 +565,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_address_creation(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default());
+    let env = create_test_env(pool.clone(), Default::default()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = pool
