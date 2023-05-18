@@ -126,7 +126,7 @@ pub async fn create_managed_resource(
         ));
     }
 
-    log::info!(
+    tracing::info!(
         "ManagedResource sent to kubernetes with data: {:?}",
         managed_resources,
     );
@@ -412,7 +412,7 @@ impl VpcApi for VpcApiImpl {
             .create(&PostParams::default(), &resource_group)
             .await
             .map_err(|e| VpcApiError::KubeError(Box::new(e)))?;
-        log::info!(
+        tracing::info!(
             "ResourceGroup creation request succeeded. Resource is {:?}",
             result
         );
@@ -471,13 +471,13 @@ impl VpcApi for VpcApiImpl {
                 return leaf_creation_result_from_state(&existing_leaf);
             }
             Err(_) => {
-                log::info!("Creating leaf with name {}", leaf_name);
+                tracing::info!("Creating leaf with name {}", leaf_name);
             }
         }
 
         let leaf_spec = leaf::Leaf::new(&leaf_name, spec);
 
-        log::info!("Leafspec sent to kubernetes: {:?}", leaf_spec);
+        tracing::info!("Leafspec sent to kubernetes: {:?}", leaf_spec);
         let result = api
             .create(&PostParams::default(), &leaf_spec)
             .await
@@ -654,7 +654,7 @@ impl VpcApi for VpcApiImpl {
                 return leaf_creation_result_from_state(&existing_leaf).map(|_| Poll::Ready(()));
             }
             Err(err) => {
-                log::error!("Attached leaf {} with dpu id: {} not found. Machine should move to Broken state.", leaf_name, dpu_machine_id);
+                tracing::error!("Attached leaf {} with dpu id: {} not found. Machine should move to Broken state.", leaf_name, dpu_machine_id);
                 return Err(VpcApiError::KubeError(err.into()));
             }
         }

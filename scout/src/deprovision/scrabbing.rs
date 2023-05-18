@@ -102,13 +102,13 @@ fn get_nvme_params(nvmename: &String) -> Result<NvmeParams, CarbideClientError> 
 }
 
 fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
-    log::debug!("cleaning {}", nvmename);
+    tracing::debug!("cleaning {}", nvmename);
 
     let nvme_drive_params = get_nvme_params(nvmename)?;
 
     let namespaces_supported = nvme_drive_params.oacs & 0x8 == 0x8;
 
-    log::debug!(
+    tracing::debug!(
         "nvme: device={} size={} cntlid={} oacs={} namespaces_supported={} sn={} mn={} fr={}",
         nvmename,
         nvme_drive_params.tnvmcap,
@@ -130,7 +130,7 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             None => continue,
         };
         let nsid = caps.get(1).map_or("", |m| m.as_str());
-        log::debug!("namespace {}", nsid);
+        tracing::debug!("namespace {}", nsid);
 
         // format with "-s2" is secure erase
         match cmdrun::run_prog(format!(
@@ -141,7 +141,7 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             Err(e) => {
                 if namespaces_supported {
                     // format can fail if there is a wrong params for namespace. We delete it anyway.
-                    log::debug!("nvme format error: {}", e);
+                    tracing::debug!("nvme format error: {}", e);
                 } else {
                     return Err(e);
                 }
@@ -159,7 +159,7 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     if namespaces_supported {
         let sectors = nvme_drive_params.tnvmcap / 512;
         // creating new namespace with all available sectors
-        log::debug!("Creating namespace on {}", nvmename);
+        tracing::debug!("Creating namespace on {}", nvmename);
         let line_created_ns_id = cmdrun::run_prog(format!(
             "{} create-ns {} --nsze={} --ncap={} --flbas 0 --dps=0",
             NVME_CLI_PROG, nvmename, sectors, sectors
@@ -179,7 +179,7 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             NVME_CLI_PROG, nvmename, nsid, nvme_drive_params.cntlid
         ))?;
     }
-    log::debug!("Cleanup completed for nvme device {}", nvmename);
+    tracing::debug!("Cleanup completed for nvme device {}", nvmename);
     Ok(())
 }
 
@@ -250,7 +250,7 @@ fn get_os_mem_info() -> Result<StructOsMemInfo, CarbideClientError> {
     meminfo.mem_free = rust_meminfo.mem_free;
     meminfo.mem_buffers = rust_meminfo.buffers;
     meminfo.mem_cached = rust_meminfo.cached;
-    log::debug!("{:?}", meminfo);
+    tracing::debug!("{:?}", meminfo);
     Ok(meminfo)
 }
 
@@ -289,7 +289,7 @@ fn cleanup_ram() -> Result<(), CarbideClientError> {
 
     let meminfo = get_os_mem_info()?;
 
-    log::debug!(
+    tracing::debug!(
         "Preparing to cleanup {} bytes of RAM",
         meminfo.mem_available
     );
@@ -348,7 +348,7 @@ async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanup
                 });
             }
             Err(e) => {
-                log::error!("{}", e);
+                tracing::error!("{}", e);
                 cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
                     result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                     message: e.to_string(),
@@ -357,7 +357,7 @@ async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanup
             }
         }
     } else {
-        log::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
+        tracing::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
     }
 
     match check_memory_overwrite_efi_var() {
@@ -368,7 +368,7 @@ async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanup
             });
         }
         Err(e) => {
-            log::error!("{}", e);
+            tracing::error!("{}", e);
             cleanup_result.mem_overwrite = Some(rpc::machine_cleanup_info::CleanupStepResult {
                 result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                 message: e.to_string(),
@@ -387,7 +387,7 @@ async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanup
             });
         }
         Err(e) => {
-            log::error!("{}", e);
+            tracing::error!("{}", e);
             cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
                 result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                 message: e.to_string(),
@@ -406,17 +406,17 @@ fn is_host() -> bool {
         Ok(info) => match info.machine.as_str() {
             "x86_64" => return true,
             arch => {
-                log::debug!("We do not need cleanup for DPU machine. Arch is {}", arch);
+                tracing::debug!("We do not need cleanup for DPU machine. Arch is {}", arch);
                 return false;
             }
         },
-        Err(e) => log::error!("uname error: {}", e),
+        Err(e) => tracing::error!("uname error: {}", e),
     }
     true
 }
 
 pub(crate) async fn run(config: &Options, machine_id: &str) -> CarbideClientResult<()> {
-    log::info!("full deprovision starts.");
+    tracing::info!("full deprovision starts.");
     if !is_host() {
         // do not send API cleanup_machine_completed
         return Ok(());
@@ -429,19 +429,19 @@ pub(crate) async fn run(config: &Options, machine_id: &str) -> CarbideClientResu
 }
 
 pub fn run_no_api() {
-    log::info!("no_api deprovision starts.");
+    tracing::info!("no_api deprovision starts.");
     let stdin_link = match fs::read_link("/proc/self/fd/0") {
         Ok(o) => o.to_string_lossy().to_string(),
         Err(_) => "None".to_string(),
     };
-    log::info!("stdin is {}", stdin_link);
+    tracing::info!("stdin is {}", stdin_link);
 
     if stdin_link == "/dev/null" {
         match all_nvme_cleanup() {
-            Ok(_) => log::debug!("nvme cleanup OK"),
-            Err(e) => log::error!("nvme cleanup error: {}", e),
+            Ok(_) => tracing::debug!("nvme cleanup OK"),
+            Err(e) => tracing::error!("nvme cleanup error: {}", e),
         }
     } else {
-        log::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
+        tracing::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
     }
 }

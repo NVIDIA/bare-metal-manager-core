@@ -65,11 +65,11 @@ impl PolicyEngine for CasbinEngine {
                 match enforcer.enforce(sub_obj_act) {
                     Ok(true) => true,
                     Ok(false) => {
-                        log::debug!("CasbinEngine: denied (principal={principal:?}, object={object:?}, action={action:?})");
+                        tracing::debug!("CasbinEngine: denied (principal={principal:?}, object={object:?}, action={action:?})");
                         false
                     }
                     Err(e) => {
-                        log::error!("CasbinEngine: error from enforcer: {e}");
+                        tracing::error!("CasbinEngine: error from enforcer: {e}");
                         false
                     }
                 }
@@ -89,7 +89,7 @@ impl PolicyEngine for CasbinEngine {
             );
 
         if let Ok(authorization) = auth_result.as_ref() {
-            log::debug!("CasbinEngine: authorized with {authorization:?}");
+            tracing::debug!("CasbinEngine: authorized with {authorization:?}");
         }
 
         auth_result

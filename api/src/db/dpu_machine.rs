@@ -176,7 +176,7 @@ WHERE mi.machine_id=$1";
 
         let version = machine.current_version().increment();
 
-        log::info!("Updating state of DPU {} to {}", machine.id(), new_state);
+        tracing::info!("Updating state of DPU {} to {}", machine.id(), new_state);
 
         machine
             .advance(txn, new_state.clone(), Some(version))

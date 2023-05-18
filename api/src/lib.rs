@@ -215,14 +215,14 @@ impl From<CarbideError> for tonic::Status {
             if f.len() == 2 {
                 let handler = f[0].trim();
                 let location = f[1].trim().replace("at ", "");
-                log::error!("{from} location={location} handler='{handler}'");
+                tracing::error!("{from} location={location} handler='{handler}'");
                 printed = true;
             }
         }
         if !printed {
             match from {
                 CarbideError::NotImplemented => {}
-                _ => log::error!("{from}"),
+                _ => tracing::error!("{from}"),
             }
         }
 

@@ -461,7 +461,7 @@ impl NetworkSegment {
             if let Some(prefixes) = grouped_prefixes.remove(&record.id) {
                 record.prefixes = prefixes;
             } else {
-                log::warn!("Network {0} ({1}) has no prefixes?", record.id, record.name);
+                tracing::warn!("Network {0} ({1}) has no prefixes?", record.id, record.name);
             }
             record.update_prefix_state(&mut *txn).await?;
 
@@ -469,7 +469,7 @@ impl NetworkSegment {
                 if let Some(history) = state_history.remove(&record.id) {
                     record.history = history;
                 } else {
-                    log::warn!(
+                    tracing::warn!(
                         "Network {0} ({1}) has no history yet.",
                         record.id,
                         record.name

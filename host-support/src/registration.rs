@@ -56,7 +56,7 @@ pub async fn register_machine(
         .discover_machine(request)
         .await
         .map_err(|err| {
-            log::error!(
+            tracing::error!(
                 "Error while executing the discover_machine gRPC call: {}",
                 err.to_string()
             );
@@ -69,7 +69,7 @@ pub async fn register_machine(
         .ok_or(RegistrationError::InvalidMachineId(machine_interface_id))?
         .id;
 
-    log::info!("Registered machine with ID {machine_id} for interface {machine_interface_id} at Forge API server");
+    tracing::info!("Registered machine with ID {machine_id} for interface {machine_interface_id} at Forge API server");
 
     Ok(RegistrationData { machine_id })
 }

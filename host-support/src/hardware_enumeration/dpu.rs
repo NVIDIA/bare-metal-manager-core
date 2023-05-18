@@ -11,9 +11,9 @@
  */
 
 use crate::cmd::{Cmd, CmdError};
-use log::error;
 use regex::Regex;
 use rpc::machine_discovery::DpuData;
+use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum DpuEnumerationError {

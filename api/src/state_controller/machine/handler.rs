@@ -123,16 +123,16 @@ impl StateHandler for MachineStateHandler {
                         };
                     }
                     CleanupState::DisableBIOSBMCLockdown => {
-                        log::error!("DisableBIOSBMCLockdown state is not implemented. Machine {} stuck in unimplemented state.", machine_id);
+                        tracing::error!("DisableBIOSBMCLockdown state is not implemented. Machine {} stuck in unimplemented state.", machine_id);
                     }
                 }
             }
             ManagedHostState::Created => {
-                log::error!("Machine just created. Er should not be here.");
+                tracing::error!("Machine just created. Er should not be here.");
             }
             ManagedHostState::ForceDeletion => {
                 // Just ignore.
-                log::info!(
+                tracing::info!(
                     "Machine {} is marked for forced deletion. Ignoring.",
                     machine_id
                 );
@@ -215,7 +215,7 @@ impl StateHandler for DpuMachineStateHandler {
                 };
             }
             state => {
-                log::warn!("Unhandled State {:?} for DPU machine {}", state, machine_id);
+                tracing::warn!("Unhandled State {:?} for DPU machine {}", state, machine_id);
             }
         }
 
@@ -316,7 +316,7 @@ impl StateHandler for HostMachineStateHandler {
                     ));
                 }
                 MachineState::WaitingForLeafCreation => {
-                    log::warn!(
+                    tracing::warn!(
                         "Invalid State WaitingForLeafCreation for Host Machine {}",
                         machine_id
                     );

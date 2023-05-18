@@ -232,7 +232,7 @@ impl From<Machine> for rpc::Machine {
                 match hw_info.try_into() {
                     Ok(di) => Some(di),
                     Err(e) => {
-                        log::warn!(
+                        tracing::warn!(
                             "Hardware information for machine {} couldn't be parsed into discovery info: {}",
                             &machine.id,
                             e,
@@ -320,7 +320,7 @@ impl Machine {
                 {
                     Some(machine) => Ok((machine, false)),
                     None => {
-                        log::warn!(
+                        tracing::warn!(
                             "Interface ID {} refers to missing machine {machine_id}",
                             interface.id()
                         );
@@ -603,7 +603,7 @@ SELECT m.id FROM
             }
 
             if machine.hardware_info.is_none() {
-                log::warn!("Machine {0} has no associated discovery data", &machine.id);
+                tracing::warn!("Machine {0} has no associated discovery data", &machine.id);
             }
         });
 

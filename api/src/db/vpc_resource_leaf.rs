@@ -79,7 +79,7 @@ impl VpcResourceLeaf {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         ip_address: IpAddr,
     ) -> Result<VpcResourceLeaf, DatabaseError> {
-        log::info!(
+        tracing::info!(
             "Updating vpc_resource_leaf {} loopback_ip_address to: {ip_address}",
             &self.id
         );

@@ -225,10 +225,10 @@ mod tests {
         .await
         {
             Ok(_) => {
-                log::debug!("State updated successfully.");
+                tracing::debug!("State updated successfully.");
             }
             Err(x) => {
-                log::error!("Status update failed. Error: {:?}", x)
+                tracing::error!("Status update failed. Error: {:?}", x)
             }
         }
     }

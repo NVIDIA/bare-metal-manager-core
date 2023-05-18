@@ -14,11 +14,11 @@ use std::fmt;
 use std::time::Instant;
 
 use forge_host_support::cmd::Cmd;
-use log::{debug, error};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use regex::Regex;
 use tokio::time::{sleep, Duration};
+use tracing::{debug, error};
 use uname::uname;
 
 use ::rpc::forge::{self as rpc, BmcInfo, BmcMetaDataUpdateRequest};
@@ -172,7 +172,7 @@ fn fetch_bmc_info() -> CarbideClientResult<(Option<String>, Option<String>)> {
 }
 
 fn get_user_list(test_list: Option<&str>) -> CarbideClientResult<String> {
-    log::info!("Fetching current configured users list.");
+    tracing::info!("Fetching current configured users list.");
     if let Some(test_list) = test_list {
         use std::fs;
         Ok(fs::read_to_string(test_list).unwrap())
@@ -281,16 +281,16 @@ fn generate_password() -> String {
 
 fn set_ipmi_password(id: &String) -> CarbideClientResult<String> {
     let password = generate_password();
-    log::info!("Updating password for id {}", id);
+    tracing::info!("Updating password for id {}", id);
     let _ = Cmd::new("ipmitool")
         .args(vec!["user", "set", "password", id, &password])
         .output()?;
-    log::debug!("Updated password {} for id {}", password, id);
+    tracing::debug!("Updated password {} for id {}", password, id);
     Ok(password)
 }
 
 fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
-    log::info!("Setting privileges for id {}", id);
+    tracing::info!("Setting privileges for id {}", id);
     let role = format!("privilege={}", role as u8);
 
     // Enable user
@@ -369,7 +369,7 @@ pub fn set_ipmi_creds() -> CarbideClientResult<IpmiUser> {
         if let Some(existing_user) = existing_users.get(&FORGE_ADMIN_USER_NAME.to_string()) {
             // User already exists.
             // Get Id
-            log::info!(
+            tracing::info!(
                 "User {} already exists. Only setting password and privileges.",
                 existing_user.name
             );
@@ -377,7 +377,7 @@ pub fn set_ipmi_creds() -> CarbideClientResult<IpmiUser> {
         } else {
             // Create user and get id.
             if let Some(free_user) = free_users.pop_front() {
-                log::info!("Creating user {}", FORGE_ADMIN_USER_NAME);
+                tracing::info!("Creating user {}", FORGE_ADMIN_USER_NAME);
                 create_ipmi_user(free_user.id.as_str(), FORGE_ADMIN_USER_NAME)?;
                 free_user
             } else {
@@ -400,7 +400,7 @@ pub fn set_ipmi_creds() -> CarbideClientResult<IpmiUser> {
                 if attempt == 2 {
                     return Err(x);
                 } else {
-                    log::error!("retrying ipmi calls due to: {:?}", x);
+                    tracing::error!("retrying ipmi calls due to: {:?}", x);
                     std::thread::sleep(Duration::from_secs(1));
                 }
             }
@@ -470,10 +470,10 @@ async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
             .output()
             .is_ok()
         {
-            log::info!("ipmitool ready after {} seconds", now.elapsed().as_secs());
+            tracing::info!("ipmitool ready after {} seconds", now.elapsed().as_secs());
             return Ok(());
         } else {
-            log::debug!(
+            tracing::debug!(
                 "still waiting for ipmitool after {} seconds",
                 now.elapsed().as_secs()
             );

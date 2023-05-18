@@ -13,7 +13,7 @@
 use forge_host_support::{
     hardware_enumeration::enumerate_hardware, registration::register_machine,
 };
-use log::info;
+use tracing::info;
 
 use crate::CarbideClientError;
 

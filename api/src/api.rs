@@ -931,7 +931,7 @@ where
         log_machine_id(&instance.machine_id);
 
         if instance.deleted.is_some() {
-            log::info!(
+            tracing::info!(
                 "Instance {} is already marked for deletion.",
                 delete_instance.instance_id,
             );
@@ -1359,7 +1359,7 @@ where
         log_request_data(&request);
 
         if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
-            log::info!(
+            tracing::info!(
                 "Got a request from: {:?} with authorization_type: {:?}, request: {:?}",
                 conn_info.addr,
                 conn_info.authorization_type,
@@ -1473,7 +1473,7 @@ where
                 )
                 .await?;
 
-                log::info!(
+                tracing::info!(
                     "Created host machine proactively (MI:{}, Machine:{})",
                     mi_id,
                     proactive_machine.id(),
@@ -1518,7 +1518,7 @@ where
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit discovery_completed", e))?;
 
-        log::info!("discovery_completed_success: {machine_id}");
+        tracing::info!("discovery_completed_success: {machine_id}");
         Ok(Response::new(rpc::MachineDiscoveryCompletedResponse {}))
     }
 
@@ -1531,7 +1531,7 @@ where
         log_request_data(&request);
 
         let cleanup_info = request.into_inner();
-        log::info!("cleanup_machine_completed {:?}", cleanup_info);
+        tracing::info!("cleanup_machine_completed {:?}", cleanup_info);
 
         // Extract and check UUID
         let machine_id = match &cleanup_info.machine_id {
@@ -2168,7 +2168,7 @@ where
         );
 
         if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
-            log::info!(
+            tracing::info!(
                 "Got a UpdateBmcMetadata request from: {:?} with authorization_type: {:?}",
                 conn_info.addr,
                 conn_info.authorization_type,
@@ -2313,7 +2313,7 @@ where
         let machine_id = match request.into_inner().machine_id {
             Some(id) => try_parse_machine_id(&id).map_err(CarbideError::from)?,
             None => {
-                log::warn!("forge agent control: missing machine ID");
+                tracing::warn!("forge agent control: missing machine ID");
                 return Err(Status::invalid_argument("Missing machine ID"));
             }
         };
@@ -2347,7 +2347,7 @@ where
                 } => Action::Discovery,
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
-                    log::info!(
+                    tracing::info!(
                         "forge agent control: DPU Machine '{}' in state '{state}'",
                         machine.id()
                     );
@@ -2365,7 +2365,7 @@ where
                 ManagedHostState::WaitingForCleanup { .. } => Action::Reset,
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
-                    log::info!(
+                    tracing::info!(
                         "forge agent control: Host Machine '{}' in state '{state}'",
                         machine.id()
                     );
@@ -2373,7 +2373,7 @@ where
                 }
             }
         };
-        log::info!(
+        tracing::info!(
             "forge agent control: machine {} action {:?}",
             machine.id(),
             action
@@ -2427,14 +2427,14 @@ where
         let dpu_machine;
         if machine.is_dpu() {
             host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, machine.id()).await?;
-            log::info!(
+            tracing::info!(
                 "Found host Machine {:?}",
                 host_machine.as_ref().map(|m| m.id().to_string())
             );
             dpu_machine = Some(machine);
         } else {
             dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, machine.id()).await?;
-            log::info!(
+            tracing::info!(
                 "Found dpu Machine {:?}",
                 dpu_machine.as_ref().map(|m| m.id().to_string())
             );
@@ -2872,7 +2872,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
         match rustls_pemfile::certs(&mut buf) {
             Ok(certs) => certs.into_iter().map(Certificate).collect(),
             Err(error) => {
-                log::error!("Rustls error reading certs: {:?}", error);
+                tracing::error!("Rustls error reading certs: {:?}", error);
                 return None;
             }
         }
@@ -2888,7 +2888,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
         match rustls_pemfile::ec_private_keys(&mut buf) {
             Ok(keys) => keys.into_iter().map(PrivateKey).next(),
             error => {
-                log::error!("Rustls error reading key: {:?}", error);
+                tracing::error!("Rustls error reading key: {:?}", error);
                 None
             }
         }
@@ -2906,7 +2906,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
             match rustls_pemfile::rsa_private_keys(&mut buf) {
                 Ok(keys) => keys.into_iter().map(PrivateKey).next(),
                 error => {
-                    log::error!("Rustls error reading key: {:?}", error);
+                    tracing::error!("Rustls error reading key: {:?}", error);
                     None
                 }
             }
@@ -2916,7 +2916,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
     let key = match key {
         Some(key) => key,
         None => {
-            log::error!("Rustls error: no keys?");
+            tracing::error!("Rustls error: no keys?");
             return None;
         }
     };
@@ -2931,7 +2931,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
             Some(TlsAcceptor::from(Arc::new(tls)))
         }
         Err(error) => {
-            log::error!("Rustls error building server config: {:?}", error);
+            tracing::error!("Rustls error building server config: {:?}", error);
             None
         }
     }
@@ -3013,7 +3013,7 @@ where
                     // TODO: Since mTLS is not implemented and we always fail auth at the moment,
                     // don't log the failure, overwrite the result, and let the request proceed
 
-                    // log::error!(
+                    // tracing::error!(
                     //     "failed to authorize request. Peer certs: {:?}. Headers: {:?}. URI: {:?}",
                     //     peer_certs,
                     //     request.headers(),
@@ -3089,7 +3089,7 @@ where
         let (conn, addr) = match listener.accept().await {
             Ok(incoming) => incoming,
             Err(e) => {
-                log::error!("Error accepting connection: {}", e);
+                tracing::error!("Error accepting connection: {}", e);
                 continue;
             }
         };
@@ -3120,11 +3120,11 @@ where
                             .layer(AsyncRequireAuthorizationLayer::new(auth))
                             .service(svc);
                         if let Err(error) = http.serve_connection(conn, svc).await {
-                            log::debug!("error servicing http connection: {:?}", error);
+                            tracing::debug!("error servicing http connection: {:?}", error);
                         }
                     }
                     Err(error) => {
-                        log::error!(
+                        tracing::error!(
                             "error accepting tls connection: {:?}, from address: {:?}",
                             error,
                             addr
@@ -3132,7 +3132,7 @@ where
                     }
                 }
             } else if let Err(error) = http.serve_connection(conn, svc).await {
-                log::debug!("error servicing http connection: {:?}", error);
+                tracing::debug!("error servicing http connection: {:?}", error);
             }
         });
     }
@@ -3336,7 +3336,7 @@ where
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin load_machine", e))?;
         let machine = match Machine::find_one(&mut txn, machine_id, search_config).await {
             Err(err) => {
-                log::warn!("loading machine for {machine_id}: {err}.");
+                tracing::warn!("loading machine for {machine_id}: {err}.");
                 return Err(CarbideError::InvalidArgument(
                     "err loading machine".to_string(),
                 ));

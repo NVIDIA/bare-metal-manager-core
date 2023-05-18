@@ -232,7 +232,7 @@ impl MachineInterface {
         if let Some(addresses) = addresses_for_interfaces.remove(&machine_interface.id) {
             machine_interface.addresses = addresses;
         } else {
-            log::warn!("Interface {0} has no addresses", &machine_interface.id);
+            tracing::warn!("Interface {0} has no addresses", &machine_interface.id);
         }
 
         Ok(Some(machine_interface))
@@ -278,7 +278,7 @@ impl MachineInterface {
     ) -> CarbideResult<Self> {
         match machines {
             None => {
-                log::info!(
+                tracing::info!(
                     "Found no existing machine with mac address {} using network with relay: {}",
                     mac_address,
                     relay
@@ -296,7 +296,7 @@ impl MachineInterface {
                 match ifcs.len() {
                     1 => Ok(ifcs.remove(0)),
                     n => {
-                        log::warn!(
+                        tracing::warn!(
                             "{0} existing mac address ({1}) for network segment (relay ip: {2})",
                             n,
                             &mac_address,
@@ -318,7 +318,7 @@ impl MachineInterface {
         let mut existing_mac = MachineInterface::find_by_mac_address(txn, mac_address).await?;
         match &existing_mac.len() {
             0 => {
-                log::debug!(
+                tracing::debug!(
                     "No existing machine_interface with mac address[{0}] exists yet, creating one.",
                     mac_address
                 );
@@ -341,7 +341,7 @@ impl MachineInterface {
                 }
             }
             1 => {
-                log::debug!("An existing mac address[{0}] exists yet, validating the relay and returning it.", mac_address);
+                tracing::debug!("An existing mac address[{0}] exists yet, validating the relay and returning it.", mac_address);
                 let mac = existing_mac.remove(0);
                 // Ensure the relay segment exists before blindly giving the mac address back out
                 match NetworkSegment::for_relay(txn, relay).await? {
@@ -350,7 +350,7 @@ impl MachineInterface {
                 }
             }
             _ => {
-                log::warn!(
+                tracing::warn!(
                     "More than existing mac address ({0}) for network segment (relay ip: {1})",
                     &mac_address,
                     &relay
@@ -530,7 +530,7 @@ impl MachineInterface {
             if let Some(addresses) = addresses_for_interfaces.remove(&interface.id) {
                 interface.addresses = addresses;
             } else {
-                log::warn!("Interface {0} has no addresses", &interface.id);
+                tracing::warn!("Interface {0} has no addresses", &interface.id);
             }
         });
 

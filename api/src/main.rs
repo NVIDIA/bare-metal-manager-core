@@ -126,7 +126,7 @@ async fn main() -> eyre::Result<()> {
     info!("Start carbide-api version {}", forge_version::version!());
     match sub_cmd {
         Command::Migrate(ref m) => {
-            log::debug!("Running migrations");
+            tracing::debug!("Running migrations");
             let pool = PgPool::connect(&m.datastore[..]).await?;
             carbide::db::migrations::migrate(&pool).await?;
         }

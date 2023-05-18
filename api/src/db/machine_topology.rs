@@ -101,11 +101,11 @@ impl MachineTopology {
 
         match res {
             None => {
-                log::info!("We have never seen this discovery and machine data before");
+                tracing::info!("We have never seen this discovery and machine data before");
                 Ok(false)
             }
             Some(_pg_row) => {
-                log::info!("Discovery data for machine already exists");
+                tracing::info!("Discovery data for machine already exists");
                 Ok(true)
             }
         }
@@ -118,7 +118,7 @@ impl MachineTopology {
         loopback_ip: Option<Ipv4Addr>,
     ) -> CarbideResult<Option<Self>> {
         if Self::is_discovered(&mut *txn, machine_id).await? {
-            log::info!("Discovery data for machine {} already exists", machine_id);
+            tracing::info!("Discovery data for machine {} already exists", machine_id);
             Ok(None)
         } else {
             let topology_data = TopologyData {
@@ -152,7 +152,7 @@ impl MachineTopology {
                         .await?;
                 }
 
-                log::info!(
+                tracing::info!(
                     "Discovered Machine {} is a DPU. Generating new leaf id {}",
                     machine_id,
                     new_leaf.id()
@@ -171,10 +171,10 @@ impl MachineTopology {
                     Machine::find_one(&mut *txn, machine_dpu.id(), MachineSearchConfig::default())
                         .await?
                 {
-                    log::info!("Machine with ID: {} found", machine.id());
+                    tracing::info!("Machine with ID: {} found", machine.id());
                     for mut interface in machine.interfaces().iter().cloned() {
                         if machine.vpc_leaf_id().is_some() {
-                            log::info!("Machine VPC_LEAF_ID: {:?}", machine.vpc_leaf_id());
+                            tracing::info!("Machine VPC_LEAF_ID: {:?}", machine.vpc_leaf_id());
                             interface
                                 .associate_interface_with_dpu_machine(&mut *txn, machine.id())
                                 .await?;

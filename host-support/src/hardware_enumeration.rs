@@ -19,7 +19,7 @@ use std::{
 use crate::cmd::CmdError;
 use ::rpc::machine_discovery as rpc_discovery;
 use libudev::Device;
-use log::error;
+use tracing::error;
 use uname::uname;
 
 mod dpu;
@@ -170,15 +170,15 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
     let arch = info.machine.parse()?;
 
-    log::trace!("{:?}", info);
+    tracing::trace!("{:?}", info);
 
     let device_debug_log = |device: &Device| {
-        log::debug!("SysPath - {:?}", device.syspath());
+        tracing::debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
-            log::debug!("Property - {:?} - {:?}", p.name(), p.value());
+            tracing::debug!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            log::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            tracing::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
     };
 
@@ -235,12 +235,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let mut nics: Vec<rpc_discovery::NetworkInterface> = Vec::new();
 
     for device in devices {
-        log::debug!("SysPath - {:?}", device.syspath());
+        tracing::debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
-            log::trace!("Property - {:?} - {:?}", p.name(), p.value());
+            tracing::trace!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            log::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            tracing::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
 
         if device
@@ -274,12 +274,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let devices = enumerator.scan_devices()?;
 
     for device in devices {
-        log::debug!("Syspath - {:?}", device.syspath());
+        tracing::debug!("Syspath - {:?}", device.syspath());
         for p in device.properties() {
-            log::trace!("Property - {:?} - {:?}", p.name(), p.value());
+            tracing::trace!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            log::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            tracing::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
     }
     let mut enumerator = libudev::Enumerator::new(&context)?;
@@ -287,12 +287,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let devices = enumerator.scan_devices()?;
 
     for device in devices {
-        log::debug!("Syspath - {:?}", device.syspath());
+        tracing::debug!("Syspath - {:?}", device.syspath());
         for p in device.properties() {
-            log::trace!("Property - {:?} - {:?}", p.name(), p.value());
+            tracing::trace!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            log::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            tracing::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
     }
     // cpus
@@ -302,7 +302,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
     let mut cpus: Vec<rpc_discovery::Cpu> = Vec::new();
     for cpu_num in 0..cpu_info.num_cores() {
-        log::debug!("{:?}", cpu_info.get_info(cpu_num));
+        tracing::debug!("{:?}", cpu_info.get_info(cpu_num));
         match arch {
             CpuArchitecture::Aarch64 => {
                 cpus.push(rpc_discovery::Cpu {
@@ -403,9 +403,9 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let mut disks: Vec<rpc_discovery::BlockDevice> = Vec::new();
 
     for device in devices {
-        log::debug!("{:?}", device.syspath());
+        tracing::debug!("{:?}", device.syspath());
         for p in device.properties() {
-            log::trace!("{:?} - {:?}", p.name(), p.value());
+            tracing::trace!("{:?} - {:?}", p.name(), p.value());
         }
 
         if device
@@ -435,9 +435,9 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let mut nvmes: Vec<rpc_discovery::NvmeDevice> = Vec::new();
 
     for device in devices {
-        log::debug!("{:?}", device.syspath());
+        tracing::debug!("{:?}", device.syspath());
         for p in device.properties() {
-            log::trace!("{:?} - {:?}", p.name(), p.value());
+            tracing::trace!("{:?} - {:?}", p.name(), p.value());
         }
 
         if device
@@ -466,9 +466,9 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     // There is only expected to be a single set, and we don't want to
     // accidentally overwrite it with other data
     if let Some(device) = devices.next() {
-        log::debug!("{:?}", device.syspath());
+        tracing::debug!("{:?}", device.syspath());
         for p in device.properties() {
-            log::trace!("{:?} - {:?}", p.name(), p.value());
+            tracing::trace!("{:?} - {:?}", p.name(), p.value());
         }
 
         if device
@@ -494,7 +494,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let tpm_ek_certificate = match tpm::get_ek_certificate() {
         Ok(cert) => Some(base64::encode(cert)),
         Err(e) => {
-            log::error!("Could not read TPM EK certificate: {:?}", e);
+            tracing::error!("Could not read TPM EK certificate: {:?}", e);
             None
         }
     };
@@ -503,7 +503,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         CpuArchitecture::Aarch64 => match dpu::get_dpu_info() {
             Ok(dpu_data) => Some(dpu_data),
             Err(e) => {
-                log::error!("Could not get DPU data: {:?}", e);
+                tracing::error!("Could not get DPU data: {:?}", e);
                 None
             }
         },
@@ -513,22 +513,22 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let gpus = match gpu::discover_gpus() {
         Ok(gpus) => gpus,
         Err(error) => {
-            log::error!("Failed to enumerate GPUs: {}", error);
+            tracing::error!("Failed to enumerate GPUs: {}", error);
             vec![]
         }
     };
 
-    log::debug!("Discovered Disks: {:?}", disks);
-    log::debug!("Discovered CPUs: {:?}", cpus);
-    log::debug!("Discovered NICS: {:?}", nics);
-    log::debug!("Discovered IBS: {:?}", ibs);
-    log::debug!("Discovered NVMES: {:?}", nvmes);
-    log::debug!("Discovered DMI: {:?}", dmi);
-    log::debug!("Discovered GPUs: {:?}", gpus);
-    log::debug!("Discovered Machine Architecture: {}", info.machine.as_str());
-    log::debug!("Discovered DPU: {:?}", dpu_vpd);
+    tracing::debug!("Discovered Disks: {:?}", disks);
+    tracing::debug!("Discovered CPUs: {:?}", cpus);
+    tracing::debug!("Discovered NICS: {:?}", nics);
+    tracing::debug!("Discovered IBS: {:?}", ibs);
+    tracing::debug!("Discovered NVMES: {:?}", nvmes);
+    tracing::debug!("Discovered DMI: {:?}", dmi);
+    tracing::debug!("Discovered GPUs: {:?}", gpus);
+    tracing::debug!("Discovered Machine Architecture: {}", info.machine.as_str());
+    tracing::debug!("Discovered DPU: {:?}", dpu_vpd);
     if let Some(cert) = tpm_ek_certificate.as_ref() {
-        log::debug!("TPM EK certificate (base64): {}", cert);
+        tracing::debug!("TPM EK certificate (base64): {}", cert);
     }
 
     Ok(rpc_discovery::DiscoveryInfo {

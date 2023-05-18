@@ -128,7 +128,7 @@ pub enum AuthorizationError {
 
 impl From<AuthorizationError> for tonic::Status {
     fn from(e: AuthorizationError) -> Self {
-        log::info!("Request was denied: {e}");
+        tracing::info!("Request was denied: {e}");
         tonic::Status::permission_denied("Not authorized")
     }
 }
@@ -163,7 +163,7 @@ impl Authorizer {
     ) -> Result<Authorization, AuthorizationError> {
         let principals = req.principals();
         let engine = self.policy_engine.clone();
-        log::debug!(
+        tracing::debug!(
             "Checking authorization with (object={object:?}, action={action:?}, \
             principals={principals:?})"
         );
@@ -221,12 +221,12 @@ impl PolicyEngine for PermissiveWrapper {
     ) -> Result<Authorization, AuthorizationError> {
         let result = self.inner.authorize(principals, action, object);
         result.or_else(|e| {
-            log::warn!(
+            tracing::warn!(
                 "The policy engine denied this request, but \
                 --auth-permissive-mode overrides it. The policy engine error \
                 message follows:"
             );
-            log::warn!("{e}");
+            tracing::warn!("{e}");
 
             // FIXME: Strictly speaking, it's not true that Anonymous is
             // authorized to do this. Maybe define a different principal
