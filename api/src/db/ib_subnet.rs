@@ -254,6 +254,22 @@ impl IBSubnet {
         Ok(results)
     }
 
+    pub async fn for_vpc(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        vpc_id: uuid::Uuid,
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let results: Vec<IBSubnet> = {
+            let query = "SELECT * FROM ib_subnets WHERE vpc_id=$1::uuid";
+            sqlx::query_as(query)
+                .bind(vpc_id)
+                .fetch_all(&mut *txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+        };
+
+        Ok(results)
+    }
+
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,

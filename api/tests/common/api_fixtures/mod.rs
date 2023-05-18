@@ -19,6 +19,7 @@ use carbide::{
     auth::{Authorizer, NoopEngine},
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
+    ib,
     kubernetes::{VpcApiSim, VpcApiSimConfig},
     model::machine::{
         machine_id::{try_parse_machine_id, MachineId},
@@ -28,6 +29,7 @@ use carbide::{
     redfish::RedfishSim,
     state_controller::{
         controller::{ReachabilityParams, StateControllerIO},
+        ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
         network_segment::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
@@ -73,15 +75,17 @@ pub struct TestEnv {
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
     pub vpc_api: Arc<VpcApiSim>,
+    pub ib_fabric_manager: Arc<dyn ib::IBFabricManager>,
     pub machine_state_controller_io: MachineStateControllerIO,
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
     pub reachability_params: ReachabilityParams,
+    pub ib_subnet_state_controller_io: IBSubnetStateControllerIO,
 }
 
 impl TestEnv {
     /// Creates an instance of StateHandlerServices that are suitable for this
     /// test environment
-    pub fn state_handler_services(&self) -> StateHandlerServices {
+    pub async fn state_handler_services(&self) -> StateHandlerServices {
         let forge_api = Arc::new(Api::new(
             self.credential_provider.clone(),
             self.pool.clone(),
@@ -92,15 +96,29 @@ impl TestEnv {
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
         ));
+
+        let ib_data = ib::pool::enable();
+
+        // Populate pkey for test.
+        let mut txn = self.pool.begin().await.unwrap();
+        ib_data
+            .pool_pkey
+            .populate(&mut txn, (1..100).collect())
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+
         StateHandlerServices {
             pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
             vpc_api: self.vpc_api.clone(),
+            ib_fabric_manager: self.ib_fabric_manager.clone(),
             forge_api,
             meter: None,
             reachability_params: self.reachability_params.clone(),
             pool_vlan_id: None,
             pool_vni: None,
+            pool_pkey: Some(ib_data.pool_pkey),
         }
     }
 
@@ -114,7 +132,7 @@ impl TestEnv {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         expected_state: ManagedHostState,
     ) {
-        let services = Arc::new(self.state_handler_services());
+        let services = Arc::new(self.state_handler_services().await);
         for _ in 0..max_iterations {
             run_state_controller_iteration(
                 &services,
@@ -144,7 +162,7 @@ impl TestEnv {
         dpu_machine_id: MachineId,
         handler: &MachineStateHandler,
     ) {
-        let services = Arc::new(self.state_handler_services());
+        let services = Arc::new(self.state_handler_services().await);
         run_state_controller_iteration(
             &services,
             &self.pool,
@@ -162,11 +180,29 @@ impl TestEnv {
         segment_id: uuid::Uuid,
         handler: &NetworkSegmentStateHandler,
     ) {
-        let services = Arc::new(self.state_handler_services());
+        let services = Arc::new(self.state_handler_services().await);
         run_state_controller_iteration(
             &services,
             &self.pool,
             &self.network_segment_state_controller_io,
+            segment_id,
+            handler,
+        )
+        .await
+    }
+
+    /// Runs one iteration of the ibsubnet state controller handler with the services
+    /// in this test environment
+    pub async fn run_ib_subnet_controller_iteration(
+        &self,
+        segment_id: uuid::Uuid,
+        handler: &IBSubnetStateHandler,
+    ) {
+        let services = Arc::new(self.state_handler_services().await);
+        run_state_controller_iteration(
+            &services,
+            &self.pool,
+            &self.ib_subnet_state_controller_io,
             segment_id,
             handler,
         )
@@ -210,6 +246,7 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
     let credential_provider = Arc::new(TestCredentialProvider::new());
     let vpc_api = Arc::new(VpcApiSim::with_config(config.vpc_sim_config));
     let redfish_sim = Arc::new(RedfishSim::default());
+    let ib_fabric_manager = ib::local_ib_fabric_manager();
 
     let api = carbide::api::Api::new(
         credential_provider.clone(),
@@ -228,12 +265,14 @@ pub fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
         pool,
         redfish_sim,
         vpc_api,
+        ib_fabric_manager,
         machine_state_controller_io: MachineStateControllerIO::default(),
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
         reachability_params: ReachabilityParams {
             checker: Arc::new(TestPingReachabilityChecker::default()),
             dpu_wait_time: Duration::seconds(0),
         },
+        ib_subnet_state_controller_io: IBSubnetStateControllerIO::default(),
     }
 }
 

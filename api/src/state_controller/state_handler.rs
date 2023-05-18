@@ -16,6 +16,7 @@ use opentelemetry::metrics::Meter;
 
 use crate::{
     db::DatabaseError,
+    ib::IBFabricManager,
     kubernetes::{VpcApi, VpcApiError},
     model::machine::{machine_id::MachineId, ManagedHostState},
     redfish::RedfishClientPool,
@@ -50,6 +51,12 @@ pub struct StateHandlerServices {
 
     /// Meter for emitting metrics
     pub meter: Option<Meter>,
+
+    /// API for interaction with Forge IBFabricManager
+    pub ib_fabric_manager: Arc<dyn IBFabricManager>,
+
+    /// Resource pool for ib pkey allocate/release.
+    pub pool_pkey: Option<Arc<DbResourcePool<i16>>>,
 }
 
 /// Context parameter passed to `StateHandler`
@@ -167,10 +174,17 @@ pub enum StateHandlerError {
     },
     #[error("{0}")]
     DBError(#[from] DatabaseError),
+
     #[error("Error releasing from resource pool: {0}")]
     PoolReleaseError(#[from] ResourcePoolError),
+    #[error("Can not allocate resource. Pool for {owner_id} is exhausted.")]
+    PoolAllocateError { owner_id: String },
+
     #[error("Invalid host state {1} for DPU {0}.")]
     InvalidHostState(MachineId, ManagedHostState),
+
+    #[error("Failed to call IBFabricManager: {0}")]
+    IBFabricError(String),
 }
 
 impl StateHandlerError {
@@ -188,7 +202,9 @@ impl StateHandlerError {
             StateHandlerError::MissingData { .. } => "missing_data",
             StateHandlerError::DBError(_) => "db_error",
             StateHandlerError::PoolReleaseError(_) => "pool_release_error",
+            StateHandlerError::PoolAllocateError { .. } => "pool_allocate_error",
             StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",
+            StateHandlerError::IBFabricError(_) => "ib_fabric_error",
         }
     }
 }

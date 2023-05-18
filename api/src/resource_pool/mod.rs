@@ -30,6 +30,31 @@ pub const VNI: &str = "vni";
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VLANID: &str = "vlan-id";
 
+pub const PKEY: &str = "pkey";
+
+#[async_trait::async_trait]
+pub trait ResourcePool<T>: Send + Sync
+where
+    T: ToString + FromStr,
+{
+    /// Put some resources into the pool, so they can be allocated later.
+    /// This needs to be called before `allocate` can return anything.
+    async fn populate(&self, values: Vec<T>) -> Result<(), ResourcePoolError>;
+
+    /// Get a resource from the pool
+    async fn allocate(
+        &self,
+        for_owner_type: OwnerType,
+        for_owner_id: &str,
+    ) -> Result<T, ResourcePoolError>;
+
+    /// Return a resource to the pool
+    async fn release(&self, value: T) -> Result<(), ResourcePoolError>;
+
+    /// Count how many (used, unused) values are in the pool
+    async fn stats(&self) -> Result<ResourcePoolStats, ResourcePoolError>;
+}
+
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum OwnerType {
     /// owner_type for loopback_ip
@@ -37,6 +62,9 @@ pub enum OwnerType {
 
     /// owner_type for vlan_id and vni
     NetworkSegment,
+
+    /// owner_type for pkey
+    IBSubnet,
 }
 
 impl FromStr for OwnerType {
@@ -45,6 +73,7 @@ impl FromStr for OwnerType {
         match s {
             "machine" => Ok(Self::Machine),
             "network_segment" => Ok(Self::NetworkSegment),
+            "ib_subnet" => Ok(Self::IBSubnet),
             x => Err(CarbideError::GenericError(format!(
                 "Unknown owner_type '{}'",
                 x
@@ -58,6 +87,7 @@ impl fmt::Display for OwnerType {
         match self {
             Self::Machine => write!(f, "machine"),
             Self::NetworkSegment => write!(f, "network_segment"),
+            Self::IBSubnet => write!(f, "ib_subnet"),
         }
     }
 }

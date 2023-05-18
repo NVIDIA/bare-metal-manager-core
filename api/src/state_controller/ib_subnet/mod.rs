@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,10 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod controller;
-pub mod ib_subnet;
-pub mod machine;
-pub mod metrics;
-pub mod network_segment;
-pub mod snapshot_loader;
-pub mod state_handler;
+//! State Controller implementation for IBSubnet.
+
+pub mod handler;
+pub mod io;

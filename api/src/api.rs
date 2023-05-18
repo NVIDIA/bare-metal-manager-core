@@ -52,9 +52,12 @@ use uuid::Uuid;
 use self::rpc::forge_server::Forge;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_machine::DpuMachine;
+use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::vpc_resource_leaf::VpcResourceLeaf;
+use crate::ib;
+use crate::ib::IBFabricManager;
 use crate::ipxe::PxeInstructions;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatus;
@@ -100,6 +103,7 @@ use crate::{
     redfish::{RedfishClientPool, RedfishClientPoolImpl},
     state_controller::{
         controller::StateController,
+        ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
         machine::handler::MachineStateHandler,
         machine::io::MachineStateControllerIO,
         network_segment::{
@@ -446,30 +450,161 @@ where
 
     async fn find_ib_subnets(
         &self,
-        _: Request<IbSubnetQuery>,
+        request: Request<IbSubnetQuery>,
     ) -> Result<Response<IbSubnetList>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_ib_subnets", e))?;
+
+        let rpc::IbSubnetQuery {
+            id, search_config, ..
+        } = request.into_inner();
+
+        let uuid_filter = match id {
+            Some(id) => match Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => UuidKeyedObjectFilter::All,
+        };
+
+        let search_config = search_config
+            .map(IBSubnetSearchConfig::from)
+            .unwrap_or(IBSubnetSearchConfig::default());
+        let results = IBSubnet::find(&mut txn, uuid_filter, search_config)
+            .await
+            .map_err(CarbideError::from)?;
+        let mut ib_subnets = Vec::with_capacity(results.len());
+        for result in results {
+            ib_subnets.push(result.try_into()?);
+        }
+
+        Ok(Response::new(rpc::IbSubnetList { ib_subnets }))
     }
 
     async fn create_ib_subnet(
         &self,
-        _: Request<IbSubnetCreationRequest>,
+        req: Request<IbSubnetCreationRequest>,
     ) -> Result<Response<IbSubnet>, Status> {
-        todo!()
+        log_request_data(&req);
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_ib_subnet", e))?;
+
+        let resp = IBSubnetConfig::try_from(req.into_inner())?;
+        let resp = IBSubnet::create(&mut txn, &resp)
+            .await
+            .map_err(CarbideError::from)?;
+        let resp = rpc::IbSubnet::try_from(resp).map(Response::new)?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_ib_subnet", e))?;
+
+        Ok(resp)
     }
 
     async fn delete_ib_subnet(
         &self,
-        _: Request<IbSubnetDeletionRequest>,
+        request: Request<IbSubnetDeletionRequest>,
     ) -> Result<Response<IbSubnetDeletionResult>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin delete_ib_subnet", e))?;
+
+        let rpc::IbSubnetDeletionRequest { id, .. } = request.into_inner();
+
+        let uuid = match id {
+            Some(id) => match Uuid::try_from(id) {
+                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Supplied invalid UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("No UUID provided".to_string()));
+            }
+        };
+
+        let mut segments = IBSubnet::find(&mut txn, uuid, IBSubnetSearchConfig::default())
+            .await
+            .map_err(CarbideError::from)?;
+
+        let segment = match segments.len() {
+            1 => segments.remove(0),
+            _ => return Err(Status::not_found("ib subnet not found")),
+        };
+
+        let resp = segment
+            .mark_as_deleted(&mut txn)
+            .await
+            .map(|_| rpc::IbSubnetDeletionResult {})
+            .map(Response::new)?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_ib_subnet", e))?;
+
+        Ok(resp)
     }
 
     async fn ib_subnets_for_vpc(
         &self,
-        _: Request<rpc::VpcSearchQuery>,
+        request: Request<rpc::VpcSearchQuery>,
     ) -> Result<Response<IbSubnetList>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin find_ib_subnets_for_vpc", e)
+        })?;
+
+        let rpc::VpcSearchQuery { id, .. } = request.into_inner();
+
+        let _uuid = match id {
+            Some(id) => match Uuid::try_from(id) {
+                Ok(uuid) => uuid,
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Did not supply a valid VPC_ID UUID: {}",
+                        err
+                    )));
+                }
+            },
+            None => {
+                return Err(Status::invalid_argument("A VPC_ID UUID is required"));
+            }
+        };
+
+        let results = IBSubnet::for_vpc(&mut txn, _uuid)
+            .await
+            .map_err(CarbideError::from)?;
+
+        let mut ib_subnets = Vec::with_capacity(results.len());
+
+        for result in results {
+            ib_subnets.push(result.try_into()?);
+        }
+
+        Ok(Response::new(rpc::IbSubnetList { ib_subnets }))
     }
 
     async fn find_network_segments(
@@ -3074,6 +3209,13 @@ where
             Arc::new(VpcApiSim::default())
         };
 
+        let ib_fabric_manager: Arc<dyn IBFabricManager> = if daemon_config.kubernetes {
+            // TODO(k82cn): connect to IBFabricManager.
+            ib::connect(&daemon_config.ib_fabric_manager)
+        } else {
+            ib::local_ib_fabric_manager()
+        };
+
         let authorizer = auth::Authorizer::build_casbin(
             &daemon_config.casbin_policy_file,
             daemon_config.auth_permissive_mode,
@@ -3133,10 +3275,10 @@ where
                 .expect("Unable to build MachineStateController");
 
         let mut ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
-            .database(database_connection)
+            .database(database_connection.clone())
             .meter("forge_network_segments", meter.clone())
             .redfish_client_pool(shared_redfish_pool.clone())
-            .vpc_api(vpc_api)
+            .vpc_api(vpc_api.clone())
             .forge_api(api_service.clone());
         if let Some(pool_vlan_id) = sc_pool_vlan_id {
             ns_builder = ns_builder.pool_vlan_id(pool_vlan_id);
@@ -3155,6 +3297,20 @@ where
             })
             .build()
             .expect("Unable to build NetworkSegmentController");
+
+        let ib_data = ib::pool::enable();
+        let _ibsubnet_controller_handle = StateController::<IBSubnetStateControllerIO>::builder()
+            .database(database_connection.clone())
+            .vpc_api(vpc_api.clone())
+            .ib_fabric_manager(ib_fabric_manager.clone())
+            .pool_pkey(ib_data.pool_pkey.clone())
+            .forge_api(api_service.clone())
+            .iteration_time(service_config.network_segment_state_controller_iteration_time)
+            .state_handler(Arc::new(IBSubnetStateHandler::new(
+                service_config.network_segment_drain_time,
+            )))
+            .build()
+            .expect("Unable to build IBSubnetController");
 
         let listen_port = daemon_config.listen[0];
         api_handler(api_service, listen_port, meter).await

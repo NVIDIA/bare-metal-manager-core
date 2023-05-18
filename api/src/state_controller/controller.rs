@@ -20,6 +20,7 @@ use opentelemetry::metrics::Meter;
 use tokio::{sync::oneshot, task::JoinSet};
 
 use crate::{
+    ib::IBFabricManager,
     kubernetes::VpcApi,
     model::config_version::{ConfigVersion, Versioned},
     reachability::Reachability,
@@ -433,6 +434,7 @@ pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
     redfish_client_pool: Option<Arc<dyn RedfishClientPool>>,
     vpc_api: Option<Arc<dyn VpcApi>>,
+    ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
     iteration_time: Option<Duration>,
     max_concurrency: usize,
     object_type_for_metrics: Option<String>,
@@ -447,6 +449,7 @@ pub struct Builder<IO: StateControllerIO> {
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
     pool_vlan_id: Option<Arc<DbResourcePool<i16>>>,
     pool_vni: Option<Arc<DbResourcePool<i32>>>,
+    pool_pkey: Option<Arc<DbResourcePool<i16>>>,
     reachability_params: Option<ReachabilityParams>,
 }
 
@@ -466,6 +469,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             database: None,
             redfish_client_pool: None,
             vpc_api: None,
+            ib_fabric_manager: None,
             iteration_time: None,
             state_handler: Arc::new(NoopStateHandler::<
                 IO::ObjectId,
@@ -479,6 +483,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             reachability_params: None,
             pool_vlan_id: None,
             pool_vni: None,
+            pool_pkey: None,
         }
     }
 
@@ -516,6 +521,13 @@ impl<IO: StateControllerIO> Builder<IO> {
                     "reachability_params",
                 ))?;
 
+        let ib_fabric_manager =
+            self.ib_fabric_manager
+                .take()
+                .ok_or(StateControllerBuildError::MissingArgument(
+                    "ib_fabric_manager",
+                ))?;
+
         let (stop_sender, stop_receiver) = oneshot::channel();
 
         if self.max_concurrency == 0 {
@@ -533,12 +545,14 @@ impl<IO: StateControllerIO> Builder<IO> {
         let handler_services = Arc::new(StateHandlerServices {
             pool: database,
             vpc_api,
+            ib_fabric_manager,
             redfish_client_pool,
             forge_api,
             reachability_params,
             pool_vlan_id: self.pool_vlan_id.take(),
             pool_vni: self.pool_vni.take(),
             meter: meter.clone(),
+            pool_pkey: self.pool_pkey.take(),
         });
 
         // This defines the shared storage location for metrics between the state handler
@@ -610,6 +624,12 @@ impl<IO: StateControllerIO> Builder<IO> {
         self
     }
 
+    /// Configures the utilized IBService
+    pub fn ib_fabric_manager(mut self, ib_fabric_manager: Arc<dyn IBFabricManager>) -> Self {
+        self.ib_fabric_manager = Some(ib_fabric_manager);
+        self
+    }
+
     /// Configures the resource pool for allocation / release VLAN IDs
     pub fn pool_vlan_id(mut self, pool_vlan_id: Arc<DbResourcePool<i16>>) -> Self {
         self.pool_vlan_id = Some(pool_vlan_id);
@@ -619,6 +639,12 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures the resource pool for allocation / release VNI (VXLAN IDs)
     pub fn pool_vni(mut self, pool_vni: Arc<DbResourcePool<i32>>) -> Self {
         self.pool_vni = Some(pool_vni);
+        self
+    }
+
+    /// Configures the resource pool for allocation / release pkey
+    pub fn pool_pkey(mut self, pool_pkey: Arc<DbResourcePool<i16>>) -> Self {
+        self.pool_pkey = Some(pool_pkey);
         self
     }
 

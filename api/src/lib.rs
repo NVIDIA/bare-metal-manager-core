@@ -36,6 +36,7 @@ pub mod db;
 mod dhcp;
 pub mod ethernet_virtualization;
 mod human_hash;
+pub mod ib;
 pub mod instance;
 mod ipxe;
 pub mod kubernetes;
@@ -192,6 +193,9 @@ pub enum CarbideError {
 
     #[error("Hardware info error: {0}")]
     HardwareInfoError(#[from] HardwareInfoError),
+
+    #[error("Failed to call IBFabricManager: {0}")]
+    IBFabricError(String),
 }
 
 impl From<CarbideError> for tonic::Status {

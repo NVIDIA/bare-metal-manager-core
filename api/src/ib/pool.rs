@@ -10,10 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod controller;
-pub mod ib_subnet;
-pub mod machine;
-pub mod metrics;
-pub mod network_segment;
-pub mod snapshot_loader;
-pub mod state_handler;
+use std::sync::Arc;
+
+use crate::resource_pool::{self, DbResourcePool};
+
+#[derive(Clone)]
+pub struct IBData {
+    pub pool_pkey: Arc<DbResourcePool<i16>>,
+}
+
+/// Create Infiniband's resource pools (for pkey, etc)
+///
+/// Pools must also be created in the database: `forge-admin-cli resource-pool define`
+pub fn enable() -> IBData {
+    let pool_pkey: Arc<DbResourcePool<i16>> =
+        Arc::new(DbResourcePool::new(resource_pool::PKEY.to_string()));
+
+    IBData { pool_pkey }
+}
