@@ -9,7 +9,6 @@ Please see [The Book](https://nvmetal.gitlab-master-pages.nvidia.com/carbide/ind
 
 Discussion happens on #swngc-forge-dev slack channel.
 
-
 ---
 
 # New or bored

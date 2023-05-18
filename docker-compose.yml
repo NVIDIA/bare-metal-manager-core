@@ -87,7 +87,7 @@ services:
     #  - For trace/debug mode add '-dd':
     #    command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
     #  - For local Kubernetes add '--kubernetes'
-    #  - To have VPC (instad of Carbide) assign loopback ip, vlan_id and vni, remove '--manage-vpc'
+    #  - To have VPC (instead of Carbide) assign loopback ip, vlan_id and vni, remove '--manage-vpc'
     command:
       - sh
       - -c

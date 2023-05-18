@@ -66,28 +66,34 @@ echo "Created HOST Machine with ID $HOST_MACHINE_ID. Starting discovery."
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
 
 echo "Waiting for lockdown to complete."
-# the time wait state is a fixed 5 minutes
-sleep 300
+# should exceed ServiceConfig.dpu_wait_time
+sleep 2
 echo "Lockdown wait is over."
 
-echo "updating machine interface address for machine interface ${DPU_INTERFACE_ID} to 127.0.0.2"
+echo "Updating machine interface address for machine interface ${DPU_INTERFACE_ID} to 127.0.0.2"
 ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='127.0.0.2' where interface_id='${DPU_INTERFACE_ID}';"
+
+# Pretend to be the DPU so ReachabilityChecker can ping us
+sudo ip addr add ${DPU_INTERFACE_ADDR}/32 dev lo
 
 # Wait until host reaches discovered state.
 i=0
 MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
-while [[ $MACHINE_STATE != "Host/Discovered" && $i -lt $MAX_RETRY ]]; do
-  sleep 10
+while [[ $MACHINE_STATE != "Host/Discovered" && $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
+  sleep 4
 
   MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
-  echo "Checking machine state. Waiting for it to be in Host/Discovered state. Current: $MACHINE_STATE"
+  echo "Checking machine state. Waiting for it to be in Host/Discovered or Ready state. Current: $MACHINE_STATE"
   i=$((i+1))
 done
 
-echo "updating machine interface address for machine interface ${DPU_INTERFACE_ID} to ${DPU_INTERFACE_ID}"
+echo "Database: Updating machine interface address for machine interface ${DPU_INTERFACE_ID} to ${DPU_INTERFACE_ADDR}"
 ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='${DPU_INTERFACE_ADDR}' where interface_id='${DPU_INTERFACE_ID}';"
 
-if [[ $i == "$MAX_RETRY" ]]; then
+# Stop pretending to be the DPU
+sudo ip addr del ${DPU_INTERFACE_ADDR}/32 dev lo
+
+if [[ $i -gt "$MAX_RETRY" ]]; then
   echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."
   exit 1
 fi
@@ -98,14 +104,14 @@ grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SER
 i=0
 MACHINE_STATE=""
 while [[ $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
-  sleep 10
+  sleep 2
 
   MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
   echo "Checking machine state. Waiting for it to be in Ready state. Current: $MACHINE_STATE"
   i=$((i+1))
 done
 
-if [[ $i == "$MAX_RETRY" ]]; then
+if [[ $i -gt "$MAX_RETRY" ]]; then
   echo "Even after $MAX_RETRY retries, Host did not come in Ready state."
   exit 1
 fi

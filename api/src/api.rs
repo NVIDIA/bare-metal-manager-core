@@ -3271,7 +3271,7 @@ where
                 .state_handler(Arc::new(MachineStateHandler::default()))
                 .reachability_params(ReachabilityParams {
                     checker: Arc::new(PingReachabilityChecker::default()),
-                    dpu_wait_time: Duration::minutes(5),
+                    dpu_wait_time: service_config.dpu_wait_time,
                 })
                 .build()
                 .expect("Unable to build MachineStateController");
@@ -3296,7 +3296,7 @@ where
             )))
             .reachability_params(ReachabilityParams {
                 checker: Arc::new(PingReachabilityChecker::default()),
-                dpu_wait_time: Duration::minutes(5),
+                dpu_wait_time: service_config.dpu_wait_time,
             })
             .build()
             .expect("Unable to build NetworkSegmentController");
@@ -3310,7 +3310,7 @@ where
             .pool_pkey(ib_data.pool_pkey.clone())
             .reachability_params(ReachabilityParams {
                 checker: Arc::new(PingReachabilityChecker::default()),
-                dpu_wait_time: Duration::minutes(5),
+                dpu_wait_time: service_config.dpu_wait_time,
             })
             .forge_api(api_service.clone())
             .iteration_time(service_config.network_segment_state_controller_iteration_time)
@@ -3470,6 +3470,9 @@ struct ServiceConfig {
     network_segment_state_controller_iteration_time: std::time::Duration,
     /// Maximum datebase connections
     max_db_connections: u32,
+    /// How long to wait for DPU to restart after BMC lockdown. Not a timeout, it's a forced wait.
+    /// This will be replaced with querying lockdown state.
+    dpu_wait_time: chrono::Duration,
 }
 
 impl Default for ServiceConfig {
@@ -3479,6 +3482,7 @@ impl Default for ServiceConfig {
             machine_state_controller_iteration_time: std::time::Duration::from_secs(30),
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
             max_db_connections: 1000,
+            dpu_wait_time: Duration::minutes(5),
         }
     }
 }
@@ -3494,6 +3498,7 @@ impl ServiceConfig {
             machine_state_controller_iteration_time: std::time::Duration::from_secs(10),
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
             max_db_connections: 1000,
+            dpu_wait_time: Duration::seconds(1),
         }
     }
 }
