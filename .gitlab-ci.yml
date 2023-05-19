@@ -4,9 +4,7 @@ variables:
   APPLICATION_DOCKERFILE: dev/deployment/Dockerfile
   KUSTOMIZE_LOCATION: dev/kube
   DOCKER_IMG: nvmetal-carbide
-  APPLICATION_DOCKER_IMAGE: quay.io/nvidia/nvmetal-carbide
-  NVCR_APPLICATION_DOCKER_IMAGE: nvcr.io/nvidian/forge/nvmetal-carbide
-  STG_NVCR_APPLICATION_DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/nvmetal-carbide
+  APPLICATION_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/nvmetal-carbide
 
   FF_USE_FASTZIP: "true" # enable fastzip - a faster zip implementation that also supports level configuration.
   ARTIFACT_COMPRESSION_LEVEL: default # can also be set to fastest, fast, slow and slowest. If just enabling fastzip is not enough try setting this to fastest or fast.
