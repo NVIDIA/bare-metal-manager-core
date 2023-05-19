@@ -5,6 +5,7 @@ env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
 run_task = { name = [ "build-bootstrap-forge-base",
     "build-bootstrap-forge-dpu-discovery",
     "build-bootstrap-forge-host-discovery" ] }
+
 [tasks.build-bootstrap-forge-docker]
 category = "Bootstrap"
 workspace = false
@@ -19,6 +20,7 @@ category = "Bootstrap"
 workspace = false
 env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
 run_task = "build-bootstrap-forge-base"
+
 [tasks.build-bootstrap-forge-base-docker]
 category = "Bootstrap"
 workspace = false
@@ -30,6 +32,7 @@ category = "Bootstrap"
 workspace = false
 env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
 run_task = "build-bootstrap-forge-dpu-discovery"
+
 [tasks.build-bootstrap-forge-dpu-discovery-docker]
 category = "Bootstrap"
 workspace = false
@@ -43,6 +46,7 @@ env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
 run_task = { name=["build-bootstrap-forge-base",
     "build-bootstrap-forge-dpu-discovery",
     "build-bootstrap-forge-vmhost-init"]}
+
 [tasks.build-bootstrap-forge-vmhost-init-docker]
 category = "Bootstrap"
 workspace = false
@@ -70,16 +74,16 @@ POOL_COUNT=$(${REPO_ROOT}/dev/bin/psql.sh 'select count(name) from resource_pool
 if [ 0 -eq ${POOL_COUNT} ]
 then
   echo Populating resource pools
-  ${REPO_ROOT}/dev/bin/admin-cli.sh ${API_SERVER_IP} ${API_SERVER_PORT} "resource-pool define -f ${CONTAINER_DATA_PATH}/resource_pools.toml"
+  ${REPO_ROOT}/dev/bin/admin-cli.sh ${API_SERVER_HOST} ${API_SERVER_PORT} "resource-pool define -f ${CONTAINER_DATA_PATH}/resource_pools.toml"
 
-  vpc=$(grpcurl -d '{"name":"test_vpc"}' -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/CreateVpc | jq ".id.value" | tr -d '"')
-  domain=$(grpcurl -d '{"name":"forge.local"}' -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/CreateDomain | jq ".id.value" | tr -d '"')
-  segment=$(grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"segment_type\":1, \"prefixes\":[{\"prefix\":\"${NET_PREFIX}\",\"gateway\":\"${NET_GATEWAY}\",\"reserve_first\":100}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/CreateNetworkSegment | jq ".id.value" | tr -d '"')
+  vpc=$(grpcurl -d '{"name":"test_vpc"}' -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateVpc | jq ".id.value" | tr -d '"')
+  domain=$(grpcurl -d '{"name":"forge.local"}' -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateDomain | jq ".id.value" | tr -d '"')
+  segment=$(grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"segment_type\":1, \"prefixes\":[{\"prefix\":\"${NET_PREFIX}\",\"gateway\":\"${NET_GATEWAY}\",\"reserve_first\":100}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateNetworkSegment | jq ".id.value" | tr -d '"')
 
   echo "vpc: $vpc domain: $domain segment: $segment"
 
   echo "Waiting for the network segment to become ready"
-  while [ $(grpcurl -d "{\"id\": {\"value\": \"$segment\"}}" -insecure $API_SERVER_IP:$API_SERVER_PORT forge.Forge/FindNetworkSegments | jq ".networkSegments[0].state") != '"READY"' ]; do
+  while [ $(grpcurl -d "{\"id\": {\"value\": \"$segment\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindNetworkSegments | jq ".networkSegments[0].state") != '"READY"' ]; do
     echo -n '.'
     sleep 1
   done
@@ -107,13 +111,12 @@ then
   RELAY_ADDRESS=$(jq '.relay_address' $DATA_PATH/host_dhcp_discovery.json | tr -d '"')
   echo Relay address: $RELAY_ADDRESS
 
-  ${REPO_ROOT}/dev/bin/discover_dpu.sh $API_SERVER_IP $API_SERVER_PORT ${DATA_PATH}
+  ${REPO_ROOT}/dev/bin/discover_dpu.sh $API_SERVER_HOST $API_SERVER_PORT ${DATA_PATH}
 
   ${REPO_ROOT}/dev/bin/psql.sh "UPDATE vpc_resource_leafs SET loopback_ip_address='${RELAY_ADDRESS}';"
 else
   echo "$DPU_COUNT DPUs exist. skipping"
 fi
-
 '''
 cwd="${REPO_ROOT}"
 
@@ -128,7 +131,7 @@ DATA_PATH=${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env
 echo "using data path ${DATA_PATH}/envrc"
 source ${DATA_PATH}/envrc
 
-${REPO_ROOT}/dev/bin/discover_host.sh $API_SERVER_IP $API_SERVER_PORT ${DATA_PATH} dhcp-only
+${REPO_ROOT}/dev/bin/discover_host.sh $API_SERVER_HOST $API_SERVER_PORT ${DATA_PATH} dhcp-only
 '''
 cwd="${REPO_ROOT}"
 
@@ -143,7 +146,7 @@ DATA_PATH=${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env
 echo using data path ${DATA_PATH}
 source ${DATA_PATH}/envrc
 
-${REPO_ROOT}/dev/bin/discover_host.sh $API_SERVER_IP $API_SERVER_PORT ${DATA_PATH} full
+${REPO_ROOT}/dev/bin/discover_host.sh $API_SERVER_HOST $API_SERVER_PORT ${DATA_PATH} full
 '''
 
 [tasks.test-instance-forge-docker]
@@ -153,7 +156,7 @@ script = '''
 
 source ${REPO_ROOT}/dev/docker-env/envrc
 echo "In case you don't want to delete instance for further testing, call script 'dev/bin/instance_handling.sh create' and 'dev/bin/instance_handling.sh delete'"
-${REPO_ROOT}/dev/bin/instance_handling.sh test ${API_SERVER_IP} ${API_SERVER_PORT}
+${REPO_ROOT}/dev/bin/instance_handling.sh test ${API_SERVER_HOST} ${API_SERVER_PORT}
 '''
 cwd="${REPO_ROOT}"
 
@@ -164,6 +167,6 @@ script = '''
 
 source ${REPO_ROOT}/dev/kube-env/envrc
 echo "In case you don't want to delete instance for further testing, call script 'dev/bin/instance_handling.sh create' and 'dev/bin/instance_handling.sh delete'"
-${REPO_ROOT}/dev/bin/instance_handling.sh test ${API_SERVER_IP} ${API_SERVER_PORT}
+${REPO_ROOT}/dev/bin/instance_handling.sh test ${API_SERVER_HOST} ${API_SERVER_PORT}
 '''
 

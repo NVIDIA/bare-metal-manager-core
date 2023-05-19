@@ -76,7 +76,7 @@ dependencies = [
 	"mkosi-generate-zipapp",
 	"mkosi-clean-artifacts-x86_64-ci",
 	"copy-debug-artifacts",
-	"copy-forge-root-ca",
+	"copy-forge-root-ca-ci",
 	"mkosi-build-image-x86_64-ci",
 	"mkosi-remove-unnecessary-files",
 ]
@@ -93,13 +93,21 @@ script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/x86_64"
 '''
 
+[tasks.copy-forge-root-ca-ci]
+category = "Copy Forge Root CA in CI"
+command = "cp"
+args = [
+    "-f",
+	"${FORGE_CA_PATH}",
+	"mkosi.extra/opt/forge/forge_root.pem",
+]
 
 [tasks.copy-forge-root-ca]
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
     "-f",
-	"${FORGE_CA_PATH}",
+	"${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
 	"mkosi.extra/opt/forge/forge_root.pem",
 ]
 
@@ -296,7 +304,7 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-scout-to-bfb",
-	"bfb-add-root-ca-to-bfb",
+	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",

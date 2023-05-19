@@ -1,6 +1,7 @@
 [Unit]
 Description=Carbide discovery client
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=idle

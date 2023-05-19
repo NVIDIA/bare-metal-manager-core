@@ -1,4 +1,4 @@
-export API_SERVER_IP=192.168.252.75
+export API_SERVER_HOST=carbide-api.forge
 export API_SERVER_PORT=1079
 export NET_PREFIX=192.168.252.0/24
 export NET_GATEWAY=192.168.252.1
