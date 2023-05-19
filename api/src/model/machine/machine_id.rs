@@ -208,11 +208,11 @@ pub const MACHINE_ID_LENGTH: usize = MACHINE_ID_PREFIX_LENGTH + MACHINE_ID_HARDW
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum MachineIdParseError {
     #[error("The Machine ID has an invalid length of {0}")]
-    InvalidMachineIdLength(usize),
+    Length(usize),
     #[error("The Machine ID {0} has an invalid prefix")]
-    InvalidMachineIdPrefix(String),
+    Prefix(String),
     #[error("The Machine ID {0} has an invalid encoding")]
-    InvalidMachineIdEncoding(String),
+    Encoding(String),
 }
 
 impl FromStr for MachineId {
@@ -220,11 +220,11 @@ impl FromStr for MachineId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() != MACHINE_ID_LENGTH {
-            return Err(MachineIdParseError::InvalidMachineIdLength(s.len()));
+            return Err(MachineIdParseError::Length(s.len()));
         }
         // Check for version 1 and 2 reserved bytes
         if !s.starts_with("fm100") {
-            return Err(MachineIdParseError::InvalidMachineIdPrefix(s.to_string()));
+            return Err(MachineIdParseError::Prefix(s.to_string()));
         }
 
         // Everything after the prefix needs to be valid base32
@@ -236,17 +236,15 @@ impl FromStr for MachineId {
                 .decode_len(encoded_hardware_id.len())
                 .expect("Maximum length of the encoded MachineId is small")],
         ) {
-            Err(_) => return Err(MachineIdParseError::InvalidMachineIdEncoding(s.to_string())),
-            Ok(size) if size != 32 => {
-                return Err(MachineIdParseError::InvalidMachineIdEncoding(s.to_string()))
-            }
+            Err(_) => return Err(MachineIdParseError::Encoding(s.to_string())),
+            Ok(size) if size != 32 => return Err(MachineIdParseError::Encoding(s.to_string())),
             _ => {}
         }
 
         let ty = MachineType::from_id_char(s.as_bytes()[5] as char)
-            .ok_or_else(|| MachineIdParseError::InvalidMachineIdPrefix(s.to_string()))?;
+            .ok_or_else(|| MachineIdParseError::Prefix(s.to_string()))?;
         let source = MachineIdSource::from_id_char(s.as_bytes()[6] as char)
-            .ok_or_else(|| MachineIdParseError::InvalidMachineIdPrefix(s.to_string()))?;
+            .ok_or_else(|| MachineIdParseError::Prefix(s.to_string()))?;
 
         let hardware_id = s[MACHINE_ID_PREFIX_LENGTH..].to_string();
 

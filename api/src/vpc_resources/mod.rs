@@ -179,10 +179,8 @@ impl BlueFieldInterface {
 
     pub fn interface_name(&self) -> String {
         match self.0 {
-            InterfaceFunctionId::PhysicalFunctionId {} => {
-                DPU_PHYSICAL_NETWORK_INTERFACE.to_string()
-            }
-            InterfaceFunctionId::VirtualFunctionId { id } => {
+            InterfaceFunctionId::Physical {} => DPU_PHYSICAL_NETWORK_INTERFACE.to_string(),
+            InterfaceFunctionId::Virtual { id } => {
                 format!("{}{}", DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER, id - 1)
             }
         }
@@ -332,8 +330,7 @@ mod tests {
 
     #[test]
     fn test_leaf_interface_id_physical() {
-        let physical_interface =
-            BlueFieldInterface::new(InterfaceFunctionId::PhysicalFunctionId {});
+        let physical_interface = BlueFieldInterface::new(InterfaceFunctionId::Physical {});
         assert_eq!(
             "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g.pf".to_owned(),
             physical_interface.leaf_interface_id(&DPU_MACHINE_ID.parse().unwrap())
@@ -349,8 +346,7 @@ mod tests {
         if id == 0 {
             return;
         }
-        let virtual_interface =
-            BlueFieldInterface::new(InterfaceFunctionId::VirtualFunctionId { id });
+        let virtual_interface = BlueFieldInterface::new(InterfaceFunctionId::Virtual { id });
         assert_eq!(
             leaf_interface_name,
             virtual_interface.leaf_interface_id(&DPU_MACHINE_ID.parse().unwrap())

@@ -42,7 +42,7 @@ impl TryFrom<NetworkSegmentStateHistory> for rpc::forge::NetworkSegmentStateHist
     fn try_from(value: NetworkSegmentStateHistory) -> Result<Self, Self::Error> {
         Ok(rpc::forge::NetworkSegmentStateHistory {
             state: serde_json::to_string(&value.state)?,
-            version: value.state_version.to_version_string(),
+            version: value.state_version.version_string(),
             time: Some(value.timestamp.into()),
         })
     }
@@ -117,7 +117,7 @@ impl NetworkSegmentStateHistory {
         sqlx::query_as::<_, Self>(query)
             .bind(segment_id)
             .bind(sqlx::types::Json(state))
-            .bind(state_version.to_version_string())
+            .bind(state_version.version_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

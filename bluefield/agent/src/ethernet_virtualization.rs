@@ -117,7 +117,7 @@ fn write_interfaces(
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
         let mut has_used_physical = false;
         for (i, net) in nc.tenant_interfaces.iter().enumerate() {
-            let name = if net.function == rpc::InterfaceFunctionType::PhysicalFunction as i32 {
+            let name = if net.function == rpc::InterfaceFunctionType::Physical as i32 {
                 has_used_physical = true;
                 physical_name.clone()
             } else {
@@ -254,7 +254,7 @@ mod tests {
         // The config we received from API server
         // Admin won't be used
         let admin_interface = rpc::FlatInterfaceConfig {
-            function: rpc::InterfaceFunctionType::PhysicalFunction.into(),
+            function: rpc::InterfaceFunctionType::Physical.into(),
             vlan_id: 1,
             vni: 1001,
             gateway: "10.217.5.123/28".to_string(),
@@ -262,14 +262,14 @@ mod tests {
         };
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
-                function: rpc::InterfaceFunctionType::VirtualFunction.into(),
+                function: rpc::InterfaceFunctionType::Virtual.into(),
                 vlan_id: 196,
                 vni: 1025196,
                 gateway: "10.217.5.169/29".to_string(),
                 ip: "10.217.5.170/32".to_string(),
             },
             rpc::FlatInterfaceConfig {
-                function: rpc::InterfaceFunctionType::PhysicalFunction.into(),
+                function: rpc::InterfaceFunctionType::Physical.into(),
                 vlan_id: 185,
                 vni: 1025185,
                 gateway: "10.217.5.161/30".to_string(),

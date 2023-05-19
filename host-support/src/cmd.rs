@@ -4,11 +4,11 @@ use std::process::Command;
 #[derive(thiserror::Error, Debug)]
 pub enum CmdError {
     #[error("Cmd error: {0}")]
-    GenericError(String),
+    Generic(String),
     #[error("Subprocess {0} with arguments {1:?} failed with output: {2}")]
-    SubprocessError(String, Vec<String>, String),
+    Subprocess(String, Vec<String>, String),
     #[error("Command {0} with args {1:?} produced output that is not valid UTF8")]
-    OutputParseError(String, Vec<String>),
+    OutputParse(String, Vec<String>),
 }
 
 impl CmdError {
@@ -22,7 +22,7 @@ impl CmdError {
             String::from_utf8_lossy(&output.stderr).to_string()
         };
 
-        Self::SubprocessError(
+        Self::Subprocess(
             command.get_program().to_string_lossy().to_string(),
             command
                 .get_args()
@@ -32,7 +32,7 @@ impl CmdError {
         )
     }
     pub fn output_parse_error(command: &Cmd) -> Self {
-        Self::OutputParseError(
+        Self::OutputParse(
             command.command.get_program().to_string_lossy().to_string(),
             command
                 .command
@@ -73,7 +73,7 @@ impl Cmd {
         let output = self
             .command
             .output()
-            .map_err(|x| CmdError::GenericError(x.to_string()))?;
+            .map_err(|x| CmdError::Generic(x.to_string()))?;
 
         if !output.status.success() {
             return Err(CmdError::subprocess_error(&self.command, &output));

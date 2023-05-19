@@ -84,7 +84,7 @@ impl std::fmt::Display for ConfigVersion {
         // However this could mean that someone changing the Rust debug format
         // might accidentally touch the DB format. Therefore we keep a separate
         // method for this, and delegate the other way around.
-        let version_str = self.to_version_string();
+        let version_str = self.version_string();
         f.write_str(&version_str)
     }
 }
@@ -125,7 +125,7 @@ impl ConfigVersion {
     /// Returns a serialized format of `ConfigVersion`
     ///
     /// This is the database format we are using. Do not modify
-    pub fn to_version_string(&self) -> String {
+    pub fn version_string(&self) -> String {
         // Note that we use microseconds here to get a reasonable precision
         // while being able to represent 584k years
         format!(
@@ -155,31 +155,31 @@ fn now() -> DateTime<Utc> {
 
 /// Error that is returned when parsing a version fails
 #[derive(Debug, thiserror::Error)]
-pub enum ParseConfigVersionError {
+pub enum ConfigVersionParseError {
     #[error("Invalid version format: {0}")]
-    InvalidVersionFormat(String),
+    VersionFormat(String),
     #[error("Invalid date time: {0}, {1}")]
-    InvalidDateTime(i64, u32),
+    DateTime(i64, u32),
 }
 
 impl FromStr for ConfigVersion {
-    type Err = ParseConfigVersionError;
+    type Err = ConfigVersionParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut parts = s.trim().split('-');
 
         let version_nr_str = match parts.next() {
             Some(nr_str) => nr_str,
-            None => return Err(ParseConfigVersionError::InvalidVersionFormat(s.to_string())),
+            None => return Err(ConfigVersionParseError::VersionFormat(s.to_string())),
         };
 
         let timestamp_str = match parts.next() {
             Some(timestamp_str) => timestamp_str,
-            None => return Err(ParseConfigVersionError::InvalidVersionFormat(s.to_string())),
+            None => return Err(ConfigVersionParseError::VersionFormat(s.to_string())),
         };
 
         if parts.next().is_some() {
-            return Err(ParseConfigVersionError::InvalidVersionFormat(s.to_string()));
+            return Err(ConfigVersionParseError::VersionFormat(s.to_string()));
         }
 
         if version_nr_str.as_bytes().is_empty()
@@ -187,15 +187,15 @@ impl FromStr for ConfigVersion {
             || timestamp_str.as_bytes().is_empty()
             || timestamp_str.as_bytes()[0] != b'T'
         {
-            return Err(ParseConfigVersionError::InvalidVersionFormat(s.to_string()));
+            return Err(ConfigVersionParseError::VersionFormat(s.to_string()));
         }
 
         let version_nr: u64 = version_nr_str[1..]
             .parse()
-            .map_err(|_| ParseConfigVersionError::InvalidVersionFormat(s.to_string()))?;
+            .map_err(|_| ConfigVersionParseError::VersionFormat(s.to_string()))?;
         let timestamp: u64 = timestamp_str[1..]
             .parse()
-            .map_err(|_| ParseConfigVersionError::InvalidVersionFormat(s.to_string()))?;
+            .map_err(|_| ConfigVersionParseError::VersionFormat(s.to_string()))?;
 
         let secs = timestamp / 1_000_000;
         let usecs = timestamp % 1_000_000;
@@ -203,7 +203,7 @@ impl FromStr for ConfigVersion {
         let datetime = match NaiveDateTime::from_timestamp_opt(secs as i64, (usecs * 1000) as u32) {
             Some(ndt) => ndt,
             None => {
-                return Err(ParseConfigVersionError::InvalidDateTime(
+                return Err(ConfigVersionParseError::DateTime(
                     secs as i64,
                     (usecs * 1000) as u32,
                 ))
@@ -224,7 +224,7 @@ impl serde::Serialize for ConfigVersion {
     where
         S: serde::Serializer,
     {
-        self.to_version_string().serialize(s)
+        self.version_string().serialize(s)
     }
 }
 
@@ -248,13 +248,13 @@ mod tests {
     #[test]
     fn serialize_and_deserialize_config_version_as_string() {
         let config_version = ConfigVersion::initial();
-        let vs = config_version.to_version_string();
+        let vs = config_version.version_string();
         let parsed: ConfigVersion = vs.parse().unwrap();
         assert_eq!(parsed, config_version);
 
         let next = config_version.increment();
         assert_eq!(next.version_nr, 2);
-        let vs = next.to_version_string();
+        let vs = next.version_string();
         let parsed_next: ConfigVersion = vs.parse().unwrap();
         assert_eq!(parsed_next, next);
     }

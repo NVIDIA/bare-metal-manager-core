@@ -24,8 +24,8 @@ use crate::model::{ConfigValidationError, RpcDataConversionError};
 // or a virtual network function
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InterfaceFunctionType {
-    PhysicalFunction = 0,
-    VirtualFunction = 1,
+    Physical = 0,
+    Virtual = 1,
 }
 
 impl TryFrom<rpc::InterfaceFunctionType> for InterfaceFunctionType {
@@ -33,8 +33,8 @@ impl TryFrom<rpc::InterfaceFunctionType> for InterfaceFunctionType {
 
     fn try_from(function_type: rpc::InterfaceFunctionType) -> Result<Self, Self::Error> {
         Ok(match function_type {
-            rpc::InterfaceFunctionType::PhysicalFunction => InterfaceFunctionType::PhysicalFunction,
-            rpc::InterfaceFunctionType::VirtualFunction => InterfaceFunctionType::VirtualFunction,
+            rpc::InterfaceFunctionType::Physical => InterfaceFunctionType::Physical,
+            rpc::InterfaceFunctionType::Virtual => InterfaceFunctionType::Virtual,
         })
     }
 }
@@ -42,8 +42,8 @@ impl TryFrom<rpc::InterfaceFunctionType> for InterfaceFunctionType {
 impl From<InterfaceFunctionType> for rpc::InterfaceFunctionType {
     fn from(function_type: InterfaceFunctionType) -> rpc::InterfaceFunctionType {
         match function_type {
-            InterfaceFunctionType::PhysicalFunction => rpc::InterfaceFunctionType::PhysicalFunction,
-            InterfaceFunctionType::VirtualFunction => rpc::InterfaceFunctionType::VirtualFunction,
+            InterfaceFunctionType::Physical => rpc::InterfaceFunctionType::Physical,
+            InterfaceFunctionType::Virtual => rpc::InterfaceFunctionType::Virtual,
         }
     }
 }
@@ -53,11 +53,11 @@ impl From<InterfaceFunctionType> for rpc::InterfaceFunctionType {
 #[serde(tag = "type")]
 pub enum InterfaceFunctionId {
     #[serde(rename = "physical")]
-    PhysicalFunctionId {
+    Physical {
         // This might later on also contain the DPU ID
     },
     #[serde(rename = "virtual")]
-    VirtualFunctionId {
+    Virtual {
         /// Uniquely identifies the VF on a DPU
         ///
         /// The first VF assigned to a host must use ID 1.
@@ -70,14 +70,14 @@ pub enum InterfaceFunctionId {
 impl InterfaceFunctionId {
     /// Returns an iterator that yields all valid InterfaceFunctionIds
     ///
-    /// The first returned item is the `PhysicalFunctionId`.
-    /// Then the list of `VirtualFunctionId`s will follow
+    /// The first returned item is the `Physical`.
+    /// Then the list of `Virtual`s will follow
     pub fn iter_all() -> impl Iterator<Item = InterfaceFunctionId> {
         (0..=INTERFACE_VFID_MAX).map(|idx| {
             if idx == 0 {
-                InterfaceFunctionId::PhysicalFunctionId {}
+                InterfaceFunctionId::Physical {}
             } else {
-                InterfaceFunctionId::VirtualFunctionId { id: idx as u8 }
+                InterfaceFunctionId::Virtual { id: idx as u8 }
             }
         })
     }
@@ -85,30 +85,28 @@ impl InterfaceFunctionId {
     // Returns String that will be used to represent FunctionId in kubernetes.
     pub fn kube_representation(&self) -> String {
         match self {
-            InterfaceFunctionId::PhysicalFunctionId {} => "pf".to_string(),
-            InterfaceFunctionId::VirtualFunctionId { id } => format!("vf-{}", id),
+            InterfaceFunctionId::Physical {} => "pf".to_string(),
+            InterfaceFunctionId::Virtual { id } => format!("vf-{}", id),
         }
     }
 
     /// Returns whether ID refers to a physical or virtual function
     pub fn function_type(&self) -> InterfaceFunctionType {
         match self {
-            InterfaceFunctionId::PhysicalFunctionId { .. } => {
-                InterfaceFunctionType::PhysicalFunction
-            }
-            InterfaceFunctionId::VirtualFunctionId { .. } => InterfaceFunctionType::VirtualFunction,
+            InterfaceFunctionId::Physical { .. } => InterfaceFunctionType::Physical,
+            InterfaceFunctionId::Virtual { .. } => InterfaceFunctionType::Virtual,
         }
     }
 
     /// Tries to convert a numeric identifier that represents a virtual function
-    /// into a `InterfaceFunctionId::VirtualFunctionId`.
+    /// into a `InterfaceFunctionId::Virtual`.
     /// This will return an error if the ID is not in the valid range.
     pub fn try_virtual_from(id: usize) -> Result<InterfaceFunctionId, InvalidVirtualFunctionId> {
         if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&id) {
             return Err(InvalidVirtualFunctionId());
         }
 
-        Ok(InterfaceFunctionId::VirtualFunctionId { id: id as u8 })
+        Ok(InterfaceFunctionId::Virtual { id: id as u8 })
     }
 }
 
@@ -129,7 +127,7 @@ impl InstanceNetworkConfig {
     pub fn for_segment_id(network_segment_id: Uuid) -> Self {
         Self {
             interfaces: vec![InstanceInterfaceConfig {
-                function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                function_id: InterfaceFunctionId::Physical {},
                 network_segment_id,
                 ip_addrs: HashMap::default(),
             }],
@@ -177,17 +175,15 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 ))?;
 
             let function_id = match iface_type {
-                InterfaceFunctionType::PhysicalFunction => {
-                    InterfaceFunctionId::PhysicalFunctionId {}
-                }
-                InterfaceFunctionType::VirtualFunction => {
+                InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
+                InterfaceFunctionType::Virtual => {
                     // Note that this might overflow if the RPC call delivers more than
                     // 256 VFs. However that's ok - the `InstanceNetworkConfig.validate()`
                     // call will declare those configs as invalid later on anyway.
                     // We mainly don't want to crash here.
                     assigned_vfs = assigned_vfs.saturating_add(1);
                     let id = assigned_vfs;
-                    InterfaceFunctionId::VirtualFunctionId { id }
+                    InterfaceFunctionId::Virtual { id }
                 }
             };
 
@@ -249,8 +245,8 @@ pub fn validate_interface_function_ids<T, F: Fn(&T) -> InterfaceFunctionId>(
     let mut used_ids = [false; 32];
     for (idx, iface) in container.iter().enumerate() {
         let id = match get_function_id(iface) {
-            InterfaceFunctionId::PhysicalFunctionId {} => 0,
-            InterfaceFunctionId::VirtualFunctionId { id } => {
+            InterfaceFunctionId::Physical {} => 0,
+            InterfaceFunctionId::Virtual { id } => {
                 let id = id as usize;
                 if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&id) {
                     return Err(format!(
@@ -315,11 +311,11 @@ mod tests {
         let func_ids: Vec<InterfaceFunctionId> = InterfaceFunctionId::iter_all().collect();
         assert_eq!(func_ids.len(), 2 + INTERFACE_VFID_MAX - INTERFACE_VFID_MIN);
 
-        assert_eq!(func_ids[0], InterfaceFunctionId::PhysicalFunctionId {});
+        assert_eq!(func_ids[0], InterfaceFunctionId::Physical {});
         for (i, func_id) in func_ids[1..].iter().enumerate() {
             assert_eq!(
                 *func_id,
-                InterfaceFunctionId::VirtualFunctionId {
+                InterfaceFunctionId::Virtual {
                     id: (INTERFACE_VFID_MIN + i) as u8
                 }
             );
@@ -328,7 +324,7 @@ mod tests {
 
     #[test]
     fn serialize_function_id() {
-        let function_id = InterfaceFunctionId::PhysicalFunctionId {};
+        let function_id = InterfaceFunctionId::Physical {};
         let serialized = serde_json::to_string(&function_id).unwrap();
         assert_eq!(serialized, "{\"type\":\"physical\"}");
         assert_eq!(
@@ -336,7 +332,7 @@ mod tests {
             function_id
         );
 
-        let function_id = InterfaceFunctionId::VirtualFunctionId { id: 24 };
+        let function_id = InterfaceFunctionId::Virtual { id: 24 };
         let serialized = serde_json::to_string(&function_id).unwrap();
         assert_eq!(serialized, "{\"type\":\"virtual\",\"id\":24}");
         assert_eq!(
@@ -347,7 +343,7 @@ mod tests {
 
     #[test]
     fn serialize_interface_config() {
-        let function_id = InterfaceFunctionId::PhysicalFunctionId {};
+        let function_id = InterfaceFunctionId::Physical {};
         let network_segment_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
         let network_prefix_1 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201");
         let mut ip_addrs = HashMap::new();
@@ -375,9 +371,9 @@ mod tests {
         let interfaces: Vec<InstanceInterfaceConfig> = (0..=INTERFACE_VFID_MAX)
             .map(|idx| {
                 let function_id = if idx == 0 {
-                    InterfaceFunctionId::PhysicalFunctionId {}
+                    InterfaceFunctionId::Physical {}
                 } else {
-                    InterfaceFunctionId::VirtualFunctionId { id: idx as u8 }
+                    InterfaceFunctionId::Virtual { id: idx as u8 }
                 };
 
                 let network_segment_id = Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + idx as u128);
@@ -398,12 +394,12 @@ mod tests {
 
         // Duplicate virtual function
         let mut config = create_valid_network_config();
-        config.interfaces[2].function_id = InterfaceFunctionId::VirtualFunctionId { id: 1 };
+        config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 1 };
         assert!(config.validate().is_err());
 
         // Out of bounds virtual function
         let mut config = create_valid_network_config();
-        config.interfaces[2].function_id = InterfaceFunctionId::VirtualFunctionId { id: 17 };
+        config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 17 };
         assert!(config.validate().is_err());
 
         // No physical function

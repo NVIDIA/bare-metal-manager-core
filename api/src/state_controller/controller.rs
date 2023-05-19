@@ -418,8 +418,6 @@ pub struct StateControllerHandle {
 pub enum StateControllerBuildError {
     #[error("Missing parameter {0}")]
     MissingArgument(&'static str),
-    #[error("Invalid parameter {0}")]
-    InvalidArgument(&'static str),
 }
 
 /// Default iteration time for the state controller

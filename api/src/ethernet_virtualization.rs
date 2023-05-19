@@ -135,7 +135,7 @@ pub async fn admin_network(
         .map_err(CarbideError::from)?;
 
     let cfg = rpc::FlatInterfaceConfig {
-        function: rpc::InterfaceFunctionType::PhysicalFunction.into(),
+        function: rpc::InterfaceFunctionType::Physical.into(),
         vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
         vni: 0, // admin isn't an overlay network, so no vni
         gateway: prefix.gateway_cidr().unwrap_or_default(),

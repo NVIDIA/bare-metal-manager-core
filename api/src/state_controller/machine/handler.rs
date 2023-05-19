@@ -427,8 +427,8 @@ async fn record_instance_network_observation(
             function_type: rpc::InterfaceFunctionType::from(iface.function_id.function_type())
                 as i32,
             virtual_function_id: match iface.function_id {
-                InterfaceFunctionId::PhysicalFunctionId {} => None,
-                InterfaceFunctionId::VirtualFunctionId { id } => Some(id as u32),
+                InterfaceFunctionId::Physical {} => None,
+                InterfaceFunctionId::Virtual { id } => Some(id as u32),
             },
             mac_address: None,
             addresses,
@@ -440,7 +440,7 @@ async fn record_instance_network_observation(
         .record_observed_instance_network_status(tonic::Request::new(
             InstanceNetworkStatusObservation {
                 instance_id: Some(instance_id.into()),
-                config_version: network_config_version.to_version_string(),
+                config_version: network_config_version.version_string(),
                 observed_at: Some(SystemTime::now().into()),
                 interfaces: iface_observations,
                 // TODO(k82cn): add IB interface observations.

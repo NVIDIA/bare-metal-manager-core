@@ -150,10 +150,8 @@ impl TryFrom<InstanceDhcpRecord> for rpc::DhcpRecord {
                         .unwrap_or_else(|| "Unknown".to_string()),
                 )
             })? {
-                InterfaceFunctionId::PhysicalFunctionId {} => {
-                    Some(record.machine_interface_id.into())
-                }
-                InterfaceFunctionId::VirtualFunctionId { .. } => None,
+                InterfaceFunctionId::Physical {} => Some(record.machine_interface_id.into()),
+                InterfaceFunctionId::Virtual { .. } => None,
             },
             segment_id: Some(record.segment_id.into()),
             subdomain_id: record.subdomain_id.map(rpc::Uuid::from),

@@ -351,9 +351,9 @@ impl Machine {
                 let query = "INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config) VALUES($1, $2, $3, $4, $5) RETURNING id";
                 let row: (DbMachineId,) = sqlx::query_as(query)
                     .bind(&stable_machine_id_string)
-                    .bind(state_version.to_version_string())
+                    .bind(state_version.version_string())
                     .bind(sqlx::types::Json(&state))
-                    .bind(network_config_version.to_version_string())
+                    .bind(network_config_version.version_string())
                     .bind(sqlx::types::Json(&network_config))
                     .fetch_one(&mut *txn)
                     .await
@@ -515,7 +515,7 @@ SELECT m.id FROM
         let _id: (String,) = sqlx::query_as(
             "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
         )
-        .bind(version.to_version_string())
+        .bind(version.version_string())
         .bind(sqlx::types::Json(state))
         .bind(self.id().to_string())
         .fetch_one(txn)
@@ -925,9 +925,9 @@ SELECT m.id FROM
         // earlier than the host. But we might want to replicate it to the host machine,
         // as we do with `controller_state`.
 
-        let expected_version_str = expected_version.to_version_string();
+        let expected_version_str = expected_version.version_string();
         let next_version = expected_version.increment();
-        let next_version_str = next_version.to_version_string();
+        let next_version_str = next_version.version_string();
 
         let query = "UPDATE machines SET network_config_version=$1, network_config=$2::json
             WHERE id=$3 AND network_config_version=$4

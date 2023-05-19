@@ -1082,7 +1082,7 @@ where
                 .dpu_snapshot
                 .network_config
                 .version
-                .to_version_string(),
+                .version_string(),
             use_admin_network,
             admin_interface: Some(admin_interface_rpc),
             tenant_interfaces,
@@ -1093,7 +1093,7 @@ where
                     .instance
                     .unwrap()
                     .network_config_version
-                    .to_version_string()
+                    .version_string()
             },
         };
         Ok(Response::new(resp))

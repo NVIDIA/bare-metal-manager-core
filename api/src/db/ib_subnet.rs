@@ -195,7 +195,7 @@ impl TryFrom<IBSubnet> for rpc::IbSubnet {
 
         Ok(rpc::IbSubnet {
             id: Some(src.id.into()),
-            config_version: src.version.to_version_string(),
+            config_version: src.version.version_string(),
             config,
             status,
         })
@@ -212,7 +212,7 @@ impl IBSubnet {
         conf: &IBSubnetConfig,
     ) -> Result<IBSubnet, DatabaseError> {
         let version = ConfigVersion::initial();
-        let version_string = version.to_version_string();
+        let version_string = version.version_string();
         let state = IBSubnetControllerState::Initializing;
 
         let query = "INSERT INTO ib_subnets (
@@ -312,9 +312,9 @@ impl IBSubnet {
         expected_version: ConfigVersion,
         new_state: &IBSubnetControllerState,
     ) -> Result<bool, DatabaseError> {
-        let expected_version_str = expected_version.to_version_string();
+        let expected_version_str = expected_version.version_string();
         let next_version = expected_version.increment();
-        let next_version_str = next_version.to_version_string();
+        let next_version_str = next_version.version_string();
 
         let query = "UPDATE ib_subnets SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
         let query_result: Result<IBSubnetId, _> = sqlx::query_as(query)

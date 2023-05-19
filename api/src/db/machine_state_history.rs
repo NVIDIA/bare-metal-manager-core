@@ -130,7 +130,7 @@ impl MachineStateHistory {
         sqlx::query_as::<_, Self>(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(state))
-            .bind(state_version.to_version_string())
+            .bind(state_version.version_string())
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

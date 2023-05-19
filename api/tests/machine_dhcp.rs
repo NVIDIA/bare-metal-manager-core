@@ -187,11 +187,11 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
             },
             rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::VirtualFunction as i32,
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
             },
         ],

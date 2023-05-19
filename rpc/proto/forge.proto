@@ -1238,8 +1238,8 @@ message PxeInstructions {
 // Specifies whether a network interface is physical network function (PF)
 // or a virtual network function
 enum InterfaceFunctionType {
-  PHYSICAL_FUNCTION = 0;
-  VIRTUAL_FUNCTION = 1;
+  PHYSICAL = 0;
+  VIRTUAL = 1;
 }
 
 // What forge-dpu-agent reports. Will grow over time.

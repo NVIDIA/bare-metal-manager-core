@@ -86,7 +86,7 @@ impl NewVpc {
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vpc, DatabaseError> {
         let version = ConfigVersion::initial();
-        let version_string = version.to_version_string();
+        let version_string = version.version_string();
 
         let query =
             "INSERT INTO vpcs (name, organization_id, version) VALUES ($1, $2, $3) RETURNING *";
@@ -150,7 +150,7 @@ impl From<Vpc> for rpc::forge::Vpc {
     fn from(src: Vpc) -> Self {
         rpc::forge::Vpc {
             id: Some(src.id.into()),
-            version: src.version.to_version_string(),
+            version: src.version.version_string(),
             name: src.name,
             tenant_organization_id: src.tenant_organization_id,
             created: Some(src.created.into()),
@@ -225,9 +225,9 @@ impl UpdateVpc {
                 vpcs[0].version
             }
         };
-        let current_version_str = current_version.to_version_string();
+        let current_version_str = current_version.version_string();
         let next_version = current_version.increment();
-        let next_version_str = next_version.to_version_string();
+        let next_version_str = next_version.version_string();
 
         // TODO check number of changed rows
         let query = "UPDATE vpcs

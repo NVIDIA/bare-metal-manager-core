@@ -28,7 +28,7 @@ impl From<Tenant> for rpc::forge::Tenant {
         Self {
             tenant_content: Some(rpc::forge::TenantContent {}),
             organization_id: src.organization_id.to_string(),
-            version: src.version.to_version_string(),
+            version: src.version.version_string(),
         }
     }
 }
@@ -174,7 +174,7 @@ impl From<TenantKeyset> for rpc::forge::TenantKeyset {
         Self {
             keyset_identifier: Some(src.keyset_identifier.into()),
             keyset_content: Some(src.keyset_content.into()),
-            version: src.version.to_version_string(),
+            version: src.version.version_string(),
         }
     }
 }

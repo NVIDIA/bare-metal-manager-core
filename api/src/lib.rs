@@ -20,7 +20,7 @@ use mac_address::MacAddress;
 use model::hardware_info::HardwareInfoError;
 use model::machine::machine_id::MachineId;
 use model::{
-    config_version::{ConfigVersion, ParseConfigVersionError},
+    config_version::{ConfigVersion, ConfigVersionParseError},
     ConfigValidationError, RpcDataConversionError,
 };
 use reachability::ReachabilityError;
@@ -156,7 +156,7 @@ pub enum CarbideError {
     RpcDataConversionError(#[from] RpcDataConversionError),
 
     #[error("Invalid configuration version - {0}")]
-    InvalidConfigurationVersion(#[from] ParseConfigVersionError),
+    InvalidConfigurationVersion(#[from] ConfigVersionParseError),
 
     #[error("Failed to load machine or instance snapshot: {0}")]
     SnapshotLoaderError(#[from] SnapshotLoaderError),

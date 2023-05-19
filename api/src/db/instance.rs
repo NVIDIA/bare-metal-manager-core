@@ -225,13 +225,13 @@ WHERE v.loopback_ip_address=$1";
         new_state: &InstanceNetworkConfig,
         increment_version: bool,
     ) -> Result<(), DatabaseError> {
-        let expected_version_str = expected_version.to_version_string();
+        let expected_version_str = expected_version.version_string();
         let next_version = if increment_version {
             expected_version.increment()
         } else {
             expected_version
         };
-        let next_version_str = next_version.to_version_string();
+        let next_version_str = next_version.version_string();
 
         let query = "UPDATE instances SET network_config_version=$1, network_config=$2::json
             WHERE id=$3 AND network_config_version=$4
@@ -256,7 +256,7 @@ impl<'a> NewInstance<'a> {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Instance, DatabaseError> {
-        let network_version_string = self.network_config.version.to_version_string();
+        let network_version_string = self.network_config.version.version_string();
         // None means we haven't observed any network status from the DPU via VPC yet
         // The first report from the networking subsytem will set the field
         let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;

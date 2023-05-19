@@ -107,7 +107,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
 
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
         // TODO(k82cn): Add IB interface configuration.
@@ -266,7 +266,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
 
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
         // TODO(k82cn): Add IB interface configuration.
@@ -304,7 +304,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     let mut updated_network_status = InstanceNetworkStatusObservation {
         config_version: snapshot.network_config_version,
         interfaces: vec![InstanceInterfaceStatusObservation {
-            function_id: InterfaceFunctionId::PhysicalFunctionId {},
+            function_id: InterfaceFunctionId::Physical {},
             mac_address: None,
             addresses: vec![pf_addr],
         }],
@@ -336,7 +336,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     assert_eq!(
         status.network.interfaces,
         vec![InstanceInterfaceStatus {
-            function_id: InterfaceFunctionId::PhysicalFunctionId {},
+            function_id: InterfaceFunctionId::Physical {},
             mac_address: None,
             addresses: vec![pf_addr],
         }]
@@ -367,7 +367,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     assert_eq!(
         status.network.interfaces,
         vec![InstanceInterfaceStatus {
-            function_id: InterfaceFunctionId::PhysicalFunctionId {},
+            function_id: InterfaceFunctionId::Physical {},
             mac_address: Some(MacAddress::new([11, 12, 13, 14, 15, 16])),
             addresses: vec![pf_addr],
         }]
@@ -378,7 +378,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     let (_,): (uuid::Uuid,) = sqlx::query_as(
         "UPDATE instances SET network_config_version=$1 WHERE id = $2::uuid returning id",
     )
-    .bind(&next_config_version.to_version_string())
+    .bind(&next_config_version.version_string())
     .bind(instance_id)
     .fetch_one(&mut txn)
     .await
@@ -407,7 +407,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     assert_eq!(
         status.network.interfaces,
         vec![InstanceInterfaceStatus {
-            function_id: InterfaceFunctionId::PhysicalFunctionId {},
+            function_id: InterfaceFunctionId::Physical {},
             mac_address: None,
             addresses: Vec::new(),
         }]
@@ -419,7 +419,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     updated_network_status
         .interfaces
         .push(InstanceInterfaceStatusObservation {
-            function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+            function_id: InterfaceFunctionId::Virtual { id: 1 },
             mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
             addresses: vec!["127.1.2.3".parse().unwrap()],
         });
@@ -447,7 +447,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     assert_eq!(
         status.network.interfaces,
         vec![InstanceInterfaceStatus {
-            function_id: InterfaceFunctionId::PhysicalFunctionId {},
+            function_id: InterfaceFunctionId::Physical {},
             mac_address: Some(MacAddress::new([11, 12, 13, 14, 15, 16])),
             addresses: vec![pf_addr],
         }]
@@ -481,7 +481,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
 
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
         // TODO(k82cn): Add IB interface configuration.
@@ -591,11 +591,11 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::PhysicalFunction as i32,
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
             },
             rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::VirtualFunction as i32,
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
             },
         ],
@@ -666,7 +666,7 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
                 interfaces: vec![
                     rpc::InstanceInterfaceStatusObservation {
                         function_type: rpc::InterfaceFunctionType::from(
-                            InterfaceFunctionType::PhysicalFunction,
+                            InterfaceFunctionType::Physical,
                         ) as i32,
                         virtual_function_id: None,
                         mac_address: None,
@@ -674,7 +674,7 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
                     },
                     rpc::InstanceInterfaceStatusObservation {
                         function_type: rpc::InterfaceFunctionType::from(
-                            InterfaceFunctionType::VirtualFunction,
+                            InterfaceFunctionType::Virtual,
                         ) as i32,
                         virtual_function_id: Some(1),
                         mac_address: None,

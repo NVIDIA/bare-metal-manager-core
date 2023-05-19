@@ -41,7 +41,7 @@ impl Principal {
     // Note: no certificate verification is performed here!
     pub fn try_from_client_certificate(
         certificate: &tokio_rustls::rustls::Certificate,
-    ) -> Result<Principal, PrincipalError> {
+    ) -> Result<Principal, SpiffeError> {
         let der_bytes = &certificate.0;
         let spiffe_id = forge_spiffe::validate_x509_certificate(der_bytes.as_slice())?;
         // FIXME: we shouldn't be making a new one of these every time, better
@@ -56,12 +56,12 @@ impl Principal {
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
-pub enum PrincipalError {
+pub enum SpiffeError {
     #[error("SPIFFE validation error: {0}")]
-    SpiffeValidationError(#[from] forge_spiffe::SpiffeValidationError),
+    Validation(#[from] forge_spiffe::SpiffeValidationError),
 
     #[error("Unrecognized SPIFFE ID: {0}")]
-    SpiffeRecognitionError(#[from] forge_spiffe::ForgeSpiffeContextError),
+    Recognition(#[from] forge_spiffe::ForgeSpiffeContextError),
 }
 
 #[derive(Clone, Copy, Debug)]

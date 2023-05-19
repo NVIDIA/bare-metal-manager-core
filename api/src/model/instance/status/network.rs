@@ -180,8 +180,8 @@ impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
     fn try_from(status: InstanceInterfaceStatus) -> Result<Self, Self::Error> {
         Ok(rpc::InstanceInterfaceStatus {
             virtual_function_id: match status.function_id {
-                InterfaceFunctionId::PhysicalFunctionId {} => None,
-                InterfaceFunctionId::VirtualFunctionId { id } => Some(id as u32),
+                InterfaceFunctionId::Physical {} => None,
+                InterfaceFunctionId::Virtual { id } => Some(id as u32),
             },
             mac_address: status.mac_address.map(|mac| mac.to_string()),
             addresses: status
@@ -273,10 +273,8 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
 
     fn try_from(observation: rpc::InstanceInterfaceStatusObservation) -> Result<Self, Self::Error> {
         let function_id = match observation.function_type() {
-            rpc::forge::InterfaceFunctionType::PhysicalFunction => {
-                InterfaceFunctionId::PhysicalFunctionId {}
-            }
-            rpc::forge::InterfaceFunctionType::VirtualFunction => {
+            rpc::forge::InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
+            rpc::forge::InterfaceFunctionType::Virtual => {
                 InterfaceFunctionId::try_virtual_from(observation.virtual_function_id() as usize)
                     .map_err(|_| {
                         RpcDataConversionError::InvalidVirtualFunctionId(
@@ -333,7 +331,7 @@ mod tests {
             serialized,
             format!(
                 "{{\"config_version\":\"{}\",\"interfaces\":[],\"observed_at\":\"{}\"}}",
-                version.to_version_string(),
+                version.version_string(),
                 serialized_timestamp
             )
         );
@@ -345,21 +343,21 @@ mod tests {
         observation
             .interfaces
             .push(InstanceInterfaceStatusObservation {
-                function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                function_id: InterfaceFunctionId::Physical {},
                 mac_address: None,
                 addresses: Vec::new(),
             });
         observation
             .interfaces
             .push(InstanceInterfaceStatusObservation {
-                function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                function_id: InterfaceFunctionId::Virtual { id: 1 },
                 mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
                 addresses: vec!["127.1.2.3".parse().unwrap()],
             });
         let serialized = serde_json::to_string(&observation).unwrap();
         let mut expected = format!(
             "{{\"config_version\":\"{}\",\"interfaces\":[",
-            version.to_version_string()
+            version.version_string()
         );
         write!(
             &mut expected,
@@ -387,12 +385,12 @@ mod tests {
         InstanceNetworkConfig {
             interfaces: vec![
                 InstanceInterfaceConfig {
-                    function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                    function_id: InterfaceFunctionId::Physical {},
                     network_segment_id: base_uuid,
                     ip_addrs: HashMap::from([(prefix_uuid, "127.0.0.1".parse().unwrap())]),
                 },
                 InstanceInterfaceConfig {
-                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                    function_id: InterfaceFunctionId::Virtual { id: 1 },
                     network_segment_id: uuid::Uuid::from_u128(base_uuid.as_u128() + 1),
                     ip_addrs: HashMap::from([(
                         uuid::Uuid::from_u128(prefix_uuid.as_u128() + 1),
@@ -400,7 +398,7 @@ mod tests {
                     )]),
                 },
                 InstanceInterfaceConfig {
-                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 2 },
+                    function_id: InterfaceFunctionId::Virtual { id: 2 },
                     network_segment_id: uuid::Uuid::from_u128(base_uuid.as_u128() + 2),
                     ip_addrs: HashMap::from([(
                         uuid::Uuid::from_u128(prefix_uuid.as_u128() + 2),
@@ -419,17 +417,17 @@ mod tests {
             observed_at: Utc::now(),
             interfaces: vec![
                 InstanceInterfaceStatusObservation {
-                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 2 },
+                    function_id: InterfaceFunctionId::Virtual { id: 2 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26]).into()),
                     addresses: vec!["127.0.0.3".parse().unwrap()],
                 },
                 InstanceInterfaceStatusObservation {
-                    function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                    function_id: InterfaceFunctionId::Physical {},
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
                     addresses: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatusObservation {
-                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                    function_id: InterfaceFunctionId::Virtual { id: 1 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16]).into()),
                     addresses: vec!["127.0.0.2".parse().unwrap()],
                 },
@@ -441,17 +439,17 @@ mod tests {
         InstanceNetworkStatus {
             interfaces: vec![
                 InstanceInterfaceStatus {
-                    function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                    function_id: InterfaceFunctionId::Physical {},
                     mac_address: None,
                     addresses: Vec::new(),
                 },
                 InstanceInterfaceStatus {
-                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                    function_id: InterfaceFunctionId::Virtual { id: 1 },
                     mac_address: None,
                     addresses: Vec::new(),
                 },
                 InstanceInterfaceStatus {
-                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 2 },
+                    function_id: InterfaceFunctionId::Virtual { id: 2 },
                     mac_address: None,
                     addresses: Vec::new(),
                 },
@@ -464,17 +462,17 @@ mod tests {
         InstanceNetworkStatus {
             interfaces: vec![
                 InstanceInterfaceStatus {
-                    function_id: InterfaceFunctionId::PhysicalFunctionId {},
+                    function_id: InterfaceFunctionId::Physical {},
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
                     addresses: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatus {
-                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 1 },
+                    function_id: InterfaceFunctionId::Virtual { id: 1 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
                     addresses: vec!["127.0.0.2".parse().unwrap()],
                 },
                 InstanceInterfaceStatus {
-                    function_id: InterfaceFunctionId::VirtualFunctionId { id: 2 },
+                    function_id: InterfaceFunctionId::Virtual { id: 2 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
                     addresses: vec!["127.0.0.3".parse().unwrap()],
                 },

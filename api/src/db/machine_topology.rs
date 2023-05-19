@@ -78,15 +78,6 @@ pub struct TopologyData {
     pub bmc_info: BmcInfo,
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum MachineTopologyConversionError {
-    #[error("Machine topology conversion error: {0}")]
-    ConversionError(String),
-
-    #[error("Discovery info deserialization error: {0}")]
-    DiscoveryInfoDeserializationError(#[from] serde_json::Error),
-}
-
 impl MachineTopology {
     pub async fn is_discovered(
         txn: &mut Transaction<'_, Postgres>,

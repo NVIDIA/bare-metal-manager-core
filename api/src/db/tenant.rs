@@ -24,7 +24,7 @@ impl Tenant {
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Self, DatabaseError> {
         let version = ConfigVersion::initial();
-        let version_string = version.to_version_string();
+        let version_string = version.version_string();
         let query = "INSERT INTO tenants (organization_id, version) VALUES ($1, $2) RETURNING *";
 
         sqlx::query_as(query)
@@ -67,9 +67,9 @@ impl Tenant {
                 }
             }
         };
-        let current_version_str = current_version.to_version_string();
+        let current_version_str = current_version.version_string();
         let next_version = current_version.increment();
-        let next_version_str = next_version.to_version_string();
+        let next_version_str = next_version.version_string();
 
         let query = "UPDATE tenants
             SET version=$1

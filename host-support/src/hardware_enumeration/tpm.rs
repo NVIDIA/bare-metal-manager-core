@@ -18,7 +18,7 @@ use std::process::Command;
 #[derive(Debug, thiserror::Error)]
 pub enum TpmError {
     #[error("Unable to invoke subprocess {0}: {1}")]
-    SubprocessError(&'static str, std::io::Error),
+    Subprocess(&'static str, std::io::Error),
     #[error("Subprocess exited with exit code {0:?}. Stderr: {1}")]
     SubprocessStatusNotOk(Option<i32>, String),
 }
@@ -28,7 +28,7 @@ pub fn get_ek_certificate() -> Result<Vec<u8>, TpmError> {
     // TODO: Do we need the `--raw` or `--offline` parameters?
     let output = Command::new("tpm2_getekcertificate")
         .output()
-        .map_err(|e| TpmError::SubprocessError("tpm2_getekcertificate", e))?;
+        .map_err(|e| TpmError::Subprocess("tpm2_getekcertificate", e))?;
 
     if !output.status.success() {
         let err = String::from_utf8(output.stderr).unwrap_or_else(|_| "Invalid UTF8".to_string());
