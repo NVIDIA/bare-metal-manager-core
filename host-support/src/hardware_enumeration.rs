@@ -31,6 +31,7 @@ const PCI_VENDOR_ID: &str = "ID_VENDOR_ID";
 const PCI_MODEL_ID: &str = "ID_MODEL_ID";
 const PCI_DEV_PATH: &str = "DEVPATH";
 const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
+const GPU_PCI_CLASS: &str = "0x030200";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CpuArchitecture {
@@ -510,12 +511,16 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         CpuArchitecture::X86_64 => None,
     };
 
-    let gpus = match gpu::discover_gpus() {
-        Ok(gpus) => gpus,
-        Err(error) => {
-            tracing::error!("Failed to enumerate GPUs: {}", error);
-            vec![]
-        }
+    // Check udev for existing GPUs.  If there are none, then the driver will not be loaded and the tools used to gather information will fail.
+    let mut enumerator = libudev::Enumerator::new(&context)?;
+    enumerator.match_attribute("class", GPU_PCI_CLASS)?;
+    let device_count = enumerator.scan_devices()?.count();
+
+    let gpus = if device_count > 0 {
+        gpu::discover_gpus()?
+    } else {
+        tracing::debug!("No GPUs detected, skipping");
+        vec![]
     };
 
     tracing::debug!("Discovered Disks: {:?}", disks);
