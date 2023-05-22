@@ -60,7 +60,7 @@ hdrpkg=linux-headers-generic
 
 cat >/etc/systemd/network/dhcp.network <<EOF
 [Match]
-Name=en*
+Name=bootnic
 
 [Network]
 DHCP=yes

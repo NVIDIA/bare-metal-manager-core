@@ -66,6 +66,7 @@ impl PxeInstructions {
     fn get_pxe_instruction_for_arch(
         arch: rpc::MachineArchitecture,
         machine_interface_id: uuid::Uuid,
+        mac_address: String,
     ) -> String {
         match arch {
             rpc::MachineArchitecture::Arm => {
@@ -78,7 +79,7 @@ impl PxeInstructions {
             rpc::MachineArchitecture::X86 => {
                 InstructionGenerator::X86 {
                         kernel: "${base-url}/internal/x86_64/carbide.efi".to_string(),
-                        command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console=ttyS0,115200 console=ttyS1,115200 ip=dhcp cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                        command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console=ttyS0,115200 console=ttyS1,115200 ifname=bootnic:{mac} ip=bootnic:dhcp cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id, mac = mac_address),
                 }
             }
         }.serialize_pxe_instructions()
@@ -101,11 +102,13 @@ exit ||
         };
 
         let interface = MachineInterface::find_one(txn, interface_id).await?;
+        let mac = interface.mac_address.to_string();
         let machine_id = match interface.machine_id {
             None => {
                 return Ok(PxeInstructions::get_pxe_instruction_for_arch(
                     arch,
                     interface_id,
+                    mac,
                 ));
             }
             Some(machine_id) => machine_id,
@@ -133,7 +136,7 @@ exit ||
             ManagedHostState::Ready
             | ManagedHostState::HostNotReady { .. }
             | ManagedHostState::WaitingForCleanup { .. } => {
-                Self::get_pxe_instruction_for_arch(arch, interface_id)
+                Self::get_pxe_instruction_for_arch(arch, interface_id, mac)
             }
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Ready => {
@@ -155,7 +158,7 @@ exit ||
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage => {
-                    PxeInstructions::get_pxe_instruction_for_arch(arch, interface_id)
+                    PxeInstructions::get_pxe_instruction_for_arch(arch, interface_id, mac)
                 }
 
                 _ => error_instructions(&machine_snapshot.managed_state),
