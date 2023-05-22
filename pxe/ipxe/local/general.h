@@ -1,4 +1,5 @@
 #define CONSOLE_CMD           /* Console command */
+#define CONSOLE_SERIAL        /* Serial port console */
 #define DIGEST_CMD            /* Image crypto digest commands */
 #define DOWNLOAD_PROTO_HTTPS  /* Secure Hypertext Transfer Protocol */
 //#define IMAGE_COMBOOT         /* COMBOOT */
