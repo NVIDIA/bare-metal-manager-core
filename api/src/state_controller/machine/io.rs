@@ -40,6 +40,8 @@ impl StateControllerIO for MachineStateControllerIO {
         "machine_state_controller_lock"
     }
 
+    const LOG_SPAN_CONTROLLER_NAME: &'static str = "machine_state_controller";
+
     async fn list_objects(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,

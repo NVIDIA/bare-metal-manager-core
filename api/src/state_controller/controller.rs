@@ -18,6 +18,7 @@ use std::{
 use arc_swap::ArcSwapOption;
 use opentelemetry::metrics::Meter;
 use tokio::{sync::oneshot, task::JoinSet};
+use tracing::Instrument;
 
 use crate::{
     ib::IBFabricManager,
@@ -93,6 +94,9 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     /// from making changes to objects at the same time
     fn db_lock_name() -> &'static str;
 
+    /// The name that will be used for the logging span created by the State Controller
+    const LOG_SPAN_CONTROLLER_NAME: &'static str;
+
     /// Resolves the list of objects that the state controller should act upon
     async fn list_objects(
         &self,
@@ -154,18 +158,65 @@ impl<IO: StateControllerIO> StateController<IO> {
         let err_jitter = (self.config.iteration_time.as_millis() / 5) as u64;
 
         loop {
-            let start = Instant::now();
-            let res = self.single_iteration().await;
-            let elapsed = start.elapsed();
+            let mut metrics = IterationMetrics::default();
+
+            let controller_span = tracing::span!(
+                tracing::Level::INFO,
+                "state_controller_iteration",
+                start_time = format!("{:?}", chrono::Utc::now()),
+                elapsed_us = tracing::field::Empty,
+                controller = IO::LOG_SPAN_CONTROLLER_NAME,
+                otel.status_code = tracing::field::Empty,
+                otel.status_message = tracing::field::Empty,
+                skipped_iteration = tracing::field::Empty,
+                num_objects = tracing::field::Empty,
+                num_errors = tracing::field::Empty,
+                states = tracing::field::Empty,
+                error_types = tracing::field::Empty,
+                times_in_state_s = tracing::field::Empty,
+                handler_latencies_us = tracing::field::Empty,
+            );
+
+            let res = self
+                .single_iteration(&mut metrics)
+                .instrument(controller_span.clone())
+                .await;
+            let elapsed = metrics.elapsed();
+
+            controller_span.record("elapsed_us", elapsed.as_micros());
+            controller_span.record("otel.status_code", if res.is_ok() { "ok" } else { "error" });
 
             match &res {
-                Ok(()) | Err(IterationError::LockError) => {}
+                Ok(()) | Err(IterationError::LockError) => {
+                    controller_span.record("otel.status_code", "ok");
+                }
                 Err(e) => {
                     tracing::error!("StateController iteration failed due to: {:?}", e);
+                    controller_span.record("otel.status_code", "error");
+                    // Writing this field will set the span status to error
+                    // Therefore we only write it on errors
+                    controller_span.record("otel.status_message", format!("{:?}", e));
                 }
             }
 
-            // TODO: Emit metric for loop duration
+            // Immediately emit latency metrics
+            // These will be emitted both in cases where we actually acted on objects
+            // as well as for cases where we didn't get the lock. Since the
+            // latter case doesn't handle any objects it will be a no-op apart
+            // from emitting the latency for not getting the lock.
+            if let Some(emitter) = self.metric_holder.emitter.as_ref() {
+                emitter.emit_latency_metrics(&metrics);
+                emitter.set_iteration_span_attributes(&controller_span, &metrics);
+            }
+
+            // If we actually performed an iteration (and not failed to obtain the lock),
+            // cache all other metrics that have been captured in this iteration.
+            // Those will be queried by OTEL on demand
+            if res.is_ok() {
+                self.metric_holder
+                    .last_iteration_metrics
+                    .store(Some(Arc::new(metrics)));
+            }
 
             // We add some jitter before sleeping, to give other controller instances
             // a chance to pick up the lock.
@@ -191,12 +242,16 @@ impl<IO: StateControllerIO> StateController<IO> {
         }
     }
 
-    async fn single_iteration(&mut self) -> Result<(), IterationError> {
+    async fn single_iteration(
+        &mut self,
+        iteration_metrics: &mut IterationMetrics,
+    ) -> Result<(), IterationError> {
         let mut txn = self.handler_services.pool.begin().await?;
 
         let locked: bool = sqlx::query_scalar(&self.lock_query)
             .fetch_one(&mut txn)
             .await?;
+        tracing::Span::current().record("skipped_iteration", !locked);
 
         if !locked {
             tracing::info!(
@@ -207,28 +262,14 @@ impl<IO: StateControllerIO> StateController<IO> {
         }
         tracing::debug!("State controller acquired the lock {}", IO::db_lock_name());
 
-        let mut metrics = IterationMetrics::default();
-        let iteration_result = handle_controller_iteration::<IO>(
+        handle_controller_iteration::<IO>(
             &self.io,
             &self.state_handler,
             &self.handler_services,
             &self.config,
-            &mut metrics,
+            iteration_metrics,
         )
-        .await;
-
-        // Immediately emit latency metrics
-        if let Some(emitter) = self.metric_holder.emitter.as_ref() {
-            emitter.emit_latency_metrics(&metrics);
-        }
-
-        // Cache all other metrics that have been captured in this iteration
-        // Those will be queried by OTEL on demand
-        self.metric_holder
-            .last_iteration_metrics
-            .store(Some(Arc::new(metrics)));
-
-        iteration_result?;
+        .await?;
 
         txn.commit().await?;
 
@@ -269,86 +310,89 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
         let handler = state_handler.clone();
         let concurrency_limiter = concurrency_limiter.clone();
 
-        let _abort_handle = task_set.spawn(async move {
-            // Acquire a permit which will block more than `MAX_CONCURRENCY`
-            // tasks from running.
-            // Note that assigning the permit to a named variable is necessary
-            // to make it live until the end of the scope. Using `_` would
-            // immediately dispose the permit.
-            let _permit = concurrency_limiter
-                .acquire()
-                .await
-                .expect("Semaphore can't be closed");
+        let _abort_handle = task_set.spawn(
+            async move {
+                // Acquire a permit which will block more than `MAX_CONCURRENCY`
+                // tasks from running.
+                // Note that assigning the permit to a named variable is necessary
+                // to make it live until the end of the scope. Using `_` would
+                // immediately dispose the permit.
+                let _permit = concurrency_limiter
+                    .acquire()
+                    .await
+                    .expect("Semaphore can't be closed");
 
-            let mut metrics = ObjectHandlerMetrics::<IO> {
-                state: None,
-                handler_latency: Duration::from_secs(0),
-                time_in_state: Duration::from_secs(0),
-                error: None,
-            };
-
-            let start = Instant::now();
-
-            // Note that this inner async block is required to be able to use
-            // the ? operator in the inner block, and then return a `Result`
-            // from the other outer block.
-            let result: Result<(), StateHandlerError> = async {
-                let mut txn = services.pool.begin().await?;
-                let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
-                let mut controller_state = io
-                    .load_controller_state(&mut txn, &object_id, &snapshot)
-                    .await?;
-                metrics.state = Some(controller_state.value.clone());
-                // Unwrap uses a very large duration as default to show something is wrong
-                metrics.time_in_state = chrono::Utc::now()
-                    .signed_duration_since(controller_state.version.timestamp())
-                    .to_std()
-                    .unwrap_or(Duration::from_secs(60 * 60 * 24));
-
-                let mut ctx = StateHandlerContext {
-                    services: &services,
+                let mut metrics = ObjectHandlerMetrics::<IO> {
+                    state: None,
+                    handler_latency: Duration::from_secs(0),
+                    time_in_state: Duration::from_secs(0),
+                    error: None,
                 };
 
-                let mut state_holder = ControllerStateReader::new(&mut controller_state.value);
+                let start = Instant::now();
 
-                match handler
-                    .handle_object_state(
-                        &object_id,
-                        &mut snapshot,
-                        &mut state_holder,
-                        &mut txn,
-                        &mut ctx,
-                    )
-                    .await
-                {
-                    Ok(()) => {
-                        if state_holder.is_modified() {
-                            io.persist_controller_state(
-                                &mut txn,
-                                &object_id,
-                                controller_state.version,
-                                controller_state.value,
-                            )
-                            .await?;
+                // Note that this inner async block is required to be able to use
+                // the ? operator in the inner block, and then return a `Result`
+                // from the other outer block.
+                let result: Result<(), StateHandlerError> = async {
+                    let mut txn = services.pool.begin().await?;
+                    let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
+                    let mut controller_state = io
+                        .load_controller_state(&mut txn, &object_id, &snapshot)
+                        .await?;
+                    metrics.state = Some(controller_state.value.clone());
+                    // Unwrap uses a very large duration as default to show something is wrong
+                    metrics.time_in_state = chrono::Utc::now()
+                        .signed_duration_since(controller_state.version.timestamp())
+                        .to_std()
+                        .unwrap_or(Duration::from_secs(60 * 60 * 24));
+
+                    let mut ctx = StateHandlerContext {
+                        services: &services,
+                    };
+
+                    let mut state_holder = ControllerStateReader::new(&mut controller_state.value);
+
+                    match handler
+                        .handle_object_state(
+                            &object_id,
+                            &mut snapshot,
+                            &mut state_holder,
+                            &mut txn,
+                            &mut ctx,
+                        )
+                        .await
+                    {
+                        Ok(()) => {
+                            if state_holder.is_modified() {
+                                io.persist_controller_state(
+                                    &mut txn,
+                                    &object_id,
+                                    controller_state.version,
+                                    controller_state.value,
+                                )
+                                .await?;
+                            }
+
+                            txn.commit()
+                                .await
+                                .map_err(StateHandlerError::TransactionError)
                         }
-
-                        txn.commit()
-                            .await
-                            .map_err(StateHandlerError::TransactionError)
+                        Err(e) => Err(e),
                     }
-                    Err(e) => Err(e),
                 }
+                .await;
+
+                metrics.handler_latency = start.elapsed();
+
+                if let Err(e) = &result {
+                    tracing::warn!("State handler for {} returned error: {:?}", object_id, e);
+                }
+
+                (metrics, result)
             }
-            .await;
-
-            metrics.handler_latency = start.elapsed();
-
-            if let Err(e) = &result {
-                tracing::warn!("State handler for {} returned error: {:?}", object_id, e);
-            }
-
-            (metrics, result)
-        });
+            .in_current_span(),
+        );
     }
 
     // We want for all tasks to run to completion here and therefore can't

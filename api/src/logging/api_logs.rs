@@ -113,6 +113,7 @@ where
             let request_span = tracing::span!(
                 tracing::Level::INFO,
                 "request",
+                start_time = format!("{:?}", chrono::Utc::now()),
                 elapsed_us = tracing::field::Empty,
                 http.url = %request.uri(),
                 http.status_code = tracing::field::Empty,
@@ -123,7 +124,6 @@ where
                 rpc.service = tracing::field::Empty,
                 rpc.grpc.status_code = tracing::field::Empty,
                 rpc.grpc.status_description = tracing::field::Empty,
-                start_time = format!("{:?}", chrono::Utc::now()),
                 forge.machine_id = tracing::field::Empty);
 
             // Try to extract the gRPC service and method from the URI

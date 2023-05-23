@@ -35,6 +35,8 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         "network_segments_controller_lock"
     }
 
+    const LOG_SPAN_CONTROLLER_NAME: &'static str = "network_segments_controller";
+
     async fn list_objects(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,

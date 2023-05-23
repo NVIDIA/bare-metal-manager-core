@@ -50,6 +50,12 @@ impl Default for IterationMetrics {
 }
 
 impl IterationMetrics {
+    /// Returns the time that has elapsed since `IterationMetrics` has been
+    /// constructed.
+    pub fn elapsed(&self) -> std::time::Duration {
+        self.recorded_at.elapsed()
+    }
+
     pub fn merge_object_handling_metrics<IO: StateControllerIO>(
         &mut self,
         object_metrics: &ObjectHandlerMetrics<IO>,
@@ -83,7 +89,7 @@ impl IterationMetrics {
 }
 
 /// Metrics for each state of an object
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct StateMetrics {
     /// Amount of objects in the state
     pub num_objects: usize,
@@ -99,6 +105,7 @@ pub struct StateMetrics {
 /// state handling related metrics
 pub struct StateControllerMetricEmitter {
     _meter: Meter,
+    controller_iteration_latency: Histogram<f64>,
     total_objects_gauge: ObservableGauge<u64>,
     objects_per_state_gauge: ObservableGauge<u64>,
     errors_per_state_gauge: ObservableGauge<u64>,
@@ -108,14 +115,22 @@ pub struct StateControllerMetricEmitter {
 
 impl StateControllerMetricEmitter {
     pub fn new(object_type: &str, meter: Meter) -> Self {
+        let controller_iteration_latency = meter
+            .f64_histogram(format!("{}_iteration_latency", object_type))
+            .with_description(format!(
+                "The overall time it took to handle state for all {} in the system",
+                object_type
+            ))
+            .with_unit(Unit::new("ms"))
+            .init();
         let total_objects_gauge = meter
             .u64_observable_gauge(format!("{}_total", object_type))
-            .with_description(format!("The total amount of {} in the system", object_type))
+            .with_description(format!("The total number of {} in the system", object_type))
             .init();
         let objects_per_state_gauge: ObservableGauge<u64> = meter
             .u64_observable_gauge(format!("{}_per_state", object_type))
             .with_description(format!(
-                "The amount of {} in the system with a given state",
+                "The number of {} in the system with a given state",
                 object_type
             ))
             .init();
@@ -125,20 +140,29 @@ impl StateControllerMetricEmitter {
                 object_type
             ))
             .with_description(format!(
-                "The amount of {} in the system with a given state that failed state handling",
+                "The number of {} in the system with a given state that failed state handling",
                 object_type
             ))
             .init();
         let time_in_state_histogram = meter
             .f64_histogram(format!("{}_time_in_state", object_type))
+            .with_description(format!(
+                "The amount of time objects of type {} have spent in a certain state",
+                object_type
+            ))
             .with_unit(Unit::new("s"))
             .init();
         let handler_latency_in_state_histogram = meter
             .f64_histogram(format!("{}_handler_latency_in_state", object_type))
+            .with_description(format!(
+                "The amount of time it took to invoke the state handler for objects of type {} in a certain state",
+                object_type
+            ))
             .with_unit(Unit::new("ms"))
             .init();
 
         Self {
+            controller_iteration_latency,
             objects_per_state_gauge,
             total_objects_gauge,
             errors_per_state_gauge,
@@ -153,6 +177,12 @@ impl StateControllerMetricEmitter {
     /// amount of objects in states is emitted as gauges.
     pub fn emit_latency_metrics(&self, iteration_metrics: &IterationMetrics) {
         let cx = opentelemetry::Context::current();
+
+        self.controller_iteration_latency.record(
+            &cx,
+            1000.0 * iteration_metrics.recorded_at.elapsed().as_secs_f64(),
+            &[],
+        );
 
         for ((state, substate), m) in iteration_metrics.state_metrics.iter() {
             let state_attr = KeyValue::new("state", state.to_string());
@@ -227,5 +257,115 @@ impl StateControllerMetricEmitter {
 
         self.total_objects_gauge
             .observe(otel_cx, total_objects as u64, &[fresh_attr]);
+    }
+
+    /// Emits the metrics that had been collected during a state controller iteration
+    /// as attributes on the tracing/OpenTelemetry span.
+    ///
+    /// This is different from the metrics being emitted as gauges since the span
+    /// will be emitted immediately after the iteration finishes. It will provide
+    /// exact information for the single run. However the information can not
+    /// be retrieved at any later time. The values for gauges are however cached
+    /// and can be consumed until the next iteration.
+    pub fn set_iteration_span_attributes(
+        &self,
+        span: &tracing::Span,
+        iteration_metrics: &IterationMetrics,
+    ) {
+        let mut total_objects = 0;
+        let mut total_errors = 0;
+        let mut states: HashMap<String, usize> = HashMap::new();
+        let mut error_types: HashMap<String, HashMap<String, usize>> = HashMap::new();
+        let mut times_in_state: HashMap<String, LatencyStats> = HashMap::new();
+        let mut handler_latencies: HashMap<String, LatencyStats> = HashMap::new();
+
+        for ((state, substate), m) in iteration_metrics.state_metrics.iter() {
+            total_objects += m.num_objects;
+
+            let state_name = if !substate.is_empty() {
+                format!("{}.{}", state, substate)
+            } else {
+                state.to_string()
+            };
+
+            times_in_state.insert(
+                state_name.clone(),
+                LatencyStats::from_latencies(&m.time_in_state, Duration::as_secs),
+            );
+            handler_latencies.insert(
+                state_name.clone(),
+                LatencyStats::from_latencies(&m.handler_latencies, |duration| {
+                    duration.as_micros().min(u64::MAX as u128) as u64
+                }),
+            );
+
+            for (error, &count) in m.handling_errors_per_type.iter() {
+                total_errors += count;
+                *error_types
+                    .entry(state_name.clone())
+                    .or_default()
+                    .entry(error.to_string())
+                    .or_default() += count;
+            }
+
+            states.insert(state_name.clone(), m.num_objects);
+        }
+
+        span.record("objects_total", total_objects);
+        span.record("errors_total", total_errors);
+        span.record(
+            "states",
+            serde_json::to_string(&states).unwrap_or_else(|_| "{}".to_string()),
+        );
+        if !error_types.is_empty() {
+            span.record(
+                "error_types",
+                serde_json::to_string(&error_types).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
+        if !times_in_state.is_empty() {
+            span.record(
+                "times_in_state_s",
+                serde_json::to_string(&times_in_state).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
+        if !handler_latencies.is_empty() {
+            span.record(
+                "handler_latencies_us",
+                serde_json::to_string(&handler_latencies).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
+    }
+}
+
+/// Stores statistics for the invocation latencies of state handler that will
+/// get emitted as part of controller span attributes
+#[derive(Debug, serde::Serialize, Clone)]
+struct LatencyStats {
+    pub min: u64,
+    pub max: u64,
+    pub avg: u64,
+}
+
+impl LatencyStats {
+    pub fn from_latencies(latencies: &[Duration], convert_duration: fn(&Duration) -> u64) -> Self {
+        let mut max_latency = 0u64;
+        let mut min_latency = u64::MAX;
+        let mut total_latency = 0u64;
+
+        for latency in latencies.iter() {
+            let l = convert_duration(latency);
+            total_latency = total_latency.saturating_add(l);
+            min_latency = min_latency.min(l);
+            max_latency = max_latency.max(l);
+        }
+        min_latency = min_latency.min(max_latency);
+        let avg_latency = total_latency / latencies.len() as u64;
+
+        Self {
+            min: min_latency,
+            max: max_latency,
+            avg: avg_latency,
+        }
     }
 }

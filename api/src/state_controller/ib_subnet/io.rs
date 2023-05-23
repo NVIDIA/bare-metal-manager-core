@@ -36,6 +36,8 @@ impl StateControllerIO for IBSubnetStateControllerIO {
         "ibsubnet_controller_lock"
     }
 
+    const LOG_SPAN_CONTROLLER_NAME: &'static str = "ib_subnet_controller";
+
     async fn list_objects(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,

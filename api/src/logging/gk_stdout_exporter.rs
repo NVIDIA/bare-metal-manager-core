@@ -25,6 +25,8 @@ use opentelemetry::{
     ExportError, Key,
 };
 
+const IGNORED_SPANS: &[&str] = &["state_controller_iteration"];
+
 #[derive(Debug)]
 pub struct GkStdoutExporter<W: Write> {
     writer: W,
@@ -44,6 +46,10 @@ where
     /// Export spans to stdout
     fn export(&mut self, batch: Vec<SpanData>) -> BoxFuture<'static, ExportResult> {
         for span in batch {
+            if IGNORED_SPANS.contains(&&*span.name) {
+                continue;
+            }
+
             let attrs = &span.attributes;
             macro_rules! get {
                 ($key:literal) => {

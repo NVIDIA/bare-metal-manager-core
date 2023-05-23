@@ -56,12 +56,14 @@ async fn main() -> eyre::Result<()> {
 
     let tracer = {
         let is_graham_mode = matches!(env::var("CARBIDE_GRAHAM_MODE"), Ok(x) if x == "1");
+        let is_local_dev =
+            matches!(&config.sub_cmd, Some(Command::Run(config)) if !config.kubernetes);
         use opentelemetry::sdk::trace::TracerProvider;
         let mut provider_builder = if is_graham_mode {
             TracerProvider::builder().with_simple_exporter(GkStdoutExporter::new(std::io::stdout()))
         } else {
             TracerProvider::builder()
-                .with_simple_exporter(OtelStdoutExporter::new(std::io::stdout()))
+                .with_simple_exporter(OtelStdoutExporter::new(std::io::stdout(), is_local_dev))
         };
         provider_builder = provider_builder.with_config(trace_config);
         let provider = provider_builder.build();

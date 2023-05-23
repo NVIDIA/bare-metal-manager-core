@@ -28,14 +28,26 @@ use opentelemetry::{
 #[derive(Debug)]
 pub struct OtelStdoutExporter<W: Write> {
     writer: W,
+    ignored_spans: &'static [&'static str],
 }
 
 impl<W: Write> OtelStdoutExporter<W> {
     /// Creates a new `OtelStdoutExporter`.
-    pub fn new(writer: W) -> Self {
-        Self { writer }
+    pub fn new(writer: W, local_development: bool) -> Self {
+        Self {
+            writer,
+            ignored_spans: if local_development {
+                IGNORED_SPANS_LOCAL_DEV
+            } else {
+                IGNORED_SPANS
+            },
+        }
     }
 }
+
+const IGNORED_SPANS: &[&str] = &[];
+
+const IGNORED_SPANS_LOCAL_DEV: &[&str] = &["state_controller_iteration"];
 
 const IGNORED_REQUEST_METHODDS: &[&str] = &[
     "GetManagedHostNetworkConfig",
@@ -50,6 +62,10 @@ where
     /// Export spans to stdout
     fn export(&mut self, batch: Vec<SpanData>) -> BoxFuture<'static, ExportResult> {
         for span in batch {
+            if self.ignored_spans.contains(&&*span.name) {
+                continue;
+            }
+
             let method: String = span
                 .attributes
                 .get(&opentelemetry_semantic_conventions::trace::RPC_METHOD)
