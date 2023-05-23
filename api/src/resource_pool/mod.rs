@@ -30,30 +30,9 @@ pub const VNI: &str = "vni";
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VLANID: &str = "vlan-id";
 
+/// IB Fabric partition key (pkey) pool
+/// Must match a pool defined in dev/resource_pools.toml
 pub const PKEY: &str = "pkey";
-
-#[async_trait::async_trait]
-pub trait ResourcePool<T>: Send + Sync
-where
-    T: ToString + FromStr,
-{
-    /// Put some resources into the pool, so they can be allocated later.
-    /// This needs to be called before `allocate` can return anything.
-    async fn populate(&self, values: Vec<T>) -> Result<(), ResourcePoolError>;
-
-    /// Get a resource from the pool
-    async fn allocate(
-        &self,
-        for_owner_type: OwnerType,
-        for_owner_id: &str,
-    ) -> Result<T, ResourcePoolError>;
-
-    /// Return a resource to the pool
-    async fn release(&self, value: T) -> Result<(), ResourcePoolError>;
-
-    /// Count how many (used, unused) values are in the pool
-    async fn stats(&self) -> Result<ResourcePoolStats, ResourcePoolError>;
-}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum OwnerType {
