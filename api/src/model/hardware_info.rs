@@ -39,6 +39,8 @@ pub struct HardwareInfo {
     pub dpu_info: Option<DpuData>,
     #[serde(default)]
     pub gpus: Vec<Gpu>,
+    #[serde(default)]
+    pub memory_devices: Vec<MemoryDevice>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,6 +156,12 @@ pub struct Gpu {
     total_memory: String,
     frequency: String,
     pci_bus_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryDevice {
+    size_mb: Option<u32>,
+    mem_type: Option<String>,
 }
 
 /// TPM endorsement key certificate
@@ -483,6 +491,24 @@ impl From<Gpu> for rpc::machine_discovery::Gpu {
     }
 }
 
+impl From<rpc::machine_discovery::MemoryDevice> for MemoryDevice {
+    fn from(value: rpc::machine_discovery::MemoryDevice) -> Self {
+        MemoryDevice {
+            size_mb: value.size_mb,
+            mem_type: value.mem_type,
+        }
+    }
+}
+
+impl From<MemoryDevice> for rpc::machine_discovery::MemoryDevice {
+    fn from(value: MemoryDevice) -> Self {
+        rpc::machine_discovery::MemoryDevice {
+            size_mb: value.size_mb,
+            mem_type: value.mem_type,
+        }
+    }
+}
+
 impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
     type Error = RpcDataConversionError;
 
@@ -495,8 +521,6 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             })
             .transpose()?;
 
-        let gpus = info.gpus.into_iter().map(Gpu::from).collect();
-
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
             infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
@@ -507,7 +531,12 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             dmi_data: info.dmi_data.map(DmiData::try_from).transpose()?,
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
             dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
-            gpus,
+            gpus: info.gpus.into_iter().map(Gpu::from).collect(),
+            memory_devices: info
+                .memory_devices
+                .into_iter()
+                .map(MemoryDevice::from)
+                .collect(),
         })
     }
 }
@@ -538,6 +567,11 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .gpus
                 .into_iter()
                 .map(rpc::machine_discovery::Gpu::from)
+                .collect(),
+            memory_devices: info
+                .memory_devices
+                .into_iter()
+                .map(rpc::machine_discovery::MemoryDevice::from)
                 .collect(),
         })
     }

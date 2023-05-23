@@ -19,6 +19,7 @@ use std::{
 use crate::cmd::CmdError;
 use ::rpc::machine_discovery as rpc_discovery;
 use libudev::Device;
+use rpc::machine_discovery::MemoryDevice;
 use tracing::error;
 use uname::uname;
 
@@ -523,6 +524,23 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         vec![]
     };
 
+    let mut memory_devices = vec![];
+    let smbios_info = smbioslib::table_load_from_device().unwrap();
+    for i in smbios_info.collect::<smbioslib::SMBiosMemoryDevice>() {
+        let size_mb = match i.size() {
+            Some(smbioslib::MemorySize::Megabytes(size)) => Some(size as u32),
+            _ => None,
+        };
+
+        let mem_type = match i.memory_type() {
+            Some(smbioslib::MemoryDeviceTypeData { value, .. }) => {
+                Some(format!("{:?}", value).to_uppercase())
+            }
+            _ => None,
+        };
+        memory_devices.push(MemoryDevice { size_mb, mem_type });
+    }
+
     tracing::debug!("Discovered Disks: {:?}", disks);
     tracing::debug!("Discovered CPUs: {:?}", cpus);
     tracing::debug!("Discovered NICS: {:?}", nics);
@@ -547,5 +565,6 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         tpm_ek_certificate,
         dpu_info: dpu_vpd,
         gpus,
+        memory_devices,
     })
 }

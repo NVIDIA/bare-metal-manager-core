@@ -38,7 +38,11 @@ message DiscoveryInfo {
   // DPU specific data
   optional DpuData dpu_info = 10;
 
+  // Enumerates GPU devices on the host
   repeated Gpu gpus = 11;
+
+  // Enumerates Memory devices on the host
+  repeated MemoryDevice memory_devices = 12;
 }
 
 message NetworkInterface {
@@ -111,4 +115,9 @@ message Gpu {
   string total_memory = 6;
   string frequency = 7;
   string pci_bus_id = 8;
+}
+
+message MemoryDevice {
+  optional uint32 size_mb  = 1;
+  optional string mem_type = 2;
 }

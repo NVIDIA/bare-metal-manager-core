@@ -11,6 +11,7 @@
  */
 
 use ::rpc::forge::{MachineInterface, MachineType};
+use ::rpc::machine_discovery::MemoryDevice;
 use ::rpc::Machine;
 use prettytable::{row, Row, Table};
 use serde::Serialize;
@@ -21,6 +22,7 @@ use crate::Config;
 
 use super::{rpc, CarbideCliResult};
 
+use std::collections::BTreeMap;
 use std::convert::From;
 
 const UNKNOWN: &str = "Unknown";
@@ -55,6 +57,39 @@ macro_rules! get_bmc_info_from_machine {
     };
 }
 
+fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
+    let mut breakdown = BTreeMap::default();
+    let mut total_size = 0;
+    for md in memory_devices {
+        let size =
+            byte_unit::Byte::from_unit(md.size_mb.unwrap_or(0) as f64, byte_unit::ByteUnit::MiB)
+                .unwrap_or(byte_unit::Byte::default());
+        total_size += size.get_bytes();
+        *breakdown.entry(size).or_insert(0u32) += 1;
+    }
+
+    let total_size = byte_unit::Byte::from(total_size);
+
+    if memory_devices.len() == 1 {
+        Some(total_size.get_appropriate_unit(true).to_string())
+    } else if total_size.get_bytes() > 0 {
+        let mut breakdown_str = String::default();
+        for (ind, s) in breakdown.iter().enumerate() {
+            if ind != 0 {
+                breakdown_str.push_str(", ");
+            }
+            breakdown_str.push_str(format!("{}x{}", s.0.get_appropriate_unit(true), s.1).as_ref());
+        }
+        Some(format!(
+            "{} ({})",
+            total_size.get_appropriate_unit(true),
+            breakdown_str
+        ))
+    } else {
+        None
+    }
+}
+
 #[derive(Default, Serialize)]
 struct ManagedHostOutput {
     hostname: Option<String>,
@@ -66,6 +101,7 @@ struct ManagedHostOutput {
     host_bmc_version: Option<String>,
     host_bmc_firmware_version: Option<String>,
     host_gpu_count: usize,
+    host_memory: Option<String>,
     dpu_machine_id: Option<String>,
     dpu_serial_number: Option<String>,
     dpu_bios_version: Option<String>,
@@ -91,6 +127,7 @@ impl From<ManagedHostOutput> for Row {
                 .host_bmc_firmware_version
                 .unwrap_or(UNKNOWN.to_owned()),
             value.host_gpu_count,
+            value.host_memory.unwrap_or(UNKNOWN.to_owned()),
             value.dpu_machine_id.unwrap_or(UNKNOWN.to_owned()),
             value.dpu_serial_number.unwrap_or(UNKNOWN.to_owned()),
             value.dpu_bios_version.unwrap_or(UNKNOWN.to_owned()),
@@ -161,6 +198,10 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
             .as_ref()
             .map_or(0, |di| di.gpus.len());
 
+        managed_host_output.host_memory = machine
+            .discovery_info
+            .as_ref()
+            .and_then(|di| get_memory_details(&di.memory_devices));
         if let Some(dpu_machine_id) = primary_interface.attached_dpu_machine_id.as_ref() {
             if dpu_machine_id != machine_id {
                 let dpu_machine = machines
@@ -211,6 +252,7 @@ fn convert_managed_hosts_to_nice_output(managed_hosts: Vec<ManagedHostOutput>) -
         "Host BMC Version",
         "Host BMC Firmware Version",
         "Host GPU Count",
+        "Host Memory",
         "DPU Machine ID",
         "DPU Serial Number",
         "DPU Bios Version",

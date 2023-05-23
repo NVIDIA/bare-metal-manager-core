@@ -199,6 +199,36 @@
         }
       }
     ],
-    "tpm_ek_certificate": "U29tZSBhcmJpdHJhcnkgYmFzZTY0"
+    "tpm_ek_certificate": "U29tZSBhcmJpdHJhcnkgYmFzZTY0",
+    "gpus": [
+      {
+        "name": "NVIDIA H100 PCIe",
+        "serial": "1654422005699",
+        "driver_version": "530.30.02",
+        "vbios_version": "96.00.30.00.01",
+        "inforom_version": "1010.0200.00.02",
+        "total_memory": "81559 MiB",
+        "frequency": "1755 MHz",
+        "pci_bus_id": "00000000:17:00.0"
+      }
+    ],
+    "memory_devices": [
+      {
+        "size_mb": 2048,
+        "mem_type": "DDR4"
+      },
+      {
+        "size_mb": 2048,
+        "mem_type": "DDR4"
+      },
+      {
+        "size_mb": 16384,
+        "mem_type": "DDR4"
+      },
+      {
+        "size_mb": 16384,
+        "mem_type": "DDR4"
+      }
+    ]
   }
 }

@@ -28,6 +28,7 @@ uuid = "1.0"
 # local crate dependencies
 rpc = { path = "../rpc" }
 forge-version = { path = "../version" }
+byte-unit = "4.0.19"
 
 [build-dependencies]
 forge-version = { path = "../version" }

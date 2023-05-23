@@ -803,5 +803,16 @@
       "frequency": "1755 MHz",
       "pci_bus_id": "00000000:17:00.0"
     }
+  ],
+  "memory_devices": [
+    {
+      "size_mb": 1024,
+      "mem_type": "DDR4"
+    },
+    {
+      "size_mb": 1024,
+      "mem_type": "DDR4"
+    }
+
   ]
 }
