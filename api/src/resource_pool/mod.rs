@@ -16,7 +16,7 @@ use std::str::FromStr;
 use crate::CarbideError;
 
 mod db;
-pub use db::DbResourcePool;
+pub use db::{all, DbResourcePool};
 
 /// DPU VPC loopback IP pool
 /// Must match a pool defined in dev/resource_pools.toml
@@ -78,6 +78,15 @@ pub struct ResourcePoolStats {
 
     /// Number of available values in this pool
     pub free: usize,
+}
+
+/// What kind of data does our resource pool store?
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+#[sqlx(type_name = "resource_pool_type")]
+pub enum ValueType {
+    Integer = 0,
+    Ipv4,
 }
 
 #[derive(Debug, thiserror::Error)]

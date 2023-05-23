@@ -157,6 +157,9 @@ service Forge {
   // Reboot a machine and boot into PXE
   rpc AdminReboot(AdminRebootRequest) returns (AdminRebootResponse);
 
+  // List existing resource pools and their stats
+  rpc AdminListResourcePools(ListResourcePoolsRequest) returns (ResourcePools);
+
   // Create or edit a resource pool
   rpc AdminDefineResourcePool(DefineResourcePoolRequest) returns (DefineResourcePoolResponse);
 
@@ -1437,6 +1440,19 @@ message NetworkHealth {
     repeated string passed = 2;
     repeated string failed = 3;
     optional string message = 4;
+}
+
+message ListResourcePoolsRequest {}
+message ResourcePools {
+    repeated ResourcePool pools = 1;
+}
+
+message ResourcePool {
+    string name = 1;
+    string min = 2;
+    string max = 3;
+    uint64 total = 4;
+    uint64 allocated = 5;
 }
 
 message DefineResourcePoolRequest {

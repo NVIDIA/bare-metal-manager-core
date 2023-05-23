@@ -14,7 +14,7 @@ use std::{marker::PhantomData, str::FromStr};
 
 use sqlx::{Postgres, Row, Transaction};
 
-use super::{OwnerType, ResourcePoolError};
+use super::{OwnerType, ResourcePoolError, ValueType};
 use crate::{
     db::DatabaseError,
     model::{config_version::ConfigVersion, resource_pool::ResourcePoolEntryState},
@@ -29,7 +29,8 @@ where
     <T as FromStr>::Err: std::error::Error,
 {
     name: String,
-    value_type: PhantomData<T>,
+    value_type: ValueType,
+    rust_type: PhantomData<T>,
 }
 
 impl<T> DbResourcePool<T>
@@ -37,10 +38,11 @@ where
     T: ToString + FromStr + Send + Sync + 'static,
     <T as FromStr>::Err: std::error::Error,
 {
-    pub fn new(name: String) -> DbResourcePool<T> {
+    pub fn new(name: String, value_type: ValueType) -> DbResourcePool<T> {
         DbResourcePool {
             name,
-            value_type: PhantomData,
+            value_type,
+            rust_type: PhantomData,
         }
     }
 
@@ -56,11 +58,12 @@ where
         let version_str = initial_version.to_string();
 
         for vals in all_values.chunks(BIND_LIMIT / 4) {
-            let query = "INSERT INTO resource_pool(name, value, state, state_version) ";
+            let query = "INSERT INTO resource_pool(name, value, value_type, state, state_version) ";
             let mut qb = sqlx::QueryBuilder::new(query);
             qb.push_values(vals.iter(), |mut b, v| {
                 b.push_bind(&self.name)
                     .push_bind(v.to_string())
+                    .push_bind(self.value_type)
                     .push_bind(sqlx::types::Json(&free_state))
                     .push_bind(&version_str);
             });
@@ -197,6 +200,34 @@ WHERE name = $2 AND value = $3
     }
 }
 
+pub async fn all(
+    txn: &mut Transaction<'_, Postgres>,
+) -> Result<Vec<ResourcePoolSnapshot>, ResourcePoolError> {
+    let mut out = Vec::with_capacity(4);
+
+    let query_int =
+        "SELECT name, CAST(min(value::bigint) AS text), CAST(max(value::bigint) AS text),
+            count(*) FILTER (WHERE state = '{\"state\": \"free\"}') AS free,
+            count(*) FILTER (WHERE state != '{\"state\": \"free\"}') AS used
+            FROM resource_pool WHERE value_type = 'integer' GROUP BY name";
+
+    let query_ipv4 = "SELECT name, CAST(min(value::inet) AS text), CAST(max(value::inet) AS text),
+            count(*) FILTER (WHERE state = '{\"state\": \"free\"}') AS free,
+            count(*) FILTER (WHERE state != '{\"state\": \"free\"}') AS used
+            FROM resource_pool WHERE value_type = 'ipv4' GROUP BY name";
+
+    for query in &[query_int, query_ipv4] {
+        let mut rows: Vec<ResourcePoolSnapshot> = sqlx::query_as(query)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        out.append(&mut rows);
+    }
+    out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(out)
+}
+
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for super::ResourcePoolStats {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let used: i64 = row.try_get("used")?;
@@ -205,5 +236,35 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for super::ResourcePoolStats {
             used: used as usize,
             free: free as usize,
         })
+    }
+}
+
+pub struct ResourcePoolSnapshot {
+    pub name: String,
+    pub min: String,
+    pub max: String,
+    pub stats: super::ResourcePoolStats,
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolSnapshot {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(ResourcePoolSnapshot {
+            name: row.try_get("name")?,
+            min: row.try_get("min")?,
+            max: row.try_get("max")?,
+            stats: super::ResourcePoolStats::from_row(row)?,
+        })
+    }
+}
+
+impl From<ResourcePoolSnapshot> for rpc::forge::ResourcePool {
+    fn from(rp: ResourcePoolSnapshot) -> Self {
+        rpc::forge::ResourcePool {
+            name: rp.name,
+            min: rp.min,
+            max: rp.max,
+            total: (rp.stats.free + rp.stats.used) as u64,
+            allocated: rp.stats.used as u64,
+        }
     }
 }

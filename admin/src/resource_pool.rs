@@ -12,6 +12,7 @@
 use std::fs::read_to_string;
 
 use ::rpc::forge as forgerpc;
+use prettytable::{row, Table};
 use serde::Deserialize;
 use tracing::info;
 
@@ -74,4 +75,31 @@ impl From<ResourcePoolType> for forgerpc::ResourcePoolType {
             ResourcePoolType::Integer => Self::Integer,
         }
     }
+}
+
+pub async fn list(api_config: Config) -> CarbideCliResult<()> {
+    let response =
+        rpc::list_resource_pools(forgerpc::ListResourcePoolsRequest {}, api_config.clone()).await?;
+    if response.pools.is_empty() {
+        println!("No resource pools defined");
+        return Err(super::CarbideCliError::Empty);
+    }
+
+    let mut table = Table::new();
+    table.set_titles(row!["Name", "Min", "Max", "Size", "Used"]);
+    for pool in response.pools {
+        table.add_row(row![
+            pool.name,
+            pool.min,
+            pool.max,
+            pool.total,
+            format!(
+                "{} ({}%)",
+                pool.allocated,
+                pool.allocated / pool.total * 100
+            ),
+        ]);
+    }
+    table.printstd();
+    Ok(())
 }

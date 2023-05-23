@@ -29,8 +29,7 @@ use crate::{
         UuidKeyedObjectFilter,
     },
     model::{instance::config::network::InstanceInterfaceConfig, machine::machine_id::MachineId},
-    resource_pool::{self, DbResourcePool, ResourcePoolStats},
-    CarbideError,
+    resource_pool, CarbideError,
 };
 
 /// How often to update the resource pool metrics
@@ -42,10 +41,10 @@ pub struct EthVirtData {
     pub is_enabled: bool,
     pub asn: u32,
     pub dhcp_servers: Vec<String>,
-    pub pool_loopback_ip: Option<Arc<DbResourcePool<Ipv4Addr>>>,
-    pub pool_vlan_id: Option<Arc<DbResourcePool<i16>>>,
-    pub pool_vni: Option<Arc<DbResourcePool<i32>>>,
-    pub rp_stats: Option<Arc<Mutex<HashMap<String, ResourcePoolStats>>>>,
+    pub pool_loopback_ip: Option<Arc<resource_pool::DbResourcePool<Ipv4Addr>>>,
+    pub pool_vlan_id: Option<Arc<resource_pool::DbResourcePool<i16>>>,
+    pub pool_vni: Option<Arc<resource_pool::DbResourcePool<i32>>>,
+    pub rp_stats: Option<Arc<Mutex<HashMap<String, resource_pool::ResourcePoolStats>>>>,
 }
 
 /// Create ethernet virtualization resource pools (for loopback IP, VNI, etc) and
@@ -53,18 +52,24 @@ pub struct EthVirtData {
 ///
 /// Pools must also be created in the database: `forge-admin-cli resource-pool define`
 pub async fn enable(database_connection: sqlx::PgPool) -> EthVirtData {
-    let pool_loopback_ip: Option<Arc<DbResourcePool<Ipv4Addr>>> = Some(Arc::new(
-        DbResourcePool::new(resource_pool::LOOPBACK_IP.to_string()),
-    ));
-    let pool_vlan_id: Option<Arc<DbResourcePool<i16>>> = Some(Arc::new(DbResourcePool::new(
-        resource_pool::VLANID.to_string(),
-    )));
-    let pool_vni: Option<Arc<DbResourcePool<i32>>> = Some(Arc::new(DbResourcePool::new(
-        resource_pool::VNI.to_string(),
-    )));
+    let pool_loopback_ip: Option<Arc<resource_pool::DbResourcePool<Ipv4Addr>>> =
+        Some(Arc::new(resource_pool::DbResourcePool::new(
+            resource_pool::LOOPBACK_IP.to_string(),
+            resource_pool::ValueType::Ipv4,
+        )));
+    let pool_vlan_id: Option<Arc<resource_pool::DbResourcePool<i16>>> =
+        Some(Arc::new(resource_pool::DbResourcePool::new(
+            resource_pool::VLANID.to_string(),
+            resource_pool::ValueType::Integer,
+        )));
+    let pool_vni: Option<Arc<resource_pool::DbResourcePool<i32>>> =
+        Some(Arc::new(resource_pool::DbResourcePool::new(
+            resource_pool::VNI.to_string(),
+            resource_pool::ValueType::Integer,
+        )));
 
     // resource pool metrics
-    let rp_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>> =
+    let rp_stats: Arc<Mutex<HashMap<String, resource_pool::ResourcePoolStats>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let rp_stats_bg = rp_stats.clone();
     let pool_l_ip_2 = pool_loopback_ip.as_ref().unwrap().clone();

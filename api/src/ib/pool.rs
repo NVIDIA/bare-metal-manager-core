@@ -23,8 +23,10 @@ pub struct IBData {
 ///
 /// Pools must also be created in the database: `forge-admin-cli resource-pool define`
 pub fn enable() -> IBData {
-    let pool_pkey: Arc<DbResourcePool<i16>> =
-        Arc::new(DbResourcePool::new(resource_pool::PKEY.to_string()));
+    let pool_pkey: Arc<DbResourcePool<i16>> = Arc::new(DbResourcePool::new(
+        resource_pool::PKEY.to_string(),
+        resource_pool::ValueType::Integer,
+    ));
 
     IBData { pool_pkey }
 }

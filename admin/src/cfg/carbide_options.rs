@@ -55,7 +55,7 @@ pub enum CarbideCommand {
     Domain(Domain),
     #[clap(about = "Managed host related handling", subcommand)]
     ManagedHost(ManagedHost),
-    #[clap(about = "Resource pool handling (VPC)", subcommand)]
+    #[clap(about = "Resource pool handling", subcommand)]
     ResourcePool(ResourcePool),
     #[clap(about = "Redfish BMC actions")]
     Redfish(RedfishAction),
@@ -315,6 +315,8 @@ impl CarbideOptions {
 pub enum ResourcePool {
     #[clap(about = "Define a set of resource pools from a yaml file")]
     Define(ResourcePoolDefinition),
+    #[clap(about = "List all resource pools with stats")]
+    List,
 }
 
 #[derive(Parser, Debug)]

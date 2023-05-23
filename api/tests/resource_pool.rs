@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use carbide::resource_pool::ResourcePoolStats as St;
-use carbide::resource_pool::{DbResourcePool, OwnerType, ResourcePoolError};
+use carbide::resource_pool::{all, DbResourcePool, OwnerType, ResourcePoolError, ValueType};
 use sqlx::migrate::MigrateDatabase;
 
 mod common;
@@ -27,7 +27,7 @@ fn setup() {
 #[sqlx::test]
 async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mut txn = db_pool.begin().await?;
-    let pool = DbResourcePool::new("test_simple".to_string());
+    let pool = DbResourcePool::new("test_simple".to_string(), ValueType::Integer);
 
     // one value in the pool
     pool.populate(&mut txn, vec!["1".to_string()]).await?;
@@ -57,9 +57,9 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 #[sqlx::test]
 async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mut txn = db_pool.begin().await?;
-    let pool1 = DbResourcePool::new("test_multiple_1".to_string());
-    let pool2 = DbResourcePool::new("test_multiple_2".to_string());
-    let pool3 = DbResourcePool::new("test_multiple_3".to_string());
+    let pool1 = DbResourcePool::new("test_multiple_1".to_string(), ValueType::Integer);
+    let pool2 = DbResourcePool::new("test_multiple_2".to_string(), ValueType::Integer);
+    let pool3 = DbResourcePool::new("test_multiple_3".to_string(), ValueType::Integer);
 
     pool1
         .populate(&mut txn, (1..=10).collect::<Vec<_>>())
@@ -103,7 +103,7 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
 #[sqlx::test]
 async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let pool = DbResourcePool::new("test_rollback".to_string());
+    let pool = DbResourcePool::new("test_rollback".to_string(), ValueType::Integer);
 
     // Pool has a single value
     let mut txn = db_pool.begin().await?;
@@ -128,6 +128,52 @@ async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
+#[sqlx::test]
+async fn test_list(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let mut txn = db_pool.begin().await?;
+    let names = &["a", "b", "c"];
+    let max = &[10, 100, 500];
+
+    // Setup
+    let pool1 = DbResourcePool::new(names[0].to_string(), ValueType::Integer);
+    let pool2 = DbResourcePool::new(names[1].to_string(), ValueType::Integer);
+    let pool3 = DbResourcePool::new(names[2].to_string(), ValueType::Integer);
+    pool1
+        .populate(&mut txn, (1..=max[0]).collect::<Vec<_>>())
+        .await?;
+    pool2
+        .populate(&mut txn, (1..=max[1]).collect::<Vec<_>>())
+        .await?;
+    pool3
+        .populate(&mut txn, (1..=max[2]).collect::<Vec<_>>())
+        .await?;
+    for _ in 1..=5 {
+        let _ = pool1
+            .allocate(&mut txn, OwnerType::Machine, "my_id")
+            .await
+            .unwrap();
+    }
+
+    // What we're testing
+    let all = all(&mut txn).await?;
+
+    // Verify
+    assert_eq!(all.len(), 3);
+    for (i, snapshot) in all.iter().enumerate() {
+        assert_eq!(names[i], snapshot.name);
+        assert_eq!(1, snapshot.min.parse::<i32>()?);
+        assert_eq!(max[i], snapshot.max.parse::<i32>()?);
+        if i == 0 {
+            assert_eq!(5, snapshot.stats.used);
+            assert_eq!(5, snapshot.stats.free);
+        } else {
+            assert_eq!(0, snapshot.stats.used);
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 50)]
 async fn test_parallel() -> Result<(), eyre::Report> {
     // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
@@ -141,7 +187,10 @@ async fn test_parallel() -> Result<(), eyre::Report> {
     m.run(&db_pool).await?;
 
     let mut txn = db_pool.begin().await?;
-    let pool = Arc::new(DbResourcePool::new("test_parallel".to_string()));
+    let pool = Arc::new(DbResourcePool::new(
+        "test_parallel".to_string(),
+        ValueType::Integer,
+    ));
     pool.populate(&mut txn, (1..=5_000).map(|i| i.to_string()).collect())
         .await?;
     txn.commit().await?;

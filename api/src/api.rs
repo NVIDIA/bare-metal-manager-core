@@ -64,7 +64,7 @@ use crate::model::machine::network::MachineNetworkStatus;
 use crate::model::machine::ManagedHostState;
 use crate::model::RpcDataConversionError;
 use crate::reachability::PingReachabilityChecker;
-use crate::resource_pool::{DbResourcePool, OwnerType, ResourcePoolError};
+use crate::resource_pool;
 use crate::state_controller::controller::ReachabilityParams;
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 use crate::{
@@ -2683,7 +2683,10 @@ where
                     let values = expand_ip_range(&range.start, &range.end)
                         .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
                     let num_values = values.len();
-                    let pool = DbResourcePool::new(name.to_string());
+                    let pool = resource_pool::DbResourcePool::new(
+                        name.to_string(),
+                        resource_pool::ValueType::Ipv4,
+                    );
                     pool.populate(&mut txn, values)
                         .await
                         .map_err(CarbideError::from)?;
@@ -2693,7 +2696,10 @@ where
                     let values = expand_int_range(&range.start, &range.end)
                         .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
                     let num_values = values.len();
-                    let pool = DbResourcePool::new(name.to_string());
+                    let pool = resource_pool::DbResourcePool::new(
+                        name.to_string(),
+                        resource_pool::ValueType::Integer,
+                    );
                     pool.populate(&mut txn, values)
                         .await
                         .map_err(CarbideError::from)?;
@@ -2705,6 +2711,29 @@ where
             CarbideError::DatabaseError(file!(), "end admin_define_resource_pool", e)
         })?;
         Ok(Response::new(rpc::DefineResourcePoolResponse {}))
+    }
+
+    async fn admin_list_resource_pools(
+        &self,
+        request: Request<rpc::ListResourcePoolsRequest>,
+    ) -> Result<tonic::Response<rpc::ResourcePools>, tonic::Status> {
+        log_request_data(&request);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin admin_list_resource_pools ", e)
+        })?;
+
+        let snapshot = resource_pool::all(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "end admin_list_resource_pools", e)
+        })?;
+
+        Ok(Response::new(rpc::ResourcePools {
+            pools: snapshot.into_iter().map(|s| s.into()).collect(),
+        }))
     }
 
     async fn migrate_vpc(
@@ -2743,7 +2772,7 @@ where
                         pool.mark_allocated(
                             &mut txn,
                             vname.vlan_id as i16,
-                            OwnerType::NetworkSegment,
+                            resource_pool::OwnerType::NetworkSegment,
                             &segment.id.to_string(),
                         )
                         .await
@@ -2765,7 +2794,7 @@ where
                         pool.mark_allocated(
                             &mut txn,
                             vname.vni as i32,
-                            OwnerType::NetworkSegment,
+                            resource_pool::OwnerType::NetworkSegment,
                             &segment.id.to_string(),
                         )
                         .await
@@ -2815,7 +2844,7 @@ where
                     pool.mark_allocated(
                         &mut txn,
                         vpc_loopback.unwrap(), // we know it's Some
-                        OwnerType::Machine,
+                        resource_pool::OwnerType::Machine,
                         &machine.id().to_string(),
                     )
                     .await
@@ -3370,11 +3399,11 @@ where
             .pool_loopback_ip
             .as_ref()
             .unwrap()
-            .allocate(txn, OwnerType::Machine, owner_id)
+            .allocate(txn, resource_pool::OwnerType::Machine, owner_id)
             .await
         {
             Ok(val) => Ok(Some(val)),
-            Err(ResourcePoolError::Empty) => {
+            Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool lo-ip exhausted, cannot allocate for {owner_id}");
                 tracing::error!("{}", &msg);
                 Err(Status::resource_exhausted(&msg))
@@ -3404,11 +3433,11 @@ where
             .pool_vni
             .as_ref()
             .unwrap()
-            .allocate(txn, OwnerType::NetworkSegment, owner_id)
+            .allocate(txn, resource_pool::OwnerType::NetworkSegment, owner_id)
             .await
         {
             Ok(val) => Ok(Some(val)),
-            Err(ResourcePoolError::Empty) => {
+            Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool vni exhausted, cannot allocate for {owner_id}");
                 tracing::error!("{}", &msg);
                 Err(Status::resource_exhausted(&msg))
@@ -3438,11 +3467,11 @@ where
             .pool_vlan_id
             .as_ref()
             .unwrap()
-            .allocate(txn, OwnerType::NetworkSegment, owner_id)
+            .allocate(txn, resource_pool::OwnerType::NetworkSegment, owner_id)
             .await
         {
             Ok(val) => Ok(Some(val)),
-            Err(ResourcePoolError::Empty) => {
+            Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool vlan_id exhausted, cannot allocate for {owner_id}");
                 tracing::error!("{}", &msg);
                 Err(Status::resource_exhausted(&msg))

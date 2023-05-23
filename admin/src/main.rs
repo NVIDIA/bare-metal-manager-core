@@ -83,6 +83,11 @@ pub enum CarbideCliError {
 
     #[error("I/O error. Does the file exist? {0}")]
     IOError(#[from] std::io::Error),
+
+    /// For when you expected some values but the response was empty.
+    /// If empty is acceptable don't use this.
+    #[error("No results returned")]
+    Empty,
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
@@ -339,6 +344,9 @@ async fn main() -> color_eyre::Result<()> {
         CarbideCommand::ResourcePool(rp) => match rp {
             ResourcePool::Define(def) => {
                 resource_pool::define_all_from(&def.filename, api_config).await?;
+            }
+            ResourcePool::List => {
+                resource_pool::list(api_config).await?;
             }
         },
         CarbideCommand::Migrate(migration) => match migration {
