@@ -321,26 +321,49 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
     let architecture: CpuArchitecture = info.machine.parse()?;
     if architecture == CpuArchitecture::X86_64 {
-        // we will need an additional check here for sys_vendor == Dell
-        let idrac_user_str = format!("iDRAC.Users.{id}.Privilege");
-        let _ = Cmd::new("racadm")
-            .args(["set", idrac_user_str.as_str(), "0x1ff"])
-            .output()?;
-        // set idrac forge_admin user sol related privileges
-        let idrac_ipmilan_str = format!("iDRAC.Users.{id}.IpmiLanPrivilege");
-        let _ = Cmd::new("racadm")
-            .args(["set", idrac_ipmilan_str.as_str(), "4"])
-            .output()?;
-        let idrac_ipmisol_str = format!("iDRAC.Users.{id}.IpmiSerialPrivilege");
-        let _ = Cmd::new("racadm")
-            .args(["set", idrac_ipmisol_str.as_str(), "4"])
-            .output()?;
-        let idrac_solenable_str = format!("iDRAC.Users.{id}.SolEnable");
-        let _ = Cmd::new("racadm")
-            .args(["set", idrac_solenable_str.as_str(), "1"])
-            .output()?;
+        match std::fs::read_to_string("/sys/class/dmi/id/chassis_vendor")
+            .map_err(|x| CarbideClientError::GenericError(x.to_string()))?
+            .as_ref()
+        {
+            "Lenovo" => issue_onecli_user_commands(id),
+            "Dell" => issue_racadm_user_commands(id),
+            other => {
+                return Err(CarbideClientError::GenericError(format!(
+                    "The chassis vendor was an unexpected result - {other}"
+                )))
+            }
+        }?;
     }
 
+    Ok(())
+}
+
+fn issue_onecli_user_commands(id: &String) -> CarbideClientResult<()> {
+    let onecli_user_str = format!("IMM.LoginRole.{id}");
+    let _ = Cmd::new("/opt/forge/xclarity/onecli")
+        .args(["config", "set", onecli_user_str.as_str(), "Administrator"])
+        .output()?;
+    Ok(())
+}
+
+fn issue_racadm_user_commands(id: &String) -> CarbideClientResult<()> {
+    let idrac_user_str = format!("iDRAC.Users.{id}.Privilege");
+    let _ = Cmd::new("racadm")
+        .args(["set", idrac_user_str.as_str(), "0x1ff"])
+        .output()?;
+    // set idrac forge_admin user sol related privileges
+    let idrac_ipmilan_str = format!("iDRAC.Users.{id}.IpmiLanPrivilege");
+    let _ = Cmd::new("racadm")
+        .args(["set", idrac_ipmilan_str.as_str(), "4"])
+        .output()?;
+    let idrac_ipmisol_str = format!("iDRAC.Users.{id}.IpmiSerialPrivilege");
+    let _ = Cmd::new("racadm")
+        .args(["set", idrac_ipmisol_str.as_str(), "4"])
+        .output()?;
+    let idrac_solenable_str = format!("iDRAC.Users.{id}.SolEnable");
+    let _ = Cmd::new("racadm")
+        .args(["set", idrac_solenable_str.as_str(), "1"])
+        .output()?;
     Ok(())
 }
 

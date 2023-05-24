@@ -46,6 +46,11 @@ dpkg -i srvadmin-hapi_10.3.0.0_amd64.deb
 dpkg -i srvadmin-idracadm7_10.3.0.0_all.deb
 dpkg -i srvadmin-idracadm8_10.3.0.0_amd64.deb
 
+# Install onecli
+wget https://download.lenovo.com/servers/mig/2023/03/09/57046/lnvgy_utl_lxce_onecli01w-4.0.1_rhel_x86-64.tgz
+mkdir -p /opt/forge/xclarity
+tar zxvf lnvgy_utl_lxce_onecli01w-4.0.1_rhel_x86-64.tgz -C /opt/forge/xclarity
+
 set >/home/set.$1
 ls -l /boot
 
