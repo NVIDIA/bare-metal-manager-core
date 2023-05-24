@@ -323,7 +323,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     if architecture == CpuArchitecture::X86_64 {
         match std::fs::read_to_string("/sys/class/dmi/id/chassis_vendor")
             .map_err(|x| CarbideClientError::GenericError(x.to_string()))?
-            .as_ref()
+            .trim()
         {
             "Lenovo" => issue_onecli_user_commands(id),
             "Dell" => issue_racadm_user_commands(id),
