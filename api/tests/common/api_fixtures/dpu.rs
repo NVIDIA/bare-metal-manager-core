@@ -13,7 +13,7 @@
 //! Contains DPU related fixtures
 
 use carbide::{
-    db::machine_interface::MachineInterface,
+    db::{machine::Machine, machine_interface::MachineInterface},
     model::{
         hardware_info::HardwareInfo,
         machine::{machine_id::try_parse_machine_id, ManagedHostState},
@@ -96,8 +96,14 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
 
     discovery_completed(env, dpu_rpc_machine_id.clone()).await;
     let mut txn = env.pool.begin().await.unwrap();
+    let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .id()
+        .clone();
     env.run_machine_state_controller_iteration_until_state_matches(
-        &dpu_machine_id,
+        &host_machine_id,
         &handler,
         4,
         &mut txn,

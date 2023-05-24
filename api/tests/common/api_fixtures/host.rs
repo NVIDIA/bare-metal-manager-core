@@ -121,7 +121,7 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        dpu_machine_id,
+        &host_machine_id,
         &handler,
         2,
         &mut txn,
@@ -150,7 +150,7 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        dpu_machine_id,
+        &host_machine_id,
         &handler,
         3,
         &mut txn,
@@ -165,7 +165,7 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
     assert_eq!(response.action, Action::Noop as i32);
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        dpu_machine_id,
+        &host_machine_id,
         &handler,
         1,
         &mut txn,

@@ -56,7 +56,7 @@ impl StateHandler for MachineStateHandler {
 
     async fn handle_object_state(
         &self,
-        machine_id: &MachineId,
+        host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -67,13 +67,13 @@ impl StateHandler for MachineStateHandler {
         match &managed_state {
             ManagedHostState::DPUNotReady { .. } => {
                 self.dpu_handler
-                    .handle_object_state(machine_id, state, controller_state, txn, ctx)
+                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
                     .await?;
             }
 
             ManagedHostState::HostNotReady { .. } => {
                 self.host_handler
-                    .handle_object_state(machine_id, state, controller_state, txn, ctx)
+                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
                     .await?;
             }
 
@@ -84,7 +84,7 @@ impl StateHandler for MachineStateHandler {
                     // Create managed resources and move to Assigned: WaitingForNetworkConfig
                     let _poll_status = kubernetes::create_managed_resource(
                         txn,
-                        machine_id,
+                        &state.dpu_snapshot.machine_id,
                         instance.config.network.clone(),
                         instance.instance_id,
                         &ctx.services.vpc_api,
@@ -99,7 +99,7 @@ impl StateHandler for MachineStateHandler {
             ManagedHostState::Assigned { instance_state: _ } => {
                 // Process changes needed for instance.
                 self.instance_handler
-                    .handle_object_state(machine_id, state, controller_state, txn, ctx)
+                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
                     .await?;
             }
 
@@ -123,7 +123,7 @@ impl StateHandler for MachineStateHandler {
                         };
                     }
                     CleanupState::DisableBIOSBMCLockdown => {
-                        tracing::error!("DisableBIOSBMCLockdown state is not implemented. Machine {} stuck in unimplemented state.", machine_id);
+                        tracing::error!("DisableBIOSBMCLockdown state is not implemented. Machine {} stuck in unimplemented state.", host_machine_id);
                     }
                 }
             }
@@ -134,7 +134,7 @@ impl StateHandler for MachineStateHandler {
                 // Just ignore.
                 tracing::info!(
                     "Machine {} is marked for forced deletion. Ignoring.",
-                    machine_id
+                    host_machine_id
                 );
             }
         }
@@ -155,7 +155,7 @@ impl StateHandler for DpuMachineStateHandler {
 
     async fn handle_object_state(
         &self,
-        machine_id: &MachineId,
+        host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -192,7 +192,7 @@ impl StateHandler for DpuMachineStateHandler {
                     .filter(|x| x.is_primary)
                     .last()
                     .ok_or_else(|| StateHandlerError::MissingData {
-                        object_id: machine_id.to_string(),
+                        object_id: host_machine_id.to_string(),
                         missing: "Host Interface",
                     })?
                     .ip_address;
@@ -215,7 +215,11 @@ impl StateHandler for DpuMachineStateHandler {
                 };
             }
             state => {
-                tracing::warn!("Unhandled State {:?} for DPU machine {}", state, machine_id);
+                tracing::warn!(
+                    "Unhandled State {:?} for DPU machine {}",
+                    state,
+                    host_machine_id
+                );
             }
         }
 
@@ -301,7 +305,7 @@ impl StateHandler for HostMachineStateHandler {
 
     async fn handle_object_state(
         &self,
-        machine_id: &MachineId,
+        host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -311,14 +315,14 @@ impl StateHandler for HostMachineStateHandler {
             match machine_state {
                 MachineState::Init => {
                     return Err(StateHandlerError::InvalidHostState(
-                        machine_id.clone(),
+                        host_machine_id.clone(),
                         state.managed_state.clone(),
                     ));
                 }
                 MachineState::WaitingForLeafCreation => {
                     tracing::warn!(
                         "Invalid State WaitingForLeafCreation for Host Machine {}",
-                        machine_id
+                        host_machine_id
                     );
                 }
                 MachineState::WaitingForDiscovery => {
@@ -391,6 +395,10 @@ impl StateHandler for HostMachineStateHandler {
                                 .map_err(|e| StateHandlerError::GenericError(e.into()))?
                             {
                                 // reboot host
+                                // When forge changes BIOS params (for lockdown enable/disable both), host does a power cycle.
+                                // During power cycle, DPU also reboots. Now DPU and Host are coming up together. Since DPU is not ready yet,
+                                // it does not forward DHCP discover from host and host goes into failure mode and stops sending further
+                                // DHCP Discover. A second reboot starts DHCP cycle again when DPU is already up.
                                 restart_machine(&state.host_snapshot, ctx).await?;
                                 if LockdownMode::Enable == lockdown_info.mode {
                                     *controller_state.modify() = ManagedHostState::HostNotReady {
@@ -469,14 +477,14 @@ impl StateHandler for InstanceStateHandler {
 
     async fn handle_object_state(
         &self,
-        machine_id: &MachineId,
+        host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let Some(ref instance) = state.instance else {
-            return Err(StateHandlerError::GenericError(eyre!("Instance is empty at this point. Cleanup is needed for dpu: {}.", machine_id)));
+            return Err(StateHandlerError::GenericError(eyre!("Instance is empty at this point. Cleanup is needed for host: {}.", host_machine_id)));
         };
 
         if let ManagedHostState::Assigned { instance_state } = &state.managed_state {
@@ -490,7 +498,7 @@ impl StateHandler for InstanceStateHandler {
                     // are up. Reboot host and moved to Ready.
                     if kubernetes::create_managed_resource(
                         txn,
-                        machine_id,
+                        &state.dpu_snapshot.machine_id,
                         instance.config.network.clone(),
                         instance.instance_id,
                         &ctx.services.vpc_api.clone(),
@@ -512,7 +520,13 @@ impl StateHandler for InstanceStateHandler {
                     // Switch to using the network we just created for the tenant
                     let (mut netconf, version) = state.dpu_snapshot.network_config.clone().take();
                     netconf.use_admin_network = Some(false);
-                    Machine::try_update_network_config(txn, machine_id, version, &netconf).await?;
+                    Machine::try_update_network_config(
+                        txn,
+                        &state.dpu_snapshot.machine_id,
+                        version,
+                        &netconf,
+                    )
+                    .await?;
 
                     // Reboot host
                     restart_machine(&state.host_snapshot, ctx).await?;
@@ -577,7 +591,7 @@ impl StateHandler for InstanceStateHandler {
                     if ctx
                         .services
                         .vpc_api
-                        .try_monitor_leaf(machine_id)
+                        .try_monitor_leaf(&state.dpu_snapshot.machine_id)
                         .await?
                         .is_pending()
                     {
@@ -587,7 +601,13 @@ impl StateHandler for InstanceStateHandler {
                     // Tenant is gone and so is their network, switch back to admin network
                     let (mut netconf, version) = state.dpu_snapshot.network_config.clone().take();
                     netconf.use_admin_network = Some(true);
-                    Machine::try_update_network_config(txn, machine_id, version, &netconf).await?;
+                    Machine::try_update_network_config(
+                        txn,
+                        &state.dpu_snapshot.machine_id,
+                        version,
+                        &netconf,
+                    )
+                    .await?;
 
                     // Delete from database now. Once done, reboot and move to next state.
                     DeleteInstance {

@@ -117,7 +117,7 @@ impl TestEnv {
     /// in this test environment
     pub async fn run_machine_state_controller_iteration_until_state_matches(
         &self,
-        dpu_machine_id: &MachineId,
+        host_machine_id: &MachineId,
         handler: &MachineStateHandler,
         max_iterations: u32,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -129,14 +129,14 @@ impl TestEnv {
                 &services,
                 &self.pool,
                 &self.machine_state_controller_io,
-                dpu_machine_id.clone(),
+                host_machine_id.clone(),
                 handler,
             )
             .await
         }
         let machine = Machine::find_one(
             txn,
-            dpu_machine_id,
+            host_machine_id,
             carbide::db::machine::MachineSearchConfig::default(),
         )
         .await

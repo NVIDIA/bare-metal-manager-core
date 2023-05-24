@@ -839,7 +839,7 @@ where
         let mut instances = Vec::with_capacity(raw_instances.len());
         for instance in raw_instances {
             let snapshot = loader
-                .load_machine_snapshot_for_host(&mut txn, &instance.machine_id)
+                .load_machine_snapshot(&mut txn, &instance.machine_id)
                 .await
                 .map_err(CarbideError::from)?
                 .instance
@@ -876,7 +876,7 @@ where
         })?;
 
         let Some(snapshot) = DbSnapshotLoader::default()
-            .load_machine_snapshot_for_host(&mut txn, &machine_id)
+            .load_machine_snapshot(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?.instance else {
             return Ok(Response::new(rpc::InstanceList::default()));
@@ -1216,7 +1216,7 @@ where
 
         let loader = DbSnapshotLoader::default();
         let snapshot = loader
-            .load_machine_snapshot_for_host(&mut txn, &machine_id)
+            .load_machine_snapshot(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?;
         if snapshot.instance.is_none() {
@@ -1408,13 +1408,8 @@ where
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
         let (machine, loopback_ip) = if hardware_info.is_dpu() {
-            let (db_machine, is_new) = Machine::get_or_create(
-                &mut txn,
-                &stable_machine_id,
-                interface,
-                hardware_info.is_dpu(),
-            )
-            .await?;
+            let (db_machine, is_new) =
+                Machine::get_or_create(&mut txn, &stable_machine_id, interface).await?;
 
             let loopback_ip = if is_new {
                 let loopback_ip = self
@@ -1465,13 +1460,9 @@ where
                         CarbideError::InvalidArgument("hardware info".to_string())
                     })?;
                 let mi_id = machine_interface.id;
-                let (proactive_machine, _) = Machine::get_or_create(
-                    &mut txn,
-                    &predicted_machine_id,
-                    machine_interface,
-                    false,
-                )
-                .await?;
+                let (proactive_machine, _) =
+                    Machine::get_or_create(&mut txn, &predicted_machine_id, machine_interface)
+                        .await?;
 
                 tracing::info!(
                     "Created host machine proactively (MI:{}, Machine:{})",
@@ -2327,10 +2318,10 @@ where
         machine.update_reboot_time(&mut txn).await?;
 
         let is_dpu = machine.is_dpu();
-        let dpu_machine = if is_dpu {
+        let host_machine = if !is_dpu {
             machine.clone()
         } else {
-            Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id)
+            Machine::find_host_by_dpu_machine_id(&mut txn, &machine_id)
                 .await?
                 .ok_or(CarbideError::NotFoundError {
                     kind: "machine",
@@ -2339,7 +2330,7 @@ where
         };
 
         // Respond based on machine current state
-        let state = dpu_machine.current_state();
+        let state = host_machine.current_state();
         let action = if is_dpu {
             match state {
                 ManagedHostState::DPUNotReady {

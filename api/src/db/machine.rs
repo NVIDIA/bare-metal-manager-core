@@ -301,7 +301,6 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         stable_machine_id: &MachineId,
         mut interface: MachineInterface,
-        is_dpu: bool,
     ) -> CarbideResult<(Self, bool)> {
         let stable_machine_id_string = stable_machine_id.to_string();
 
@@ -333,15 +332,10 @@ impl Machine {
             }
             // CREATE
             None => {
-                // Choose appropriate state based on machine type dpu or host.
-                let state = if is_dpu {
-                    ManagedHostState::DPUNotReady {
-                        machine_state: MachineState::Init,
-                    }
-                } else {
-                    // At this time, this should be same state of DPU. Even if not, it will be
-                    // synced in next state change.
-                    ManagedHostState::Created
+                // Host and DPU machines are created in same `discover_machine` call. Update same
+                // state in both machines.
+                let state = ManagedHostState::DPUNotReady {
+                    machine_state: MachineState::Init,
                 };
                 let state_version = ConfigVersion::initial();
 

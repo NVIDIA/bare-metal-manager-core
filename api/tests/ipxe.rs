@@ -202,7 +202,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone(), Default::default()).await;
-    let (host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
+    let (host_id, _dpu_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = pool
         .clone()
         .begin()
@@ -222,7 +222,7 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
         }],
     });
 
-    let (_instance_id, _instance) = create_instance(&env, &host_id, &dpu_id, network).await;
+    let (_instance_id, _instance) = create_instance(&env, &host_id, network).await;
 
     let instructions = get_pxe_instructions(
         &env,

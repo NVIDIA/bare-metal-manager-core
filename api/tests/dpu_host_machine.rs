@@ -11,13 +11,16 @@
  */
 
 use carbide::{
-    db::{dpu_machine::DpuMachine, vpc_resource_leaf::VpcResourceLeaf},
+    db::{dpu_machine::DpuMachine, host_machine::HostMachine, vpc_resource_leaf::VpcResourceLeaf},
     kubernetes::VpcApiSimConfig,
     model::machine::machine_id::try_parse_machine_id,
+    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
 };
 
 pub mod common;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
+
+use crate::common::api_fixtures::create_managed_host;
 
 #[ctor::ctor]
 fn setup() {
@@ -90,5 +93,57 @@ async fn test_find_dpu_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         DpuMachine::find_by_machine_id(&mut txn, &UNKNOWN_MACHINE_ID.parse().unwrap()).await;
     assert!(machine.is_err());
 
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_find_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone(), Default::default()).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    let mut txn = pool.begin().await?;
+
+    let mut machines = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .await;
+    assert_eq!(machines.machines.len(), 1);
+    let machine = machines.machines.remove(0);
+
+    let host_machine = HostMachine::find_by_machine_id(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        host_machine._machine_interface_id().to_string(),
+        machine.interfaces[0].id.as_ref().unwrap().to_string(),
+    );
+
+    let machine =
+        HostMachine::find_by_machine_id(&mut txn, &UNKNOWN_MACHINE_ID.parse().unwrap()).await;
+    assert!(machine.is_err());
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_find_temp_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone(), Default::default()).await;
+    let dpu_rpc_machine_id = create_dpu_machine(&env).await;
+    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
+
+    let mut txn = pool.begin().await?;
+
+    let host_machine_id = DbSnapshotLoader::default()
+        .load_machine_snapshot(&mut txn, &dpu_machine_id)
+        .await
+        .unwrap()
+        .host_snapshot
+        .machine_id;
+
+    let host_machine = HostMachine::find_by_machine_id(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    assert!(host_machine.machine_id().machine_type().is_predicted_host());
     Ok(())
 }

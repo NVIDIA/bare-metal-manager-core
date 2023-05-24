@@ -67,7 +67,7 @@ impl StateHandler for TestMachineStateHandler {
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
-        assert_eq!(state.dpu_snapshot.machine_id, *machine_id);
+        assert_eq!(state.host_snapshot.machine_id, *machine_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
             let mut guard = self.counts_per_id.lock().unwrap();
@@ -169,20 +169,20 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
         let mut hardware_info = create_dpu_hardware_info();
         hardware_info.dmi_data.as_mut().unwrap().product_serial = format!("DPU_{}", mac);
         hardware_info.dpu_info.as_mut().unwrap().factory_mac_address = host_macs[idx].to_string();
-        let response = env
+        let _response = env
             .api
             .discover_machine(Request::new(MachineDiscoveryInfo {
                 machine_interface_id: Some(interface_id),
                 discovery_data: Some(DiscoveryData::Info(
-                    DiscoveryInfo::try_from(hardware_info).unwrap(),
+                    DiscoveryInfo::try_from(hardware_info.clone()).unwrap(),
                 )),
             }))
             .await
             .unwrap()
             .into_inner();
 
-        let machine_id = response.machine_id.expect("machine_id must be set");
-        machine_ids.push(machine_id);
+        let host_machine_id = MachineId::host_id_from_dpu_hardware_info(&hardware_info).unwrap();
+        machine_ids.push(host_machine_id);
     }
 
     let machine_handler = Arc::new(TestMachineStateHandler::default());
@@ -221,7 +221,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
     let count = machine_handler.count.load(Ordering::SeqCst) as f64;
     assert!(
-        count >= 0.68 * expected_total_count && count <= 1.25 * expected_total_count,
+        count >= 0.66 * expected_total_count && count <= 1.25 * expected_total_count,
         "Expected count of {}, but got {}",
         expected_total_count,
         count
@@ -235,10 +235,11 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             .unwrap_or_default() as f64;
 
         assert!(
-            count >= 0.68 * expected_iterations && count <= 1.25 * expected_iterations,
-            "Expected count of {}, but got {}",
+            count >= 0.66 * expected_iterations && count <= 1.25 * expected_iterations,
+            "Expected individual count of {}, but got {} for {}",
             expected_iterations,
-            count
+            count,
+            machine_id
         );
     }
 

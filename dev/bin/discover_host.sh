@@ -93,7 +93,7 @@ ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='${
 # Stop pretending to be the DPU
 sudo ip addr del ${DPU_INTERFACE_ADDR}/32 dev lo
 
-if [[ $i -gt "$MAX_RETRY" ]]; then
+if [[ $i -ge "$MAX_RETRY" ]]; then
   echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."
   exit 1
 fi
@@ -111,7 +111,7 @@ while [[ $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
   i=$((i+1))
 done
 
-if [[ $i -gt "$MAX_RETRY" ]]; then
+if [[ $i -ge "$MAX_RETRY" ]]; then
   echo "Even after $MAX_RETRY retries, Host did not come in Ready state."
   exit 1
 fi

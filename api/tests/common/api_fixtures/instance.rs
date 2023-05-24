@@ -24,7 +24,6 @@ pub const FIXTURE_CIRCUIT_ID_1: &str = "vlan_101";
 pub async fn create_instance(
     env: &TestEnv,
     host_machine_id: &MachineId,
-    dpu_machine_id: &MachineId,
     network: Option<rpc::InstanceNetworkConfig>,
 ) -> (uuid::Uuid, rpc::Instance) {
     let info = env
@@ -52,7 +51,7 @@ pub async fn create_instance(
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        dpu_machine_id,
+        host_machine_id,
         &handler,
         2,
         &mut txn,
@@ -66,12 +65,7 @@ pub async fn create_instance(
     (instance_id, info)
 }
 
-pub async fn delete_instance(
-    env: &TestEnv,
-    instance_id: uuid::Uuid,
-    host_machine_id: &MachineId,
-    dpu_machine_id: &MachineId,
-) {
+pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid, host_machine_id: &MachineId) {
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
@@ -83,7 +77,7 @@ pub async fn delete_instance(
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        dpu_machine_id,
+        host_machine_id,
         &handler,
         1,
         &mut txn,
@@ -110,7 +104,7 @@ pub async fn delete_instance(
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        dpu_machine_id,
+        host_machine_id,
         &handler,
         3,
         &mut txn,
@@ -138,7 +132,7 @@ pub async fn delete_instance(
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        dpu_machine_id,
+        host_machine_id,
         &handler,
         3,
         &mut txn,
@@ -165,7 +159,7 @@ pub async fn delete_instance(
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        dpu_machine_id,
+        host_machine_id,
         &handler,
         3,
         &mut txn,

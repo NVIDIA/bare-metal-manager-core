@@ -129,7 +129,7 @@ exit ||
         }
 
         let machine_snapshot = DbSnapshotLoader::default()
-            .load_machine_snapshot_for_host(txn, machine.id())
+            .load_machine_snapshot(txn, machine.id())
             .await?;
 
         let pxe_script = match &machine_snapshot.managed_state {

@@ -69,7 +69,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     let hardware_info = create_dpu_hardware_info();
     let stable_machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
-    let (machine, _is_new) = Machine::get_or_create(&mut txn, &stable_machine_id, iface, true)
+    let (machine, _is_new) = Machine::get_or_create(&mut txn, &stable_machine_id, iface)
         .await
         .unwrap();
 
@@ -82,13 +82,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&hardware_info)
         .ok_or_else(|| CarbideError::InvalidArgument("hardware info".to_string()))?;
-    let _ = Machine::get_or_create(
-        &mut txn,
-        &predicted_machine_id,
-        host_machine_interface,
-        false,
-    )
-    .await?;
+    let _ = Machine::get_or_create(&mut txn, &predicted_machine_id, host_machine_interface).await?;
 
     txn.commit()
         .await

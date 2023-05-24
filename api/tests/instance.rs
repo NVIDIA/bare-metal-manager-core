@@ -114,8 +114,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         ib_interfaces: Vec::new(),
     });
 
-    let (instance_id, _instance) =
-        create_instance(&env, &host_machine_id, &dpu_machine_id, network).await;
+    let (instance_id, _instance) = create_instance(&env, &host_machine_id, network).await;
 
     let mut txn = pool
         .clone()
@@ -233,7 +232,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    delete_instance(&env, instance_id, &host_machine_id, &dpu_machine_id).await;
+    delete_instance(&env, instance_id, &host_machine_id).await;
 
     // Address is freed during delete
     let mut txn = pool
@@ -262,7 +261,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone(), Default::default()).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
@@ -273,8 +272,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         ib_interfaces: Vec::new(),
     });
 
-    let (instance_id, _instance) =
-        create_instance(&env, &host_machine_id, &dpu_machine_id, network).await;
+    let (instance_id, _instance) = create_instance(&env, &host_machine_id, network).await;
 
     let mut txn = pool
         .clone()
@@ -454,13 +452,13 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     );
 
     txn.commit().await.unwrap();
-    delete_instance(&env, instance_id, &host_machine_id, &dpu_machine_id).await;
+    delete_instance(&env, instance_id, &host_machine_id).await;
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone(), Default::default()).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let snapshot_loader = DbSnapshotLoader::default();
 
@@ -470,7 +468,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         .await
         .expect("Unable to create transaction on database pool");
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, &dpu_machine_id)
+        .load_machine_snapshot(&mut txn, &host_machine_id)
         .await
         .unwrap();
     assert!(
@@ -488,8 +486,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         ib_interfaces: Vec::new(),
     });
 
-    let (instance_id, _instance) =
-        create_instance(&env, &host_machine_id, &dpu_machine_id, network).await;
+    let (instance_id, _instance) = create_instance(&env, &host_machine_id, network).await;
 
     let mut txn = pool
         .clone()
@@ -497,7 +494,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         .await
         .expect("Unable to create transaction on database pool");
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, &dpu_machine_id)
+        .load_machine_snapshot(&mut txn, &host_machine_id)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -526,7 +523,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         })
     );
 
-    delete_instance(&env, instance_id, &host_machine_id, &dpu_machine_id).await;
+    delete_instance(&env, instance_id, &host_machine_id).await;
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
@@ -566,7 +563,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_address_creation(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone(), Default::default()).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = pool
         .clone()
@@ -603,8 +600,7 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
         ib_interfaces: Vec::new(),
     });
 
-    let (instance_id, instance) =
-        create_instance(&env, &host_machine_id, &dpu_machine_id, network).await;
+    let (instance_id, instance) = create_instance(&env, &host_machine_id, network).await;
 
     let mut txn = pool
         .clone()
@@ -628,7 +624,7 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
     // The addresses should show up in the internal config
     let snapshot_loader = DbSnapshotLoader::default();
     let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, &dpu_machine_id)
+        .load_machine_snapshot(&mut txn, &host_machine_id)
         .await
         .unwrap();
     txn.commit().await.unwrap();

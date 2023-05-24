@@ -13,7 +13,7 @@
 //! State Controller IO implementation for Machines
 
 use crate::{
-    db::dpu_machine::DpuMachine,
+    db::host_machine::HostMachine,
     model::{
         config_version::{ConfigVersion, Versioned},
         machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
@@ -46,7 +46,7 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
     ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
-        Ok(crate::db::dpu_machine::DpuMachine::list_active_dpu_ids(txn)
+        Ok(crate::db::host_machine::HostMachine::list_active_ids(txn)
             .await
             .map_err(|x| SnapshotLoaderError::GenericError(x.into()))?)
     }
@@ -80,7 +80,7 @@ impl StateControllerIO for MachineStateControllerIO {
         _old_version: ConfigVersion,
         new_state: Self::ControllerState,
     ) -> Result<(), SnapshotLoaderError> {
-        DpuMachine::update_state(txn, object_id, new_state)
+        HostMachine::update_state(txn, object_id, new_state)
             .await
             .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
 
