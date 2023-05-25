@@ -49,7 +49,8 @@ pub struct MachineInterface {
 
 #[derive(Clone)]
 pub struct RuntimeConfig {
-    api_url: String,
+    internal_api_url: String,
+    client_facing_api_url: String,
     pxe_url: String,
     ntp_server: String,
     forge_root_ca_path: String,
@@ -155,14 +156,14 @@ impl<'r> FromRequest<'r> for Machine {
                 match forge_tls_client::ForgeTlsClient::new(
                     runtime_config.forge_root_ca_path.clone(),
                 )
-                .connect(runtime_config.api_url.clone())
+                .connect(runtime_config.internal_api_url.clone())
                 .await
                 {
                     Ok(client) => client,
                     Err(err) => {
                         eprintln!(
                             "error connecting to forge api from pxe - {:?} - url: {:?}",
-                            err, runtime_config.api_url
+                            err, runtime_config.internal_api_url
                         );
                         return request::Outcome::Failure((
                             Status::BadRequest,
@@ -345,12 +346,7 @@ async fn main() -> Result<(), rocket::Error> {
             "Carbide API Config",
             |rocket| async move {
                 match extract_params(rocket.figment()) {
-                    Ok(config) => Ok(rocket.manage(RuntimeConfig {
-                        api_url: config.api_url,
-                        pxe_url: config.pxe_url,
-                        ntp_server: config.ntp_server,
-                        forge_root_ca_path: config.forge_root_ca_path,
-                    })),
+                    Ok(config) => Ok(rocket.manage(config)),
                     Err(err) => {
                         println!(
                             "An unexpected error occurred in carbide pxe server setup: {}",
@@ -369,9 +365,12 @@ async fn main() -> Result<(), rocket::Error> {
 
 fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
     Ok(RuntimeConfig {
-        api_url: figment
-            .extract_inner::<String>("carbide_api_url")
-            .map_err(|_| "Could not extract carbide_api_url from config")?,
+        internal_api_url: figment
+            .extract_inner::<String>("carbide_api_internal_url")
+            .map_err(|_| "Could not extract carbide_api_internal_url from config")?,
+        client_facing_api_url: figment
+            .extract_inner::<String>("carbide_api_client_facing_url")
+            .map_err(|_| "Could not extract carbide_api_client_facing_url from config")?,
         pxe_url: figment
             .extract_inner::<String>("carbide_pxe_url")
             .map_err(|_| "Could not extract carbide_pxe_url from config")?,

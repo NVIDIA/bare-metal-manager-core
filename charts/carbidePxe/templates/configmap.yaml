@@ -16,11 +16,8 @@ data:
   Rocket.toml: |
     [default]
     address = "0.0.0.0"
-    {{ if eq .Values.carbideApiUrl "-" -}}
-    carbide_api_url = "{{ ternary "https" "http" (.Values.useTLS) }}://carbide-api.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}:1079"
-    {{- else }}
-    carbide_api_url = {{ .Values.carbideApiUrl | quote }}
-    {{- end }}
+    carbide_api_internal_url = "https://carbide-api.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}:1079"
+    carbide_api_client_facing_url = {{ .Values.carbideApiClientFacingUrl | quote }}
     {{ if eq .Values.carbidePxeUrl "-" -}}
     carbide_pxe_url = "{{ ternary "https" "http" (.Values.useTLS) }}://carbide-pxe.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}:{{ ternary .Values.container.containerPorts.https .Values.container.containerPorts.http (.Values.useTLS )}}"
     {{- else }}

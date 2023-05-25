@@ -28,8 +28,8 @@ clusterDomain: cluster.local
 # clusterDomain -- Kubernetes cluster domain name
 extraDeploy: []
 # extraDeploy -- Array of extra objects to deploy with the release
-carbideApiUrl: "-"
-# carbideApiUrl -- When set to "-" Helm will automatically attempt to determine the correct service name of carbide-api
+carbideApiClientFacingUrl: "https://carbide-api.forge:1079"
+# carbideApiClientFacingUrl -- the URL served to clients that need to call the API from outside the k8s cluster the api pod is running on
 carbidePxeUrl: "-"
 # carbidePxeUrl -- When set to "-" Helm will automatically attempt to determine the correct service name of carbide-pxe
 ntpServerIP: ""

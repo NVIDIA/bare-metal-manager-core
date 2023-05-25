@@ -65,7 +65,7 @@ pub async fn boot(contents: MachineInterface, config: RuntimeConfig) -> Result<T
     let instructions = RpcContext::get_pxe_instructions(
         arch,
         machine_interface_id,
-        config.api_url.clone(),
+        config.internal_api_url.clone(),
         config.forge_root_ca_path.clone(),
     )
     .await
@@ -79,7 +79,7 @@ exit 101 ||
             err
         )
     })
-    .replace("[api_url]", &config.api_url);
+    .replace("[api_url]", &config.client_facing_api_url);
 
     context.insert("ipxe".to_string(), instructions);
 

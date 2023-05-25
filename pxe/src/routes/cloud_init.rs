@@ -30,7 +30,7 @@ async fn user_data_handler_in_assigned(
         Some(rpc_machine) => {
             match RpcContext::get_instance(
                 rpc_machine.clone(),
-                config.api_url.clone(),
+                config.internal_api_url.clone(),
                 config.forge_root_ca_path.clone(),
             )
             .await
@@ -84,7 +84,7 @@ async fn user_data_handler(
         format!("{}.{}", machine.interface.hostname, machine.domain.name),
     );
     context.insert("interface_id".to_string(), machine_interface_id.to_string());
-    context.insert("api_url".to_string(), config.api_url);
+    context.insert("api_url".to_string(), config.client_facing_api_url);
     context.insert("pxe_url".to_string(), config.pxe_url);
     context.insert("ntp_server".to_string(), config.ntp_server);
     context.insert(
@@ -112,7 +112,7 @@ fn generate_forge_agent_config(
     machine: &Machine,
     config: &RuntimeConfig,
 ) -> String {
-    let api_url = config.api_url.as_str();
+    let api_url = config.client_facing_api_url.as_str();
     let pxe_url = config.pxe_url.as_str();
     let ntp_server = config.ntp_server.as_str();
 
@@ -238,7 +238,8 @@ mod tests {
         };
 
         let runtime_config = RuntimeConfig {
-            api_url: "https://127.0.0.1:8001".to_string(),
+            internal_api_url: "https://127.0.0.1:8001".to_string(),
+            client_facing_api_url: "https://127.0.0.1:8001".to_string(),
             pxe_url: "http://127.0.0.1:8080".to_string(),
             ntp_server: "127.0.0.2".to_string(),
             forge_root_ca_path: rpc::forge_tls_client::DEFAULT_ROOT_CA.to_string(),
