@@ -79,7 +79,7 @@ impl PxeInstructions {
             rpc::MachineArchitecture::X86 => {
                 InstructionGenerator::X86 {
                         kernel: "${base-url}/internal/x86_64/carbide.efi".to_string(),
-                        command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console=ttyS0,115200 console=ttyS1,115200 ifname=bootnic:{mac} ip=bootnic:dhcp cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id, mac = mac_address),
+                        command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console=ttyS0,115200 console=ttyS1,115200 ifname=bootnic:{mac} ip=bootnic:dhcp pci=realloc=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id, mac = mac_address),
                 }
             }
         }.serialize_pxe_instructions()
