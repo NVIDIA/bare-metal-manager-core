@@ -6,6 +6,10 @@
 
 - [Usage]()
 
+# Architecture
+
+- [Key Group Synchronization](architecture/key_group_sync.md)
+
 # Components
 
 - [gRPC API]()
