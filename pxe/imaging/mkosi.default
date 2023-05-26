@@ -1,0 +1,27 @@
+[Distribution]
+Distribution=debian
+Release=bullseye
+
+[Output]
+Format=gpt_squashfs
+ManifestFormat=json
+Bootable=true
+#Minimize=true
+WithUnifiedKernelImages=true
+SplitArtifacts=true
+OutputSplitRoot=qcow-imaging-x86_64.rootfs
+OutputSplitKernel=qcow-imaging-x86_64.kernel
+
+[Content]
+WithNetwork=yes
+BasePackages=true
+Packages=
+     curl
+     iputils-ping
+     net-tools
+     nvme-cli
+     parted
+     qemu-utils
+     wget
+
+Password=password

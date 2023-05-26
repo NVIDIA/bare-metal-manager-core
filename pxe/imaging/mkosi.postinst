@@ -1,0 +1,40 @@
+#!/bin/bash
+
+if [ "$1" != "final" ]; then
+exit 0
+fi
+set -e
+set -u
+set -x
+
+# add groups that scout will attempt to add to a user, but don't exist in the base install
+groupadd --system netdev
+groupadd --system lxd
+
+tmpdir=/tmp/tmpins
+mkdir -p $tmpdir
+cd $tmpdir
+softdir=/distr
+apt install -y debconf-utils
+echo '
+keyboard-configuration  keyboard-configuration/modelcode        string  pc105
+keyboard-configuration  keyboard-configuration/variant  select  English (US)
+' > kbd.conf
+debconf-set-selections < kbd.conf
+apt install -y keyboard-configuration
+dpkg-reconfigure keyboard-configuration -f noninteractive
+
+set >/home/set.$1
+ls -l /boot
+
+cat >/etc/systemd/network/dhcp.network <<EOF
+[Match]
+Name=bootnic
+
+[Network]
+DHCP=yes
+
+[DHCP]
+ClientIdentifier=mac
+EOF
+systemctl enable systemd-networkd

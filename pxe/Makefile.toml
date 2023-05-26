@@ -64,9 +64,11 @@ category = "Ephemeral Image"
 dependencies = [
 	"mkosi-generate-zipapp",
 	"mkosi-clean-artifacts",
+	"mkosi-clean-artifacts-qcow",
 	"copy-debug-artifacts",
 	"copy-forge-root-ca",
 	"mkosi-build-image",
+	"mkosi-build-qcow-imaging",
 	"mkosi-remove-unnecessary-files",
 ]
 
@@ -75,9 +77,11 @@ category = "Ephemeral Image"
 dependencies = [
 	"mkosi-generate-zipapp",
 	"mkosi-clean-artifacts-x86_64-ci",
+	"mkosi-clean-artifacts-qcow",
 	"copy-debug-artifacts",
 	"copy-forge-root-ca-ci",
 	"mkosi-build-image-x86_64-ci",
+	"mkosi-build-qcow-imaging",
 	"mkosi-remove-unnecessary-files",
 ]
 
@@ -168,6 +172,28 @@ args = [
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"build"
 ]
+
+[tasks.mkosi-build-qcow-imaging]
+category = "Ephemeral Image"
+command = "sudo"
+args = [
+	"../mkosi/builddir/mkosi",
+	"--split-artifacts",
+	"--output", "../static/blobs/internal/x86_64/qcow-imaging",
+	"build"
+]
+cwd = "imaging"
+
+[tasks.mkosi-clean-artifacts-qcow]
+category = "Ephemeral Image"
+command = "sudo"
+args = [
+	"../mkosi/builddir/mkosi",
+	"--split-artifacts",
+	"--output", "../static/blobs/internal/x86_64/qcow-imaging",
+	"clean"
+]
+cwd = "imaging"
 
 [tasks.mkosi-generate-zipapp]
 category = "Ephemeral Image"
