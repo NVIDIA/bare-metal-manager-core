@@ -212,6 +212,7 @@ impl TestEnv {
                 search_config: Some(rpc::forge::MachineSearchConfig {
                     include_dpus,
                     include_history: true,
+                    include_predicted_host: false,
                 }),
                 id,
                 fqdn,

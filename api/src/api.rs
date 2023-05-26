@@ -1614,6 +1614,11 @@ where
             .map(|x| x.include_dpus)
             .unwrap_or(false);
 
+        let include_ph = search_config
+            .as_ref()
+            .map(|x| x.include_predicted_host)
+            .unwrap_or(false);
+
         let search_config = search_config
             .map(MachineSearchConfig::from)
             .unwrap_or(MachineSearchConfig::default());
@@ -1635,7 +1640,9 @@ where
                     .filter(|x| {
                         let ty = x.machine_type();
                         // We never return PredictedHost
-                        ty.is_host() || (ty.is_dpu() && include_dpus)
+                        ty.is_host()
+                            || (ty.is_dpu() && include_dpus)
+                            || (ty.is_predicted_host() && include_ph)
                     })
                     .map(rpc::Machine::from)
                     .collect(),

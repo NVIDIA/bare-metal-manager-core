@@ -23,8 +23,9 @@ use super::cfg::carbide_options::ShowMachine;
 use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
 
 fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResult<String> {
-    let width = 10;
+    let width = 13;
     let mut lines = String::new();
+    let machine_id = machine.id.clone().unwrap_or_default().id;
 
     let data = vec![
         ("ID", machine.id.clone().unwrap_or_default().id),
@@ -41,6 +42,7 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
             machine.deployed.clone().unwrap_or_default().to_string(),
         ),
         ("STATE", machine.state.clone().to_uppercase()),
+        ("MACHINE TYPE", get_machine_type(&machine_id)),
     ];
     for (key, value) in data {
         writeln!(&mut lines, "{:<width$}: {}", key, value)?;
@@ -50,12 +52,22 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
     if machine.events.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
-        writeln!(&mut lines, "\tId    Event          Time")?;
-        writeln!(&mut lines, "\t----------------------------")?;
+        let mut max_len = 0;
+        for x in machine.events.iter().rev().take(5).rev() {
+            if x.event.len() > max_len {
+                max_len = x.event.len();
+            }
+        }
+        writeln!(&mut lines, "\tId    {:<max_len$}   Time", "State")?;
+        let mut div = "-------------------------".to_string();
+        for _ in 0..max_len {
+            div.push('-')
+        }
+        writeln!(&mut lines, "\t{}", div)?;
         for x in machine.events.iter().rev().take(5).rev() {
             writeln!(
                 &mut lines,
-                "\t{:<5} {:15} {}",
+                "\t{:<5} {:<max_len$} {}",
                 x.id,
                 x.event,
                 x.time.clone().unwrap_or_default()
@@ -69,18 +81,6 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
         for (i, interface) in machine.interfaces.into_iter().enumerate() {
-            let m_type = if interface.primary_interface {
-                if interface.attached_dpu_machine_id.is_some()
-                    && interface.attached_dpu_machine_id == interface.machine_id
-                {
-                    "DPU"
-                } else {
-                    "X86_64"
-                }
-            } else {
-                "NA"
-            }
-            .to_string();
             let data = vec![
                 ("SN", i.to_string()),
                 ("ID", interface.id.clone().unwrap_or_default().to_string()),
@@ -120,7 +120,6 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
                 ("Primary", interface.primary_interface.to_string()),
                 ("MAC Address", interface.mac_address.clone()),
                 ("Addresses", interface.address.join(",")),
-                ("Type", m_type),
             ];
 
             for (key, value) in data {
@@ -134,6 +133,17 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
     }
 
     Ok(lines)
+}
+
+fn get_machine_type(machine_id: &str) -> String {
+    if machine_id.starts_with("fm100p") {
+        "Host (Predicted)"
+    } else if machine_id.starts_with("fm100h") {
+        "Host"
+    } else {
+        "DPU"
+    }
+    .to_string()
 }
 
 fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table> {
@@ -151,6 +161,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
     ]);
 
     for machine in machines.machines {
+        let machine_id = machine.id.unwrap_or_default().id;
         let mut machine_interfaces = machine
             .interfaces
             .into_iter()
@@ -172,14 +183,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
                 mi.id.unwrap_or_default().to_string(),
                 mi.address.join(","),
                 mi.mac_address,
-                if mi.attached_dpu_machine_id == mi.machine_id
-                    && mi.attached_dpu_machine_id.is_some()
-                {
-                    "DPU"
-                } else {
-                    "X86_64"
-                }
-                .to_string(),
+                get_machine_type(&machine_id),
                 mi.attached_dpu_machine_id
                     .map(|x| x.to_string())
                     .unwrap_or_else(|| "NA".to_string()),
@@ -187,7 +191,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
         };
 
         table.add_row(row![
-            machine.id.unwrap_or_default(),
+            machine_id,
             machine.created.unwrap_or_default(),
             machine.state.to_uppercase(),
             dpu_id,

@@ -55,6 +55,7 @@ pub async fn get_host_machine(id: String, api_config: Config) -> CarbideCliResul
             search_config: Some(rpc::MachineSearchConfig {
                 include_dpus: false,
                 include_history: false,
+                include_predicted_host: true,
             }),
         });
 
@@ -81,6 +82,7 @@ pub async fn get_dpu_machine(id: String, api_config: Config) -> CarbideCliResult
             search_config: Some(rpc::MachineSearchConfig {
                 include_dpus: true,
                 include_history: false,
+                include_predicted_host: false,
             }),
         });
 
@@ -116,6 +118,7 @@ pub async fn get_all_machines(api_config: Config) -> CarbideCliResult<rpc::Machi
             search_config: Some(rpc::MachineSearchConfig {
                 include_dpus: true,
                 include_history: true,
+                include_predicted_host: true,
             }),
         });
         let machine_details = client
