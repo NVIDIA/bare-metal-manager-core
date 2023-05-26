@@ -308,7 +308,12 @@ fn has_applied_network_config(
         None => {
             return false;
         }
-        Some(network_status) => network_status.network_config_version,
+        Some(network_status) => match network_status.network_config_version {
+            None => {
+                return false;
+            }
+            Some(version) => version,
+        },
     };
     *dpu_expected_version == dpu_observed_version
 }

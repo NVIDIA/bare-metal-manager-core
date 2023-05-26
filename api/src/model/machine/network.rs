@@ -7,12 +7,13 @@ use serde::{Deserialize, Serialize};
 use crate::model::{config_version::ConfigVersion, RpcDataConversionError};
 
 /// The network status that was last reported by the networking subystem
+/// Stored in a Postgres JSON field so new fields have to be Option until fully deployed
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MachineNetworkStatusObservation {
     machine_id: String,
     observed_at: DateTime<Utc>,
     health_status: HealthStatus,
-    pub network_config_version: ConfigVersion,
+    pub network_config_version: Option<ConfigVersion>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,10 +49,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
                 failed: health.failed,
                 message: health.message,
             },
-            network_config_version: obs
-                .network_config_version
-                .and_then(|n| n.parse().ok())
-                .unwrap_or_else(ConfigVersion::initial),
+            network_config_version: obs.network_config_version.and_then(|n| n.parse().ok()),
         })
     }
 }
@@ -67,7 +65,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
                 failed: m.health_status.failed,
                 message: m.health_status.message,
             }),
-            network_config_version: Some(m.network_config_version.version_string()),
+            network_config_version: m.network_config_version.map(|v| v.version_string()),
             instance_id: None,
             instance_config_version: None,
             interfaces: vec![],
