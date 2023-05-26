@@ -338,8 +338,23 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
     Ok(())
 }
 
-fn issue_onecli_user_commands(id: &String) -> CarbideClientResult<()> {
-    let onecli_user_str = format!("IMM.LoginRole.{id}");
+fn issue_onecli_user_commands(id: &str) -> CarbideClientResult<()> {
+    // The onecli tool identifies users starting at 1 and ipmi has 1 as a reserved number
+    // so the onecli needs to have the ipmi user id minus one to set the LoginRole.
+    let onecli_id: i32 = match id
+        .parse::<i32>()
+        .map(|x| x - 1)
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?
+    {
+        valid_id if valid_id > 1 => Ok(valid_id),
+        invalid_id => {
+            Err(CarbideClientError::GenericError(format!(
+                "The value for the login user {invalid_id} was not greater than 1, which is the root user"
+            )))
+        }
+    }?;
+
+    let onecli_user_str = format!("IMM.LoginRole.{onecli_id}");
     let _ = Cmd::new("/opt/forge/xclarity/onecli")
         .args(["config", "set", onecli_user_str.as_str(), "Administrator"])
         .output()?;
