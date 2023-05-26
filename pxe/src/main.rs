@@ -365,11 +365,10 @@ async fn main() -> Result<(), rocket::Error> {
 
 fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
     Ok(RuntimeConfig {
-        internal_api_url: figment
-            .extract_inner::<String>("carbide_api_internal_url")
-            .map_err(|_| "Could not extract carbide_api_internal_url from config")?,
+        //TODO: this might be a "temporary-actually-forever" hack where we rely on search path/resolvconf to give us the cluster search domain properly.
+        internal_api_url: "https://carbide-api:1079".to_string(),
         client_facing_api_url: figment
-            .extract_inner::<String>("carbide_api_client_facing_url")
+            .extract_inner::<String>("carbide_api_url")
             .map_err(|_| "Could not extract carbide_api_client_facing_url from config")?,
         pxe_url: figment
             .extract_inner::<String>("carbide_pxe_url")
