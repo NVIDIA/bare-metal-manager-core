@@ -9,6 +9,11 @@ if [ $# -ne 3 ]; then
   exit 1
 fi
 
+#if [[ -z $HBN_ROOT ]]; then
+#  echo "Not set: \$HBN_ROOT. bin/discover_dpu.sh should set this during bootstrap. Exiting."
+#  exit 11
+#fi
+
 API_SERVER=$2:$3
 
 HOST_MACHINE_ID=$(grpcurl -d '{}' -insecure ${API_SERVER} forge.Forge/FindMachines | python3 -c "import sys,json
@@ -27,7 +32,11 @@ print(j['machines'][0]['interfaces'][0]['segmentId']['value'])")
 if [[ "$1" == "test" || "$1" == "create" ]]; then
   # Create Instance
   echo "Creating instance with machine: $HOST_MACHINE_ID, with network segment: $SEGMENT_ID"
-  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"config\": {\"tenant\": {\"tenant_organization_id\": \"MyOrg\", \"user_data\": \"hello\", \"custom_ipxe\": \"chain --autofree https://boot.netboot.xyz\"}, \"network\": {\"interfaces\": [{\"function_type\": \"PHYSICAL_FUNCTION\", \"network_segment_id\": {\"value\": \"$SEGMENT_ID\"}}]}}}" -insecure ${API_SERVER} forge.Forge/AllocateInstance
+  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"config\": {\"tenant\": {\"tenant_organization_id\": \"MyOrg\", \"user_data\": \"hello\", \"custom_ipxe\": \"chain --autofree https://boot.netboot.xyz\"}, \"network\": {\"interfaces\": [{\"function_type\": \"PHYSICAL\", \"network_segment_id\": {\"value\": \"$SEGMENT_ID\"}}]}}}" -insecure ${API_SERVER} forge.Forge/AllocateInstance
+  # Apply the networking configuration
+  # TODO: Automate this. Get DPU_MACHINE_ID. HBN_ROOT we should have, it's exported by discover_dpu.sh.
+  echo "Set correct variables and run:"
+  echo "cargo run -p agent -- netconf --dpu-machine-id \${DPU_MACHINE_ID} --chroot \${HBN_ROOT} --skip-reload"
  fi
 
 # Check Instance state
@@ -63,10 +72,15 @@ if [[ "$1" == "test" || "$1" == "create" ]]; then
   fi
 fi
 
+# You probably need to run `forge-dpu-agent netconf` at various points for state transitions to happen
+# See "Apply the networking configuration" above
 if [[ "$1" == "test" || "$1" == "delete" ]]; then
-  echo "Deleting instance now."
-  # Delete Instance
+  echo "Deleting instance now. Triggers a reboot."
   grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -insecure ${API_SERVER} forge.Forge/ReleaseInstance
+  sleep 1
+
+  echo "Machine comes up, forge-scout tells API that we're back"
+  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure ${API_SERVER} forge.Forge/ForgeAgentControl
 
   # Wait until its gone.
   i=0

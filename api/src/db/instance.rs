@@ -190,6 +190,22 @@ impl Instance {
 SELECT i.* from instances i
 INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id
 INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
+WHERE s.network_config->>'loopback_ip'=$1";
+        sqlx::query_as(query)
+            .bind(relay.to_string())
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    pub async fn find_by_relay_ip_vpc(
+        txn: &mut Transaction<'_, Postgres>,
+        relay: IpAddr,
+    ) -> Result<Option<Instance>, DatabaseError> {
+        let query = "
+SELECT i.* from instances i
+INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id
+INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
 INNER JOIN vpc_resource_leafs v ON v.id = s.vpc_leaf_id
 WHERE v.loopback_ip_address=$1";
         sqlx::query_as(query)

@@ -33,8 +33,13 @@ async fn handle_dhcp_for_instance(
     relay_ip: IpAddr,
     circuit_id: Option<String>,
     parsed_mac: MacAddress,
+    is_old_vpc: bool,
 ) -> CarbideResult<Option<Response<rpc::DhcpRecord>>> {
-    let possible_instance: Option<Instance> = Instance::find_by_relay_ip(txn, relay_ip).await?;
+    let possible_instance: Option<Instance> = if is_old_vpc {
+        Instance::find_by_relay_ip_vpc(txn, relay_ip).await?
+    } else {
+        Instance::find_by_relay_ip(txn, relay_ip).await?
+    };
 
     if let Some(instance) = possible_instance {
         let circuit_id_parsed = circuit_id
@@ -76,6 +81,7 @@ async fn handle_dhcp_for_instance(
 pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,
     request: Request<rpc::DhcpDiscovery>,
+    is_old_vpc: bool,
 ) -> Result<Response<rpc::DhcpRecord>, Status> {
     let mut txn = database_connection
         .begin()
@@ -109,7 +115,7 @@ pub async fn discover_dhcp(
 
     // Instance handling. None means no instance found matching with dhcp request.
     if let Some(response) =
-        handle_dhcp_for_instance(&mut txn, relay_ip, circuit_id, parsed_mac).await?
+        handle_dhcp_for_instance(&mut txn, relay_ip, circuit_id, parsed_mac, is_old_vpc).await?
     {
         txn.commit()
             .await

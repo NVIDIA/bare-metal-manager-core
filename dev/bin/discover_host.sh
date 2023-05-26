@@ -74,6 +74,9 @@ echo "Updating machine interface address for machine interface ${DPU_INTERFACE_I
 ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='127.0.0.2' where interface_id='${DPU_INTERFACE_ID}';"
 
 # Pretend to be the DPU so ReachabilityChecker can ping us
+#
+# If this steps aborts with "RTNETLINK answers: File exists" then the 'del' (see below) didn't run last time. Run it manually:
+#  sudo ip addr del 172.20.0.100/32 dev lo
 sudo ip addr add ${DPU_INTERFACE_ADDR}/32 dev lo
 
 # Wait until host reaches discovered state.

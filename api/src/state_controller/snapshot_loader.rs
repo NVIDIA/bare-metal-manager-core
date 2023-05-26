@@ -99,30 +99,13 @@ pub async fn get_machine_snapshot(
     .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
     .ok_or(SnapshotLoaderError::MachineNotFound(machine_id.clone()))?;
 
-    let network_config = machine.network_config().clone();
-    let vpc_loopback_ip = if machine.is_dpu() {
-        match network_config.loopback_ip {
-            // the new way, VCP is replaced
-            Some(_ip) => None,
-            None => {
-                // old way, check if VPC gave it to us
-                let dpu_machine = DpuMachine::find_by_machine_id(txn, machine_id)
-                    .await
-                    .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
-                dpu_machine.vpc_loopback_ip()
-            }
-        }
-    } else {
-        // Only DPU's have loopback IPs
-        None
-    };
-
     let snapshot = MachineSnapshot {
         machine_id: machine_id.clone(),
         bmc_info: machine.bmc_info().clone(),
         hardware_info: machine.hardware_info().cloned(),
-        network_config,
+        network_config: machine.network_config().clone(),
         interfaces: interface_to_snapshot(txn, machine.interfaces()).await?,
+        network_status_observation: machine.network_status_observation().cloned(),
         current: CurrentMachineState {
             state: machine.current_state(),
             version: machine.current_version(),
@@ -130,7 +113,6 @@ pub async fn get_machine_snapshot(
         last_discovery_time: machine.last_discovery_time(),
         last_reboot_time: machine.last_reboot_time(),
         last_cleanup_time: machine.last_cleanup_time(),
-        vpc_loopback_ip,
     };
 
     Ok(snapshot)

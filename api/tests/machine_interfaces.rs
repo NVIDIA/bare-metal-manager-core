@@ -73,7 +73,7 @@ async fn only_one_primary_interface_per_machine(
     .await?;
 
     let machine_id = MachineId::from_hardware_info(&create_dpu_hardware_info()).unwrap();
-    let (new_machine, _is_new) = Machine::get_or_create(&mut txn, &machine_id, new_interface)
+    let (new_machine, _is_new) = Machine::get_or_create(&mut txn, &machine_id, &new_interface)
         .await
         .expect("Unable to create machine");
 
@@ -81,7 +81,7 @@ async fn only_one_primary_interface_per_machine(
 
     let mut txn = pool.begin().await?;
 
-    let mut should_failed_machine_interface = MachineInterface::create(
+    let should_failed_machine_interface = MachineInterface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ef").as_ref().unwrap(),

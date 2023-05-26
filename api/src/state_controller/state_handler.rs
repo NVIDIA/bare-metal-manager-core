@@ -30,7 +30,8 @@ pub struct StateHandlerServices {
     pub pool: sqlx::PgPool,
 
     /// API for interaction with Forge VPC
-    pub vpc_api: Arc<dyn VpcApi>,
+    /// None if we are using Ethernet Virtualizer instead (carbide-api flag `--manage-vpc`)
+    pub vpc_api: Option<Arc<dyn VpcApi>>,
 
     /// API for interaction with Forge VPC
     pub forge_api: Arc<dyn rpc::forge::forge_server::Forge>,

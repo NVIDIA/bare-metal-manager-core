@@ -47,19 +47,26 @@ fi
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
 echo "DPU discovery completed. Waiting for it reached in Host/WaitingForDiscovery state."
 
+# Make a directory to put the HBN files
+export HBN_ROOT=/tmp/forge-hbn-chroot-${RANDOM} # export so that instance_handle.sh can use it
+mkdir -p ${HBN_ROOT}/etc/frr
+mkdir -p ${HBN_ROOT}/etc/network
+mkdir -p ${HBN_ROOT}/etc/supervisor/conf.d
+
+# Apply the networking configuration
+#
+# TODO: This rebuilds everything locally. Instead put forge-dpu-agent in a container, then
+# API_CONTAINER=$(docker ps | grep carbide-api | awk -F" " '{print $NF}')
+# docker exec -ti ${API_CONTAINER} /opt/forge-dpu-agent netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
+cargo run -p agent -- netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
+echo "HBN files are in ${HBN_ROOT}"
+
 # Wait until DPU becomes ready
-i=0
 MACHINE_STATE=""
-while [[ $MACHINE_STATE != "Host/WaitingForDiscovery" && $i -lt $MAX_RETRY ]]; do
+while [[ $MACHINE_STATE != "Host/WaitingForDiscovery" ]]; do
   sleep 10
   MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
-  echo "Checking machine state. Waiting for it to be in Host/WaitingForDiscovery state. Current: $MACHINE_STATE"
-  i=$((i+1))
+  echo "Waiting for DPU state Host/WaitingForDiscovery. Current: $MACHINE_STATE"
 done
-
-if [[ $i == "$MAX_RETRY" ]]; then
-  echo "Even after $MAX_RETRY retries, DPU did not come in Host/WaitingForDiscovery state."
-  exit 1
-fi
 
 echo "DPU is up now."

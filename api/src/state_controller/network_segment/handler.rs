@@ -56,43 +56,44 @@ impl StateHandler for NetworkSegmentStateHandler {
         let read_state: &NetworkSegmentControllerState = &*controller_state;
         match read_state {
             NetworkSegmentControllerState::Provisioning => {
-                let mut created_all_resource_groups = true;
-                for prefix in state.prefixes.iter() {
-                    match ctx
-                        .services
-                        .vpc_api
-                        .try_create_resource_group(
-                            prefix.id,
-                            prefix.prefix,
-                            prefix.gateway,
-                            state.vlan_id,
-                            state.vni,
-                        )
-                        .await?
-                    {
-                        Poll::Ready(result) => {
-                            NetworkPrefix::update_circuit_id(txn, prefix.id, result.circuit_id)
-                                .await?;
-                            if let Some(vlan_id) = result.vlan_id {
-                                NetworkSegment::update_vlan_id(txn, *segment_id, vlan_id).await?;
+                if let Some(vpc_api) = ctx.services.vpc_api.as_ref() {
+                    let mut created_all_resource_groups = true;
+                    for prefix in state.prefixes.iter() {
+                        match vpc_api
+                            .try_create_resource_group(
+                                prefix.id,
+                                prefix.prefix,
+                                prefix.gateway,
+                                state.vlan_id,
+                                state.vni,
+                            )
+                            .await?
+                        {
+                            Poll::Ready(result) => {
+                                NetworkPrefix::update_circuit_id(txn, prefix.id, result.circuit_id)
+                                    .await?;
+                                if let Some(vlan_id) = result.vlan_id {
+                                    NetworkSegment::update_vlan_id(txn, *segment_id, vlan_id)
+                                        .await?;
+                                }
+                                if let Some(vni) = result.vni {
+                                    NetworkSegment::update_vni(txn, *segment_id, vni).await?;
+                                }
                             }
-                            if let Some(vni) = result.vni {
-                                NetworkSegment::update_vni(txn, *segment_id, vni).await?;
+                            Poll::Pending => {
+                                // We have to retry this. But we let the loop
+                                // continue, so that resource groups for
+                                // other prefixes are provisioned at the same time
+                                created_all_resource_groups = false;
                             }
-                        }
-                        Poll::Pending => {
-                            // We have to retry this. But we let the loop
-                            // continue, so that resource groups for
-                            // other prefixes are provisioned at the same time
-                            created_all_resource_groups = false;
                         }
                     }
-                }
 
-                if !created_all_resource_groups {
-                    // We need another iteration to get confirmation that
-                    // all CRDs have actually been created
-                    return Ok(());
+                    if !created_all_resource_groups {
+                        // We need another iteration to get confirmation that
+                        // all CRDs have actually been created
+                        return Ok(());
+                    }
                 }
 
                 // Once we discover that VPC is configured, we moved into the Ready state
@@ -158,23 +159,25 @@ impl StateHandler for NetworkSegmentStateHandler {
                     }
                     NetworkSegmentDeletionState::DeleteVPCResourceGroups => {
                         let mut deleted_all_crds = true;
-                        for prefix in state.prefixes.iter() {
-                            match ctx
-                                .services
-                                .vpc_api
-                                .try_delete_resource_group(prefix.id)
-                                .await?
-                            {
-                                Poll::Pending => {
-                                    deleted_all_crds = false;
-                                }
-                                Poll::Ready(()) => {
-                                    tracing::info!(
-                                        "ResourceGroup for Prefix {} was deleted",
-                                        prefix.id
-                                    );
+                        if let Some(vpc_api) = ctx.services.vpc_api.as_ref() {
+                            for prefix in state.prefixes.iter() {
+                                match vpc_api.try_delete_resource_group(prefix.id).await? {
+                                    Poll::Pending => {
+                                        deleted_all_crds = false;
+                                    }
+                                    Poll::Ready(()) => {
+                                        tracing::info!(
+                                            "ResourceGroup for Prefix {} was deleted",
+                                            prefix.id
+                                        );
+                                    }
                                 }
                             }
+                        }
+                        if !deleted_all_crds {
+                            // We need another iteration to get confirmation that
+                            // all CRDs have actually been deleted
+                            return Ok(());
                         }
 
                         if let Some(vni) = state.vni.take() {
@@ -186,12 +189,6 @@ impl StateHandler for NetworkSegmentStateHandler {
                             if let Some(pool_vlan_id) = ctx.services.pool_vlan_id.as_ref() {
                                 pool_vlan_id.release(txn, vlan_id).await?;
                             }
-                        }
-
-                        if !deleted_all_crds {
-                            // We need another iteration to get confirmation that
-                            // all CRDs have actually been deleted
-                            return Ok(());
                         }
 
                         tracing::info!(

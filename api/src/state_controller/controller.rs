@@ -546,10 +546,7 @@ impl<IO: StateControllerIO> Builder<IO> {
                     "redfish_client_pool",
                 ))?;
 
-        let vpc_api = self
-            .vpc_api
-            .take()
-            .ok_or(StateControllerBuildError::MissingArgument("vpc_api"))?;
+        let vpc_api = self.vpc_api.take();
 
         let forge_api = self
             .forge_api
@@ -661,8 +658,8 @@ impl<IO: StateControllerIO> Builder<IO> {
     }
 
     /// Configures the utilized VPC API
-    pub fn vpc_api(mut self, vpc_api: Arc<dyn VpcApi>) -> Self {
-        self.vpc_api = Some(vpc_api);
+    pub fn vpc_api(mut self, vpc_api: Option<Arc<dyn VpcApi>>) -> Self {
+        self.vpc_api = vpc_api;
         self
     }
 

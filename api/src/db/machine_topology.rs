@@ -11,7 +11,6 @@
  */
 
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr};
 
 use chrono::prelude::*;
 use itertools::Itertools;
@@ -20,7 +19,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
-use crate::db::machine::{DbMachineId, Machine, MachineSearchConfig};
+use crate::db::machine::{DbMachineId, Machine};
 use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::{hardware_info::HardwareInfo, machine::machine_id::MachineId};
@@ -106,77 +105,48 @@ impl MachineTopology {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         hardware_info: &HardwareInfo,
-        loopback_ip: Option<Ipv4Addr>,
     ) -> CarbideResult<Option<Self>> {
         if Self::is_discovered(&mut *txn, machine_id).await? {
             tracing::info!("Discovery data for machine {} already exists", machine_id);
-            Ok(None)
-        } else {
-            let topology_data = TopologyData {
-                discovery_data: DiscoveryData {
-                    info: hardware_info.clone(),
-                },
-                bmc_info: BmcInfo {
-                    ip: None,
-                    mac: None,
-                    version: None,
-                    firmware_version: None,
-                },
-            };
-
-            let query = "INSERT INTO machine_topologies VALUES ($1, $2::json) RETURNING *";
-            let res = sqlx::query_as(query)
-                .bind(machine_id.to_string())
-                .bind(sqlx::types::Json(&topology_data))
-                .fetch_one(&mut *txn)
-                .await
-                .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
-
-            if machine_id.machine_type().is_dpu() {
-                // TODO part VPC, remove once it's replaced
-                let mut new_leaf = NewVpcResourceLeaf::new(machine_id.clone())
-                    .persist(&mut *txn)
-                    .await?;
-                if let Some(ip) = loopback_ip {
-                    new_leaf
-                        .update_loopback_ip_address(&mut *txn, IpAddr::V4(ip))
-                        .await?;
-                }
-
-                tracing::info!(
-                    "Discovered Machine {} is a DPU. Generating new leaf id {}",
-                    machine_id,
-                    new_leaf.id()
-                );
-                assert_eq!(new_leaf.id(), machine_id);
-
-                // TODO 1: Why do we use the returned `machine_dpu.id()` from here
-                // It should just be the same as the `machine_id` we pass in?
-                // All of them are the DPU `machine_id`s?
-                // TODO 2: This might no longer be needed, since we already have
-                // a similar relation via attached_dpu_id
-                let machine_dpu =
-                    Machine::associate_vpc_leaf_id(&mut *txn, machine_id, new_leaf.id()).await?;
-
-                if let Some(machine) =
-                    Machine::find_one(&mut *txn, machine_dpu.id(), MachineSearchConfig::default())
-                        .await?
-                {
-                    tracing::info!("Machine with ID: {} found", machine.id());
-                    for mut interface in machine.interfaces().iter().cloned() {
-                        if machine.vpc_leaf_id().is_some() {
-                            tracing::info!("Machine VPC_LEAF_ID: {:?}", machine.vpc_leaf_id());
-                            interface
-                                .associate_interface_with_dpu_machine(&mut *txn, machine.id())
-                                .await?;
-                        }
-                    }
-                }
-
-                //
-            }
-            Ok(Some(res))
+            return Ok(None);
         }
+        let topology_data = TopologyData {
+            discovery_data: DiscoveryData {
+                info: hardware_info.clone(),
+            },
+            bmc_info: BmcInfo {
+                ip: None,
+                mac: None,
+                version: None,
+                firmware_version: None,
+            },
+        };
+
+        let query = "INSERT INTO machine_topologies VALUES ($1, $2::json) RETURNING *";
+        let res = sqlx::query_as(query)
+            .bind(machine_id.to_string())
+            .bind(sqlx::types::Json(&topology_data))
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+
+        if machine_id.machine_type().is_dpu() {
+            // TODO old VPC, remove once it's replaced
+            let new_leaf = NewVpcResourceLeaf::new(machine_id.clone())
+                .persist(&mut *txn)
+                .await?;
+            tracing::info!(
+                "Discovered Machine {} is a DPU. Generating new leaf id {}",
+                machine_id,
+                new_leaf.id()
+            );
+            assert_eq!(new_leaf.id(), machine_id);
+
+            // TODO 2: This might no longer be needed, since we already have
+            // a similar relation via attached_dpu_id
+            let _ = Machine::associate_vpc_leaf_id(&mut *txn, machine_id, new_leaf.id()).await?;
+        }
+        Ok(Some(res))
     }
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,

@@ -12,11 +12,19 @@
 
 //! Contains DPU related fixtures
 
+use std::net::IpAddr;
+
 use carbide::{
-    db::{machine::Machine, machine_interface::MachineInterface},
+    db::{
+        machine::{Machine, MachineSearchConfig},
+        machine_interface::MachineInterface,
+    },
     model::{
         hardware_info::HardwareInfo,
-        machine::{machine_id::try_parse_machine_id, ManagedHostState},
+        machine::{
+            machine_id::{try_parse_machine_id, MachineId},
+            ManagedHostState,
+        },
     },
     state_controller::machine::handler::MachineStateHandler,
 };
@@ -30,9 +38,8 @@ use rpc::{
 };
 use tonic::Request;
 
-use crate::common::api_fixtures::{discovery_completed, update_bmc_metadata};
-
 use super::{TestEnv, FIXTURE_DHCP_RELAY_ADDRESS};
+use crate::common::api_fixtures::{discovery_completed, network_configured, update_bmc_metadata};
 
 /// MAC address that is used by the DPU that is created by the fixture
 pub const FIXTURE_DPU_MAC_ADDRESS: &str = "01:11:21:31:41:51";
@@ -95,6 +102,7 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     .await;
 
     discovery_completed(env, dpu_rpc_machine_id.clone()).await;
+    network_configured(env, &dpu_machine_id).await;
     let mut txn = env.pool.begin().await.unwrap();
     let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
@@ -204,4 +212,17 @@ pub fn create_dpu_hardware_info() -> HardwareInfo {
     let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
     assert!(info.is_dpu());
     info
+}
+
+// Convenience method for the tests to get a machine's loopback IP
+// Eth virt only (not old VPC)
+pub async fn loopback_ip(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    dpu_machine_id: &MachineId,
+) -> IpAddr {
+    let dpu = Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    IpAddr::V4(dpu.loopback_ip().unwrap())
 }

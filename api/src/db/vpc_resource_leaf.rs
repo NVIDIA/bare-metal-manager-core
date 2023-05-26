@@ -16,7 +16,6 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row};
 
 use super::machine::DbMachineId;
-use super::machine_interface::MachineInterface;
 use super::DatabaseError;
 use crate::model::machine::machine_id::MachineId;
 use crate::{CarbideError, CarbideResult};
@@ -105,22 +104,6 @@ impl VpcResourceLeaf {
     /// Returns IP Address
     pub fn loopback_ip_address(&self) -> &Option<IpAddr> {
         &self.loopback_ip_address
-    }
-
-    pub async fn find_associated_dpu_machine_interface(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-        ip_address: IpAddr,
-    ) -> Result<MachineInterface, DatabaseError> {
-        let query = "
-SELECT machine_interfaces.* from machine_interfaces
-INNER JOIN machines ON machines.id = machine_interfaces.machine_id
-INNER JOIN vpc_resource_leafs ON vpc_resource_leafs.id = machines.vpc_leaf_id
-WHERE vpc_resource_leafs.loopback_ip_address = $1";
-        sqlx::query_as(query)
-            .bind(ip_address)
-            .fetch_one(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 

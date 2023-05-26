@@ -11,13 +11,12 @@
  */
 use std::str::FromStr;
 
-use ipnetwork::IpNetwork;
-use itertools::Itertools;
-use mac_address::MacAddress;
-
 use carbide::{
     db::machine_interface::MachineInterface, model::machine::machine_id::try_parse_machine_id,
 };
+use ipnetwork::IpNetwork;
+use itertools::Itertools;
+use mac_address::MacAddress;
 
 mod common;
 use common::api_fixtures::{
@@ -105,7 +104,7 @@ async fn test_machine_discovery_with_domain(
 async fn test_reject_host_machine_with_disabled_tpm(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
     let dpu_machine_id = create_dpu_machine(&env).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
 

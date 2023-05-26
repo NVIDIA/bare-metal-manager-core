@@ -147,12 +147,13 @@ impl NetworkPrefix {
      *
      * txn: An in-progress transaction on a connection pool
      * segment: The UUID of a network segment, must already exist and be visible to this
-     * transcation
+     * transaction
      * prefixes: A slice of the `NewNetworkPrefix` to create.
      */
     pub async fn create_for(
         txn: &mut Transaction<'_, Postgres>,
         segment: &uuid::Uuid,
+        vlan_id: Option<i16>,
         prefixes: &[NewNetworkPrefix],
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let mut inner_transaction = txn
@@ -166,8 +167,9 @@ impl NetworkPrefix {
         // tiny amounts of time.
         //
         let mut inserted_prefixes: Vec<NetworkPrefix> = Vec::with_capacity(prefixes.len());
-        let query = "INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved)
-            VALUES ($1::uuid, $2::cidr, $3::inet, $4::integer)
+        let query =
+            "INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved, circuit_id)
+            VALUES ($1::uuid, $2::cidr, $3::inet, $4::integer, $5)
             RETURNING *";
         for prefix in prefixes {
             let new_prefix: NetworkPrefix = sqlx::query_as(query)
@@ -175,6 +177,8 @@ impl NetworkPrefix {
                 .bind(prefix.prefix)
                 .bind(prefix.gateway)
                 .bind(prefix.num_reserved)
+                // new eth virt sets it now. old VPC sets later in update_circuit_id
+                .bind(vlan_id.map(|v| format!("vlan{v}")))
                 .fetch_one(&mut *inner_transaction)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -190,6 +194,7 @@ impl NetworkPrefix {
         Ok(inserted_prefixes)
     }
 
+    // Only used by old VPC. New code writes the circuit_id in original INSERT.
     pub async fn update_circuit_id(
         txn: &mut Transaction<'_, Postgres>,
         segment_id: uuid::Uuid,

@@ -39,8 +39,33 @@ pub enum AgentCommand {
     #[clap(about = "One-off health check")]
     Health,
 
+    #[clap(
+        about = "One-off fetch network configuration from API, write relevant files, and report back observation"
+    )]
+    Netconf(NetconfParams),
+
     #[clap(about = "Write a templated config file", subcommand)]
     Write(WriteTarget),
+}
+
+#[derive(Parser, Debug)]
+pub struct NetconfParams {
+    #[clap(long, short, help = "machine id of the DPU to configure")]
+    pub dpu_machine_id: String,
+
+    #[clap(
+        long,
+        default_value = "/var/lib/hbn",
+        help = "Where to write the network config files"
+    )]
+    pub chroot: String,
+
+    #[clap(
+        long,
+        default_value = "false",
+        help = "Do not run the config reload commands. Local dev only."
+    )]
+    pub skip_reload: bool,
 }
 
 #[derive(Parser, Debug)]

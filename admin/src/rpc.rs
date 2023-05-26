@@ -246,7 +246,7 @@ pub async fn get_managed_host_network_config(
 ) -> CarbideCliResult<rpc::ManagedHostNetworkConfigResponse> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::ManagedHostNetworkConfigRequest {
-            machine_id: Some(rpc::MachineId { id }),
+            dpu_machine_id: Some(rpc::MachineId { id }),
         });
         let all = client
             .get_managed_host_network_config(request)

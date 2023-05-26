@@ -13,7 +13,6 @@
 //! Contains host related fixtures
 
 use carbide::{
-    db::vpc_resource_leaf::VpcResourceLeaf,
     model::{
         hardware_info::HardwareInfo,
         machine::{
@@ -29,9 +28,8 @@ use rpc::{
 };
 use tonic::Request;
 
-use crate::common::api_fixtures::{discovery_completed, forge_agent_control, update_bmc_metadata};
-
 use super::TestEnv;
+use crate::common::api_fixtures::{discovery_completed, forge_agent_control, update_bmc_metadata};
 
 const TEST_DATA_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -66,14 +64,12 @@ pub async fn host_discover_dhcp(
     dpu_machine_id: &MachineId,
 ) -> rpc::Uuid {
     let mut txn = env.pool.begin().await.unwrap();
-    let leaf = VpcResourceLeaf::find(&mut txn, dpu_machine_id)
-        .await
-        .unwrap();
+    let loopback_ip = super::dpu::loopback_ip(&mut txn, dpu_machine_id).await;
     let response = env
         .api
         .discover_dhcp(Request::new(DhcpDiscovery {
             mac_address: mac_address.to_string(),
-            relay_address: leaf.loopback_ip_address().unwrap().to_string(),
+            relay_address: loopback_ip.to_string(),
             vendor_string: None,
             link_address: None,
             circuit_id: None,

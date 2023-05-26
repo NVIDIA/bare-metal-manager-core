@@ -59,7 +59,7 @@ async fn get_pxe_instructions(
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
     let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
     move_machine_to_needed_state(dpu_id.clone(), ManagedHostState::Ready, &pool).await;
 
@@ -85,8 +85,8 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default()).await;
-    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default())
+    let env = create_test_env(pool.clone()).await;
+    let api = common::api_fixtures::create_test_env(pool.clone())
         .await
         .api;
 
@@ -135,7 +135,7 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_host(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
     let (host_id, _dpu_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = pool
         .clone()
@@ -201,17 +201,18 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_instance(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone(), Default::default()).await;
-    let (host_id, _dpu_id) = common::api_fixtures::create_managed_host(&env).await;
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = pool
         .clone()
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let host_interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[host_id.clone()])
-        .await
-        .unwrap()[&host_id][0]
-        .id;
+    let host_interface_id =
+        MachineInterface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+            .await
+            .unwrap()[&host_machine_id][0]
+            .id;
     txn.commit().await.unwrap();
 
     let network = Some(rpc::InstanceNetworkConfig {
@@ -222,7 +223,8 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
         }],
     });
 
-    let (_instance_id, _instance) = create_instance(&env, &host_id, network).await;
+    let (_instance_id, _instance) =
+        create_instance(&env, &dpu_machine_id, &host_machine_id, network).await;
 
     let instructions = get_pxe_instructions(
         &env,

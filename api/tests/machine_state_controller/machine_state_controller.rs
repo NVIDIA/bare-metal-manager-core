@@ -146,7 +146,7 @@ impl VpcApi for MockVpcApi {
     "../../fixtures/create_network_segment",
 ))]
 async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
 
     // Insert some machines
     let dpu_macs = &[
@@ -201,7 +201,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 .iteration_time(Duration::from_millis(100))
                 .database(pool.clone())
                 .redfish_client_pool(Arc::new(RedfishSim::default()))
-                .vpc_api(Arc::new(MockVpcApi {}))
+                .vpc_api(None)
                 .ib_fabric_manager(env.ib_fabric_manager.clone())
                 .forge_api(test_api.clone())
                 .state_handler(machine_handler.clone())

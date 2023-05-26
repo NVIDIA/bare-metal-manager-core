@@ -10,11 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    process::Command,
-    thread::sleep,
-    time::{Duration, SystemTime},
-};
+use std::{process::Command, thread::sleep, time::Duration};
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client;
@@ -110,6 +106,40 @@ fn main() -> eyre::Result<()> {
         Some(AgentCommand::Health) => {
             let health_report = health::health_check();
             println!("{health_report}");
+        }
+
+        // One-off configure network and report back the observation
+        Some(AgentCommand::Netconf(params)) => {
+            let forge_api = agent.forge_system.api_server.to_string();
+            let root_ca = agent.forge_system.root_ca.to_string();
+            let conf = rt.block_on(network_config_fetcher::fetch(
+                &params.dpu_machine_id,
+                &forge_api,
+                &root_ca,
+            ))?;
+            let mut status_out = rpc::DpuNetworkStatus {
+                dpu_machine_id: Some(params.dpu_machine_id.into()),
+                observed_at: None, // None makes carbide-api set it on receipt
+                health: Some(rpc::NetworkHealth {
+                    is_healthy: true,
+                    ..Default::default()
+                }),
+                network_config_version: None,
+                instance_config_version: None,
+                interfaces: vec![],
+                network_config_error: None,
+                instance_id: None,
+            };
+            ethernet_virtualization::update(
+                &params.chroot,
+                &conf,
+                &mut status_out,
+                params.skip_reload,
+            );
+            if let Some(v) = status_out.network_config_version.as_ref() {
+                info!("Applied: {v}");
+            }
+            rt.block_on(record_network_status(status_out, &forge_api, &root_ca));
         }
 
         // Output a templated file
@@ -226,10 +256,6 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root
         }
         first = false;
 
-        if let Some(ref network_config) = *network_config_reader.read() {
-            ethernet_virtualization::update(network_config);
-        }
-
         let health_report = health::health_check();
         trace!("{} health is {}", machine_id, health_report);
 
@@ -247,28 +273,43 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root
                 .collect(),
             message: health_report.message,
         };
-        let observation = rpc::ManagedHostNetworkStatusObservation {
-            dpu_machine_id: Some(rpc::MachineId {
-                id: machine_id.to_string(),
-            }),
-            observed_at: Some(SystemTime::now().into()),
+
+        let mut status_out = rpc::DpuNetworkStatus {
+            dpu_machine_id: Some(machine_id.to_string().into()),
+            observed_at: None, // None makes carbide-api set it on receipt
             health: Some(hs),
+            network_config_version: None,
+            instance_config_version: None,
+            interfaces: vec![],
+            network_config_error: None,
+            instance_id: None,
         };
-
-        let mut client = match rt
-            .block_on(forge_tls_client::ForgeTlsClient::new(root_ca.to_string()).connect(forge_api))
-        {
-            Ok(client) => client,
-            Err(err) => {
-                error!("Could not connect to Forge API server at {forge_api}. Will retry. {err:#}");
-                continue;
-            }
+        if let Some(ref network_config) = *network_config_reader.read() {
+            ethernet_virtualization::update(
+                ethernet_virtualization::HBN_ROOT,
+                network_config,
+                &mut status_out,
+                false,
+            );
         };
-        let request = tonic::Request::new(observation);
+        rt.block_on(record_network_status(status_out, forge_api, root_ca));
+    }
+}
 
-        if let Err(err) = rt.block_on(client.record_managed_host_network_status(request)) {
-            error!("Error while executing the record_machine_network_status gRPC call: {err:#}");
+async fn record_network_status(status: rpc::DpuNetworkStatus, forge_api: &str, root_ca: &str) {
+    let mut client = match forge_tls_client::ForgeTlsClient::new(root_ca.to_string())
+        .connect(forge_api)
+        .await
+    {
+        Ok(client) => client,
+        Err(err) => {
+            error!("Could not connect to Forge API server at {forge_api}. Will retry. {err:#}");
+            return;
         }
+    };
+    let request = tonic::Request::new(status);
+    if let Err(err) = client.record_dpu_network_status(request).await {
+        error!("Error while executing the record_machine_network_status gRPC call: {err:#}");
     }
 }
 

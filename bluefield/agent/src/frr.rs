@@ -14,7 +14,7 @@ use std::net::Ipv4Addr;
 
 use gtmpl_derive::Gtmpl;
 
-pub const PATH: &str = "/var/lib/hbn/etc/frr/frr.conf";
+pub const PATH: &str = "etc/frr/frr.conf";
 const TMPL_FULL: &str = include_str!("../templates/frr.conf");
 
 const _TMPL_EMPTY: &str = "

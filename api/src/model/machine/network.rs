@@ -4,14 +4,15 @@ use chrono::{DateTime, Utc};
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
-use crate::model::RpcDataConversionError;
+use crate::model::{config_version::ConfigVersion, RpcDataConversionError};
 
 /// The network status that was last reported by the networking subystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MachineNetworkStatus {
+pub struct MachineNetworkStatusObservation {
     machine_id: String,
     observed_at: DateTime<Utc>,
     health_status: HealthStatus,
+    pub network_config_version: ConfigVersion,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,10 +23,10 @@ pub struct HealthStatus {
     pub message: Option<String>,
 }
 
-impl TryFrom<rpc::ManagedHostNetworkStatusObservation> for MachineNetworkStatus {
+impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
     type Error = RpcDataConversionError;
 
-    fn try_from(obs: rpc::ManagedHostNetworkStatusObservation) -> Result<Self, Self::Error> {
+    fn try_from(obs: rpc::DpuNetworkStatus) -> Result<Self, Self::Error> {
         let health = obs.health.ok_or(Self::Error::MissingArgument("health"))?;
         let observed_at = match obs.observed_at {
             Some(timestamp) => {
@@ -33,11 +34,9 @@ impl TryFrom<rpc::ManagedHostNetworkStatusObservation> for MachineNetworkStatus 
                     .map_err(|_| Self::Error::InvalidTimestamp(timestamp.to_string()))?;
                 DateTime::from(system_time)
             }
-            None => {
-                return Err(Self::Error::MissingArgument("observed_at"));
-            }
+            None => Utc::now(),
         };
-        Ok(MachineNetworkStatus {
+        Ok(MachineNetworkStatusObservation {
             observed_at,
             machine_id: obs
                 .dpu_machine_id
@@ -49,13 +48,17 @@ impl TryFrom<rpc::ManagedHostNetworkStatusObservation> for MachineNetworkStatus 
                 failed: health.failed,
                 message: health.message,
             },
+            network_config_version: obs
+                .network_config_version
+                .and_then(|n| n.parse().ok())
+                .unwrap_or_else(ConfigVersion::initial),
         })
     }
 }
 
-impl From<MachineNetworkStatus> for rpc::ManagedHostNetworkStatusObservation {
-    fn from(m: MachineNetworkStatus) -> rpc::ManagedHostNetworkStatusObservation {
-        rpc::ManagedHostNetworkStatusObservation {
+impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
+    fn from(m: MachineNetworkStatusObservation) -> rpc::DpuNetworkStatus {
+        rpc::DpuNetworkStatus {
             dpu_machine_id: Some(rpc::MachineId { id: m.machine_id }),
             observed_at: Some(m.observed_at.into()),
             health: Some(rpc::NetworkHealth {
@@ -64,6 +67,11 @@ impl From<MachineNetworkStatus> for rpc::ManagedHostNetworkStatusObservation {
                 failed: m.health_status.failed,
                 message: m.health_status.message,
             }),
+            network_config_version: Some(m.network_config_version.version_string()),
+            instance_id: None,
+            instance_config_version: None,
+            interfaces: vec![],
+            network_config_error: None,
         }
     }
 }
@@ -71,8 +79,17 @@ impl From<MachineNetworkStatus> for rpc::ManagedHostNetworkStatusObservation {
 /// Desired network configuration for an instance.
 /// This is persisted to a Postgres JSON column, so only use Option
 /// fields for easier migrations.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManagedHostNetworkConfig {
     pub loopback_ip: Option<Ipv4Addr>,
     pub use_admin_network: Option<bool>,
+}
+
+impl Default for ManagedHostNetworkConfig {
+    fn default() -> Self {
+        ManagedHostNetworkConfig {
+            loopback_ip: None,
+            use_admin_network: Some(true),
+        }
+    }
 }

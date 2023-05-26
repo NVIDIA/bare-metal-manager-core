@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use serde::{Deserialize, Serialize};
+
 use crate::model::{
     config_version::{ConfigVersion, Versioned},
     instance::{
@@ -19,7 +21,6 @@ use crate::model::{
     machine::{machine_id::MachineId, ManagedHostState},
     RpcDataConversionError,
 };
-use serde::{Deserialize, Serialize};
 
 /// Represents a snapshot view of an `Instance`
 ///
@@ -58,7 +59,7 @@ impl TryFrom<InstanceSnapshot> for rpc::Instance {
 
         Ok(rpc::Instance {
             id: Some(snapshot.instance_id.into()),
-            machine_id: Some(snapshot.machine_id.to_string().into()),
+            host_machine_id: Some(snapshot.machine_id.to_string().into()),
             config: Some(snapshot.config.try_into()?),
             status: Some(status.try_into()?),
             network_config_version: snapshot.network_config_version.version_string(),

@@ -10,18 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use mac_address::MacAddress;
-use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 use std::str::FromStr;
 
-use carbide::db::{
-    dhcp_entry::DhcpEntry, machine_interface::MachineInterface, vpc_resource_leaf::VpcResourceLeaf,
-};
+use carbide::db::{dhcp_entry::DhcpEntry, machine_interface::MachineInterface};
+use mac_address::MacAddress;
+use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 
 mod common;
 use common::api_fixtures::{
-    create_managed_host, create_test_env,
-    dpu::create_dpu_machine,
+    create_managed_host, create_test_env, dpu,
     instance::{create_instance, FIXTURE_CIRCUIT_ID, FIXTURE_CIRCUIT_ID_1},
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
     TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
@@ -53,7 +50,7 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default())
+    let api = common::api_fixtures::create_test_env(pool.clone())
         .await
         .api;
 
@@ -110,7 +107,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn test_multiple_machines_dhcp_with_api(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_env(pool.clone(), Default::default())
+    let api = common::api_fixtures::create_test_env(pool.clone())
         .await
         .api;
 
@@ -171,7 +168,7 @@ async fn test_multiple_machines_dhcp_with_api(
 async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone(), Default::default()).await;
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = pool
@@ -179,10 +176,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let leaf = VpcResourceLeaf::find(&mut txn, &dpu_machine_id)
-        .await
-        .unwrap();
-    let dpu_loopback_ip = leaf.loopback_ip_address().unwrap();
+    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
 
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![
@@ -198,7 +192,8 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         // TODO(k82cn): add IB interface configuration.
         ib_interfaces: Vec::new(),
     });
-    let (_instance_id, _instance) = create_instance(&env, &host_machine_id, network).await;
+    let (_instance_id, _instance) =
+        create_instance(&env, &dpu_machine_id, &host_machine_id, network).await;
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
     let response = env
         .api
@@ -296,7 +291,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
             .into_inner()
     }
 
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
     let mac_address = MacAddress::from_str("ab:cd:ff:ff:ff:ff").unwrap();
 
     let response = dhcp_with_vendor(&env, mac_address, Some("vendor1".to_string())).await;
@@ -324,9 +319,9 @@ async fn machine_interface_discovery_persists_vendor_strings(
 async fn test_dpu_machine_dhcp_for_existing_dpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
 
-    let dpu_machine_id = create_dpu_machine(&env).await;
+    let dpu_machine_id = dpu::create_dpu_machine(&env).await;
 
     let mut machines = env.find_machines(Some(dpu_machine_id), None, true).await;
     let machine = machines.machines.remove(0);

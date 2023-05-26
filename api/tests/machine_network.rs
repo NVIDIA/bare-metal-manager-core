@@ -13,13 +13,13 @@
 use std::time::SystemTime;
 
 use ::rpc::forge::{
-    ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusObservation,
-    ManagedHostNetworkStatusRequest, NetworkHealth,
+    DpuNetworkStatus, ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
+    NetworkHealth,
 };
 use rpc::forge::forge_server::Forge;
 
 pub mod common;
-use common::api_fixtures;
+use common::api_fixtures::{self, dpu, instance, network_segment};
 
 #[ctor::ctor]
 fn setup() {
@@ -28,56 +28,27 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
-    let test = api_fixtures::create_test_env(pool.clone(), Default::default()).await;
-    let dpu_machine_id = api_fixtures::dpu::create_dpu_machine(&test).await;
+    let test = api_fixtures::create_test_env(pool.clone()).await;
+    let dpu_machine_id = dpu::create_dpu_machine(&test).await;
 
     // Fetch a Machines network config
     let response = test
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            machine_id: Some(dpu_machine_id),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await;
 
-    assert!(response.is_err());
+    assert!(response.is_ok());
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_status(pool: sqlx::PgPool) {
-    let test = api_fixtures::create_test_env(pool.clone(), Default::default()).await;
-    let dpu_machine_id = api_fixtures::dpu::create_dpu_machine(&test).await;
+    let env = api_fixtures::create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
 
-    // At first there are no network status
-    let response = test
-        .api
-        .get_all_managed_host_network_status(tonic::Request::new(
-            ManagedHostNetworkStatusRequest {},
-        ))
-        .await
-        .unwrap()
-        .into_inner();
-    assert!(response.all.is_empty());
-
-    // Update the machine's status to healthy
-    let hs = NetworkHealth {
-        is_healthy: true,
-        passed: vec!["ContainerExists".to_string(), "checkTwo".to_string()],
-        failed: vec!["".to_string()],
-        message: None,
-    };
-    test.api
-        .record_managed_host_network_status(tonic::Request::new(
-            ManagedHostNetworkStatusObservation {
-                dpu_machine_id: Some(dpu_machine_id),
-                observed_at: Some(SystemTime::now().into()),
-                health: Some(hs),
-            },
-        ))
-        .await
-        .unwrap();
-
-    // And query again
-    let response = test
+    // We have the initial status that moved DPU from WaitingForLeafCreation to WaitingForDiscovery
+    let response = env
         .api
         .get_all_managed_host_network_status(tonic::Request::new(
             ManagedHostNetworkStatusRequest {},
@@ -86,7 +57,81 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
     assert_eq!(response.all.len(), 1);
-    let status = response.all[0].health.as_ref().unwrap();
-    assert!(status.is_healthy);
-    assert_eq!(status.passed[0], "ContainerExists");
+
+    // Add an instance
+    let physical = rpc::InterfaceFunctionType::Physical as i32;
+    let instance_network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: physical,
+            network_segment_id: Some(network_segment::FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+        ib_interfaces: vec![],
+    });
+    let (instance_id, instance) =
+        instance::create_instance(&env, &dpu_machine_id, &host_machine_id, instance_network).await;
+
+    // Tell API about latest network config and machine health
+    let network_config_version = response.all[0].network_config_version.clone().unwrap();
+    let hs = NetworkHealth {
+        is_healthy: true,
+        passed: vec!["ContainerExists".to_string(), "checkTwo".to_string()],
+        failed: vec!["".to_string()],
+        message: None,
+    };
+    env.api
+        .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
+            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            observed_at: Some(SystemTime::now().into()),
+            health: Some(hs),
+            network_config_version: Some(network_config_version.clone()),
+            instance_id: Some(instance_id.into()),
+            instance_config_version: Some(instance.network_config_version),
+            interfaces: vec![rpc::InstanceInterfaceStatusObservation {
+                function_type: physical,
+                virtual_function_id: None,
+                mac_address: None,
+                addresses: vec!["1.2.3.4".to_string()],
+            }],
+            network_config_error: None,
+        }))
+        .await
+        .unwrap();
+
+    // And query again
+    let response = env
+        .api
+        .get_all_managed_host_network_status(tonic::Request::new(
+            ManagedHostNetworkStatusRequest {},
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(response.all.len(), 1);
+
+    let health = response.all[0].health.as_ref().unwrap();
+    assert!(health.is_healthy);
+    assert_eq!(health.passed[0], "ContainerExists");
+
+    assert_eq!(
+        response.all[0].network_config_version,
+        Some(network_config_version),
+    );
+
+    // Now fetch the instance and check that knows it's configs have synced
+    let response = env
+        .api
+        .find_instance_by_machine_id(tonic::Request::new(host_machine_id.to_string().into()))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(response.instances.len(), 1);
+    let instance = &response.instances[0];
+    tracing::info!(
+        "instance_config_version: {}",
+        instance.network_config_version
+    );
+    assert_eq!(
+        instance.status.as_ref().unwrap().configs_synced,
+        rpc::SyncState::Synced as i32
+    );
 }

@@ -18,13 +18,12 @@ use carbide::db::network_segment::{NetworkSegment, NetworkSegmentType, NewNetwor
 use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
 use carbide::db::vpc::Vpc;
 use carbide::db::UuidKeyedObjectFilter;
-use carbide::kubernetes::VpcApiSimConfig;
 use carbide::model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState};
 use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use mac_address::MacAddress;
 
 pub mod common;
-use common::api_fixtures::{create_test_env, TestApi, TestEnvConfig};
+use common::api_fixtures::{create_test_env, TestApi};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkSegmentSearchConfig;
 use tonic::Request;
@@ -103,16 +102,10 @@ async fn get_segments(
 
 async fn test_network_segment_lifecycle_impl(
     pool: sqlx::PgPool,
-    delete_in_ready_state: bool,
     use_subdomain: bool,
     use_vpc: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let vpc_sim_config = VpcApiSimConfig {
-        required_creation_attempts: if delete_in_ready_state { 2 } else { 1000 }, // never ready
-        required_deletion_attempts: 2,
-        ..Default::default()
-    };
-    let env = create_test_env(pool.clone(), TestEnvConfig { vpc_sim_config }).await;
+    let env = create_test_env(pool.clone()).await;
 
     let segment = create_network_segment_with_api(&env.api, use_subdomain, use_vpc).await;
     assert!(segment.created.is_some());
@@ -123,7 +116,7 @@ async fn test_network_segment_lifecycle_impl(
         rpc::forge::NetworkSegmentType::Admin as i32
     );
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
-    let prefix_id: uuid::Uuid = segment
+    let _: uuid::Uuid = segment
         .prefixes
         .get(0)
         .unwrap()
@@ -133,7 +126,6 @@ async fn test_network_segment_lifecycle_impl(
         .try_into()
         .unwrap();
 
-    // The TenantState only switches after the state controller recognized the update
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
         rpc::forge::TenantState::Provisioning
@@ -146,27 +138,10 @@ async fn test_network_segment_lifecycle_impl(
     env.run_network_segment_controller_iteration(segment_id, &state_handler)
         .await;
 
-    if delete_in_ready_state {
-        // After 2 controller iterations, the segment should be ready
-        assert_eq!(
-            get_segment_state(&env.api, segment_id).await,
-            rpc::forge::TenantState::Ready
-        );
-
-        let mut txn = pool.begin().await.unwrap();
-        let prefix = NetworkPrefix::find(&mut txn, prefix_id).await;
-        assert_eq!(
-            prefix.as_ref().unwrap().circuit_id.clone().unwrap(),
-            prefix.as_ref().unwrap().id.to_string() + "Circuit"
-        );
-        txn.commit().await.unwrap();
-    } else {
-        // The segment won't be ready, because VPC won't acknowledge creation
-        assert_eq!(
-            get_segment_state(&env.api, segment_id).await,
-            rpc::forge::TenantState::Provisioning
-        );
-    }
+    assert_eq!(
+        get_segment_state(&env.api, segment_id).await,
+        rpc::forge::TenantState::Ready
+    );
 
     env.api
         .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
@@ -186,16 +161,14 @@ async fn test_network_segment_lifecycle_impl(
 
     // Wait for the drain period
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    // 3 controller iterations, one moves us into the Vpc deletion state, one tries
-    // to delete the VPC, the third succeeds in deleting the VPC and cleans up the DB
-    env.run_network_segment_controller_iteration(segment_id, &state_handler)
-        .await;
+
+    // delete the segment
     env.run_network_segment_controller_iteration(segment_id, &state_handler)
         .await;
     env.run_network_segment_controller_iteration(segment_id, &state_handler)
         .await;
 
-    let mut segments = env
+    let segments = env
         .api
         .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
             id: segment.id.clone(),
@@ -207,27 +180,17 @@ async fn test_network_segment_lifecycle_impl(
         .network_segments;
 
     let mut txn = pool.begin().await.unwrap();
-    if delete_in_ready_state {
-        assert!(segments.is_empty());
+    assert!(segments.is_empty());
 
-        assert_eq!(
-            text_history(&mut txn, segment_id).await,
-            vec![
-                "provisioning".to_string(),
-                "ready".to_string(),
-                "deleting/drain_allocated_ips".to_string(),
-                "deleting/delete_vpc_resource_groups".to_string(),
-            ]
-        );
-    } else {
-        let segment = segments.remove(0);
-        assert_eq!(segment.state(), rpc::forge::TenantState::Terminating);
-
-        assert_eq!(
-            text_history(&mut txn, segment_id).await,
-            vec!["provisioning".to_string()]
-        );
-    }
+    assert_eq!(
+        text_history(&mut txn, segment_id).await,
+        vec![
+            "provisioning".to_string(),
+            "ready".to_string(),
+            "deleting/drain_allocated_ips".to_string(),
+            "deleting/delete_vpc_resource_groups".to_string(),
+        ]
+    );
     txn.commit().await.unwrap();
 
     Ok(())
@@ -237,56 +200,28 @@ async fn test_network_segment_lifecycle_impl(
 async fn test_network_segment_lifecycle(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, true, false, false).await
+    test_network_segment_lifecycle_impl(pool, false, false).await
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle_with_vpc(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, true, false, true).await
+    test_network_segment_lifecycle_impl(pool, false, true).await
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle_with_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, true, true, false).await
+    test_network_segment_lifecycle_impl(pool, true, false).await
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle_with_vpc_and_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, true, true, true).await
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
-async fn test_network_segment_lifecycle_not_ready(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, false, false, false).await
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
-async fn test_network_segment_lifecycle_not_ready_with_vpc(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, false, false, true).await
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
-async fn test_network_segment_lifecycle_not_ready_with_domain(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, false, true, false).await
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
-async fn test_network_segment_lifecycle_not_ready_with_vpc_and_domain(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, false, true, true).await
+    test_network_segment_lifecycle_impl(pool, true, true).await
 }
 
 #[sqlx::test(fixtures("create_vpc"))]
@@ -344,7 +279,7 @@ async fn test_advance_network_prefix_state(
 async fn test_network_segment_delete_fails_with_associated_machine_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = create_test_env(pool.clone(), Default::default()).await.api;
+    let api = create_test_env(pool.clone()).await.api;
     let segment = create_network_segment_with_api(&api, false, false).await;
 
     let mut txn = pool.begin().await?;
@@ -389,12 +324,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
 async fn test_network_segment_max_history_length(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let vpc_sim_config = VpcApiSimConfig {
-        required_creation_attempts: 2,
-        required_deletion_attempts: 2,
-        ..Default::default()
-    };
-    let env = create_test_env(pool.clone(), TestEnvConfig { vpc_sim_config }).await;
+    let env = create_test_env(pool.clone()).await;
 
     let segment = create_network_segment_with_api(&env.api, true, true).await;
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();

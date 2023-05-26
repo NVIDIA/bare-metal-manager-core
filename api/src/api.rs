@@ -46,12 +46,11 @@ use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
 use crate::db::bmc_metadata::UserRoles;
-use crate::db::dpu_machine::DpuMachine;
 use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
@@ -59,8 +58,9 @@ use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ib;
 use crate::ib::IBFabricManager;
 use crate::ipxe::PxeInstructions;
+use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
-use crate::model::machine::network::MachineNetworkStatus;
+use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::ManagedHostState;
 use crate::model::RpcDataConversionError;
 use crate::reachability::PingReachabilityChecker;
@@ -123,14 +123,16 @@ const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
 
 // If you set this to true forge-dpu-agent will start writing the HBN files (frr.conf, etc)
 // If you leave it false forge-dpu-agent will write files with a .TEST extension.
-const ETH_VIRT_PRODUCTION_MODE: bool = false;
+//
+// Only used if `--manage-vpc` on command line.
+const ETH_VIRT_PRODUCTION_MODE: bool = true;
 
 pub struct Api<C: CredentialProvider> {
     database_connection: sqlx::PgPool,
     credential_provider: Arc<C>,
     authorizer: auth::Authorizer,
     redfish_pool: Arc<dyn RedfishClientPool>,
-    vpc_api: Arc<dyn VpcApi>,
+    vpc_api: Option<Arc<dyn VpcApi>>,
     eth_data: ethernet_virtualization::EthVirtData,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
@@ -1004,7 +1006,7 @@ where
         }
 
         let request = request.into_inner();
-        let dpu_machine_id = match &request.machine_id {
+        let dpu_machine_id = match &request.dpu_machine_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
                 return Err(Status::not_found("Missing machine id"));
@@ -1026,14 +1028,15 @@ where
             Some(ip) => ip,
             None => {
                 return Err(Status::failed_precondition(format!(
-                    "Machine {dpu_machine_id} needs discovery. Does not have a loopback IP yet."
+                    "DPU {} needs discovery. Does not have a loopback IP yet.",
+                    snapshot.dpu_snapshot.machine_id
                 )));
             }
         };
         let use_admin_network = snapshot.dpu_snapshot.use_admin_network();
 
         let admin_interface_rpc =
-            ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
+            ethernet_virtualization::admin_network(&mut txn, &snapshot.dpu_snapshot.machine_id)
                 .await?;
 
         let tenant_interfaces = match &snapshot.instance {
@@ -1064,11 +1067,15 @@ where
             ))
         })?;
 
-        let host_config = rpc::ManagedHostNetworkConfig {
+        let network_config = rpc::ManagedHostNetworkConfig {
             loopback_ip: loopback_ip.to_string(),
         };
 
         let resp = rpc::ManagedHostNetworkConfigResponse {
+            instance_id: snapshot
+                .instance
+                .as_ref()
+                .map(|instance| instance.instance_id.into()),
             is_production_mode: ETH_VIRT_PRODUCTION_MODE,
             asn: self.eth_data.asn,
             dhcp_servers: self.eth_data.dhcp_servers.clone(),
@@ -1077,7 +1084,7 @@ where
             } else {
                 HBN_SINGLE_VLAN_DEVICE.to_string()
             },
-            managed_host_config: Some(host_config),
+            managed_host_config: Some(network_config),
             managed_host_config_version: snapshot
                 .dpu_snapshot
                 .network_config
@@ -1099,48 +1106,106 @@ where
         Ok(Response::new(resp))
     }
 
-    async fn record_managed_host_network_status(
+    async fn record_dpu_network_status(
         &self,
-        request: Request<rpc::ManagedHostNetworkStatusObservation>,
-    ) -> Result<Response<rpc::ManagedHostNetworkStatusRecordResult>, tonic::Status> {
+        request: Request<rpc::DpuNetworkStatus>,
+    ) -> Result<Response<()>, tonic::Status> {
         log_request_data(&request);
 
         let request = request.into_inner();
-        let machine_id = match &request.dpu_machine_id {
+        let dpu_machine_id = match &request.dpu_machine_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
                 return Err(Status::not_found("Missing machine id"));
             }
         };
-        log_machine_id(&machine_id);
+        log_machine_id(&dpu_machine_id);
+
+        if let Some(ref network_config_error) = request.network_config_error {
+            info!("Host {dpu_machine_id} failed applying network config: {network_config_error}");
+        }
 
         let hs = request
             .health
             .as_ref()
             .ok_or_else(|| CarbideError::MissingArgument("health_status"))?;
-        if !hs.is_healthy {
-            tracing::debug!(
-                "{machine_id} reports network failed checks {:?} because {}",
+        if hs.is_healthy {
+            trace!("{dpu_machine_id}'s network is healthy");
+        } else {
+            debug!(
+                "{dpu_machine_id} reports network failed checks {:?} because {}",
                 hs.failed,
                 hs.message.as_deref().unwrap_or_default()
             );
         }
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "begin record_machine_network_status", e)
+            CarbideError::DatabaseError(file!(), "begin record_dpu_network_status", e)
         })?;
-        let db_observation = MachineNetworkStatus::try_from(request).map_err(CarbideError::from)?;
-        Machine::update_network_status_observation(&mut txn, &machine_id, db_observation).await?;
+
+        let observed_at = match request.observed_at.clone() {
+            Some(ts) => {
+                // Use DPU clock
+                let system_time = std::time::SystemTime::try_from(ts).map_err(|err| {
+                    warn!(
+                        "record_dpu_network_status for {dpu_machine_id},
+                          invalid timestamp `observed_at`: {err}"
+                    );
+                    CarbideError::InvalidArgument("observed_at".to_string())
+                })?;
+                chrono::DateTime::from(system_time)
+            }
+            None => {
+                // Use carbide-api clock
+                chrono::Utc::now()
+            }
+        };
+
+        let machine_obs = MachineNetworkStatusObservation::try_from(request.clone())
+            .map_err(CarbideError::from)?;
+        Machine::update_network_status_observation(&mut txn, &dpu_machine_id, machine_obs).await?;
+
+        trace!(
+            "{dpu_machine_id} has applied network configs machine={:?} instance={:?}",
+            request.network_config_version,
+            request.instance_config_version
+        );
+
+        // We already peristed the machine parts of applied_config in
+        // update_network_status_observation above. Now do the instance parts.
+        if let Some(version_string) = request.instance_config_version {
+            let Ok(version) = version_string.as_str().parse() else {
+                return Err(CarbideError::InvalidArgument("applied_config.instance_config_version".to_string()).into());
+            };
+            let mut interfaces: Vec<InstanceInterfaceStatusObservation> = vec![];
+            for iface in request.interfaces {
+                let v = iface.try_into().map_err(CarbideError::from)?;
+                interfaces.push(v);
+            }
+            let instance_obs = InstanceNetworkStatusObservation {
+                config_version: version,
+                observed_at,
+                interfaces,
+            };
+            let Some(instance_id_rpc) = request.instance_id else {
+                return Err(CarbideError::MissingArgument("applied_config.instance_id").into());
+            };
+            let instance_id = Uuid::try_from(instance_id_rpc).map_err(CarbideError::from)?;
+            update_instance_network_status_observation(&mut txn, instance_id, &instance_obs)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
                 line!(),
-                "commit record_machine_network_status",
+                "commit record_dpu_network_status",
                 e,
             ))
         })?;
 
-        Ok(Response::new(rpc::ManagedHostNetworkStatusRecordResult {}))
+        Ok(Response::new(()))
     }
 
     async fn lookup_record(
@@ -1407,40 +1472,44 @@ where
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin discover_machine", e))?;
 
         let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
-        let (machine, loopback_ip) = if hardware_info.is_dpu() {
+        let machine = if hardware_info.is_dpu() {
             let (db_machine, is_new) =
-                Machine::get_or_create(&mut txn, &stable_machine_id, interface).await?;
-
-            let loopback_ip = if is_new {
+                Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?;
+            interface
+                .associate_interface_with_dpu_machine(&mut txn, &stable_machine_id)
+                .await
+                .map_err(CarbideError::from)?;
+            if is_new {
                 let loopback_ip = self
                     .allocate_loopback_ip(&mut txn, &stable_machine_id.to_string())
                     .await?;
-                let (mut netconf, version) = db_machine.network_config().clone().take();
-                netconf.loopback_ip = loopback_ip;
-                netconf.use_admin_network = Some(true);
-                Machine::try_update_network_config(&mut txn, &stable_machine_id, version, &netconf)
+                // if still using VPC loopback will be None
+                if loopback_ip.is_some() {
+                    let (mut network_config, version) = db_machine.network_config().clone().take();
+                    network_config.loopback_ip = loopback_ip;
+                    network_config.use_admin_network = Some(true);
+                    Machine::try_update_network_config(
+                        &mut txn,
+                        &stable_machine_id,
+                        version,
+                        &network_config,
+                    )
                     .await
                     .map_err(CarbideError::from)?;
-                loopback_ip
-            } else {
-                None
-            };
-            (db_machine, loopback_ip)
+                }
+            }
+            db_machine
         } else {
             // Now we know stable machine id for host. Let's update it in db.
-            (
-                Machine::try_sync_stable_id_with_current_machine_id_for_host(
-                    &mut txn,
-                    &interface.machine_id,
-                    &stable_machine_id,
-                )
-                .await?,
-                None,
+            Machine::try_sync_stable_id_with_current_machine_id_for_host(
+                &mut txn,
+                &interface.machine_id,
+                &stable_machine_id,
             )
+            .await?
         };
 
-        // Once VPC goes away we can remove passing loopback_ip here
-        MachineTopology::create(&mut txn, &stable_machine_id, &hardware_info, loopback_ip).await?;
+        MachineTopology::create(&mut txn, &stable_machine_id, &hardware_info).await?;
 
         // Create Host proactively.
         if hardware_info.is_dpu() {
@@ -1461,7 +1530,7 @@ where
                     })?;
                 let mi_id = machine_interface.id;
                 let (proactive_machine, _) =
-                    Machine::get_or_create(&mut txn, &predicted_machine_id, machine_interface)
+                    Machine::get_or_create(&mut txn, &predicted_machine_id, &machine_interface)
                         .await?;
 
                 tracing::info!(
@@ -1568,7 +1637,12 @@ where
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
         log_request_data(&request);
 
-        crate::dhcp::discover::discover_dhcp(&self.database_connection, request).await
+        crate::dhcp::discover::discover_dhcp(
+            &self.database_connection,
+            request,
+            self.vpc_api.is_some(),
+        )
+        .await
     }
 
     async fn get_machine(
@@ -2028,10 +2102,10 @@ where
         log_request_data(&request);
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "begin get_managed_host_network_status", e)
+            CarbideError::DatabaseError(file!(), "begin get_all_managed_host_network_status", e)
         })?;
 
-        let all_status = Machine::get_all_network_status(&mut txn).await?;
+        let all_status = Machine::get_all_network_status_observation(&mut txn).await?;
 
         let mut out = Vec::with_capacity(all_status.len());
         for machine_network_status in all_status {
@@ -2402,6 +2476,8 @@ where
         response.initial_lockdown_state = "".to_string();
         response.machine_unlocked = false;
 
+        info!("admin_force_delete_machine query='{query}'");
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin investigate admin_force_delete_machine", e)
         })?;
@@ -2501,20 +2577,21 @@ where
         })?;
 
         if let Some(instance_id) = instance_id {
-            match self
-                .vpc_api
-                .try_delete_managed_resources(instance_id)
-                .await
-                .map_err(CarbideError::from)?
-            {
-                Poll::Ready(()) => {
-                    // TODO: Get the actual number back and set it
-                    response.deleted_managed_resources = 1;
-                }
-                Poll::Pending => {
-                    response.managed_resource_deletion_pending = true;
-                    response.all_done = false;
-                    return Ok(Response::new(response));
+            if let Some(vpc_api) = self.vpc_api.as_ref() {
+                match vpc_api
+                    .try_delete_managed_resources(instance_id)
+                    .await
+                    .map_err(CarbideError::from)?
+                {
+                    Poll::Ready(()) => {
+                        // TODO: Get the actual number back and set it
+                        response.deleted_managed_resources = 1;
+                    }
+                    Poll::Pending => {
+                        response.managed_resource_deletion_pending = true;
+                        response.all_done = false;
+                        return Ok(Response::new(response));
+                    }
                 }
             }
 
@@ -2608,19 +2685,20 @@ where
         })?;
 
         if let Some(dpu_machine) = &dpu_machine {
-            match self
-                .vpc_api
-                .try_delete_leaf(dpu_machine.id())
-                .await
-                .map_err(CarbideError::from)?
-            {
-                Poll::Ready(()) => {
-                    response.deleted_leafs = 1;
-                }
-                Poll::Pending => {
-                    response.leaf_deletion_pending = true;
-                    response.all_done = false;
-                    return Ok(Response::new(response));
+            if let Some(vpc_api) = self.vpc_api.as_ref() {
+                match vpc_api
+                    .try_delete_leaf(dpu_machine.id())
+                    .await
+                    .map_err(CarbideError::from)?
+                {
+                    Poll::Ready(()) => {
+                        response.deleted_leafs = 1;
+                    }
+                    Poll::Pending => {
+                        response.leaf_deletion_pending = true;
+                        response.all_done = false;
+                        return Ok(Response::new(response));
+                    }
                 }
             }
             let mut txn = self.database_connection.begin().await.map_err(|e| {
@@ -2631,15 +2709,9 @@ where
                 )
             })?;
 
-            let actual_dpu_machine = DpuMachine::find_by_machine_id(&mut txn, dpu_machine.id())
-                .await
-                .map_err(CarbideError::from)?;
             if let Some(pool) = self.eth_data.pool_loopback_ip.as_ref() {
                 // Forge is managing loopback IPs..
-                let l_ip = dpu_machine
-                    .loopback_ip() // .. and owns ethernet virtualization.
-                    .or_else(|| actual_dpu_machine.vpc_loopback_ip()); // .. and sends them to VPC.
-                if let Some(loopback_ip) = l_ip {
+                if let Some(loopback_ip) = dpu_machine.loopback_ip() {
                     pool.release(&mut txn, loopback_ip)
                         .await
                         .map_err(CarbideError::from)?
@@ -2820,7 +2892,7 @@ where
                     continue;
                 }
             };
-            let (mut netconf, version) = machine.network_config().clone().take();
+            let (mut network_config, version) = machine.network_config().clone().take();
             let vpc_loopback = match leaf.loopback_ip_address() {
                 Some(IpAddr::V4(val)) => Some(*val),
                 _ => {
@@ -2828,12 +2900,12 @@ where
                     continue;
                 }
             };
-            if vpc_loopback == netconf.loopback_ip {
+            if vpc_loopback == network_config.loopback_ip {
                 debug!("Machine {} already migrated loopback", machine.id());
                 continue;
             }
-            netconf.loopback_ip = vpc_loopback;
-            Machine::try_update_network_config(&mut txn, machine.id(), version, &netconf)
+            network_config.loopback_ip = vpc_loopback;
+            Machine::try_update_network_config(&mut txn, machine.id(), version, &network_config)
                 .await
                 .map_err(CarbideError::from)?;
 
@@ -2856,7 +2928,7 @@ where
             debug!(
                 "Machine {} copied loopback {:?}",
                 machine.id(),
-                netconf.loopback_ip
+                network_config.loopback_ip
             );
         }
 
@@ -3184,7 +3256,7 @@ where
         database_connection: sqlx::PgPool,
         authorizer: auth::Authorizer,
         redfish_pool: Arc<dyn RedfishClientPool>,
-        vpc_api: Arc<dyn VpcApi>,
+        vpc_api: Option<Arc<dyn VpcApi>>,
         eth_data: ethernet_virtualization::EthVirtData,
         identity_pemfile_path: String,
         identity_keyfile_path: String,
@@ -3229,11 +3301,19 @@ where
             .connect(&daemon_config.datastore)
             .await?;
 
-        let vpc_api: Arc<dyn VpcApi> = if daemon_config.kubernetes {
+        let vpc_api: Option<Arc<dyn VpcApi>> = if daemon_config.manage_vpc {
+            // Ethernet Virtualizer. VPC is retired.
+            None
+        } else if daemon_config.kubernetes {
+            // Real Kubernetes VPC
             let client = kube::Client::try_default().await?;
-            Arc::new(VpcApiImpl::new(client, daemon_config.dhcp_server.clone()))
+            Some(Arc::new(VpcApiImpl::new(
+                client,
+                daemon_config.dhcp_server.clone(),
+            )))
         } else {
-            Arc::new(VpcApiSim::default())
+            // In-memory mock VPC
+            Some(Arc::new(VpcApiSim::default()))
         };
 
         let ib_fabric_manager: Arc<dyn IBFabricManager> =

@@ -10,13 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::model::bmc_info::BmcInfo;
-use carbide::model::machine::machine_id::try_parse_machine_id;
-use sqlx::PgPool;
-
 use carbide::db::bmc_metadata::{
     BmcMetaDataGetRequest, BmcMetaDataUpdateRequest, BmcMetadataItem, UserRoles,
 };
+use carbide::model::bmc_info::BmcInfo;
+use carbide::model::machine::machine_id::try_parse_machine_id;
+use sqlx::PgPool;
 pub mod common;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 use common::test_credentials::TestCredentialProvider;
@@ -34,7 +33,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn machine_bmc_credential_update(pool: PgPool) {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
     // TODO: This probably should test with a host machine instead of a DPU,
     // since for DPUs we don't really store BMC credentials
     let dpu_rpc_machine_id = create_dpu_machine(&env).await;

@@ -9,16 +9,18 @@
 --
 -- Usage: PGPASSWORD=<thing> psql -h 172.20.0.16 -U carbide_development < cleanup_bootstrap.sql
 
+DELETE FROM instance_addresses;
+DELETE FROM instances;
 DELETE FROM machine_topologies;
 DELETE FROM machine_interface_addresses;
 DELETE FROM machine_interfaces;
 DELETE FROM machine_state_history;
 DELETE FROM machines;
+DELETE FROM vpc_resource_leafs;
 DELETE FROM network_prefixes;
 DELETE FROM network_segment_state_history;
 DELETE FROM network_segments;
 DELETE FROM resource_pool;
 DELETE FROM domains;
-DELETE FROM vpc_resource_leafs;
 DELETE FROM mq_msgs;
 DELETE FROM vpcs;

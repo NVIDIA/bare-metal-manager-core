@@ -204,6 +204,7 @@ pub struct InstanceNetworkStatusObservation {
     pub config_version: ConfigVersion,
 
     /// Observed status for each configured interface
+    #[serde(default)]
     pub interfaces: Vec<InstanceInterfaceStatusObservation>,
 
     /// When this status was observed
@@ -310,10 +311,10 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
 
 #[cfg(test)]
 mod tests {
-    use crate::model::instance::config::network::InstanceInterfaceConfig;
+    use std::{collections::HashMap, fmt::Write};
 
     use super::*;
-    use std::{collections::HashMap, fmt::Write};
+    use crate::model::instance::config::network::InstanceInterfaceConfig;
 
     #[test]
     fn serialize_network_status_observation() {

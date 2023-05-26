@@ -61,7 +61,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap();
     let hardware_info = create_host_hardware_info();
     let machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
-    let (machine, _is_new) = Machine::get_or_create(&mut txn, &machine_id, iface)
+    let (machine, _is_new) = Machine::get_or_create(&mut txn, &machine_id, &iface)
         .await
         .unwrap();
 
@@ -69,13 +69,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = pool.begin().await?;
 
-    MachineTopology::create(
-        &mut txn,
-        machine.id(),
-        &hardware_info,
-        Some("192.168.42.42".parse().unwrap()),
-    )
-    .await?;
+    MachineTopology::create(&mut txn, machine.id(), &hardware_info).await?;
 
     txn.commit().await?;
 
@@ -115,14 +109,11 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut new_info = hardware_info.clone();
     new_info.cpus[0].model = "SnailSpeedCpu".to_string();
 
-    assert!(MachineTopology::create(
-        &mut txn,
-        machine.id(),
-        &hardware_info,
-        Some("192.168.42.42".parse().unwrap()),
-    )
-    .await?
-    .is_none());
+    assert!(
+        MachineTopology::create(&mut txn, machine.id(), &hardware_info)
+            .await?
+            .is_none()
+    );
 
     let machine2 = Machine::find_one(
         &mut txn,
@@ -146,7 +137,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_topology_missing_mac_field(pool: PgPool) {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
     let rpc_machine_id = create_dpu_machine(&env).await;
 
     let mut txn = pool.begin().await.unwrap();

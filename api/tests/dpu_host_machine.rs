@@ -11,8 +11,7 @@
  */
 
 use carbide::{
-    db::{dpu_machine::DpuMachine, host_machine::HostMachine, vpc_resource_leaf::VpcResourceLeaf},
-    kubernetes::VpcApiSimConfig,
+    db::{dpu_machine::DpuMachine, host_machine::HostMachine},
     model::machine::machine_id::try_parse_machine_id,
     state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
 };
@@ -30,45 +29,9 @@ fn setup() {
 /// This is just a random MachineId to simulate fetching a Machine that doesn't exist
 const UNKNOWN_MACHINE_ID: &str = "fm100htaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00";
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_find_machine_by_loopback(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // We explictly specify the loopback API that the DPU will get
-    let vpc_sim_config = VpcApiSimConfig {
-        leaf_loopback_ip_start_address: [172, 20, 0, 2],
-        ..Default::default()
-    };
-
-    let env = create_test_env(
-        pool.clone(),
-        common::api_fixtures::TestEnvConfig { vpc_sim_config },
-    )
-    .await;
-    let dpu_rpc_machine_id = create_dpu_machine(&env).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
-
-    let mut txn = pool.begin().await?;
-    let dpu_machine = DpuMachine::find_by_machine_id(&mut txn, &dpu_machine_id)
-        .await
-        .unwrap();
-
-    let machine_interface = VpcResourceLeaf::find_associated_dpu_machine_interface(
-        &mut txn,
-        "172.20.0.2".parse().unwrap(),
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(machine_interface.machine_id.unwrap(), dpu_machine_id);
-    assert_eq!(machine_interface.id, *dpu_machine._machine_interface_id());
-
-    Ok(())
-}
-
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_dpu_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
     let dpu_rpc_machine_id = create_dpu_machine(&env).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
@@ -98,7 +61,7 @@ async fn test_find_dpu_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = pool.begin().await?;
@@ -127,7 +90,7 @@ async fn test_find_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_temp_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone(), Default::default()).await;
+    let env = create_test_env(pool.clone()).await;
     let dpu_rpc_machine_id = create_dpu_machine(&env).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 

@@ -116,11 +116,9 @@ fn run_network_config_fetcher(root_ca: String, state: Arc<NetworkConfigFetcherSt
             state.config.machine_id
         );
 
-        match state
-            .config
-            .runtime
-            .block_on(async { fetch_latest_network_config(root_ca.clone(), &state).await })
-        {
+        match state.config.runtime.block_on(async {
+            fetch(&state.config.machine_id, &state.config.forge_api, &root_ca).await
+        }) {
             Ok(config) => {
                 state.current.store(Arc::new(Some(config)));
             }
@@ -136,25 +134,26 @@ fn run_network_config_fetcher(root_ca: String, state: Arc<NetworkConfigFetcherSt
     }
 }
 
-async fn fetch_latest_network_config(
-    root_ca: String,
-    state: &NetworkConfigFetcherState,
+/// Make the network request to get network config
+pub async fn fetch(
+    dpu_machine_id: &str,
+    forge_api: &str,
+    root_ca: &str,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Error> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(root_ca)
-        .connect(state.config.forge_api.clone())
+    let mut client = match forge_tls_client::ForgeTlsClient::new(root_ca.to_string())
+        .connect(forge_api)
         .await
     {
         Ok(client) => client,
         Err(err) => {
             return Err(eyre::eyre!(
-                "Could not connect to Forge API server at {}: {err}",
-                state.config.forge_api
+                "Could not connect to Forge API server at {forge_api}: {err}"
             ));
         }
     };
     let request = tonic::Request::new(rpc::ManagedHostNetworkConfigRequest {
-        machine_id: Some(rpc::MachineId {
-            id: state.config.machine_id.clone(),
+        dpu_machine_id: Some(rpc::MachineId {
+            id: dpu_machine_id.to_string(),
         }),
     });
 

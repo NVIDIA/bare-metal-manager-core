@@ -18,6 +18,12 @@ use std::{
 use clap::Parser;
 use owo_colors::{OwoColorize, Style};
 
+const IGNORE: [&str; 3] = [
+    "grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
+    "The policy engine denied this request",
+    "all auth principals denied by enforcer",
+];
+
 #[derive(Parser, Debug)]
 struct Args {
     /// Print the name of the container?
@@ -38,9 +44,14 @@ fn main() -> eyre::Result<()> {
     let args = Args::parse();
 
     let stdin = std::io::stdin();
-    for line in stdin.lock().lines() {
+    'top: for line in stdin.lock().lines() {
         let line = line.unwrap();
         let l = parse(line, args.debug);
+        for st in IGNORE {
+            if l.message.starts_with(st) {
+                continue 'top;
+            }
+        }
 
         if l.has_err {
             println!("{}", l.message);

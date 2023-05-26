@@ -12,15 +12,14 @@
 
 //! Contains fixtures that use the Carbide API for setting up
 
-use std::sync::Arc;
+use std::{net::Ipv4Addr, sync::Arc, time::SystemTime};
 
 use carbide::{
     api::Api,
     auth::{Authorizer, NoopEngine},
     db::machine::Machine,
-    ethernet_virtualization::EthVirtData,
+    ethernet_virtualization::{self, EthVirtData},
     ib,
-    kubernetes::{VpcApiSim, VpcApiSimConfig},
     model::machine::{
         machine_id::{try_parse_machine_id, MachineId},
         ManagedHostState,
@@ -41,10 +40,7 @@ use carbide::{
     },
 };
 use chrono::Duration;
-use rpc::forge::{
-    forge_server::Forge, BmcInfo, BmcMetaDataUpdateRequest, ForgeAgentControlRequest,
-    ForgeAgentControlResponse, MachineDiscoveryCompletedRequest,
-};
+use rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
 use tonic::Request;
 
@@ -75,7 +71,6 @@ pub struct TestEnv {
     pub credential_provider: Arc<TestCredentialProvider>,
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
-    pub vpc_api: Arc<VpcApiSim>,
     pub ib_fabric_manager: Arc<dyn ib::IBFabricManager>,
     pub pool_pkey: Arc<DbResourcePool<i16>>,
     pub machine_state_controller_io: MachineStateControllerIO,
@@ -93,7 +88,7 @@ impl TestEnv {
             self.pool.clone(),
             Authorizer::new(Arc::new(NoopEngine {})),
             self.redfish_sim.clone(),
-            self.vpc_api.clone(),
+            None,
             EthVirtData::default(),
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
@@ -102,7 +97,7 @@ impl TestEnv {
         StateHandlerServices {
             pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
-            vpc_api: self.vpc_api.clone(),
+            vpc_api: None,
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             forge_api,
             meter: None,
@@ -150,7 +145,7 @@ impl TestEnv {
     /// in this test environment
     pub async fn run_machine_state_controller_iteration(
         &self,
-        dpu_machine_id: MachineId,
+        host_machine_id: MachineId,
         handler: &MachineStateHandler,
     ) {
         let services = Arc::new(self.state_handler_services());
@@ -158,7 +153,7 @@ impl TestEnv {
             &services,
             &self.pool,
             &self.machine_state_controller_io,
-            dpu_machine_id,
+            host_machine_id,
             handler,
         )
         .await
@@ -223,51 +218,71 @@ impl TestEnv {
     }
 }
 
-#[derive(Default, Debug)]
-pub struct TestEnvConfig {
-    /// VPC simulation configuration
-    pub vpc_sim_config: VpcApiSimConfig,
-}
-
 /// Creates an environment for unit-testing
 ///
 /// This retuns the `Api` object instance which can be used to simulate calls against
 /// the Forge site controller, as well as mocks for dependent services that
 /// can be inspected and passed to other systems.
-pub async fn create_test_env(pool: sqlx::PgPool, config: TestEnvConfig) -> TestEnv {
+pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     let credential_provider = Arc::new(TestCredentialProvider::new());
-    let vpc_api = Arc::new(VpcApiSim::with_config(config.vpc_sim_config));
     let redfish_sim = Arc::new(RedfishSim::default());
     let ib_fabric_manager = ib::local_ib_fabric_manager();
 
-    let api = carbide::api::Api::new(
-        credential_provider.clone(),
-        pool.clone(),
-        Authorizer::new(Arc::new(NoopEngine {})),
-        redfish_sim.clone(),
-        vpc_api.clone(),
-        EthVirtData::default(),
-        "not a real pemfile path".to_string(),
-        "not a real keyfile path".to_string(),
-    );
+    let mut eth_virt = ethernet_virtualization::enable(db_pool.clone()).await;
+    eth_virt.asn = 65535;
+    eth_virt.dhcp_servers = vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()];
 
+    // Populate resource pools
+    let mut txn = db_pool.begin().await.unwrap();
     let ib_data = ib::pool::enable();
-
-    // Populate pkey for test.
-    let mut txn = pool.begin().await.unwrap();
     ib_data
         .pool_pkey
         .populate(&mut txn, (1..100).collect())
         .await
         .unwrap();
+    eth_virt
+        .pool_loopback_ip
+        .as_ref()
+        .unwrap()
+        .populate(
+            &mut txn,
+            // Must match a network_prefix in fixtures/create_network_segment.sql
+            // Here it's 192.0.2.X
+            (0xC0_00_02_00..0xC0_00_02_FF).map(Ipv4Addr::from).collect(),
+        )
+        .await
+        .unwrap();
+    eth_virt
+        .pool_vni
+        .as_ref()
+        .unwrap()
+        .populate(&mut txn, (10001..10005).collect())
+        .await
+        .unwrap();
+    eth_virt
+        .pool_vlan_id
+        .as_ref()
+        .unwrap()
+        .populate(&mut txn, (1..5).collect())
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
+    let api = carbide::api::Api::new(
+        credential_provider.clone(),
+        db_pool.clone(),
+        Authorizer::new(Arc::new(NoopEngine {})),
+        redfish_sim.clone(),
+        None,
+        eth_virt,
+        "not a real pemfile path".to_string(),
+        "not a real keyfile path".to_string(),
+    );
     TestEnv {
         api,
         credential_provider,
-        pool,
+        pool: db_pool,
         redfish_sim,
-        vpc_api,
         ib_fabric_manager,
         pool_pkey: ib_data.pool_pkey.clone(),
         machine_state_controller_io: MachineStateControllerIO::default(),
@@ -331,14 +346,14 @@ async fn run_state_controller_iteration<IO: StateControllerIO>(
 /// Emulates the `UpdateBmcMetaData` request of a DPU/Host
 pub async fn update_bmc_metadata(
     env: &TestEnv,
-    machine_id: rpc::MachineId,
+    machine_id: rpc::forge::MachineId,
     bmc_ip_address: &str,
     admin_user: String,
     bmc_mac_address: String,
     bmc_version: String,
     bmc_firmware_version: String,
 ) {
-    let bmc_info = BmcInfo {
+    let bmc_info = rpc::forge::BmcInfo {
         ip: Some(bmc_ip_address.to_owned()),
         mac: Some(bmc_mac_address.to_owned()),
         version: Some(bmc_version),
@@ -347,7 +362,7 @@ pub async fn update_bmc_metadata(
 
     let _response = env
         .api
-        .update_bmc_meta_data(Request::new(BmcMetaDataUpdateRequest {
+        .update_bmc_meta_data(Request::new(rpc::forge::BmcMetaDataUpdateRequest {
             machine_id: Some(machine_id),
             data: vec![rpc::forge::bmc_meta_data_update_request::DataItem {
                 user: admin_user,
@@ -363,10 +378,10 @@ pub async fn update_bmc_metadata(
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
-pub async fn discovery_completed(env: &TestEnv, machine_id: rpc::MachineId) {
+pub async fn discovery_completed(env: &TestEnv, machine_id: rpc::forge::MachineId) {
     let _response = env
         .api
-        .discovery_completed(Request::new(MachineDiscoveryCompletedRequest {
+        .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
             machine_id: Some(machine_id),
         }))
         .await
@@ -374,13 +389,94 @@ pub async fn discovery_completed(env: &TestEnv, machine_id: rpc::MachineId) {
         .into_inner();
 }
 
+/// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back
+/// Returns tuple of latest (machine_config_version, instance_config_version)
+pub async fn network_configured(
+    env: &TestEnv,
+    dpu_machine_id: &MachineId,
+) -> (String, Option<String>) {
+    let network_config = env
+        .api
+        .get_managed_host_network_config(Request::new(
+            rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let instance_cv = if network_config.instance_config_version.is_empty() {
+        None
+    } else {
+        Some(network_config.instance_config_version.clone())
+    };
+    let interfaces = if network_config.use_admin_network {
+        let iface = network_config
+            .admin_interface
+            .as_ref()
+            .expect("use_admin_network true so admin_interface should be Some");
+        vec![rpc::forge::InstanceInterfaceStatusObservation {
+            function_type: iface.function,
+            virtual_function_id: None,
+            mac_address: None,
+            addresses: vec![iface.ip.clone()],
+        }]
+    } else {
+        let mut interfaces = vec![];
+        for (i, iface) in network_config.tenant_interfaces.iter().enumerate() {
+            interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
+                function_type: iface.function,
+                virtual_function_id: if iface.function
+                    == rpc::InterfaceFunctionType::Physical as i32
+                {
+                    None
+                } else {
+                    Some(i as u32)
+                },
+                mac_address: None,
+                addresses: vec![iface.ip.clone()],
+            });
+        }
+        interfaces
+    };
+    let status = rpc::forge::DpuNetworkStatus {
+        dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+        observed_at: Some(SystemTime::now().into()),
+        health: Some(rpc::forge::NetworkHealth {
+            is_healthy: true,
+            ..Default::default()
+        }),
+        network_config_version: Some(network_config.managed_host_config_version.clone()),
+        instance_id: network_config.instance_id.clone(),
+        instance_config_version: instance_cv.clone(),
+        interfaces,
+        network_config_error: None,
+    };
+    tracing::trace!(
+        "network_configured machine={} instance={}",
+        status.network_config_version.as_ref().unwrap(),
+        instance_cv.clone().unwrap_or_default(),
+    );
+    let _ = env
+        .api
+        .record_dpu_network_status(Request::new(status))
+        .await
+        .unwrap();
+
+    (
+        network_config.managed_host_config_version.clone(),
+        instance_cv,
+    )
+}
+
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
 pub async fn forge_agent_control(
     env: &TestEnv,
-    machine_id: rpc::MachineId,
-) -> ForgeAgentControlResponse {
+    machine_id: rpc::forge::MachineId,
+) -> rpc::forge::ForgeAgentControlResponse {
     env.api
-        .forge_agent_control(Request::new(ForgeAgentControlRequest {
+        .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
             machine_id: Some(machine_id),
         }))
         .await

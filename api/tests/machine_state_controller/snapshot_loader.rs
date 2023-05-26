@@ -69,7 +69,11 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     let hardware_info = create_dpu_hardware_info();
     let stable_machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
-    let (machine, _is_new) = Machine::get_or_create(&mut txn, &stable_machine_id, iface)
+    let (machine, _is_new) = Machine::get_or_create(&mut txn, &stable_machine_id, &iface)
+        .await
+        .unwrap();
+    iface
+        .associate_interface_with_dpu_machine(&mut txn, &stable_machine_id)
         .await
         .unwrap();
 
@@ -82,7 +86,8 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&hardware_info)
         .ok_or_else(|| CarbideError::InvalidArgument("hardware info".to_string()))?;
-    let _ = Machine::get_or_create(&mut txn, &predicted_machine_id, host_machine_interface).await?;
+    let _ =
+        Machine::get_or_create(&mut txn, &predicted_machine_id, &host_machine_interface).await?;
 
     txn.commit()
         .await
@@ -93,13 +98,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
 
-    MachineTopology::create(
-        &mut txn,
-        machine.id(),
-        &hardware_info,
-        Some("192.168.42.42".parse().unwrap()),
-    )
-    .await?;
+    MachineTopology::create(&mut txn, machine.id(), &hardware_info).await?;
     txn.commit()
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;

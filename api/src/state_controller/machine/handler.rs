@@ -23,12 +23,13 @@ use crate::{
         dpu_machine::DpuMachine, instance::DeleteInstance, machine::Machine,
         vpc_resource_leaf::VpcResourceLeaf,
     },
-    kubernetes,
+    kubernetes::{self, VpcApi},
     model::{
         config_version::ConfigVersion,
         instance::config::network::{InstanceNetworkConfig, InterfaceFunctionId},
         machine::{
             machine_id::MachineId,
+            network::MachineNetworkStatusObservation,
             CleanupState, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineSnapshot, MachineState, ManagedHostState,
@@ -82,14 +83,28 @@ impl StateHandler for MachineStateHandler {
                 if let Some(instance) = state.instance.as_ref() {
                     // Instance is requested by user. Let's configure it.
                     // Create managed resources and move to Assigned: WaitingForNetworkConfig
-                    let _poll_status = kubernetes::create_managed_resource(
+                    if let Some(vpc_api) = ctx.services.vpc_api.as_ref() {
+                        let _poll_status = kubernetes::create_managed_resource(
+                            txn,
+                            &state.dpu_snapshot.machine_id,
+                            instance.config.network.clone(),
+                            instance.instance_id,
+                            vpc_api,
+                        )
+                        .await?;
+                    }
+
+                    // Switch to using the network we just created for the tenant
+                    let (mut netconf, version) = state.dpu_snapshot.network_config.clone().take();
+                    netconf.use_admin_network = Some(false);
+                    Machine::try_update_network_config(
                         txn,
                         &state.dpu_snapshot.machine_id,
-                        instance.config.network.clone(),
-                        instance.instance_id,
-                        &ctx.services.vpc_api,
+                        version,
+                        &netconf,
                     )
                     .await?;
+
                     *controller_state.modify() = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkConfig,
                     };
@@ -197,19 +212,36 @@ impl StateHandler for DpuMachineStateHandler {
                     })?
                     .ip_address;
 
-                // Create leaf and wait for it to get loopback ip.
-                if Poll::Pending
-                    == create_leaf_and_wait_for_loopback_ip(
-                        txn,
-                        &state.dpu_snapshot.machine_id,
-                        host_address,
-                        ctx,
-                    )
-                    .await?
-                {
-                    return Ok(());
+                match ctx.services.vpc_api.as_ref() {
+                    None => {
+                        // New: Ethernet Virtualizer
+                        // Has forge-dpu-agent written the network config?
+                        if !has_applied_network_config(
+                            &state.dpu_snapshot.network_config.version,
+                            state.dpu_snapshot.network_status_observation.as_ref(),
+                        ) {
+                            return Ok(());
+                        }
+                    }
+                    Some(vpc_api) => {
+                        // Old: K8s VPC
+                        // Create leaf and wait for it to get loopback ip.
+                        if Poll::Pending
+                            == create_leaf_and_wait_for_loopback_ip(
+                                txn,
+                                &state.dpu_snapshot.machine_id,
+                                host_address,
+                                vpc_api.as_ref(),
+                            )
+                            .await?
+                        {
+                            // No-one has written the network config. Stay in current state.
+                            return Ok(());
+                        }
+                    }
                 }
 
+                // Network config has been applied, move to next state
                 *controller_state.modify() = ManagedHostState::HostNotReady {
                     machine_state: MachineState::WaitingForDiscovery,
                 };
@@ -267,21 +299,30 @@ pub async fn cleanedup_after_state_transition(
 #[derive(Debug, Default)]
 pub struct HostMachineStateHandler {}
 
+/// Has the network config version that the host wants has been applied by DPU?
+fn has_applied_network_config(
+    dpu_expected_version: &ConfigVersion,
+    dpu_observation: Option<&MachineNetworkStatusObservation>,
+) -> bool {
+    let dpu_observed_version: ConfigVersion = match dpu_observation {
+        None => {
+            return false;
+        }
+        Some(network_status) => network_status.network_config_version,
+    };
+    *dpu_expected_version == dpu_observed_version
+}
+
 pub async fn create_leaf_and_wait_for_loopback_ip(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     dpu_machine_id: &MachineId,
     host_address: IpAddr,
-    ctx: &mut StateHandlerContext<'_>,
+    vpc_api: &dyn VpcApi,
 ) -> Result<Poll<()>, StateHandlerError> {
     let dpu = DpuMachine::find_by_machine_id(txn, dpu_machine_id)
         .await
         .map_err(|err| StateHandlerError::GenericError(err.into()))?;
-    match ctx
-        .services
-        .vpc_api
-        .try_create_leaf(dpu, host_address)
-        .await?
-    {
+    match vpc_api.try_create_leaf(dpu, host_address).await? {
         Poll::Pending => Ok(Poll::Pending),
         Poll::Ready(ip_address) => {
             // Update loopback ip in table.
@@ -496,37 +537,53 @@ impl StateHandler for InstanceStateHandler {
                 InstanceState::WaitingForNetworkConfig => {
                     // It should be first state to process here. Wait until managed resources
                     // are up. Reboot host and moved to Ready.
-                    if kubernetes::create_managed_resource(
-                        txn,
-                        &state.dpu_snapshot.machine_id,
-                        instance.config.network.clone(),
-                        instance.instance_id,
-                        &ctx.services.vpc_api.clone(),
-                    )
-                    .await?
-                    .is_pending()
-                    {
-                        return Ok(());
+
+                    // Wait for instance network config to be applied
+
+                    if let Some(vpc_api) = ctx.services.vpc_api.as_ref() {
+                        // Old: K8s VPC
+
+                        if kubernetes::create_managed_resource(
+                            txn,
+                            &state.dpu_snapshot.machine_id,
+                            instance.config.network.clone(),
+                            instance.instance_id,
+                            vpc_api,
+                        )
+                        .await?
+                        .is_pending()
+                        {
+                            return Ok(());
+                        }
+                        record_instance_network_observation(
+                            instance.config.network.clone(),
+                            instance.instance_id,
+                            instance.network_config_version,
+                            ctx,
+                        )
+                        .await?;
+                    } else {
+                        // New: Ethernet Virtualizer
+
+                        // Check DPU network config has been applied
+                        if !has_applied_network_config(
+                            &state.dpu_snapshot.network_config.version,
+                            state.dpu_snapshot.network_status_observation.as_ref(),
+                        ) {
+                            return Ok(());
+                        }
+                        // Check instance network config has been applied
+                        let expected = &instance.network_config_version;
+                        let actual = match &instance.observations.network {
+                            None => {
+                                return Ok(());
+                            }
+                            Some(network_status) => &network_status.config_version,
+                        };
+                        if expected != actual {
+                            return Ok(());
+                        }
                     }
-
-                    record_instance_network_observation(
-                        instance.config.network.clone(),
-                        instance.instance_id,
-                        instance.network_config_version,
-                        ctx,
-                    )
-                    .await?;
-
-                    // Switch to using the network we just created for the tenant
-                    let (mut netconf, version) = state.dpu_snapshot.network_config.clone().take();
-                    netconf.use_admin_network = Some(false);
-                    Machine::try_update_network_config(
-                        txn,
-                        &state.dpu_snapshot.machine_id,
-                        version,
-                        &netconf,
-                    )
-                    .await?;
 
                     // Reboot host
                     restart_machine(&state.host_snapshot, ctx).await?;
@@ -539,7 +596,7 @@ impl StateHandler for InstanceStateHandler {
                     };
                 }
                 InstanceState::Ready => {
-                    // Machine is up after reboot. Hurrey. Instance is up.
+                    // Machine is up after reboot. Hurray. Instance is up.
                     // Wait until deleted flag is set. If set, start deleting Managed resource.
                     // try_delete_managed_resources function is async. We have to move out of Ready
                     // state as soon as possible, to indicate that delete process is started. In next cycle, this function must return Poll::Ready if all managed resources are deleted, else keep retrying, but in next state.
@@ -563,11 +620,11 @@ impl StateHandler for InstanceStateHandler {
                     {
                         return Ok(());
                     }
-                    let _ = ctx
-                        .services
-                        .vpc_api
-                        .try_delete_managed_resources(instance.instance_id)
-                        .await?;
+                    if let Some(vpc_api) = ctx.services.vpc_api.as_ref() {
+                        let _ = vpc_api
+                            .try_delete_managed_resources(instance.instance_id)
+                            .await?;
+                    }
 
                     *controller_state.modify() = ManagedHostState::Assigned {
                         instance_state: InstanceState::DeletingManagedResource,
@@ -575,27 +632,14 @@ impl StateHandler for InstanceStateHandler {
                 }
                 InstanceState::DeletingManagedResource => {
                     // Wait until Managed resources are deleted now.
-                    if let Poll::Ready(()) = ctx
-                        .services
-                        .vpc_api
-                        .try_delete_managed_resources(instance.instance_id)
-                        .await?
-                    {
-                        *controller_state.modify() = ManagedHostState::Assigned {
-                            instance_state: InstanceState::WaitingForNetworkReconfig,
-                        };
-                    }
-                }
-                InstanceState::WaitingForNetworkReconfig => {
-                    // Managed resources are deleted, now wait until admin network is reconfigured on dpu.
-                    if ctx
-                        .services
-                        .vpc_api
-                        .try_monitor_leaf(&state.dpu_snapshot.machine_id)
-                        .await?
-                        .is_pending()
-                    {
-                        return Ok(());
+                    if let Some(vpc_api) = ctx.services.vpc_api.as_ref() {
+                        if vpc_api
+                            .try_delete_managed_resources(instance.instance_id)
+                            .await?
+                            .is_pending()
+                        {
+                            return Ok(());
+                        }
                     }
 
                     // Tenant is gone and so is their network, switch back to admin network
@@ -608,6 +652,33 @@ impl StateHandler for InstanceStateHandler {
                         &netconf,
                     )
                     .await?;
+
+                    *controller_state.modify() = ManagedHostState::Assigned {
+                        instance_state: InstanceState::WaitingForNetworkReconfig,
+                    }
+                }
+                InstanceState::WaitingForNetworkReconfig => {
+                    if let Some(vpc_api) = ctx.services.vpc_api.as_ref() {
+                        // Old: K8s VPC
+                        if vpc_api
+                            .try_monitor_leaf(&state.dpu_snapshot.machine_id)
+                            .await?
+                            .is_pending()
+                        {
+                            return Ok(());
+                        }
+                    }
+
+                    if ctx.services.vpc_api.is_none() {
+                        // New: Ethernet Virtualizer
+                        // Has forge-dpu-agent written the network config?
+                        if !has_applied_network_config(
+                            &state.dpu_snapshot.network_config.version,
+                            state.dpu_snapshot.network_status_observation.as_ref(),
+                        ) {
+                            return Ok(());
+                        }
+                    }
 
                     // Delete from database now. Once done, reboot and move to next state.
                     DeleteInstance {

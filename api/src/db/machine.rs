@@ -34,7 +34,7 @@ use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
-use crate::model::machine::network::{MachineNetworkStatus, ManagedHostNetworkConfig};
+use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::{MachineState, ManagedHostState};
 use crate::{CarbideError, CarbideResult};
 
@@ -82,6 +82,10 @@ pub struct Machine {
     /// configuration. The latter will be tracked as part of the InstanceNetworkConfig.
     network_config: Versioned<ManagedHostNetworkConfig>,
 
+    /// The most recent status forge-dpu-agent observed. Tells us if network_config has been
+    /// applied yet, and other useful things.
+    network_status_observation: Option<MachineNetworkStatusObservation>,
+
     /// A list of [MachineStateHistory] that this machine has experienced
     history: Vec<MachineStateHistory>,
 
@@ -127,6 +131,10 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let network_config: sqlx::types::Json<ManagedHostNetworkConfig> =
             row.try_get("network_config")?;
 
+        let network_status_observation: Option<sqlx::types::Json<MachineNetworkStatusObservation>> =
+            row.try_get("network_status_observation")?;
+        let network_status_observation = network_status_observation.map(|n| n.0);
+
         Ok(Machine {
             id,
             vpc_leaf_id: vpc_leaf_id.map(|id| id.0),
@@ -135,6 +143,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             deployed: row.try_get("deployed")?,
             state: Versioned::new(controller_state.0, controller_state_version),
             network_config: Versioned::new(network_config.0, network_config_version),
+            network_status_observation,
             history: Vec::new(),
             interfaces: Vec::new(),
             hardware_info: None,
@@ -269,6 +278,11 @@ impl Machine {
         &self.network_config
     }
 
+    /// Actual network info from machine
+    pub fn network_status_observation(&self) -> Option<&MachineNetworkStatusObservation> {
+        self.network_status_observation.as_ref()
+    }
+
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
         self.network_config().loopback_ip
     }
@@ -300,7 +314,7 @@ impl Machine {
     pub async fn get_or_create(
         txn: &mut Transaction<'_, Postgres>,
         stable_machine_id: &MachineId,
-        mut interface: MachineInterface,
+        interface: &MachineInterface,
     ) -> CarbideResult<(Self, bool)> {
         let stable_machine_id_string = stable_machine_id.to_string();
 
@@ -695,6 +709,24 @@ SELECT m.id FROM
         Ok(Some(machine))
     }
 
+    pub async fn find_by_loopback_ip(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        loopback_ip: &str,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = "SELECT * FROM machines WHERE network_config->>'loopback_ip' = $1";
+        let machine: Option<Self> = sqlx::query_as(query)
+            .bind(loopback_ip)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let mut machine = match machine {
+            Some(machine) => machine,
+            None => return Ok(None),
+        };
+        machine.load_related_data(txn).await?;
+        Ok(Some(machine))
+    }
+
     pub async fn find_by_fqdn(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         fqdn: &str,
@@ -848,7 +880,7 @@ SELECT m.id FROM
     pub async fn update_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
-        observation: MachineNetworkStatus,
+        observation: MachineNetworkStatusObservation,
     ) -> CarbideResult<()> {
         let query =
             "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 RETURNING id";
@@ -862,9 +894,9 @@ SELECT m.id FROM
         Ok(())
     }
 
-    pub async fn get_all_network_status(
+    pub async fn get_all_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<MachineNetworkStatus>> {
+    ) -> CarbideResult<Vec<MachineNetworkStatusObservation>> {
         let query = "SELECT network_status_observation FROM machines
             WHERE network_status_observation IS NOT NULL
             ORDER BY network_status_observation->'machine_id'
@@ -875,7 +907,7 @@ SELECT m.id FROM
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         let mut all = Vec::with_capacity(rows.len());
         for row in rows {
-            let s: sqlx::types::Json<MachineNetworkStatus> = row
+            let s: sqlx::types::Json<MachineNetworkStatusObservation> = row
                 .try_get("network_status_observation")
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             all.push(s.0);
@@ -973,6 +1005,8 @@ SELECT m.id FROM
             };
         }
 
+        // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will
+        // also change.
         let query = "UPDATE machines SET id=$1 WHERE id=$2 RETURNING *";
         let res = sqlx::query_as::<_, Machine>(query)
             .bind(stable_machine_id.to_string())

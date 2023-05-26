@@ -139,7 +139,7 @@ impl MachineInterface {
     }
 
     pub async fn associate_interface_with_dpu_machine(
-        &mut self,
+        &self,
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &MachineId,
     ) -> Result<Self, DatabaseError> {
@@ -154,7 +154,7 @@ impl MachineInterface {
     }
 
     pub async fn associate_interface_with_machine(
-        &mut self,
+        &self,
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
     ) -> CarbideResult<Self> {
@@ -597,10 +597,9 @@ impl MachineInterface {
             .await
             .map_err(CarbideError::from)?;
 
-        let mut machine_interface =
+        let machine_interface =
             Self::find_or_create_machine_interface(txn, existing_machine, host_mac, gateway)
                 .await?;
-
         machine_interface
             .associate_interface_with_dpu_machine(txn, dpu_id)
             .await?;

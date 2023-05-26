@@ -318,7 +318,8 @@ impl NewNetworkSegment {
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        segment.prefixes = NetworkPrefix::create_for(txn, &segment.id, &self.prefixes).await?;
+        segment.prefixes =
+            NetworkPrefix::create_for(txn, &segment.id, self.vlan_id, &self.prefixes).await?;
         segment.update_prefix_state(&mut *txn).await?;
 
         NetworkSegmentStateHistory::persist(txn, segment.id, &controller_state, version).await?;

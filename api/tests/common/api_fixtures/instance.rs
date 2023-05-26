@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::TestEnv;
 use carbide::model::machine::machine_id::MachineId;
 use carbide::model::machine::CleanupState;
 use carbide::model::machine::MachineState;
@@ -18,15 +17,18 @@ use carbide::state_controller::machine::handler::MachineStateHandler;
 use carbide::{db::machine::Machine, model::machine::ManagedHostState};
 use rpc::{forge::forge_server::Forge, InstanceReleaseRequest};
 
+use super::TestEnv;
+
 pub const FIXTURE_CIRCUIT_ID: &str = "vlan_100";
 pub const FIXTURE_CIRCUIT_ID_1: &str = "vlan_101";
 
 pub async fn create_instance(
     env: &TestEnv,
+    dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
     network: Option<rpc::InstanceNetworkConfig>,
 ) -> (uuid::Uuid, rpc::Instance) {
-    let info = env
+    let mut info = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             machine_id: Some(rpc::MachineId {
@@ -49,6 +51,19 @@ pub async fn create_instance(
 
     let handler = MachineStateHandler::default();
 
+    // - first run: state controller moves state to WaitingForNetworkConfig
+    env.run_machine_state_controller_iteration(host_machine_id.clone(), &handler)
+        .await;
+    // - second run: state controller sets use_admin_network to false
+    env.run_machine_state_controller_iteration(host_machine_id.clone(), &handler)
+        .await;
+    // - forge-dpu-agent gets an instance network to configure, reports it configured
+    let (_, instance_config_version) = super::network_configured(env, dpu_machine_id).await;
+    if let Some(icv) = instance_config_version {
+        info.network_config_version = icv;
+    }
+
+    // - third run: state controller runs again, advances state to Ready
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
@@ -61,11 +76,17 @@ pub async fn create_instance(
     )
     .await;
     txn.commit().await.unwrap();
+
     let instance_id = uuid::Uuid::try_from(info.id.clone().expect("Missing instance ID")).unwrap();
     (instance_id, info)
 }
 
-pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid, host_machine_id: &MachineId) {
+pub async fn delete_instance(
+    env: &TestEnv,
+    instance_id: uuid::Uuid,
+    dpu_machine_id: &MachineId,
+    host_machine_id: &MachineId,
+) {
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
@@ -102,11 +123,30 @@ pub async fn delete_instance(env: &TestEnv, instance_id: uuid::Uuid, host_machin
     machine.update_reboot_time(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
 
+    // Run state machine twice.
+    // First DeletingManagedResource updates use_admin_network, transitions to WaitingForNetworkReconfig
+    // Second to discover we are now in WaitingForNetworkReconfig
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         &handler,
-        3,
+        2,
+        &mut txn,
+        ManagedHostState::Assigned {
+            instance_state: carbide::model::machine::InstanceState::WaitingForNetworkReconfig,
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // Apply switching back to admin network
+    super::network_configured(env, dpu_machine_id).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        host_machine_id,
+        &handler,
+        1,
         &mut txn,
         ManagedHostState::WaitingForCleanup {
             cleanup_state: CleanupState::HostCleanup,

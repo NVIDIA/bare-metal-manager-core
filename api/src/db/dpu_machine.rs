@@ -13,7 +13,7 @@
 // DpuMachine - represents a database-backed DpuMachine object
 //
 
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::Ipv4Addr;
 
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
@@ -32,7 +32,6 @@ use crate::{
 #[derive(Debug)]
 pub struct DpuMachine {
     machine_id: MachineId,
-    _vpc_leaf_id: MachineId,
     _machine_interface_id: uuid::Uuid,
     _mac_address: MacAddress,
     address: IpNetwork,
@@ -45,19 +44,13 @@ pub struct DpuMachine {
 impl<'r> FromRow<'r, PgRow> for DpuMachine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let machine_id: DbMachineId = row.try_get("machine_id")?;
-        let vpc_leaf_id: DbMachineId = row.try_get("vpc_leaf_id")?;
-        let loopback_ip: Option<IpAddr> = row.try_get("loopback_ip")?;
-        let loopback_ip = match loopback_ip {
-            Some(IpAddr::V4(v4_addr)) => Some(v4_addr),
-            Some(IpAddr::V6(_)) => {
-                let e = format!("Unexpected IPv6 loopback_ip in DB for {machine_id:?}");
-                return Err(sqlx::Error::Decode(e.into()));
-            }
+        let loopback_ip: Option<String> = row.try_get("loopback_ip")?;
+        let loopback_ip: Option<Ipv4Addr> = match loopback_ip {
+            Some(ip) => ip.parse().ok(),
             None => None,
         };
         Ok(DpuMachine {
             machine_id: machine_id.into_inner(),
-            _vpc_leaf_id: vpc_leaf_id.into_inner(),
             _machine_interface_id: row.try_get("machine_interfaces_id")?,
             _mac_address: row.try_get("mac_address")?,
             address: row.try_get("address")?,
@@ -68,10 +61,6 @@ impl<'r> FromRow<'r, PgRow> for DpuMachine {
 }
 
 impl DpuMachine {
-    pub fn _vpc_leaf_id(&self) -> &MachineId {
-        &self._vpc_leaf_id
-    }
-
     pub fn machine_id(&self) -> &MachineId {
         &self.machine_id
     }

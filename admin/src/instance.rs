@@ -11,14 +11,12 @@
  */
 use std::fmt::Write;
 
-use prettytable::{row, Table};
-
 use ::rpc::forge as forgerpc;
-
-use crate::{CarbideCliError, Config};
+use prettytable::{row, Table};
 
 use super::cfg::carbide_options::ShowInstance;
 use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
+use crate::{CarbideCliError, Config};
 
 fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,
@@ -31,7 +29,7 @@ fn convert_instance_to_nice_format(
         ("ID", instance.id.clone().unwrap_or_default().value),
         (
             "MACHINE ID",
-            instance.machine_id.clone().unwrap_or_default().id,
+            instance.host_machine_id.clone().unwrap_or_default().id,
         ),
         (
             "TENANT ORG",
@@ -224,7 +222,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 
         table.add_row(row![
             instance.id.unwrap_or_default(),
-            instance.machine_id.unwrap_or_else(default_machine_id),
+            instance.host_machine_id.unwrap_or_else(default_machine_id),
             tenant_org,
             tenant_state,
             configs_synced,

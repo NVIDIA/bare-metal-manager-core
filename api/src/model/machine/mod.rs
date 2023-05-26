@@ -19,7 +19,7 @@ use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 
-use self::network::ManagedHostNetworkConfig;
+use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
     bmc_info::BmcInfo,
     config_version::{ConfigVersion, Versioned},
@@ -54,6 +54,8 @@ pub struct MachineSnapshot {
     /// Includes the loopback_ip address. Do not query that
     /// directly, use `.loopback_ip()` instead.
     pub network_config: Versioned<ManagedHostNetworkConfig>,
+    /// The actual network configuration, as reported by forge-dpu-agent
+    pub network_status_observation: Option<MachineNetworkStatusObservation>,
     /// BMC related information
     pub bmc_info: BmcInfo,
     /// Network interfaces
@@ -64,16 +66,13 @@ pub struct MachineSnapshot {
     pub last_discovery_time: Option<DateTime<Utc>>,
     /// Last reboot time. Calculated from forge_agent_control call.
     pub last_reboot_time: Option<DateTime<Utc>>,
-    /// Last Cleanup completed messge received from scout.
+    /// Last cleanup completed message received from scout.
     pub last_cleanup_time: Option<DateTime<Utc>>,
-    /// Loopback IP of DPU if VPC is still managing things (old)
-    /// Do not query directly, use `.loopback_ip()` instead.
-    pub vpc_loopback_ip: Option<Ipv4Addr>,
 }
 
 impl MachineSnapshot {
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
-        self.network_config.loopback_ip.or(self.vpc_loopback_ip)
+        self.network_config.loopback_ip
     }
     pub fn use_admin_network(&self) -> bool {
         self.network_config.use_admin_network.unwrap_or(true)

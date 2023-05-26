@@ -51,7 +51,7 @@ service Forge {
   rpc RecordObservedInstanceNetworkStatus(InstanceNetworkStatusObservation) returns (ObservedInstanceNetworkStatusRecordResult);
   // forge-dpu-agent -> carbide-api
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
-  rpc RecordManagedHostNetworkStatus(ManagedHostNetworkStatusObservation) returns (ManagedHostNetworkStatusRecordResult);
+  rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
 
   rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
 //  rpc LookupPTRRecord(DnsRequest) returns (DnsReply);
@@ -687,7 +687,7 @@ message Instance {
   // Instance ID
   UUID id = 1;
   // The ID of the machine which is utilized for this Instance
-  MachineId machine_id = 2;
+  MachineId host_machine_id = 2;
 
   // The desired configuration on the instance
   InstanceConfig config = 103;
@@ -975,7 +975,7 @@ message CredentialResponse {
 }
 
 message ManagedHostNetworkConfigRequest {
-  MachineId machine_id = 1;
+  MachineId dpu_machine_id = 1;
 }
 
 message ManagedHostNetworkConfigResponse {
@@ -1005,6 +1005,7 @@ message ManagedHostNetworkConfigResponse {
   repeated FlatInterfaceConfig tenant_interfaces = 9;
   // Blank if on the admin network, matches DB instances.network_config if there's a tenant
   string instance_config_version = 10;
+  optional UUID instance_id = 11;
 }
 
 // Network configuration for a managed host (host + DPU pair) managed by Forge
@@ -1027,7 +1028,7 @@ message FlatInterfaceConfig {
 
 message ManagedHostNetworkStatusRequest {}
 message ManagedHostNetworkStatusResponse {
-    repeated ManagedHostNetworkStatusObservation all = 1;
+    repeated DpuNetworkStatus all = 1;
 }
 
 message AdminForceDeleteMachineRequest {
@@ -1247,13 +1248,16 @@ enum InterfaceFunctionType {
 }
 
 // What forge-dpu-agent reports. Will grow over time.
-message ManagedHostNetworkStatusObservation {
+message DpuNetworkStatus {
   MachineId dpu_machine_id = 1;
-  optional google.protobuf.Timestamp observed_at = 2;
-  optional NetworkHealth health = 3;
+  google.protobuf.Timestamp observed_at = 2;
+  NetworkHealth health = 3;
+  optional string network_config_version = 4;
+  optional string instance_config_version = 5;
+  repeated InstanceInterfaceStatusObservation interfaces = 6;
+  optional string network_config_error = 7;
+  optional UUID instance_id = 8;
 }
-
-message ManagedHostNetworkStatusRecordResult {}
 
 // Observed status of the networking subsystem of an instance
 message InstanceNetworkStatusObservation {
