@@ -326,7 +326,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
             .trim()
         {
             "Lenovo" => issue_onecli_user_commands(id),
-            "Dell" => issue_racadm_user_commands(id),
+            "Dell Inc." => issue_racadm_user_commands(id),
             other => {
                 return Err(CarbideClientError::GenericError(format!(
                     "The chassis vendor was an unexpected result - {other}"
