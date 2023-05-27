@@ -1036,7 +1036,7 @@ where
         let use_admin_network = snapshot.dpu_snapshot.use_admin_network();
 
         let admin_interface_rpc =
-            ethernet_virtualization::admin_network(&mut txn, &snapshot.dpu_snapshot.machine_id)
+            ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
                 .await?;
 
         let tenant_interfaces = match &snapshot.instance {
