@@ -247,14 +247,14 @@ fn write_frr<P: AsRef<Path>>(
             .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
         vec![frr::FrrVlanConfig {
             vlan_id: admin_interface.vlan_id,
-            ip: admin_interface.ip.clone(),
+            ip: admin_interface.ip.clone() + "/32",
         }]
     } else {
         let mut access_vlans = Vec::with_capacity(nc.tenant_interfaces.len());
         for net in &nc.tenant_interfaces {
             access_vlans.push(frr::FrrVlanConfig {
                 vlan_id: net.vlan_id,
-                ip: net.ip.clone(),
+                ip: net.ip.clone() + "/32",
             });
         }
         access_vlans
@@ -345,7 +345,7 @@ fn write<P: AsRef<Path>>(
 fn reload(reload_cmd: &'static str) -> Result<(), eyre::Report> {
     let container_id = hbn::get_hbn_container_id()?;
     let out = Command::new("/usr/bin/crictl")
-        .args(["exec", "-it", &container_id, "bash", "-c", reload_cmd])
+        .args(["exec", &container_id, "bash", "-c", reload_cmd])
         .output()
         .wrap_err(reload_cmd)?;
     if !out.status.success() {
@@ -381,7 +381,7 @@ mod tests {
             vlan_id: 1,
             vni: 1001,
             gateway: "10.217.5.123/28".to_string(),
-            ip: "10.217.5.123/32".to_string(),
+            ip: "10.217.5.123".to_string(),
         };
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
@@ -389,14 +389,14 @@ mod tests {
                 vlan_id: 196,
                 vni: 1025196,
                 gateway: "10.217.5.169/29".to_string(),
-                ip: "10.217.5.170/32".to_string(),
+                ip: "10.217.5.170".to_string(),
             },
             rpc::FlatInterfaceConfig {
                 function: rpc::InterfaceFunctionType::Physical.into(),
                 vlan_id: 185,
                 vni: 1025185,
                 gateway: "10.217.5.161/30".to_string(),
-                ip: "10.217.5.162/32".to_string(),
+                ip: "10.217.5.162".to_string(),
             },
         ];
         let netconf = rpc::ManagedHostNetworkConfig {
