@@ -16,7 +16,7 @@ use ::rpc::forge as rpc;
 use eyre::WrapErr;
 use tracing::{debug, error, trace};
 
-use crate::{dhcp, frr, hbn, interfaces};
+use crate::{daemons, dhcp, frr, hbn, interfaces};
 
 /// HBN container root
 pub const HBN_ROOT: &str = "/var/lib/hbn";
@@ -34,10 +34,11 @@ pub fn update(
     skip_reload: bool,
 ) {
     let hbn_root = Path::new(hbn_root);
-    let (mut dhcp_path, mut interfaces_path, mut frr_path) = (
+    let (mut dhcp_path, mut interfaces_path, mut frr_path, mut daemons_path) = (
         hbn_root.join(dhcp::PATH),
         hbn_root.join(interfaces::PATH),
         hbn_root.join(frr::PATH),
+        hbn_root.join(daemons::PATH),
     );
 
     if network_config.is_production_mode {
@@ -47,6 +48,7 @@ pub fn update(
         dhcp_path.set_extension("TEST");
         interfaces_path.set_extension("TEST");
         frr_path.set_extension("TEST");
+        daemons_path.set_extension("TEST");
     }
     debug!("Desired network config is {:?}", network_config);
 
@@ -59,6 +61,9 @@ pub fn update(
     }
     if let Err(err) = write_frr(frr_path, network_config, skip_reload) {
         errs.push(format!("write_frr: {err:#}"));
+    }
+    if let Err(err) = write_daemons(daemons_path) {
+        errs.push(format!("write_daemons: {err:#}"));
     }
     let err_message = errs.join(", ");
     if !err_message.is_empty() {
@@ -278,6 +283,11 @@ fn write_frr<P: AsRef<Path>>(
     )
 }
 
+/// The etc/frr/daemons file has no templated parts
+fn write_daemons<P: AsRef<Path>>(path: P) -> Result<(), eyre::Report> {
+    write(daemons::build(), path, "etc/frr/daemons", None)
+}
+
 // Update configuration file
 fn write<P: AsRef<Path>>(
     next_contents: String,
@@ -350,7 +360,7 @@ fn reload(reload_cmd: &'static str) -> Result<(), eyre::Report> {
         .wrap_err(reload_cmd)?;
     if !out.status.success() {
         return Err(eyre::eyre!(
-            "Failed reloading with '{reload_cmd}'. \nSTDOUT: {}\nSTDERR: {}",
+            "Failed reloading with '{reload_cmd}' Check logs in /var/log/doca/hbn/frr/frr-reload.log. \nSTDOUT: {}\nSTDERR: {}",
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr),
         ));
