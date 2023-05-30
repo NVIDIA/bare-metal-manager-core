@@ -27,6 +27,7 @@ use crate::{
 };
 
 mod command_line;
+mod daemons;
 mod dhcp;
 mod ethernet_virtualization;
 mod frr;
