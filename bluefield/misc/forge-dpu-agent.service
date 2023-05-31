@@ -1,6 +1,6 @@
 [Unit]
 Description=Forge DPU agent service
-After=networking.service
+After=networking.service network-online.target time-sync.target containerd@mgmt.service
 
 [Service]
 Type=simple
