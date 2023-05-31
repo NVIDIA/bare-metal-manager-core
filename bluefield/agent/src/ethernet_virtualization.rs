@@ -31,7 +31,8 @@ pub fn update(
     hbn_root: &str,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     status_out: &mut rpc::DpuNetworkStatus,
-    skip_reload: bool,
+    // if true don't run the reload/restart commands after file update
+    skip_post: bool,
 ) {
     let hbn_root = Path::new(hbn_root);
     let (mut dhcp_path, mut interfaces_path, mut frr_path, mut daemons_path) = (
@@ -53,16 +54,16 @@ pub fn update(
     debug!("Desired network config is {:?}", network_config);
 
     let mut errs = vec![];
-    if let Err(err) = write_dhcp_relay_config(dhcp_path, network_config, skip_reload) {
+    if let Err(err) = write_dhcp_relay_config(dhcp_path, network_config, skip_post) {
         errs.push(format!("write_dhcp_relay_config: {err:#}"));
     }
-    if let Err(err) = write_interfaces(interfaces_path, network_config, skip_reload) {
+    if let Err(err) = write_interfaces(interfaces_path, network_config, skip_post) {
         errs.push(format!("write_interfaces: {err:#}"));
     }
-    if let Err(err) = write_frr(frr_path, network_config, skip_reload) {
+    if let Err(err) = write_frr(frr_path, network_config, skip_post) {
         errs.push(format!("write_frr: {err:#}"));
     }
-    if let Err(err) = write_daemons(daemons_path) {
+    if let Err(err) = write_daemons(daemons_path, skip_post) {
         errs.push(format!("write_daemons: {err:#}"));
     }
     let err_message = errs.join(", ");
@@ -127,7 +128,7 @@ fn dhcp_servers(nc: &rpc::ManagedHostNetworkConfigResponse) -> Vec<Ipv4Addr> {
 fn write_dhcp_relay_config<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    skip_reload: bool,
+    skip_post: bool,
 ) -> Result<(), eyre::Report> {
     let vlan_ids = if nc.use_admin_network {
         let admin_interface = nc
@@ -147,7 +148,7 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
         next_contents,
         path,
         "DHCP relay",
-        if skip_reload {
+        if skip_post {
             None
         } else {
             Some(dhcp::RELOAD_CMD)
@@ -158,7 +159,7 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
 fn write_interfaces<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    skip_reload: bool,
+    skip_post: bool,
 ) -> Result<(), eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
@@ -219,7 +220,7 @@ fn write_interfaces<P: AsRef<Path>>(
         next_contents,
         path,
         "/etc/network/interfaces",
-        if skip_reload {
+        if skip_post {
             None
         } else {
             Some(interfaces::RELOAD_CMD)
@@ -230,7 +231,7 @@ fn write_interfaces<P: AsRef<Path>>(
 fn write_frr<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    skip_reload: bool,
+    skip_post: bool,
 ) -> Result<(), eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
@@ -275,7 +276,7 @@ fn write_frr<P: AsRef<Path>>(
         next_contents,
         path,
         "frr.conf",
-        if skip_reload {
+        if skip_post {
             None
         } else {
             Some(frr::RELOAD_CMD)
@@ -284,16 +285,29 @@ fn write_frr<P: AsRef<Path>>(
 }
 
 /// The etc/frr/daemons file has no templated parts
-fn write_daemons<P: AsRef<Path>>(path: P) -> Result<(), eyre::Report> {
-    write(daemons::build(), path, "etc/frr/daemons", None)
+fn write_daemons<P: AsRef<Path>>(path: P, skip_post: bool) -> Result<(), eyre::Report> {
+    write(
+        daemons::build(),
+        path,
+        "etc/frr/daemons",
+        if skip_post {
+            None
+        } else {
+            Some(daemons::RESTART_CMD)
+        },
+    )
 }
 
 // Update configuration file
 fn write<P: AsRef<Path>>(
+    // What to write into the file
     next_contents: String,
+    // The file to write to
     path: P,
+    // Human readable description of the file, for error messages
     file_type: &str,
-    reload_cmd: Option<&'static str>,
+    // Reload or restart command to run after updating the file
+    post_cmd: Option<&'static str>,
 ) -> Result<(), eyre::Report> {
     // later we will remove the tmp file on drop, but for now it may help with debugging
     let mut path_tmp = path.as_ref().to_path_buf();
@@ -320,8 +334,8 @@ fn write<P: AsRef<Path>>(
 
         fs::rename(path_tmp.clone(), path).wrap_err("rename")?;
 
-        match reload_cmd {
-            Some(reload_cmd) => match reload(reload_cmd) {
+        match post_cmd {
+            Some(post_cmd) => match in_container(post_cmd) {
                 Ok(_) => {
                     if path_bak.exists() {
                         std::fs::remove_file(path_bak).wrap_err("removing .BAK on success")?;
@@ -352,15 +366,15 @@ fn write<P: AsRef<Path>>(
 }
 
 // Run the given command inside HBN container
-fn reload(reload_cmd: &'static str) -> Result<(), eyre::Report> {
+fn in_container(cmd: &'static str) -> Result<(), eyre::Report> {
     let container_id = hbn::get_hbn_container_id()?;
     let out = Command::new("/usr/bin/crictl")
-        .args(["exec", &container_id, "bash", "-c", reload_cmd])
+        .args(["exec", &container_id, "bash", "-c", cmd])
         .output()
-        .wrap_err(reload_cmd)?;
+        .wrap_err(cmd)?;
     if !out.status.success() {
         return Err(eyre::eyre!(
-            "Failed reloading with '{reload_cmd}' Check logs in /var/log/doca/hbn/frr/frr-reload.log. \nSTDOUT: {}\nSTDERR: {}",
+            "Failed executing '{cmd}' in container. Check logs in /var/log/doca/hbn/frr/frr-reload.log. \nSTDOUT: {}\nSTDERR: {}",
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr),
         ));
