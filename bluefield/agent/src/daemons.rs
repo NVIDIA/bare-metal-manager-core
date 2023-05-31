@@ -12,6 +12,7 @@
 
 pub const PATH: &str = "etc/frr/daemons";
 const TMPL_FULL: &str = include_str!("../templates/daemons");
+pub const RESTART_CMD: &str = "supervisorctl restart frr";
 
 /// Generate /etc/frr/daemons. It has no templated parts.
 pub fn build() -> String {
