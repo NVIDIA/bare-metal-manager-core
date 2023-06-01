@@ -41,10 +41,10 @@ pub fn health_check() -> HealthReport {
     hr.passed(HealthCheck::ContainerExists);
 
     check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES);
+    check_bgp_daemon_enabled(&mut hr);
     check_network_stats(&mut hr, &container_id);
     check_ifreload(&mut hr, &container_id);
     check_files(&mut hr, &EXPECTED_FILES);
-    check_bgp_daemon_enabled(&mut hr);
 
     hr
 }
@@ -233,7 +233,7 @@ fn check_bgp_stats(name: &str, s: &BgpStats) -> eyre::Result<()> {
         }
         if peer.pfx_rcd.unwrap_or_default() == 0 {
             return Err(eyre::eyre!(
-                "{name} {peer_name} pfx rcd is 0 or missing should be > 0"
+                "{name} {peer_name} pfx rcd is 0 or missing should be > 0. Are there any instances?"
             ));
         }
         if peer.pfx_snt.unwrap_or_default() == 0 {
