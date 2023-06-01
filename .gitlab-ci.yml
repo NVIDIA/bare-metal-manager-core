@@ -202,8 +202,6 @@ build-boot-artifacts-x86_64:
       - pxe/static/blobs/internal/x86_64/
     when: always
     expire_in: 1 day
-  rules:
-    - if: $CI_COMMIT_TAG
 
 build-boot-artifacts-aarch64:
   extends: .build-boot-artifacts
@@ -220,40 +218,6 @@ build-boot-artifacts-aarch64:
       - pxe/static/blobs/internal/aarch64/
     when: always
     expire_in: 1 day
-  rules:
-    - if: $CI_COMMIT_TAG
-
-build-boot-artifacts-nonprod-x86_64:
-  extends: .build-boot-artifacts
-  tags:
-    - shell
-  image:
-    name: $BUILD_CONTAINER_IMAGE_NAME_X86_64
-  script:
-    - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
-  artifacts:
-    paths:
-      - pxe/static/blobs/internal/x86_64/
-    when: always
-    expire_in: 1 day
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "trunk"'
-
-build-boot-artifacts-nonprod-aarch64:
-  extends: .build-boot-artifacts
-  image:
-    name: $BUILD_CONTAINER_IMAGE_NAME_ARM
-  script:
-    - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
-  tags:
-    - aarch64
-  artifacts:
-    paths:
-      - pxe/static/blobs/internal/aarch64/
-    when: always
-    expire_in: 1 day
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "trunk"'
 
 .prepare-boot-artifacts-ci:
   stage: .pre
@@ -272,9 +236,6 @@ build-boot-artifacts-nonprod-aarch64:
     reports:
       dotenv: environment.env
     expire_in: 30 minutes
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "trunk"'
-    - if: $CI_COMMIT_TAG
 
 prepare-ci-build-push-boot-artifacts-aarch64:
   extends: .prepare-boot-artifacts-ci
@@ -297,25 +258,10 @@ prepare-ci-build-push-boot-artifacts-x86_64:
     set -xeuo pipefail
     /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
 
-build-push-boot-artifacts-container-nonprod-aarch64:
-  extends: .build-push-boot-artifacts-container
-  variables:
-    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-aarch64
-  needs:
-    - prepare-ci-build-push-boot-artifacts-aarch64
-    - build-boot-artifacts-nonprod-aarch64
-  tags:
-    - x86_64
-  dependencies:
-    - prepare-ci-build-push-boot-artifacts-aarch64
-    - build-boot-artifacts-nonprod-aarch64
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "trunk"'
-
 build-push-boot-artifacts-container-aarch64:
   extends: .build-push-boot-artifacts-container
   variables:
-    DOCKER_IMAGE: nvcr.io/nvidian/forge/boot-artifacts-aarch64
+    DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/boot-artifacts-aarch64
   needs:
     - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-aarch64
@@ -324,13 +270,11 @@ build-push-boot-artifacts-container-aarch64:
   dependencies:
     - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-aarch64
-  rules:
-    - if: $CI_COMMIT_TAG
 
 build-push-boot-artifacts-container-x86_64:
   extends: .build-push-boot-artifacts-container
   variables:
-    DOCKER_IMAGE: nvcr.io/nvidian/forge/boot-artifacts-x86_64
+    DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/boot-artifacts-x86_64
   tags:
     - x86_64
   needs:
@@ -339,23 +283,6 @@ build-push-boot-artifacts-container-x86_64:
   dependencies:
     - build-boot-artifacts-x86_64
     - prepare-ci-build-push-boot-artifacts-x86_64
-  rules:
-    - if: $CI_COMMIT_TAG
-
-build-push-boot-artifacts-container-nonprod-x86_64:
-  extends: .build-push-boot-artifacts-container
-  variables:
-    DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-x86_64
-  needs:
-    - build-boot-artifacts-nonprod-x86_64
-    - prepare-ci-build-push-boot-artifacts-x86_64
-  tags:
-    - x86_64
-  dependencies:
-    - build-boot-artifacts-nonprod-x86_64
-    - prepare-ci-build-push-boot-artifacts-x86_64
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "trunk"'
 
 license-checks:
   before_script:
