@@ -83,7 +83,7 @@ use crate::{
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
         network_prefix::NetworkPrefix,
-        network_segment::{NetworkSegment, NewNetworkSegment},
+        network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment},
         resource_record::DnsQuestion,
         tags::{Tag, TagAssociation, TagCreate, TagDelete, TagsList},
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
@@ -675,12 +675,16 @@ where
         }
 
         let mut new_network_segment = NewNetworkSegment::try_from(request)?;
-        new_network_segment.vlan_id = self
-            .allocate_vlan_id(&mut txn, &new_network_segment.name)
-            .await?;
-        new_network_segment.vni = self
-            .allocate_vni(&mut txn, &new_network_segment.name)
-            .await?;
+
+        if new_network_segment.segment_type != NetworkSegmentType::Underlay {
+            new_network_segment.vlan_id = self
+                .allocate_vlan_id(&mut txn, &new_network_segment.name)
+                .await?;
+            new_network_segment.vni = self
+                .allocate_vni(&mut txn, &new_network_segment.name)
+                .await?;
+        }
+
         let network_segment = new_network_segment
             .persist(&mut txn)
             .await
