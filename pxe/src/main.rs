@@ -346,7 +346,18 @@ async fn main() -> Result<(), rocket::Error> {
             "Carbide API Config",
             |rocket| async move {
                 match extract_params(rocket.figment()) {
-                    Ok(config) => Ok(rocket.manage(config)),
+                    Ok(config) => {
+                        if std::path::Path::new(&config.forge_root_ca_path).exists() {
+                            Ok(rocket.manage(config))
+                        } else {
+                            println!(
+                                "path for forge_root_ca_path does not exist on disk: {}",
+                                &config.forge_root_ca_path,
+                            );
+
+                            Err(rocket)
+                        }
+                    }
                     Err(err) => {
                         println!(
                             "An unexpected error occurred in carbide pxe server setup: {}",
@@ -377,6 +388,6 @@ fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
             .extract_inner::<String>("carbide_ntp_server")
             .map_err(|_| "Could not extract ntp_server from config")?,
         forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH")
-            .unwrap_or_else(|_| rpc::forge_tls_client::DEFAULT_ROOT_CA.to_string()),
+            .map_err(|_| "Could not extract FORGE_ROOT_CAFILE_PATH from environment".to_string())?,
     })
 }
