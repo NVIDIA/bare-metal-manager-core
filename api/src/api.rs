@@ -82,6 +82,7 @@ use crate::{
         machine::Machine,
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
+        network_prefix::NetworkPrefix,
         network_segment::{NetworkSegment, NewNetworkSegment},
         resource_record::DnsQuestion,
         tags::{Tag, TagAssociation, TagCreate, TagDelete, TagsList},
@@ -656,13 +657,24 @@ where
         request: Request<rpc::NetworkSegmentCreationRequest>,
     ) -> Result<Response<rpc::NetworkSegment>, Status> {
         log_request_data(&request);
+        let request = request.into_inner();
 
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin create_network_segment", e)
             })?;
+        for prefix in request.prefixes.iter().map(|p| &p.prefix) {
+            if NetworkPrefix::exists(&mut txn, prefix)
+                .await
+                .map_err(CarbideError::from)?
+            {
+                return Err(Status::invalid_argument(format!(
+                    "Prefix overlaps with an existing one: {prefix}"
+                )));
+            }
+        }
 
-        let mut new_network_segment = NewNetworkSegment::try_from(request.into_inner())?;
+        let mut new_network_segment = NewNetworkSegment::try_from(request)?;
         new_network_segment.vlan_id = self
             .allocate_vlan_id(&mut txn, &new_network_segment.name)
             .await?;
