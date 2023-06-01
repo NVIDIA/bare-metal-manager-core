@@ -686,8 +686,8 @@ message InstanceNetworkStatus {
 message Instance {
   // Instance ID
   UUID id = 1;
-  // The ID of the machine which is utilized for this Instance
-  MachineId host_machine_id = 2;
+  // The ID of the host machine which is utilized for this Instance (host_machine_id)
+  MachineId machine_id = 2;
 
   // The desired configuration on the instance
   InstanceConfig config = 103;
