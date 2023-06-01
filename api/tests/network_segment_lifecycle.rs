@@ -46,7 +46,7 @@ async fn create_network_segment_with_api(
         name: "TEST_SEGMENT".to_string(),
         prefixes: vec![rpc::forge::NetworkPrefix {
             id: None,
-            prefix: "192.0.2.1/24".to_string(),
+            prefix: "192.0.2.0/24".to_string(),
             gateway: Some("192.0.2.1".to_string()),
             reserve_first: 1,
             state: None,
@@ -318,6 +318,42 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     );
 
     Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool.clone()).await;
+
+    // This uses prefix "192.0.2.0/24"
+    let _segment = create_network_segment_with_api(&env.api, false, false).await;
+
+    // Now try to create another one with a prefix that is contained within the exising prefix
+    let request = rpc::forge::NetworkSegmentCreationRequest {
+        mtu: Some(1500),
+        name: "TEST_SEGMENT_2".to_string(),
+        prefixes: vec![rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: "192.0.2.12/32".to_string(), // is inside 192.0.2.0/24
+            gateway: Some("192.10.8.1".to_string()),
+            reserve_first: 1,
+            state: None,
+            events: vec![],
+            circuit_id: None,
+        }],
+        subdomain_id: None,
+        vpc_id: None,
+        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+    };
+    match env.api.create_network_segment(Request::new(request)).await {
+        Ok(_) => Err(eyre::eyre!(
+            "Overlapping network prefix was allowed. DB should prevent this."
+        )),
+        Err(status) if status.code() == tonic::Code::Internal => Err(eyre::eyre!(
+            "Overlapping network prefix was caught by DB constraint. Should be checked earlier."
+        )),
+        Err(status) if status.code() == tonic::Code::InvalidArgument => Ok(()),
+        Err(err) => Err(err.into()), // unexpected error
+    }
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
