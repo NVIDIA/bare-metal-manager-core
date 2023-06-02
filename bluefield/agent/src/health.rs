@@ -231,16 +231,6 @@ fn check_bgp_stats(name: &str, s: &BgpStats) -> eyre::Result<()> {
                 peer.state
             ));
         }
-        if peer.pfx_rcd.unwrap_or_default() == 0 {
-            return Err(eyre::eyre!(
-                "{name} {peer_name} pfx rcd is 0 or missing should be > 0. Are there any instances?"
-            ));
-        }
-        if peer.pfx_snt.unwrap_or_default() == 0 {
-            return Err(eyre::eyre!(
-                "{name} {peer_name} pfx snt is 0 or missing should be > 0"
-            ));
-        }
     }
 
     Ok(())
@@ -262,11 +252,15 @@ struct BgpStats {
     peers: HashMap<String, BgpPeer>,
 }
 
+// We don't currently check the two pfx values because they depend on how many correctly
+// configured instances we have right now, and dpu-agent doesn't know that.
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct BgpPeer {
     state: String,
+    #[allow(dead_code)]
     pfx_rcd: Option<u32>,
+    #[allow(dead_code)]
     pfx_snt: Option<u32>,
 }
 
