@@ -45,7 +45,7 @@ cargo build -p scout -p admin
 
 [tasks.build-cli]
 category = "Build"
-description = "Build forge-scout locally using debian container. Ensures correct GCC version is used."
+description = "Build forge-scout and forge-admin-cli locally using debian container. Ensures correct GCC version is used."
 workspace = false
 script = '''
 docker run \
@@ -57,6 +57,22 @@ docker run \
 	--env CARGO_HOME=/cargo \
 	-it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container \
 	cargo build -p scout -p admin
+'''
+
+[tasks.build-rainbow]
+category = "Build"
+description = "Build rainbow locally using debian container. Ensures correct GCC version is used."
+workspace = false
+script = '''
+docker run \
+	--rm \
+	--user $(id -u):$(id -g) \
+	--volume $(pwd):/code \
+	--workdir /code \
+	--volume $HOME/.cargo:/cargo \
+	--env CARGO_HOME=/cargo \
+	-it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container \
+	cargo build --release -p rainbow && strip target/release/rainbow
 '''
 
 [tasks.build-x86-build-container]
