@@ -10,21 +10,36 @@
  * its affiliates is strictly prohibited.
  */
 use std::{
+    collections::HashMap,
     fmt,
-    io::BufRead,
-    str::{FromStr, SplitAsciiWhitespace},
+    io::{BufRead, Lines, StdinLock},
+    str::FromStr,
 };
 
-use clap::Parser;
+use clap::Parser as ClapParser;
 use owo_colors::{OwoColorize, Style};
 
 const IGNORE: [&str; 3] = [
-    "grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
+    "grpc.reflection.v1alpha.ServerReflection",
     "The policy engine denied this request",
     "all auth principals denied by enforcer",
 ];
 
-#[derive(Parser, Debug)]
+const SPAN_START: &str = "Span:";
+const SPAN_END: &str = "----";
+const SPAN_ATTRIBUTES: &str = "Attributes:";
+const SPAN_EVENTS: &str = "Events:";
+const SPAN_LOCATION: &str = "Location:";
+
+const SPAN_ATTR_DATE: &str = "start_time";
+const SPAN_ATTR_METHOD: &str = "rpc.method";
+const SPAN_ATTR_MACHINE_ID: &str = "forge.machine_id";
+const SPAN_ATTR_STATUS_CODE: &str = "rpc.grpc.status_code";
+const SPAN_ATTR_STATUS_DESC: &str = "rpc.grpc.status_description";
+const SPAN_ATTR_SERVICE: &str = "rpc.service";
+const SPAN_ATTR_REQUEST: &str = "request";
+
+#[derive(ClapParser, Debug)]
 struct Args {
     /// Print the name of the container?
     #[arg(long, default_value_t = false)]
@@ -35,6 +50,14 @@ struct Args {
     #[arg(long, default_value_t = String::from("%H:%M:%S%.3f"))]
     date_format: String,
 
+    /// Truncate after this many characters
+    #[arg(long, default_value_t = 1500)]
+    max_length: usize,
+
+    /// Why you no like color?
+    #[arg(long, default_value_t = false)]
+    nocolor: bool,
+
     /// Debug - for working on rainbow itself
     #[arg(short, long, default_value_t = false)]
     debug: bool,
@@ -44,11 +67,22 @@ fn main() -> eyre::Result<()> {
     let args = Args::parse();
 
     let stdin = std::io::stdin();
-    'top: for line in stdin.lock().lines() {
-        let line = line.unwrap();
-        let l = parse(line, args.debug);
+    let mut parser = LineParser {
+        debug: args.debug,
+        lines: stdin.lock().lines(),
+        attributes: HashMap::new(),
+        in_span: false,
+        skip_this_span: false,
+        in_attributes: false,
+        in_events: false,
+    };
+    'top: loop {
+        let l = parser.next();
+        if l.skip {
+            continue;
+        }
         for st in IGNORE {
-            if l.message.starts_with(st) {
+            if l.message.starts_with(st) || (!l.location.is_empty() && l.location[0] == st) {
                 continue 'top;
             }
         }
@@ -65,33 +99,46 @@ fn main() -> eyre::Result<()> {
         }
 
         if let Some(dt) = l.dt {
-            out.push(format!("{}", dt.format(&args.date_format).dimmed()));
+            let mut date = dt.format(&args.date_format).to_string();
+            if !args.nocolor {
+                date = format!("{}", date.dimmed());
+            }
+            out.push(date);
         }
 
         if let Some(level) = l.level {
-            let s = match level {
-                Level::Span => Style::new(),
-                Level::Trace => Style::new(),
-                Level::Debug => Style::new().green(),
-                Level::Info => Style::new().green(),
-                Level::Warn => Style::new().yellow(),
-                Level::Error => Style::new().red(),
-            };
+            let mut s = Style::new();
+            if !args.nocolor {
+                s = match level {
+                    Level::Span => Style::new(),
+                    Level::Trace => Style::new(),
+                    Level::Debug => Style::new().green(),
+                    Level::Info => Style::new().green(),
+                    Level::Warn => Style::new().yellow(),
+                    Level::Error => Style::new().red(),
+                };
+            }
             out.push(format!("{:<5}", level.style(s)));
         }
 
-        out.push(format!("{}", l.location.join(" ").dimmed()));
+        let mut loc = l.location.join(" ").to_string();
+        if !args.nocolor {
+            loc = format!("{}", loc.dimmed());
+        }
+        out.push(loc);
 
-        out.push(l.message);
+        out.push(truncate(l.message, args.max_length));
 
         println!("{}", out.join(" "));
     }
 
-    Ok(())
+    //Ok(())
 }
 
 #[derive(Default, Debug)]
 struct Log {
+    // Skip this line?
+    skip: bool,
     // True if we hit a problem parsing the line. In that case we print the whole line as is.
     has_err: bool,
     container: Option<String>,
@@ -101,105 +148,235 @@ struct Log {
     message: String,
 }
 
-fn parse(line: String, is_debug: bool) -> Log {
-    let mut l: Log = Default::default();
-    let mut parts = line.split_ascii_whitespace();
+struct LineParser<'a> {
+    debug: bool,
+    lines: Lines<StdinLock<'a>>,
+    attributes: HashMap<String, String>,
+    in_span: bool,
+    skip_this_span: bool,
+    in_attributes: bool,
+    in_events: bool,
+}
 
-    // Container
-    let container = parts.next();
-    let divider = parts.next();
-    if divider != Some("|") {
-        if is_debug {
-            eprintln!("ERR Missing docker compose prefix:");
+impl<'a> LineParser<'a> {
+    fn next(&mut self) -> Log {
+        let Some(Ok(line)) = self.lines.next() else {
+            std::process::exit(0); // stdin was closed
+        };
+        let mut l: Log = Default::default();
+
+        let parts: Vec<&str> = line.split_ascii_whitespace().collect();
+        if parts.is_empty() {
+            l.skip = true;
+            return l;
         }
-        l.has_err = true;
-        l.message = line;
-        return l;
-    }
-    l.container = container.map(|s| s.to_string());
 
-    // Date-time
-    let dt = parts.next().map(|s| s.to_string());
-    match dt {
-        Some(dt) if dt.starts_with("202") => {
-            l.dt = match dt.parse() {
-                Ok(datetime) => Some(datetime),
-                Err(err) => {
-                    if is_debug {
-                        eprintln!("ERR parse date: '{dt}'. {err}.");
+        let mut idx = 0;
+
+        // Container
+        if parts.len() > 2 && parts[1] == "|" {
+            l.container = Some(parts[0].to_string());
+            idx = 2;
+        };
+
+        if parts[idx] == SPAN_START {
+            self.skip_this_span = parts[idx + 1] == "state_controller_iteration";
+            self.in_span = true;
+            self.in_attributes = false;
+            self.in_events = false;
+            l.skip = true;
+            return l;
+        } else if self.in_span {
+            match parts[idx] {
+                SPAN_END => {
+                    self.in_span = false;
+                    self.in_attributes = false;
+                    self.in_events = false;
+
+                    if self.skip_this_span {
+                        l.skip = true;
+                    } else {
+                        self.span_to_log(&mut l);
                     }
-                    l.has_err = true;
-                    l.message = line;
+                    return l;
+                }
+                SPAN_ATTRIBUTES => {
+                    l.skip = true;
+                    self.in_attributes = true;
+                    self.attributes.clear();
+                    return l;
+                }
+                SPAN_EVENTS | SPAN_LOCATION => {
+                    l.skip = true;
+                    self.in_attributes = false;
+                    self.in_events = true;
+                    return l;
+                }
+                dt if dt.starts_with("202")
+                    && parts.len() > idx + 1
+                    && parts[idx + 1].parse::<Level>().is_ok() =>
+                {
+                    // A normal log message that got printed during span printing
+                    // Let the rest of the method handle it
+                }
+                attr => {
+                    if self.in_events {
+                        // We already printed the event log messages as they appeared
+                        l.skip = true;
+                    } else if self.in_attributes {
+                        // Collect attributes into a map to fold them onto one line
+                        let attr_kv: Vec<&str> = attr.split('=').collect();
+                        if attr_kv.len() == 1 {
+                            if self.debug {
+                                eprintln!("ERR parse span attribute: '{attr}'");
+                            }
+                            l.has_err = true;
+                            l.message = line;
+                            return l;
+                        }
+                        l.skip = true;
+                        let key = attr_kv[0].to_string();
+                        let mut value = attr_kv[1..].join(" ");
+                        let rest = remainder(idx + 1, &parts);
+                        if !rest.is_empty() {
+                            value.push(' ');
+                            value += &rest;
+                        }
+                        self.attributes.insert(key, value);
+                    } else {
+                        if self.debug {
+                            eprintln!("ERR In Span but not in Attributes or Events");
+                        }
+                        l.has_err = true;
+                        l.message = line;
+                    }
                     return l;
                 }
             }
         }
-        Some(other) => {
-            l.message = other;
-            l.message.push(' ');
-            let rest = remainder(parts);
-            l.message.push_str(&rest);
+
+        if [SPAN_END, SPAN_ATTRIBUTES, SPAN_EVENTS].contains(&parts[idx]) {
+            // partial span
+            l.skip = true;
             return l;
         }
-        None => {
-            l.message = remainder(parts);
-            return l;
-        }
+
+        self.parse_into(&line, &parts, idx, &mut l);
+
+        l
     }
 
-    // Level
-    let level = match parts.next().map(|s| s.to_string()) {
-        Some(level) => level,
-        None => {
-            let rest = remainder(parts);
-            l.message.push_str(&rest);
-            return l;
-        }
-    };
-    l.level = match level.parse() {
-        Ok(level) => Some(level),
-        Err(err) => {
-            if is_debug {
-                eprintln!("ERR parsing level: {err}");
-            }
-            l.has_err = true;
-            l.message = line;
-            return l;
-        }
-    };
+    fn parse_into(&self, original_line: &str, parts: &[&str], mut idx: usize, l: &mut Log) {
+        l.skip = false;
 
-    // Location
-    let next_part = loop {
-        let loc = parts.next();
-        match loc {
-            Some(location) if location.ends_with(':') => {
+        // Date-time
+        let dt = parts[idx].to_string();
+        if dt.starts_with("202") {
+            l.dt = match dt.parse() {
+                Ok(datetime) => Some(datetime),
+                Err(err) => {
+                    if self.debug {
+                        eprintln!("ERR parse date: '{dt}'. {err}.");
+                    }
+                    l.has_err = true;
+                    l.message = original_line.to_string();
+                    return;
+                }
+            };
+        } else {
+            l.message = dt;
+            l.message.push(' ');
+            let rest = remainder(idx + 1, parts);
+            l.message.push_str(&rest);
+            return;
+        }
+        idx += 1;
+
+        // Level
+        let level = if parts.len() > idx {
+            parts[idx].to_string()
+        } else {
+            return;
+        };
+        l.level = match level.parse() {
+            Ok(level) => Some(level),
+            Err(err) => {
+                if self.debug {
+                    eprintln!("ERR parsing level: {err}");
+                }
+                l.has_err = true;
+                l.message = original_line.to_string();
+                return;
+            }
+        };
+        idx += 1;
+
+        // Location
+        loop {
+            if parts.len() <= idx {
+                return;
+            }
+            let location = parts[idx];
+            if location.ends_with(':') {
                 l.location
                     .push(location.strip_suffix(':').unwrap().to_string());
-            }
-            Some(other) => {
-                break other;
-            }
-            None => {
-                l.message = remainder(parts);
-                return l;
+                idx += 1;
+            } else {
+                break;
             }
         }
-    };
 
-    // Rest of message - the actual message
+        // The actual message
+        l.message = remainder(idx, parts);
+    }
 
-    l.message = next_part.to_string();
-    l.message.push(' ');
+    // Convert a collected span to a displayable log entry
+    fn span_to_log(&mut self, l: &mut Log) {
+        l.skip = false;
 
-    let rest = remainder(parts);
-    l.message.push_str(&rest);
+        if let Some(dt) = self.attributes.remove(SPAN_ATTR_DATE) {
+            l.dt = Some(dt.parse().unwrap());
+        }
 
-    l
+        l.location = vec![];
+        if let Some(service) = self.attributes.remove(SPAN_ATTR_SERVICE) {
+            if service != "forge.Forge" {
+                l.location.push(service);
+            }
+        }
+        if let Some(location) = self.attributes.remove(SPAN_ATTR_METHOD) {
+            l.location.push(location);
+        }
+        if let Some(machine_id) = self.attributes.remove(SPAN_ATTR_MACHINE_ID) {
+            l.location.push(machine_id);
+        }
+
+        if let Some(request) = self.attributes.remove(SPAN_ATTR_REQUEST) {
+            l.message = request;
+        }
+
+        l.level = Some(Level::Span);
+        if let Some(status_code) = self.attributes.remove(SPAN_ATTR_STATUS_CODE) {
+            if status_code != "0" {
+                l.level = Some(Level::Warn);
+                l.message += &format!(
+                    " grpc.status_code:{} {}",
+                    status_code,
+                    self.attributes
+                        .remove(SPAN_ATTR_STATUS_DESC)
+                        .unwrap_or_default()
+                );
+            }
+        }
+    }
 }
 
-// Nightly has a `remainder` method that will replace this once it goes stable
-fn remainder(parts: SplitAsciiWhitespace) -> String {
-    parts.collect::<Vec<&str>>().join(" ")
+fn remainder(idx: usize, parts: &[&str]) -> String {
+    if parts.len() > idx {
+        parts[idx..].join(" ")
+    } else {
+        "".to_string()
+    }
 }
 
 // Very similar to Log::Level (enum) or tracing::Level (struct) plus Span level for open telemetry
@@ -239,4 +416,15 @@ impl fmt::Display for Level {
             Self::Error => f.pad("ERROR"),
         }
     }
+}
+
+fn truncate(mut s: String, max_chars: usize) -> String {
+    if s.len() <= max_chars {
+        // shortcut for ascii that's already short enough - 99%+ of calls
+        return s;
+    }
+    let (idx, _) = s.char_indices().nth(max_chars).unwrap();
+    s.truncate(idx);
+    s += "...";
+    s
 }
