@@ -78,7 +78,7 @@ where
 
             writeln!(
                 &mut self.writer,
-                "----\nSpan: {} [ID: {}, Parent: {}, Status: {:?}]",
+                "Span: {} [ID: {}, Parent: {}, Status: {:?}]",
                 span.name,
                 span.span_context.span_id(),
                 span.parent_span_id,
@@ -115,6 +115,7 @@ where
                     }
                 }
             }
+            writeln!(&mut self.writer, "----").unwrap();
         }
 
         Box::pin(std::future::ready(Ok(())))

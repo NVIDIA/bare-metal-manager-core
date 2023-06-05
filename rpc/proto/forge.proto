@@ -9,6 +9,9 @@ import "security_group.proto";
 package forge;
 
 service Forge {
+  // What version of Forge is this service running? Matches `--version` command line.
+  rpc Version(google.protobuf.Empty) returns (VersionResult);
+
   // Domain
   rpc CreateDomain(Domain) returns (Domain);
   rpc UpdateDomain(Domain) returns (Domain);
@@ -168,6 +171,15 @@ service Forge {
   // - Mark values as taken in resource pool (including loopback_ip)
   // - Copy loopback_ip into machines.network_config
   rpc MigrateVPC(MigrateVPCRequest) returns (MigrateVPCResponse);
+}
+
+message VersionResult {
+    string build_version = 1; // v2023.06-rc2-1-gc5c05de3
+    string build_date = 2; // 2023-06-05
+    string git_sha = 3; // c5c05de3
+    string rust_version = 4; // rustc 1.68.0 (2c8cc3432 2023-03-06)
+    string build_user = 5; // graham
+    string build_hostname = 6; // fedora
 }
 
 message MachineId {

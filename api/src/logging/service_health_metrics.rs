@@ -31,7 +31,11 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         .u64_observable_gauge("carbide_api_ready")
         .with_description("Whether the Forge Site Controller API is running")
         .init();
-
+    let version_metric = health_context
+        .meter
+        .u64_observable_gauge("carbide_api_version")
+        .with_description("Version (git sha, build date, etc) of this service")
+        .init();
     let db_pool_total_conns_metric = health_context
         .meter
         .u64_observable_gauge("carbide_db_pool_total_conns")
@@ -56,6 +60,21 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         .with_description("Count of values in the pool currently available for allocation")
         .init();
 
+    let version_attributes = [
+        KeyValue::new(
+            "build_version",
+            forge_version::v!(build_version).to_string(),
+        ),
+        KeyValue::new("build_date", forge_version::v!(build_date).to_string()),
+        KeyValue::new("git_sha", forge_version::v!(git_sha).to_string()),
+        KeyValue::new("rust_version", forge_version::v!(rust_version).to_string()),
+        KeyValue::new("build_user", forge_version::v!(build_user).to_string()),
+        KeyValue::new(
+            "build_hostname",
+            forge_version::v!(build_hostname).to_string(),
+        ),
+    ];
+
     // The metrics is queried inside the callback by the opentelemetry framework
     // Since it's emitted as long as the service is running, there is nothing else
     // to do
@@ -63,6 +82,7 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
     meter
         .register_callback(move |cx| {
             ready_metric.observe(cx, 1, &[]);
+            version_metric.observe(cx, 1, &version_attributes);
 
             db_pool_total_conns_metric.observe(cx, health_context.database_pool.size() as u64, &[]);
             db_pool_idle_conns_metric.observe(
