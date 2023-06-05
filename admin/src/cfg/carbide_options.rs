@@ -15,7 +15,11 @@ use clap::{ArgGroup, Parser, ValueEnum};
 #[clap(name = env!("CARGO_BIN_NAME"))]
 #[clap(author = "Slack channel #swngc-forge-dev")]
 pub struct CarbideOptions {
-    #[clap(long, default_value = "false", help = "Print version number and exit")]
+    #[clap(
+        long,
+        default_value = "false",
+        help = "Print version number of forge-admin-cli and exit. For API server version see 'version' command."
+    )]
     pub version: bool,
 
     #[clap(short, long, env = "CARBIDE_API_URL")]
@@ -45,6 +49,8 @@ pub struct CarbideOptions {
 
 #[derive(Parser, Debug)]
 pub enum CarbideCommand {
+    #[clap(about = "Print API server version")]
+    Version,
     #[clap(about = "Machine related handling", subcommand)]
     Machine(Machine),
     #[clap(about = "Instance related handling", subcommand)]

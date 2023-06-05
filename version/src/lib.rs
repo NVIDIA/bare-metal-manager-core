@@ -101,6 +101,29 @@ fn run(cmd: &str, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
+/// Individual parts of the version. Usage:: forge_version::v!(build_version)
+#[macro_export]
+macro_rules! v {
+    (build_version) => {
+        option_env!("FORGE_BUILD_GIT_TAG").unwrap_or_default()
+    };
+    (build_date) => {
+        option_env!("FORGE_BUILD_DATE").unwrap_or_default()
+    };
+    (git_sha) => {
+        option_env!("FORGE_BUILD_GIT_HASH").unwrap_or_default()
+    };
+    (rust_version) => {
+        option_env!("FORGE_BUILD_RUSTC_VERSION").unwrap_or_default()
+    };
+    (build_user) => {
+        option_env!("FORGE_BUILD_USER").unwrap_or_default()
+    };
+    (build_hostname) => {
+        option_env!("FORGE_BUILD_HOSTNAME").unwrap_or_default()
+    };
+}
+
 /// Version as a string. `version::build()` must have been called previously in build script.
 #[macro_export]
 macro_rules! version {
