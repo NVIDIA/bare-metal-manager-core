@@ -9,18 +9,23 @@ if [ $# -ne 3 ]; then
   exit 1
 fi
 
-#if [[ -z $HBN_ROOT ]]; then
-#  echo "Not set: \$HBN_ROOT. bin/discover_dpu.sh should set this during bootstrap. Exiting."
-#  exit 11
-#fi
-
+HBN_ROOT=$(cat /tmp/hbn_root)
 API_SERVER=$2:$3
+DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"
 
 HOST_MACHINE_ID=$(grpcurl -d '{}' -insecure ${API_SERVER} forge.Forge/FindMachines | python3 -c "import sys,json
 data=sys.stdin.read()
 j=json.loads(data)
 for machine in j['machines']:
   if machine['interfaces'][0]['attachedDpuMachineId']['id'] != machine['interfaces'][0]['machineId']['id']:
+    print(machine['interfaces'][0]['machineId']['id'])
+    break")
+
+DPU_MACHINE_ID=$(grpcurl -d '{"search_config": {"include_dpus": true, "include_predicted_host": true}}' -insecure ${API_SERVER} forge.Forge/FindMachines | python3 -c "import sys,json
+data=sys.stdin.read()
+j=json.loads(data)
+for machine in j['machines']:
+  if machine['interfaces'][0]['attachedDpuMachineId']['id'] == machine['interfaces'][0]['machineId']['id']:
     print(machine['interfaces'][0]['machineId']['id'])
     break")
 
@@ -35,8 +40,22 @@ if [[ "$1" == "test" || "$1" == "create" ]]; then
   grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"config\": {\"tenant\": {\"tenant_organization_id\": \"MyOrg\", \"user_data\": \"hello\", \"custom_ipxe\": \"chain --autofree https://boot.netboot.xyz\"}, \"network\": {\"interfaces\": [{\"function_type\": \"PHYSICAL\", \"network_segment_id\": {\"value\": \"$SEGMENT_ID\"}}]}}}" -insecure ${API_SERVER} forge.Forge/AllocateInstance
   # Apply the networking configuration
   # TODO: Automate this. Get DPU_MACHINE_ID. HBN_ROOT we should have, it's exported by discover_dpu.sh.
-  echo "Set correct variables and run:"
-  echo "cargo run -p agent -- netconf --dpu-machine-id \${DPU_MACHINE_ID} --chroot \${HBN_ROOT} --skip-reload"
+  echo "DPU MACHINE ID: ${DPU_MACHINE_ID}"
+
+  MACHINE_STATE=""
+  i=0
+  while [[ $MACHINE_STATE != "Assigned/WaitingForNetworkConfig" && $i -lt $MAX_RETRY ]]; do
+    echo "Checking machine state. Waiting for it to be in WaitingForNetworkConfig state. Current: $MACHINE_STATE"
+    MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -insecure "${API_SERVER}" forge.Forge/GetMachine | jq ".state" | tr -d '"')
+    i=$((i+1))
+    sleep 10
+  done
+
+  if [[ $i == "$MAX_RETRY" ]]; then
+    echo "Even after $MAX_RETRY retries, machine did not reach in WaitingForNetworkConfig state."
+    exit 3
+  fi
+  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
  fi
 
 # Check Instance state
@@ -77,8 +96,41 @@ fi
 if [[ "$1" == "test" || "$1" == "delete" ]]; then
   echo "Deleting instance now. Triggers a reboot."
   grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -insecure ${API_SERVER} forge.Forge/ReleaseInstance
-  sleep 1
 
+  MACHINE_STATE=""
+  i=0
+  while [[ $MACHINE_STATE != "Assigned/BootingWithDiscoveryImage" && $i -lt $MAX_RETRY ]]; do
+    echo "Checking machine state. Waiting for it to be in BootingWithDiscoveryImage state. Current: $MACHINE_STATE"
+    MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -insecure "${API_SERVER}" forge.Forge/GetMachine | jq ".state" | tr -d '"')
+    i=$((i+1))
+    sleep 10
+  done
+
+  if [[ $i == "$MAX_RETRY" ]]; then
+    echo "Even after $MAX_RETRY retries, machine did not reach in BootingWithDiscoveryImage state."
+    exit 3
+  fi
+
+  # Boot host up with discovery image on overlay network.
+  echo "Machine comes up, forge-scout tells API that we're back"
+  grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure ${API_SERVER} forge.Forge/ForgeAgentControl
+
+  MACHINE_STATE=""
+  i=0
+  while [[ $MACHINE_STATE != "Assigned/WaitingForNetworkReconfig" && $i -lt $MAX_RETRY ]]; do
+    echo "Checking machine state. Waiting for it to be in WaitingForNetworkReconfig state. Current: $MACHINE_STATE"
+    MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -insecure "${API_SERVER}" forge.Forge/GetMachine | jq ".state" | tr -d '"')
+    i=$((i+1))
+    sleep 10
+  done
+
+  if [[ $i == "$MAX_RETRY" ]]; then
+    echo "Even after $MAX_RETRY retries, machine did not reach in WaitingForNetworkReconfig state."
+    exit 3
+  fi
+
+  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
+  # Boot host up with discovery image on admin network.
   echo "Machine comes up, forge-scout tells API that we're back"
   grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure ${API_SERVER} forge.Forge/ForgeAgentControl
 
