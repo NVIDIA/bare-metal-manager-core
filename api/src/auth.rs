@@ -15,6 +15,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 mod casbin_engine;
+pub mod spiffe_id; // public for doctests
 
 // Principal: something like an account, service, address, or other
 // identity that we can treat as the "subject" in a subject-action-object
@@ -47,7 +48,7 @@ impl Principal {
         // FIXME: we shouldn't be making a new one of these every time, better
         // to pass one in from somewhere so we can reuse it
         let context = forge_spiffe::ForgeSpiffeContext::new(
-            spiffe::spiffe_id::TrustDomain::new("forge.local").unwrap(),
+            spiffe_id::TrustDomain::new("forge.local").unwrap(),
             String::from("/ns/forge-system/sa/"),
         );
         let service_id = context.extract_service_identifier(&spiffe_id)?;
@@ -261,8 +262,9 @@ impl PolicyEngine for NoopEngine {
 }
 
 pub mod forge_spiffe {
-    use spiffe::spiffe_id::SpiffeId;
     use x509_parser::prelude::{FromDer, GeneralName, X509Certificate};
+
+    use super::spiffe_id;
 
     // Validate an X.509 DER certificate against the SPIFFE requirements, and
     // return a SPIFFE ID.
@@ -273,7 +275,7 @@ pub mod forge_spiffe {
     // assume the X.509 certificate has already been validated to a trusted root.
     pub fn validate_x509_certificate(
         der_certificate: &[u8],
-    ) -> Result<SpiffeId, SpiffeValidationError> {
+    ) -> Result<spiffe_id::SpiffeId, SpiffeValidationError> {
         use SpiffeValidationError::ValidationError;
 
         let (_remainder, x509_cert) = X509Certificate::from_der(der_certificate)
@@ -338,7 +340,7 @@ pub mod forge_spiffe {
             ))),
         }?;
 
-        let spiffe_id = SpiffeId::new(uri)
+        let spiffe_id = spiffe_id::SpiffeId::new(uri)
             .map_err(|e| ValidationError(format!("Couldn't parse SPIFFE ID: {e}")))?;
         Ok(spiffe_id)
     }
@@ -350,15 +352,12 @@ pub mod forge_spiffe {
     }
 
     pub struct ForgeSpiffeContext {
-        trust_domain: spiffe::spiffe_id::TrustDomain,
+        trust_domain: spiffe_id::TrustDomain,
         service_base_path: String,
     }
 
     impl ForgeSpiffeContext {
-        pub fn new(
-            trust_domain: spiffe::spiffe_id::TrustDomain,
-            service_base_path: String,
-        ) -> Self {
+        pub fn new(trust_domain: spiffe_id::TrustDomain, service_base_path: String) -> Self {
             ForgeSpiffeContext {
                 trust_domain,
                 service_base_path,
@@ -367,7 +366,7 @@ pub mod forge_spiffe {
 
         pub fn extract_service_identifier(
             &self,
-            spiffe_id: &SpiffeId,
+            spiffe_id: &spiffe_id::SpiffeId,
         ) -> Result<String, ForgeSpiffeContextError> {
             use ForgeSpiffeContextError::*;
 
