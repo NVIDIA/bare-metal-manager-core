@@ -66,7 +66,7 @@ pxe-server = "http://127.0.0.1:8080"
 root-ca = "./dev/certs/forge_root.pem"
 
 [machine]
-interface-id = \"$MACHINE_INTERFACE_ID\"
+interface-id = "$MACHINE_INTERFACE_ID"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.com"
 !
