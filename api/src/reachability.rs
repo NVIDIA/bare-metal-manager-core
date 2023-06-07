@@ -86,9 +86,9 @@ impl Reachability for PingReachabilityChecker {
             // Should we use some library instead of Command?
             Command::new("ping")
                 .stdout(Stdio::null())
-                .arg("-c 1") // Send only 1 packet.
-                .arg("-W 2") // If we dont get response in 2 seconds, assume host unreachable.
-                .arg(host)
+                // -c: Send only 1 packet.
+                // -W: If we dont get response in 2 seconds, assume host unreachable.
+                .args(["-c", "1", "-W", "2", &host])
                 .status()
         })
         .await
