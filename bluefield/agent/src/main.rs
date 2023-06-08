@@ -18,8 +18,7 @@ use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
-use tracing::{debug, error, info, metadata::LevelFilter, trace};
-use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
+use tracing::{debug, error, info, trace};
 
 use crate::{
     command_line::{AgentCommand, WriteTarget},
@@ -53,17 +52,7 @@ fn main() -> eyre::Result<()> {
         return Ok(());
     }
 
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy()
-        .add_directive("tower=warn".parse()?)
-        .add_directive("rustls=warn".parse()?)
-        .add_directive("hyper=warn".parse()?)
-        .add_directive("h2=warn".parse()?);
-    tracing_subscriber::registry()
-        .with(fmt::Layer::default().compact())
-        .with(env_filter)
-        .try_init()?;
+    forge_host_support::init_logging()?;
 
     let agent = match AgentConfig::load_from(&cmdline.config_path) {
         Ok(cfg) => {
