@@ -49,6 +49,7 @@ services:
       - ca-certificate:/identity
     environment:
       - CARGO_HOME=/docker_cargo_home
+      - FORGE_ROOT_CAFILE_PATH=/opt/forge/forge_root.pem
     command: cargo watch -C dhcp -x "build --target-dir /tmp/carbide-dhcp" -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-carbide.conf"
     cap_add:
       - net_bind_service
@@ -131,6 +132,7 @@ services:
     environment:
       - CARGO_HOME=/docker_cargo_home
       - ROCKET_port=1080
+      - FORGE_ROOT_CAFILE_PATH=/opt/forge/forge_root.pem
       - ARTIFACT_AUTHORIZATION_USER=$ARTIFACT_AUTHORIZATION_USER
       - ARTIFACT_AUTHORIZATION_TOKEN=$ARTIFACT_AUTHORIZATION_TOKEN
     command: cargo watch -C pxe -x "run --target-dir /tmp/carbide-pxe"
