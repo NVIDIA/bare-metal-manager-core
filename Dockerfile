@@ -7,6 +7,8 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
+
+# This should match rust-toolchain.toml
 FROM rust:1.70.0
 
 ENV HOME /app
