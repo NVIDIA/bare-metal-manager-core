@@ -19,6 +19,9 @@ pub(crate) async fn run(config: &Options, machine_id: &str) -> Result<(), Carbid
         tracing::error!("Error while setting up users. {}", err.to_string());
     }
 
+    // Every IPMI functionality should be handled only after this call.
+    crate::ipmi::wait_until_ipmi_is_ready().await?;
+
     let mut ipmi_users = Vec::default();
     match crate::ipmi::set_ipmi_creds() {
         Ok(ipmi_user) => ipmi_users.push(ipmi_user),

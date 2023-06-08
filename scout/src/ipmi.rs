@@ -462,8 +462,6 @@ pub async fn send_bmc_metadata_update(
     machine_id: &str,
     ipmi_users: Vec<IpmiUser>,
 ) -> CarbideClientResult<()> {
-    wait_until_ipmi_is_ready().await?;
-
     let (bmc_ip, bmc_mac) = fetch_bmc_network_config()?;
     let (bmc_version, bmc_firmware_version) = fetch_bmc_info()?;
 
@@ -497,7 +495,7 @@ pub async fn send_bmc_metadata_update(
     Ok(())
 }
 
-async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
+pub async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
     let now = Instant::now();
     const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 12);
     const RETRY_TIME: Duration = Duration::from_secs(5);
@@ -518,12 +516,14 @@ async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
             sleep(RETRY_TIME).await;
         }
     }
-
+    //
     // Reached here, means MAX_TIMEOUT passed and yet ipmitool command is still failing.
-    Err(CarbideClientError::GenericError(format!(
+    let err_log = format!(
         "Max timout ({} seconds) is elapsed and still ipmitool is failed.",
         MAX_TIMEOUT.as_secs(),
-    )))
+    );
+    tracing::error!(err_log);
+    Err(CarbideClientError::GenericError(err_log))
 }
 
 fn as_bool(s: &str) -> bool {
