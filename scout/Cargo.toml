@@ -25,7 +25,6 @@ rlimit = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "*"
-tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 thiserror = "1"
 tokio = { workspace = true }
 tonic = { workspace = true }

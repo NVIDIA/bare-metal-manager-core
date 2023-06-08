@@ -20,7 +20,6 @@ ipnetwork = "*"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 tracing = "*"
-tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 thiserror = "1.0"
 tokio = { workspace = true }
 tonic = { workspace = true }

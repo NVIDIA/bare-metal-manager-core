@@ -317,7 +317,13 @@ impl<'a> LineParser<'a> {
                 return;
             }
             let location = parts[idx];
-            if location.ends_with(':') {
+            // If we just look for an ending ':', then this all looks like location, when the last part is
+            // actually part of the message. So check if something is unlikely to be a location.
+            // The log format is not really machine parseable.
+            //
+            // > forge_host_support::hardware_enumeration: host-support/src/hardware_enumeration.rs:307: Some({"vendor_id":
+            //
+            if location.ends_with(':') && !location.contains(['(', '{', '"']) {
                 l.location
                     .push(location.strip_suffix(':').unwrap().to_string());
                 idx += 1;

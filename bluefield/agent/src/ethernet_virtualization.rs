@@ -389,14 +389,11 @@ mod tests {
 
     use ::rpc::forge as rpc;
     use eyre::WrapErr;
-    use tracing_subscriber::{fmt, prelude::*};
 
     // Pretend we received a new config from API server. Apply it and check the resulting files.
     #[test]
     fn test_with_tenant() -> Result<(), Box<dyn std::error::Error>> {
-        tracing_subscriber::registry()
-            .with(fmt::Layer::default().compact())
-            .try_init()?;
+        forge_host_support::init_logging()?;
 
         // The config we received from API server
         // Admin won't be used
