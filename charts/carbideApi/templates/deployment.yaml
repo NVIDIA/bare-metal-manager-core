@@ -102,7 +102,7 @@ spec:
           command:
             - /bin/sh
             - -c
-            - /opt/carbide/carbide-api run --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}" --kubernetes {{ if .Values.authPermissiveMode }}--auth-permissive-mode{{ end }} {{ if .Values.manageVpc }}--manage-vpc --asn {{ .Values.asn }}{{ end }}
+            - /opt/carbide/carbide-api run --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}" {{ if .Values.authPermissiveMode }}--auth-permissive-mode{{ end }} {{ if .Values.manageVpc }}--manage-vpc --asn {{ .Values.asn }}{{else}}--kubernetes{{ end }}
           {{- end }}
           {{- if .Values.diagnosticMode.enabled }}
           args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
