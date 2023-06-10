@@ -28,7 +28,6 @@ use opentelemetry::{
 };
 use opentelemetry_semantic_conventions as semcov;
 use sqlx::PgPool;
-use tracing::{error, info};
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
@@ -114,15 +113,14 @@ async fn main() -> eyre::Result<()> {
 
     let sub_cmd = match &config.sub_cmd {
         None => {
-            error!("error: 'carbide-api' requires a subcommand but one was not provided. Re-run with '--help'.");
+            tracing::error!("error: 'carbide-api' requires a subcommand but one was not provided. Re-run with '--help'.");
             return Ok(());
         }
         Some(s) => s,
     };
-    info!("Start carbide-api version {}", forge_version::version!());
     match sub_cmd {
         Command::Migrate(ref m) => {
-            tracing::debug!("Running migrations");
+            tracing::info!("Running migrations");
             let pool = PgPool::connect(&m.datastore[..]).await?;
             carbide::db::migrations::migrate(&pool).await?;
         }
@@ -179,6 +177,12 @@ async fn main() -> eyre::Result<()> {
             let vault_client = VaultClient::new(vault_client_settings)?;
             let forge_vault_client = ForgeVaultClient::new(vault_client, vault_mount_location);
             let forge_vault_client = Arc::new(forge_vault_client);
+
+            tracing::info!(
+                "Start carbide-api on {}, {}",
+                config.listen[0],
+                forge_version::version!()
+            );
             carbide::api::Api::run(config, forge_vault_client, meter).await?
         }
     }
