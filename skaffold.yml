@@ -3,6 +3,8 @@ kind: Config
 metadata:
   name: carbide
 build:
+  tagPolicy:
+    sha256: {}
   local:
     useBuildkit: true
     useDockerCLI: true
@@ -36,99 +38,13 @@ build:
       sync:
         infer:
           - "libdhcp.so"
-    - image: registry.minikube/bmc-mock
-      docker:
-        dockerfile: dev/deployment/localdev/Dockerfile.bmc-mock.localdev
-      sync:
-        infer:
-          - "bmc-mock"
+
+manifests:
+  kustomize:
+    paths:
+      - forged/envs/local-dev/site/site-controller
 
 deploy:
-  statusCheckDeadlineSeconds: 300
-  helm:
-    releases:
-      - name: carbide-dns
-        chartPath: charts/carbideDns
-        namespace: forge-system
-        setValueTemplates:
-          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_carbide_dns}}"
-          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_carbide_dns}}"
-          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_carbide_dns}}"
-          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_carbide_dns}}"
-        setValues:
-          container.image.pullPolicy: "IfNotPresent"
-          container.image.pullSecrets: []
-          service.type: LoadBalancer
-          service.loadBalancerIP: 192.168.252.77
-      - name: carbide-pxe
-        chartPath: charts/carbidePxe
-        namespace: forge-system
-        setValueTemplates:
-          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_carbide_pxe}}"
-          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_carbide_pxe}}"
-          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_carbide_pxe}}"
-          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_carbide_pxe}}"
-        setValues:
-          container.image.pullPolicy: "IfNotPresent"
-          container.image.pullSecrets: []
-          bootArtifactsContainer.enabled: develop
-          service.loadBalancerIP: "192.168.252.76"
-          service.type: LoadBalancer
-          carbideApiUrl: "https://carbide-api.forge:1079"
-          carbidePxeUrl: "http://192.168.252.76:8080"
-      - name: carbide-api
-        chartPath: charts/carbideApi
-        namespace: forge-system
-        setValueTemplates:
-          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_carbide_api}}"
-          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_carbide_api}}"
-          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_carbide_api}}"
-          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_carbide_api}}"
-        setValues:
-          container.image.pullPolicy: "IfNotPresent"
-          container.image.pullSecrets: []
-          container.command:
-            - /bin/sh
-            - -c
-            - /opt/carbide/carbide-api run --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}" --auth-permissive-mode --asn 65535
-          service.type: LoadBalancer
-          service.LoadBalancerIP: "192.168.252.75"
-          authPermissiveMode: true
-          dhcpServerIp: "10.96.0.67"
-      - name: carbide-dhcp
-        chartPath: charts/carbideDhcp
-        namespace: forge-system
-        setValueTemplates:
-          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_carbide_dhcp}}"
-          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_carbide_dhcp}}"
-          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_carbide_dhcp}}"
-          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_carbide_dhcp}}"
-        setValues:
-          container.image.pullPolicy: "IfNotPresent"
-          container.image.pullSecrets: []
-          service.clusterIP: "10.96.0.67"
-          service.type: ClusterIP
-          carbidePxeIpAddress: 192.168.252.76
-          useTLS: true
-          carbideDnsServerIPs:
-            - "192.168.252.83"
-      - name: bmc-mock
-        chartPath: charts/bmc-mock
-        namespace: forge-system
-        setValueTemplates:
-          container.image.registry: "{{.IMAGE_DOMAIN_registry_minikube_bmc_mock}}"
-          container.image.repository: "{{.IMAGE_REPO_NO_DOMAIN_registry_minikube_bmc_mock}}"
-          container.image.tag:  "{{.IMAGE_TAG_registry_minikube_bmc_mock}}"
-          container.image.digest:  "{{.IMAGE_DIGEST_registry_minikube_bmc_mock}}"
-        setValues:
-          container.image.pullPolicy: "IfNotPresent"
-          container.image.pullSecrets: []
-          container.command:
-            - /bin/sh
-            - -c
-            - /opt/carbide/bmc-mock
-          authPermissiveMode: true
-          service.type: LoadBalancer
-          service.LoadBalancerIP: "192.168.252.78"
-          dhcpServerIp: "10.96.0.67"
+  kubectl:
+    defaultNamespace: forge-system
 

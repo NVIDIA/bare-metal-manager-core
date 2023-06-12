@@ -6,7 +6,7 @@ components_name := "carbide-api carbide-pxe carbide-dns dhcp scout bmc-mock"
 
 # Start cargo-watch for components "{{components}}"
 watch:
-  mkdir -p .skaffold/cache && mkdir -p .skaffold/target && parallel --link  -j+0 --tty --tag cargo --color=always watch --why -C {1} -s \"${REPO_ROOT}/.skaffold/build {2}\" ::: {{components_dir}} ::: {{components_name}}
+  ln -sf $FORGED_DIRECTORY . && mkdir -p .skaffold/cache && mkdir -p .skaffold/target && parallel --link  -j+0 --tty --tag cargo --color=always watch --why -C {1} -s \"${REPO_ROOT}/.skaffold/build {2}\" ::: {{components_dir}} ::: {{components_name}}
 
 _dockerbuild NAME FILE CONTEXT=(invocation_directory()):
   DOCKER_BUILDKIT=1 docker build -t {{NAME}} -f {{FILE}} {{CONTEXT}}
