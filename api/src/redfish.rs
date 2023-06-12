@@ -128,6 +128,10 @@ impl Redfish for RedfishSimClient {
         Ok(())
     }
 
+    fn forge_setup(&self) -> Result<(), RedfishError> {
+        Ok(())
+    }
+
     fn lockdown(&self, _target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
         Ok(())
     }

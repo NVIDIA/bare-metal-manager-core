@@ -103,6 +103,8 @@ pub enum RedfishCommand {
     BootOncePxe,
     #[clap(about = "Delete all pending jobs")]
     ClearPending,
+    #[clap(about = "Setup host for Forge use")]
+    ForgeSetup,
     #[clap(about = "Is this thing on?")]
     GetPowerState,
     #[clap(about = "Disable BMC/BIOS lockdown")]

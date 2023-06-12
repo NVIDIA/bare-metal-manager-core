@@ -53,6 +53,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             ClearPending => {
                 redfish.clear_pending()?;
             }
+            ForgeSetup => {
+                redfish.forge_setup()?;
+            }
             GetPowerState => {
                 println!("{}", redfish.get_power_state()?);
             }
