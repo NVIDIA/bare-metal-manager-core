@@ -40,6 +40,7 @@ async fn test_integration() -> eyre::Result<()> {
     };
     let root_dir = path::PathBuf::from(repo_root);
     if !has_prerequisites(&root_dir) {
+        //eyre::bail!("Missing pre-requisites in {}", root_dir.display());
         // don't break CI
         tracing::error!(
             "Skipping carbide-api integration test. Missing pre-requisities. (EASY_GREP)"
