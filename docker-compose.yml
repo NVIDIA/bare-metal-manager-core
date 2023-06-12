@@ -87,8 +87,6 @@ services:
     # Options:
     #  - For trace/debug mode add '-dd':
     #    command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
-    #  - For local Kubernetes add '--kubernetes'
-    #  - To have VPC (instead of Carbide) assign loopback ip, vlan_id and vni, remove '--manage-vpc'
     command:
       - sh
       - -c
@@ -101,7 +99,8 @@ services:
         --casbin-policy-file=/app/code/api/casbin-policy.csv
         --manage-vpc
         --asn 65535
-        --auth-permissive-mode"
+        --auth-permissive-mode
+        --rapid-iterations"
     ports:
       - 1079:1079
       - 1080:1080
@@ -113,7 +112,6 @@ services:
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
       - RUST_BACKTRACE=1
-      - KUBECONFIG=/app/code/dev/kube_config # Only used if you pass --kubernetes
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

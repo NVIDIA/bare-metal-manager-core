@@ -53,11 +53,9 @@ async fn main() -> eyre::Result<()> {
     let trace_config = sdk::trace::config().with_resource(service_telemetry_attributes.clone());
 
     let tracer = {
-        let is_local_dev =
-            matches!(&config.sub_cmd, Some(Command::Run(config)) if !config.kubernetes);
         use opentelemetry::sdk::trace::TracerProvider;
         let mut provider_builder = TracerProvider::builder()
-            .with_simple_exporter(OtelStdoutExporter::new(std::io::stdout(), is_local_dev));
+            .with_simple_exporter(OtelStdoutExporter::new(std::io::stdout()));
         provider_builder = provider_builder.with_config(trace_config);
         let provider = provider_builder.build();
 

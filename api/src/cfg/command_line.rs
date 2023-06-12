@@ -58,9 +58,15 @@ pub struct Daemon {
     #[clap(long, require_equals(true), env = "IBFABRIC_MANAGER_URL")]
     pub ib_fabric_manager: Option<String>,
 
-    /// Enable kubernetes integrations
+    /// Enable older VPC which runs as a kubernetes CRD
     #[clap(short, long)]
     pub kubernetes: bool,
+
+    /// Set shorter timeouts and run background jobs more often. Appropriate
+    /// for local development.
+    /// See ServiceConfig type.
+    #[clap(long)]
+    pub rapid_iterations: bool,
 
     /// Should Carbide manage the VPC data (loopback IP, VNI, vlanid)?
     /// False means VPC manages it as a Kubernetes CRD.

@@ -19,11 +19,12 @@ use std::{
 use clap::Parser as ClapParser;
 use owo_colors::{OwoColorize, Style};
 
-const IGNORE: [&str; 3] = [
+const IGNORED_MSGS: [&str; 3] = [
     "grpc.reflection.v1alpha.ServerReflection",
     "The policy engine denied this request",
     "all auth principals denied by enforcer",
 ];
+const IGNORED_SPANS: &[&str] = &["state_controller_iteration"];
 
 const SPAN_START: &str = "Span:";
 const SPAN_END: &str = "----";
@@ -81,7 +82,7 @@ fn main() -> eyre::Result<()> {
         if l.skip {
             continue;
         }
-        for st in IGNORE {
+        for st in IGNORED_MSGS {
             if l.message.starts_with(st) || (!l.location.is_empty() && l.location[0] == st) {
                 continue 'top;
             }
@@ -180,7 +181,7 @@ impl<'a> LineParser<'a> {
         };
 
         if parts[idx] == SPAN_START {
-            self.skip_this_span = parts[idx + 1] == "state_controller_iteration";
+            self.skip_this_span = IGNORED_SPANS.contains(&parts[idx + 1]);
             self.in_span = true;
             self.in_attributes = false;
             self.in_events = false;
