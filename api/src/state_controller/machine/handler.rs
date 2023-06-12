@@ -769,8 +769,12 @@ async fn lockdown_host(
     // we have to delegate the actual call into a threadpool
     tokio::task::spawn_blocking(move || {
         if enable {
-            client.lockdown(libredfish::EnabledDisabled::Enabled)?;
-            // TODO: TPM cleanup
+            // the forge_setup call includes the equivalent of these calls internally in libredfish
+            // 1. serial setup (bios, bmc)
+            // 2. tpm clear (bios)
+            // 3. lockdown (bios, bmc)
+            // 4. boot once to pxe
+            client.forge_setup()?;
         }
         client.power(libredfish::SystemPowerControl::ForceRestart)
     })
