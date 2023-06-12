@@ -142,11 +142,17 @@ environment.
 
     Fedora - `sudo dnf install -y cmake`
 
-17. Build the `build-container` locally
+17. Install `vault` for integration testing:
+
+    `curl -Lo vault.zip https://releases.hashicorp.com/vault/1.13.3/vault_1.13.3_linux_amd64.zip && unzip vault.zip && chmod u+x vault && mv vault /usr/local/bin/`
+
+    Or [there are deb/rpm repos here](https://developer.hashicorp.com/vault/tutorials/getting-started/getting-started-install#install-vault).
+
+18. Build the `build-container` locally
 
     `cargo make build-x86-build-container`
 
-18. Build the book locally
+19. Build the book locally
 
     `cargo make book`
 
