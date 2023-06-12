@@ -130,6 +130,7 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
         .api
         .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
             id: Some(host_machine_interface_id.clone()),
+            ip: None,
         }))
         .await
         .unwrap()
@@ -159,6 +160,7 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
         .api
         .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
             id: Some(host_machine_interface_id),
+            ip: None,
         }))
         .await
         .unwrap()

@@ -1769,10 +1769,10 @@ where
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_interfaces", e))?;
 
-        let rpc::InterfaceSearchQuery { id, .. } = request.into_inner();
+        let rpc::InterfaceSearchQuery { id, ip } = request.into_inner();
 
-        let response = match id {
-            Some(id) if id.value.chars().count() > 0 => match Uuid::try_from(id) {
+        let response = match (id, ip) {
+            (Some(id), _) if id.value.chars().count() > 0 => match Uuid::try_from(id) {
                 Ok(uuid) => Ok(rpc::InterfaceList {
                     interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
                 }),
@@ -1781,10 +1781,32 @@ where
                 )
                 .into()),
             },
-            _ => Err(
-                CarbideError::GenericError("Could not find an ID in the request".to_string())
-                    .into(),
-            ),
+            (None, Some(ip)) => match Ipv4Addr::from_str(ip.as_ref()) {
+                Ok(ip) => {
+                    match MachineInterface::find_by_ip(&mut txn, &ip)
+                        .await
+                        .map_err(CarbideError::from)?
+                    {
+                        Some(interface) => Ok(rpc::InterfaceList {
+                            interfaces: vec![interface.into()],
+                        }),
+                        None => {
+                            return Err(CarbideError::GenericError(format!(
+                                "No machine interface with IP {ip} was found"
+                            ))
+                            .into())
+                        }
+                    }
+                }
+                Err(_) => Err(CarbideError::GenericError(
+                    "Could not marshall an IP from the request".to_string(),
+                )
+                .into()),
+            },
+            _ => Err(CarbideError::GenericError(
+                "Could not find an ID or IP in the request".to_string(),
+            )
+            .into()),
         };
 
         response.map(Response::new)
