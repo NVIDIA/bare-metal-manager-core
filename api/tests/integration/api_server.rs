@@ -47,6 +47,7 @@ pub fn start(
         .arg("--auth-permissive-mode")
         .arg("--manage-vpc")
         .arg("--asn=65535")
+        .arg("--rapid-iterations")
         .arg(format!(
             "--casbin-policy-file={}",
             root_dir.join("api/casbin-policy.csv").display()

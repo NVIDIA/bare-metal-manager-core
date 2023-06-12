@@ -33,21 +33,15 @@ pub struct OtelStdoutExporter<W: Write> {
 
 impl<W: Write> OtelStdoutExporter<W> {
     /// Creates a new `OtelStdoutExporter`.
-    pub fn new(writer: W, local_development: bool) -> Self {
+    pub fn new(writer: W) -> Self {
         Self {
             writer,
-            ignored_spans: if local_development {
-                IGNORED_SPANS_LOCAL_DEV
-            } else {
-                IGNORED_SPANS
-            },
+            ignored_spans: IGNORED_SPANS,
         }
     }
 }
 
 const IGNORED_SPANS: &[&str] = &[];
-
-const IGNORED_SPANS_LOCAL_DEV: &[&str] = &["state_controller_iteration"];
 
 const IGNORED_REQUEST_METHODDS: &[&str] = &[
     "GetManagedHostNetworkConfig",

@@ -3331,10 +3331,11 @@ where
         credential_provider: Arc<C>,
         meter: opentelemetry::metrics::Meter,
     ) -> eyre::Result<()> {
-        let service_config = if daemon_config.kubernetes {
-            ServiceConfig::default()
-        } else {
+        let service_config = if daemon_config.rapid_iterations {
+            tracing::info!("Running with rapid iterations for local development");
             ServiceConfig::for_local_development()
+        } else {
+            ServiceConfig::default()
         };
 
         // RedfishClientPool uses reqwest in blocking mode.
