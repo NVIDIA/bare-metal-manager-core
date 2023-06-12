@@ -130,25 +130,16 @@ impl<'r> FromRequest<'r> for Machine {
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         let uuid = match request.query_value::<rocket::serde::uuid::Uuid>("uuid") {
-            Some(Ok(uuid)) => uuid,
+            Some(Ok(uuid)) => Some(forge::Uuid {
+                value: uuid.to_string(),
+            }),
             Some(Err(errs)) => {
                 return request::Outcome::Failure((
                     Status::BadRequest,
                     RPCError::MalformedMachineId(errs),
                 ));
             }
-            None => {
-                eprintln!("{:#?}", request.param::<rocket::serde::uuid::Uuid>(0));
-                match request.param::<rocket::serde::uuid::Uuid>(0) {
-                    Some(uuid) => uuid.unwrap(),
-                    None => {
-                        return request::Outcome::Failure((
-                            Status::BadRequest,
-                            RPCError::MissingMachineId,
-                        ));
-                    }
-                }
-            }
+            None => None,
         };
 
         let mut client = match request.rocket().state::<RuntimeConfig>() {
@@ -181,11 +172,18 @@ impl<'r> FromRequest<'r> for Machine {
             }
         };
 
-        let request = tonic::Request::new(InterfaceSearchQuery {
-            id: Some(forge::Uuid {
-                value: uuid.to_string(),
-            }),
-        });
+        // Default to a proxied XFF header with the correct IP, and fallback to client IP if not
+        let ip = match request.headers().get_one("X-Forwarded-For") {
+            None => request.client_ip().map(|ip| ip.to_string()),
+            Some(h) => Some(h.to_string()),
+        };
+
+        if ip.is_none() && uuid.is_none() {
+            eprintln!("error in client both uuid and ip are none");
+            return request::Outcome::Failure((Status::BadRequest, RPCError::MissingMachineId));
+        }
+
+        let request = tonic::Request::new(InterfaceSearchQuery { id: uuid, ip });
 
         let interface = match client.find_interfaces(request).await {
             // TODO(baz): fix this blatantly ugly remove(0) w/o checking the size

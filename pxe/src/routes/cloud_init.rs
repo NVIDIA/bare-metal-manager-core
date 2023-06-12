@@ -14,7 +14,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rocket::get;
 use rocket::routes;
-use rocket::serde::uuid;
 use rocket::Route;
 use rocket_dyn_templates::Template;
 
@@ -71,11 +70,12 @@ async fn user_data_handler_in_assigned(
 }
 
 async fn user_data_handler(
-    machine_interface_id: uuid::Uuid,
+    machine_interface_id: rpc::Uuid,
     machine: Machine,
     config: RuntimeConfig,
 ) -> (String, HashMap<String, String>) {
-    let forge_agent_config = generate_forge_agent_config(machine_interface_id, &machine, &config);
+    let forge_agent_config =
+        generate_forge_agent_config(machine_interface_id.clone(), &machine, &config);
 
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine.interface.mac_address);
@@ -108,7 +108,7 @@ async fn user_data_handler(
 
 /// Generates the content of the /etc/forge/config.toml file
 fn generate_forge_agent_config(
-    machine_interface_id: uuid::Uuid,
+    machine_interface_id: rpc::Uuid,
     machine: &Machine,
     config: &RuntimeConfig,
 ) -> String {
@@ -144,8 +144,13 @@ fn generate_forge_agent_config(
     lines.join("\n")
 }
 
-#[get("/<uuid>/user-data")]
-pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig) -> Template {
+#[get("/user-data")]
+pub async fn user_data(machine: Machine, config: RuntimeConfig) -> Template {
+    let uuid = machine
+        .interface
+        .clone()
+        .id
+        .expect("The interface should not have a null ID");
     let (template, context) = match machine.machine.as_ref() {
         Some(rpc_machine) if rpc_machine.state.to_lowercase().starts_with("assigned") => {
             user_data_handler_in_assigned(machine, config).await
@@ -156,23 +161,14 @@ pub async fn user_data(uuid: uuid::Uuid, machine: Machine, config: RuntimeConfig
     Template::render(template, context)
 }
 
-#[get("/<uuid>/meta-data")]
-pub async fn meta_data(uuid: uuid::Uuid) -> Template {
-    let mut context: HashMap<String, String> = HashMap::new();
-
-    //insert it into the context just to use the variable
-    //TODO: figure how what to actually use the UUID for later
-    context.insert("uuid".to_string(), uuid.to_string());
-
-    Template::render("printcontext", &context)
+#[get("/meta-data")]
+pub async fn meta_data() -> Template {
+    Template::render("printcontext", HashMap::<String, String>::new())
 }
 
-#[get("/<uuid>/vendor-data")]
-pub async fn vendor_data(uuid: uuid::Uuid) -> Template {
-    // placeholder content stolen from the meta_data call above
-    let mut context: HashMap<String, String> = HashMap::new();
-    context.insert("uuid".to_string(), uuid.to_string());
-    Template::render("printcontext", &context)
+#[get("/vendor-data")]
+pub async fn vendor_data() -> Template {
+    Template::render("printcontext", HashMap::<String, String>::new())
 }
 
 pub fn routes() -> Vec<Route> {
@@ -247,7 +243,7 @@ mod tests {
 
         let interface_id: uuid::Uuid = interface_id.parse().unwrap();
 
-        let config = generate_forge_agent_config(interface_id, &machine, &runtime_config);
+        let config = generate_forge_agent_config(interface_id.into(), &machine, &runtime_config);
 
         let data: toml::Value = config.parse().unwrap();
 

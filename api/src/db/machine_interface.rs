@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 
 use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
@@ -192,6 +192,22 @@ impl MachineInterface {
         macaddr: MacAddress,
     ) -> Result<Vec<MachineInterface>, DatabaseError> {
         MachineInterface::find_by(txn, ObjectFilter::One(macaddr.to_string()), "mac_address").await
+    }
+
+    pub async fn find_by_ip(
+        txn: &mut Transaction<'_, Postgres>,
+        ip: &Ipv4Addr,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = r#"SELECT mi.* FROM machine_interfaces mi
+            INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
+            WHERE mia.address = $1::inet"#;
+        let interface: Option<Self> = sqlx::query_as(query)
+            .bind(ip.to_string())
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(interface)
     }
 
     pub async fn find_by_machine_ids(
