@@ -129,7 +129,7 @@ service Forge {
   rpc UpdateTenant(UpdateTenantRequest) returns (UpdateTenantResponse);
 
   rpc CreateTenantKeyset(CreateTenantKeysetRequest) returns (CreateTenantKeysetResponse);
-  rpc FindTenantKeyset(FindTenantKeysetRequest) returns (FindTenantKeysetResponse);
+  rpc FindTenantKeyset(FindTenantKeysetRequest) returns (TenantKeySetList);
   rpc UpdateTenantKeyset(UpdateTenantKeysetRequest) returns (UpdateTenantKeysetResponse);
   rpc DeleteTenantKeyset(DeleteTenantKeysetRequest) returns (DeleteTenantKeysetResponse);
 
@@ -1347,23 +1347,23 @@ message TenantContent {
 }
 
 message Tenant {
-  string organizationId = 1;
-  TenantContent tenantContent = 2;
+  string organization_id = 1;
+  TenantContent tenant_content = 2;
   // this string is used to verify that the client has the most updated "view" of a keyset when attempting to modify it
   string version = 3;
 }
 
 message CreateTenantRequest {
   // this organization ID must be globally unique
-  string organizationId = 1;
+  string organization_id = 1;
 }
 message CreateTenantResponse {
   Tenant tenant = 1;
 }
 
 message UpdateTenantRequest {
-  string organizationId = 1;
-  TenantContent tenantContent = 2;
+  string organization_id = 1;
+  TenantContent tenant_content = 2;
 
   // if this field is set and non-empty, the request will only update the tenant if the version matches the server's view,
   // otherwise it will return a concurrency related error.
@@ -1375,68 +1375,89 @@ message UpdateTenantResponse {
 }
 
 message FindTenantRequest {
-  string tenantOrganizationId = 1;
+  string tenant_organization_id = 1;
 }
 message FindTenantResponse {
   Tenant tenant = 1;
 }
 
 message TenantKeysetIdentifier {
-  // the organizationId of the associated tenant, required to be non-null and globally unique
-  string organizationId = 1;
+  // the organization_id of the associated tenant, required to be non-null and globally unique
+  string organization_id = 1;
   // the id of the key, provided by the tenant.  Must be unique within the tenant's organization.
   // TODO: update this document once we have a clearer idea of the charset restrictions for this provided identifier.
-  string keysetId = 2;
+  string keyset_id = 2;
 }
 
 message TenantPublicKey {
-  string publicKey = 1;
+  string public_key = 1;
   optional string comment = 2;
 }
 
 message TenantKeysetContent {
-  repeated TenantPublicKey publicKeys = 1;
+  repeated TenantPublicKey public_keys = 1;
 }
 
 message TenantKeyset {
-  TenantKeysetIdentifier keysetIdentifier = 1;
-  TenantKeysetContent keysetContent = 2;
+  TenantKeysetIdentifier keyset_identifier = 1;
+  TenantKeysetContent keyset_content = 2;
   // this version will be used to determine if a client has the most updated "view" of a tenant when attempting to modify it
   string version = 3;
 }
 
 message CreateTenantKeysetRequest {
-  TenantKeysetIdentifier keysetIdentifier = 1;
+  TenantKeysetIdentifier keyset_identifier = 1;
   // it is allowed for the provided request to contain no keys, which will reserve the identifier as an empty set.
-  TenantKeysetContent keysetContent = 2;
+  TenantKeysetContent keyset_content = 2;
+  // The new version that should be stored for the keyset. The Forge site controller
+  // will store this version field as the new version for the data. It will not
+  // assign a version on its own.
+  string version = 3;
 }
 message CreateTenantKeysetResponse {
   TenantKeyset keyset = 1;
 }
 
 message FindTenantKeysetRequest {
-  TenantKeysetIdentifier keysetIdentifier = 1;
+  // The tenant organization for which to list keysets. If this is empty, the call will
+  // return the key sets for all tenant organizations.
+  optional string organization_id = 1;
+  // The keyset ID within the tenant organization. If this is not empty, the call will
+  // return only the content of a single keyset if this exists.
+  // Otherwise all keysets for the selected tenant will be listed.
+  optional string keyset_id = 2;
+  // Whether to include the actual keys in the response. By default only the names
+  // of the keysets will be returned and their versions. The keys will be omitted
+  // since it is assumed that the caller (Forge Cloud API) is already aware of them.
+  bool include_key_data = 3;
+
 }
-message FindTenantKeysetResponse {
-  TenantKeyset keyset = 1;
+message TenantKeySetList {
+  repeated TenantKeyset keyset = 1;
 }
 
 message UpdateTenantKeysetRequest {
   // this request will update the existing keyset provided the identifiers match
-  TenantKeysetIdentifier keysetIdentifier = 1;
-  TenantKeysetContent keysetContent = 2;
+  TenantKeysetIdentifier keyset_identifier = 1;
+  TenantKeysetContent keyset_content = 2;
+
+  // The new version that should be stored for the keyset. The Forge site controller
+  // will store this version field as the new version for the data. It will not
+  // assign a version on its own.
+  string version = 3;
 
   // if this field is set and non-empty, the request will only update the tenant if the version matches the server's view,
   // otherwise it will return a concurrency related error.
-  optional string if_version_match = 3;
+  optional string if_version_match = 4;
 }
 message UpdateTenantKeysetResponse {
-  // will respond with the final keyset after it has been modified in accordance with the request
-  TenantKeyset keyset = 1;
+  // Since the update request overwrites the whole keyset, the caller of the API
+  // already knows the data that will be stored after a successful update.
+  // Therefore this response does not need to carry any data.
 }
 
 message DeleteTenantKeysetRequest {
-  TenantKeysetIdentifier keysetIdentifier = 1;
+  TenantKeysetIdentifier keyset_identifier = 1;
 }
 message DeleteTenantKeysetResponse {}
 
@@ -1446,8 +1467,8 @@ message DeleteTenantKeysetResponse {}
 // 3) the tenant's keyset.
 // if the key is present in one of those lists, the request will be granted permission to access the instance.
 message ValidateTenantPublicKeyRequest {
-  string instanceId = 1;
-  string tenantPublicKey = 2;
+  string instance_id = 1;
+  string tenant_public_key = 2;
 }
 // the status of the response will be in the grpc Status object, along with any associated Errors.
 message ValidateTenantPublicKeyResponse {}

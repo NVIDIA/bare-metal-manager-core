@@ -20,12 +20,11 @@ pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
     CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
     CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantKeysetResponse, FindTenantRequest,
-    FindTenantResponse, IbSubnet, IbSubnetCreationRequest, IbSubnetDeletionRequest,
-    IbSubnetDeletionResult, IbSubnetList, IbSubnetQuery, InstanceList,
-    MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse, UpdateTenantKeysetRequest,
-    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
-    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbSubnet,
+    IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult, IbSubnetList,
+    IbSubnetQuery, InstanceList, MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
+    TenantKeySetList, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
+    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
 use chrono::Duration;
 use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
@@ -1421,7 +1420,7 @@ where
     async fn find_tenant_keyset(
         &self,
         _request: Request<FindTenantKeysetRequest>,
-    ) -> Result<Response<FindTenantKeysetResponse>, Status> {
+    ) -> Result<Response<TenantKeySetList>, Status> {
         todo!()
     }
 
