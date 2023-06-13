@@ -23,8 +23,8 @@ variables:
 
   # pull new versions from https://urm.nvidia.com/artifactory/swngc-ngcc-docker-local/forge/carbide/
   BUILD_CONTAINER_IMAGE_NAME_ARM: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:v0.0.1-512-g3475afc9"
-  BUILD_CONTAINER_IMAGE_NAME_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v0.0.1-512-g3475afc9"
-  BINARY_FILES: "binaries/carbide-api binaries/carbide-dns binaries/carbide binaries/forge-admin-cli"
+  BUILD_CONTAINER_IMAGE_NAME_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v2023.06-rc1-68-g15b83abf"
+  BINARY_FILES: "binaries/carbide-api binaries/carbide-dns binaries/carbide binaries/forge-admin-cli binaries/forge-dpu-agent"
 
 stages:
   - lint
@@ -143,6 +143,7 @@ build-cargo:
     - cp target/debug/carbide-dns binaries/
     - cp target/debug/carbide binaries/
     - cp target/debug/forge-admin-cli binaries/
+    - cp target/debug/forge-dpu-agent binaries/
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
     - if: $CI_PIPELINE_SOURCE == "schedule"

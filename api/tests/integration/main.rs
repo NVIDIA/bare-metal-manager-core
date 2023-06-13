@@ -73,7 +73,11 @@ async fn test_integration() -> eyre::Result<()> {
 
 fn has_prerequisites(root_dir: &path::Path) -> bool {
     let mut has_missing = false;
-    for binary in ["target/debug/carbide-api", "target/debug/forge-admin-cli"] {
+    for binary in [
+        "target/debug/carbide-api",
+        "target/debug/forge-admin-cli",
+        "target/debug/forge-dpu-agent",
+    ] {
         let p = root_dir.join(binary);
         if !p.exists() {
             tracing::error!("Missing {}", p.display());
