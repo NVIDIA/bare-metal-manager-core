@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{fs, path, process, thread, time};
+use std::{collections::HashMap, fs, path, process, thread, time};
 
 use serde::{Deserialize, Serialize};
 
@@ -27,16 +27,27 @@ mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.com"
 "#;
 
-pub fn bootstrap(root_dir: &path::Path) -> eyre::Result<path::PathBuf> {
-    let (_vpc_id, _domain_id, _segment_id) = basic(root_dir)?;
+pub fn bootstrap(
+    root_dir: &path::Path,
+    bins: HashMap<String, path::PathBuf>,
+) -> eyre::Result<path::PathBuf> {
+    let (_vpc_id, _domain_id, _segment_id) = basic(root_dir, bins.get("forge-admin-cli").unwrap())?;
     let (interface_id, dpu_machine_id) = discover()?;
-    let hbn_root = configure_network(root_dir, &interface_id, &dpu_machine_id)?;
+    let hbn_root = configure_network(
+        root_dir,
+        bins.get("forge-dpu-agent").unwrap(),
+        &interface_id,
+        &dpu_machine_id,
+    )?;
 
     Ok(hbn_root)
 }
 
-fn basic(root_dir: &path::Path) -> eyre::Result<(String, String, String)> {
-    create_resource_pools(root_dir)?;
+fn basic(
+    root_dir: &path::Path,
+    forge_admin_cli: &path::Path,
+) -> eyre::Result<(String, String, String)> {
+    create_resource_pools(root_dir, forge_admin_cli)?;
     let vpc_id = grpcurl_id("CreateVpc", r#"{"name": "test_vpc"}"#)?;
     let domain_id = grpcurl_id("CreateDomain", r#"{"name": "forge.integrationtest"}"#)?;
     let segment_id = create_segment(&vpc_id, &domain_id)?;
@@ -71,11 +82,12 @@ fn discover() -> eyre::Result<(String, String)> {
 
 fn configure_network(
     root_dir: &path::Path,
+    forge_dpu_agent: &path::Path,
     interface_id: &str,
     dpu_machine_id: &str,
 ) -> eyre::Result<path::PathBuf> {
     let hbn_root = make_dpu_filesystem(root_dir, interface_id)?;
-    super::forge_dpu_agent::run(root_dir, DPU_CONFIG_FILE, &hbn_root, dpu_machine_id)?;
+    super::forge_dpu_agent::run(forge_dpu_agent, DPU_CONFIG_FILE, &hbn_root, dpu_machine_id)?;
     wait_for_dpu_up(dpu_machine_id)?;
     tracing::info!("DPU is up now.");
     Ok(hbn_root)
@@ -193,6 +205,8 @@ fn grpcurl_id(endpoint: &str, data: &str) -> eyre::Result<String> {
 }
 
 fn grpcurl(endpoint: &str, data: &str) -> eyre::Result<String> {
+    // We don't pass the full path to grpcurl here and rely on the fact
+    // that `Command` searches the PATH. This makes function signatures tidier.
     let out = process::Command::new("grpcurl")
         .arg("-d")
         .arg(data)
@@ -212,8 +226,7 @@ fn grpcurl(endpoint: &str, data: &str) -> eyre::Result<String> {
     Ok(response.to_string())
 }
 
-fn create_resource_pools(root_dir: &path::Path) -> eyre::Result<()> {
-    let forge_admin_cli = root_dir.join("target/debug/forge-admin-cli");
+fn create_resource_pools(root_dir: &path::Path, forge_admin_cli: &path::Path) -> eyre::Result<()> {
     // the dev/kube-env one is identical, so switching would be fine
     let pool_defs = root_dir.join("dev/docker-env/resource_pools.toml");
     let out = process::Command::new(forge_admin_cli)

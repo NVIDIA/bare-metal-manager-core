@@ -139,11 +139,11 @@ build-cargo:
     - cargo make check-format-flow
     - cargo make workspace-ci-flow
     - mkdir binaries
-    - cp target/debug/carbide-api binaries/
-    - cp target/debug/carbide-dns binaries/
-    - cp target/debug/carbide binaries/
-    - cp target/debug/forge-admin-cli binaries/
-    - cp target/debug/forge-dpu-agent binaries/
+    - cp target/release/carbide-api binaries/
+    - cp target/release/carbide-dns binaries/
+    - cp target/release/carbide binaries/
+    - cp target/release/forge-admin-cli binaries/
+    - cp target/release/forge-dpu-agent binaries/
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
     - if: $CI_PIPELINE_SOURCE == "schedule"

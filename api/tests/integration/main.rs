@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{env, fs, path, thread, time};
+use std::{collections::HashMap, env, fs, path, thread, time};
 
 use sqlx::migrate::MigrateDatabase;
 
@@ -28,10 +28,11 @@ fn setup() {
 
 /// Integration test that shells out to start the real carbide-api, and then does all the steps
 /// that `bootstrap-forge-docker` would do.
-/// It requires `grpcurl` and `vault` on PATH, and pre-built `carbide-api` binary in target/debug/.
+/// It requires `grpcurl` and `vault` on PATH, and pre-built carbide binaries in target/debug/ or
+/// target/release.
 ///
 /// Developer note: This is only marked as 'async' because sqlx is async. Everything else is normal
-/// threads. Yes they work fine together.
+/// threads.
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn test_integration() -> eyre::Result<()> {
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
@@ -39,7 +40,8 @@ async fn test_integration() -> eyre::Result<()> {
         return Ok(());
     };
     let root_dir = path::PathBuf::from(repo_root);
-    if !has_prerequisites(&root_dir) {
+    let (bins, has_all) = find_prerequisites(&root_dir);
+    if !has_all {
         eyre::bail!("Missing pre-requisites in {}", root_dir.display());
     }
 
@@ -53,46 +55,65 @@ async fn test_integration() -> eyre::Result<()> {
     let m = sqlx::migrate!();
     m.run(&db_pool).await?;
 
-    let vault = vault::start()?;
+    let vault = vault::start(bins.get("vault").unwrap())?;
 
-    let api = api_server::start(&root_dir, &db_url, vault.token())?;
+    let api = api_server::start(
+        &root_dir,
+        &db_url,
+        vault.token(),
+        bins.get("carbide-api").unwrap(),
+    )?;
     thread::sleep(time::Duration::from_millis(500));
     assert!(api.has_started(), "carbide-api failed to start");
 
-    let hbn_root = bootstrap::bootstrap(&root_dir)?;
+    let hbn_root = bootstrap::bootstrap(&root_dir, bins)?;
 
     thread::sleep(time::Duration::from_millis(500));
     fs::remove_dir_all(hbn_root)?;
     Ok(())
 }
 
-fn has_prerequisites(root_dir: &path::Path) -> bool {
-    let mut has_missing = false;
-    for binary in [
-        "target/debug/carbide-api",
-        "target/debug/forge-admin-cli",
-        "target/debug/forge-dpu-agent",
-    ] {
-        let p = root_dir.join(binary);
-        if !p.exists() {
-            tracing::error!("Missing {}", p.display());
-            has_missing = true;
-        }
-    }
+fn find_prerequisites(root_dir: &path::Path) -> (HashMap<String, path::PathBuf>, bool) {
+    let mut bins = HashMap::with_capacity(5);
+    let cargo_paths = [
+        root_dir.join("target/release"),
+        root_dir.join("target/debug"),
+    ];
+    bins.insert("carbide-api", find_in("carbide-api", &cargo_paths));
+    bins.insert("forge-admin-cli", find_in("forge-admin-cli", &cargo_paths));
+    bins.insert("forge-dpu-agent", find_in("forge-dpu-agent", &cargo_paths));
+
     let paths: Vec<path::PathBuf> = env::split_paths(&env::var_os("PATH").unwrap()).collect();
-    for binary in ["vault", "grpcurl"] {
-        let mut found = false;
-        for path in &paths {
-            let candidate = path.join(binary);
-            if candidate.exists() {
-                found = true;
-                break;
+    bins.insert("vault", find_in("vault", &paths));
+    bins.insert("grpcurl", find_in("grpcurl", &paths));
+
+    let mut has_all = true;
+    let mut full_paths = HashMap::with_capacity(bins.len());
+    for (k, v) in bins.drain() {
+        match v {
+            Some(full_path) => {
+                full_paths.insert(k.to_string(), full_path);
+            }
+            None => {
+                tracing::error!("Missing {k}");
+                has_all = false;
             }
         }
-        if !found {
-            tracing::error!("Missing {binary} on PATH");
-            has_missing = true;
+    }
+    if !has_all {
+        tracing::error!("\tcargo paths: {:?}", cargo_paths);
+        tracing::error!("\tPATH: {:?}", paths);
+    }
+    (full_paths, has_all)
+}
+
+// Look for a binary in the given paths, return full path or None if not found
+fn find_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf> {
+    for path in paths {
+        let candidate = path.join(binary);
+        if candidate.exists() {
+            return Some(candidate);
         }
     }
-    !has_missing
+    None
 }
