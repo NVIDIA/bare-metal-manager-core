@@ -51,7 +51,7 @@ RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/pxe/templates && \
   mkdir -p /opt/carbide/static
 COPY --from=builder ["/carbide/target/release/carbide-api", "/carbide/target/release/carbide","/carbide/target/release/carbide-dns", "/carbide/target/release/forge-admin-cli", "/carbide/target/release/forge-dpu-agent", "/opt/carbide/"]
-COPY --from=builder /carbide/target/debug/libdhcp.so /usr/lib/x86_64-linux-gnu/kea/hooks
+COPY --from=builder /carbide/target/release/libdhcp.so /usr/lib/x86_64-linux-gnu/kea/hooks
 COPY api/migrations/ /opt/carbide/migrations/
 COPY pxe/templates/*  /opt/carbide/pxe/templates/
 COPY pxe/Rocket.toml /opt/carbide/
