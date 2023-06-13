@@ -119,7 +119,7 @@ fn get_carbide_api_url(carbide_api: Option<String>, file_config: Option<&FileCon
 
     panic!(
         r#"Unknown CARBIDE_API_URL. Set (will be read in same sequence.)
-           1. --carbide_api/-c flag or
+           1. --carbide-api/-c flag or
            2. environment variable CARBIDE_API_URL or
            3. add carbide_api_url in $HOME/.config/carbide_api_cli.json."#
     )
@@ -162,7 +162,7 @@ fn get_forge_root_ca_path(
     // if you make it here, you'll just have to tell me where the root CA is.
     panic!(
         r###"Unknown FORGE_ROOT_CA_PATH. Set (will be read in same sequence.)
-           1. --forge_root_ca_path/-f flag or
+           1. --forge-root-ca-path/-f flag or
            2. environment variable FORGE_ROOT_CA_PATH or
            3. add forge_root_ca_path in $HOME/.config/carbide_api_cli.json.
            5. a file existing at "/var/run/secrets/spiffe.io/ca.crt".
