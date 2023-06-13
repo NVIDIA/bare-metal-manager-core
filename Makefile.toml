@@ -37,7 +37,7 @@ args = ['-c', "${DATABASE_URL}", '-s', 'public', '--useAllTables', '--showAllCon
 
 [tasks.build-cli-ci]
 category = "Build"
-description = "Build forge-scout in CI"
+description = "Build forge-scout and forge-admin-cli in CI"
 workspace = false
 script = '''
 cargo build -p scout -p admin
@@ -211,7 +211,8 @@ dependencies = [
 [tasks.pre-commit-verify]
 description = "Runs the same set of tasks CI will."
 category = "CI"
-# clippy-flow and check-format-flow are default targets provided by cargo-make
+# clippy-flow, check-format-flow and workspace-ci-flow are default targets provided by cargo-make.
+# workspace-ci-flow means run 'ci-flow' (you guessed it, default) on everything in the workspace.
 dependencies = [
     "clippy-flow",
     "check-format-flow",

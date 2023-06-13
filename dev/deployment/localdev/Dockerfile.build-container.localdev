@@ -1,4 +1,4 @@
-FROM urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v0.0.1-470-g80a16ba9
+FROM urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v2023.06-rc1-68-g15b83abf
 
 RUN mkdir /target
 RUN mkdir -p /cache/cargo
