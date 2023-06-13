@@ -12,6 +12,7 @@
 
 use std::io;
 use std::io::BufRead;
+use std::path;
 use std::process;
 use std::sync::mpsc;
 use std::thread;
@@ -29,8 +30,8 @@ impl Vault {
     }
 }
 
-pub fn start() -> Result<Vault, eyre::Report> {
-    let mut process = process::Command::new("vault")
+pub fn start(vault_bin: &path::Path) -> Result<Vault, eyre::Report> {
+    let mut process = process::Command::new(vault_bin)
         .arg("server")
         .arg("-dev")
         .stdout(process::Stdio::piped())

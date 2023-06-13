@@ -30,8 +30,8 @@ pub fn start(
     root_dir: &path::Path,
     db_url: &str,
     vault_token: &str,
+    carbide_api: &path::Path,
 ) -> Result<CarbideApi, eyre::Report> {
-    let carbide_api = root_dir.join("target/debug/carbide-api");
     let tls_cert = root_dir.join("dev/certs/server_identity.pem");
     let tls_key = root_dir.join("dev/certs/server_identity.key");
 

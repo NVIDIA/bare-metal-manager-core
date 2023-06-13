@@ -14,7 +14,7 @@ ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
 
 ARG VERSION
 ENV VERSION $VERSION
-ENV CONTAINER_REPO_ROOT=/app/code
+ENV CONTAINER_REPO_ROOT=/carbide
 
 RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
@@ -50,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/pxe/templates && \
   mkdir -p /opt/carbide/static
-COPY --from=builder ["/carbide/target/debug/carbide-api", "/carbide/target/debug/carbide","/carbide/target/debug/carbide-dns", "/carbide/target/debug/forge-admin-cli", "/opt/carbide/"]
+COPY --from=builder ["/carbide/target/release/carbide-api", "/carbide/target/release/carbide","/carbide/target/release/carbide-dns", "/carbide/target/release/forge-admin-cli", "/carbide/target/release/forge-dpu-agent", "/opt/carbide/"]
 COPY --from=builder /carbide/target/debug/libdhcp.so /usr/lib/x86_64-linux-gnu/kea/hooks
 COPY api/migrations/ /opt/carbide/migrations/
 COPY pxe/templates/*  /opt/carbide/pxe/templates/

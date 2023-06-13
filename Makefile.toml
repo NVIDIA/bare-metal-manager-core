@@ -236,11 +236,29 @@ args = ["clippy", "--tests"]
 # https://github.com/sagiegurari/cargo-make/blob/master/src/lib/descriptor/makefiles/rust.toml
 [tasks.pre-workspace-ci-flow]
 script = '''
-cargo build -p agent -p admin
+cargo build --release -p agent -p admin
 '''
 
 [tasks.workspace-ci-flow]
 args = ["--no-default-features"]
+
+# workspace-ci-flow runs this on every crate in our workspace
+[tasks.ci-flow]
+dependencies = [
+  "pre-ci-flow",
+  "print-env-flow",
+  "pre-build",
+  "check-format-ci-flow",
+  "clippy-ci-flow",
+  "build-release",  # this the only change from cargo-make's src/lib/descriptor/makefiles/rust.toml
+  "post-build",
+  "test-flow",
+  "examples-ci-flow",
+  "bench-ci-flow",
+  "outdated-ci-flow",
+  "ci-coverage-flow",
+  "post-ci-flow",
+]
 
 [tasks.clippy-ci-flow]
 condition = { env_set = [ "CARGO_MAKE_RUN_CLIPPY" ] }

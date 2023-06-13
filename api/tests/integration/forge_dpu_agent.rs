@@ -13,12 +13,12 @@
 use std::{path, process};
 
 pub fn run(
-    root_dir: &path::Path,
+    forge_dpu_agent: &path::Path,
     cfg_path: &str,
     hbn_root: &path::Path,
     dpu_machine_id: &str,
 ) -> eyre::Result<()> {
-    let out = process::Command::new(root_dir.join("target/debug/forge-dpu-agent"))
+    let out = process::Command::new(forge_dpu_agent)
         .arg("--config-path")
         .arg(cfg_path)
         .arg("netconf")
