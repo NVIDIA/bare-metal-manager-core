@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 color-eyre = "*"
-libredfish = { version = "0.7.3", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { version = "0.7.4", registry = "sw-ngc-forge-cargo-local" }
 #libredfish = { path = "/home/graham/src/libredfish" }  # for libredfish dev you want this
 prettytable-rs = "^0.10"
 serde = { version = "1", features = ["derive"] }
