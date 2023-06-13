@@ -40,12 +40,7 @@ async fn test_integration() -> eyre::Result<()> {
     };
     let root_dir = path::PathBuf::from(repo_root);
     if !has_prerequisites(&root_dir) {
-        //eyre::bail!("Missing pre-requisites in {}", root_dir.display());
-        // don't break CI
-        tracing::error!(
-            "Skipping carbide-api integration test. Missing pre-requisities. (EASY_GREP)"
-        );
-        return Ok(());
+        eyre::bail!("Missing pre-requisites in {}", root_dir.display());
     }
 
     // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
