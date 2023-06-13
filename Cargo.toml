@@ -1,10 +1,8 @@
 [workspace]
 
-# CI will build and test each package in order.
-# `api` integration tests depend on forge-dpu-agent and forge-admin-cli, so
-# those must before `api` in this list.
 members = [
   "admin",
+  "api",
   "bluefield/agent",
   "dev/bmc-mock",
   "dev/vpc-mock",
@@ -17,7 +15,6 @@ members = [
   "rpc",
   "scout",
   "version",
-  "api",
 ]
 
 [workspace.package]

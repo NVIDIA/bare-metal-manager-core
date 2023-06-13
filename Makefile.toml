@@ -227,6 +227,18 @@ dependencies = ["install-clippy"]
 command = "cargo"
 args = ["clippy", "--tests"]
 
+# CI will build and test each package in order.
+# `api` integration tests depend on forge-dpu-agent and forge-admin-cli, so
+# those must be built before `api`.
+#
+# workspace-ci-flow is in cargo make's repo (it's a default task). It calls this task
+# as part of it's run. See
+# https://github.com/sagiegurari/cargo-make/blob/master/src/lib/descriptor/makefiles/rust.toml
+[tasks.pre-workspace-ci-flow]
+script = '''
+cargo build -p agent -p admin
+'''
+
 [tasks.workspace-ci-flow]
 args = ["--no-default-features"]
 
