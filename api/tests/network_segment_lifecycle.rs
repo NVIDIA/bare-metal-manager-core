@@ -333,8 +333,8 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
         name: "TEST_SEGMENT_2".to_string(),
         prefixes: vec![rpc::forge::NetworkPrefix {
             id: None,
-            prefix: "192.0.2.12/32".to_string(), // is inside 192.0.2.0/24
-            gateway: Some("192.10.8.1".to_string()),
+            prefix: "192.0.2.12/31".to_string(), // is inside 192.0.2.0/24
+            gateway: Some("192.0.2.13".to_string()),
             reserve_first: 1,
             state: None,
             events: vec![],

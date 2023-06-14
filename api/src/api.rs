@@ -81,7 +81,6 @@ use crate::{
         machine::Machine,
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
-        network_prefix::NetworkPrefix,
         network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment},
         resource_record::DnsQuestion,
         tags::{Tag, TagAssociation, TagCreate, TagDelete, TagsList},
@@ -671,24 +670,12 @@ where
     ) -> Result<Response<rpc::NetworkSegment>, Status> {
         log_request_data(&request);
         let request = request.into_inner();
+        let mut new_network_segment = NewNetworkSegment::try_from(request)?;
 
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin create_network_segment", e)
             })?;
-        for prefix in request.prefixes.iter().map(|p| &p.prefix) {
-            if NetworkPrefix::exists(&mut txn, prefix)
-                .await
-                .map_err(CarbideError::from)?
-            {
-                return Err(Status::invalid_argument(format!(
-                    "Prefix overlaps with an existing one: {prefix}"
-                )));
-            }
-        }
-
-        let mut new_network_segment = NewNetworkSegment::try_from(request)?;
-
         if new_network_segment.segment_type != NetworkSegmentType::Underlay {
             new_network_segment.vlan_id = self
                 .allocate_vlan_id(&mut txn, &new_network_segment.name)
@@ -697,12 +684,20 @@ where
                 .allocate_vni(&mut txn, &new_network_segment.name)
                 .await?;
         }
-
-        let network_segment = new_network_segment
-            .persist(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
+        let network_segment = match new_network_segment.persist(&mut txn).await {
+            Ok(segment) => segment,
+            Err(DatabaseError {
+                source: sqlx::Error::Database(e),
+                ..
+            }) if e.constraint() == Some("network_prefixes_prefix_excl") => {
+                return Err(Status::invalid_argument(
+                    "Prefix overlaps with an existing one",
+                ));
+            }
+            Err(err) => {
+                return Err(CarbideError::from(err).into());
+            }
+        };
         let response = Ok(Response::new(network_segment.try_into()?));
         txn.commit().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "commit create_network_segment", e)
