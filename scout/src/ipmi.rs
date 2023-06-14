@@ -19,12 +19,11 @@ use rand::{thread_rng, Rng};
 use regex::Regex;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error};
-use uname::uname;
 
 use ::rpc::forge::{self as rpc, BmcInfo, BmcMetaDataUpdateRequest};
 use ::rpc::forge_tls_client::ForgeClientT;
 use forge_host_support::hardware_enumeration::{
-    CpuArchitecture, HardwareEnumerationError, HardwareEnumerationResult,
+    HardwareEnumerationError, HardwareEnumerationResult,
 };
 
 use crate::CarbideClientError;
@@ -241,11 +240,35 @@ fn fetch_ipmi_users_and_free_ids(
     Ok((free_users, existing_users))
 }
 
-fn create_ipmi_user(id: &str, user: &str) -> HardwareEnumerationResult<()> {
-    let _ = Cmd::new("ipmitool")
-        .args(vec!["user", "set", "name", id, user])
-        .output()
-        .map_err(HardwareEnumerationError::from)?;
+fn create_ipmi_user(id: &str, user: &str, sys_vendor: &str) -> HardwareEnumerationResult<()> {
+    match sys_vendor {
+        "Lenovo" => {
+            let onecli_id: i32 = match id
+                .parse::<i32>()
+                .map(|x| x - 1)
+                .map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?
+            {
+                valid_id if valid_id > 1 => Ok(valid_id),
+                invalid_id => {
+                    Err(HardwareEnumerationError::GenericError(format!(
+                        "The value for the login user {invalid_id} was not greater than 1, which is the root user"
+                    )))
+                }
+            }?;
+
+            let onecli_user_str = format!("IMM.Loginid.{onecli_id}");
+            let _ = Cmd::new("/opt/forge/xclarity/onecli")
+                .args(["config", "set", onecli_user_str.as_str(), user])
+                .output()?;
+        }
+        _other => {
+            let _ = Cmd::new("ipmitool")
+                .args(vec!["user", "set", "name", id, user])
+                .output()
+                .map_err(HardwareEnumerationError::from)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -279,17 +302,40 @@ fn generate_password() -> String {
     password.into_iter().collect()
 }
 
-fn set_ipmi_password(id: &String) -> CarbideClientResult<String> {
+fn set_ipmi_password(id: &String, sys_vendor: &str) -> CarbideClientResult<String> {
     let password = generate_password();
     tracing::info!("Updating password for id {}", id);
-    let _ = Cmd::new("ipmitool")
-        .args(vec!["user", "set", "password", id, &password])
-        .output()?;
+    match sys_vendor {
+        "Lenovo" => {
+            let onecli_id: i32 = match id
+                .parse::<i32>()
+                .map(|x| x - 1)
+                .map_err(|e| CarbideClientError::GenericError(e.to_string()))?
+            {
+                valid_id if valid_id > 1 => Ok(valid_id),
+                invalid_id => {
+                    Err(CarbideClientError::GenericError(format!(
+                        "The value for the login user {invalid_id} was not greater than 1, which is the root user"
+                    )))
+                }
+            }?;
+
+            let onecli_user_str = format!("IMM.Password.{onecli_id}");
+            let _ = Cmd::new("/opt/forge/xclarity/onecli")
+                .args(["config", "set", onecli_user_str.as_str(), password.as_str()])
+                .output()?;
+        }
+        _other => {
+            let _ = Cmd::new("ipmitool")
+                .args(vec!["user", "set", "password", id, &password])
+                .output()?;
+        }
+    }
     tracing::debug!("Updated password {} for id {}", password, id);
     Ok(password)
 }
 
-fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
+fn set_ipmi_props(id: &String, role: IpmitoolRoles, sys_vendor: &str) -> CarbideClientResult<()> {
     tracing::info!("Setting privileges for id {}", id);
     let role = format!("privilege={}", role as u8);
 
@@ -318,22 +364,15 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles) -> CarbideClientResult<()> {
         .output(); // Ignore it as this command might fail in some cards.
 
     // enable redfish access
-    let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
-    let architecture: CpuArchitecture = info.machine.parse()?;
-    if architecture == CpuArchitecture::X86_64 {
-        match std::fs::read_to_string("/sys/class/dmi/id/chassis_vendor")
-            .map_err(|x| CarbideClientError::GenericError(x.to_string()))?
-            .trim()
-        {
-            "Lenovo" => issue_onecli_user_commands(id),
-            "Dell Inc." => issue_racadm_user_commands(id),
-            other => {
-                return Err(CarbideClientError::GenericError(format!(
-                    "The chassis vendor was an unexpected result - {other}"
-                )))
-            }
-        }?;
-    }
+    match sys_vendor {
+        "Lenovo" => issue_onecli_user_commands(id),
+        "Dell Inc." => issue_racadm_user_commands(id),
+        other => {
+            return Err(CarbideClientError::GenericError(format!(
+                "The chassis vendor was an unexpected result - {other}"
+            )))
+        }
+    }?;
 
     Ok(())
 }
@@ -402,6 +441,14 @@ fn set_ipmi_sol(id: &String) -> CarbideClientResult<()> {
 pub fn set_ipmi_creds() -> CarbideClientResult<IpmiUser> {
     let (mut free_users, existing_users) = fetch_ipmi_users_and_free_ids(None)?;
 
+    let ven = match std::fs::read_to_string("/sys/class/dmi/id/chassis_vendor") {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(CarbideClientError::GenericError(e.to_string()));
+        }
+    };
+    let sys_vendor = ven.trim();
+
     // first, we create users, if we need to.
     let forge_admin_user =
         if let Some(existing_user) = existing_users.get(&FORGE_ADMIN_USER_NAME.to_string()) {
@@ -416,7 +463,7 @@ pub fn set_ipmi_creds() -> CarbideClientResult<IpmiUser> {
             // Create user and get id.
             if let Some(free_user) = free_users.pop_front() {
                 tracing::info!("Creating user {}", FORGE_ADMIN_USER_NAME);
-                create_ipmi_user(free_user.id.as_str(), FORGE_ADMIN_USER_NAME)?;
+                create_ipmi_user(free_user.id.as_str(), FORGE_ADMIN_USER_NAME, sys_vendor)?;
                 free_user
             } else {
                 return Err(CarbideClientError::GenericError(format!(
@@ -427,12 +474,16 @@ pub fn set_ipmi_creds() -> CarbideClientResult<IpmiUser> {
         };
 
     // once we have the user, we set the password and privileges.
-    let password = set_ipmi_password(&forge_admin_user.id)?;
+    let password = set_ipmi_password(&forge_admin_user.id, sys_vendor)?;
 
     // The password set sometimes takes a few seconds before the user can be modified
     // This ensures that if a failure occurs during the set, it will be tried again.
     for attempt in 0..3 {
-        match set_ipmi_props(&forge_admin_user.id, IpmitoolRoles::Administrator) {
+        match set_ipmi_props(
+            &forge_admin_user.id,
+            IpmitoolRoles::Administrator,
+            sys_vendor,
+        ) {
             Ok(_) => break,
             Err(x) => {
                 if attempt == 2 {
