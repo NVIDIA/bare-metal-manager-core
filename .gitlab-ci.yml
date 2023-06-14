@@ -257,12 +257,13 @@ prepare-ci-build-push-boot-artifacts-x86_64:
     - cp -r ${CI_PROJECT_DIR}/kaniko/.docker /kaniko
   script: |
     set -xeuo pipefail
-    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile ${DOCKER_FILE} $IMAGE_LABELS --destination $DOCKER_IMAGE:$VERSION --destination $STAGING_DOCKER_IMAGE:$VERSION
 
 build-push-boot-artifacts-container-aarch64:
   extends: .build-push-boot-artifacts-container
   variables:
     DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/boot-artifacts-aarch64
+    STAGING_DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-aarch64
   needs:
     - prepare-ci-build-push-boot-artifacts-aarch64
     - build-boot-artifacts-aarch64
@@ -276,6 +277,7 @@ build-push-boot-artifacts-container-x86_64:
   extends: .build-push-boot-artifacts-container
   variables:
     DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/boot-artifacts-x86_64
+    STAGING_DOCKER_IMAGE: stg.nvcr.io/nvidia/nvforge/boot-artifacts-x86_64
   tags:
     - x86_64
   needs:
