@@ -12,14 +12,19 @@
 
 use serde::{Deserialize, Serialize};
 
+pub const IB_DEFAULT_MTU: i32 = 2048;
+pub const IB_MTU_ENV: &str = "IB_DEFAULT_MTU";
+pub const IB_DEFAULT_RATE_LIMIT: i32 = 100;
+pub const IB_RATE_LIMIT_ENV: &str = "IB_DEFAULT_RATE_LIMIT";
+pub const IB_DEFAULT_SERVICE_LEVEL: i32 = 0;
+pub const IB_SERVICE_LEVEL_ENV: &str = "IB_DEFAULT_SERVICE_LEVEL";
+
 /// State of a IB subnet as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum IBSubnetControllerState {
-    /// The IB subnet is created in Carbide, waiting for initialization in IB Service.
-    Initializing,
-    /// The IB subnet is initialized in IB Service.
-    Initialized,
+    /// The IB subnet is created in Carbide, waiting for provisioning in IB Fabric.
+    Provisioning,
     /// The IB subnet is ready for IB ports.
     Ready,
     /// There is error in IB subnet; IB ports can not be added into IB subnet if it's error.
@@ -34,16 +39,9 @@ mod tests {
 
     #[test]
     fn serialize_controller_state() {
-        let state = IBSubnetControllerState::Initializing {};
+        let state = IBSubnetControllerState::Provisioning {};
         let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"initializing\"}");
-        assert_eq!(
-            serde_json::from_str::<IBSubnetControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = IBSubnetControllerState::Initialized {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"initialized\"}");
+        assert_eq!(serialized, "{\"state\":\"provisioning\"}");
         assert_eq!(
             serde_json::from_str::<IBSubnetControllerState>(&serialized).unwrap(),
             state

@@ -10,19 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::{Postgres, Transaction};
-
 use crate::{
-    db::ib_subnet::IBSubnet,
+    db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetStatus},
+    ib::types::IBNetwork,
     model::ib_subnet::IBSubnetControllerState,
-    resource_pool::OwnerType,
     state_controller::state_handler::{
         ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
     },
     CarbideError,
 };
-
-use crate::ib;
 
 /// The actual IBSubnet State handler
 #[derive(Debug)]
@@ -31,34 +27,6 @@ pub struct IBSubnetStateHandler {}
 impl IBSubnetStateHandler {
     pub fn new(_drain_period: chrono::Duration) -> Self {
         Self {}
-    }
-}
-
-impl IBSubnetStateHandler {
-    /// Allocate a value from the pkey resource pool.
-    ///
-    /// If the pool doesn't exist return error.
-    /// If the pool exists but is empty or has en error, return that.
-    async fn allocate_pkey(
-        txn: &mut Transaction<'_, Postgres>,
-        ctx: &mut StateHandlerContext<'_>,
-        owner_id: &str,
-    ) -> Result<i16, StateHandlerError> {
-        let pool =
-            ctx.services
-                .pool_pkey
-                .as_ref()
-                .ok_or_else(|| StateHandlerError::MissingData {
-                    object_id: owner_id.to_string(),
-                    missing: "pool pkey",
-                })?;
-
-        match pool.allocate(txn, OwnerType::IBSubnet, owner_id).await {
-            Ok(val) => Ok(val),
-            Err(_) => Err(StateHandlerError::PoolAllocateError {
-                owner_id: owner_id.to_string(),
-            }),
-        }
     }
 }
 
@@ -78,81 +46,109 @@ impl StateHandler for IBSubnetStateHandler {
     ) -> Result<(), StateHandlerError> {
         let read_state: &IBSubnetControllerState = &*controller_state;
         match read_state {
-            IBSubnetControllerState::Initializing => {
-                let (mtu, rate_limit, service_level) = match &state.status {
-                    None => (2048, 100.0, 0),
-                    Some(status) => (status.mtu, status.rate_limit as f64, status.service_level),
-                };
-
-                let pkey =
-                    IBSubnetStateHandler::allocate_pkey(txn, ctx, &state.config.name).await?;
-
-                let ib = ib::types::IBNetwork {
-                    name: state.config.name.clone(),
-                    pkey: Some(pkey as i32),
-                    mtu,
-                    enable_sharp: false,
-                    ipoib: false,
-                    rate_limit,
-                    service_level,
-                    state: None,
-                };
-                let _res = ctx
-                    .services
-                    .ib_fabric_manager
-                    .create_ib_network(ib)
-                    .await
-                    .map_err(|_| {
-                        StateHandlerError::IBFabricError("create_ib_network".to_string())
-                    })?;
-
-                *controller_state.modify() = IBSubnetControllerState::Initialized;
+            IBSubnetControllerState::Provisioning => {
+                // TODO(k82cn): get IB network from IB Fabric Manager to avoid duplication.
+                *controller_state.modify() = IBSubnetControllerState::Ready;
             }
 
             IBSubnetControllerState::Deleting => {
-                let res = ctx
-                    .services
-                    .ib_fabric_manager
-                    .delete_ib_network(&state.config.name)
-                    .await;
-                if let Err(e) = res {
-                    match e {
-                        // The IBSubnet maybe deleted during controller cycle.
-                        CarbideError::NotFoundError { .. } => {
-                            IBSubnet::force_delete(*subnet_id, txn).await?;
-                        }
-                        _ => {
-                            return Err(StateHandlerError::IBFabricError(
-                                "delete_ib_network".to_string(),
-                            ))
+                match state.config.pkey {
+                    None => {
+                        tracing::error!("The pkey is None when deleting an IBSubnet.");
+                        *controller_state.modify() = IBSubnetControllerState::Error;
+                    }
+                    Some(pkey) => {
+                        // When ib_subnet is deleteing, it should waiting for all instances are
+                        // released. As releasing instance will also remove ib_port from ib_network,
+                        // and the ib_network will be removed when no ports in it.
+                        let res = ctx
+                            .services
+                            .ib_fabric_manager
+                            .get_ib_network(pkey.to_string().as_ref())
+                            .await;
+                        if let Err(e) = res {
+                            match e {
+                                // The IBSubnet maybe deleted during controller cycle.
+                                CarbideError::NotFoundError { .. } => {
+                                    IBSubnet::force_delete(*subnet_id, txn).await?;
+                                    // Release pkey after ib_subnet deleted.
+                                    if let Some(pool_pkey) = ctx.services.pool_pkey.as_ref() {
+                                        pool_pkey.release(txn, pkey).await?;
+                                    }
+                                }
+                                _ => {
+                                    return Err(StateHandlerError::IBFabricError(
+                                        "get_ib_network".to_string(),
+                                    ))
+                                }
+                            }
                         }
                     }
                 }
             }
-            _ => {
-                let res = ctx
-                    .services
-                    .ib_fabric_manager
-                    .get_ib_network(&state.config.name)
-                    .await
-                    .map_err(|e| {
-                        StateHandlerError::IBFabricError(format!(
-                            "get_ib_network by name {}: {}",
-                            &state.config.name, e
-                        ))
-                    })?;
 
-                match res.state {
-                    Some(s) => *controller_state.modify() = s,
-                    None => *controller_state.modify() = IBSubnetControllerState::Error,
+            IBSubnetControllerState::Ready => match state.config.pkey {
+                None => {
+                    tracing::error!("The pkey is None when IBSubnet is ready.");
+                    *controller_state.modify() = IBSubnetControllerState::Error;
                 }
+                Some(pkey) => {
+                    if state.is_marked_as_deleted() {
+                        *controller_state.modify() = IBSubnetControllerState::Deleting;
+                    } else {
+                        let pkey = pkey.to_string();
+                        let ibnetwork = ctx
+                            .services
+                            .ib_fabric_manager
+                            .get_ib_network(&pkey)
+                            .await
+                            .map_err(|_| {
+                                StateHandlerError::IBFabricError("get_ib_network".to_string())
+                            })?;
 
-                if state.is_marked_as_deleted() {
+                        // If found the IBNetwork, update the status accordingly. And check
+                        // it whether align with the config; if mismatched, return error.
+                        // The mismatched status is still there in DB for debug.
+                        state.status = Some(IBSubnetStatus::from(&ibnetwork));
+                        state.update(txn).await?;
+
+                        if !is_valid_status(&state.config, &ibnetwork) {
+                            *controller_state.modify() = IBSubnetControllerState::Error;
+                            return Err(StateHandlerError::IBFabricError(
+                                "invalid status".to_string(),
+                            ));
+                        }
+                    }
+                }
+            },
+
+            IBSubnetControllerState::Error => {
+                // If pkey is none, keep it in error state.
+                if state.config.pkey.is_some() && state.is_marked_as_deleted() {
                     *controller_state.modify() = IBSubnetControllerState::Deleting;
                 }
             }
         }
 
         Ok(())
+    }
+}
+
+fn is_valid_status(c: &IBSubnetConfig, r: &IBNetwork) -> bool {
+    c.mtu == r.mtu as i32
+        // NOTE: The rate_limit is defined as 'f64' for lagency device, e.g. 2.5G; so it's ok to
+        // convert to i32 for new devices.
+        && c.rate_limit == r.rate_limit as i32
+        && c.service_level == r.service_level as i32
+}
+
+impl From<&IBNetwork> for IBSubnetStatus {
+    fn from(ib: &IBNetwork) -> IBSubnetStatus {
+        Self {
+            partition: ib.name.clone(),
+            mtu: ib.mtu as i32,
+            rate_limit: ib.rate_limit as i32,
+            service_level: ib.service_level as i32,
+        }
     }
 }

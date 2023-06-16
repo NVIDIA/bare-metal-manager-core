@@ -26,7 +26,6 @@ use carbide::{
     },
     reachability::TestPingReachabilityChecker,
     redfish::RedfishSim,
-    resource_pool::DbResourcePool,
     state_controller::{
         controller::{ReachabilityParams, StateControllerIO},
         ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
@@ -72,7 +71,6 @@ pub struct TestEnv {
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
     pub ib_fabric_manager: Arc<dyn ib::IBFabricManager>,
-    pub pool_pkey: Arc<DbResourcePool<i16>>,
     pub machine_state_controller_io: MachineStateControllerIO,
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
     pub reachability_params: ReachabilityParams,
@@ -90,6 +88,7 @@ impl TestEnv {
             self.redfish_sim.clone(),
             None,
             EthVirtData::default(),
+            ib::pool::enable(),
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
         ));
@@ -104,7 +103,7 @@ impl TestEnv {
             reachability_params: self.reachability_params.clone(),
             pool_vlan_id: None,
             pool_vni: None,
-            pool_pkey: Some(self.pool_pkey.clone()),
+            pool_pkey: None,
         }
     }
 
@@ -275,6 +274,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         redfish_sim.clone(),
         None,
         eth_virt,
+        ib_data.clone(),
         "not a real pemfile path".to_string(),
         "not a real keyfile path".to_string(),
     );
@@ -284,7 +284,6 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         pool: db_pool,
         redfish_sim,
         ib_fabric_manager,
-        pool_pkey: ib_data.pool_pkey.clone(),
         machine_state_controller_io: MachineStateControllerIO::default(),
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
         reachability_params: ReachabilityParams {

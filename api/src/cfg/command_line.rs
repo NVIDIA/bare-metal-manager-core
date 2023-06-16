@@ -30,7 +30,7 @@ pub enum Command {
     Migrate(Migrate),
 
     #[clap(about = "Run the API service")]
-    Run(Daemon),
+    Run(Box<Daemon>),
 }
 
 #[derive(Parser)]
@@ -57,6 +57,10 @@ pub struct Daemon {
     /// A connection string for the utilized IBFabricManager
     #[clap(long, require_equals(true), env = "IBFABRIC_MANAGER_URL")]
     pub ib_fabric_manager: Option<String>,
+
+    /// The token for IBFabricManager authentication.
+    #[clap(long, require_equals(true), env = "IBFABRIC_MANAGER_TOKEN")]
+    pub ib_fabric_manager_token: Option<String>,
 
     /// Enable older VPC which runs as a kubernetes CRD
     #[clap(short, long)]
