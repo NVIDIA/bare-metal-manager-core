@@ -75,16 +75,7 @@ async fn test_ib_subnet_lifecycle_impl(
     env.run_ib_subnet_controller_iteration(segment_id, &state_handler)
         .await;
 
-    // After 1 controller iteration, the ibsubnet should be Provisioning (Initialized).
-    assert_eq!(
-        get_segment_state(&env.api, segment_id).await,
-        TenantState::Provisioning,
-    );
-
-    env.run_ib_subnet_controller_iteration(segment_id, &state_handler)
-        .await;
-
-    // After 2 controller iterations, the segment should be ready
+    // After 1 controller iterations, the segment should be ready
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
         TenantState::Ready
@@ -102,12 +93,8 @@ async fn test_ib_subnet_lifecycle_impl(
         get_segment_state(&env.api, segment_id).await,
         TenantState::Terminating
     );
-    // Make the controller aware about termination too
-    env.run_ib_subnet_controller_iteration(segment_id, &state_handler)
-        .await;
 
-    // Wait for the drain period
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    // Make the controller aware about termination too
     env.run_ib_subnet_controller_iteration(segment_id, &state_handler)
         .await;
     env.run_ib_subnet_controller_iteration(segment_id, &state_handler)

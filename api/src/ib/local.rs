@@ -17,7 +17,6 @@ use async_trait::async_trait;
 
 use crate::ib::types::{IBNetwork, IBPort, IBPortState};
 use crate::ib::IBFabricManager;
-use crate::model::ib_subnet::IBSubnetControllerState;
 use crate::CarbideError;
 
 pub struct LocalIBFabricManager {
@@ -27,30 +26,6 @@ pub struct LocalIBFabricManager {
 
 #[async_trait]
 impl IBFabricManager for LocalIBFabricManager {
-    /// Create IBNetwork
-    async fn create_ib_network(&self, ib: IBNetwork) -> Result<(), CarbideError> {
-        let mut ibsubnets = self
-            .ibsubnets
-            .lock()
-            .map_err(|_| CarbideError::IBFabricError("create_ib_network mutex lock".to_string()))?;
-
-        if ibsubnets.contains_key(&ib.name) {
-            return Err(CarbideError::IBFabricError(
-                "duplicated ib subnet".to_string(),
-            ));
-        }
-
-        ibsubnets.insert(
-            ib.name.clone(),
-            IBNetwork {
-                state: Some(IBSubnetControllerState::Ready),
-                ..ib
-            },
-        );
-
-        Ok(())
-    }
-
     /// Delete IBNetwork
     async fn delete_ib_network(&self, id: &str) -> Result<(), CarbideError> {
         let mut ibsubnets = self
@@ -102,43 +77,43 @@ impl IBFabricManager for LocalIBFabricManager {
     }
 
     /// Create IBPort
-    async fn create_ib_port(&self, port: IBPort) -> Result<(), CarbideError> {
-        let mut ibports = self
-            .ibports
-            .lock()
-            .map_err(|_| CarbideError::IBFabricError("create_ib_port mutex lock".to_string()))?;
+    async fn bind_ib_ports(&self, ib: IBNetwork, ports: Vec<IBPort>) -> Result<(), CarbideError> {
+        {
+            let mut ibports = self.ibports.lock().map_err(|_| {
+                CarbideError::IBFabricError("create_ib_port mutex lock".to_string())
+            })?;
 
-        if ibports.contains_key(&port.guid) {
-            return Err(CarbideError::IBFabricError(
-                "duplicated ib port".to_string(),
-            ));
+            for port in ports {
+                if ibports.contains_key(&port.guid) {
+                    return Err(CarbideError::IBFabricError(
+                        "duplicated ib port".to_string(),
+                    ));
+                }
+
+                ibports.insert(
+                    port.guid.clone(),
+                    IBPort {
+                        state: Some(IBPortState::Active),
+                        ..port.clone()
+                    },
+                );
+            }
         }
+        {
+            let mut ibsubnets = self.ibsubnets.lock().map_err(|_| {
+                CarbideError::IBFabricError("delete_ib_network mutex lock".to_string())
+            })?;
 
-        ibports.insert(
-            port.guid.clone(),
-            IBPort {
-                state: Some(IBPortState::Active),
-                ..port
-            },
-        );
+            if ibsubnets.contains_key(&ib.name) {
+                return Err(CarbideError::IBFabricError(
+                    "duplicated ib subnet".to_string(),
+                ));
+            }
+
+            ibsubnets.insert(ib.name.clone(), ib);
+        }
 
         Ok(())
-    }
-
-    /// Get IBPort
-    async fn get_ib_port(&self, id: &str) -> Result<IBPort, CarbideError> {
-        let ibports = self
-            .ibports
-            .lock()
-            .map_err(|_| CarbideError::IBFabricError("get_ib_port mutex lock".to_string()))?;
-
-        match ibports.get(id) {
-            None => Err(CarbideError::NotFoundError {
-                kind: "",
-                id: id.to_string(),
-            }),
-            Some(ib) => Ok(ib.clone()),
-        }
     }
 
     /// Find IBPort
@@ -157,20 +132,22 @@ impl IBFabricManager for LocalIBFabricManager {
     }
 
     /// Delete IBPort
-    async fn delete_ib_port(&self, id: &str) -> Result<(), CarbideError> {
+    async fn unbind_ib_ports(&self, _pkey: i32, ids: Vec<String>) -> Result<(), CarbideError> {
         let mut ibports = self
             .ibports
             .lock()
             .map_err(|_| CarbideError::IBFabricError("delete_ib_port mutex lock".to_string()))?;
 
-        if !ibports.contains_key(id) {
-            return Err(CarbideError::NotFoundError {
-                kind: "",
-                id: id.to_string(),
-            });
-        }
+        for id in &ids {
+            if !ibports.contains_key(id) {
+                return Err(CarbideError::NotFoundError {
+                    kind: "",
+                    id: id.to_string(),
+                });
+            }
 
-        ibports.remove(id);
+            ibports.remove(id);
+        }
 
         Ok(())
     }

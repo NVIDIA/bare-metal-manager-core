@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::env;
+
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use futures::StreamExt;
@@ -23,7 +25,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     db::{DatabaseError, UuidKeyedObjectFilter},
     model::config_version::{ConfigVersion, Versioned},
-    model::ib_subnet::IBSubnetControllerState,
+    model::ib_subnet::{
+        IBSubnetControllerState, IB_DEFAULT_MTU, IB_DEFAULT_RATE_LIMIT, IB_DEFAULT_SERVICE_LEVEL,
+        IB_MTU_ENV, IB_RATE_LIMIT_ENV, IB_SERVICE_LEVEL_ENV,
+    },
     CarbideError, CarbideResult,
 };
 
@@ -52,12 +57,15 @@ pub struct IBSubnetSearchConfig {
 #[derive(Debug, Clone)]
 pub struct IBSubnetConfig {
     pub name: String,
+    pub pkey: Option<i16>,
     pub vpc_id: Uuid,
+    pub mtu: i32,
+    pub rate_limit: i32,
+    pub service_level: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IBSubnetStatus {
-    pub pkey: i32,
     pub partition: String,
     pub mtu: i32,
     pub rate_limit: i32,
@@ -103,7 +111,11 @@ impl<'r> FromRow<'r, PgRow> for IBSubnet {
             version,
             config: IBSubnetConfig {
                 name: row.try_get("name")?,
+                pkey: Some(row.try_get("pkey")?),
                 vpc_id: row.try_get("vpc_id")?,
+                mtu: row.try_get("mtu")?,
+                rate_limit: row.try_get("rate_limit")?,
+                service_level: row.try_get("service_level")?,
             },
             status,
 
@@ -141,8 +153,19 @@ impl TryFrom<rpc::IbSubnetCreationRequest> for IBSubnetConfig {
 
         Ok(IBSubnetConfig {
             name: conf.name,
+            pkey: None,
             vpc_id,
+            mtu: get_env(IB_MTU_ENV, IB_DEFAULT_MTU),
+            rate_limit: get_env(IB_RATE_LIMIT_ENV, IB_DEFAULT_RATE_LIMIT),
+            service_level: get_env(IB_SERVICE_LEVEL_ENV, IB_DEFAULT_SERVICE_LEVEL),
         })
+    }
+}
+
+fn get_env<T: std::str::FromStr>(name: &str, default: T) -> T {
+    match env::var(name) {
+        Ok(v) => v.parse::<T>().unwrap_or(default),
+        Err(_) => default,
     }
 }
 
@@ -158,9 +181,7 @@ impl TryFrom<IBSubnet> for rpc::IbSubnet {
         });
 
         let mut state = match &src.controller_state.value {
-            IBSubnetControllerState::Initializing | IBSubnetControllerState::Initialized => {
-                rpc::TenantState::Provisioning
-            }
+            IBSubnetControllerState::Provisioning => rpc::TenantState::Provisioning,
             IBSubnetControllerState::Ready => rpc::TenantState::Ready,
             IBSubnetControllerState::Error => rpc::TenantState::Failed,
             IBSubnetControllerState::Deleting => rpc::TenantState::Terminating,
@@ -172,22 +193,21 @@ impl TryFrom<IBSubnet> for rpc::IbSubnet {
             state = rpc::TenantState::Terminating;
         }
 
-        let (partition, pkey, rate_limit, mtu, service_level) = match src.status {
+        let (partition, rate_limit, mtu, service_level) = match src.status {
             Some(s) => (
                 Some(s.partition),
-                Some(s.pkey.to_string()),
                 Some(s.rate_limit),
                 Some(s.mtu),
                 Some(s.service_level),
             ),
-            None => (None, None, None, None, None),
+            None => (None, None, None, None),
         };
 
         let status = Some(rpc::IbSubnetStatus {
             state: state as i32,
             enable_sharp: Some(false),
             partition,
-            pkey,
+            pkey: src.config.pkey.map(|k| k.to_string()),
             rate_limit,
             mtu,
             service_level,
@@ -213,19 +233,27 @@ impl IBSubnet {
     ) -> Result<IBSubnet, DatabaseError> {
         let version = ConfigVersion::initial();
         let version_string = version.version_string();
-        let state = IBSubnetControllerState::Initializing;
+        let state = IBSubnetControllerState::Provisioning;
 
         let query = "INSERT INTO ib_subnets (
                 name,
+                pkey,
                 vpc_id,
+                mtu,
+                rate_limit,
+                service_level,
                 config_version,
                 controller_state_version,
                 controller_state)
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *";
         let segment: IBSubnet = sqlx::query_as(query)
             .bind(&conf.name)
+            .bind(conf.pkey)
             .bind(conf.vpc_id)
+            .bind(conf.mtu)
+            .bind(conf.rate_limit)
+            .bind(conf.service_level)
             .bind(&version_string)
             .bind(&version_string)
             .bind(sqlx::types::Json(state))

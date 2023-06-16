@@ -133,6 +133,7 @@ pub struct Api<C: CredentialProvider> {
     redfish_pool: Arc<dyn RedfishClientPool>,
     vpc_api: Option<Arc<dyn VpcApi>>,
     eth_data: ethernet_virtualization::EthVirtData,
+    ib_data: ib::pool::IBData,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
 }
@@ -518,7 +519,8 @@ where
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_ib_subnet", e))?;
 
-        let resp = IBSubnetConfig::try_from(req.into_inner())?;
+        let mut resp = IBSubnetConfig::try_from(req.into_inner())?;
+        resp.pkey = self.allocate_pkey(&mut txn, &resp.name).await?;
         let resp = IBSubnet::create(&mut txn, &resp)
             .await
             .map_err(CarbideError::from)?;
@@ -3304,6 +3306,7 @@ where
         redfish_pool: Arc<dyn RedfishClientPool>,
         vpc_api: Option<Arc<dyn VpcApi>>,
         eth_data: ethernet_virtualization::EthVirtData,
+        ib_data: ib::pool::IBData,
         identity_pemfile_path: String,
         identity_keyfile_path: String,
     ) -> Self {
@@ -3314,6 +3317,7 @@ where
             redfish_pool,
             vpc_api,
             eth_data,
+            ib_data,
             identity_pemfile_path,
             identity_keyfile_path,
         }
@@ -3365,8 +3369,11 @@ where
 
         let ib_fabric_manager: Arc<dyn IBFabricManager> =
             if let Some(fabric_manager) = daemon_config.ib_fabric_manager.as_ref() {
-                // TODO(k82cn): connect to IBFabricManager.
-                ib::connect(fabric_manager)
+                let token = daemon_config
+                    .ib_fabric_manager_token
+                    .as_ref()
+                    .ok_or(Status::invalid_argument("ib fabric manager token is empty"))?;
+                ib::connect(fabric_manager, token).await?
             } else {
                 ib::local_ib_fabric_manager()
             };
@@ -3400,6 +3407,9 @@ where
 
         let sc_pool_vlan_id = eth_data.pool_vlan_id.clone();
         let sc_pool_vni = eth_data.pool_vni.clone();
+
+        let ib_data = ib::pool::enable();
+
         let api_service = Arc::new(Self::new(
             credential_provider.clone(),
             database_connection.clone(),
@@ -3407,6 +3417,7 @@ where
             shared_redfish_pool.clone(),
             vpc_api.clone(),
             eth_data,
+            ib_data.clone(),
             daemon_config.identity_pemfile_path.clone(),
             daemon_config.identity_keyfile_path.clone(),
         ));
@@ -3455,7 +3466,6 @@ where
             .build()
             .expect("Unable to build NetworkSegmentController");
 
-        let ib_data = ib::pool::enable();
         let _ibsubnet_controller_handle = StateController::<IBSubnetStateControllerIO>::builder()
             .database(database_connection.clone())
             .redfish_client_pool(shared_redfish_pool.clone())
@@ -3603,6 +3613,36 @@ where
             }
             Err(err) => {
                 let msg = format!("Err allocating from vlan_id for {owner_id}: {err}");
+                tracing::error!("{}", &msg);
+                Err(Status::internal(&msg))
+            }
+        }
+    }
+
+    /// Allocate a value from the pkey resource pool.
+    ///
+    /// If the pool doesn't exist return error.
+    /// If the pool exists but is empty or has en error, return that.
+    async fn allocate_pkey(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        owner_id: &str,
+    ) -> Result<Option<i16>, Status> {
+        match self
+            .ib_data
+            .pool_pkey
+            .as_ref()
+            .allocate(txn, resource_pool::OwnerType::IBSubnet, owner_id)
+            .await
+        {
+            Ok(val) => Ok(Some(val)),
+            Err(resource_pool::ResourcePoolError::Empty) => {
+                let msg = format!("Pool pkey exhausted, cannot allocate for {owner_id}");
+                tracing::error!("{}", &msg);
+                Err(Status::resource_exhausted(&msg))
+            }
+            Err(err) => {
+                let msg = format!("Err allocating from pkey for {owner_id}: {err}");
                 tracing::error!("{}", &msg);
                 Err(Status::internal(&msg))
             }

@@ -92,8 +92,7 @@ impl StateControllerIO for IBSubnetStateControllerIO {
 
     fn metric_state_names(state: &IBSubnetControllerState) -> (&'static str, &'static str) {
         match state {
-            IBSubnetControllerState::Initializing => ("initializing", ""),
-            IBSubnetControllerState::Initialized => ("initialized", ""),
+            IBSubnetControllerState::Provisioning => ("provisioning", ""),
             IBSubnetControllerState::Ready => ("ready", ""),
             IBSubnetControllerState::Error => ("error", ""),
             IBSubnetControllerState::Deleting => ("deleting", ""),

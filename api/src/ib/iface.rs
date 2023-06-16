@@ -17,9 +17,6 @@ use crate::CarbideError;
 
 #[async_trait]
 pub trait IBFabricManager: Send + Sync {
-    /// Create IBNetwork
-    async fn create_ib_network(&self, ib: IBNetwork) -> Result<(), CarbideError>;
-
     /// Delete IBNetwork
     async fn delete_ib_network(&self, id: &str) -> Result<(), CarbideError>;
 
@@ -30,14 +27,15 @@ pub trait IBFabricManager: Send + Sync {
     async fn find_ib_network(&self) -> Result<Vec<IBNetwork>, CarbideError>;
 
     /// Create IBPort
-    async fn create_ib_port(&self, port: IBPort) -> Result<(), CarbideError>;
+    async fn bind_ib_ports(
+        &self,
+        ibnetwork: IBNetwork,
+        ports: Vec<IBPort>,
+    ) -> Result<(), CarbideError>;
 
-    /// Get IBPort
-    async fn get_ib_port(&self, id: &str) -> Result<IBPort, CarbideError>;
+    /// Delete IBPort
+    async fn unbind_ib_ports(&self, pkey: i32, id: Vec<String>) -> Result<(), CarbideError>;
 
     /// Find IBPort
     async fn find_ib_port(&self) -> Result<Vec<IBPort>, CarbideError>;
-
-    /// Delete IBPort
-    async fn delete_ib_port(&self, id: &str) -> Result<(), CarbideError>;
 }
