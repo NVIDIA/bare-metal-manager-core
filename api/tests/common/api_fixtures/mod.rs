@@ -24,7 +24,6 @@ use carbide::{
         machine_id::{try_parse_machine_id, MachineId},
         ManagedHostState,
     },
-    reachability::TestPingReachabilityChecker,
     redfish::RedfishSim,
     state_controller::{
         controller::{ReachabilityParams, StateControllerIO},
@@ -287,7 +286,6 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         machine_state_controller_io: MachineStateControllerIO::default(),
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
         reachability_params: ReachabilityParams {
-            checker: Arc::new(TestPingReachabilityChecker::default()),
             dpu_wait_time: Duration::seconds(0),
         },
         ib_subnet_state_controller_io: IBSubnetStateControllerIO::default(),
@@ -469,7 +467,6 @@ pub async fn network_configured(
     )
 }
 
-/// Emulates the `DiscoveryCompleted` request of a DPU/Host
 pub async fn forge_agent_control(
     env: &TestEnv,
     machine_id: rpc::forge::MachineId,

@@ -429,17 +429,15 @@ impl StateHandler for HostMachineStateHandler {
                             }
                         }
                         LockdownState::WaitForDPUUp => {
-                            let checker = ctx.services.reachability_params.checker.build(
-                                state.dpu_ssh_ip_address.ip(),
-                                crate::reachability::ExpectedState::Alive,
-                            );
-
-                            // Wait until DPU is reachable (ping test)
-                            if checker
-                                .check_condition()
-                                .await
-                                .map_err(|e| StateHandlerError::GenericError(e.into()))?
-                            {
+                            // Has forge-dpu-agent reported state? That means DPU is up.
+                            let observation_time = state
+                                .dpu_snapshot
+                                .network_status_observation
+                                .as_ref()
+                                .map(|o| o.observed_at)
+                                .unwrap_or(DateTime::<Utc>::MIN_UTC);
+                            let state_change_time = state.host_snapshot.current.version.timestamp();
+                            if observation_time >= state_change_time {
                                 // reboot host
                                 // When forge changes BIOS params (for lockdown enable/disable both), host does a power cycle.
                                 // During power cycle, DPU also reboots. Now DPU and Host are coming up together. Since DPU is not ready yet,

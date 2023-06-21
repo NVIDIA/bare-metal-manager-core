@@ -26,11 +26,15 @@ DISCOVERY_MODE=$4
 
 # Relies on the assumption that the DPU is the only entry
 DPU_INFO=$(grpcurl -d "{\"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines)
+DPU_MACHINE_ID=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].machineId.id")
 DPU_INTERFACE_ID=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].id.value")
 DPU_INTERFACE_ADDR=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].address[0]")
 DPU_INTERFACE_ADDR=${DPU_INTERFACE_ADDR%/*}
+echo "DPU INFO: ${DPU_MACHINE_ID} ${DPU_INTERFACE_ID} ${DPU_INTERFACE_ADDR}"
 
-echo "DPU INFO: ${DPU_INTERFACE_ID} ${DPU_INTERFACE_ADDR}"
+HBN_ROOT=$(cat /tmp/hbn_root)
+DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"
+
 # Determine the CircuitId that our host needs to use
 # We use the first network segment that we can find
 RESULT=$(grpcurl -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindNetworkSegments)
@@ -73,11 +77,26 @@ echo "Lockdown wait is over."
 echo "Updating machine interface address for machine interface ${DPU_INTERFACE_ID} to 127.0.0.2"
 ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='127.0.0.2' where interface_id='${DPU_INTERFACE_ID}';"
 
-# Pretend to be the DPU so ReachabilityChecker can ping us
-#
-# If this steps aborts with "RTNETLINK answers: File exists" then the 'del' (see below) didn't run last time. Run it manually:
-#  sudo ip addr del 172.20.0.100/32 dev lo
-sudo ip addr add ${DPU_INTERFACE_ADDR}/32 dev lo
+# Wait past the enforced delay until we look for DPU to have rebooted
+i=0
+MACHINE_STATE=""
+while [[ $i -lt $MAX_RETRY ]]; do
+  sleep 4
+
+  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  if [[ "$MACHINE_STATE" == *WaitForDPUUp* ]]; then
+	  break
+  fi
+  echo "Checking machine state. Waiting for it to be in WaitForDPUUp state. Current: $MACHINE_STATE"
+  i=$((i+1))
+done
+if [[ $i -ge "$MAX_RETRY" ]]; then
+  echo "Even after $MAX_RETRY retries, Host did not come in WaitForDPUUp state."
+  exit 1
+fi
+
+# Run forge-dpu-agent to report an observation, which shows that DPU has now rebooted
+cd ${REPO_ROOT} && cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
 
 # Wait until host reaches discovered state.
 i=0
@@ -92,9 +111,6 @@ done
 
 echo "Database: Updating machine interface address for machine interface ${DPU_INTERFACE_ID} to ${DPU_INTERFACE_ADDR}"
 ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='${DPU_INTERFACE_ADDR}' where interface_id='${DPU_INTERFACE_ID}';"
-
-# Stop pretending to be the DPU
-sudo ip addr del ${DPU_INTERFACE_ADDR}/32 dev lo
 
 if [[ $i -ge "$MAX_RETRY" ]]; then
   echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."

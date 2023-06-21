@@ -107,6 +107,8 @@ pub async fn host_discover_machine(
 ///
 /// Returns the ID of the created machine
 pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> rpc::MachineId {
+    use carbide::model::machine::{LockdownInfo, LockdownMode, LockdownState, MachineState};
+
     let machine_interface_id =
         host_discover_dhcp(env, FIXTURE_HOST_MAC_ADDRESS, dpu_machine_id).await;
 
@@ -122,7 +124,7 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
         2,
         &mut txn,
         ManagedHostState::HostNotReady {
-            machine_state: carbide::model::machine::MachineState::WaitingForDiscovery,
+            machine_state: MachineState::WaitingForDiscovery,
         },
     )
     .await;
@@ -151,7 +153,29 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
         3,
         &mut txn,
         ManagedHostState::HostNotReady {
-            machine_state: carbide::model::machine::MachineState::Discovered,
+            machine_state: MachineState::WaitingForLockdown {
+                lockdown_info: LockdownInfo {
+                    state: LockdownState::WaitForDPUUp,
+                    mode: LockdownMode::Enable,
+                },
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // We use forge_dpu_agent's health reporting as a signal that
+    // DPU has rebooted.
+    super::network_configured(env, dpu_machine_id).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        &handler,
+        3,
+        &mut txn,
+        ManagedHostState::HostNotReady {
+            machine_state: MachineState::Discovered,
         },
     )
     .await;
