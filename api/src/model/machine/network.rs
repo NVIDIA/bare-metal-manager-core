@@ -11,7 +11,7 @@ use crate::model::{config_version::ConfigVersion, RpcDataConversionError};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MachineNetworkStatusObservation {
     machine_id: String,
-    observed_at: DateTime<Utc>,
+    pub observed_at: DateTime<Utc>,
     health_status: HealthStatus,
     pub network_config_version: Option<ConfigVersion>,
 }

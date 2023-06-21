@@ -62,7 +62,6 @@ use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::ManagedHostState;
 use crate::model::RpcDataConversionError;
-use crate::reachability::PingReachabilityChecker;
 use crate::resource_pool;
 use crate::state_controller::controller::ReachabilityParams;
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
@@ -3435,7 +3434,6 @@ where
                 .iteration_time(service_config.machine_state_controller_iteration_time)
                 .state_handler(Arc::new(MachineStateHandler::default()))
                 .reachability_params(ReachabilityParams {
-                    checker: Arc::new(PingReachabilityChecker::default()),
                     dpu_wait_time: service_config.dpu_wait_time,
                 })
                 .build()
@@ -3460,7 +3458,6 @@ where
                 service_config.network_segment_drain_time,
             )))
             .reachability_params(ReachabilityParams {
-                checker: Arc::new(PingReachabilityChecker::default()),
                 dpu_wait_time: service_config.dpu_wait_time,
             })
             .build()
@@ -3473,7 +3470,6 @@ where
             .ib_fabric_manager(ib_fabric_manager.clone())
             .pool_pkey(ib_data.pool_pkey.clone())
             .reachability_params(ReachabilityParams {
-                checker: Arc::new(PingReachabilityChecker::default()),
                 dpu_wait_time: service_config.dpu_wait_time,
             })
             .forge_api(api_service.clone())

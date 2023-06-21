@@ -24,7 +24,6 @@ use crate::{
     ib::IBFabricManager,
     kubernetes::VpcApi,
     model::config_version::{ConfigVersion, Versioned},
-    reachability::Reachability,
     redfish::RedfishClientPool,
     resource_pool::DbResourcePool,
     state_controller::{
@@ -498,7 +497,6 @@ pub struct Builder<IO: StateControllerIO> {
 #[derive(Clone)]
 pub struct ReachabilityParams {
     pub dpu_wait_time: chrono::Duration,
-    pub checker: Arc<dyn Reachability>,
 }
 
 impl<IO: StateControllerIO> Builder<IO> {

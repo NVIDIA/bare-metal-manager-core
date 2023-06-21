@@ -25,7 +25,6 @@ use carbide::{
     db::dpu_machine::DpuMachine,
     kubernetes::{VpcApi, VpcApiCreateResourceGroupResult, VpcApiError},
     model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
-    reachability::TestPingReachabilityChecker,
     redfish::RedfishSim,
     state_controller::{
         controller::{ReachabilityParams, StateController},
@@ -206,7 +205,6 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 .forge_api(test_api.clone())
                 .state_handler(machine_handler.clone())
                 .reachability_params(ReachabilityParams {
-                    checker: Arc::new(TestPingReachabilityChecker::default()),
                     dpu_wait_time: chrono::Duration::seconds(0),
                 })
                 .build()

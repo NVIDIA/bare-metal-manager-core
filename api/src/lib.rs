@@ -23,7 +23,6 @@ use model::{
     config_version::{ConfigVersion, ConfigVersionParseError},
     ConfigValidationError, RpcDataConversionError,
 };
-use reachability::ReachabilityError;
 use state_controller::snapshot_loader::SnapshotLoaderError;
 use tonic::Status;
 
@@ -42,7 +41,6 @@ mod ipxe;
 pub mod kubernetes;
 pub mod logging;
 pub mod model;
-pub mod reachability;
 pub mod redfish;
 pub mod resource_pool;
 pub mod state_controller;
@@ -175,9 +173,6 @@ pub enum CarbideError {
 
     #[error("Error in DHCP allocation/handling: {0}")]
     DhcpError(#[from] DhcpError),
-
-    #[error("DPU Reachability Error: {0}")]
-    ReachabilityError(#[from] ReachabilityError),
 
     #[error("More than one leaf exist referring to the same loopback IP: {0}")]
     DuplicateLoopbackIPError(IpAddr),
