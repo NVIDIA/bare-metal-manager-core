@@ -73,9 +73,8 @@ async fn test_integration() -> eyre::Result<()> {
     assert!(api.has_started(), "carbide-api failed to start");
 
     let dpu_info = dpu::bootstrap(&root_dir, &bins)?;
-    host_boostrap(db_pool, bins.get("forge-dpu-agent").unwrap(), &dpu_info).await?;
+    host_boostrap(bins.get("forge-dpu-agent").unwrap(), &dpu_info).await?;
 
-    //let host_machine_id = find_host_machine_id()?;
     //instance::create(&host_machine_id, &segment_id)?;
 
     thread::sleep(time::Duration::from_millis(500));
@@ -83,23 +82,8 @@ async fn test_integration() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn host_boostrap(
-    db_pool: sqlx::Pool<sqlx::Postgres>,
-    forge_dpu_agent: &path::Path,
-    dpu_info: &dpu::Info,
-) -> eyre::Result<()> {
+async fn host_boostrap(forge_dpu_agent: &path::Path, dpu_info: &dpu::Info) -> eyre::Result<()> {
     let host_machine_id = host::bootstrap()?;
-
-    let mut txn = db_pool.begin().await?;
-    let query = format!(
-        "UPDATE machine_interface_addresses
-        SET address='127.0.0.2'
-        WHERE interface_id='{}'
-    ",
-        dpu_info.interface_id
-    );
-    sqlx::query(&query).execute(&mut txn).await?;
-    txn.commit().await?;
 
     // Wait until carbide-api is prepared to admit the DPU might have rebooted.
     // There are hard coded sleeps in carbide-api before this happens.
@@ -109,18 +93,6 @@ async fn host_boostrap(
     crate::forge_dpu_agent::run(forge_dpu_agent, &dpu_info.hbn_root, &dpu_info.machine_id)?;
 
     host::wait_for_state(&host_machine_id, "Host/Discovered")?;
-
-    let mut txn = db_pool.begin().await?;
-    let query = format!(
-        "UPDATE machine_interface_addresses
-        SET address='{}'
-        WHERE interface_id='{}'
-    ",
-        dpu_info.interface_addr.ip(),
-        dpu_info.interface_id
-    );
-    sqlx::query(&query).execute(&mut txn).await?;
-    txn.commit().await?;
 
     grpcurl(
         "ForgeAgentControl",
@@ -132,24 +104,6 @@ async fn host_boostrap(
     host::wait_for_state(&host_machine_id, "Ready")?;
     tracing::info!("ManagedHost is up in Ready state.");
     Ok(())
-}
-
-fn _find_host_machine_id() -> eyre::Result<String> {
-    let response = grpcurl("FindMachines", "{}")?;
-    tracing::info!("FindMachines");
-    tracing::info!(response);
-    let resp: serde_json::Value = serde_json::from_str(&response)?;
-    for machine in resp["machines"].as_array().unwrap() {
-        // there will be two: a Host and a DPU
-        let if0 = &machine["interfaces"][0];
-        let machine_id = &if0["machineId"]["id"];
-        if if0["attachedDpuMachineId"]["id"] != *machine_id {
-            return Ok(machine_id.as_str().unwrap().to_string());
-        }
-    }
-    Err(eyre::eyre!(
-        "Could not find Host in FindMachines reponse: {resp}"
-    ))
 }
 
 fn find_prerequisites(root_dir: &path::Path) -> (HashMap<String, path::PathBuf>, bool) {
