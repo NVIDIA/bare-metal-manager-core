@@ -63,6 +63,7 @@ use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::ManagedHostState;
 use crate::model::RpcDataConversionError;
 use crate::resource_pool;
+use crate::resource_pool::common::CommonPools;
 use crate::state_controller::controller::ReachabilityParams;
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 use crate::{
@@ -132,7 +133,7 @@ pub struct Api<C: CredentialProvider> {
     redfish_pool: Arc<dyn RedfishClientPool>,
     vpc_api: Option<Arc<dyn VpcApi>>,
     eth_data: ethernet_virtualization::EthVirtData,
-    ib_data: ib::pool::IBData,
+    common_pools: Arc<CommonPools>,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
 }
@@ -3305,7 +3306,7 @@ where
         redfish_pool: Arc<dyn RedfishClientPool>,
         vpc_api: Option<Arc<dyn VpcApi>>,
         eth_data: ethernet_virtualization::EthVirtData,
-        ib_data: ib::pool::IBData,
+        common_pools: Arc<CommonPools>,
         identity_pemfile_path: String,
         identity_keyfile_path: String,
     ) -> Self {
@@ -3316,7 +3317,7 @@ where
             redfish_pool,
             vpc_api,
             eth_data,
-            ib_data,
+            common_pools,
             identity_pemfile_path,
             identity_keyfile_path,
         }
@@ -3350,6 +3351,8 @@ where
             .max_connections(service_config.max_db_connections)
             .connect(&daemon_config.datastore)
             .await?;
+
+        let common_pools = CommonPools::create(database_connection.clone());
 
         let vpc_api: Option<Arc<dyn VpcApi>> = if daemon_config.manage_vpc {
             // Ethernet Virtualizer. VPC is retired.
@@ -3388,7 +3391,7 @@ where
             if daemon_config.asn == 0 {
                 eyre::bail!("fatal: carbide-api requires a valid `--asn` when managing VPC");
             }
-            let mut ethd = ethernet_virtualization::enable(database_connection.clone()).await;
+            let mut ethd = ethernet_virtualization::enable(&common_pools);
             ethd.asn = daemon_config.asn;
             ethd
         } else {
@@ -3401,13 +3404,11 @@ where
         start_export_service_health_metrics(ServiceHealthContext {
             meter: meter.clone(),
             database_pool: health_pool,
-            resource_pool_stats: eth_data.rp_stats.take(),
+            resource_pool_stats: Some(common_pools.pool_stats.clone()),
         });
 
         let sc_pool_vlan_id = eth_data.pool_vlan_id.clone();
         let sc_pool_vni = eth_data.pool_vni.clone();
-
-        let ib_data = ib::pool::enable();
 
         let api_service = Arc::new(Self::new(
             credential_provider.clone(),
@@ -3416,7 +3417,7 @@ where
             shared_redfish_pool.clone(),
             vpc_api.clone(),
             eth_data,
-            ib_data.clone(),
+            common_pools.clone(),
             daemon_config.identity_pemfile_path.clone(),
             daemon_config.identity_keyfile_path.clone(),
         ));
@@ -3468,7 +3469,7 @@ where
             .redfish_client_pool(shared_redfish_pool.clone())
             .vpc_api(vpc_api.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
-            .pool_pkey(ib_data.pool_pkey.clone())
+            .pool_pkey(common_pools.infiniband.pool_pkey.clone())
             .reachability_params(ReachabilityParams {
                 dpu_wait_time: service_config.dpu_wait_time,
             })
@@ -3625,7 +3626,8 @@ where
         owner_id: &str,
     ) -> Result<Option<i16>, Status> {
         match self
-            .ib_data
+            .common_pools
+            .infiniband
             .pool_pkey
             .as_ref()
             .allocate(txn, resource_pool::OwnerType::IBSubnet, owner_id)

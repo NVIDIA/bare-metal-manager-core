@@ -10,12 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    net::Ipv4Addr,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{net::Ipv4Addr, sync::Arc};
 
 pub use ::rpc::forge as rpc;
 use sqlx::{Postgres, Transaction};
@@ -29,13 +24,11 @@ use crate::{
         UuidKeyedObjectFilter,
     },
     model::{instance::config::network::InstanceInterfaceConfig, machine::machine_id::MachineId},
-    resource_pool, CarbideError,
+    resource_pool::{self, common::CommonPools},
+    CarbideError,
 };
 
-/// How often to update the resource pool metrics
-const METRICS_RESOURCEPOOL_INTERVAL: Duration = Duration::from_secs(60);
-
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct EthVirtData {
     // true if carbide API owns VPC data
     pub is_enabled: bool,
@@ -44,70 +37,18 @@ pub struct EthVirtData {
     pub pool_loopback_ip: Option<Arc<resource_pool::DbResourcePool<Ipv4Addr>>>,
     pub pool_vlan_id: Option<Arc<resource_pool::DbResourcePool<i16>>>,
     pub pool_vni: Option<Arc<resource_pool::DbResourcePool<i32>>>,
-    pub rp_stats: Option<Arc<Mutex<HashMap<String, resource_pool::ResourcePoolStats>>>>,
 }
 
 /// Create ethernet virtualization resource pools (for loopback IP, VNI, etc) and
 /// start background task to provide OpenTelemetry metrics.
 ///
 /// Pools must also be created in the database: `forge-admin-cli resource-pool define`
-pub async fn enable(database_connection: sqlx::PgPool) -> EthVirtData {
-    let pool_loopback_ip: Option<Arc<resource_pool::DbResourcePool<Ipv4Addr>>> =
-        Some(Arc::new(resource_pool::DbResourcePool::new(
-            resource_pool::LOOPBACK_IP.to_string(),
-            resource_pool::ValueType::Ipv4,
-        )));
-    let pool_vlan_id: Option<Arc<resource_pool::DbResourcePool<i16>>> =
-        Some(Arc::new(resource_pool::DbResourcePool::new(
-            resource_pool::VLANID.to_string(),
-            resource_pool::ValueType::Integer,
-        )));
-    let pool_vni: Option<Arc<resource_pool::DbResourcePool<i32>>> =
-        Some(Arc::new(resource_pool::DbResourcePool::new(
-            resource_pool::VNI.to_string(),
-            resource_pool::ValueType::Integer,
-        )));
-
-    // resource pool metrics
-    let rp_stats: Arc<Mutex<HashMap<String, resource_pool::ResourcePoolStats>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    let rp_stats_bg = rp_stats.clone();
-    let pool_l_ip_2 = pool_loopback_ip.as_ref().unwrap().clone();
-    let pool_vlan_id_2 = pool_vlan_id.as_ref().unwrap().clone();
-    let pool_vni_2 = pool_vni.as_ref().unwrap().clone();
-    tokio::spawn(async move {
-        loop {
-            let l_ip = pool_l_ip_2.stats(&database_connection).await;
-            let vlan_id = pool_vlan_id_2.stats(&database_connection).await;
-            let vni = pool_vni_2.stats(&database_connection).await;
-            {
-                let mut m = rp_stats_bg.lock().unwrap();
-                if let Ok(l_ip) = l_ip {
-                    m.entry(resource_pool::LOOPBACK_IP.to_string())
-                        .and_modify(|s| *s = l_ip)
-                        .or_insert(l_ip);
-                }
-                if let Ok(vlan_id) = vlan_id {
-                    m.entry(resource_pool::VLANID.to_string())
-                        .and_modify(|s| *s = vlan_id)
-                        .or_insert(vlan_id);
-                }
-                if let Ok(vni) = vni {
-                    m.entry(resource_pool::VNI.to_string())
-                        .and_modify(|s| *s = vni)
-                        .or_insert(vni);
-                }
-            }
-            tokio::time::sleep(METRICS_RESOURCEPOOL_INTERVAL).await;
-        }
-    });
-
+pub fn enable(pools: &CommonPools) -> EthVirtData {
     EthVirtData {
         is_enabled: true,
-        pool_loopback_ip,
-        pool_vlan_id,
-        pool_vni,
-        rp_stats: Some(rp_stats),
+        pool_loopback_ip: Some(pools.ethernet.pool_loopback_ip.clone()),
+        pool_vlan_id: Some(pools.ethernet.pool_vlan_id.clone()),
+        pool_vni: Some(pools.ethernet.pool_vni.clone()),
         ..Default::default()
     }
 }
