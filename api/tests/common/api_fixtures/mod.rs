@@ -88,7 +88,6 @@ impl TestEnv {
             self.pool.clone(),
             Authorizer::new(Arc::new(NoopEngine {})),
             self.redfish_sim.clone(),
-            None,
             self.eth_virt_data.clone(),
             self.common_pools.clone(),
             "not a real pemfile path".to_string(),
@@ -98,13 +97,10 @@ impl TestEnv {
         StateHandlerServices {
             pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
-            vpc_api: None,
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             forge_api,
             meter: None,
             reachability_params: self.reachability_params.clone(),
-            pool_vlan_id: Some(self.common_pools.ethernet.pool_vlan_id.clone()),
-            pool_vni: Some(self.common_pools.ethernet.pool_vni.clone()),
             pool_pkey: Some(self.common_pools.infiniband.pool_pkey.clone()),
         }
     }
@@ -230,9 +226,10 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     let common_pools = CommonPools::create(db_pool.clone());
     let ib_fabric_manager = ib::local_ib_fabric_manager();
 
-    let mut eth_virt_data = ethernet_virtualization::enable(&common_pools);
-    eth_virt_data.asn = 65535;
-    eth_virt_data.dhcp_servers = vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()];
+    let eth_virt_data = ethernet_virtualization::EthVirtData {
+        asn: 65535,
+        dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()],
+    };
 
     // Populate resource pools
     let mut txn = db_pool.begin().await.unwrap();
@@ -275,7 +272,6 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         db_pool.clone(),
         Authorizer::new(Arc::new(NoopEngine {})),
         redfish_sim.clone(),
-        None,
         eth_virt_data.clone(),
         common_pools.clone(),
         "not a real pemfile path".to_string(),

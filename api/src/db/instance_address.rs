@@ -329,7 +329,6 @@ mod tests {
                         value: NetworkSegmentControllerState::Ready,
                         version,
                     },
-                    resource_groups_created: true,
                     history: Vec::new(),
                     vlan_id: None,
                     vni: None,

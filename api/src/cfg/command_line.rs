@@ -62,29 +62,28 @@ pub struct Daemon {
     #[clap(long, require_equals(true), env = "IBFABRIC_MANAGER_TOKEN")]
     pub ib_fabric_manager_token: Option<String>,
 
-    /// Enable older VPC which runs as a kubernetes CRD
-    #[clap(short, long)]
-    pub kubernetes: bool,
-
     /// Set shorter timeouts and run background jobs more often. Appropriate
     /// for local development.
     /// See ServiceConfig type.
     #[clap(long)]
     pub rapid_iterations: bool,
 
-    /// Should Carbide manage the VPC data (loopback IP, VNI, vlanid)?
-    /// False means VPC manages it as a Kubernetes CRD.
-    #[clap(long)]
+    /// DO NOT USE
+    /// Will be removed in next release. Kept for easier upgrade, we need to co-ordinate
+    /// other repos (forged and forge-deployment).
+    #[clap(
+        long,
+        default_value = "true",
+        help = "Do not use. Will be removed soon"
+    )]
     pub manage_vpc: bool,
 
     /// ASN: Autonomous System Number
     /// Fixed per environment. Used by forge-dpu-agent to write frr.conf (routing).
-    /// Only required if manage_vpc is true, hence the default.
-    /// We check for 0 on startup and bail if manage_vpc is true.
     ///
     // Move this to per-site toml configuration file once that exists.
     //
-    #[clap(long, default_value = "0")]
+    #[clap(long)]
     pub asn: u32,
 
     /// List of DHCP servers that should be announced

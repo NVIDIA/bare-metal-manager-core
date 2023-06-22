@@ -11,10 +11,9 @@
  */
 
 use std::convert::TryFrom;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::task::Poll;
 
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
@@ -53,7 +52,6 @@ use crate::db::bmc_metadata::UserRoles;
 use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
-use crate::db::vpc_resource_leaf::VpcResourceLeaf;
 use crate::ib;
 use crate::ib::IBFabricManager;
 use crate::ipxe::PxeInstructions;
@@ -89,7 +87,6 @@ use crate::{
     },
     ethernet_virtualization,
     instance::{allocate_instance, InstanceAllocationRequest},
-    kubernetes::{VpcApi, VpcApiImpl, VpcApiSim},
     logging::{
         api_logs::LogLayer,
         service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
@@ -131,7 +128,6 @@ pub struct Api<C: CredentialProvider> {
     credential_provider: Arc<C>,
     authorizer: auth::Authorizer,
     redfish_pool: Arc<dyn RedfishClientPool>,
-    vpc_api: Option<Arc<dyn VpcApi>>,
     eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
     identity_pemfile_path: String,
@@ -679,12 +675,14 @@ where
                 CarbideError::DatabaseError(file!(), "begin create_network_segment", e)
             })?;
         if new_network_segment.segment_type != NetworkSegmentType::Underlay {
-            new_network_segment.vlan_id = self
-                .allocate_vlan_id(&mut txn, &new_network_segment.name)
-                .await?;
-            new_network_segment.vni = self
-                .allocate_vni(&mut txn, &new_network_segment.name)
-                .await?;
+            new_network_segment.vlan_id = Some(
+                self.allocate_vlan_id(&mut txn, &new_network_segment.name)
+                    .await?,
+            );
+            new_network_segment.vni = Some(
+                self.allocate_vni(&mut txn, &new_network_segment.name)
+                    .await?,
+            );
         }
         let network_segment = match new_network_segment.persist(&mut txn).await {
             Ok(segment) => segment,
@@ -1025,11 +1023,6 @@ where
         request: Request<rpc::ManagedHostNetworkConfigRequest>,
     ) -> Result<tonic::Response<rpc::ManagedHostNetworkConfigResponse>, tonic::Status> {
         log_request_data(&request);
-
-        if !self.eth_data.is_enabled {
-            // Carbide API does not own VPC data, forge-dpu-agent should not do anything
-            return Err(CarbideError::NotImplemented.into());
-        }
 
         let request = request.into_inner();
         let dpu_machine_id = match &request.dpu_machine_id {
@@ -1509,20 +1502,17 @@ where
                 let loopback_ip = self
                     .allocate_loopback_ip(&mut txn, &stable_machine_id.to_string())
                     .await?;
-                // if still using VPC loopback will be None
-                if loopback_ip.is_some() {
-                    let (mut network_config, version) = db_machine.network_config().clone().take();
-                    network_config.loopback_ip = loopback_ip;
-                    network_config.use_admin_network = Some(true);
-                    Machine::try_update_network_config(
-                        &mut txn,
-                        &stable_machine_id,
-                        version,
-                        &network_config,
-                    )
-                    .await
-                    .map_err(CarbideError::from)?;
-                }
+                let (mut network_config, version) = db_machine.network_config().clone().take();
+                network_config.loopback_ip = Some(loopback_ip);
+                network_config.use_admin_network = Some(true);
+                Machine::try_update_network_config(
+                    &mut txn,
+                    &stable_machine_id,
+                    version,
+                    &network_config,
+                )
+                .await
+                .map_err(CarbideError::from)?;
             }
             db_machine
         } else {
@@ -1663,12 +1653,7 @@ where
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
         log_request_data(&request);
 
-        crate::dhcp::discover::discover_dhcp(
-            &self.database_connection,
-            request,
-            self.vpc_api.is_some(),
-        )
-        .await
+        crate::dhcp::discover::discover_dhcp(&self.database_connection, request).await
     }
 
     async fn get_machine(
@@ -2625,24 +2610,6 @@ where
         })?;
 
         if let Some(instance_id) = instance_id {
-            if let Some(vpc_api) = self.vpc_api.as_ref() {
-                match vpc_api
-                    .try_delete_managed_resources(instance_id)
-                    .await
-                    .map_err(CarbideError::from)?
-                {
-                    Poll::Ready(()) => {
-                        // TODO: Get the actual number back and set it
-                        response.deleted_managed_resources = 1;
-                    }
-                    Poll::Pending => {
-                        response.managed_resource_deletion_pending = true;
-                        response.all_done = false;
-                        return Ok(Response::new(response));
-                    }
-                }
-            }
-
             // Delete the instance and allocated address
             // TODO: This might need some changes with the new state machine
             let delete_instance = DeleteInstance { instance_id };
@@ -2733,22 +2700,6 @@ where
         })?;
 
         if let Some(dpu_machine) = &dpu_machine {
-            if let Some(vpc_api) = self.vpc_api.as_ref() {
-                match vpc_api
-                    .try_delete_leaf(dpu_machine.id())
-                    .await
-                    .map_err(CarbideError::from)?
-                {
-                    Poll::Ready(()) => {
-                        response.deleted_leafs = 1;
-                    }
-                    Poll::Pending => {
-                        response.leaf_deletion_pending = true;
-                        response.all_done = false;
-                        return Ok(Response::new(response));
-                    }
-                }
-            }
             let mut txn = self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(
                     file!(),
@@ -2757,13 +2708,13 @@ where
                 )
             })?;
 
-            if let Some(pool) = self.eth_data.pool_loopback_ip.as_ref() {
-                // Forge is managing loopback IPs..
-                if let Some(loopback_ip) = dpu_machine.loopback_ip() {
-                    pool.release(&mut txn, loopback_ip)
-                        .await
-                        .map_err(CarbideError::from)?
-                }
+            if let Some(loopback_ip) = dpu_machine.loopback_ip() {
+                self.common_pools
+                    .ethernet
+                    .pool_loopback_ip
+                    .release(&mut txn, loopback_ip)
+                    .await
+                    .map_err(CarbideError::from)?
             }
 
             Machine::force_cleanup(&mut txn, dpu_machine.id())
@@ -2852,139 +2803,6 @@ where
         Ok(Response::new(rpc::ResourcePools {
             pools: snapshot.into_iter().map(|s| s.into()).collect(),
         }))
-    }
-
-    async fn migrate_vpc(
-        &self,
-        request: Request<rpc::MigrateVpcRequest>,
-    ) -> Result<tonic::Response<rpc::MigrateVpcResponse>, tonic::Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin migrate_vpc ", e))?;
-
-        for vname in req.vnames {
-            let segment =
-                match NetworkSegment::find_by_circuit_id(&mut txn, &vname.dhcp_circuit_id).await {
-                    Err(_) => {
-                        // this happens, it's probably fine
-                        info!(
-                            "migrate_vpc no network segment for circuit_id {}, skipping.",
-                            vname.dhcp_circuit_id
-                        );
-                        continue;
-                    }
-                    Ok(segment) => segment,
-                };
-
-            if segment.vlan_id.is_none() || segment.vlan_id.unwrap() != vname.vlan_id as i16 {
-                NetworkSegment::update_vlan_id(&mut txn, segment.id, vname.vlan_id as i32)
-                    .await
-                    .map_err(CarbideError::from)?;
-                match self.eth_data.pool_vlan_id.as_ref() {
-                    Some(pool) => {
-                        pool.mark_allocated(
-                            &mut txn,
-                            vname.vlan_id as i16,
-                            resource_pool::OwnerType::NetworkSegment,
-                            &segment.id.to_string(),
-                        )
-                        .await
-                        .map_err(CarbideError::from)?;
-                    }
-                    None => {
-                        warn!("Missing vlan_id resource pool. Did you run 'forge-admin-cli resource-pool define'?");
-                    }
-                }
-                debug!("Segment {} copied vlan_id {}", segment.id, vname.vlan_id);
-            }
-
-            if segment.vni.is_none() || segment.vni.unwrap() as u32 != vname.vni {
-                NetworkSegment::update_vni(&mut txn, segment.id, vname.vni as i32)
-                    .await
-                    .map_err(CarbideError::from)?;
-                match self.eth_data.pool_vni.as_ref() {
-                    Some(pool) => {
-                        pool.mark_allocated(
-                            &mut txn,
-                            vname.vni as i32,
-                            resource_pool::OwnerType::NetworkSegment,
-                            &segment.id.to_string(),
-                        )
-                        .await
-                        .map_err(CarbideError::from)?;
-                    }
-                    None => {
-                        warn!("Missing vni resource pool. Did you run 'forge-admin-cli resource-pool define'?");
-                    }
-                }
-                debug!("Segment {} copied vni {}", segment.id, vname.vni);
-            }
-        }
-
-        // Copy vpc_resource_leaf.loopback_ip to machines.network_config.loopback_ip
-        let dpus = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
-            .await
-            .map_err(CarbideError::from)?
-            .into_iter()
-            .filter(|m| m.is_dpu());
-        for machine in dpus {
-            let leaf = match VpcResourceLeaf::find(&mut txn, machine.id()).await {
-                Ok(leaf) => leaf,
-                Err(err) => {
-                    info!("No leaf loopback_ip for machine {}. {err}.", machine.id());
-                    continue;
-                }
-            };
-            let (mut network_config, version) = machine.network_config().clone().take();
-            let vpc_loopback = match leaf.loopback_ip_address() {
-                Some(IpAddr::V4(val)) => Some(*val),
-                _ => {
-                    warn!("Machine {} has invalid loopback", machine.id());
-                    continue;
-                }
-            };
-            if vpc_loopback == network_config.loopback_ip {
-                debug!("Machine {} already migrated loopback", machine.id());
-                continue;
-            }
-            network_config.loopback_ip = vpc_loopback;
-            Machine::try_update_network_config(&mut txn, machine.id(), version, &network_config)
-                .await
-                .map_err(CarbideError::from)?;
-
-            match self.eth_data.pool_loopback_ip.as_ref() {
-                Some(pool) => {
-                    pool.mark_allocated(
-                        &mut txn,
-                        vpc_loopback.unwrap(), // we know it's Some
-                        resource_pool::OwnerType::Machine,
-                        &machine.id().to_string(),
-                    )
-                    .await
-                    .map_err(CarbideError::from)?;
-                }
-                None => {
-                    warn!("Missing loopback_ip resource pool. Did you run 'forge-admin-cli resource-pool define' or 'forge-admin-cli migrate vpc'?");
-                }
-            }
-
-            debug!(
-                "Machine {} copied loopback {:?}",
-                machine.id(),
-                network_config.loopback_ip
-            );
-        }
-
-        txn.commit()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "end migrate_vpc", e))?;
-
-        Ok(Response::new(rpc::MigrateVpcResponse {}))
     }
 }
 
@@ -3304,7 +3122,6 @@ where
         database_connection: sqlx::PgPool,
         authorizer: auth::Authorizer,
         redfish_pool: Arc<dyn RedfishClientPool>,
-        vpc_api: Option<Arc<dyn VpcApi>>,
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
         identity_pemfile_path: String,
@@ -3315,7 +3132,6 @@ where
             credential_provider,
             authorizer,
             redfish_pool,
-            vpc_api,
             eth_data,
             common_pools,
             identity_pemfile_path,
@@ -3354,21 +3170,6 @@ where
 
         let common_pools = CommonPools::create(database_connection.clone());
 
-        let vpc_api: Option<Arc<dyn VpcApi>> = if daemon_config.manage_vpc {
-            // Ethernet Virtualizer. VPC is retired.
-            None
-        } else if daemon_config.kubernetes {
-            // Real Kubernetes VPC
-            let client = kube::Client::try_default().await?;
-            Some(Arc::new(VpcApiImpl::new(
-                client,
-                daemon_config.dhcp_server.clone(),
-            )))
-        } else {
-            // In-memory mock VPC
-            Some(Arc::new(VpcApiSim::default()))
-        };
-
         let ib_fabric_manager: Arc<dyn IBFabricManager> =
             if let Some(fabric_manager) = daemon_config.ib_fabric_manager.as_ref() {
                 let token = daemon_config
@@ -3386,19 +3187,10 @@ where
         )
         .await?;
 
-        let mut eth_data = if daemon_config.manage_vpc {
-            // Forge will own and manage VPC data
-            if daemon_config.asn == 0 {
-                eyre::bail!("fatal: carbide-api requires a valid `--asn` when managing VPC");
-            }
-            let mut ethd = ethernet_virtualization::enable(&common_pools);
-            ethd.asn = daemon_config.asn;
-            ethd
-        } else {
-            // VPC (Go CRD) will own and manage it's data
-            ethernet_virtualization::EthVirtData::default()
+        let eth_data = ethernet_virtualization::EthVirtData {
+            asn: daemon_config.asn,
+            dhcp_servers: daemon_config.dhcp_server.clone(),
         };
-        eth_data.dhcp_servers = daemon_config.dhcp_server.clone();
 
         let health_pool = database_connection.clone();
         start_export_service_health_metrics(ServiceHealthContext {
@@ -3407,15 +3199,11 @@ where
             resource_pool_stats: Some(common_pools.pool_stats.clone()),
         });
 
-        let sc_pool_vlan_id = eth_data.pool_vlan_id.clone();
-        let sc_pool_vni = eth_data.pool_vni.clone();
-
         let api_service = Arc::new(Self::new(
             credential_provider.clone(),
             database_connection.clone(),
             authorizer,
             shared_redfish_pool.clone(),
-            vpc_api.clone(),
             eth_data,
             common_pools.clone(),
             daemon_config.identity_pemfile_path.clone(),
@@ -3429,7 +3217,6 @@ where
                 .database(database_connection.clone())
                 .meter("forge_machines", meter.clone())
                 .redfish_client_pool(shared_redfish_pool.clone())
-                .vpc_api(vpc_api.clone())
                 .ib_fabric_manager(ib_fabric_manager.clone())
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.machine_state_controller_iteration_time)
@@ -3440,23 +3227,21 @@ where
                 .build()
                 .expect("Unable to build MachineStateController");
 
-        let mut ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
+        let sc_pool_vlan_id = common_pools.ethernet.pool_vlan_id.clone();
+        let sc_pool_vni = common_pools.ethernet.pool_vni.clone();
+
+        let ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
             .database(database_connection.clone())
             .meter("forge_network_segments", meter.clone())
             .redfish_client_pool(shared_redfish_pool.clone())
-            .vpc_api(vpc_api.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
             .forge_api(api_service.clone());
-        if let Some(pool_vlan_id) = sc_pool_vlan_id {
-            ns_builder = ns_builder.pool_vlan_id(pool_vlan_id);
-        }
-        if let Some(pool_vni) = sc_pool_vni {
-            ns_builder = ns_builder.pool_vni(pool_vni);
-        }
         let _network_segment_controller_handle = ns_builder
             .iteration_time(service_config.network_segment_state_controller_iteration_time)
             .state_handler(Arc::new(NetworkSegmentStateHandler::new(
                 service_config.network_segment_drain_time,
+                sc_pool_vlan_id,
+                sc_pool_vni,
             )))
             .reachability_params(ReachabilityParams {
                 dpu_wait_time: service_config.dpu_wait_time,
@@ -3467,7 +3252,6 @@ where
         let _ibsubnet_controller_handle = StateController::<IBSubnetStateControllerIO>::builder()
             .database(database_connection.clone())
             .redfish_client_pool(shared_redfish_pool.clone())
-            .vpc_api(vpc_api.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
             .pool_pkey(common_pools.infiniband.pool_pkey.clone())
             .reachability_params(ReachabilityParams {
@@ -3516,25 +3300,20 @@ where
 
     /// Allocate a value from the loopback IP resource pool.
     ///
-    /// If the pool doesn't exist return None.
     /// If the pool exists but is empty or has en error, return that.
     async fn allocate_loopback_ip(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
-    ) -> Result<Option<Ipv4Addr>, Status> {
-        if self.eth_data.pool_loopback_ip.is_none() {
-            return Ok(None);
-        }
+    ) -> Result<Ipv4Addr, Status> {
         match self
-            .eth_data
+            .common_pools
+            .ethernet
             .pool_loopback_ip
-            .as_ref()
-            .unwrap()
             .allocate(txn, resource_pool::OwnerType::Machine, owner_id)
             .await
         {
-            Ok(val) => Ok(Some(val)),
+            Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool lo-ip exhausted, cannot allocate for {owner_id}");
                 tracing::error!("{}", &msg);
@@ -3550,25 +3329,20 @@ where
 
     /// Allocate a value from the vni resource pool.
     ///
-    /// If the pool doesn't exist return None.
     /// If the pool exists but is empty or has en error, return that.
     async fn allocate_vni(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
-    ) -> Result<Option<i32>, Status> {
-        if self.eth_data.pool_vni.is_none() {
-            return Ok(None);
-        }
+    ) -> Result<i32, Status> {
         match self
-            .eth_data
+            .common_pools
+            .ethernet
             .pool_vni
-            .as_ref()
-            .unwrap()
             .allocate(txn, resource_pool::OwnerType::NetworkSegment, owner_id)
             .await
         {
-            Ok(val) => Ok(Some(val)),
+            Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool vni exhausted, cannot allocate for {owner_id}");
                 tracing::error!("{}", &msg);
@@ -3584,25 +3358,20 @@ where
 
     /// Allocate a value from the vlan id resource pool.
     ///
-    /// If the pool doesn't exist return None.
     /// If the pool exists but is empty or has en error, return that.
     async fn allocate_vlan_id(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
-    ) -> Result<Option<i16>, Status> {
-        if self.eth_data.pool_vlan_id.is_none() {
-            return Ok(None);
-        }
+    ) -> Result<i16, Status> {
         match self
-            .eth_data
+            .common_pools
+            .ethernet
             .pool_vlan_id
-            .as_ref()
-            .unwrap()
             .allocate(txn, resource_pool::OwnerType::NetworkSegment, owner_id)
             .await
         {
-            Ok(val) => Ok(Some(val)),
+            Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool vlan_id exhausted, cannot allocate for {owner_id}");
                 tracing::error!("{}", &msg);

@@ -22,7 +22,6 @@ use tracing::Instrument;
 
 use crate::{
     ib::IBFabricManager,
-    kubernetes::VpcApi,
     model::config_version::{ConfigVersion, Versioned},
     redfish::RedfishClientPool,
     resource_pool::DbResourcePool,
@@ -474,7 +473,6 @@ const DEFAULT_MAX_CONCURRENCY: usize = 10;
 pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
     redfish_client_pool: Option<Arc<dyn RedfishClientPool>>,
-    vpc_api: Option<Arc<dyn VpcApi>>,
     ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
     iteration_time: Option<Duration>,
     max_concurrency: usize,
@@ -488,8 +486,6 @@ pub struct Builder<IO: StateControllerIO> {
         >,
     >,
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
-    pool_vlan_id: Option<Arc<DbResourcePool<i16>>>,
-    pool_vni: Option<Arc<DbResourcePool<i32>>>,
     pool_pkey: Option<Arc<DbResourcePool<i16>>>,
     reachability_params: Option<ReachabilityParams>,
 }
@@ -508,7 +504,6 @@ impl<IO: StateControllerIO> Builder<IO> {
         Self {
             database: None,
             redfish_client_pool: None,
-            vpc_api: None,
             ib_fabric_manager: None,
             iteration_time: None,
             state_handler: Arc::new(NoopStateHandler::<
@@ -521,8 +516,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             object_type_for_metrics: None,
             forge_api: None,
             reachability_params: None,
-            pool_vlan_id: None,
-            pool_vni: None,
             pool_pkey: None,
         }
     }
@@ -543,8 +536,6 @@ impl<IO: StateControllerIO> Builder<IO> {
                 .ok_or(StateControllerBuildError::MissingArgument(
                     "redfish_client_pool",
                 ))?;
-
-        let vpc_api = self.vpc_api.take();
 
         let forge_api = self
             .forge_api
@@ -581,13 +572,10 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         let handler_services = Arc::new(StateHandlerServices {
             pool: database,
-            vpc_api,
             ib_fabric_manager,
             redfish_client_pool,
             forge_api,
             reachability_params,
-            pool_vlan_id: self.pool_vlan_id.take(),
-            pool_vni: self.pool_vni.take(),
             meter: meter.clone(),
             pool_pkey: self.pool_pkey.take(),
         });
@@ -655,27 +643,9 @@ impl<IO: StateControllerIO> Builder<IO> {
         self
     }
 
-    /// Configures the utilized VPC API
-    pub fn vpc_api(mut self, vpc_api: Option<Arc<dyn VpcApi>>) -> Self {
-        self.vpc_api = vpc_api;
-        self
-    }
-
     /// Configures the utilized IBService
     pub fn ib_fabric_manager(mut self, ib_fabric_manager: Arc<dyn IBFabricManager>) -> Self {
         self.ib_fabric_manager = Some(ib_fabric_manager);
-        self
-    }
-
-    /// Configures the resource pool for allocation / release VLAN IDs
-    pub fn pool_vlan_id(mut self, pool_vlan_id: Arc<DbResourcePool<i16>>) -> Self {
-        self.pool_vlan_id = Some(pool_vlan_id);
-        self
-    }
-
-    /// Configures the resource pool for allocation / release VNI (VXLAN IDs)
-    pub fn pool_vni(mut self, pool_vni: Arc<DbResourcePool<i32>>) -> Self {
-        self.pool_vni = Some(pool_vni);
         self
     }
 

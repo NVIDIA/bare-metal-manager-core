@@ -96,7 +96,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         fn deletion_state_name(deletion_state: &NetworkSegmentDeletionState) -> &'static str {
             match deletion_state {
                 NetworkSegmentDeletionState::DrainAllocatedIps { .. } => "drainallocatedips",
-                NetworkSegmentDeletionState::DeleteVPCResourceGroups => "deletevpcresourcegroups",
+                NetworkSegmentDeletionState::DBDelete => "dbdelete",
             }
         }
 

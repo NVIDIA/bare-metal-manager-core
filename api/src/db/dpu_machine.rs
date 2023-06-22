@@ -13,8 +13,6 @@
 // DpuMachine - represents a database-backed DpuMachine object
 //
 
-use std::net::Ipv4Addr;
-
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
@@ -36,7 +34,6 @@ pub struct DpuMachine {
     _mac_address: MacAddress,
     address: IpNetwork,
     _hostname: String,
-    vpc_loopback_ip: Option<Ipv4Addr>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -44,18 +41,12 @@ pub struct DpuMachine {
 impl<'r> FromRow<'r, PgRow> for DpuMachine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let machine_id: DbMachineId = row.try_get("machine_id")?;
-        let loopback_ip: Option<String> = row.try_get("loopback_ip")?;
-        let loopback_ip: Option<Ipv4Addr> = match loopback_ip {
-            Some(ip) => ip.parse().ok(),
-            None => None,
-        };
         Ok(DpuMachine {
             machine_id: machine_id.into_inner(),
             _machine_interface_id: row.try_get("machine_interfaces_id")?,
             _mac_address: row.try_get("mac_address")?,
             address: row.try_get("address")?,
             _hostname: row.try_get("hostname")?,
-            vpc_loopback_ip: loopback_ip,
         })
     }
 }
@@ -79,12 +70,6 @@ impl DpuMachine {
 
     pub fn _hostname(&self) -> &str {
         &self._hostname
-    }
-
-    // The loopback IP that VPC assigned. None if it's not been assigned yet.
-    // Once VPC goes away this will be replaced by machine.network_config.loopback_ip
-    pub fn vpc_loopback_ip(&self) -> Option<Ipv4Addr> {
-        self.vpc_loopback_ip
     }
 
     pub async fn find_by_machine_id(
@@ -114,6 +99,3 @@ WHERE mi.machine_id=$1";
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
-
-#[cfg(test)]
-mod test {}

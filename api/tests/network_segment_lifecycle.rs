@@ -131,7 +131,11 @@ async fn test_network_segment_lifecycle_impl(
         rpc::forge::TenantState::Provisioning
     );
 
-    let state_handler = NetworkSegmentStateHandler::new(chrono::Duration::milliseconds(500));
+    let state_handler = NetworkSegmentStateHandler::new(
+        chrono::Duration::milliseconds(500),
+        env.common_pools.ethernet.pool_vlan_id.clone(),
+        env.common_pools.ethernet.pool_vni.clone(),
+    );
 
     env.run_network_segment_controller_iteration(segment_id, &state_handler)
         .await;
@@ -188,7 +192,7 @@ async fn test_network_segment_lifecycle_impl(
             "provisioning".to_string(),
             "ready".to_string(),
             "deleting/drain_allocated_ips".to_string(),
-            "deleting/delete_vpc_resource_groups".to_string(),
+            "deleting/db_delete".to_string(),
         ]
     );
     txn.commit().await.unwrap();
@@ -365,7 +369,11 @@ async fn test_network_segment_max_history_length(
     let segment = create_network_segment_with_api(&env.api, true, true).await;
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
 
-    let state_handler = NetworkSegmentStateHandler::new(chrono::Duration::milliseconds(500));
+    let state_handler = NetworkSegmentStateHandler::new(
+        chrono::Duration::milliseconds(500),
+        env.common_pools.ethernet.pool_vlan_id.clone(),
+        env.common_pools.ethernet.pool_vni.clone(),
+    );
 
     env.run_network_segment_controller_iteration(segment_id, &state_handler)
         .await;
@@ -422,7 +430,7 @@ async fn test_network_segment_max_history_length(
             segment_id,
             version,
             &NetworkSegmentControllerState::Deleting {
-                deletion_state: NetworkSegmentDeletionState::DeleteVPCResourceGroups
+                deletion_state: NetworkSegmentDeletionState::DBDelete
             }
         )
         .await
@@ -443,7 +451,7 @@ async fn test_network_segment_max_history_length(
     let history = text_history(&mut txn, segment_id).await;
     assert_eq!(history.len(), HISTORY_LIMIT);
     for entry in &history {
-        assert_eq!(entry, "deleting/delete_vpc_resource_groups");
+        assert_eq!(entry, "deleting/db_delete");
     }
     txn.rollback().await.unwrap();
 
@@ -475,9 +483,7 @@ async fn text_history(
                 NetworkSegmentControllerState::Ready => "ready",
                 NetworkSegmentControllerState::Deleting { deletion_state } => {
                     match deletion_state {
-                        NetworkSegmentDeletionState::DeleteVPCResourceGroups => {
-                            "deleting/delete_vpc_resource_groups"
-                        }
+                        NetworkSegmentDeletionState::DBDelete => "deleting/db_delete",
                         NetworkSegmentDeletionState::DrainAllocatedIps { .. } => {
                             "deleting/drain_allocated_ips"
                         }

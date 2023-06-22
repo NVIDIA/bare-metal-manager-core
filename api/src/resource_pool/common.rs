@@ -22,11 +22,11 @@ use super::{DbResourcePool, ResourcePoolStats, ValueType};
 /// Must match a pool defined in dev/resource_pools.toml
 pub const LOOPBACK_IP: &str = "lo-ip";
 
-/// VNI pool. ResourceGroup / FabricNetworkConfiguration
+/// VNI pool. FabricNetworkConfiguration
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VNI: &str = "vni";
 
-/// vlan-id pool. ResourceGroup / FabricNetworkConfiguration
+/// vlan-id pool. FabricNetworkConfiguration
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VLANID: &str = "vlan-id";
 

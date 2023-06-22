@@ -137,10 +137,7 @@ pub enum RedfishCommand {
 
 #[derive(Parser, Debug)]
 pub enum MigrateAction {
-    #[clap(
-        about = "Prepare for VPC migration. Read VNI and VLAN_ID from Kubernetes, write them to Postgres."
-    )]
-    Vpc,
+    // Placeholder. Migrations come and go.
 }
 
 #[derive(Parser, Debug)]

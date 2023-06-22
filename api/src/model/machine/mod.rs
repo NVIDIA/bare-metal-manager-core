@@ -115,7 +115,7 @@ pub enum ManagedHostState {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum MachineState {
     Init,
-    WaitingForLeafCreation,
+    WaitingForNetworkConfig,
     WaitingForDiscovery,
     Discovered,
     /// Lockdown handling.
@@ -164,7 +164,7 @@ pub enum InstanceState {
     WaitingForNetworkConfig,
     Ready,
     BootingWithDiscoveryImage,
-    DeletingManagedResource,
+    SwitchToAdminNetwork,
     WaitingForNetworkReconfig,
 }
 

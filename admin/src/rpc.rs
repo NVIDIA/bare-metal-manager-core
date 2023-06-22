@@ -346,23 +346,6 @@ pub async fn list_resource_pools(
     .await
 }
 
-pub async fn migrate_vpc(
-    vals: Vec<rpc::VpcVname>,
-    api_config: &Config,
-) -> CarbideCliResult<rpc::MigrateVpcResponse> {
-    with_forge_client(api_config.clone(), |mut client| async move {
-        let req = rpc::MigrateVpcRequest { vnames: vals };
-        let request = tonic::Request::new(req);
-        let out = client
-            .migrate_vpc(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(out)
-    })
-    .await
-}
-
 pub async fn version(api_config: &Config) -> CarbideCliResult<rpc::VersionResult> {
     with_forge_client(api_config.clone(), |mut client| async move {
         let out = client
