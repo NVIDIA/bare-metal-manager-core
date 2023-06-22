@@ -17,22 +17,7 @@ use crate::CarbideError;
 
 mod db;
 pub use db::{all, DbResourcePool};
-
-/// DPU VPC loopback IP pool
-/// Must match a pool defined in dev/resource_pools.toml
-pub const LOOPBACK_IP: &str = "lo-ip";
-
-/// VNI pool. ResourceGroup / FabricNetworkConfiguration
-/// Must match a pool defined in dev/resource_pools.toml
-pub const VNI: &str = "vni";
-
-/// vlan-id pool. ResourceGroup / FabricNetworkConfiguration
-/// Must match a pool defined in dev/resource_pools.toml
-pub const VLANID: &str = "vlan-id";
-
-/// IB Fabric partition key (pkey) pool
-/// Must match a pool defined in dev/resource_pools.toml
-pub const PKEY: &str = "pkey";
+pub mod common;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum OwnerType {

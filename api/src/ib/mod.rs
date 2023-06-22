@@ -22,7 +22,6 @@ mod local;
 mod rest;
 mod ufmclient;
 
-pub mod pool;
 pub mod types;
 
 pub fn local_ib_fabric_manager() -> Arc<dyn IBFabricManager> {
