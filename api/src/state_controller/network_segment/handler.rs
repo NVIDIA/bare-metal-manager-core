@@ -12,14 +12,15 @@
 
 //! State Handler implementation for Network Segments
 
-use std::task::Poll;
+use std::sync::Arc;
 
 use crate::{
     db::{
         instance_address::InstanceAddress, machine_interface::MachineInterface,
-        network_prefix::NetworkPrefix, network_segment::NetworkSegment,
+        network_segment::NetworkSegment,
     },
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
+    resource_pool::DbResourcePool,
     state_controller::state_handler::{
         ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
     },
@@ -31,11 +32,22 @@ pub struct NetworkSegmentStateHandler {
     /// Specifies for how long the number of allocated IPs on network prefixes
     /// need to be zero until the segment is deleted
     drain_period: chrono::Duration,
+
+    pool_vlan_id: Arc<DbResourcePool<i16>>,
+    pool_vni: Arc<DbResourcePool<i32>>,
 }
 
 impl NetworkSegmentStateHandler {
-    pub fn new(drain_period: chrono::Duration) -> Self {
-        Self { drain_period }
+    pub fn new(
+        drain_period: chrono::Duration,
+        pool_vlan_id: Arc<DbResourcePool<i16>>,
+        pool_vni: Arc<DbResourcePool<i32>>,
+    ) -> Self {
+        Self {
+            drain_period,
+            pool_vlan_id,
+            pool_vni,
+        }
     }
 }
 
@@ -51,55 +63,11 @@ impl StateHandler for NetworkSegmentStateHandler {
         state: &mut NetworkSegment,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        ctx: &mut StateHandlerContext,
+        _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let read_state: &NetworkSegmentControllerState = &*controller_state;
         match read_state {
             NetworkSegmentControllerState::Provisioning => {
-                if let Some(vpc_api) = ctx.services.vpc_api.as_ref() {
-                    let mut created_all_resource_groups = true;
-                    for prefix in state.prefixes.iter() {
-                        match vpc_api
-                            .try_create_resource_group(
-                                prefix.id,
-                                prefix.prefix,
-                                prefix.gateway,
-                                state.vlan_id,
-                                state.vni,
-                            )
-                            .await?
-                        {
-                            Poll::Ready(result) => {
-                                NetworkPrefix::update_circuit_id(txn, prefix.id, result.circuit_id)
-                                    .await?;
-                                if let Some(vlan_id) = result.vlan_id {
-                                    NetworkSegment::update_vlan_id(txn, *segment_id, vlan_id)
-                                        .await?;
-                                }
-                                if let Some(vni) = result.vni {
-                                    NetworkSegment::update_vni(txn, *segment_id, vni).await?;
-                                }
-                            }
-                            Poll::Pending => {
-                                // We have to retry this. But we let the loop
-                                // continue, so that resource groups for
-                                // other prefixes are provisioned at the same time
-                                created_all_resource_groups = false;
-                            }
-                        }
-                    }
-
-                    if !created_all_resource_groups {
-                        // We need another iteration to get confirmation that
-                        // all CRDs have actually been created
-                        return Ok(());
-                    }
-                }
-
-                // Once we discover that VPC is configured, we moved into the Ready state
-                // While we could also immediately handle deletions here, we
-                // opt to wait for being in the ready state - so that there's just a single
-                // place covering them.
                 tracing::info!(
                     "Network Segment {} is transitioning into state \"Ready\"",
                     segment_id
@@ -149,48 +117,20 @@ impl StateHandler for NetworkSegmentStateHandler {
                         }
 
                         if chrono::Utc::now() >= *delete_at {
-                            tracing::info!("Network Segment {} is transitioning into state \"Deleting::DeleteVPCResourceGroups\"", segment_id);
+                            tracing::info!("Network Segment {} is transitioning into state \"Deleting::DBDelete\"", segment_id);
                             *controller_state.modify() = NetworkSegmentControllerState::Deleting {
-                                deletion_state:
-                                    NetworkSegmentDeletionState::DeleteVPCResourceGroups,
+                                deletion_state: NetworkSegmentDeletionState::DBDelete,
                             };
                             return Ok(());
                         }
                     }
-                    NetworkSegmentDeletionState::DeleteVPCResourceGroups => {
-                        let mut deleted_all_crds = true;
-                        if let Some(vpc_api) = ctx.services.vpc_api.as_ref() {
-                            for prefix in state.prefixes.iter() {
-                                match vpc_api.try_delete_resource_group(prefix.id).await? {
-                                    Poll::Pending => {
-                                        deleted_all_crds = false;
-                                    }
-                                    Poll::Ready(()) => {
-                                        tracing::info!(
-                                            "ResourceGroup for Prefix {} was deleted",
-                                            prefix.id
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        if !deleted_all_crds {
-                            // We need another iteration to get confirmation that
-                            // all CRDs have actually been deleted
-                            return Ok(());
-                        }
-
+                    NetworkSegmentDeletionState::DBDelete => {
                         if let Some(vni) = state.vni.take() {
-                            if let Some(pool_vni) = ctx.services.pool_vni.as_ref() {
-                                pool_vni.release(txn, vni).await?;
-                            }
+                            self.pool_vni.release(txn, vni).await?;
                         }
                         if let Some(vlan_id) = state.vlan_id.take() {
-                            if let Some(pool_vlan_id) = ctx.services.pool_vlan_id.as_ref() {
-                                pool_vlan_id.release(txn, vlan_id).await?;
-                            }
+                            self.pool_vlan_id.release(txn, vlan_id).await?;
                         }
-
                         tracing::info!(
                             "Network Segment {} getting removed from the database",
                             segment_id

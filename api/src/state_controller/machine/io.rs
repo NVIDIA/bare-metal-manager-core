@@ -93,7 +93,7 @@ impl StateControllerIO for MachineStateControllerIO {
         fn machine_state_name(machine_state: &MachineState) -> &'static str {
             match machine_state {
                 MachineState::Init => "init",
-                MachineState::WaitingForLeafCreation => "waitingforleafcreation",
+                MachineState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",
                 MachineState::Discovered => "discovered",
                 MachineState::WaitingForLockdown { .. } => "waitingforlockdown",
@@ -106,7 +106,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 InstanceState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 InstanceState::Ready => "ready",
                 InstanceState::BootingWithDiscoveryImage => "bootingwithdiscoveryimage",
-                InstanceState::DeletingManagedResource => "deletingmanagedresource",
+                InstanceState::SwitchToAdminNetwork => "switchtoadminnetwork",
                 InstanceState::WaitingForNetworkReconfig => "waitingfornetworkreconfig",
             }
         }

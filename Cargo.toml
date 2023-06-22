@@ -5,7 +5,6 @@ members = [
   "api",
   "bluefield/agent",
   "dev/bmc-mock",
-  "dev/vpc-mock",
   "dev/rainbow",
   "dhcp",
   "dns",

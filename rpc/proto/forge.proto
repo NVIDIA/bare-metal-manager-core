@@ -165,12 +165,6 @@ service Forge {
 
   // Create or edit a resource pool
   rpc AdminDefineResourcePool(DefineResourcePoolRequest) returns (DefineResourcePoolResponse);
-
-  // Fill in VPC date by migrating it from Kubernetes
-  // - Fill in VNI and VLAN_ID on network_segment
-  // - Mark values as taken in resource pool (including loopback_ip)
-  // - Copy loopback_ip into machines.network_config
-  rpc MigrateVPC(MigrateVPCRequest) returns (MigrateVPCResponse);
 }
 
 message VersionResult {
@@ -1501,16 +1495,6 @@ message DefineResourcePoolRequest {
 }
 
 message DefineResourcePoolResponse {}
-
-message MigrateVPCRequest{
-    repeated VpcVname vnames = 1;
-}
-message VpcVname {
-    string dhcp_circuit_id = 1;
-    uint32 vlan_id = 2;
-    uint32 vni = 3;
-}
-message MigrateVPCResponse{}
 
 message Range {
     string start = 1;

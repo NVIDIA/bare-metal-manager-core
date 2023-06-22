@@ -35,7 +35,6 @@ pub mod resource_record;
 pub mod tags;
 pub mod tenant;
 pub mod vpc;
-pub mod vpc_resource_leaf;
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};

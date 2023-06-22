@@ -23,6 +23,7 @@ use crate::{
 // Max values we can bind to a Postgres SQL statement;
 const BIND_LIMIT: usize = 65535;
 
+#[derive(Debug)]
 pub struct DbResourcePool<T>
 where
     T: ToString + FromStr + Send + Sync + 'static,

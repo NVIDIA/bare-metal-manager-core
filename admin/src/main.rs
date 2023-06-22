@@ -19,8 +19,8 @@ use ::rpc::{
     MachineId,
 };
 use cfg::carbide_options::{
-    CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, MigrateAction,
-    NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
+    CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, NetworkCommand,
+    NetworkSegment, OutputFormat, ResourcePool,
 };
 use prettytable::{row, Table};
 use serde::Deserialize;
@@ -31,7 +31,6 @@ mod domain;
 mod instance;
 mod machine;
 mod managed_host;
-mod migrate;
 mod network;
 mod redfish;
 mod resource_pool;
@@ -359,9 +358,7 @@ async fn main() -> color_eyre::Result<()> {
                 resource_pool::list(api_config).await?;
             }
         },
-        CarbideCommand::Migrate(migration) => match migration {
-            MigrateAction::Vpc => migrate::vpc(api_config).await?,
-        },
+        CarbideCommand::Migrate(_migration) => panic!("Placeholder. Migrations come and go."),
         CarbideCommand::Redfish(_) => {
             // Handled earlier
             unreachable!();

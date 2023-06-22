@@ -82,14 +82,6 @@ impl InterfaceFunctionId {
         })
     }
 
-    // Returns String that will be used to represent FunctionId in kubernetes.
-    pub fn kube_representation(&self) -> String {
-        match self {
-            InterfaceFunctionId::Physical {} => "pf".to_string(),
-            InterfaceFunctionId::Virtual { id } => format!("vf-{}", id),
-        }
-    }
-
     /// Returns whether ID refers to a physical or virtual function
     pub fn function_type(&self) -> InterfaceFunctionType {
         match self {

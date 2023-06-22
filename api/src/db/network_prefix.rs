@@ -192,7 +192,6 @@ impl NetworkPrefix {
                 .bind(prefix.prefix)
                 .bind(prefix.gateway)
                 .bind(prefix.num_reserved)
-                // new eth virt sets it now. old VPC sets later in update_circuit_id
                 .bind(vlan_id.map(|v| format!("vlan{v}")))
                 .fetch_one(&mut *inner_transaction)
                 .await
@@ -207,23 +206,6 @@ impl NetworkPrefix {
             .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
 
         Ok(inserted_prefixes)
-    }
-
-    // Only used by old VPC. New code writes the circuit_id in original INSERT.
-    pub async fn update_circuit_id(
-        txn: &mut Transaction<'_, Postgres>,
-        segment_id: uuid::Uuid,
-        dhcp_circuit_id: String,
-    ) -> Result<(), DatabaseError> {
-        let query = "UPDATE network_prefixes set circuit_id=$1 WHERE id=$2 RETURNING segment_id";
-        let _: (uuid::Uuid,) = sqlx::query_as(query)
-            .bind(dhcp_circuit_id)
-            .bind(segment_id)
-            .fetch_one(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
     }
 
     pub async fn delete_for_segment(

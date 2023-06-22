@@ -28,9 +28,7 @@ DISCOVERY_MODE=$4
 DPU_INFO=$(grpcurl -d "{\"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines)
 DPU_MACHINE_ID=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].machineId.id")
 DPU_INTERFACE_ID=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].id.value")
-DPU_INTERFACE_ADDR=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].address[0]")
-DPU_INTERFACE_ADDR=${DPU_INTERFACE_ADDR%/*}
-echo "DPU INFO: ${DPU_MACHINE_ID} ${DPU_INTERFACE_ID} ${DPU_INTERFACE_ADDR}"
+echo "DPU INFO: ${DPU_MACHINE_ID} ${DPU_INTERFACE_ID}"
 
 HBN_ROOT=$(cat /tmp/hbn_root)
 DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"

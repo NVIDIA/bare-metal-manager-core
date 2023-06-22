@@ -61,11 +61,6 @@ pub struct Machine {
     /// all machines managed by this instance of carbide.
     id: MachineId,
 
-    /// References the entry in the vpc_resource_leafs table
-    ///
-    /// This is a MachineId, because the table is indexed by the MachineId of the DPU
-    vpc_leaf_id: Option<MachineId>,
-
     /// When this machine record was created
     created: DateTime<Utc>,
 
@@ -122,8 +117,6 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let stable_string: String = row.try_get("id")?;
         let id = MachineId::from_str(&stable_string).unwrap();
 
-        let vpc_leaf_id: Option<DbMachineId> = row.try_get("vpc_leaf_id")?;
-
         let network_config_version_str: &str = row.try_get("network_config_version")?;
         let network_config_version = network_config_version_str
             .parse()
@@ -137,7 +130,6 @@ impl<'r> FromRow<'r, PgRow> for Machine {
 
         Ok(Machine {
             id,
-            vpc_leaf_id: vpc_leaf_id.map(|id| id.0),
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deployed: row.try_get("deployed")?,
@@ -392,20 +384,6 @@ impl Machine {
         }
     }
 
-    pub async fn associate_vpc_leaf_id(
-        txn: &mut Transaction<'_, Postgres>,
-        machine_id: &MachineId,
-        vpc_leaf_id: &MachineId,
-    ) -> Result<Machine, DatabaseError> {
-        let query = "UPDATE machines SET vpc_leaf_id=$1 where id=$2 RETURNING *";
-        sqlx::query_as(query)
-            .bind(vpc_leaf_id.to_string())
-            .bind(machine_id.to_string())
-            .fetch_one(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
     pub async fn find_one(
         txn: &mut Transaction<'_, Postgres>,
         id: &MachineId,
@@ -475,10 +453,6 @@ SELECT m.id FROM
     /// Includes the admin interface.
     pub fn interfaces(&self) -> &Vec<MachineInterface> {
         &self.interfaces
-    }
-
-    pub fn vpc_leaf_id(&self) -> &Option<MachineId> {
-        &self.vpc_leaf_id
     }
 
     /// Return the current state of the machine.

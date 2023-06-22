@@ -17,7 +17,6 @@ use opentelemetry::metrics::Meter;
 use crate::{
     db::DatabaseError,
     ib::IBFabricManager,
-    kubernetes::{VpcApi, VpcApiError},
     model::machine::{machine_id::MachineId, ManagedHostState},
     redfish::RedfishClientPool,
     resource_pool::{DbResourcePool, ResourcePoolError},
@@ -29,11 +28,7 @@ pub struct StateHandlerServices {
     /// A database connection pool that can be used for additional queries
     pub pool: sqlx::PgPool,
 
-    /// API for interaction with Forge VPC
-    /// None if we are using Ethernet Virtualizer instead (carbide-api flag `--manage-vpc`)
-    pub vpc_api: Option<Arc<dyn VpcApi>>,
-
-    /// API for interaction with Forge VPC
+    /// API for interaction with Forge
     pub forge_api: Arc<dyn rpc::forge::forge_server::Forge>,
 
     /// API for interaction with Libredfish
@@ -41,14 +36,6 @@ pub struct StateHandlerServices {
 
     // Reachability params to check if DPU is up or not.
     pub reachability_params: ReachabilityParams,
-
-    /// Resource pool for VNI (VXLAN ID) allocate/release
-    /// None if VPC is managing this data
-    pub pool_vlan_id: Option<Arc<DbResourcePool<i16>>>,
-
-    /// Resource pool for VLAN ID alllocate/release
-    /// None if VPC is managing this data
-    pub pool_vni: Option<Arc<DbResourcePool<i32>>>,
 
     /// Meter for emitting metrics
     pub meter: Option<Meter>,
@@ -160,8 +147,6 @@ pub enum StateHandlerError {
     LoadSnapshotError(#[from] SnapshotLoaderError),
     #[error("Unable to perform database transaction: {0}")]
     TransactionError(#[from] sqlx::Error),
-    #[error("Failed interaction with VPC: {0}")]
-    VpcApiError(#[from] VpcApiError),
     #[error("Machine not found: {0}")]
     MachineNotFoundError(MachineId),
     // TODO: This should be replaced - but requires downstream errors to migrate
@@ -197,7 +182,6 @@ impl StateHandlerError {
         match self {
             StateHandlerError::LoadSnapshotError(_) => "load_snapshot_error",
             StateHandlerError::TransactionError(_) => "transaction_error",
-            StateHandlerError::VpcApiError(_) => "vpc_api_error",
             StateHandlerError::MachineNotFoundError(_) => "machine_not_found_error",
             StateHandlerError::GenericError(_) => "generic_error",
             StateHandlerError::MissingData { .. } => "missing_data",

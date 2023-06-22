@@ -70,8 +70,6 @@ pub struct NetworkSegment {
     pub deleted: Option<DateTime<Utc>>,
 
     pub prefixes: Vec<NetworkPrefix>,
-    /// Whether VPC had been configured on all prefixes
-    pub resource_groups_created: bool,
     /// History of state changes.
     pub history: Vec<NetworkSegmentStateHistory>,
 
@@ -168,7 +166,6 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             deleted: row.try_get("deleted")?,
             mtu: row.try_get("mtu")?,
             prefixes: Vec::new(),
-            resource_groups_created: false,
             history: Vec::new(),
             vlan_id: row.try_get("vlan_id").unwrap_or_default(),
             vni: row.try_get("vni_id").unwrap_or_default(),
@@ -238,8 +235,8 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
 impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
     type Error = CarbideError;
     fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
-        // Note that even thought the segment might already be ready in terms
-        // of `resource_groups_created == true`, we only return `Ready` after
+        // Note that even thought the segment might already be ready,
+        // we only return `Ready` after
         // the state machine also noticed that. Otherwise we would need to also
         // allow address allocation before the controller state is ready, which
         // spreads out the state mismatch to a lot more places.
@@ -320,7 +317,6 @@ impl NewNetworkSegment {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         segment.prefixes =
             NetworkPrefix::create_for(txn, &segment.id, self.vlan_id, &self.prefixes).await?;
-        segment.update_prefix_state(&mut *txn).await?;
 
         NetworkSegmentStateHistory::persist(txn, segment.id, &controller_state, version).await?;
 
@@ -373,7 +369,6 @@ impl NetworkSegment {
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
                     })?;
-                segment.update_prefix_state(&mut *txn).await?;
 
                 Ok(Some(segment))
             }
@@ -464,7 +459,6 @@ impl NetworkSegment {
             } else {
                 tracing::warn!("Network {0} ({1}) has no prefixes?", record.id, record.name);
             }
-            record.update_prefix_state(&mut *txn).await?;
 
             if search_config.include_history {
                 if let Some(history) = state_history.remove(&record.id) {
@@ -523,19 +517,6 @@ impl NetworkSegment {
 
     pub fn id(&self) -> &uuid::Uuid {
         &self.id
-    }
-
-    pub async fn update_prefix_state(
-        &mut self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
-        let prefixes =
-            NetworkPrefix::find_by_segment(&mut *txn, UuidKeyedObjectFilter::One(self.id)).await?;
-        let prefixes = prefixes.iter().filter(|x| x.prefix.is_ipv4()).collect_vec();
-
-        self.resource_groups_created = !prefixes.iter().any(|x| x.circuit_id.is_none());
-
-        Ok(())
     }
 
     pub async fn mark_as_deleted(
@@ -599,7 +580,7 @@ UPDATE network_segments
 SET name=$1, subdomain_id=$2, vpc_id=$3, mtu=$4, vlan_id=$5, vni_id=$6, updated=NOW()
 WHERE id=$7
 RETURNING *";
-        let mut segment: NetworkSegment = sqlx::query_as(query)
+        let segment: NetworkSegment = sqlx::query_as(query)
             .bind(&self.name)
             .bind(self.subdomain_id)
             .bind(self.vpc_id)
@@ -610,8 +591,6 @@ RETURNING *";
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        segment.update_prefix_state(&mut *txn).await?;
 
         Ok(segment)
     }

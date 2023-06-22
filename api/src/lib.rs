@@ -12,10 +12,7 @@
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::net::IpAddr;
 
-#[cfg(test)]
-use ::rstest_reuse;
 use dhcp::allocation::DhcpError;
-use kubernetes::VpcApiError;
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfoError;
 use model::machine::machine_id::MachineId;
@@ -38,13 +35,11 @@ mod human_hash;
 pub mod ib;
 pub mod instance;
 mod ipxe;
-pub mod kubernetes;
 pub mod logging;
 pub mod model;
 pub mod redfish;
 pub mod resource_pool;
 pub mod state_controller;
-pub mod vpc_resources;
 
 /// Represents various Errors that can occur throughout the system.
 ///
@@ -173,12 +168,6 @@ pub enum CarbideError {
 
     #[error("Error in DHCP allocation/handling: {0}")]
     DhcpError(#[from] DhcpError),
-
-    #[error("More than one leaf exist referring to the same loopback IP: {0}")]
-    DuplicateLoopbackIPError(IpAddr),
-
-    #[error("Failed interaction with VPC: {0}")]
-    VpcApiError(#[from] VpcApiError),
 
     #[error("Error in libredfish: {0}")]
     RedfishError(#[from] libredfish::RedfishError),

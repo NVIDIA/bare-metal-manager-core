@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{net::Ipv4Addr, sync::Arc};
-
 pub use ::rpc::forge as rpc;
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
@@ -24,33 +22,13 @@ use crate::{
         UuidKeyedObjectFilter,
     },
     model::{instance::config::network::InstanceInterfaceConfig, machine::machine_id::MachineId},
-    resource_pool::{self, common::CommonPools},
     CarbideError,
 };
 
 #[derive(Default, Clone)]
 pub struct EthVirtData {
-    // true if carbide API owns VPC data
-    pub is_enabled: bool,
     pub asn: u32,
     pub dhcp_servers: Vec<String>,
-    pub pool_loopback_ip: Option<Arc<resource_pool::DbResourcePool<Ipv4Addr>>>,
-    pub pool_vlan_id: Option<Arc<resource_pool::DbResourcePool<i16>>>,
-    pub pool_vni: Option<Arc<resource_pool::DbResourcePool<i32>>>,
-}
-
-/// Create ethernet virtualization resource pools (for loopback IP, VNI, etc) and
-/// start background task to provide OpenTelemetry metrics.
-///
-/// Pools must also be created in the database: `forge-admin-cli resource-pool define`
-pub fn enable(pools: &CommonPools) -> EthVirtData {
-    EthVirtData {
-        is_enabled: true,
-        pool_loopback_ip: Some(pools.ethernet.pool_loopback_ip.clone()),
-        pool_vlan_id: Some(pools.ethernet.pool_vlan_id.clone()),
-        pool_vni: Some(pools.ethernet.pool_vni.clone()),
-        ..Default::default()
-    }
 }
 
 pub async fn admin_network(

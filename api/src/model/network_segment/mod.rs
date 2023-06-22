@@ -17,14 +17,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum NetworkSegmentControllerState {
-    /// The network segment is in provisioning state until all prefixes have
-    /// been created on VPC.
     Provisioning,
     /// The network segment is ready. Instances can be created
     Ready,
-    /// The network segment is in the process of deleting.
-    /// This includes waiting for a grace period, and then deleting the associated
-    /// ResourceGroup CRDs.
+    /// The network segment is in the process of being deleted.
     Deleting {
         deletion_state: NetworkSegmentDeletionState,
     },
@@ -42,10 +38,9 @@ pub enum NetworkSegmentDeletionState {
         /// assuming no IPs are detected to be in use until then.
         delete_at: DateTime<Utc>,
     },
-    /// In this state we delete ResourceGroups on VPC
-    /// Once all resourcegroups have been deleted, the prefixes and networksegment
-    /// can be deleted. Therefore this is the final state.
-    DeleteVPCResourceGroups,
+    /// In this state we release the VNI and VLAN ID allocations and delete the segment from the
+    /// database. This is the final state.
+    DBDelete,
 }
 
 #[cfg(test)]

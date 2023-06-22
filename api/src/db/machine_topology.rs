@@ -19,8 +19,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
-use crate::db::machine::{DbMachineId, Machine};
-use crate::db::vpc_resource_leaf::NewVpcResourceLeaf;
+use crate::db::machine::DbMachineId;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::{hardware_info::HardwareInfo, machine::machine_id::MachineId};
 use crate::{CarbideError, CarbideResult};
@@ -130,22 +129,6 @@ impl MachineTopology {
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
-        if machine_id.machine_type().is_dpu() {
-            // TODO old VPC, remove once it's replaced
-            let new_leaf = NewVpcResourceLeaf::new(machine_id.clone())
-                .persist(&mut *txn)
-                .await?;
-            tracing::info!(
-                "Discovered Machine {} is a DPU. Generating new leaf id {}",
-                machine_id,
-                new_leaf.id()
-            );
-            assert_eq!(new_leaf.id(), machine_id);
-
-            // TODO 2: This might no longer be needed, since we already have
-            // a similar relation via attached_dpu_id
-            let _ = Machine::associate_vpc_leaf_id(&mut *txn, machine_id, new_leaf.id()).await?;
-        }
         Ok(Some(res))
     }
     pub async fn find_by_machine_ids(

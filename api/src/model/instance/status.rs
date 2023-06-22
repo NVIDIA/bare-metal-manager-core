@@ -69,7 +69,7 @@ impl InstanceStatus {
                     tenant::TenantState::Provisioning
                 }
                 InstanceState::Ready => tenant::TenantState::Ready,
-                InstanceState::DeletingManagedResource
+                InstanceState::SwitchToAdminNetwork
                 | InstanceState::BootingWithDiscoveryImage
                 | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
             },
