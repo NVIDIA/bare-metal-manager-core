@@ -629,6 +629,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "base64 0.13.1",
+ "bmc-mock",
  "casbin",
  "chrono",
  "clap 4.2.1",

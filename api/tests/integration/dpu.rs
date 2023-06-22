@@ -14,25 +14,22 @@ use std::{collections::HashMap, fs, path, process, thread, time};
 
 use serde::{Deserialize, Serialize};
 
-const DPU_CONFIG_FILE: &str = "/tmp/forge-dpu-agent-sim-config.toml";
-const DPU_CONFIG: &str = r#"
-[forge-system]
-api-server = "https://127.0.0.1:1079"
-pxe-server = "http://127.0.0.1:8080"
-root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
+use crate::grpcurl::{grpcurl, grpcurl_id, Id, IdValue, Value};
 
-[machine]
-interface-id = "$MACHINE_INTERFACE_ID"
-mac-address = "11:22:33:44:55:66"
-hostname = "abc.forge.com"
-"#;
+pub struct Info {
+    pub hbn_root: path::PathBuf,
+    pub machine_id: String,
+    pub interface_id: String,
+    pub interface_addr: ipnetwork::Ipv4Network,
+    pub segment_id: String,
+}
 
 pub fn bootstrap(
     root_dir: &path::Path,
-    bins: HashMap<String, path::PathBuf>,
-) -> eyre::Result<path::PathBuf> {
-    let (_vpc_id, _domain_id, _segment_id) = basic(root_dir, bins.get("forge-admin-cli").unwrap())?;
-    let (interface_id, dpu_machine_id) = discover()?;
+    bins: &HashMap<String, path::PathBuf>,
+) -> eyre::Result<Info> {
+    let (_vpc_id, _domain_id, segment_id) = basic(root_dir, bins.get("forge-admin-cli").unwrap())?;
+    let (interface_id, dpu_machine_id, ip_address) = discover()?;
     let hbn_root = configure_network(
         root_dir,
         bins.get("forge-dpu-agent").unwrap(),
@@ -40,7 +37,14 @@ pub fn bootstrap(
         &dpu_machine_id,
     )?;
 
-    Ok(hbn_root)
+    let dpu = Info {
+        hbn_root,
+        machine_id: dpu_machine_id,
+        interface_id,
+        interface_addr: ip_address,
+        segment_id,
+    };
+    Ok(dpu)
 }
 
 fn basic(
@@ -57,8 +61,8 @@ fn basic(
     Ok((vpc_id, domain_id, segment_id))
 }
 
-fn discover() -> eyre::Result<(String, String)> {
-    let interface_id = discover_dhcp()?;
+fn discover() -> eyre::Result<(String, String, ipnetwork::Ipv4Network)> {
+    let (interface_id, ip_address) = discover_dhcp()?;
     tracing::info!("Created Machine Interface with ID {interface_id}");
     let dpu_machine_id = discover_dpu(&interface_id)?;
     tracing::info!("Created DPU Machine with ID {dpu_machine_id}");
@@ -77,7 +81,7 @@ fn discover() -> eyre::Result<(String, String)> {
     )?;
     tracing::info!("Created 'forge' DPU SSH account");
 
-    Ok((interface_id, dpu_machine_id))
+    Ok((interface_id, dpu_machine_id, ip_address))
 }
 
 fn configure_network(
@@ -87,7 +91,7 @@ fn configure_network(
     dpu_machine_id: &str,
 ) -> eyre::Result<path::PathBuf> {
     let hbn_root = make_dpu_filesystem(root_dir, interface_id)?;
-    super::forge_dpu_agent::run(forge_dpu_agent, DPU_CONFIG_FILE, &hbn_root, dpu_machine_id)?;
+    crate::forge_dpu_agent::run(forge_dpu_agent, &hbn_root, dpu_machine_id)?;
     wait_for_dpu_up(dpu_machine_id)?;
     tracing::info!("DPU is up now.");
     Ok(hbn_root)
@@ -117,6 +121,7 @@ fn wait_for_dpu_up(dpu_machine_id: &str) -> eyre::Result<()> {
         "id": {"id": dpu_machine_id},
         "search_config": {"include_dpus": true}
     });
+    tracing::info!("Waiting for DPU state Host/WaitingForDiscovery");
     loop {
         let response = grpcurl("FindMachines", &data.to_string())?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
@@ -124,7 +129,7 @@ fn wait_for_dpu_up(dpu_machine_id: &str) -> eyre::Result<()> {
         if state == "Host/WaitingForDiscovery" {
             break;
         }
-        tracing::info!("Waiting for DPU state Host/WaitingForDiscovery. Current: {state}.");
+        tracing::debug!("\tCurrent: {state}");
         thread::sleep(time::Duration::from_secs(1));
     }
     Ok(())
@@ -143,10 +148,7 @@ fn make_dpu_filesystem(
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
 
-    let cfg = DPU_CONFIG
-        .replace("$MACHINE_INTERFACE_ID", machine_interface_id)
-        .replace("$ROOT_DIR", &root_dir.display().to_string());
-    fs::write(DPU_CONFIG_FILE, cfg)?;
+    crate::forge_dpu_agent::write_config(root_dir, machine_interface_id)?;
     Ok(hbn_root)
 }
 
@@ -164,14 +166,15 @@ fn discover_dpu(interface_id: &str) -> eyre::Result<String> {
     Ok(dpu_machine_id)
 }
 
-fn discover_dhcp() -> eyre::Result<String> {
+fn discover_dhcp() -> eyre::Result<(String, ipnetwork::Ipv4Network)> {
     let response = grpcurl(
         "DiscoverDhcp",
         include_str!("../../../dev/docker-env/dpu_dhcp_discovery.json"),
     )?;
     let v: serde_json::Value = serde_json::from_str(&response)?;
-    let interface_id = &v["machineInterfaceId"]["value"];
-    Ok(interface_id.as_str().unwrap().to_string())
+    let interface_id = v["machineInterfaceId"]["value"].as_str().unwrap();
+    let ip_address = v["address"].as_str().unwrap().parse()?;
+    Ok((interface_id.to_string(), ip_address))
 }
 
 fn create_segment(vpc_id: &str, domain_id: &str) -> eyre::Result<String> {
@@ -195,35 +198,6 @@ fn create_segment(vpc_id: &str, domain_id: &str) -> eyre::Result<String> {
     })
     .unwrap();
     grpcurl_id("CreateNetworkSegment", &segment_data)
-}
-
-// grpcurl then extra id from response and return that
-fn grpcurl_id(endpoint: &str, data: &str) -> eyre::Result<String> {
-    let response = grpcurl(endpoint, data)?;
-    let resp: IdValue = serde_json::from_str(&response)?;
-    Ok(resp.id.value)
-}
-
-fn grpcurl(endpoint: &str, data: &str) -> eyre::Result<String> {
-    // We don't pass the full path to grpcurl here and rely on the fact
-    // that `Command` searches the PATH. This makes function signatures tidier.
-    let out = process::Command::new("grpcurl")
-        .arg("-d")
-        .arg(data)
-        .arg("-insecure")
-        .arg("127.0.0.1:1079")
-        .arg(format!("forge.Forge/{endpoint}"))
-        .output()?;
-    let response = String::from_utf8_lossy(&out.stdout);
-    if !out.status.success() {
-        tracing::error!("grpcurl {endpoint} STDOUT: {response}");
-        tracing::error!(
-            "grpcurl {endpoint} STDERR: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        eyre::bail!("grpcurl {endpoint} exit status code {}", out.status);
-    }
-    Ok(response.to_string())
 }
 
 fn create_resource_pools(root_dir: &path::Path, forge_admin_cli: &path::Path) -> eyre::Result<()> {
@@ -285,19 +259,4 @@ struct SegmentPrefix {
     prefix: String,
     gateway: String,
     reserve_first: usize,
-}
-
-#[derive(Serialize, Deserialize)]
-struct IdValue {
-    id: Value,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Value {
-    value: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Id {
-    id: String,
 }
