@@ -1,6 +1,6 @@
 {
   "machine_interface_id": {
-    "value": ""
+    "value": "$MACHINE_INTERFACE_ID"
   },
   "info": {
     "cpus": [

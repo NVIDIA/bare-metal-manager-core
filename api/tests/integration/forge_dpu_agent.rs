@@ -10,17 +10,37 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{path, process};
+use std::{fs, io, path, process};
+
+const DPU_CONFIG_FILE: &str = "/tmp/forge-dpu-agent-sim-config.toml";
+const DPU_CONFIG: &str = r#"
+[forge-system]
+api-server = "https://127.0.0.1:1079"
+pxe-server = "http://127.0.0.1:8080"
+root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
+
+[machine]
+interface-id = "$MACHINE_INTERFACE_ID"
+mac-address = "11:22:33:44:55:66"
+hostname = "abc.forge.example.com"
+"#;
+
+// Must be called before 'run'
+pub fn write_config(root_dir: &path::Path, machine_interface_id: &str) -> io::Result<()> {
+    let cfg = DPU_CONFIG
+        .replace("$MACHINE_INTERFACE_ID", machine_interface_id)
+        .replace("$ROOT_DIR", &root_dir.display().to_string());
+    fs::write(DPU_CONFIG_FILE, cfg)
+}
 
 pub fn run(
     forge_dpu_agent: &path::Path,
-    cfg_path: &str,
     hbn_root: &path::Path,
     dpu_machine_id: &str,
 ) -> eyre::Result<()> {
     let out = process::Command::new(forge_dpu_agent)
         .arg("--config-path")
-        .arg(cfg_path)
+        .arg(DPU_CONFIG_FILE)
         .arg("netconf")
         .arg("--dpu-machine-id")
         .arg(dpu_machine_id)

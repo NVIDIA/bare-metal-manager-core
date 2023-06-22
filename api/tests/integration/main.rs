@@ -15,11 +15,15 @@ use std::{collections::HashMap, env, fs, path, thread, time};
 use sqlx::migrate::MigrateDatabase;
 
 mod api_server;
-mod bootstrap;
 #[path = "../common/mod.rs"]
 mod common;
+mod dpu;
 pub mod forge_dpu_agent;
+pub mod grpcurl;
+mod host;
+mod instance;
 mod vault;
+use grpcurl::grpcurl;
 
 #[ctor::ctor]
 fn setup() {
@@ -53,9 +57,11 @@ async fn test_integration() -> eyre::Result<()> {
     sqlx::Postgres::create_database(&db_url).await?;
     let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&db_url).await?;
     let m = sqlx::migrate!();
-    m.run(&db_pool).await?;
 
+    // Dependencies: Postgres, Vault and a Redfish BMC
+    m.run(&db_pool).await?;
     let vault = vault::start(bins.get("vault").unwrap())?;
+    tokio::spawn(bmc_mock::run(bmc_mock::BmcState { use_qemu: false }));
 
     let api = api_server::start(
         &root_dir,
@@ -66,11 +72,84 @@ async fn test_integration() -> eyre::Result<()> {
     thread::sleep(time::Duration::from_millis(500));
     assert!(api.has_started(), "carbide-api failed to start");
 
-    let hbn_root = bootstrap::bootstrap(&root_dir, bins)?;
+    let dpu_info = dpu::bootstrap(&root_dir, &bins)?;
+    host_boostrap(db_pool, bins.get("forge-dpu-agent").unwrap(), &dpu_info).await?;
+
+    //let host_machine_id = find_host_machine_id()?;
+    //instance::create(&host_machine_id, &segment_id)?;
 
     thread::sleep(time::Duration::from_millis(500));
-    fs::remove_dir_all(hbn_root)?;
+    fs::remove_dir_all(dpu_info.hbn_root)?;
     Ok(())
+}
+
+async fn host_boostrap(
+    db_pool: sqlx::Pool<sqlx::Postgres>,
+    forge_dpu_agent: &path::Path,
+    dpu_info: &dpu::Info,
+) -> eyre::Result<()> {
+    let host_machine_id = host::bootstrap()?;
+
+    let mut txn = db_pool.begin().await?;
+    let query = format!(
+        "UPDATE machine_interface_addresses
+        SET address='127.0.0.2'
+        WHERE interface_id='{}'
+    ",
+        dpu_info.interface_id
+    );
+    sqlx::query(&query).execute(&mut txn).await?;
+    txn.commit().await?;
+
+    // Wait until carbide-api is prepared to admit the DPU might have rebooted.
+    // There are hard coded sleeps in carbide-api before this happens.
+    host::wait_for_state(&host_machine_id, "WaitForDPUUp")?;
+
+    // After DPU reboot forge_dpu_agent reports health to carbide-api, triggering state transition
+    crate::forge_dpu_agent::run(forge_dpu_agent, &dpu_info.hbn_root, &dpu_info.machine_id)?;
+
+    host::wait_for_state(&host_machine_id, "Host/Discovered")?;
+
+    let mut txn = db_pool.begin().await?;
+    let query = format!(
+        "UPDATE machine_interface_addresses
+        SET address='{}'
+        WHERE interface_id='{}'
+    ",
+        dpu_info.interface_addr.ip(),
+        dpu_info.interface_id
+    );
+    sqlx::query(&query).execute(&mut txn).await?;
+    txn.commit().await?;
+
+    grpcurl(
+        "ForgeAgentControl",
+        &serde_json::json!({
+            "machine_id": {"id": host_machine_id}
+        })
+        .to_string(),
+    )?;
+    host::wait_for_state(&host_machine_id, "Ready")?;
+    tracing::info!("ManagedHost is up in Ready state.");
+    Ok(())
+}
+
+fn _find_host_machine_id() -> eyre::Result<String> {
+    let response = grpcurl("FindMachines", "{}")?;
+    tracing::info!("FindMachines");
+    tracing::info!(response);
+    let resp: serde_json::Value = serde_json::from_str(&response)?;
+    for machine in resp["machines"].as_array().unwrap() {
+        // there will be two: a Host and a DPU
+        let if0 = &machine["interfaces"][0];
+        let machine_id = &if0["machineId"]["id"];
+        if if0["attachedDpuMachineId"]["id"] != *machine_id {
+            return Ok(machine_id.as_str().unwrap().to_string());
+        }
+    }
+    Err(eyre::eyre!(
+        "Could not find Host in FindMachines reponse: {resp}"
+    ))
 }
 
 fn find_prerequisites(root_dir: &path::Path) -> (HashMap<String, path::PathBuf>, bool) {
