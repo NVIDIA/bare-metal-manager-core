@@ -113,7 +113,6 @@ then
 
   ${REPO_ROOT}/dev/bin/discover_dpu.sh $API_SERVER_HOST $API_SERVER_PORT ${DATA_PATH}
 
-  ${REPO_ROOT}/dev/bin/psql.sh "UPDATE vpc_resource_leafs SET loopback_ip_address='${RELAY_ADDRESS}';"
 else
   echo "$DPU_COUNT DPUs exist. skipping"
 fi

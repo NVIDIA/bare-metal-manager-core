@@ -16,7 +16,6 @@ DELETE FROM machine_interface_addresses;
 DELETE FROM machine_interfaces;
 DELETE FROM machine_state_history;
 DELETE FROM machines;
-DELETE FROM vpc_resource_leafs;
 DELETE FROM network_prefixes;
 DELETE FROM network_segment_state_history;
 DELETE FROM network_segments;
