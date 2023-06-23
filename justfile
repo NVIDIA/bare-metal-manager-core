@@ -1,11 +1,11 @@
 #set shell := ["bash", "-uc"]
-export DOCKER_BUILDKIT := "1" 
+export DOCKER_BUILDKIT := "1"
 
 components_dir := "api pxe dns dhcp dev/bmc-mock"
 components_name := "carbide-api carbide-pxe carbide-dns dhcp scout bmc-mock"
 
 # Start cargo-watch for components "{{components}}"
-watch:
+watch: check
   ln -sf $FORGED_DIRECTORY . && mkdir -p .skaffold/cache && mkdir -p .skaffold/target && parallel --link  -j+0 --tty --tag cargo --color=always watch --why -C {1} -s \"${REPO_ROOT}/.skaffold/build {2}\" ::: {{components_dir}} ::: {{components_name}}
 
 _dockerbuild NAME FILE CONTEXT=(invocation_directory()):
@@ -19,3 +19,16 @@ build-container-minikube: build-container (_dockerbuild "registry.minikube/build
 
 # Build the runtime-container for minikube development. This gets used for deploying forge containers
 runtime-container-minikube: (_dockerbuild "registry.minikube/runtime-container:latest" "dev/deployment/localdev/Dockerfile.runtime-container.localdev")
+
+check-binaries-in-path:
+  @which paralllel 2>&1 &>/dev/null || (echo "parallel not found" && exit 1)
+  @which skaffold 2>&1 &>/dev/null || (echo "skaffold not found" && exit 1)
+  @echo "checked binaries, OK"
+
+check-envs:
+  @TMP_UNUSED_VAR=$FORGED_DIRECTORY
+  @echo "checked environment variables, OK"
+
+check:
+  @just -f {{justfile()}} check-binaries-in-path
+  @just -f {{justfile()}} check-envs
