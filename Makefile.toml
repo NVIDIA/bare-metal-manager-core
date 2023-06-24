@@ -34,6 +34,8 @@ args = ['-c', "${DATABASE_URL}", '-s', 'public', '--useAllTables', '--showAllCon
 # docker run --rm -u `id -u`:`id -g` -v /home/graham/src/carbide/book/src/development:/data minlag/mermaid-cli -i schema.md
 # Copy it's output to `schema.svg`
 # (I had to edit _sqlx_migrations table, it doesn't like the underscore)
+# Add to top of schema.md:
+#  [View SVG](schema.svg)
 
 [tasks.build-cli-ci]
 category = "Build"
