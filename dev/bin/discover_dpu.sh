@@ -8,18 +8,17 @@ set -eo pipefail
 # `discover_dpu.sh` again
 
 MAX_RETRY=10
-if [ $# -ne 3 ]; then
+if [ $# -ne 1 ]; then
   echo
-  echo "Must provide api_server_host, api_server_port and data directory as positional arguments"
+  echo "Must provide data directory as positional argument"
   echo
-  echo "    $0" '<api_server_host> <api_server_port> <data_dir>'
+  echo "    $0" '<data_dir>'
   echo
   exit 1
 fi
 
-API_SERVER_HOST=$1
-API_SERVER_PORT=$2
-DATA_DIR=$3
+DATA_DIR=$1
+source $DATA_DIR/envrc
 
 DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"
 
@@ -61,9 +60,9 @@ mkdir -p ${HBN_ROOT}/etc/supervisor/conf.d
 
 cat <<!> $DPU_CONFIG_FILE
 [forge-system]
-api-server = "https://127.0.0.1:1079"
-pxe-server = "http://127.0.0.1:8080"
-root-ca = "./dev/certs/forge_root.pem"
+api-server = "https://$API_SERVER_HOST:$API_SERVER_PORT"
+pxe-server = "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT"
+root-ca = "./dev/certs/forge_developer_local_only_root_cert_pem"
 
 [machine]
 interface-id = "$MACHINE_INTERFACE_ID"

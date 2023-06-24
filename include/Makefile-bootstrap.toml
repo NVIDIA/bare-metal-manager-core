@@ -111,8 +111,7 @@ then
   RELAY_ADDRESS=$(jq '.relay_address' $DATA_PATH/host_dhcp_discovery.json | tr -d '"')
   echo Relay address: $RELAY_ADDRESS
 
-  ${REPO_ROOT}/dev/bin/discover_dpu.sh $API_SERVER_HOST $API_SERVER_PORT ${DATA_PATH}
-
+  ${REPO_ROOT}/dev/bin/discover_dpu.sh ${DATA_PATH}
 else
   echo "$DPU_COUNT DPUs exist. skipping"
 fi
