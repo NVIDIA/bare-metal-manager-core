@@ -67,6 +67,7 @@ impl PxeInstructions {
         arch: rpc::MachineArchitecture,
         machine_interface_id: uuid::Uuid,
         mac_address: String,
+        console: &str,
     ) -> String {
         match arch {
             rpc::MachineArchitecture::Arm => {
@@ -79,7 +80,7 @@ impl PxeInstructions {
             rpc::MachineArchitecture::X86 => {
                 InstructionGenerator::X86 {
                         kernel: "${base-url}/internal/x86_64/carbide.efi".to_string(),
-                        command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console=ttyS0,115200 console=ttyS1,115200 ifname=bootnic:{mac} ip=bootnic:dhcp pci=realloc=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id, mac = mac_address),
+                        command_line: format!("root=live:${{base-url}}/internal/x86_64/carbide.root console=tty0 console={tty},115200 ifname=bootnic:{mac} ip=bootnic:dhcp pci=realloc=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id, mac = mac_address, tty = console),
                 }
             }
         }.serialize_pxe_instructions()
@@ -101,6 +102,7 @@ exit ||
             )
         };
 
+        let mut console = "ttyS0";
         let interface = MachineInterface::find_one(txn, interface_id).await?;
         let mac = interface.mac_address.to_string();
         let machine_id = match interface.machine_id {
@@ -109,6 +111,7 @@ exit ||
                     arch,
                     interface_id,
                     mac,
+                    console,
                 ));
             }
             Some(machine_id) => machine_id,
@@ -128,6 +131,14 @@ exit ||
             return Ok("exit 1".to_string());
         }
 
+        if let Some(hardware_info) = machine.hardware_info() {
+            if let Some(dmi_info) = hardware_info.dmi_data.as_ref() {
+                if dmi_info.sys_vendor == "Lenovo" {
+                    console = "ttyS1";
+                }
+            }
+        }
+
         let machine_snapshot = DbSnapshotLoader::default()
             .load_machine_snapshot(txn, machine.id())
             .await?;
@@ -136,7 +147,7 @@ exit ||
             ManagedHostState::Ready
             | ManagedHostState::HostNotReady { .. }
             | ManagedHostState::WaitingForCleanup { .. } => {
-                Self::get_pxe_instruction_for_arch(arch, interface_id, mac)
+                Self::get_pxe_instruction_for_arch(arch, interface_id, mac, console)
             }
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Ready => {
@@ -158,7 +169,7 @@ exit ||
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage => {
-                    PxeInstructions::get_pxe_instruction_for_arch(arch, interface_id, mac)
+                    PxeInstructions::get_pxe_instruction_for_arch(arch, interface_id, mac, console)
                 }
 
                 _ => error_instructions(&machine_snapshot.managed_state),
