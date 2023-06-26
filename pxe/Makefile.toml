@@ -485,33 +485,33 @@ cwd = "static/blobs/internal/aarch64"
 category = "iPXE Kernel"
 description = "Pacakge x86_64 EFI ipxe kernel and rootdisk"
 command = "docker"
-args = ["-t", "boot-artifacts-${FORGE_CA}-x86_64:${CI_BUILD_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
+args = ["-t", "boot-artifacts-${FORGE_CA}-x86_64:${CI_JOB_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
 
 [tasks.container-boot-artifacts-aarch64-ci]
 category = "iPXE Kernel"
 description = "Pacakge aarch64 EFI ipxe kernel and rootdisk"
 command = "docker"
-args = ["-t", "boot-artifacts-${FORGE_CA}-aarch64:${CI_BUILD_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
+args = ["-t", "boot-artifacts-${FORGE_CA}-aarch64:${CI_JOB_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
 
 [tasks.package-boot-artifacts-x86_64]
 category = "iPXE Kernel"
 description = "Package x86_64 EFI iPXE kernel and rootdisk"
 command = "tar"
-args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz", "ipxe.kpxe", "ipxe.efi", "carbide.root", "carbide.efi"]
+args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_JOB_ID}.tar.gz", "ipxe.kpxe", "ipxe.efi", "carbide.root", "carbide.efi"]
 cwd = "static/blobs/internal/x86_64"
 
 [tasks.package-boot-artifacts-aarch64]
 category = "iPXE Kernel"
 description = "Package aarch64 EFI iPXE kernel and rootdisk"
 command = "tar"
-args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz", "ipxe.efi", "carbide.root", "carbide.efi",]
+args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_JOB_ID}.tar.gz", "ipxe.efi", "carbide.root", "carbide.efi",]
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.upload-boot-artifacts-x86_64]
 category = "iPXE Kernel"
 description = "Upload x86_64 EFI iPXE kernel and rootdisk"
 command = "/usr/local/bin/jfrog"
-args = [ "rt", "u", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz", "swngc-ngcc-generic-local/nvmetal/boot-artifacts/x86_64/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz"]
+args = [ "rt", "u", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_JOB_ID}.tar.gz", "swngc-ngcc-generic-local/nvmetal/boot-artifacts/x86_64/forge-boot-artifacts-${CI_JOB_ID}.tar.gz"]
 dependencies = [
   "package-boot-artifacts-x86_64"
 ]
@@ -520,7 +520,7 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Upload aarch64 EFI iPXE kernel and rootdisk"
 command = "/usr/local/bin/jfrog"
-args = [ "rt", "u", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz", "swngc-ngcc-generic-local/nvmetal/boot-artifacts/aarch64/forge-boot-artifacts-${CI_BUILD_ID}.tar.gz"]
+args = [ "rt", "u", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_JOB_ID}.tar.gz", "swngc-ngcc-generic-local/nvmetal/boot-artifacts/aarch64/forge-boot-artifacts-${CI_JOB_ID}.tar.gz"]
 dependencies = [
   "package-boot-artifacts-aarch64"
 ]
