@@ -347,8 +347,6 @@ fn write<P: AsRef<Path>>(
                     fs::rename(path, path_tmp).wrap_err("rename path back to TMP")?;
                     if path_bak.exists() {
                         fs::rename(path_bak, path).wrap_err("rename revert from BAK")?;
-                    } else {
-                        fs::remove_file(path).wrap_err("remove_file on initial run")?;
                     }
                     return Err(err);
                 }
