@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use carbide::db::{machine::Machine, machine_state_history::MachineStateHistory};
+use carbide::model::config_version::ConfigVersion;
 use carbide::model::machine::{machine_id::try_parse_machine_id, ManagedHostState};
 
 mod common;
@@ -40,10 +41,9 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     assert_eq!(
         text_history(machine.history()),
         vec![
-            "dpunotready".to_string(),
-            "dpunotready".to_string(),
-            "hostnotready".to_string(),
-        ]
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"init\"}}",
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkconfig\"}}",
+            "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}"]
     );
 
     let machine = Machine::find_one(
@@ -86,7 +86,55 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-fn text_history(history: &Vec<MachineStateHistory>) -> Vec<String> {
+/// Check that we can handle old / unknown states in the history.
+/// This allows us to change MachineState enum.
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_old_machine_state_history(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
+
+    let mut txn = pool.begin().await?;
+
+    let version = ConfigVersion::initial();
+    let query =
+        "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2::jsonb, $3)";
+    sqlx::query(query)
+        .bind(dpu_machine_id.to_string())
+        .bind(r#"{"state": "dpunotready", "machine_state": {"state": "nolongerarealstate"}}"#)
+        .bind(version.to_string())
+        .execute(&mut *txn)
+        .await?;
+
+    let machine = Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        carbide::db::machine::MachineSearchConfig {
+            include_history: true,
+        },
+    )
+    .await?
+    .unwrap();
+
+    let mut states: Vec<&str> = Vec::with_capacity(machine.history().len());
+    for e in machine.history() {
+        states.push(e.state.as_ref());
+    }
+    assert_eq!(
+        states,
+        vec![
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"init\"}}",
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkconfig\"}}",
+            "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}",
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"nolongerarealstate\"}}",
+        ],
+    );
+
+    Ok(())
+}
+
+fn text_history(history: &Vec<MachineStateHistory>) -> Vec<&str> {
     // // Check that version numbers are always incrementing by 1
     if !history.is_empty() {
         let mut version = history[0].state_version.version_nr();
@@ -96,19 +144,9 @@ fn text_history(history: &Vec<MachineStateHistory>) -> Vec<String> {
         }
     }
 
-    history
-        .iter()
-        .map(|entry| {
-            match entry.state {
-                ManagedHostState::Created => "created",
-                ManagedHostState::DPUNotReady { .. } => "dpunotready",
-                ManagedHostState::HostNotReady { .. } => "hostnotready",
-                ManagedHostState::Ready => "ready",
-                ManagedHostState::Assigned { .. } => "assigned",
-                ManagedHostState::WaitingForCleanup { .. } => "waitingforcleanup",
-                ManagedHostState::ForceDeletion => "forcedeletion",
-            }
-            .to_string()
-        })
-        .collect()
+    let mut states = Vec::with_capacity(history.len());
+    for e in history {
+        states.push(e.state.as_ref());
+    }
+    states
 }

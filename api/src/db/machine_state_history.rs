@@ -41,7 +41,7 @@ pub struct MachineStateHistory {
     machine_id: MachineId,
 
     /// The state that was entered
-    pub state: ManagedHostState,
+    pub state: String,
 
     // Current version.
     pub state_version: ConfigVersion,
@@ -58,7 +58,7 @@ impl From<MachineStateHistory> for rpc::MachineEvent {
             id: event.id,
             machine_id: Some(event.machine_id.to_string().into()),
             time: Some(event.timestamp.into()),
-            event: event.state.to_string(),
+            event: event.state,
         }
     }
 }
@@ -70,11 +70,10 @@ impl<'r> FromRow<'r, PgRow> for MachineStateHistory {
         let state_version = state_version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        let state: sqlx::types::Json<ManagedHostState> = row.try_get("state")?;
         Ok(MachineStateHistory {
             id: row.try_get("id")?,
             machine_id: machine_id.into_inner(),
-            state: state.0,
+            state: row.try_get("state")?,
             state_version,
             timestamp: row.try_get("timestamp")?,
         })
@@ -95,7 +94,10 @@ impl MachineStateHistory {
         txn: &mut Transaction<'_, Postgres>,
         ids: &[MachineId],
     ) -> Result<HashMap<MachineId, Vec<Self>>, DatabaseError> {
-        let query = "SELECT * FROM machine_state_history WHERE machine_id=ANY($1) order by id asc";
+        let query = "SELECT id, machine_id, state::TEXT, state_version, timestamp
+            FROM machine_state_history
+            WHERE machine_id=ANY($1)
+            ORDER BY id ASC";
         let str_ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
         Ok(sqlx::query_as::<_, Self>(query)
             .bind(str_ids)
@@ -110,7 +112,10 @@ impl MachineStateHistory {
         txn: &mut Transaction<'_, Postgres>,
         id: &MachineId,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT * FROM machine_state_history WHERE machine_id=$1 order by id asc";
+        let query = "SELECT id, machine_id, state::TEXT, state_version, timestamp
+            FROM machine_state_history
+            WHERE machine_id=$1
+            ORDER BY id ASC";
         sqlx::query_as::<_, Self>(query)
             .bind(id.to_string())
             .fetch_all(&mut *txn)
@@ -125,8 +130,9 @@ impl MachineStateHistory {
         state: ManagedHostState,
         state_version: ConfigVersion,
     ) -> Result<Self, DatabaseError> {
-        let query =
-            "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2, $3) RETURNING *";
+        let query = "INSERT INTO machine_state_history (machine_id, state, state_version)
+            VALUES ($1, $2, $3)
+            RETURNING id, machine_id, state::TEXT, state_version, timestamp";
         sqlx::query_as::<_, Self>(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(state))

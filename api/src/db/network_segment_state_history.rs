@@ -31,7 +31,7 @@ pub struct NetworkSegmentStateHistory {
     segment_id: uuid::Uuid,
 
     /// The state that was entered
-    pub state: NetworkSegmentControllerState,
+    pub state: String,
     pub state_version: ConfigVersion,
 
     /// The timestamp of the state change
@@ -41,7 +41,7 @@ pub struct NetworkSegmentStateHistory {
 impl TryFrom<NetworkSegmentStateHistory> for rpc::forge::NetworkSegmentStateHistory {
     fn try_from(value: NetworkSegmentStateHistory) -> Result<Self, Self::Error> {
         Ok(rpc::forge::NetworkSegmentStateHistory {
-            state: serde_json::to_string(&value.state)?,
+            state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.timestamp.into()),
         })
@@ -56,11 +56,10 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegmentStateHistory {
         let state_version = state_version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        let state: sqlx::types::Json<NetworkSegmentControllerState> = row.try_get("state")?;
         Ok(NetworkSegmentStateHistory {
             _id: row.try_get("id")?,
             segment_id: row.try_get("segment_id")?,
-            state: state.0,
+            state: row.try_get("state")?,
             state_version,
             timestamp: row.try_get("timestamp")?,
         })
@@ -82,7 +81,7 @@ impl NetworkSegmentStateHistory {
         ids: &[uuid::Uuid],
     ) -> Result<HashMap<uuid::Uuid, Vec<Self>>, DatabaseError> {
         let query =
-            "SELECT * FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
+            "SELECT id, segment_id, state::TEXT, state_version, timestamp FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
         Ok(sqlx::query_as::<_, Self>(query)
             .bind(ids)
             .fetch_all(&mut *txn)
@@ -96,8 +95,10 @@ impl NetworkSegmentStateHistory {
         txn: &mut Transaction<'_, Postgres>,
         id: &uuid::Uuid,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query =
-            "SELECT * FROM network_segment_state_history WHERE segment_id=$1::uuid ORDER BY ID asc";
+        let query = "SELECT id, segment_id, state::TEXT, state_version, timestamp
+            FROM network_segment_state_history
+            WHERE segment_id=$1::uuid
+            ORDER BY ID asc";
         sqlx::query_as::<_, Self>(query)
             .bind(id)
             .fetch_all(&mut *txn)
@@ -111,15 +112,16 @@ impl NetworkSegmentStateHistory {
         segment_id: uuid::Uuid,
         state: &NetworkSegmentControllerState,
         state_version: ConfigVersion,
-    ) -> Result<Self, DatabaseError> {
-        let query =
-            "INSERT INTO network_segment_state_history (segment_id, state, state_version) VALUES ($1, $2, $3) RETURNING *";
-        sqlx::query_as::<_, Self>(query)
+    ) -> Result<(), DatabaseError> {
+        let query = "INSERT INTO network_segment_state_history (segment_id, state, state_version)
+            VALUES ($1, $2, $3)";
+        sqlx::query(query)
             .bind(segment_id)
             .bind(sqlx::types::Json(state))
             .bind(state_version.version_string())
-            .fetch_one(&mut *txn)
+            .execute(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
     }
 }
