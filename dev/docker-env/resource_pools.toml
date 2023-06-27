@@ -9,3 +9,7 @@ ranges = [{ start = "100", end = "501" }]
 [vni]
 type = "integer"
 ranges = [{ start = "1024500", end = "1024550" }]
+
+[vpc-vni]
+type = "integer"
+ranges = [{ start = "2024500", end = "2024550" }]

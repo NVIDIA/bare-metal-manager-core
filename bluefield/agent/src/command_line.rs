@@ -88,6 +88,16 @@ pub struct FrrOptions {
     pub loopback_ip: Ipv4Addr,
     #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]
     pub vlan: Vec<String>,
+    #[clap(
+        long,
+        default_value = "0",
+        help = "0 for Ethernet Virtualizer, 1 for Forge Native Networking"
+    )]
+    pub network_virtualization_type: i32,
+    #[clap(long, default_value = "0")]
+    pub vpc_vni: u32,
+    #[clap(long, use_value_delimiter = true)]
+    pub route_servers: Vec<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -103,6 +113,12 @@ pub struct InterfacesOptions {
         help = "Format is JSON see PortConfig in interfaces.rs. Repeats."
     )]
     pub network: Vec<String>,
+    #[clap(
+        long,
+        default_value = "0",
+        help = "0 for Ethernet Virtualizer, 1 for Forge Native Networking"
+    )]
+    pub network_virtualization_type: i32,
 }
 
 #[derive(Parser, Debug)]
@@ -113,6 +129,12 @@ pub struct DhcpOptions {
     pub vlan: Vec<u32>,
     #[clap(long, help = "DHCP server IP address. Repets")]
     pub dhcp: Vec<Ipv4Addr>,
+    #[clap(
+        long,
+        default_value = "0",
+        help = "0 for Ethernet Virtualizer, 1 for Forge Native Networking"
+    )]
+    pub network_virtualization_type: i32,
 }
 
 impl Options {

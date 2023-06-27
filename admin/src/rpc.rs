@@ -357,3 +357,16 @@ pub async fn version(api_config: &Config) -> CarbideCliResult<rpc::VersionResult
     })
     .await
 }
+
+pub async fn migrate_vpc_vni(api_config: &Config) -> CarbideCliResult<rpc::MigrateVpcVniResponse> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(());
+        let out = client
+            .migrate_vpc_vni(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(out)
+    })
+    .await
+}

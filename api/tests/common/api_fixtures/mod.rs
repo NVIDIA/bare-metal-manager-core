@@ -229,6 +229,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     let eth_virt_data = ethernet_virtualization::EthVirtData {
         asn: 65535,
         dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()],
+        route_servers: vec![],
     };
 
     // Populate resource pools
@@ -263,6 +264,13 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         .pool_vlan_id
         .as_ref()
         .populate(&mut txn, (1..5).collect())
+        .await
+        .unwrap();
+    common_pools
+        .ethernet
+        .pool_vpc_vni
+        .as_ref()
+        .populate(&mut txn, (20001..20005).collect())
         .await
         .unwrap();
     txn.commit().await.unwrap();

@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use std::convert::TryFrom;
-use std::convert::TryInto;
+use std::fmt;
+use std::str::FromStr;
 
 use chrono::prelude::*;
 use sqlx::postgres::PgRow;
@@ -19,7 +20,9 @@ use uuid::Uuid;
 
 use crate::db::UuidKeyedObjectFilter;
 use crate::model::config_version::ConfigVersion;
+use crate::model::RpcDataConversionError;
 use crate::{CarbideError, CarbideResult};
+use ::rpc::forge as rpc;
 
 use super::DatabaseError;
 
@@ -33,12 +36,66 @@ pub struct Vpc {
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
     pub tenant_keyset_id: Option<String>,
+    pub network_virtualization_type: VpcVirtualizationType,
+    // Option because we can't allocate it until DB generates an id for us
+    pub vni: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "network_virtualization_type_t")]
+pub enum VpcVirtualizationType {
+    #[sqlx(rename = "etv")]
+    EthernetVirtualizer = 0,
+    #[sqlx(rename = "fnn")]
+    ForgeNativeNetworking,
+}
+
+impl fmt::Display for VpcVirtualizationType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EthernetVirtualizer => write!(f, "etv"),
+            Self::ForgeNativeNetworking => write!(f, "fnn"),
+        }
+    }
+}
+
+impl TryFrom<i32> for VpcVirtualizationType {
+    type Error = RpcDataConversionError;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Ok(match value {
+            x if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => {
+                Self::EthernetVirtualizer
+            }
+            x if x == rpc::VpcVirtualizationType::ForgeNativeNetworking as i32 => {
+                Self::ForgeNativeNetworking
+            }
+            _ => {
+                return Err(RpcDataConversionError::InvalidVpcVirtualizationType(value));
+            }
+        })
+    }
+}
+
+impl FromStr for VpcVirtualizationType {
+    type Err = CarbideError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "etv" => Ok(Self::EthernetVirtualizer),
+            "fnn" => Ok(Self::ForgeNativeNetworking),
+            x => Err(CarbideError::GenericError(format!(
+                "Unknown virt type {}",
+                x
+            ))),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct NewVpc {
     pub name: String,
     pub tenant_organization_id: String,
+    pub network_virtualization_type: VpcVirtualizationType,
 }
 
 #[derive(Clone, Debug)]
@@ -76,6 +133,8 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
             tenant_keyset_id: None, //TODO: fix this once DB gets updated
+            network_virtualization_type: row.try_get("network_virtualization_type")?,
+            vni: row.try_get("vni")?,
         })
     }
 }
@@ -89,11 +148,12 @@ impl NewVpc {
         let version_string = version.version_string();
 
         let query =
-            "INSERT INTO vpcs (name, organization_id, version) VALUES ($1, $2, $3) RETURNING *";
+            "INSERT INTO vpcs (name, organization_id, version, network_virtualization_type) VALUES ($1, $2, $3, $4) RETURNING *";
         sqlx::query_as(query)
             .bind(&self.name)
             .bind(&self.tenant_organization_id)
             .bind(&version_string)
+            .bind(self.network_virtualization_type)
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -101,6 +161,21 @@ impl NewVpc {
 }
 
 impl Vpc {
+    pub async fn set_vni(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        id: Uuid,
+        vni: i32,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE vpcs SET vni = $1 WHERE id = $2 AND vni IS NULL";
+        let _ = sqlx::query(query)
+            .bind(vni)
+            .bind(id)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
@@ -133,6 +208,7 @@ impl Vpc {
 
         Ok(results)
     }
+
     pub async fn find_by_name(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         name: String,
@@ -144,11 +220,26 @@ impl Vpc {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
+
+    pub async fn find_by_segment(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        segment_id: uuid::Uuid,
+    ) -> Result<Vpc, DatabaseError> {
+        let query = "SELECT * from vpcs v
+            INNER JOIN network_segments s ON v.id = s.vpc_id
+            WHERE s.id = $1
+            LIMIT 1";
+        sqlx::query_as(query)
+            .bind(segment_id)
+            .fetch_one(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
 }
 
-impl From<Vpc> for rpc::forge::Vpc {
+impl From<Vpc> for rpc::Vpc {
     fn from(src: Vpc) -> Self {
-        rpc::forge::Vpc {
+        rpc::Vpc {
             id: Some(src.id.into()),
             version: src.version.version_string(),
             name: src.name,
@@ -157,25 +248,32 @@ impl From<Vpc> for rpc::forge::Vpc {
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
             tenant_keyset_id: src.tenant_keyset_id,
+            vni: src.vni.map(|x| x as u32),
+            network_virtualization_type: Some(src.network_virtualization_type as i32),
         }
     }
 }
 
-impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
+impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::forge::VpcCreationRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::VpcCreationRequest) -> Result<Self, Self::Error> {
+        let virt_type = match value.network_virtualization_type {
+            None => VpcVirtualizationType::EthernetVirtualizer,
+            Some(v) => v.try_into()?,
+        };
         Ok(NewVpc {
             name: value.name,
             tenant_organization_id: value.tenant_organization_id,
+            network_virtualization_type: virt_type,
         })
     }
 }
 
-impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
+impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::forge::VpcUpdateRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::VpcUpdateRequest) -> Result<Self, Self::Error> {
         let if_version_match: Option<ConfigVersion> = match &value.if_version_match {
             Some(version) => Some(version.parse::<ConfigVersion>()?),
             None => None,
@@ -193,10 +291,10 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
     }
 }
 
-impl TryFrom<rpc::forge::VpcDeletionRequest> for DeleteVpc {
+impl TryFrom<rpc::VpcDeletionRequest> for DeleteVpc {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::forge::VpcDeletionRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::VpcDeletionRequest) -> Result<Self, Self::Error> {
         Ok(DeleteVpc {
             id: value
                 .id
@@ -206,9 +304,9 @@ impl TryFrom<rpc::forge::VpcDeletionRequest> for DeleteVpc {
     }
 }
 
-impl From<Vpc> for rpc::forge::VpcDeletionResult {
+impl From<Vpc> for rpc::VpcDeletionResult {
     fn from(_src: Vpc) -> Self {
-        rpc::forge::VpcDeletionResult {}
+        rpc::VpcDeletionResult {}
     }
 }
 
@@ -229,6 +327,7 @@ impl UpdateVpc {
         let next_version = current_version.increment();
         let next_version_str = next_version.version_string();
 
+        // network_virtualization_type cannot be changed currently
         // TODO check number of changed rows
         let query = "UPDATE vpcs
             SET name=$1, organization_id=$2, version=$3, updated=NOW()

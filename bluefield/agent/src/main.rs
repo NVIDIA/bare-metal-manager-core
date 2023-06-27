@@ -161,6 +161,9 @@ fn main() -> eyre::Result<()> {
                     uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     loopback_ip: opts.loopback_ip,
                     access_vlans,
+                    network_virtualization_type: Some(opts.network_virtualization_type),
+                    vpc_vni: Some(opts.vpc_vni),
+                    route_servers: opts.route_servers.clone(),
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);
@@ -185,6 +188,7 @@ fn main() -> eyre::Result<()> {
                     loopback_ip: opts.loopback_ip,
                     vni_device: opts.vni_device,
                     networks,
+                    network_virtualization_type: Some(opts.network_virtualization_type),
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);
@@ -195,6 +199,7 @@ fn main() -> eyre::Result<()> {
                     uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     vlan_ids: opts.vlan,
                     dhcp_servers: opts.dhcp,
+                    network_virtualization_type: Some(opts.network_virtualization_type),
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);

@@ -29,6 +29,7 @@ use crate::{
 pub struct EthVirtData {
     pub asn: u32,
     pub dhcp_servers: Vec<String>,
+    pub route_servers: Vec<String>,
 }
 
 pub async fn admin_network(

@@ -93,6 +93,10 @@ pub struct Daemon {
     #[clap(long, num_args(0..), env = "CARBIDE_DHCP_SERVER")]
     pub dhcp_server: Vec<String>,
 
+    /// Comma-separated list of route server IP addresses. Optional, only for L2VPN (Eth Virt).
+    #[clap(long, use_value_delimiter = true)]
+    pub route_servers: Vec<String>,
+
     #[clap(
         long,
         env = "IDENTITY_PEMFILE_PATH",

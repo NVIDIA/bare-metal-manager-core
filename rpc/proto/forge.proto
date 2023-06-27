@@ -165,6 +165,9 @@ service Forge {
 
   // Create or edit a resource pool
   rpc AdminDefineResourcePool(DefineResourcePoolRequest) returns (DefineResourcePoolResponse);
+
+  // Assign all VPCs a VNI
+  rpc MigrateVpcVni(google.protobuf.Empty) returns (MigrateVpcVniResponse);
 }
 
 message VersionResult {
@@ -275,6 +278,8 @@ message Vpc {
   google.protobuf.Timestamp deleted = 6;
 
   optional string tenantKeysetId = 7;
+  optional uint32 vni = 8;
+  optional VpcVirtualizationType network_virtualization_type = 9;
 }
 
 message VpcCreationRequest {
@@ -282,6 +287,12 @@ message VpcCreationRequest {
   string tenantOrganizationId = 3;
   // this keyset will enable any key contained within it to access any instance associated with this VPC.
   optional string tenantKeysetId = 4;
+  optional VpcVirtualizationType network_virtualization_type = 5;
+}
+
+enum VpcVirtualizationType {
+	ETHERNET_VIRTUALIZER = 0;
+	FORGE_NATIVE_NETWORKING = 1;
 }
 
 message VpcUpdateRequest {
@@ -1013,6 +1024,13 @@ message ManagedHostNetworkConfigResponse {
   // Blank if on the admin network, matches DB instances.network_config if there's a tenant
   string instance_config_version = 10;
   optional UUID instance_id = 11;
+
+  // Both None if on the admin network
+  optional VpcVirtualizationType network_virtualization_type = 12;
+  optional uint32 vpc_vni = 13;
+
+  // IP addresses of the L2VPN route servers
+  repeated string route_servers = 14;
 }
 
 // Network configuration for a managed host (host + DPU pair) managed by Forge
@@ -1504,4 +1522,9 @@ message Range {
 enum ResourcePoolType {
     Integer = 0;
     Ipv4 = 1;
+}
+
+message MigrateVpcVniResponse {
+	uint32 updated_count = 1;
+	uint32 total_vpc_count = 2;
 }
