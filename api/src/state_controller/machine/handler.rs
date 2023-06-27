@@ -287,7 +287,7 @@ impl StateHandler for HostMachineStateHandler {
                         state.managed_state.clone(),
                     ));
                 }
-                MachineState::WaitingForNetworkConfig => {
+                MachineState::WaitingForNetworkConfig | MachineState::WaitingForLeafCreation => {
                     tracing::warn!(
                         "Invalid State WaitingForNetworkConfig for Host Machine {}",
                         host_machine_id
