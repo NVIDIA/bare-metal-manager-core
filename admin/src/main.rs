@@ -19,8 +19,8 @@ use ::rpc::{
     MachineId,
 };
 use cfg::carbide_options::{
-    CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, NetworkCommand,
-    NetworkSegment, OutputFormat, ResourcePool,
+    CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, MigrateAction,
+    NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
 };
 use prettytable::{row, Table};
 use serde::Deserialize;
@@ -361,12 +361,23 @@ async fn main() -> color_eyre::Result<()> {
                 resource_pool::list(api_config).await?;
             }
         },
-        CarbideCommand::Migrate(_migration) => panic!("Placeholder. Migrations come and go."),
+        CarbideCommand::Migrate(migration) => match migration {
+            MigrateAction::VpcVni => migrate_vpc_vni(&api_config).await?,
+        },
         CarbideCommand::Redfish(_) => {
             // Handled earlier
             unreachable!();
         }
     }
 
+    Ok(())
+}
+
+pub async fn migrate_vpc_vni(api_config: &Config) -> color_eyre::eyre::Result<()> {
+    let result = crate::rpc::migrate_vpc_vni(api_config).await?;
+    println!(
+        "Added a VNI to {} of {} VPCs",
+        result.updated_count, result.total_vpc_count
+    );
     Ok(())
 }

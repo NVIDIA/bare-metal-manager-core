@@ -10,9 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::db::vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc};
+use carbide::db::vpc::{DeleteVpc, UpdateVpc, Vpc, VpcVirtualizationType};
 use carbide::db::UuidKeyedObjectFilter;
+use carbide::model::config_version::ConfigVersion;
 use carbide::CarbideError;
+use common::api_fixtures::create_test_env;
+use rpc::forge::forge_server::Forge;
 
 pub mod common;
 
@@ -25,36 +28,53 @@ fn setup() {
 
 #[sqlx::test]
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    let env = create_test_env(pool.clone()).await;
 
-    let forge_vpc = NewVpc {
-        name: "Forge".to_string(),
-        tenant_organization_id: String::new(),
-    }
-    .persist(&mut txn)
-    .await?;
-    assert_eq!(forge_vpc.version.version_nr(), 1);
+    // No network_virtualization_type, should default
+    let forge_vpc = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            name: "Forge".to_string(),
+            tenant_organization_id: String::new(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
 
-    let no_org_vpc = NewVpc {
-        name: "Forge no Org".to_string(),
-        tenant_organization_id: String::new(),
-    }
-    .persist(&mut txn)
-    .await?;
-    assert_eq!(no_org_vpc.version.version_nr(), 1);
+    let version: ConfigVersion = forge_vpc.version.parse()?;
+    assert_eq!(version.version_nr(), 1);
+    // A VNI is allocated
+    assert!(forge_vpc.vni.is_some());
+    // We default to type Ethernet Virtualizer
+    assert_eq!(forge_vpc.network_virtualization_type, Some(0));
+
+    let no_org_vpc = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            name: "Forge no Org".to_string(),
+            tenant_organization_id: String::new(),
+            tenant_keyset_id: None,
+            network_virtualization_type: Some(VpcVirtualizationType::EthernetVirtualizer as i32),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let no_org_vpc_version: ConfigVersion = no_org_vpc.version.parse()?;
+    assert_eq!(no_org_vpc_version.version_nr(), 1);
 
     assert!(matches!(no_org_vpc.deleted, None));
-    let initial_no_org_vpc_version = no_org_vpc.version;
-
-    txn.commit().await?;
+    let initial_no_org_vpc_version = no_org_vpc_version;
 
     let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
 
+    let no_org_vpc_id: uuid::Uuid = no_org_vpc.id.expect("should have id").try_into()?;
     let updated_vpc = UpdateVpc {
-        id: no_org_vpc.id,
+        id: no_org_vpc_id,
         name: "new name".to_string(),
         tenant_organization_id: "new org".to_string(),
         if_version_match: None,
@@ -68,7 +88,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     // Update on outdated version
     let update_result = UpdateVpc {
-        id: no_org_vpc.id,
+        id: no_org_vpc_id,
         name: "never this name".to_string(),
         tenant_organization_id: "never this org".to_string(),
         if_version_match: Some(initial_no_org_vpc_version),
@@ -81,7 +101,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     ));
 
     // Check that the data was indeed not touched
-    let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc.id)).await?;
+    let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc_id)).await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.name, "new name");
     assert_eq!(&first.tenant_organization_id, "new org");
@@ -89,7 +109,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     // Update on correct version
     let updated_vpc = UpdateVpc {
-        id: no_org_vpc.id,
+        id: no_org_vpc_id,
         name: "yet another new name".to_string(),
         tenant_organization_id: "yet another new org".to_string(),
         if_version_match: Some(updated_vpc.version),
@@ -100,13 +120,13 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(&updated_vpc.tenant_organization_id, "yet another new org");
     assert_eq!(updated_vpc.version.version_nr(), 3);
 
-    let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc.id)).await?;
+    let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc_id)).await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.name, "yet another new name");
     assert_eq!(&first.tenant_organization_id, "yet another new org");
     assert_eq!(first.version.version_nr(), 3);
 
-    let vpc = DeleteVpc { id: no_org_vpc.id }.delete(&mut txn).await?;
+    let vpc = DeleteVpc { id: no_org_vpc_id }.delete(&mut txn).await?;
 
     assert!(matches!(vpc.deleted, Some(_)));
 
@@ -119,9 +139,10 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let mut txn = pool.begin().await?;
     let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await?;
     assert_eq!(vpcs.len(), 1);
-    assert_eq!(vpcs[0].id, forge_vpc.id);
+    let forge_vpc_id: uuid::Uuid = forge_vpc.id.expect("should have id").try_into()?;
+    assert_eq!(vpcs[0].id, forge_vpc_id);
 
-    let vpc = DeleteVpc { id: forge_vpc.id }.delete(&mut txn).await?;
+    let vpc = DeleteVpc { id: forge_vpc_id }.delete(&mut txn).await?;
     assert!(matches!(vpc.deleted, Some(_)));
     txn.commit().await?;
 

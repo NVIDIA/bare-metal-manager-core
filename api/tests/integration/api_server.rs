@@ -45,7 +45,6 @@ pub fn start(
         .arg(format!("--identity-keyfile-path={}", tls_key.display()))
         .arg(format!("--datastore={db_url}"))
         .arg("--auth-permissive-mode")
-        .arg("--manage-vpc")
         .arg("--asn=65535")
         .arg("--rapid-iterations")
         .arg(format!(

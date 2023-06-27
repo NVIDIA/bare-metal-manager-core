@@ -352,18 +352,22 @@ where
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_vpc", e))?;
 
-        let response = Ok(NewVpc::try_from(request.into_inner())?
+        let mut vpc = NewVpc::try_from(request.into_inner())?
             .persist(&mut txn)
             .await
-            .map_err(CarbideError::from)
-            .map(rpc::Vpc::from)
-            .map(Response::new)?);
+            .map_err(CarbideError::from)?;
+        vpc.vni = Some(self.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
+        Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap())
+            .await
+            .map_err(CarbideError::from)?;
+
+        let rpc_out: rpc::Vpc = vpc.into();
 
         txn.commit()
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_vpc", e))?;
 
-        response
+        Ok(Response::new(rpc_out))
     }
 
     async fn update_vpc(
@@ -404,18 +408,25 @@ where
         // TODO: This needs to validate that nothing references the VPC anymore
         // (like NetworkSegments)
 
-        let response = Ok(DeleteVpc::try_from(request.into_inner())?
+        let vpc = DeleteVpc::try_from(request.into_inner())?
             .delete(&mut txn)
             .await
-            .map_err(CarbideError::from)
-            .map(rpc::VpcDeletionResult::from)
-            .map(Response::new)?);
+            .map_err(CarbideError::from)?;
+
+        if let Some(vni) = vpc.vni {
+            self.common_pools
+                .ethernet
+                .pool_vpc_vni
+                .release(&mut txn, vni)
+                .await
+                .map_err(CarbideError::from)?;
+        }
 
         txn.commit()
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_vpc", e))?;
 
-        response
+        Ok(Response::new(rpc::VpcDeletionResult {}))
     }
 
     async fn find_vpcs(
@@ -1058,10 +1069,19 @@ where
             ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
                 .await?;
 
+        let mut network_virtualization_type = None;
+        let mut vpc_vni = None;
+
         let tenant_interfaces = match &snapshot.instance {
             None => vec![],
             Some(instance) => {
                 let interfaces = &instance.config.network.interfaces;
+                let vpc = Vpc::find_by_segment(&mut txn, interfaces[0].network_segment_id)
+                    .await
+                    .map_err(CarbideError::from)?;
+                network_virtualization_type = Some(vpc.network_virtualization_type);
+                vpc_vni = vpc.vni;
+
                 let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
                 for iface in interfaces {
                     tenant_interfaces.push(
@@ -1098,6 +1118,7 @@ where
             is_production_mode: ETH_VIRT_PRODUCTION_MODE,
             asn: self.eth_data.asn,
             dhcp_servers: self.eth_data.dhcp_servers.clone(),
+            route_servers: self.eth_data.route_servers.clone(),
             vni_device: if use_admin_network {
                 "".to_string()
             } else {
@@ -1121,6 +1142,8 @@ where
                     .network_config_version
                     .version_string()
             },
+            network_virtualization_type: network_virtualization_type.map(|nvt| nvt as i32),
+            vpc_vni: vpc_vni.map(|vni| vni as u32),
         };
         Ok(Response::new(resp))
     }
@@ -2804,6 +2827,48 @@ where
             pools: snapshot.into_iter().map(|s| s.into()).collect(),
         }))
     }
+
+    /// Assign all VPCs a VNI
+    async fn migrate_vpc_vni(
+        &self,
+        request: tonic::Request<()>,
+    ) -> Result<tonic::Response<rpc::MigrateVpcVniResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin migrate_vpc_vni ", e))?;
+
+        let mut updated_count = 0;
+        let all_vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::All)
+            .await
+            .map_err(CarbideError::from)?;
+        let total_vpc_count = all_vpcs.len() as u32;
+        for mut vpc in all_vpcs {
+            if vpc.vni.is_some() {
+                continue;
+            }
+            vpc.vni = Some(self.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
+            Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap())
+                .await
+                .map_err(CarbideError::from)?;
+            updated_count += 1;
+        }
+        tracing::info!(
+            "migrate_vpc_vni: Assigned a VNI to {updated_count} of {total_vpc_count} VPCs"
+        );
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "end migrate_vpc_vni", e))?;
+
+        Ok(Response::new(rpc::MigrateVpcVniResponse {
+            updated_count,
+            total_vpc_count,
+        }))
+    }
 }
 
 // All the IPv4 addresses between start_s and end_s
@@ -3190,6 +3255,7 @@ where
         let eth_data = ethernet_virtualization::EthVirtData {
             asn: daemon_config.asn,
             dhcp_servers: daemon_config.dhcp_server.clone(),
+            route_servers: daemon_config.route_servers.clone(),
         };
 
         let health_pool = database_connection.clone();
@@ -3316,13 +3382,11 @@ where
             Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool lo-ip exhausted, cannot allocate for {owner_id}");
-                tracing::error!("{}", &msg);
-                Err(Status::resource_exhausted(&msg))
+                Err(Status::resource_exhausted(msg))
             }
             Err(err) => {
                 let msg = format!("Err allocating from lo-ip for {owner_id}: {err}");
-                tracing::error!("{}", &msg);
-                Err(Status::internal(&msg))
+                Err(Status::internal(msg))
             }
         }
     }
@@ -3345,13 +3409,11 @@ where
             Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool vni exhausted, cannot allocate for {owner_id}");
-                tracing::error!("{}", &msg);
-                Err(Status::resource_exhausted(&msg))
+                Err(Status::resource_exhausted(msg))
             }
             Err(err) => {
                 let msg = format!("Err allocating from vni for {owner_id}: {err}");
-                tracing::error!("{}", &msg);
-                Err(Status::internal(&msg))
+                Err(Status::internal(msg))
             }
         }
     }
@@ -3374,13 +3436,38 @@ where
             Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool vlan_id exhausted, cannot allocate for {owner_id}");
-                tracing::error!("{}", &msg);
-                Err(Status::resource_exhausted(&msg))
+                Err(Status::resource_exhausted(msg))
             }
             Err(err) => {
                 let msg = format!("Err allocating from vlan_id for {owner_id}: {err}");
-                tracing::error!("{}", &msg);
-                Err(Status::internal(&msg))
+                Err(Status::internal(msg))
+            }
+        }
+    }
+
+    /// Allocate a value from the vpc vni resource pool.
+    ///
+    /// If the pool exists but is empty or has en error, return that.
+    async fn allocate_vpc_vni(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        owner_id: &str,
+    ) -> Result<i32, Status> {
+        match self
+            .common_pools
+            .ethernet
+            .pool_vpc_vni
+            .allocate(txn, resource_pool::OwnerType::Vpc, owner_id)
+            .await
+        {
+            Ok(val) => Ok(val),
+            Err(resource_pool::ResourcePoolError::Empty) => {
+                let msg = format!("Pool vpc_vni exhausted, cannot allocate for {owner_id}");
+                Err(Status::resource_exhausted(msg))
+            }
+            Err(err) => {
+                let msg = format!("Err allocating from vpc_vni for {owner_id}: {err}");
+                Err(Status::internal(msg))
             }
         }
     }
@@ -3405,13 +3492,11 @@ where
             Ok(val) => Ok(Some(val)),
             Err(resource_pool::ResourcePoolError::Empty) => {
                 let msg = format!("Pool pkey exhausted, cannot allocate for {owner_id}");
-                tracing::error!("{}", &msg);
-                Err(Status::resource_exhausted(&msg))
+                Err(Status::resource_exhausted(msg))
             }
             Err(err) => {
                 let msg = format!("Err allocating from pkey for {owner_id}: {err}");
-                tracing::error!("{}", &msg);
-                Err(Status::internal(&msg))
+                Err(Status::internal(msg))
             }
         }
     }

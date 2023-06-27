@@ -143,6 +143,7 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
         dhcp_servers: dhcp_servers(nc),
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         vlan_ids,
+        network_virtualization_type: nc.network_virtualization_type,
     })?;
     write(
         next_contents,
@@ -215,6 +216,7 @@ fn write_interfaces<P: AsRef<Path>>(
         vni_device: nc.vni_device.clone(),
         loopback_ip,
         networks,
+        network_virtualization_type: nc.network_virtualization_type,
     })?;
     write(
         next_contents,
@@ -271,6 +273,9 @@ fn write_frr<P: AsRef<Path>>(
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         loopback_ip,
         access_vlans,
+        network_virtualization_type: nc.network_virtualization_type,
+        vpc_vni: nc.vpc_vni,
+        route_servers: nc.route_servers.clone(),
     })?;
     write(
         next_contents,
@@ -442,6 +447,16 @@ mod tests {
                     .wrap_err("Uuid::try_from")?
                     .into(),
             ),
+
+            // For FNN:
+            // network_virtualization_type: Some(rpc::VpcVirtualizationType::ForgeNativeNetworking as i32),
+            // vpc_vni: Some(2024500),
+            // route_servers: vec![],
+
+            // For ETV:
+            network_virtualization_type: None,
+            vpc_vni: None,
+            route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
         };
 
         let f = tempfile::NamedTempFile::new()?;

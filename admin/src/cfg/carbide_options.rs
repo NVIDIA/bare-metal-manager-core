@@ -137,7 +137,8 @@ pub enum RedfishCommand {
 
 #[derive(Parser, Debug)]
 pub enum MigrateAction {
-    // Placeholder. Migrations come and go.
+    #[clap(about = "Assign a VNI to every VPC. Prepare for Forge Native Networking.")]
+    VpcVni,
 }
 
 #[derive(Parser, Debug)]

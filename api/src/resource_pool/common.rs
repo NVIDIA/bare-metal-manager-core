@@ -30,6 +30,10 @@ pub const VNI: &str = "vni";
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VLANID: &str = "vlan-id";
 
+/// vpc-vni pool: L3VNI for the whole VPC
+/// Must match a pool defined in dev/resource_pools.toml
+pub const VPC_VNI: &str = "vpc-vni";
+
 /// IB Fabric partition key (pkey) pool
 /// Must match a pool defined in dev/resource_pools.toml
 pub const PKEY: &str = "pkey";
@@ -52,6 +56,7 @@ pub struct EthernetPools {
     pub pool_loopback_ip: Arc<DbResourcePool<Ipv4Addr>>,
     pub pool_vlan_id: Arc<DbResourcePool<i16>>,
     pub pool_vni: Arc<DbResourcePool<i32>>,
+    pub pool_vpc_vni: Arc<DbResourcePool<i32>>,
 }
 
 /// ResourcePools that are used for infiniband
@@ -69,6 +74,8 @@ impl CommonPools {
             Arc::new(DbResourcePool::new(VLANID.to_string(), ValueType::Integer));
         let pool_vni: Arc<DbResourcePool<i32>> =
             Arc::new(DbResourcePool::new(VNI.to_string(), ValueType::Integer));
+        let pool_vpc_vni: Arc<DbResourcePool<i32>> =
+            Arc::new(DbResourcePool::new(VPC_VNI.to_string(), ValueType::Integer));
 
         let pool_pkey: Arc<DbResourcePool<i16>> =
             Arc::new(DbResourcePool::new(PKEY.to_string(), ValueType::Integer));
@@ -82,12 +89,14 @@ impl CommonPools {
         let pool_l_ip_2 = pool_loopback_ip.clone();
         let pool_vlan_id_2 = pool_vlan_id.clone();
         let pool_vni_2 = pool_vni.clone();
+        let pool_vpc_vni_2 = pool_vpc_vni.clone();
         let pool_pkey_2 = pool_pkey.clone();
         tokio::spawn(async move {
             loop {
                 let l_ip = pool_l_ip_2.stats(&database_connection).await;
                 let vlan_id = pool_vlan_id_2.stats(&database_connection).await;
                 let vni = pool_vni_2.stats(&database_connection).await;
+                let vpc_vni = pool_vpc_vni_2.stats(&database_connection).await;
                 let pkey = pool_pkey_2.stats(&database_connection).await;
                 {
                     let mut m = pool_stats_bg.lock().unwrap();
@@ -105,6 +114,11 @@ impl CommonPools {
                         m.entry(VNI.to_string())
                             .and_modify(|s| *s = vni)
                             .or_insert(vni);
+                    }
+                    if let Ok(vpc_vni) = vpc_vni {
+                        m.entry(VPC_VNI.to_string())
+                            .and_modify(|s| *s = vpc_vni)
+                            .or_insert(vpc_vni);
                     }
                     if let Ok(pkey) = pkey {
                         m.entry(PKEY.to_string())
@@ -128,6 +142,7 @@ impl CommonPools {
                 pool_loopback_ip,
                 pool_vlan_id,
                 pool_vni,
+                pool_vpc_vni,
             },
             infiniband: IbPools { pool_pkey },
             pool_stats,
