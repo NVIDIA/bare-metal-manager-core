@@ -365,7 +365,7 @@ pub fn try_parse_machine_id(
 
 #[cfg(test)]
 mod tests {
-    use crate::model::hardware_info::{DmiData, TpmEkCertificate};
+    use crate::model::hardware_info::TpmEkCertificate;
 
     use super::*;
 
@@ -385,17 +385,6 @@ mod tests {
         constructor: fn(&HardwareInfo) -> Option<MachineId>,
     ) {
         fingerprint.tpm_ek_certificate = Some(TpmEkCertificate::from(vec![1, 2, 3, 4]));
-        fingerprint.dmi_data = Some(DmiData {
-            board_name: String::new(),
-            board_version: String::new(),
-            bios_version: String::new(),
-            bios_date: String::new(),
-            product_serial: "product1".to_string(),
-            board_serial: "board1".to_string(),
-            chassis_serial: "chassis1".to_string(),
-            product_name: String::new(),
-            sys_vendor: String::new(),
-        });
 
         fn validate_id(
             machine_id: MachineId,

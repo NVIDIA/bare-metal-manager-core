@@ -107,15 +107,15 @@
       }
     ],
     "dmi_data": {
-      "board_name": "",
-      "board_version": "",
-      "bios_version": "",
-      "bios_date": "01/01/1971",
-      "product_serial": "Dpu123",
-      "board_serial": "DpuBoard123",
-      "chassis_serial": "DpuChassis123",
-      "product_name": "DpuProductName234",
-      "sys_vendor": "DpuSysVendor234"
+      "board_name": "BlueField SoC",
+      "board_version": "1.0.0",
+      "bios_version": "BlueField:3.9.3-7-g8f2d8ca",
+      "product_serial": "MT2242XZ00NX",
+      "board_serial": "Unspecified Base Board Serial Number",
+      "chassis_serial": "Unspecified Chassis Board Serial Number",
+      "bios_date": "Oct 21 2022",
+      "product_name": "BlueField SoC",
+      "sys_vendor": "https://www.mellanox.com"
     },
     "network_interfaces": [
       {
