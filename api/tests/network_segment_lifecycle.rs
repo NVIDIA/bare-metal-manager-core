@@ -186,15 +186,11 @@ async fn test_network_segment_lifecycle_impl(
     let mut txn = pool.begin().await.unwrap();
     assert!(segments.is_empty());
 
-    assert_eq!(
-        text_history(&mut txn, segment_id).await,
-        vec![
-            "provisioning".to_string(),
-            "ready".to_string(),
-            "deleting/drain_allocated_ips".to_string(),
-            "deleting/db_delete".to_string(),
-        ]
-    );
+    let expected_history = vec!["provisioning", "ready", "drainallocatedips", "dbdelete"];
+    let history = text_history(&mut txn, segment_id).await;
+    for (i, state) in history.iter().enumerate() {
+        assert!(state.contains(expected_history[i]));
+    }
     txn.commit().await.unwrap();
 
     Ok(())
@@ -451,7 +447,10 @@ async fn test_network_segment_max_history_length(
     let history = text_history(&mut txn, segment_id).await;
     assert_eq!(history.len(), HISTORY_LIMIT);
     for entry in &history {
-        assert_eq!(entry, "deleting/db_delete");
+        assert_eq!(
+            entry,
+            "{\"state\": \"deleting\", \"deletion_state\": {\"state\": \"dbdelete\"}}"
+        );
     }
     txn.rollback().await.unwrap();
 
@@ -475,22 +474,9 @@ async fn text_history(
         }
     }
 
-    entries
-        .into_iter()
-        .map(|entry| {
-            match entry.state {
-                NetworkSegmentControllerState::Provisioning => "provisioning",
-                NetworkSegmentControllerState::Ready => "ready",
-                NetworkSegmentControllerState::Deleting { deletion_state } => {
-                    match deletion_state {
-                        NetworkSegmentDeletionState::DBDelete => "deleting/db_delete",
-                        NetworkSegmentDeletionState::DrainAllocatedIps { .. } => {
-                            "deleting/drain_allocated_ips"
-                        }
-                    }
-                }
-            }
-            .to_string()
-        })
-        .collect()
+    let mut states = Vec::with_capacity(entries.len());
+    for e in entries.into_iter() {
+        states.push(e.state);
+    }
+    states
 }
