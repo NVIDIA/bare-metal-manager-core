@@ -12,7 +12,7 @@
 
 //! Describes hardware that is discovered by Forge
 
-use std::{collections::HashSet, str::FromStr};
+use std::str::FromStr;
 
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
@@ -588,11 +588,9 @@ pub enum HardwareInfoError {
 
 impl HardwareInfo {
     /// Returns whether the machine is deemed to be a DPU based on some properties
-    ///
-    /// Note that this function currently misclassifies ARM hosts with DPUs as NICs
-    /// also as DPUs
     pub fn is_dpu(&self) -> bool {
         let network_interfaces = &self.network_interfaces;
+        let dmi_data = &self.dmi_data;
         let machine_type = &self.machine_type;
 
         const ARM_TYPE: &str = "aarch64";
@@ -604,9 +602,11 @@ impl HardwareInfo {
             return false; // has no network interfaces/attribute
         }
 
-        // Update list with id's we care about
-        let dpu_pci_ids = HashSet::from(["0x15b3:0xa2d6", "0x1af4:0x1000"]);
-        does_attributes_contain_dpu_pci_ids(&dpu_pci_ids, &network_interfaces[..])
+        // Bluefield's dmi data should return a special string that identifies it as a DPU
+        match dmi_data {
+            None => false,
+            Some(dmi) => dmi.board_name.eq("BlueField SoC"),
+        }
     }
 
     /// This function returns factory_mac_address from dpu_info.
@@ -617,29 +617,6 @@ impl HardwareInfo {
 
         Ok(MacAddress::from_str(&dpu_info.factory_mac_address)?)
     }
-}
-
-fn does_attributes_contain_dpu_pci_ids(
-    dpu_pci_ids: &HashSet<&str>,
-    interfaces: &[NetworkInterface],
-) -> bool {
-    interfaces.iter().any(|interface| {
-        match &interface.pci_properties {
-            None => {}
-            Some(pci_property) => {
-                // If for some reason there is no vendor/device in pci_properties
-                // set to 0'
-                let vendor = pci_property.vendor.as_str();
-                let device = pci_property.device.as_str();
-                let pci_id = format!("{}:{}", vendor, device);
-
-                if dpu_pci_ids.contains(pci_id.as_str()) {
-                    return true;
-                }
-            }
-        }
-        false
-    })
 }
 
 #[cfg(test)]
