@@ -42,11 +42,16 @@ impl ServerCertVerifier for DummyTlsVerifier {
 
 pub struct ForgeTlsClient {
     forge_root_ca_path: String,
+    enforce_tls: bool,
 }
 
 impl ForgeTlsClient {
     pub fn new(forge_root_ca_path: String) -> Self {
-        Self { forge_root_ca_path }
+        let disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok();
+        Self {
+            forge_root_ca_path,
+            enforce_tls: !disabled,
+        }
     }
 
     pub async fn connect<S: AsRef<str>>(&self, url: S) -> Result<ForgeClientT, eyre::Report> {
@@ -79,11 +84,17 @@ impl ForgeTlsClient {
             }
         }
 
-        let tls = ClientConfig::builder()
-            .with_safe_defaults()
-            .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier))
-            // .with_root_certificates(roots) //uncommenting this line and commenting the one above it are the only changes needed to enforce actual TLS.
-            .with_no_client_auth();
+        let tls = if self.enforce_tls {
+            ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(roots)
+                .with_no_client_auth()
+        } else {
+            ClientConfig::builder()
+                .with_safe_defaults()
+                .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier))
+                .with_no_client_auth()
+        };
 
         let mut http = HttpConnector::new();
         http.enforce_http(false);
