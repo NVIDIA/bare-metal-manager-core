@@ -152,7 +152,10 @@ fn get_forge_root_ca_path(
 
     // and this is the location for developers executing from within carbide's repo
     if let Ok(project_root) = env::var("REPO_ROOT") {
-        let path = format!("{}/dev/certs/forge_root.pem", project_root);
+        let path = format!(
+            "{}/dev/certs/forge_developer_local_only_root_cert_pem",
+            project_root
+        );
         if Path::new(path.as_str()).exists() {
             return path;
         }
@@ -166,7 +169,7 @@ fn get_forge_root_ca_path(
            3. add forge_root_ca_path in $HOME/.config/carbide_api_cli.json.
            5. a file existing at "/var/run/secrets/spiffe.io/ca.crt".
            5. a file existing at "/opt/forge/forge_root.pem".
-           5. a file existing at "$REPO_ROOT/dev/certs/forge_root.pem"."###
+           5. a file existing at "$REPO_ROOT/dev/certs/forge_developer_local_only_root_cert_pem"."###
     )
 }
 

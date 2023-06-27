@@ -39,6 +39,8 @@ fn setup() {
 /// threads.
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn test_integration() -> eyre::Result<()> {
+    env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
+
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
         tracing::warn!("Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping.");
         return Ok(());

@@ -48,6 +48,7 @@ services:
       - .:/app/code
       - ca-certificate:/identity
     environment:
+      - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
       - FORGE_ROOT_CAFILE_PATH=/opt/forge/forge_root.pem
     command: cargo watch -C dhcp -x "build --target-dir /tmp/carbide-dhcp" -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-carbide.conf"
@@ -105,6 +106,7 @@ services:
       - 1079:1079
       - 1080:1080
     environment:
+      - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
       - CARBIDE_DHCP_SERVER=172.20.0.12
       - CARBIDE_METRICS_ENDPOINT=[::0]:1080
@@ -128,6 +130,7 @@ services:
       - .:/app/code
       - ca-certificate:/identity
     environment:
+      - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
       - ROCKET_port=1080
       - FORGE_ROOT_CAFILE_PATH=/opt/forge/forge_root.pem
@@ -236,6 +239,7 @@ services:
     ports:
       - "1053:1053/udp"
     environment:
+      - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
     command: cargo watch -C dns -x "run --target-dir /tmp/carbide-dns -- run --carbide-url=http://172.20.0.14:1079"
 
