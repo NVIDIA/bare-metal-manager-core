@@ -11,26 +11,18 @@ name = "carbide"
 path = "src/main.rs"
 
 [dependencies]
-async-compression = { version = "0.3.14", features = ["tokio", "gzip"] }
 base64 = "0.13"
 clap = { workspace = true }
 eui48 = { version = "1", default-features = false } # disable feature rustc-serialize
 forge-version = { path = "../version" }
-futures = "0.3.24"
-futures-util = "0.3.24"
-hex = "0.4.3"
 ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
 itertools = "*"
-rand = "0.8"
-reqwest = { version = "0.11.11", features = ["stream"] }
 rocket = { version = "= 0.5.0-rc.1", features = ["uuid"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
-sha2 = "0.10.3"
 tera = "*"
 thiserror = "1.0"
 tokio = { workspace = true }
-tokio-tar = "0.3.0"
 tonic = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
@@ -41,8 +33,6 @@ tonic-build = "0.8.0"
 forge-version = { path = "../version" }
 
 [dev-dependencies]
-rand = "*"
-rstest = "*"
 toml = "0.5.10"
 
 [dependencies.rocket_dyn_templates]
