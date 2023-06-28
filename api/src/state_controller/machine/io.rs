@@ -94,7 +94,6 @@ impl StateControllerIO for MachineStateControllerIO {
             match machine_state {
                 MachineState::Init => "init",
                 MachineState::WaitingForNetworkConfig => "waitingfornetworkconfig",
-                MachineState::WaitingForLeafCreation => "waitingforleafcreation",
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",
                 MachineState::Discovered => "discovered",
                 MachineState::WaitingForLockdown { .. } => "waitingforlockdown",
