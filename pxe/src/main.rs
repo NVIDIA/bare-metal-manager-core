@@ -28,9 +28,6 @@ use rocket::{
 use rocket_dyn_templates::Template;
 use serde::Serialize;
 
-use crate::artifacts::ArtifactConfig;
-
-mod artifacts;
 mod machine_architecture;
 mod routes;
 
@@ -316,21 +313,6 @@ async fn main() -> Result<(), rocket::Error> {
         match std::fs::create_dir_all(static_path) {
             Ok(_) => println!("Directory {}, created", &static_path.display()),
             Err(e) => eprintln!("Could not create directory: {}", e),
-        }
-    }
-
-    let artifactory_integration =
-        env::var("ARTIFACTORY_INTEGRATION").unwrap_or_else(|_| "false".to_string());
-
-    if artifactory_integration == "true" {
-        let configuration_file_path =
-            env::var("ARTIFACT_CONFIG").unwrap_or_else(|_| "artifacts.json".to_string());
-        let artifact_configuration = ArtifactConfig::from_config_file(configuration_file_path)
-            .expect("unable to parse artifact configuration file?");
-        println!("Artifact config parsed: {}", &artifact_configuration);
-
-        if let Err(error) = artifact_configuration.validate_artifacts(static_path).await {
-            eprintln!("Error validating artifacts. Error: {:?}", error);
         }
     }
 

@@ -251,22 +251,8 @@ description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide stati
 dependencies = [
     "ipxe-config",
     "ipxe-install-efi-aarch64",
-	"ipxe-update-efi-checksum-aarch64",
     "package-boot-artifacts-aarch64",
     "upload-boot-artifacts-aarch64",
-]
-
-[tasks.ipxe-update-efi-checksum-aarch64]
-category = "iPXE Kernel"
-description = "update the checksum for the aarch64 EFI iPXE kernel"
-script = '''
-rm -f artifacts.json.bk &&
-CHECKSUM=$(shasum -a 256 static/blobs/internal/aarch64/ipxe.efi | cut -d ' ' -f 1)
-jq --arg CHECKSUM "$CHECKSUM" '."forge-boot-artifact-aarch64".checksums."ipxe.efi" = $CHECKSUM' < artifacts.json > artifacts.json.bk &&
-mv artifacts.json.bk artifacts.json
-'''
-dependencies = [
-  "ipxe-install-efi-aarch64"
 ]
 
 [tasks.ipxe-install-efi-aarch64]
@@ -336,11 +322,9 @@ dependencies = [
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",
 	"bfb-copy-efi",
-	"bfb-update-efi-checksum-aarch64",
 	"bfb-remove-extracted-efi",
 	"bfb-rebuild-rootfs",
 	"bfb-copy-rootfs",
-	"bfb-update-rootfs-checksum-aarch64",
 ]
 
 [tasks.bfb-cleanup-tmp]
@@ -429,19 +413,6 @@ args = [
 	"/tmp/bfb-dump/initramfs-tmp",
 ]
 
-[tasks.bfb-update-efi-checksum-aarch64]
-category = "iPXE Kernel"
-description = "update the checksum for the aarch64 BFB EFI kernel"
-script = '''
-rm -f artifacts.json.bk &&
-CHECKSUM=$(shasum -a 256 static/blobs/internal/aarch64/carbide.efi | cut -d ' ' -f 1)
-jq --arg CHECKSUM "$CHECKSUM" '."forge-boot-artifact-aarch64".checksums."carbide.efi" = $CHECKSUM' < artifacts.json > artifacts.json.bk &&
-mv artifacts.json.bk artifacts.json
-'''
-dependencies = [
-	"bfb-copy-efi"
-]
-
 [tasks.bfb-copy-efi]
 category = "iPXE Kernel"
 description = "Copy the BFB efi kernel on aarch64 gitlab runner"
@@ -454,19 +425,6 @@ category = "iPXE Kernel"
 description = "Remove the BFB efi kernel on aarch64 gitlab runner"
 command = "rm"
 args = [ "-fr", "/tmp/bfb-dump/initramfs-tmp/dump-image-v0"]
-
-[tasks.bfb-update-rootfs-checksum-aarch64]
-category = "iPXE Kernel"
-description = "update the checksum for the aarch64 BFB rootfs"
-script = '''
-rm -f artifacts.json.bk &&
-CHECKSUM=$(shasum -a 256 static/blobs/internal/aarch64/carbide.root | cut -d ' ' -f 1)
-jq --arg CHECKSUM "$CHECKSUM" '."forge-boot-artifact-aarch64".checksums."carbide.root" = $CHECKSUM' < artifacts.json > artifacts.json.bk &&
-mv artifacts.json.bk artifacts.json
-'''
-dependencies = [
-	"bfb-copy-rootfs"
-]
 
 [tasks.bfb-rebuild-rootfs]
 category = "iPXE Kernel"
