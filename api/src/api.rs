@@ -32,6 +32,7 @@ use http::header::USER_AGENT;
 use http::{header::AUTHORIZATION, StatusCode};
 use hyper::server::conn::Http;
 use hyper::{Request as HyperRequest, Response as HyperResponse};
+use itertools::Itertools;
 use opentelemetry::metrics::Meter;
 use sqlx::{Postgres, Transaction};
 use tokio::net::TcpListener;
@@ -46,6 +47,7 @@ use tonic_reflection::server::Builder;
 use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
+use x509_parser::prelude::*;
 
 use self::rpc::forge_server::Forge;
 use crate::db::bmc_metadata::UserRoles;
@@ -2887,6 +2889,51 @@ fn expand_int_range(start_s: &str, end_s: &str) -> Result<Vec<i32>, eyre::Report
     Ok((start..end).collect())
 }
 
+/// kind of a hack here.  Story:
+/// cert-manager decided to not write certs in a format that can be directly
+/// consumed by downstream pods, for 'reasons'. we need to figure out which
+/// of the two certs we're given is the intermediate cert and which is the leaf
+/// we know that our intermediate cert will have the
+/// X509v3 Extension: Key Usage: "Certificate Sign"
+/// so we use that knowledge to find it and ensure that it is the *first* cert in
+/// the output list
+fn ensure_cert_ordering(certs: Vec<Vec<u8>>) -> Vec<Certificate> {
+    let original_certs: Vec<_> = certs.into_iter().map(Certificate).collect();
+
+    // there are only two cases -- we're given both an intermediate and a leaf cert
+    // or we're given 1 cert (the local case).  if we're given 0 or more than 2,
+    // something weird has happened so we're just going to pass it along unmodified and
+    // trust that whoever gave them to us knows what they're doing.
+    if original_certs.len() == 2 {
+        if let Some((intermediate_cert_index, _cert)) = original_certs.iter().find_position(|x| {
+            if let Ok((_bytes, parsed_cert)) = X509Certificate::from_der(x.0.as_slice()) {
+                parsed_cert.extensions().iter().any(|extension| {
+                    match extension.parsed_extension() {
+                        ParsedExtension::KeyUsage(usage) => usage.key_cert_sign(),
+                        _ => false, // not the right extension,
+                    }
+                })
+            } else {
+                // couldn't parse, skip
+                false
+            }
+        }) {
+            // make sure the intermediate cert ends up first in the output
+            if intermediate_cert_index == 0 {
+                original_certs
+            } else {
+                original_certs.into_iter().rev().collect()
+            }
+        } else {
+            // couldn't find intermediate cert, just return unmodified array of certs
+            original_certs
+        }
+    } else {
+        // we don't have two certs, just return the unmodified input
+        original_certs
+    }
+}
+
 ///
 /// this function blocks, don't use it in a raw async context
 fn get_tls_acceptor<S: AsRef<str>>(
@@ -2900,7 +2947,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
         };
         let mut buf = std::io::BufReader::new(&fd);
         match rustls_pemfile::certs(&mut buf) {
-            Ok(certs) => certs.into_iter().map(Certificate).collect(),
+            Ok(certs) => ensure_cert_ordering(certs),
             Err(error) => {
                 tracing::error!("Rustls error reading certs: {:?}", error);
                 return None;
