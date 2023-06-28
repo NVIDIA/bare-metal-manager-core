@@ -116,7 +116,6 @@ pub enum ManagedHostState {
 pub enum MachineState {
     Init,
     WaitingForNetworkConfig,
-    WaitingForLeafCreation, // old, for history table only
     WaitingForDiscovery,
     Discovered,
     /// Lockdown handling.
