@@ -128,7 +128,7 @@ exit ||
 
         // Check if dpu
         if machine.is_dpu() {
-            return Ok("exit 1".to_string());
+            return Ok("exit".to_string());
         }
 
         if let Some(hardware_info) = machine.hardware_info() {

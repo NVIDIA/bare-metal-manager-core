@@ -80,7 +80,7 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
         rpc::forge::MachineArchitecture::Arm,
     )
     .await;
-    assert_eq!(instructions.pxe_script, "exit 1".to_string());
+    assert_eq!(instructions.pxe_script, "exit".to_string());
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
@@ -119,7 +119,7 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
         rpc::forge::MachineArchitecture::Arm,
     )
     .await;
-    assert_ne!(instructions.pxe_script, "exit 1".to_string());
+    assert_ne!(instructions.pxe_script, "exit".to_string());
     assert!(instructions.pxe_script.contains("aarch64/carbide.efi"));
 
     // API doesn't know about MachineArchitecture yet. Let's check instructions for X86.
@@ -129,7 +129,7 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
         rpc::forge::MachineArchitecture::X86,
     )
     .await;
-    assert_ne!(instructions.pxe_script, "exit 1".to_string());
+    assert_ne!(instructions.pxe_script, "exit".to_string());
     assert!(instructions.pxe_script.contains("x86_64/carbide.root"));
 }
 
