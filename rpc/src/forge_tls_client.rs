@@ -47,9 +47,7 @@ pub struct ForgeTlsClient {
 
 impl ForgeTlsClient {
     pub fn new(forge_root_ca_path: String) -> Self {
-        // uncomment this when we understand why tls.crt/ca.crt have different issuers.
-        // let disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok();
-        let disabled = true;
+        let disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok();
         Self {
             forge_root_ca_path,
             enforce_tls: !disabled,

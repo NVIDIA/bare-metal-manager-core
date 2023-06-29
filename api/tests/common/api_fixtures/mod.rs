@@ -92,7 +92,6 @@ impl TestEnv {
             self.common_pools.clone(),
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
-            "not a real cafile path".to_string(),
         ));
 
         StateHandlerServices {
@@ -285,7 +284,6 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         common_pools.clone(),
         "not a real pemfile path".to_string(),
         "not a real keyfile path".to_string(),
-        "not a real cafile path".to_string(),
     );
     TestEnv {
         api,

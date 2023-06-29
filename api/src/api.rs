@@ -132,7 +132,6 @@ pub struct Api<C: CredentialProvider> {
     common_pools: Arc<CommonPools>,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
-    root_ca_file_path: String,
 }
 
 #[tonic::async_trait]
@@ -2893,7 +2892,6 @@ fn expand_int_range(start_s: &str, end_s: &str) -> Result<Vec<i32>, eyre::Report
 fn get_tls_acceptor<S: AsRef<str>>(
     identity_pemfile_path: S,
     identity_keyfile_path: S,
-    root_ca_file_path: S,
 ) -> Option<TlsAcceptor> {
     let certs = {
         let fd = match std::fs::File::open(identity_pemfile_path.as_ref()) {
@@ -2901,30 +2899,13 @@ fn get_tls_acceptor<S: AsRef<str>>(
             Err(_) => return None,
         };
         let mut buf = std::io::BufReader::new(&fd);
-        let mut identity_certs: Vec<_> = match rustls_pemfile::certs(&mut buf) {
+        match rustls_pemfile::certs(&mut buf) {
             Ok(certs) => certs.into_iter().map(Certificate).collect(),
             Err(error) => {
                 tracing::error!("Rustls error reading certs: {:?}", error);
                 return None;
             }
-        };
-
-        let fd = match std::fs::File::open(root_ca_file_path.as_ref()) {
-            Ok(fd) => fd,
-            Err(_) => return None,
-        };
-        let mut buf = std::io::BufReader::new(&fd);
-        let mut root_cert: Vec<_> = match rustls_pemfile::certs(&mut buf) {
-            Ok(certs) => certs.into_iter().map(Certificate).collect(),
-            Err(error) => {
-                tracing::error!("Rustls error reading certs: {:?}", error);
-                return None;
-            }
-        };
-
-        identity_certs.append(&mut root_cert);
-
-        identity_certs
+        }
     };
 
     let mut key = {
@@ -3119,13 +3100,8 @@ where
 
     let identity_pemfile_path = api_service.identity_pemfile_path.clone();
     let identity_keyfile_path = api_service.identity_keyfile_path.clone();
-    let root_ca_file_path = api_service.root_ca_file_path.clone();
     let tls_acceptor = tokio::task::spawn_blocking(move || {
-        get_tls_acceptor(
-            identity_pemfile_path,
-            identity_keyfile_path,
-            root_ca_file_path,
-        )
+        get_tls_acceptor(identity_pemfile_path, identity_keyfile_path)
     })
     .await?;
 
@@ -3215,7 +3191,6 @@ where
         common_pools: Arc<CommonPools>,
         identity_pemfile_path: String,
         identity_keyfile_path: String,
-        root_ca_file_path: String,
     ) -> Self {
         Self {
             database_connection,
@@ -3226,7 +3201,6 @@ where
             common_pools,
             identity_pemfile_path,
             identity_keyfile_path,
-            root_ca_file_path,
         }
     }
 
@@ -3300,7 +3274,6 @@ where
             common_pools.clone(),
             daemon_config.identity_pemfile_path.clone(),
             daemon_config.identity_keyfile_path.clone(),
-            daemon_config.root_ca_file_path.clone(),
         ));
 
         // handles need to be stored in a variable

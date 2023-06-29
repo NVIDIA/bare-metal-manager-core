@@ -34,7 +34,6 @@ pub fn start(
 ) -> Result<CarbideApi, eyre::Report> {
     let tls_cert = root_dir.join("dev/certs/server_identity.pem");
     let tls_key = root_dir.join("dev/certs/server_identity.key");
-    let root_ca = root_dir.join("dev/certs/forge_root.pem");
 
     let mut process = process::Command::new(carbide_api)
         .env("VAULT_ADDR", "http://127.0.0.1:8200")
@@ -44,7 +43,6 @@ pub fn start(
         .arg("--listen=127.0.0.1:1079")
         .arg(format!("--identity-pemfile-path={}", tls_cert.display()))
         .arg(format!("--identity-keyfile-path={}", tls_key.display()))
-        .arg(format!("--root-ca-file-path={}", root_ca.display()))
         .arg(format!("--datastore={db_url}"))
         .arg("--auth-permissive-mode")
         .arg("--asn=65535")
