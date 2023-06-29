@@ -589,17 +589,12 @@ pub enum HardwareInfoError {
 impl HardwareInfo {
     /// Returns whether the machine is deemed to be a DPU based on some properties
     pub fn is_dpu(&self) -> bool {
-        let network_interfaces = &self.network_interfaces;
         let dmi_data = &self.dmi_data;
         let machine_type = &self.machine_type;
 
         const ARM_TYPE: &str = "aarch64";
         if machine_type != ARM_TYPE {
             return false;
-        }
-
-        if network_interfaces.is_empty() {
-            return false; // has no network interfaces/attribute
         }
 
         // Bluefield's dmi data should return a special string that identifies it as a DPU
