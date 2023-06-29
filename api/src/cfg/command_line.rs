@@ -111,13 +111,6 @@ pub struct Daemon {
     )]
     pub identity_keyfile_path: String,
 
-    #[clap(
-        long,
-        env = "ROOT_CA_FILE_PATH",
-        default_value = "/opt/forge/forge_root.pem"
-    )]
-    pub root_ca_file_path: String,
-
     // TODO: cfg this out for release builds?
     /// Enable permissive mode in the authorization enforcer (for development).
     #[clap(long, default_value("true"), env = "AUTH_PERMISSIVE_MODE")]
