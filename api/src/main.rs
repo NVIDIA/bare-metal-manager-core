@@ -21,7 +21,7 @@ use carbide::{
     },
 };
 use eyre::WrapErr;
-use forge_credentials::ForgeVaultClient;
+use forge_secrets::ForgeVaultClient;
 use opentelemetry::{
     sdk::{self, export::metrics::aggregation, metrics},
     trace::TracerProvider,
@@ -161,7 +161,10 @@ async fn main() -> eyre::Result<()> {
                 });
             }
 
-            let vault_token = env::var("VAULT_TOKEN").wrap_err("VAULT_TOKEN")?;
+            let vault_token = env::var("VAULT_TOKEN")
+                .wrap_err("VAULT_TOKEN")?
+                .trim()
+                .to_string();
             let vault_addr = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
             let vault_mount_location =
                 env::var("VAULT_MOUNT_LOCATION").wrap_err("VAULT_MOUNT_LOCATION")?;

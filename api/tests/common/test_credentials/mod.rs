@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Default)]

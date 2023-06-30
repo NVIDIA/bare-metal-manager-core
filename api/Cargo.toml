@@ -65,7 +65,7 @@ vaultrs = "0.6.2"
 x509-parser = { version = "0.14", features = ["verify"] }
 
 #only local dependencies here please
-forge_credentials = { path = "../forge_credentials" }
+forge_secrets = { path = "../forge_secrets" }
 forge-version = { path = "../version" }
 rpc = { path = "../rpc" }
 
