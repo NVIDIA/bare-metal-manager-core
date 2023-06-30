@@ -613,7 +613,7 @@ dependencies = [
  "data-encoding",
  "eyre",
  "forge-version",
- "forge_credentials",
+ "forge_secrets",
  "futures",
  "futures-util",
  "http",
@@ -1738,7 +1738,7 @@ name = "forge-version"
 version = "0.1.0"
 
 [[package]]
-name = "forge_credentials"
+name = "forge_secrets"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -4233,7 +4233,6 @@ dependencies = [
  "eyre",
  "forge-host-support",
  "forge-version",
- "forge_credentials",
  "lazy_static",
  "libc",
  "once_cell",

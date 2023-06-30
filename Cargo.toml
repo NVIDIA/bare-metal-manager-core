@@ -8,7 +8,7 @@ members = [
   "dev/rainbow",
   "dhcp",
   "dns",
-  "forge_credentials",
+  "forge_secrets",
   "host-support",
   "pxe",
   "rpc",

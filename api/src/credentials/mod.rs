@@ -3,7 +3,7 @@ use ::rpc::forge::{
     machine_credentials_update_request::Credentials, MachineCredentialsUpdateRequest,
     MachineCredentialsUpdateResponse,
 };
-use forge_credentials::{CredentialKey, CredentialProvider};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider};
 
 use crate::{
     model::{
@@ -65,7 +65,7 @@ impl UpdateCredentials {
             credential_provider
                 .set_credentials(
                     key,
-                    forge_credentials::Credentials::UsernamePassword {
+                    forge_secrets::credentials::Credentials::UsernamePassword {
                         username: credential.user.clone(),
                         password: credential.password.clone(),
                     },

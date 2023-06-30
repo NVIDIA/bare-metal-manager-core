@@ -26,7 +26,7 @@ use ::rpc::protos::forge::{
     UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
 use chrono::Duration;
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use futures_util::future::BoxFuture;
 use http::header::USER_AGENT;
 use http::{header::AUTHORIZATION, StatusCode};
@@ -1579,6 +1579,10 @@ where
                 );
             }
         }
+
+        // trust_domain == forge.local
+        // namespace == forge-system
+        //spiffe://<trust_domain>/<namespace>/machine/<stable_machine_id>
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {
             machine_id: Some(stable_machine_id.to_string().into()),

@@ -14,7 +14,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use forge_credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
