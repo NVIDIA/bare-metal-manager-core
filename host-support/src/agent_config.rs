@@ -21,6 +21,14 @@ pub struct AgentConfig {
     #[serde(rename = "forge-system")]
     pub forge_system: ForgeSystemConfig,
     pub machine: MachineConfig,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "metadata-service"
+    )]
+    pub metadata_service: Option<MetadataServiceConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telemetry: Option<TelemetryConfig>,
 }
 
 impl AgentConfig {
@@ -75,12 +83,64 @@ pub struct MachineConfig {
     hostname: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetadataServiceConfig {
+    pub address: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    #[serde(rename = "metrics-address")]
+    pub metrics_address: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_load_forge_agent_config() {
+    fn test_load_forge_agent_config_full() {
+        let config = "[forge-system]
+api-server = \"https://127.0.0.1:1234\"
+pxe-server = \"http://127.0.0.1:8080\"
+root-ca = \"/opt/forge/forge_root.pem\"
+
+[machine]
+interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
+mac-address = \"11:22:33:44:55:66\"
+hostname = \"abc.forge.com\"
+
+[metadata-service]
+address = \"0.0.0.0:7777\"
+
+[telemetry]
+metrics-address = \"0.0.0.0:8888\"
+";
+
+        let config: AgentConfig = toml::from_str(config).unwrap();
+
+        assert_eq!(config.forge_system.api_server, "https://127.0.0.1:1234");
+        assert_eq!(
+            config.forge_system.pxe_server.as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+        assert_eq!(config.forge_system.ntp_server, None);
+        assert_eq!(
+            config.machine.interface_id,
+            uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200")
+        );
+        assert_eq!(
+            config.machine.mac_address.as_deref(),
+            Some("11:22:33:44:55:66")
+        );
+        assert_eq!(config.machine.hostname.as_deref(), Some("abc.forge.com"));
+
+        assert_eq!(config.metadata_service.unwrap().address, "0.0.0.0:7777");
+        assert_eq!(config.telemetry.unwrap().metrics_address, "0.0.0.0:8888");
+    }
+
+    #[test]
+    fn test_load_forge_agent_config_without_services() {
         let config = "[forge-system]
 api-server = \"https://127.0.0.1:1234\"
 pxe-server = \"http://127.0.0.1:8080\"
@@ -109,5 +169,8 @@ hostname = \"abc.forge.com\"
             Some("11:22:33:44:55:66")
         );
         assert_eq!(config.machine.hostname.as_deref(), Some("abc.forge.com"));
+
+        assert_eq!(config.metadata_service, None);
+        assert_eq!(config.telemetry, None);
     }
 }
