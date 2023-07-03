@@ -31,7 +31,7 @@ pub(crate) struct Options {
 #[derive(Parser, Debug)]
 pub enum AgentCommand {
     #[clap(about = "Run is the normal and default command")]
-    Run,
+    Run(RunOptions),
 
     #[clap(about = "Detect hardware and exit")]
     Hardware,
@@ -135,6 +135,12 @@ pub struct DhcpOptions {
         help = "0 for Ethernet Virtualizer, 1 for Forge Native Networking"
     )]
     pub network_virtualization_type: i32,
+}
+
+#[derive(Parser, Debug)]
+pub struct RunOptions {
+    #[clap(long, help = "Enable metadata service")]
+    pub enable_metadata_service: bool,
 }
 
 impl Options {

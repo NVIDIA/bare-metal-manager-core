@@ -119,6 +119,10 @@ fn generate_forge_agent_config(
     let mac_address = machine.interface.mac_address.clone();
     let hostname = format!("{}.{}", machine.interface.hostname, machine.domain.name);
 
+    // TODO we need to figure out the addresses on which those services should run
+    let instance_metadata_service_address = "0.0.0.0:7777";
+    let telemetry_metrics_service_address = "0.0.0.0:8888";
+
     let content = format!(
         "
         [forge-system]
@@ -129,7 +133,14 @@ fn generate_forge_agent_config(
         [machine]
         interface-id = \"{machine_interface_id}\"
         mac-address = \"{mac_address}\"
-        hostname = \"{hostname}\""
+        hostname = \"{hostname}\"
+
+        [metadata-service]
+        address = \"{instance_metadata_service_address}\"
+
+        [telemetry]
+        metrics-address = \"{telemetry_metrics_service_address}\"
+        "
     );
 
     let mut lines: Vec<&str> = content.split('\n').map(|line| line.trim_start()).collect();
@@ -301,6 +312,26 @@ mod tests {
                 .as_str()
                 .unwrap(),
             "abc.myforge.com"
+        );
+
+        assert_eq!(
+            data.get("metadata-service")
+                .unwrap()
+                .get("address")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "0.0.0.0:7777"
+        );
+
+        assert_eq!(
+            data.get("telemetry")
+                .unwrap()
+                .get("metrics-address")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "0.0.0.0:8888"
         );
     }
 }

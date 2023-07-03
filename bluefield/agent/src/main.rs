@@ -10,7 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::sync::Arc;
 use std::{process::Command, thread::sleep, time::Duration};
+
+use axum::Router;
+use opentelemetry::sdk::export::metrics::aggregation;
+use opentelemetry::sdk::metrics;
+use opentelemetry::{sdk, Context};
+use opentelemetry_semantic_conventions as semcov;
+use tokio::runtime::Runtime;
+use tracing::{debug, error, info, trace};
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client;
@@ -18,8 +27,9 @@ use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
-use tracing::{debug, error, info, trace};
 
+use crate::instance_metadata_endpoint::get_instance_metadata_router;
+use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
 use crate::{
     command_line::{AgentCommand, WriteTarget},
     frr::FrrVlanConfig,
@@ -32,6 +42,9 @@ mod ethernet_virtualization;
 mod frr;
 mod hbn;
 mod health;
+mod instance_metadata_endpoint;
+mod instance_metadata_fetcher;
+mod instrumentation;
 mod interfaces;
 mod network_config_fetcher;
 
@@ -76,9 +89,37 @@ fn main() -> eyre::Result<()> {
         .build()?;
 
     match cmdline.cmd {
-        // "run" is the normal and default command
-        None | Some(AgentCommand::Run) => {
+        // We want to run the "run" command by default if no mode is explicitly mentioned
+        None => {
             let machine_id = register(&mut rt, &agent)?;
+            run(
+                &mut rt,
+                &machine_id,
+                &agent.forge_system.api_server,
+                &agent.forge_system.root_ca,
+            );
+        }
+        // "run" is the normal and default command
+        Some(AgentCommand::Run(options)) => {
+            let machine_id = register(&mut rt, &agent)?;
+            if options.enable_metadata_service {
+                if let (Some(metadata_service_config), Some(telemetry_config)) =
+                    (agent.metadata_service, agent.telemetry)
+                {
+                    if let Err(e) = run_metadata_service(
+                        &mut rt,
+                        &machine_id,
+                        &agent.forge_system.api_server,
+                        &agent.forge_system.root_ca,
+                        metadata_service_config.address,
+                        telemetry_config.metrics_address,
+                    ) {
+                        return Err(eyre::eyre!("Failed to run metadata service: {:?}", e));
+                    }
+                } else {
+                    error!("metadata-service and telemetry configs are not present. Can't run metadata service");
+                }
+            }
             run(
                 &mut rt,
                 &machine_id,
@@ -317,4 +358,93 @@ pub fn pretty_cmd(c: &Command) -> String {
             .collect::<Vec<std::borrow::Cow<'_, str>>>()
             .join(" ")
     )
+}
+
+fn run_metadata_service(
+    rt: &mut tokio::runtime::Runtime,
+    machine_id: &str,
+    forge_api: &str,
+    root_ca: &str,
+    metadata_service_address: String,
+    metrics_address: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // This defines attributes that are set on the exported logs **and** metrics
+    let service_telemetry_attributes = sdk::Resource::new(vec![
+        semcov::resource::SERVICE_NAME.string("dpu-agent"),
+        semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
+    ]);
+
+    // Set up OpenTelemetry metrics export via prometheus
+    // TODO: The configuration here is copy&pasted from
+    // https://github.com/open-telemetry/opentelemetry-rust/blob/main/examples/hyper-prometheus/src/main.rs
+    // and should likely be fine-tuned.
+    // One particular challenge seems that these histogram buckets are used for all histograms
+    // created by the library. But we might want different buckets for e.g. request timings
+    // than for e.g. data sizes
+    let metrics_controller = metrics::controllers::basic(metrics::processors::factory(
+        metrics::selectors::simple::histogram([
+            0.01, 0.05, 0.09, 0.1, 0.5, 0.9, 1.0, 5.0, 9.0, 10.0, 50.0, 90.0, 100.0, 500.0, 900.0,
+            1000.0,
+        ]),
+        aggregation::cumulative_temporality_selector(),
+    ))
+    .with_resource(service_telemetry_attributes)
+    .build();
+
+    // This sets the global meter provider
+    // After this call `global::meter()` will be available
+    let metrics_exporter = Arc::new(opentelemetry_prometheus::exporter(metrics_controller).init());
+
+    let meter = opentelemetry::global::meter("carbide-api");
+
+    let instance_metadata_fetcher =
+        Arc::new(instance_metadata_fetcher::InstanceMetadataFetcher::new(
+            instance_metadata_fetcher::InstanceMetadataFetcherConfig {
+                config_fetch_interval: NETWORK_CONFIG_FETCH_PERIOD,
+                machine_id: machine_id.to_string(),
+                forge_api: forge_api.to_string(),
+                root_ca: root_ca.to_string(),
+                runtime: rt.handle().to_owned(),
+            },
+        ));
+
+    let instance_metadata_reader = instance_metadata_fetcher.reader();
+
+    let metrics_state = create_metrics(meter);
+    let context = Context::new();
+
+    run_server(
+        rt,
+        metadata_service_address,
+        Router::new().nest(
+            "/latest/meta-data",
+            get_instance_metadata_router(instance_metadata_reader.clone())
+                .with_tracing_layer(metrics_state, context),
+        ),
+    )?;
+
+    run_server(
+        rt,
+        metrics_address,
+        Router::new().nest("/metrics", get_metrics_router(metrics_exporter)),
+    )?;
+
+    Ok(())
+}
+
+fn run_server(
+    rt: &mut Runtime,
+    address: String,
+    router: Router,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let addr: std::net::SocketAddr = address.parse()?;
+    let server = rt.block_on(async { axum::Server::try_bind(&addr) })?;
+
+    rt.spawn(async move {
+        if let Err(err) = server.serve(router.into_make_service()).await {
+            eprintln!("Error while serving: {}", err);
+        }
+    });
+
+    Ok(())
 }
