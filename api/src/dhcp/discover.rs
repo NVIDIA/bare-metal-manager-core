@@ -25,16 +25,52 @@ use crate::{
         machine_interface::MachineInterface,
     },
     dhcp::allocation::DhcpError,
+    model::machine::machine_id::MachineId,
+    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     CarbideError, CarbideResult,
 };
+
+/// dhcrelay adds remote_id to each dhcp request sent by host.
+/// In case of instance, remote_id should be matched with attached dpu_id.
+/// If remote id is not matched, it should be assumed spoofed packet and must be dropped.
+async fn validate_dhcp_request(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    remote_id: Option<String>,
+    host_machine_id: &MachineId,
+) -> CarbideResult<()> {
+    let snapshot = DbSnapshotLoader::default()
+        .load_machine_snapshot(txn, host_machine_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let Some(remote_id) = remote_id else {
+        //TODO: This has to be fixed in next release when all DPU are re-provisioned with latest
+        //dpu-agent.
+        tracing::error!("Remote id missing for instance (host_machine: {host_machine_id}). DPU {} needs to be reprovisioned. In future release, this will break DHCP.", snapshot.dpu_snapshot.machine_id);
+        return Ok(());
+    };
+
+    let expected_remote_id = snapshot.dpu_snapshot.machine_id.remote_id();
+
+    if expected_remote_id != remote_id {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Mismatch in remote id. Expected: {}, received: {}",
+            expected_remote_id, remote_id,
+        )));
+    }
+
+    Ok(())
+}
 
 async fn handle_dhcp_for_instance(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     relay_ip: IpAddr,
     circuit_id: Option<String>,
+    remote_id: Option<String>,
     parsed_mac: MacAddress,
 ) -> CarbideResult<Option<Response<rpc::DhcpRecord>>> {
     if let Some(instance) = Instance::find_by_relay_ip(txn, relay_ip).await? {
+        validate_dhcp_request(txn, remote_id, &instance.machine_id).await?;
         let circuit_id_parsed = circuit_id
             .as_ref()
             .ok_or(DhcpError::MissingCircuitId(instance.id))
@@ -86,6 +122,7 @@ pub async fn discover_dhcp(
         link_address,
         vendor_string,
         circuit_id,
+        remote_id,
         ..
     } = request.into_inner();
 
@@ -107,7 +144,7 @@ pub async fn discover_dhcp(
 
     // Instance handling. None means no instance found matching with dhcp request.
     if let Some(response) =
-        handle_dhcp_for_instance(&mut txn, relay_ip, circuit_id, parsed_mac).await?
+        handle_dhcp_for_instance(&mut txn, relay_ip, circuit_id, remote_id, parsed_mac).await?
     {
         txn.commit()
             .await

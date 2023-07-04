@@ -146,6 +146,7 @@ pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
             vendor_string: None,
             link_address: None,
             circuit_id: None,
+            remote_id: None,
         }))
         .await
         .unwrap()

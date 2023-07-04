@@ -22,7 +22,7 @@ void CDHCPOptionsHandler<Option>::resetOption(boost::any param) {
     machine_free_fqdn(hostname);
   } break;
   case DHO_BOOT_FILE_NAME: {
-	// if client does not support netboot we get a null pointer
+    // if client does not support netboot we get a null pointer
     const char *filename =
         machine_get_filename(boost::any_cast<Machine *>(param));
     if (filename) {
@@ -140,6 +140,17 @@ DiscoveryBuilderResult update_discovery_parameters_option82(
     }
     break;
   }
+  case RAI_OPTION_REMOTE_ID: {
+    OptionPtr remote_id_opt = option_val->getOption(RAI_OPTION_REMOTE_ID);
+    if (remote_id_opt) {
+      OptionBuffer remote_id = remote_id_opt->getData();
+      std::string remote_value(remote_id.begin(), remote_id.end());
+      LOG_INFO(logger, "LOG_CARBIDE_PKT4_RECEIVE: REMOTE ID [%1] in packet")
+          .arg(remote_value);
+      return discovery_set_remote_id(discovery, remote_value.c_str());
+    }
+    break;
+  }
   }
 
   return DiscoveryBuilderResult::Success;
@@ -166,6 +177,14 @@ update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
     if (ret_val != DiscoveryBuilderResult::Success) {
       LOG_ERROR(logger,
                 "LOG_CARBIDE_PKT4_RECEIVE: Failed in handling circuit_id.");
+      return ret_val;
+    }
+
+    ret_val = update_discovery_parameters_option82(
+        discovery, RAI_OPTION_REMOTE_ID, option_val);
+    if (ret_val != DiscoveryBuilderResult::Success) {
+      LOG_ERROR(logger,
+                "LOG_CARBIDE_PKT4_RECEIVE: Failed in handling remote_id.");
       return ret_val;
     }
     break;

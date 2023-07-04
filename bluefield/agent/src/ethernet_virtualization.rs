@@ -143,6 +143,7 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
         dhcp_servers: dhcp_servers(nc),
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         vlan_ids,
+        remote_id: nc.remote_id.clone(),
         network_virtualization_type: nc.network_virtualization_type,
     })?;
     write(
@@ -447,6 +448,7 @@ mod tests {
                     .wrap_err("Uuid::try_from")?
                     .into(),
             ),
+            remote_id: "test".to_string(),
 
             // For FNN:
             // network_virtualization_type: Some(rpc::VpcVirtualizationType::ForgeNativeNetworking as i32),

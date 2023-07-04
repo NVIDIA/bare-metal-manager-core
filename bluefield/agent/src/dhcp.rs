@@ -28,6 +28,7 @@ pub fn build(conf: DhcpConfig) -> Result<String, eyre::Report> {
         Uplinks: conf.uplinks,
         VlanIDs: conf.vlan_ids,
         Servers: conf.dhcp_servers.iter().map(|ip| ip.to_string()).collect(),
+        RemoteId: conf.remote_id,
     };
     let tmpl_path = match conf.network_virtualization_type {
         None => TMPL_FULL_ETV,
@@ -44,6 +45,7 @@ pub struct DhcpConfig {
     pub uplinks: Vec<String>,
     pub vlan_ids: Vec<u32>,
     pub dhcp_servers: Vec<Ipv4Addr>,
+    pub remote_id: String,
     pub network_virtualization_type: Option<i32>,
 }
 
@@ -57,6 +59,7 @@ struct TmplDHCRelayConfigParameters {
     Uplinks: Vec<String>,
     VlanIDs: Vec<u32>,
     Servers: Vec<String>,
+    RemoteId: String,
 }
 
 #[cfg(test)]
@@ -69,6 +72,7 @@ mod tests {
             uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
             vlan_ids: vec![177],
             dhcp_servers: vec![[10, 180, 248, 25].into()],
+            remote_id: "test".to_string(),
             network_virtualization_type: None,
         };
         let output = build(params)?;

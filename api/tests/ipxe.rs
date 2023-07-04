@@ -98,6 +98,7 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
             link_address: None,
             vendor_string: None,
             circuit_id: None,
+            remote_id: None,
         }))
         .await
         .unwrap()

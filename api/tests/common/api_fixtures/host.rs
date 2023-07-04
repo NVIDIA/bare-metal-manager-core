@@ -73,6 +73,7 @@ pub async fn host_discover_dhcp(
             vendor_string: None,
             link_address: None,
             circuit_id: None,
+            remote_id: None,
         }))
         .await
         .unwrap()

@@ -1142,6 +1142,7 @@ where
                     .network_config_version
                     .version_string()
             },
+            remote_id: dpu_machine_id.remote_id(),
             network_virtualization_type: network_virtualization_type.map(|nvt| nvt as i32),
             vpc_vni: vpc_vni.map(|vni| vni as u32),
         };

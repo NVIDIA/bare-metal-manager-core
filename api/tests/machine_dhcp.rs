@@ -72,6 +72,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             link_address: None,
             vendor_string: None,
             circuit_id: None,
+            remote_id: None,
         }))
         .await
         .unwrap()
@@ -133,6 +134,7 @@ async fn test_multiple_machines_dhcp_with_api(
                 link_address: None,
                 vendor_string: None,
                 circuit_id: None,
+                remote_id: None,
             }))
             .await
             .unwrap()
@@ -203,6 +205,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             link_address: None,
             vendor_string: None,
             circuit_id: Some(FIXTURE_CIRCUIT_ID.to_string()),
+            remote_id: Some(dpu_machine_id.remote_id()),
         }))
         .await
         .unwrap()
@@ -230,6 +233,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             link_address: None,
             vendor_string: None,
             circuit_id: Some(FIXTURE_CIRCUIT_ID_1.to_string()),
+            remote_id: Some(dpu_machine_id.remote_id()),
         }))
         .await
         .unwrap()
@@ -285,6 +289,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
                 vendor_string,
                 link_address: None,
                 circuit_id: None,
+                remote_id: None,
             }))
             .await
             .unwrap()
@@ -335,6 +340,7 @@ async fn test_dpu_machine_dhcp_for_existing_dpu(
             link_address: None,
             vendor_string: None,
             circuit_id: None,
+            remote_id: None,
         }))
         .await
         .unwrap()

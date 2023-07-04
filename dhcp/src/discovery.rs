@@ -74,6 +74,9 @@ pub struct Discovery {
 
     #[builder(setter(into, strip_option), default)]
     pub(crate) circuit_id: Option<String>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub(crate) remote_id: Option<String>,
 }
 
 #[repr(C)]
@@ -196,6 +199,32 @@ pub unsafe extern "C" fn discovery_set_circuit_id(
     })
 }
 
+/// Fill the `remote_id` portion of the Discovery object with an String
+///
+/// # Safety
+///
+/// This function is only safe to be called on a `ctx` which is either a null pointer
+/// or a valid `DiscoveryBuilderFFI` object.
+///
+#[no_mangle]
+pub unsafe extern "C" fn discovery_set_remote_id(
+    ctx: *mut DiscoveryBuilderFFI,
+    remote_id: *const libc::c_char,
+) -> DiscoveryBuilderResult {
+    let remote_id = match CStr::from_ptr(remote_id).to_str() {
+        Ok(string) => string.to_owned(),
+        Err(error) => {
+            log::error!("Invalid UTF-8 byte string for remote_id: {}", error);
+            return DiscoveryBuilderResult::InvalidCircuitId;
+        }
+    };
+
+    marshal_discovery_ffi(ctx, |builder| {
+        builder.remote_id(remote_id);
+        DiscoveryBuilderResult::Success
+    })
+}
+
 /// Fill the `relay` portion of the Discovery object with an IP(v4) address
 ///
 /// # Safety
@@ -290,6 +319,7 @@ unsafe fn discovery_fetch_machine_at(
 
         let mac_address = discovery.mac_address;
         let circuit_id = discovery.circuit_id.clone();
+        let remote_id = discovery.remote_id.clone();
         let addr_for_dhcp = IpAddr::V4(
             discovery
                 .link_select_address
@@ -312,7 +342,13 @@ unsafe fn discovery_fetch_machine_at(
             None => "",
         };
 
-        if let Some(cache_entry) = cache::get(mac_address, addr_for_dhcp, &circuit_id, vendor_id) {
+        if let Some(cache_entry) = cache::get(
+            mac_address,
+            addr_for_dhcp,
+            &circuit_id,
+            &remote_id,
+            vendor_id,
+        ) {
             log::info!(
                 "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})"
             );
@@ -343,6 +379,7 @@ unsafe fn discovery_fetch_machine_at(
                     mac_address,
                     addr_for_dhcp,
                     circuit_id,
+                    remote_id,
                     machine.clone(),
                     vendor_id,
                 );

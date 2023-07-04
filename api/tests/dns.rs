@@ -22,6 +22,7 @@ async fn test_dns(pool: sqlx::PgPool) {
             link_address: None,
             vendor_string: None,
             circuit_id: None,
+            remote_id: None,
         }))
         .await
         .unwrap()
@@ -37,6 +38,7 @@ async fn test_dns(pool: sqlx::PgPool) {
             link_address: None,
             vendor_string: None,
             circuit_id: None,
+            remote_id: None,
         }))
         .await
         .unwrap()

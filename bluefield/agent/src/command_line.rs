@@ -127,8 +127,10 @@ pub struct DhcpOptions {
     pub path: String,
     #[clap(long, help = "vlan numeric id. Repeats")]
     pub vlan: Vec<u32>,
-    #[clap(long, help = "DHCP server IP address. Repets")]
+    #[clap(long, help = "DHCP server IP address. Repeats")]
     pub dhcp: Vec<Ipv4Addr>,
+    #[clap(long, help = "Remote ID to be filled in Option 82 - Agent Remote ID")]
+    pub remote_id: String,
     #[clap(
         long,
         default_value = "0",

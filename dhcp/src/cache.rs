@@ -61,9 +61,10 @@ pub fn get(
     mac_address: MacAddress,
     link_address: IpAddr,
     circuit_id: &Option<String>,
+    remote_id: &Option<String>,
     vendor_id: &str,
 ) -> Option<CacheEntry> {
-    let key = &key(mac_address, link_address, circuit_id, vendor_id);
+    let key = &key(mac_address, link_address, circuit_id, remote_id, vendor_id);
     if key.len() < MIN_KEY_LEN {
         log::debug!("Unexpected cache key, skipping: '{key}'");
         return None;
@@ -85,10 +86,17 @@ pub fn put(
     mac_address: MacAddress,
     link_address: IpAddr,
     circuit_id: Option<String>,
+    remote_id: Option<String>,
     machine: Machine,
     vendor_id: &str,
 ) {
-    let key = key(mac_address, link_address, &circuit_id, vendor_id);
+    let key = key(
+        mac_address,
+        link_address,
+        &circuit_id,
+        &remote_id,
+        vendor_id,
+    );
     let new_entry = CacheEntry {
         timestamp: Instant::now(),
         machine,
@@ -107,14 +115,19 @@ fn key(
     mac_address: MacAddress,
     link_address: IpAddr,
     circuit_id: &Option<String>,
+    remote_id: &Option<String>,
     vendor_id: &str,
 ) -> String {
     format!(
-        "{}_{}_{}_{}",
+        "{}_{}_{}_{}_{}",
         mac_address,
         link_address,
         match circuit_id {
             Some(cid) => cid.as_str(),
+            None => "",
+        },
+        match remote_id {
+            Some(rid) => rid.as_str(),
             None => "",
         },
         vendor_id,

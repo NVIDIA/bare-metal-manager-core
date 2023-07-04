@@ -9,6 +9,7 @@ if [ $# -ne 3 ]; then
   exit 1
 fi
 
+MAX_RETRY=10
 HBN_ROOT=$(cat /tmp/hbn_root)
 API_SERVER=$2:$3
 DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"
@@ -69,7 +70,6 @@ fi
 echo "Instance created/found with ID $INSTANCE_ID"
 
 INSTANCE_STATE=""
-MAX_RETRY=10
 
 if [[ "$1" == "test" || "$1" == "create" ]]; then
   i=0
