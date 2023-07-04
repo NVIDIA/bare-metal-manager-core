@@ -53,6 +53,16 @@ impl MachineId {
     pub fn machine_type(&self) -> MachineType {
         self.ty
     }
+
+    /// Generate Remote ID based on machineID.
+    /// Remote Id is inserted by dhcrelay on DPU in each DHCP request sent by host.
+    /// This field is used only for DPU.
+    pub fn remote_id(&self) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(self.to_string().as_bytes());
+        let hash: [u8; 32] = hasher.finalize().into();
+        BASE32_DNSSEC.encode(&hash)
+    }
 }
 
 /// The hardware source from which the Machine ID is derived
@@ -490,6 +500,19 @@ mod tests {
             &mut fingerprint,
             MachineType::PredictedHost,
             MachineId::host_id_from_dpu_hardware_info,
+        );
+    }
+
+    #[test]
+    fn validate_remote_id() {
+        let dpu_id = try_parse_machine_id(&::rpc::forge::MachineId {
+            id: "fm100dsg4ekcb4sdi6hkqn0iojhj18okrr8vct64luh8957lfe8e69vme20".to_string(),
+        })
+        .unwrap();
+
+        assert_eq!(
+            "d33nk2ne8p59qr988hssbc84gb2b0s34vcq5j7pm5jnrbnhc6880",
+            dpu_id.remote_id()
         );
     }
 }

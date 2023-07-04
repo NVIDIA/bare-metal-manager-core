@@ -897,6 +897,7 @@ message DhcpDiscovery {
   optional string vendor_string = 3;
   optional string link_address = 4;
   optional string circuit_id = 5;
+  optional string remote_id = 6;
 }
 
 message DhcpRecord {
@@ -1031,6 +1032,9 @@ message ManagedHostNetworkConfigResponse {
 
   // IP addresses of the L2VPN route servers
   repeated string route_servers = 14;
+
+  // Remote ID. Used by DPU to update host's DHCP request with option 82.
+  string remote_id = 15;
 }
 
 // Network configuration for a managed host (host + DPU pair) managed by Forge

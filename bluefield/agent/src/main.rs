@@ -240,6 +240,7 @@ fn main() -> eyre::Result<()> {
                     uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     vlan_ids: opts.vlan,
                     dhcp_servers: opts.dhcp,
+                    remote_id: opts.remote_id,
                     network_virtualization_type: Some(opts.network_virtualization_type),
                 })?;
                 std::fs::write(&opts.path, contents)?;
