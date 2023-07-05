@@ -31,6 +31,11 @@ users:
     passwd: $6$QnKhCwOoDCL7WBiY$KgzONMVSjgq/137.pYEwHYQwLLR1CMuqhn2jMOxqhXEni8nQsynh.s6qhdqOWoB5CLhOnM2fjtKuAwf6rm5.6.
     groups: [adm, dialout, cdrom, floppy, sudo, audio, dip, video, plugdev, netdev, lxd]
 write_files:
+  - path: /etc/bf.cfg
+    permissions: '0644'
+    content: |
+      BOOT0=NET-OOB-IPV4-HTTP
+      BOOT1=DISK
   - path: /etc/vrf/systemd.conf
     permissions: '0644'
     content: |
@@ -171,6 +176,7 @@ runcmd:
   - [ cp, /opt/hbn_installer/configs/1.5.1/doca_hbn.yaml, /etc/kubelet.d/ ]
   - [ cp, /opt/hbn_installer/configs/1.5.1/doca_telemetry.yaml, /etc/kubelet.d/ ]
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
+  - [ /usr/bin/bfcfg ]
   - [ /usr/sbin/reboot ]
 EOF
 
