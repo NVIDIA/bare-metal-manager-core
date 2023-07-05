@@ -180,6 +180,9 @@ pub enum CarbideError {
 
     #[error("Failed to call IBFabricManager: {0}")]
     IBFabricError(String),
+
+    #[error("Failed to generate client certificate: {0}")]
+    ClientCertificateError(String),
 }
 
 impl From<CarbideError> for tonic::Status {

@@ -110,7 +110,10 @@ services:
       - CARGO_HOME=/docker_cargo_home
       - CARBIDE_DHCP_SERVER=172.20.0.12
       - CARBIDE_METRICS_ENDPOINT=[::0]:1080
-      - VAULT_MOUNT_LOCATION=secret
+      - VAULT_KV_MOUNT_LOCATION=secret
+      - VAULT_PKI_MOUNT_LOCATION=unsupported
+      - VAULT_PKI_ROLE_NAME=unsupported
+      - UNSUPPORTED_CERTIFICATE_PROVIDER=true
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
       - RUST_BACKTRACE=1
@@ -165,7 +168,7 @@ services:
       vault:
         condition: service_healthy
     environment:
-      - VAULT_MOUNT_LOCATION=secret
+      - VAULT_KV_MOUNT_LOCATION=secret
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
       - TF_VAR_authority_output_root=/identity
@@ -211,7 +214,7 @@ services:
       - ipc_lock
     environment:
       - VAULT_DEV_ROOT_TOKEN_ID=notforprodtoken
-      - VAULT_MOUNT_LOCATION=secret
+      - VAULT_KV_MOUNT_LOCATION=secret
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
     healthcheck:

@@ -64,6 +64,24 @@ pub async fn register_machine(
         })?
         .into_inner();
 
+    if let Some(machine_certificate) = response.machine_certificate {
+        let _ = tokio::fs::write(
+            "/tmp/machine_cert.pem",
+            machine_certificate.public_key.as_slice(),
+        )
+        .await;
+        let _ = tokio::fs::write(
+            "/tmp/machine_cert.key",
+            machine_certificate.private_key.as_slice(),
+        )
+        .await;
+        let _ = tokio::fs::write(
+            "/tmp/issuing_cert.pem",
+            machine_certificate.issuing_ca.as_slice(),
+        )
+        .await;
+    }
+
     let machine_id: String = response
         .machine_id
         .ok_or(RegistrationError::InvalidMachineId(machine_interface_id))?

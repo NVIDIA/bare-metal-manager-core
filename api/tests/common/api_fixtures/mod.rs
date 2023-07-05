@@ -14,11 +14,15 @@
 
 use std::{net::Ipv4Addr, sync::Arc, time::SystemTime};
 
+use chrono::Duration;
+use sqlx::PgPool;
+use tonic::Request;
+
 use carbide::{
     api::Api,
     auth::{Authorizer, NoopEngine},
     db::machine::Machine,
-    ethernet_virtualization::{self, EthVirtData},
+    ethernet_virtualization::EthVirtData,
     ib,
     model::machine::{
         machine_id::{try_parse_machine_id, MachineId},
@@ -38,13 +42,11 @@ use carbide::{
         },
     },
 };
-use chrono::Duration;
 use rpc::forge::forge_server::Forge;
-use sqlx::PgPool;
-use tonic::Request;
 
 use crate::common::{
     api_fixtures::{dpu::create_dpu_machine, host::create_host_machine},
+    test_certificates::TestCertificateProvider,
     test_credentials::TestCredentialProvider,
 };
 
@@ -54,7 +56,7 @@ pub mod instance;
 pub mod network_segment;
 
 /// Carbide API for integration tests
-pub type TestApi = Api<TestCredentialProvider>;
+pub type TestApi = Api<TestCredentialProvider, TestCertificateProvider>;
 
 /// The datacenter-level DHCP relay that is assumed for all DPU discovery
 pub const FIXTURE_DHCP_RELAY_ADDRESS: &str = "192.0.2.1";
@@ -68,6 +70,7 @@ pub const FIXTURE_X86_MACHINE_ID: &str =
 pub struct TestEnv {
     pub api: TestApi,
     pub credential_provider: Arc<TestCredentialProvider>,
+    pub certificate_provider: Arc<TestCertificateProvider>,
     pub common_pools: Arc<CommonPools>,
     pub eth_virt_data: EthVirtData,
     pub pool: PgPool,
@@ -85,6 +88,7 @@ impl TestEnv {
     pub fn state_handler_services(&self) -> StateHandlerServices {
         let forge_api = Arc::new(Api::new(
             self.credential_provider.clone(),
+            self.certificate_provider.clone(),
             self.pool.clone(),
             Authorizer::new(Arc::new(NoopEngine {})),
             self.redfish_sim.clone(),
@@ -92,6 +96,7 @@ impl TestEnv {
             self.common_pools.clone(),
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
+            "not a real cafile path".to_string(),
         ));
 
         StateHandlerServices {
@@ -222,11 +227,12 @@ impl TestEnv {
 /// can be inspected and passed to other systems.
 pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     let credential_provider = Arc::new(TestCredentialProvider::new());
+    let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
     let common_pools = CommonPools::create(db_pool.clone());
     let ib_fabric_manager = ib::local_ib_fabric_manager();
 
-    let eth_virt_data = ethernet_virtualization::EthVirtData {
+    let eth_virt_data = EthVirtData {
         asn: 65535,
         dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()],
         route_servers: vec![],
@@ -275,8 +281,9 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         .unwrap();
     txn.commit().await.unwrap();
 
-    let api = carbide::api::Api::new(
+    let api = Api::new(
         credential_provider.clone(),
+        certificate_provider.clone(),
         db_pool.clone(),
         Authorizer::new(Arc::new(NoopEngine {})),
         redfish_sim.clone(),
@@ -284,11 +291,13 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         common_pools.clone(),
         "not a real pemfile path".to_string(),
         "not a real keyfile path".to_string(),
+        "not a real cafile path".to_string(),
     );
     TestEnv {
         api,
         common_pools,
         credential_provider,
+        certificate_provider,
         eth_virt_data,
         pool: db_pool,
         redfish_sim,
