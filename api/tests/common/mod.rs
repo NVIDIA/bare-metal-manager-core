@@ -15,5 +15,6 @@
 #![allow(dead_code)] // Not all tests use all tools
 
 pub mod api_fixtures;
+pub mod test_certificates;
 pub mod test_credentials;
 pub mod test_logging;

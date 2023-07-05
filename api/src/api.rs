@@ -15,18 +15,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::forge::{
-    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
-    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbSubnet,
-    IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult, IbSubnetList,
-    IbSubnetQuery, InstanceList, MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
-    TenantKeySetList, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
-    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
-};
 use chrono::Duration;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use futures_util::future::BoxFuture;
 use http::header::USER_AGENT;
 use http::{header::AUTHORIZATION, StatusCode};
@@ -35,6 +24,9 @@ use hyper::{Request as HyperRequest, Response as HyperResponse};
 use opentelemetry::metrics::Meter;
 use sqlx::{Postgres, Transaction};
 use tokio::net::TcpListener;
+use tokio::time::Instant;
+use tokio_rustls::rustls::server::AllowAnyAnonymousOrAuthenticatedClient;
+use tokio_rustls::rustls::RootCertStore;
 use tokio_rustls::{
     rustls::{Certificate, PrivateKey, ServerConfig},
     TlsAcceptor,
@@ -47,7 +39,19 @@ use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
 use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
 
-use self::rpc::forge_server::Forge;
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::{
+    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
+    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
+    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbSubnet,
+    IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult, IbSubnetList,
+    IbSubnetQuery, InstanceList, MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
+    TenantKeySetList, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
+    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+};
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
 use crate::db::machine::MachineSearchConfig;
@@ -110,6 +114,8 @@ use crate::{
     CarbideError, CarbideResult,
 };
 
+use self::rpc::forge_server::Forge;
+
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
 
@@ -123,21 +129,24 @@ const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
 // Only used if `--manage-vpc` on command line.
 const ETH_VIRT_PRODUCTION_MODE: bool = true;
 
-pub struct Api<C: CredentialProvider> {
+pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     database_connection: sqlx::PgPool,
-    credential_provider: Arc<C>,
+    credential_provider: Arc<C1>,
+    certificate_provider: Arc<C2>,
     authorizer: auth::Authorizer,
     redfish_pool: Arc<dyn RedfishClientPool>,
     eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
+    root_cafile_path: String,
 }
 
 #[tonic::async_trait]
-impl<C> Forge for Api<C>
+impl<C1, C2> Forge for Api<C1, C2>
 where
-    C: CredentialProvider + 'static,
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
 {
     async fn version(
         &self,
@@ -1581,12 +1590,19 @@ where
             }
         }
 
-        // trust_domain == forge.local
-        // namespace == forge-system
-        //spiffe://<trust_domain>/<namespace>/machine/<stable_machine_id>
+        let id_str = stable_machine_id.to_string();
+        let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
+            forge_secrets::certificates::Certificate::default()
+        } else {
+            self.certificate_provider
+                .get_certificate(id_str.as_str())
+                .await
+                .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
+        };
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {
-            machine_id: Some(stable_machine_id.to_string().into()),
+            machine_id: Some(id_str.into()),
+            machine_certificate: Some(certificate.into()),
         }));
 
         txn.commit()
@@ -2897,6 +2913,7 @@ fn expand_int_range(start_s: &str, end_s: &str) -> Result<Vec<i32>, eyre::Report
 fn get_tls_acceptor<S: AsRef<str>>(
     identity_pemfile_path: S,
     identity_keyfile_path: S,
+    root_cafile_path: S,
 ) -> Option<TlsAcceptor> {
     let certs = {
         let fd = match std::fs::File::open(identity_pemfile_path.as_ref()) {
@@ -2913,7 +2930,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
         }
     };
 
-    let mut key = {
+    let key = {
         let fd = match std::fs::File::open(identity_keyfile_path.as_ref()) {
             Ok(fd) => fd,
             Err(_) => return None,
@@ -2929,25 +2946,6 @@ fn get_tls_acceptor<S: AsRef<str>>(
         }
     };
 
-    //TODO: remove this fallback hack once we move to EC keys locally
-    if key.is_none() {
-        key = {
-            let fd = match std::fs::File::open(identity_keyfile_path.as_ref()) {
-                Ok(fd) => fd,
-                Err(_) => return None,
-            };
-            let mut buf = std::io::BufReader::new(&fd);
-
-            match rustls_pemfile::rsa_private_keys(&mut buf) {
-                Ok(keys) => keys.into_iter().map(PrivateKey).next(),
-                error => {
-                    tracing::error!("Rustls error reading key: {:?}", error);
-                    None
-                }
-            }
-        }
-    }
-
     let key = match key {
         Some(key) => key,
         None => {
@@ -2956,9 +2954,29 @@ fn get_tls_acceptor<S: AsRef<str>>(
         }
     };
 
+    let mut roots = RootCertStore::empty();
+    match std::fs::read(root_cafile_path.as_ref()) {
+        Ok(pem_file) => {
+            let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
+            let certs_to_add = match rustls_pemfile::certs(&mut cert_cursor) {
+                Ok(certs) => certs,
+                Err(error) => {
+                    tracing::error!("error parsing root ca cert file: {:?}", error);
+                    return None;
+                }
+            };
+            let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add.as_slice());
+        }
+        Err(error) => {
+            tracing::error!("error reading root ca cert file: {:?}", error);
+            return None;
+        }
+    }
+
+    //TODO: put the forge root in here
     match ServerConfig::builder()
         .with_safe_defaults()
-        .with_no_client_auth()
+        .with_client_cert_verifier(AllowAnyAnonymousOrAuthenticatedClient::new(roots))
         .with_single_cert(certs, key)
     {
         Ok(mut tls) => {
@@ -3091,13 +3109,14 @@ struct ConnInfo {
 }
 
 #[tracing::instrument(skip_all)]
-async fn api_handler<C>(
-    api_service: Arc<Api<C>>,
+async fn api_handler<C1, C2>(
+    api_service: Arc<Api<C1, C2>>,
     listen_port: SocketAddr,
     meter: Meter,
 ) -> eyre::Result<()>
 where
-    C: CredentialProvider + 'static,
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
 {
     let api_reflection_service = Builder::configure()
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
@@ -3105,8 +3124,18 @@ where
 
     let identity_pemfile_path = api_service.identity_pemfile_path.clone();
     let identity_keyfile_path = api_service.identity_keyfile_path.clone();
-    let tls_acceptor = tokio::task::spawn_blocking(move || {
-        get_tls_acceptor(identity_pemfile_path, identity_keyfile_path)
+    let root_cafile_path = api_service.root_cafile_path.clone();
+
+    let identity_pemfile_path_clone = identity_pemfile_path.clone();
+    let identity_keyfile_path_clone = identity_keyfile_path.clone();
+    let root_cafile_path_clone = root_cafile_path.clone();
+
+    let mut tls_acceptor = tokio::task::spawn_blocking(move || {
+        get_tls_acceptor(
+            identity_pemfile_path_clone,
+            identity_keyfile_path_clone,
+            root_cafile_path_clone,
+        )
     })
     .await?;
 
@@ -3120,6 +3149,7 @@ where
         .add_service(api_reflection_service)
         .into_service();
 
+    let mut tls_acceptor_created = Instant::now();
     loop {
         let (conn, addr) = match listener.accept().await {
             Ok(incoming) => incoming,
@@ -3128,8 +3158,27 @@ where
                 continue;
             }
         };
-        let http = http.clone();
+
+        // hard refresh our certs every five minutes -- they may have been rewritten on disk by cert-manager and we want to honor the new cert.
+        if tls_acceptor_created.elapsed() > tokio::time::Duration::from_secs(5 * 60) {
+            tracing::info!("Refreshing certs.");
+            tls_acceptor_created = Instant::now();
+
+            let identity_pemfile_path_clone = identity_pemfile_path.clone();
+            let identity_keyfile_path_clone = identity_keyfile_path.clone();
+            let root_cafile_path_clone = root_cafile_path.clone();
+            tls_acceptor = tokio::task::spawn_blocking(move || {
+                get_tls_acceptor(
+                    identity_pemfile_path_clone,
+                    identity_keyfile_path_clone,
+                    root_cafile_path_clone,
+                )
+            })
+            .await?;
+        }
         let tls_acceptor = tls_acceptor.clone();
+
+        let http = http.clone();
         let svc = svc.clone();
 
         tokio::spawn(async move {
@@ -3182,13 +3231,15 @@ fn log_machine_id(machine_id: &MachineId) {
     tracing::Span::current().record("forge.machine_id", machine_id.to_string());
 }
 
-impl<C> Api<C>
+impl<C1, C2> Api<C1, C2>
 where
-    C: CredentialProvider + 'static,
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        credential_provider: Arc<C>,
+        credential_provider: Arc<C1>,
+        certificate_provider: Arc<C2>,
         database_connection: sqlx::PgPool,
         authorizer: auth::Authorizer,
         redfish_pool: Arc<dyn RedfishClientPool>,
@@ -3196,23 +3247,27 @@ where
         common_pools: Arc<CommonPools>,
         identity_pemfile_path: String,
         identity_keyfile_path: String,
+        root_cafile_path: String,
     ) -> Self {
         Self {
             database_connection,
             credential_provider,
+            certificate_provider,
             authorizer,
             redfish_pool,
             eth_data,
             common_pools,
             identity_pemfile_path,
             identity_keyfile_path,
+            root_cafile_path,
         }
     }
 
     #[tracing::instrument(skip_all)]
     pub async fn run(
         daemon_config: &cfg::Daemon,
-        credential_provider: Arc<C>,
+        credential_provider: Arc<C1>,
+        certificate_provider: Arc<C2>,
         meter: opentelemetry::metrics::Meter,
     ) -> eyre::Result<()> {
         let service_config = if daemon_config.rapid_iterations {
@@ -3272,6 +3327,7 @@ where
 
         let api_service = Arc::new(Self::new(
             credential_provider.clone(),
+            certificate_provider.clone(),
             database_connection.clone(),
             authorizer,
             shared_redfish_pool.clone(),
@@ -3279,6 +3335,7 @@ where
             common_pools.clone(),
             daemon_config.identity_pemfile_path.clone(),
             daemon_config.identity_keyfile_path.clone(),
+            daemon_config.root_cafile_path.clone(),
         ));
 
         // handles need to be stored in a variable

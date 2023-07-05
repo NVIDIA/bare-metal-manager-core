@@ -13,15 +13,7 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide::{
-    cfg::{Command, Options},
-    logging::{
-        metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
-        otel_stdout_exporter::OtelStdoutExporter,
-    },
-};
 use eyre::WrapErr;
-use forge_secrets::ForgeVaultClient;
 use opentelemetry::{
     sdk::{self, export::metrics::aggregation, metrics},
     trace::TracerProvider,
@@ -30,6 +22,15 @@ use opentelemetry_semantic_conventions as semcov;
 use sqlx::PgPool;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
+
+use carbide::{
+    cfg::{Command, Options},
+    logging::{
+        metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
+        otel_stdout_exporter::OtelStdoutExporter,
+    },
+};
+use forge_secrets::ForgeVaultClient;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -166,8 +167,11 @@ async fn main() -> eyre::Result<()> {
                 .trim()
                 .to_string();
             let vault_addr = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
-            let vault_mount_location =
-                env::var("VAULT_MOUNT_LOCATION").wrap_err("VAULT_MOUNT_LOCATION")?;
+            let kv_mount_location =
+                env::var("VAULT_KV_MOUNT_LOCATION").wrap_err("VAULT_KV_MOUNT_LOCATION")?;
+            let pki_mount_location =
+                env::var("VAULT_PKI_MOUNT_LOCATION").wrap_err("VAULT_PKI_MOUNT_LOCATION")?;
+            let pki_role_name = env::var("VAULT_PKI_ROLE_NAME").wrap_err("VAULT_PKI_ROLE_NAME")?;
 
             let vault_client_settings = VaultClientSettingsBuilder::default()
                 .address(vault_addr)
@@ -176,7 +180,13 @@ async fn main() -> eyre::Result<()> {
                 .verify(false) //TODO: remove me when we are starting to validate certs
                 .build()?;
             let vault_client = VaultClient::new(vault_client_settings)?;
-            let forge_vault_client = ForgeVaultClient::new(vault_client, vault_mount_location);
+
+            let forge_vault_client = ForgeVaultClient::new(
+                vault_client,
+                kv_mount_location,
+                pki_mount_location,
+                pki_role_name,
+            );
             let forge_vault_client = Arc::new(forge_vault_client);
 
             tracing::info!(
@@ -184,7 +194,13 @@ async fn main() -> eyre::Result<()> {
                 config.listen[0],
                 forge_version::version!()
             );
-            carbide::api::Api::run(config, forge_vault_client, meter).await?
+            carbide::api::Api::run(
+                config,
+                forge_vault_client.clone(),
+                forge_vault_client,
+                meter,
+            )
+            .await?
         }
     }
     Ok(())

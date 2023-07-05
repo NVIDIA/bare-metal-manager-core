@@ -14,3 +14,5 @@ serde = {version = "1.0", features = ["derive"] }
 tracing = "*"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 vaultrs = "0.6"
+
+rpc = { path = "../rpc" }
