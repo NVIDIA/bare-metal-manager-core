@@ -52,6 +52,7 @@ use ::rpc::protos::forge::{
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 
+use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
 use crate::db::machine::MachineSearchConfig;
@@ -3265,11 +3266,15 @@ where
 
     #[tracing::instrument(skip_all)]
     pub async fn run(
+        carbide_config: Option<Arc<CarbideConfig>>,
         daemon_config: &cfg::Daemon,
         credential_provider: Arc<C1>,
         certificate_provider: Arc<C2>,
         meter: opentelemetry::metrics::Meter,
     ) -> eyre::Result<()> {
+        // TODO: Use parameters from carbide_config here once the config looks right
+        let _ = carbide_config;
+
         let service_config = if daemon_config.rapid_iterations {
             tracing::info!("Running with rapid iterations for local development");
             ServiceConfig::for_local_development()

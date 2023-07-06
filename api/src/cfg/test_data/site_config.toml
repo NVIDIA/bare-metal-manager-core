@@ -1,0 +1,12 @@
+asn=777
+dhcp_servers=["99.101.102.103"]
+rapid_iterations=true
+
+[tls]
+identity_pemfile_path="/patched/path/to/cert"
+identity_keyfile_path="/patched/path/to/key"
+root_cafile_path="/patched/path/to/ca"
+
+[auth]
+auth_permissive_mode=true
+casbin_policy_file="/patched/path/to/policy"

@@ -45,6 +45,22 @@ pub struct Daemon {
     )]
     pub listen: Vec<std::net::SocketAddr>,
 
+    /// Path to the configuration file
+    /// The contents of this configuration file can be patched by providing
+    /// site specific configuration overrides via an additional config file at
+    /// `site-config-path`.
+    /// Additionally all configuration file contents can be overridden using
+    /// environmental variables that are prefixed with `CARBIDE_API_`.
+    /// E.g. an environmental variable with the name `CARBIDE_API_DATABASE_URL`
+    /// will take precedence over the field `database_url` in the site specific
+    /// configuration. And the field `database_url` in the site specific configuration
+    /// will take precedence over the same field in the global configuration.
+    #[clap(long)]
+    pub config_path: Option<String>,
+    /// Path to the configuration file which contains per-site overwrites
+    #[clap(long)]
+    pub site_config_path: Option<String>,
+
     /// The socket address that is used for the HTTP server which serves
     /// prometheus metrics under /metrics
     #[clap(long, env = "CARBIDE_METRICS_ENDPOINT")]

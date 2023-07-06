@@ -629,6 +629,7 @@ dependencies = [
  "ctor",
  "data-encoding",
  "eyre",
+ "figment",
  "forge-version",
  "forge_secrets",
  "futures",
@@ -1678,14 +1679,16 @@ dependencies = [
 
 [[package]]
 name = "figment"
-version = "0.10.8"
+version = "0.10.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e56602b469b2201400dec66a66aec5a9b8761ee97cd1b8c96ab2483fcc16cc9"
+checksum = "4547e226f4c9ab860571e070a9034192b3175580ecea38da34fcdb53a018c9a5"
 dependencies = [
  "atomic",
+ "parking_lot 0.12.1",
  "pear",
  "serde",
- "toml 0.5.11",
+ "tempfile",
+ "toml 0.7.3",
  "uncased",
  "version_check",
 ]

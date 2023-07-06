@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-pub use command_line::{Command, Daemon, Options};
 
 mod command_line;
+pub use command_line::{Command, Daemon, Options};
+mod file;
+pub use file::CarbideConfig;

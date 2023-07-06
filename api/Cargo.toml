@@ -22,6 +22,7 @@ chrono = "0.4.19"
 clap = { workspace = true }
 data-encoding = "2.3.3"
 eyre = "*"
+figment = { version = "0.10.10", features = ["env", "toml"] }
 futures = "0.3"
 futures-util = "0.3"
 http = "0.2"
@@ -74,6 +75,7 @@ tonic-build = "0.8"
 forge-version = { path = "../version" }
 
 [dev-dependencies]
+figment = { version = "0.10.10", features = ["env", "test", "toml"] }
 rstest = "0.13.0"
 rstest_reuse = "0.4.0"
 ctor = "0.1"
