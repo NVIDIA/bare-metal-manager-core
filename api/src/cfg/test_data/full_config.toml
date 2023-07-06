@@ -12,5 +12,5 @@ identity_keyfile_path="/path/to/key"
 root_cafile_path="/path/to/ca"
 
 [auth]
-auth_permissive_mode=false
+permissive_mode=false
 casbin_policy_file="/path/to/policy"

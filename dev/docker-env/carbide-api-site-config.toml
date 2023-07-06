@@ -1,4 +1,4 @@
 rapid_iterations=true
 
 [auth]
-auth_permissive_mode=true
+permissive_mode=true

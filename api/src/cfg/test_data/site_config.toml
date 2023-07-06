@@ -8,5 +8,5 @@ identity_keyfile_path="/patched/path/to/key"
 root_cafile_path="/patched/path/to/ca"
 
 [auth]
-auth_permissive_mode=true
+permissive_mode=true
 casbin_policy_file="/patched/path/to/policy"
