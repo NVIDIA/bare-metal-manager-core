@@ -31,6 +31,12 @@ users:
     passwd: $6$QnKhCwOoDCL7WBiY$KgzONMVSjgq/137.pYEwHYQwLLR1CMuqhn2jMOxqhXEni8nQsynh.s6qhdqOWoB5CLhOnM2fjtKuAwf6rm5.6.
     groups: [adm, dialout, cdrom, floppy, sudo, audio, dip, video, plugdev, netdev, lxd]
 write_files:
+  - path: /etc/rc.local
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Hack for dhcp until this is resolved: https://redmine.mellanox.com/issues/3531747
+      dhclient oob_net0
   - path: /etc/bf.cfg
     permissions: '0644'
     content: |
