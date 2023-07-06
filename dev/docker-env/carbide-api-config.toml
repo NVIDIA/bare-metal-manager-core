@@ -7,5 +7,5 @@ route_servers=[]
 rapid_iterations=false
 
 [auth]
-auth_permissive_mode=false
+permissive_mode=false
 casbin_policy_file="/app/code/api/casbin-policy.csv"

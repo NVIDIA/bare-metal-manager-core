@@ -77,7 +77,7 @@ pub struct TlsConfig {
 #[derive(Clone, Debug, Deserialize)]
 pub struct AuthConfig {
     /// Enable permissive mode in the authorization enforcer (for development).
-    pub auth_permissive_mode: bool,
+    pub permissive_mode: bool,
 
     /// The Casbin policy file (in CSV format).
     pub casbin_policy_file: std::path::PathBuf,
@@ -140,7 +140,7 @@ mod tests {
             config.tls.as_ref().unwrap().root_cafile_path,
             "/patched/path/to/ca"
         );
-        assert!(config.auth.as_ref().unwrap().auth_permissive_mode);
+        assert!(config.auth.as_ref().unwrap().permissive_mode);
         assert_eq!(
             config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
             "/patched/path/to/policy"
@@ -172,7 +172,7 @@ mod tests {
             "/path/to/key"
         );
         assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
-        assert!(!config.auth.as_ref().unwrap().auth_permissive_mode);
+        assert!(!config.auth.as_ref().unwrap().permissive_mode);
         assert_eq!(
             config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
             "/path/to/policy"
@@ -205,7 +205,7 @@ mod tests {
             config.tls.as_ref().unwrap().root_cafile_path,
             "/patched/path/to/ca"
         );
-        assert!(config.auth.as_ref().unwrap().auth_permissive_mode);
+        assert!(config.auth.as_ref().unwrap().permissive_mode);
         assert_eq!(
             config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
             "/patched/path/to/policy"
@@ -217,7 +217,7 @@ mod tests {
         figment::Jail::expect_with(|jail| {
             jail.set_env("CARBIDE_API_DATABASE_URL", "postgres://othersql");
             jail.set_env("CARBIDE_API_ASN", 777);
-            jail.set_env("CARBIDE_API_AUTH", "{auth_permissive_mode=true}");
+            jail.set_env("CARBIDE_API_AUTH", "{permissive_mode=true}");
             jail.set_env(
                 "CARBIDE_API_TLS",
                 "{identity_pemfile_path=/patched/path/to/cert}",
@@ -247,7 +247,7 @@ mod tests {
                 "/path/to/key"
             );
             assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
-            assert!(config.auth.as_ref().unwrap().auth_permissive_mode);
+            assert!(config.auth.as_ref().unwrap().permissive_mode);
             assert_eq!(
                 config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
                 "/path/to/policy"
