@@ -21,6 +21,8 @@ pub fn grpcurl(endpoint: &str, data: &str) -> eyre::Result<String> {
         .arg("-d")
         .arg(data)
         .arg("-insecure")
+        .arg("-max-time")
+        .arg("5")
         .arg("127.0.0.1:1079")
         .arg(format!("forge.Forge/{endpoint}"))
         .output()?;
