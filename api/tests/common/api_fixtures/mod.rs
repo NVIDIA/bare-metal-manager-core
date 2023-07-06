@@ -433,23 +433,17 @@ pub async fn network_configured(
             .as_ref()
             .expect("use_admin_network true so admin_interface should be Some");
         vec![rpc::forge::InstanceInterfaceStatusObservation {
-            function_type: iface.function,
+            function_type: iface.function_type,
             virtual_function_id: None,
             mac_address: None,
             addresses: vec![iface.ip.clone()],
         }]
     } else {
         let mut interfaces = vec![];
-        for (i, iface) in network_config.tenant_interfaces.iter().enumerate() {
+        for iface in network_config.tenant_interfaces.iter() {
             interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
-                function_type: iface.function,
-                virtual_function_id: if iface.function
-                    == rpc::InterfaceFunctionType::Physical as i32
-                {
-                    None
-                } else {
-                    Some(i as u32)
-                },
+                function_type: iface.function_type,
+                virtual_function_id: iface.virtual_function_id,
                 mac_address: None,
                 addresses: vec![iface.ip.clone()],
             });

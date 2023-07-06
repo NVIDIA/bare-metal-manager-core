@@ -413,7 +413,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     updated_network_status
         .interfaces
         .push(InstanceInterfaceStatusObservation {
-            function_id: InterfaceFunctionId::Virtual { id: 1 },
+            function_id: InterfaceFunctionId::Virtual { id: 0 },
             mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
             addresses: vec!["127.1.2.3".parse().unwrap()],
         });
@@ -649,7 +649,7 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
         &"192.0.3.3".parse::<IpAddr>().unwrap()
     );
 
-    let segment_ip = HashMap::from([(None, "192.0.2.3"), (Some(1), "192.0.3.3")]);
+    let segment_ip = HashMap::from([(None, "192.0.2.3"), (Some(0), "192.0.3.3")]);
 
     env.api
         .record_observed_instance_network_status(tonic::Request::new(
@@ -670,7 +670,7 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
                         function_type: rpc::InterfaceFunctionType::from(
                             InterfaceFunctionType::Virtual,
                         ) as i32,
-                        virtual_function_id: Some(1),
+                        virtual_function_id: Some(0),
                         mac_address: None,
                         addresses: vec!["192.0.3.3".to_string()],
                     },

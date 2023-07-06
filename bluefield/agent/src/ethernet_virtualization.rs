@@ -88,22 +88,16 @@ pub fn update(
             return;
         };
         interfaces.push(rpc::InstanceInterfaceStatusObservation {
-            function_type: iface.function,
+            function_type: iface.function_type,
             virtual_function_id: None,
             mac_address: None, // TODO get this?
             addresses: vec![iface.ip.clone()],
         });
     } else {
-        for (i, iface) in network_config.tenant_interfaces.iter().enumerate() {
+        for iface in network_config.tenant_interfaces.iter() {
             interfaces.push(rpc::InstanceInterfaceStatusObservation {
-                function_type: iface.function,
-                virtual_function_id: if iface.function
-                    == rpc::InterfaceFunctionType::Physical as i32
-                {
-                    None
-                } else {
-                    Some(i as u32)
-                },
+                function_type: iface.function_type,
+                virtual_function_id: iface.virtual_function_id,
                 mac_address: None, // TODO get this?
                 addresses: vec![iface.ip.clone()],
             });
@@ -190,16 +184,22 @@ fn write_interfaces<P: AsRef<Path>>(
         }]
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
-        let mut has_used_physical = false;
         for (i, net) in nc.tenant_interfaces.iter().enumerate() {
-            let name = if net.function == rpc::InterfaceFunctionType::Physical as i32 {
-                has_used_physical = true;
+            let name = if net.function_type == rpc::InterfaceFunctionType::Physical as i32 {
                 physical_name.clone()
             } else {
                 format!(
                     "{}{}_sf",
                     DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER,
-                    if has_used_physical { i - 1 } else { i }
+                    match net.virtual_function_id {
+                        Some(id) => id,
+                        None => {
+                            // This is for backward compatibility with the old
+                            // version of site controller which didn't send the ID
+                            // TODO: Remove this in the future and make it an error
+                            i.saturating_sub(1) as u32
+                        }
+                    }
                 )
             };
             ifs.push(interfaces::Network {
@@ -402,7 +402,8 @@ mod tests {
         // The config we received from API server
         // Admin won't be used
         let admin_interface = rpc::FlatInterfaceConfig {
-            function: rpc::InterfaceFunctionType::Physical.into(),
+            function_type: rpc::InterfaceFunctionType::Physical.into(),
+            virtual_function_id: None,
             vlan_id: 1,
             vni: 1001,
             gateway: "10.217.5.123/28".to_string(),
@@ -410,14 +411,16 @@ mod tests {
         };
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
-                function: rpc::InterfaceFunctionType::Virtual.into(),
+                function_type: rpc::InterfaceFunctionType::Virtual.into(),
+                virtual_function_id: Some(0),
                 vlan_id: 196,
                 vni: 1025196,
                 gateway: "10.217.5.169/29".to_string(),
                 ip: "10.217.5.170".to_string(),
             },
             rpc::FlatInterfaceConfig {
-                function: rpc::InterfaceFunctionType::Physical.into(),
+                function_type: rpc::InterfaceFunctionType::Physical.into(),
+                virtual_function_id: None,
                 vlan_id: 185,
                 vni: 1025185,
                 gateway: "10.217.5.161/30".to_string(),
