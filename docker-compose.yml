@@ -98,6 +98,8 @@ services:
         run
         --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'
         --casbin-policy-file=/app/code/api/casbin-policy.csv
+        --config-path=/app/code/dev/docker-env/carbide-api-config.toml
+        --site-config-path=/app/code/dev/docker-env/carbide-api-site-config.toml
         --manage-vpc
         --asn 65535
         --auth-permissive-mode
@@ -108,6 +110,7 @@ services:
     environment:
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
+      - CARBIDE_API_DATABASE_URL=carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem
       - CARBIDE_DHCP_SERVER=172.20.0.12
       - CARBIDE_METRICS_ENDPOINT=[::0]:1080
       - VAULT_KV_MOUNT_LOCATION=secret

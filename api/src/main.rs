@@ -13,7 +13,15 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide::{
+    cfg::{CarbideConfig, Command, Options},
+    logging::{
+        metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
+        otel_stdout_exporter::OtelStdoutExporter,
+    },
+};
 use eyre::WrapErr;
+use forge_secrets::ForgeVaultClient;
 use opentelemetry::{
     sdk::{self, export::metrics::aggregation, metrics},
     trace::TracerProvider,
@@ -22,15 +30,6 @@ use opentelemetry_semantic_conventions as semcov;
 use sqlx::PgPool;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
-
-use carbide::{
-    cfg::{Command, Options},
-    logging::{
-        metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
-        otel_stdout_exporter::OtelStdoutExporter,
-    },
-};
-use forge_secrets::ForgeVaultClient;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -124,6 +123,41 @@ async fn main() -> eyre::Result<()> {
             carbide::db::migrations::migrate(&pool).await?;
         }
         Command::Run(ref config) => {
+            let carbide_config = match &config.config_path {
+                Some(path) => {
+                    use figment::providers::Format;
+
+                    let mut figment =
+                        figment::Figment::new().merge(figment::providers::Toml::file(path));
+                    if let Some(site_path) = &config.site_config_path {
+                        figment = figment.merge(figment::providers::Toml::file(site_path));
+                    }
+
+                    let config: CarbideConfig = figment
+                        .merge(figment::providers::Env::prefixed("CARBIDE_API_"))
+                        .extract()
+                        .expect("Failed to load configuration files");
+                    Some(Arc::new(config))
+                }
+                None => None,
+            };
+
+            // Redact credentials before printing the config
+            let print_config = if let Some(config) = carbide_config.as_ref() {
+                let mut config = config.as_ref().clone();
+                if let Some(host_index) = config.database_url.find('@') {
+                    let host = config.database_url.split_at(host_index).1;
+                    config.database_url = format!("postgres://redacted{}", host);
+                }
+                if config.ib_fabric_manager_token.is_some() {
+                    config.ib_fabric_manager_token = Some("redacted".to_string());
+                }
+                Some(config)
+            } else {
+                None
+            };
+            tracing::info!("Using configuration: {:#?}", print_config);
+
             // Set up OpenTelemetry metrics export via prometheus
             // TODO: The configuration here is copy&pasted from
             // https://github.com/open-telemetry/opentelemetry-rust/blob/main/examples/hyper-prometheus/src/main.rs
@@ -195,6 +229,7 @@ async fn main() -> eyre::Result<()> {
                 forge_version::version!()
             );
             carbide::api::Api::run(
+                carbide_config,
                 config,
                 forge_vault_client.clone(),
                 forge_vault_client,

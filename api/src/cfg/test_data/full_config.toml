@@ -1,0 +1,16 @@
+listen="[::]:1081"
+metrics_endpoint="[::]:1080"
+database_url="postgres://a:b@postgresql"
+asn=123
+dhcp_servers=["1.2.3.4", "5.6.7.8"]
+route_servers=["9.10.11.12"]
+rapid_iterations=false
+
+[tls]
+identity_pemfile_path="/path/to/cert"
+identity_keyfile_path="/path/to/key"
+root_cafile_path="/path/to/ca"
+
+[auth]
+auth_permissive_mode=false
+casbin_policy_file="/path/to/policy"
