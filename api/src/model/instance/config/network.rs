@@ -73,8 +73,10 @@ impl InterfaceFunctionId {
     /// The first returned item is the `Physical`.
     /// Then the list of `Virtual`s will follow
     pub fn iter_all() -> impl Iterator<Item = InterfaceFunctionId> {
-        (0..=INTERFACE_VFID_MAX).map(|idx| {
-            if idx == 0 {
+        debug_assert!(INTERFACE_VFID_MAX <= i32::MAX as usize);
+
+        (-1..=INTERFACE_VFID_MAX as i32).map(|idx| {
+            if idx == -1 {
                 InterfaceFunctionId::Physical {}
             } else {
                 InterfaceFunctionId::Virtual { id: idx as u8 }
@@ -173,9 +175,9 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                     // 256 VFs. However that's ok - the `InstanceNetworkConfig.validate()`
                     // call will declare those configs as invalid later on anyway.
                     // We mainly don't want to crash here.
+                    let id = InterfaceFunctionId::Virtual { id: assigned_vfs };
                     assigned_vfs = assigned_vfs.saturating_add(1);
-                    let id = assigned_vfs;
-                    InterfaceFunctionId::Virtual { id }
+                    id
                 }
             };
 
@@ -234,41 +236,47 @@ pub fn validate_interface_function_ids<T, F: Fn(&T) -> InterfaceFunctionId>(
 
     // We need 1 physical interface, virtual interfaces must start at VFID 1,
     // and IDs must not be duplicated
-    let mut used_ids = [false; 32];
+    let mut used_pf = false;
+    let mut used_vfids = [false; 32];
     for (idx, iface) in container.iter().enumerate() {
-        let id = match get_function_id(iface) {
-            InterfaceFunctionId::Physical {} => 0,
+        match get_function_id(iface) {
+            InterfaceFunctionId::Physical {} => {
+                if used_pf {
+                    return Err(format!(
+                        "Physical function ID for network interface at index {} is already used",
+                        idx
+                    ));
+                }
+                used_pf = true;
+            }
             InterfaceFunctionId::Virtual { id } => {
                 let id = id as usize;
                 if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&id) {
                     return Err(format!(
-                        "Invalid interface function ID {} for network interface at index {}",
+                        "Invalid interface virtual function ID {} for network interface at index {}",
                         id, idx
                     ));
                 }
-                id
+                if used_vfids[id] {
+                    return Err(format!(
+                        "Virtual function ID {} for network interface at index {} is already used",
+                        id, idx
+                    ));
+                }
+                used_vfids[id] = true;
             }
-        };
-
-        if used_ids[id] {
-            return Err(format!(
-                "Interface function ID {} for network interface at index {} is already used",
-                id, idx
-            ));
         }
-        used_ids[id] = true;
 
         // Note: We can't validate the network segment ID here
     }
 
     // Check that there IDs are consecutively assigned and the physical
     // function exists
-    for (id, is_used) in used_ids.iter().enumerate().take(container.len()) {
+    if !used_pf {
+        return Err("Missing Physical Function".to_string());
+    }
+    for (id, is_used) in used_vfids.iter().enumerate().take(container.len() - 1) {
         if !is_used {
-            if id == 0 {
-                return Err("Missing Physical Function".to_string());
-            }
-
             return Err(format!("Missing Virtual function with ID {}", id,));
         }
     }
@@ -290,9 +298,9 @@ pub struct InstanceInterfaceConfig {
 }
 
 /// Minimum valid value (inclusive) for a virtual function ID
-pub const INTERFACE_VFID_MIN: usize = 1;
+pub const INTERFACE_VFID_MIN: usize = 0;
 /// Maximum valid value (inclusive) for a virtual function ID
-pub const INTERFACE_VFID_MAX: usize = 16;
+pub const INTERFACE_VFID_MAX: usize = 15;
 
 #[cfg(test)]
 mod tests {
@@ -359,16 +367,15 @@ mod tests {
     /// Creates a valid instance network configuration using the maximum
     /// amount of interface
     const BASE_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c0000");
-    fn create_valid_network_config() -> InstanceNetworkConfig {
-        let interfaces: Vec<InstanceInterfaceConfig> = (0..=INTERFACE_VFID_MAX)
-            .map(|idx| {
-                let function_id = if idx == 0 {
-                    InterfaceFunctionId::Physical {}
-                } else {
-                    InterfaceFunctionId::Virtual { id: idx as u8 }
-                };
+    fn offset_segment_id(offset: usize) -> uuid::Uuid {
+        Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + offset as u128)
+    }
 
-                let network_segment_id = Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + idx as u128);
+    fn create_valid_network_config() -> InstanceNetworkConfig {
+        let interfaces: Vec<InstanceInterfaceConfig> = InterfaceFunctionId::iter_all()
+            .enumerate()
+            .map(|(idx, function_id)| {
+                let network_segment_id = offset_segment_id(idx);
                 InstanceInterfaceConfig {
                     function_id,
                     network_segment_id,
@@ -381,17 +388,73 @@ mod tests {
     }
 
     #[test]
+    fn assign_ids_from_rpc_config_pf_only() {
+        let config = rpc::InstanceNetworkConfig {
+            interfaces: vec![rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as _,
+                network_segment_id: Some(BASE_SEGMENT_ID.into()),
+            }],
+            ib_interfaces: vec![],
+        };
+
+        let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
+        assert_eq!(
+            netconfig.interfaces,
+            &[InstanceInterfaceConfig {
+                function_id: InterfaceFunctionId::Physical {},
+                network_segment_id: BASE_SEGMENT_ID,
+                ip_addrs: HashMap::new(),
+            }]
+        );
+    }
+
+    #[test]
+    fn assign_ids_from_rpc_config_pf_and_vf() {
+        let mut interfaces = vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as _,
+            network_segment_id: Some(BASE_SEGMENT_ID.into()),
+        }];
+        for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
+            interfaces.push(rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as _,
+                network_segment_id: Some(offset_segment_id(vfid + 1).into()),
+            });
+        }
+
+        let config = rpc::InstanceNetworkConfig {
+            interfaces,
+            ib_interfaces: vec![],
+        };
+
+        let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
+        let mut expected_interfaces = vec![InstanceInterfaceConfig {
+            function_id: InterfaceFunctionId::Physical {},
+            network_segment_id: BASE_SEGMENT_ID,
+            ip_addrs: HashMap::new(),
+        }];
+
+        for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
+            expected_interfaces.push(InstanceInterfaceConfig {
+                function_id: InterfaceFunctionId::Virtual { id: vfid as u8 },
+                network_segment_id: offset_segment_id(vfid + 1),
+                ip_addrs: HashMap::new(),
+            });
+        }
+        assert_eq!(netconfig.interfaces, &expected_interfaces[..]);
+    }
+
+    #[test]
     fn validate_network_config() {
         create_valid_network_config().validate().unwrap();
 
         // Duplicate virtual function
         let mut config = create_valid_network_config();
-        config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 1 };
+        config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 0 };
         assert!(config.validate().is_err());
 
         // Out of bounds virtual function
         let mut config = create_valid_network_config();
-        config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 17 };
+        config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 16 };
         assert!(config.validate().is_err());
 
         // No physical function
@@ -400,7 +463,7 @@ mod tests {
         assert!(config.validate().is_err());
 
         // Missing virtual functions (except the last)
-        for idx in 1..INTERFACE_VFID_MAX {
+        for idx in 1..=INTERFACE_VFID_MAX {
             let mut config = create_valid_network_config();
             config.interfaces.swap_remove(idx);
             assert!(config.validate().is_err());
@@ -408,7 +471,7 @@ mod tests {
 
         // The last virtual function is ok to be missing
         let mut config = create_valid_network_config();
-        config.interfaces.swap_remove(INTERFACE_VFID_MAX);
+        config.interfaces.swap_remove(INTERFACE_VFID_MAX + 1);
         config.validate().unwrap();
 
         // Duplicate network segment

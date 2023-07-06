@@ -21,7 +21,10 @@ use crate::{
         network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
         UuidKeyedObjectFilter,
     },
-    model::{instance::config::network::InstanceInterfaceConfig, machine::machine_id::MachineId},
+    model::{
+        instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
+        machine::machine_id::MachineId,
+    },
     CarbideError,
 };
 
@@ -60,7 +63,8 @@ pub async fn admin_network(
         .map_err(CarbideError::from)?;
 
     let cfg = rpc::FlatInterfaceConfig {
-        function: rpc::InterfaceFunctionType::Physical.into(),
+        function_type: rpc::InterfaceFunctionType::Physical.into(),
+        virtual_function_id: None,
         vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
         vni: 0, // admin isn't an overlay network, so no vni
         gateway: prefix.gateway_cidr().unwrap_or_default(),
@@ -107,7 +111,11 @@ pub async fn tenant_network(
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
     Ok(rpc::FlatInterfaceConfig {
-        function: rpc_ft.into(),
+        function_type: rpc_ft.into(),
+        virtual_function_id: match iface.function_id {
+            InterfaceFunctionId::Physical {} => None,
+            InterfaceFunctionId::Virtual { id } => Some(id.into()),
+        },
         vlan_id: segment.vlan_id.unwrap_or_default() as u32,
         vni: segment.vni.unwrap_or_default() as u32,
         gateway: v4_prefix.gateway_cidr().unwrap_or_default(),

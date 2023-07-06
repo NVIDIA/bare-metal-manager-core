@@ -1044,7 +1044,7 @@ message ManagedHostNetworkConfig {
 }
 
 message FlatInterfaceConfig {
-    InterfaceFunctionType function = 1;
+    InterfaceFunctionType function_type = 1;
     // aka circuit_id
     uint32 vlan_id = 2;
     // vxlan id
@@ -1053,6 +1053,11 @@ message FlatInterfaceConfig {
     string gateway = 4;
     // host admin ip for admin network, host ip for tenant
     string ip = 5;
+    // If the interface is defined as a virtual function (associated
+    // `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
+    // then this value is set and specifies the virtual function ID that is configured
+    // for this network interface.
+    optional uint32 virtual_function_id = 6;
 }
 
 message ManagedHostNetworkStatusRequest {}
