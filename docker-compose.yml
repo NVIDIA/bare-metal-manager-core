@@ -140,6 +140,8 @@ services:
       - CARGO_HOME=/docker_cargo_home
       - ROCKET_port=1080
       - FORGE_ROOT_CAFILE_PATH=/opt/forge/forge_root.pem
+      - FORGE_CLIENT_CERT_PATH=/opt/forge/server_identity.pem
+      - FORGE_CLIENT_KEY_PATH=/opt/forge/server_identity.key
       - ARTIFACT_AUTHORIZATION_USER=$ARTIFACT_AUTHORIZATION_USER
       - ARTIFACT_AUTHORIZATION_TOKEN=$ARTIFACT_AUTHORIZATION_TOKEN
     command: cargo watch -C pxe -x "run --target-dir /tmp/carbide-pxe"

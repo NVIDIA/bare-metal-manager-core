@@ -69,6 +69,7 @@ service Forge {
   rpc ForgeAgentControl(ForgeAgentControlRequest) returns (ForgeAgentControlResponse);
   // PRIVILEGED: Creates a new machine from nothing
   rpc DiscoverMachine(MachineDiscoveryInfo) returns (MachineDiscoveryResult);
+  rpc RenewMachineCertificate(MachineCertificateRenewRequest) returns (MachineCertificateResult);
   rpc DiscoveryCompleted(MachineDiscoveryCompletedRequest) returns (MachineDiscoveryCompletedResponse);
   rpc CleanupMachineCompleted(MachineCleanupInfo) returns (MachineCleanupResult);
   // Invoked by forge-scout whenever a certain Machine can not be properly acted on
@@ -1211,6 +1212,12 @@ message MachineCertificate {
   bytes public_key = 1;
   bytes private_key = 2;
   bytes issuing_ca = 3;
+}
+
+message MachineCertificateRenewRequest {} // The certificate to renew is delivered via the TLS channel.
+message MachineCertificateResult {
+  // the renewed certificate for the client that
+  MachineCertificate machine_certificate = 1;
 }
 
 message MachineDiscoveryResult {

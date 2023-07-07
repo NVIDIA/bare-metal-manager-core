@@ -46,27 +46,31 @@ impl AgentConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct ForgeSystemConfig {
-    #[serde(rename = "api-server")]
     pub api_server: String,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "pxe-server"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pxe_server: Option<String>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "ntp-server"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     ntp_server: Option<String>,
-    #[serde(default = "default_root_ca", rename = "root-ca")]
+    #[serde(default = "default_root_ca")]
     pub root_ca: String,
+    #[serde(default = "default_client_cert")]
+    pub client_cert: String,
+    #[serde(default = "default_client_key")]
+    pub client_key: String,
 }
 
 fn default_root_ca() -> String {
     rpc::forge_tls_client::default_root_ca().to_string()
+}
+
+fn default_client_cert() -> String {
+    rpc::forge_tls_client::default_client_cert().to_string()
+}
+
+fn default_client_key() -> String {
+    rpc::forge_tls_client::default_client_key().to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

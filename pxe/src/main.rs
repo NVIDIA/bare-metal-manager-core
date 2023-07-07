@@ -11,10 +11,6 @@
  */
 use std::{env, fmt::Debug, fmt::Display};
 
-use ::rpc::forge;
-use ::rpc::forge::DomainSearchQuery;
-use ::rpc::forge::InterfaceSearchQuery;
-use ::rpc::forge_tls_client;
 use clap::Parser;
 use rocket::figment::Figment;
 use rocket::{
@@ -27,6 +23,11 @@ use rocket::{
 };
 use rocket_dyn_templates::Template;
 use serde::Serialize;
+
+use ::rpc::forge;
+use ::rpc::forge::DomainSearchQuery;
+use ::rpc::forge::InterfaceSearchQuery;
+use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
 
 mod machine_architecture;
 mod routes;
@@ -51,6 +52,8 @@ pub struct RuntimeConfig {
     pxe_url: String,
     ntp_server: String,
     forge_root_ca_path: String,
+    server_cert_path: String,
+    server_key_path: String,
 }
 
 pub enum RPCError<'a> {
@@ -141,11 +144,16 @@ impl<'r> FromRequest<'r> for Machine {
 
         let mut client = match request.rocket().state::<RuntimeConfig>() {
             Some(runtime_config) => {
-                match forge_tls_client::ForgeTlsClient::new(
-                    runtime_config.forge_root_ca_path.clone(),
-                )
-                .connect(runtime_config.internal_api_url.clone())
-                .await
+                let forge_tls_config = ForgeTlsConfig {
+                    root_ca_path: runtime_config.forge_root_ca_path.clone(),
+                    client_cert: Some(ForgeClientCert {
+                        cert_path: runtime_config.server_cert_path.clone(),
+                        key_path: runtime_config.server_key_path.clone(),
+                    }),
+                };
+                match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+                    .connect(runtime_config.internal_api_url.clone())
+                    .await
                 {
                     Ok(client) => client,
                     Err(err) => {
@@ -368,5 +376,9 @@ fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
             .map_err(|_| "Could not extract ntp_server from config")?,
         forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH")
             .map_err(|_| "Could not extract FORGE_ROOT_CAFILE_PATH from environment".to_string())?,
+        server_cert_path: env::var("FORGE_CLIENT_CERT_PATH")
+            .map_err(|_| "Could not extract FORGE_CLIENT_CERT_PATH from environment".to_string())?,
+        server_key_path: env::var("FORGE_CLIENT_KEY_PATH")
+            .map_err(|_| "Could not extract FORGE_CLIENT_KEY_PATH from environment".to_string())?,
     })
 }

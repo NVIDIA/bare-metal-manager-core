@@ -15,7 +15,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientT};
+use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeClientT, ForgeTlsConfig};
 use eyre::Report;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing::{error, info, warn};
@@ -33,7 +33,7 @@ use crate::cfg;
 #[derive(Debug, Default)]
 pub struct DnsServer {
     url: String,
-    forge_root_ca_path: String,
+    forge_tls_config: ForgeTlsConfig,
 }
 
 #[async_trait::async_trait]
@@ -48,9 +48,7 @@ impl RequestHandler for DnsServer {
         let mut response_header = Header::response_from_request(request.header());
 
         let message = MessageResponseBuilder::from_message_request(request);
-
-        //TODO: i need to figure out how to inject the root ca path into this pod.  probably the same as the other ones but for now just leave it.
-        let client = forge_tls_client::ForgeTlsClient::new(self.forge_root_ca_path.clone())
+        let client = forge_tls_client::ForgeTlsClient::new(self.forge_tls_config.clone())
             .connect(self.url.clone())
             .await
             .unwrap_or_else(|err| {
@@ -121,10 +119,10 @@ impl RequestHandler for DnsServer {
 }
 
 impl DnsServer {
-    pub fn new(url: &str, forge_root_ca_path: String) -> Self {
+    pub fn new(url: &str, forge_tls_config: ForgeTlsConfig) -> Self {
         Self {
             url: url.into(),
-            forge_root_ca_path,
+            forge_tls_config,
         }
     }
 
@@ -147,10 +145,14 @@ impl DnsServer {
 
     pub async fn run(daemon_config: &cfg::Daemon) -> Result<(), Report> {
         let carbide_url = daemon_config.carbide_url.clone();
-        let forge_root_ca_path = std::env::var("FORGE_ROOT_CA_PATH")
-            .unwrap_or_else(|_| "dev/certs/forge_root.pem".to_string());
-
-        let api = DnsServer::new(&carbide_url, forge_root_ca_path);
+        let forge_tls_config = ForgeTlsConfig {
+            root_ca_path: daemon_config.forge_root_ca_path.clone(),
+            client_cert: Some(ForgeClientCert {
+                cert_path: daemon_config.server_identity_cert_path.clone(),
+                key_path: daemon_config.server_identity_key_path.clone(),
+            }),
+        };
+        let api = DnsServer::new(&carbide_url, forge_tls_config);
 
         info!("Connecting to carbide-api at {:?}", &carbide_url);
 

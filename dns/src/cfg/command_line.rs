@@ -33,6 +33,15 @@ pub struct Daemon {
 
     #[clap(short, long, default_value = "http://[::1]:1079")]
     pub carbide_url: String,
+
+    #[clap(short, long, default_value = "/var/run/secrets/spiffe.io/ca.crt")]
+    pub forge_root_ca_path: String,
+
+    #[clap(short, long, default_value = "/var/run/secrets/spiffe.io/tls.crt")]
+    pub server_identity_cert_path: String,
+
+    #[clap(short, long, default_value = "/var/run/secrets/spiffe.io/tls.key")]
+    pub server_identity_key_path: String,
 }
 
 impl Options {

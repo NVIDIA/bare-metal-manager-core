@@ -10,7 +10,8 @@ authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 [dependencies]
 async-trait = "0.1"
 eyre = "*"
-serde = {version = "1.0", features = ["derive"] }
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
 tracing = "*"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 vaultrs = "0.6"

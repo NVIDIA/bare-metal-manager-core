@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::ops::Add;
 use std::sync::Arc;
+use std::time::Instant;
 use std::{process::Command, thread::sleep, time::Duration};
 
 use axum::Router;
@@ -18,13 +20,14 @@ use opentelemetry::sdk::export::metrics::aggregation;
 use opentelemetry::sdk::metrics;
 use opentelemetry::{sdk, Context};
 use opentelemetry_semantic_conventions as semcov;
+use rand::Rng;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info, trace};
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client;
+use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
 use forge_host_support::{
-    agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
+    agent_config::AgentConfig, hardware_enumeration::enumerate_hardware, registration,
     registration::register_machine,
 };
 
@@ -88,6 +91,14 @@ fn main() -> eyre::Result<()> {
         .enable_all()
         .build()?;
 
+    let forge_tls_config = ForgeTlsConfig {
+        root_ca_path: agent.forge_system.root_ca.clone(),
+        client_cert: Some(ForgeClientCert {
+            cert_path: agent.forge_system.client_cert.clone(),
+            key_path: agent.forge_system.client_key.clone(),
+        }),
+    };
+
     match cmdline.cmd {
         // We want to run the "run" command by default if no mode is explicitly mentioned
         None => {
@@ -96,7 +107,7 @@ fn main() -> eyre::Result<()> {
                 &mut rt,
                 &machine_id,
                 &agent.forge_system.api_server,
-                &agent.forge_system.root_ca,
+                forge_tls_config,
             );
         }
         // "run" is the normal and default command
@@ -110,7 +121,7 @@ fn main() -> eyre::Result<()> {
                         &mut rt,
                         &machine_id,
                         &agent.forge_system.api_server,
-                        &agent.forge_system.root_ca,
+                        forge_tls_config.clone(),
                         metadata_service_config.address,
                         telemetry_config.metrics_address,
                     ) {
@@ -124,7 +135,7 @@ fn main() -> eyre::Result<()> {
                 &mut rt,
                 &machine_id,
                 &agent.forge_system.api_server,
-                &agent.forge_system.root_ca,
+                forge_tls_config,
             );
         }
 
@@ -141,12 +152,22 @@ fn main() -> eyre::Result<()> {
 
         // One-off configure network and report back the observation
         Some(AgentCommand::Netconf(params)) => {
-            let forge_api = agent.forge_system.api_server.to_string();
-            let root_ca = agent.forge_system.root_ca.to_string();
+            let forge_api = agent.forge_system.api_server.clone();
+            // let root_ca_path = agent.forge_system.root_ca.clone();
+            // let client_cert = agent.forge_system.client_cert.clone();
+            // let client_key = agent.forge_system.client_key.clone();
+            //
+            // let forge_tls_config = ForgeTlsConfig {
+            //     root_ca_path,
+            //     client_cert: Some(ForgeClientCert {
+            //         cert_path: client_cert,
+            //         key_path: client_key,
+            //     }),
+            // };
             let conf = rt.block_on(network_config_fetcher::fetch(
                 &params.dpu_machine_id,
                 &forge_api,
-                &root_ca,
+                forge_tls_config.clone(),
             ))?;
             let mut status_out = rpc::DpuNetworkStatus {
                 dpu_machine_id: Some(params.dpu_machine_id.into()),
@@ -170,7 +191,11 @@ fn main() -> eyre::Result<()> {
             if let Some(v) = status_out.network_config_version.as_ref() {
                 info!("Applied: {v}");
             }
-            rt.block_on(record_network_status(status_out, &forge_api, &root_ca));
+            rt.block_on(record_network_status(
+                status_out,
+                &forge_api,
+                forge_tls_config,
+            ));
         }
 
         // Output a templated file
@@ -273,19 +298,25 @@ fn register(rt: &mut tokio::runtime::Runtime, agent: &AgentConfig) -> Result<Str
 }
 
 // main loop when running in daemon mode
-fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root_ca: &str) {
+fn run(rt: &mut Runtime, machine_id: &str, forge_api: &str, forge_tls_config: ForgeTlsConfig) {
     let network_config_fetcher = network_config_fetcher::NetworkConfigFetcher::new(
         network_config_fetcher::NetworkConfigFetcherConfig {
             config_fetch_interval: NETWORK_CONFIG_FETCH_PERIOD,
             machine_id: machine_id.to_string(),
             forge_api: forge_api.to_string(),
-            root_ca: root_ca.to_string(),
+            forge_tls_config: forge_tls_config.clone(),
             runtime: rt.handle().to_owned(),
         },
     );
 
     let network_config_reader = network_config_fetcher.reader();
 
+    let min_cert_renewal_time = 5 * 24 * 60 * 60; // 5 days
+    let max_cert_renewal_time = 7 * 24 * 60 * 60; // 7 days
+    let mut rng = rand::thread_rng();
+    // we will attempt to refresh the cert at this frequency.
+    let cert_renewal_duration = rng.gen_range(min_cert_renewal_time..max_cert_renewal_time);
+    let mut cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_duration));
     let mut first = true;
     loop {
         if !first {
@@ -329,12 +360,50 @@ fn run(rt: &mut tokio::runtime::Runtime, machine_id: &str, forge_api: &str, root
                 false,
             );
         };
-        rt.block_on(record_network_status(status_out, forge_api, root_ca));
+        rt.block_on(record_network_status(
+            status_out,
+            forge_api,
+            forge_tls_config.clone(),
+        ));
+
+        let now = Instant::now();
+        if now > cert_renewal_time {
+            cert_renewal_time = now.add(Duration::from_secs(cert_renewal_duration));
+            rt.block_on(renew_certificates(forge_api, forge_tls_config.clone()));
+        }
     }
 }
 
-async fn record_network_status(status: rpc::DpuNetworkStatus, forge_api: &str, root_ca: &str) {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(root_ca.to_string())
+async fn renew_certificates(forge_api: &str, forge_tls_config: ForgeTlsConfig) {
+    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+        .connect(forge_api)
+        .await
+    {
+        Ok(client) => client,
+        Err(err) => {
+            error!("Could not connect to Forge API server at {forge_api}. Will retry. {err:#}");
+            return;
+        }
+    };
+
+    let request = tonic::Request::new(rpc::MachineCertificateRenewRequest {});
+    match client.renew_machine_certificate(request).await {
+        Ok(response) => {
+            let machine_certificate_result = response.into_inner();
+            registration::write_certs(machine_certificate_result.machine_certificate).await;
+        }
+        Err(err) => {
+            error!("Error while executing the renew_machine_certificate gRPC call: {err:#}");
+        }
+    }
+}
+
+async fn record_network_status(
+    status: rpc::DpuNetworkStatus,
+    forge_api: &str,
+    forge_tls_config: ForgeTlsConfig,
+) {
+    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
         .connect(forge_api)
         .await
     {
@@ -365,7 +434,7 @@ fn run_metadata_service(
     rt: &mut tokio::runtime::Runtime,
     machine_id: &str,
     forge_api: &str,
-    root_ca: &str,
+    forge_tls_config: ForgeTlsConfig,
     metadata_service_address: String,
     metrics_address: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -404,7 +473,7 @@ fn run_metadata_service(
                 config_fetch_interval: NETWORK_CONFIG_FETCH_PERIOD,
                 machine_id: machine_id.to_string(),
                 forge_api: forge_api.to_string(),
-                root_ca: root_ca.to_string(),
+                forge_tls_config,
                 runtime: rt.handle().to_owned(),
             },
         ));

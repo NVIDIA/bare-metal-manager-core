@@ -16,6 +16,8 @@ use std::primitive::u32;
 use derive_builder::Builder;
 use mac_address::MacAddress;
 
+use ::rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
+
 use crate::machine::Machine;
 use crate::vendor_class::VendorClass;
 use crate::CONFIG;
@@ -365,14 +367,33 @@ unsafe fn discovery_fetch_machine_at(
 
         let forge_root_ca_path = &CONFIG
             .read()
-            .unwrap() // TODO(ajf): don't unwrap
+            .unwrap() // safety: the only way this will panic is if the lock is poisoned,
+            // which happens when another holder panics. we're already done at that point.
             .forge_root_ca_path;
+        let forge_client_key_path = &CONFIG
+            .read()
+            .unwrap() // safety: the only way this will panic is if the lock is poisoned,
+            // which happens when another holder panics. we're already done at that point.
+            .forge_client_key_path;
+        let forge_client_cert_path = &CONFIG
+            .read()
+            .unwrap() // safety: the only way this will panic is if the lock is poisoned,
+            // which happens when another holder panics. we're already done at that point.
+            .forge_client_cert_path;
+
+        let forge_tls_config = ForgeTlsConfig {
+            root_ca_path: forge_root_ca_path.clone(),
+            client_cert: Some(ForgeClientCert {
+                cert_path: forge_client_cert_path.clone(),
+                key_path: forge_client_key_path.clone(),
+            }),
+        };
 
         match runtime.block_on(Machine::try_fetch(
             discovery,
             url,
             vendor_class.clone(),
-            forge_root_ca_path.clone(),
+            forge_tls_config,
         )) {
             Ok(machine) => {
                 cache::put(
@@ -417,13 +438,13 @@ pub unsafe extern "C" fn discovery_builder_free(ctx: *mut DiscoveryBuilderFFI) {
 
 #[cfg(test)]
 mod tests {
-
     use std::ptr::null_mut;
     use std::thread;
 
-    use super::*;
     use crate::mock_api_server;
     use crate::CarbideDhcpContext;
+
+    use super::*;
 
     // Basic test passing null pointers
     #[test]
