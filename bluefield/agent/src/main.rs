@@ -25,7 +25,7 @@ use tokio::runtime::Runtime;
 use tracing::{debug, error, info, trace};
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
 use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware, registration,
     registration::register_machine,
@@ -93,10 +93,12 @@ fn main() -> eyre::Result<()> {
 
     let forge_tls_config = ForgeTlsConfig {
         root_ca_path: agent.forge_system.root_ca.clone(),
-        client_cert: Some(ForgeClientCert {
-            cert_path: agent.forge_system.client_cert.clone(),
-            key_path: agent.forge_system.client_key.clone(),
-        }),
+        //TODO: this _should_ work and yet it totally does not.
+        // client_cert: Some(ForgeClientCert {
+        //     cert_path: agent.forge_system.client_cert.clone(),
+        //     key_path: agent.forge_system.client_key.clone(),
+        // }),
+        client_cert: None,
     };
 
     match cmdline.cmd {
@@ -153,17 +155,6 @@ fn main() -> eyre::Result<()> {
         // One-off configure network and report back the observation
         Some(AgentCommand::Netconf(params)) => {
             let forge_api = agent.forge_system.api_server.clone();
-            // let root_ca_path = agent.forge_system.root_ca.clone();
-            // let client_cert = agent.forge_system.client_cert.clone();
-            // let client_key = agent.forge_system.client_key.clone();
-            //
-            // let forge_tls_config = ForgeTlsConfig {
-            //     root_ca_path,
-            //     client_cert: Some(ForgeClientCert {
-            //         cert_path: client_cert,
-            //         key_path: client_key,
-            //     }),
-            // };
             let conf = rt.block_on(network_config_fetcher::fetch(
                 &params.dpu_machine_id,
                 &forge_api,
