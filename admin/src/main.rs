@@ -14,6 +14,7 @@ use std::fs::{File, OpenOptions};
 use std::io::BufReader;
 use std::path::Path;
 
+use ::rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
 use ::rpc::{
     forge::{self as forgerpc, MachineType},
     MachineId,
@@ -40,12 +41,14 @@ mod rpc;
 struct FileConfig {
     carbide_api_url: Option<String>,
     forge_root_ca_path: Option<String>,
+    client_key_path: Option<String>,
+    client_cert_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Config {
     carbide_api_url: String,
-    forge_root_ca_path: String,
+    forge_tls_config: ForgeTlsConfig,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -124,6 +127,77 @@ fn get_carbide_api_url(carbide_api: Option<String>, file_config: Option<&FileCon
     )
 }
 
+fn get_client_cert_info(
+    client_cert_path: Option<String>,
+    client_key_path: Option<String>,
+    file_config: Option<&FileConfig>,
+) -> ForgeClientCert {
+    // First from command line, second env var.
+    if let (Some(client_key_path), Some(client_cert_path)) = (client_key_path, client_cert_path) {
+        return ForgeClientCert {
+            cert_path: client_cert_path,
+            key_path: client_key_path,
+        };
+    }
+
+    // Third config file
+    if let Some(file_config) = file_config {
+        if let (Some(client_key_path), Some(client_cert_path)) = (
+            file_config.client_key_path.as_ref(),
+            file_config.client_cert_path.as_ref(),
+        ) {
+            return ForgeClientCert {
+                cert_path: client_cert_path.clone(),
+                key_path: client_key_path.clone(),
+            };
+        }
+    }
+
+    // this is the location for most k8s pods
+    if Path::new("/var/run/secrets/spiffe.io/tls.crt").exists()
+        && Path::new("/var/run/secrets/spiffe.io/tls.key").exists()
+    {
+        return ForgeClientCert {
+            cert_path: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
+            key_path: "/var/run/secrets/spiffe.io/tls.key".to_string(),
+        };
+    }
+
+    // this is the location for most compiled clients executing on x86 hosts or DPUs
+    if Path::new("/opt/forge/machine_cert.pem").exists()
+        && Path::new("/opt/forge/machine_cert.key").exists()
+    {
+        return ForgeClientCert {
+            cert_path: "/opt/forge/machine_cert.pem".to_string(),
+            key_path: "/opt/forge/machine_cert.key".to_string(),
+        };
+    }
+
+    // and this is the location for developers executing from within carbide's repo
+    if let Ok(project_root) = env::var("REPO_ROOT") {
+        //TODO: actually fix this cert and give it one that's valid for like 10 years.
+        let cert_path = format!("{}/dev/certs/server_identity.pem", project_root);
+        let key_path = format!("{}/dev/certs/server_identity.key", project_root);
+        if Path::new(cert_path.as_str()).exists() && Path::new(key_path.as_str()).exists() {
+            return ForgeClientCert {
+                cert_path,
+                key_path,
+            };
+        }
+    }
+
+    // if you make it here, you'll just have to tell me where the client cert is.
+    panic!(
+        r###"Unknown client cert location. Set (will be read in same sequence.)
+           1. --client-cert-path and --client-key-path flag or
+           2. environment variables CLIENT_KEY_PATH and CLIENT_CERT_PATH or
+           3. add client_key_path and client_cert_path in $HOME/.config/carbide_api_cli.json.
+           5. a file existing at "/var/run/secrets/spiffe.io/tls.crt" and "/var/run/secrets/spiffe.io/tls.key".
+           5. a file existing at "/opt/forge/machine_cert.pem" and "/opt/forge/machine_cert.key".
+           5. a file existing at "$REPO_ROOT/dev/certs/server_identity.pem" and "$REPO_ROOT/dev/certs/server_identity.key."###
+    )
+}
+
 fn get_forge_root_ca_path(
     forge_root_ca_path: Option<String>,
     file_config: Option<&FileConfig>,
@@ -164,7 +238,7 @@ fn get_forge_root_ca_path(
     // if you make it here, you'll just have to tell me where the root CA is.
     panic!(
         r###"Unknown FORGE_ROOT_CA_PATH. Set (will be read in same sequence.)
-           1. --forge-root-ca-path/-f flag or
+           1. --forge-root-ca-path flag or
            2. environment variable FORGE_ROOT_CA_PATH or
            3. add forge_root_ca_path in $HOME/.config/carbide_api_cli.json.
            5. a file existing at "/var/run/secrets/spiffe.io/ca.crt".
@@ -232,9 +306,18 @@ async fn main() -> color_eyre::Result<()> {
     let carbide_api_url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
+    let forge_client_cert = get_client_cert_info(
+        config.client_cert_path,
+        config.client_key_path,
+        file_config.as_ref(),
+    );
+    let forge_tls_config = ForgeTlsConfig {
+        client_cert: Some(forge_client_cert),
+        root_ca_path: forge_root_ca_path,
+    };
     let api_config = Config {
         carbide_api_url,
-        forge_root_ca_path,
+        forge_tls_config,
     };
 
     let command = match config.commands {

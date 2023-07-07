@@ -11,7 +11,8 @@
  */
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client;
+use ::rpc::forge::MachineCertificate;
+use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
 use ::rpc::machine_discovery as rpc_discovery;
 
 #[derive(thiserror::Error, Debug)]
@@ -46,7 +47,11 @@ pub async fn register_machine(
             hardware_info,
         )),
     };
-    let mut client = forge_tls_client::ForgeTlsClient::new(root_ca)
+    let forge_tls_config = ForgeTlsConfig {
+        root_ca_path: root_ca,
+        client_cert: None,
+    };
+    let mut client = forge_tls_client::ForgeTlsClient::new(forge_tls_config)
         .connect(forge_api.to_string())
         .await
         .map_err(|err| RegistrationError::TransportError(err.to_string()))?;
@@ -64,23 +69,7 @@ pub async fn register_machine(
         })?
         .into_inner();
 
-    if let Some(machine_certificate) = response.machine_certificate {
-        let _ = tokio::fs::write(
-            "/tmp/machine_cert.pem",
-            machine_certificate.public_key.as_slice(),
-        )
-        .await;
-        let _ = tokio::fs::write(
-            "/tmp/machine_cert.key",
-            machine_certificate.private_key.as_slice(),
-        )
-        .await;
-        let _ = tokio::fs::write(
-            "/tmp/issuing_cert.pem",
-            machine_certificate.issuing_ca.as_slice(),
-        )
-        .await;
-    }
+    write_certs(response.machine_certificate).await;
 
     let machine_id: String = response
         .machine_id
@@ -90,4 +79,24 @@ pub async fn register_machine(
     tracing::info!("Registered machine with ID {machine_id} for interface {machine_interface_id} at Forge API server");
 
     Ok(RegistrationData { machine_id })
+}
+
+pub async fn write_certs(machine_certificate: Option<MachineCertificate>) {
+    if let Some(machine_certificate) = machine_certificate {
+        let _ = tokio::fs::write(
+            "/opt/forge/machine_cert.pem",
+            machine_certificate.public_key.as_slice(),
+        )
+        .await;
+        let _ = tokio::fs::write(
+            "/opt/forge/machine_cert.key",
+            machine_certificate.private_key.as_slice(),
+        )
+        .await;
+        let _ = tokio::fs::write(
+            "/opt/forge/issuing_cert.pem",
+            machine_certificate.issuing_ca.as_slice(),
+        )
+        .await;
+    }
 }

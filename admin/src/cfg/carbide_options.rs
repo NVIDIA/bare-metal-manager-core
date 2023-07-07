@@ -40,6 +40,18 @@ pub struct CarbideOptions {
     )]
     pub forge_root_ca_path: Option<String>,
 
+    #[clap(long, env = "CLIENT_CERT_PATH")]
+    #[clap(
+        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+    )]
+    pub client_cert_path: Option<String>,
+
+    #[clap(long, env = "CLIENT_KEY_PATH")]
+    #[clap(
+        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+    )]
+    pub client_key_path: Option<String>,
+
     #[clap(short, long, num_args(0..), default_value = "0")]
     pub debug: u8,
 

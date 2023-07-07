@@ -14,9 +14,10 @@ use std::net::Ipv4Addr;
 use std::primitive::u32;
 use std::ptr;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client;
 use ipnetwork::IpNetwork;
+
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
 
 use crate::discovery::Discovery;
 use crate::vendor_class::{MachineArchitecture, VendorClass};
@@ -37,12 +38,12 @@ pub struct Machine {
 impl Machine {
     pub async fn try_fetch(
         discovery: Discovery,
-        url: &str,
+        carbide_api_url: &str,
         vendor_class: Option<VendorClass>,
-        forge_root_ca_path: String,
+        forge_tls_config: ForgeTlsConfig,
     ) -> Result<Self, String> {
-        match forge_tls_client::ForgeTlsClient::new(forge_root_ca_path)
-            .connect(url)
+        match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+            .connect(carbide_api_url)
             .await
         {
             Ok(mut client) => {

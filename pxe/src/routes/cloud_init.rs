@@ -16,6 +16,7 @@ use rocket::get;
 use rocket::routes;
 use rocket::Route;
 use rocket_dyn_templates::Template;
+use rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
 
 use crate::{routes::RpcContext, Machine, RuntimeConfig};
 
@@ -27,10 +28,17 @@ async fn user_data_handler_in_assigned(
 
     let user_data = match &machine_id {
         Some(rpc_machine) => {
+            let forge_tls_info = ForgeTlsConfig {
+                root_ca_path: config.forge_root_ca_path.clone(),
+                client_cert: Some(ForgeClientCert {
+                    key_path: config.server_key_path.clone(),
+                    cert_path: config.server_cert_path.clone(),
+                }),
+            };
             match RpcContext::get_instance(
                 rpc_machine.clone(),
                 config.internal_api_url.clone(),
-                config.forge_root_ca_path.clone(),
+                forge_tls_info,
             )
             .await
             {
@@ -250,6 +258,8 @@ mod tests {
             pxe_url: "http://127.0.0.1:8080".to_string(),
             ntp_server: "127.0.0.2".to_string(),
             forge_root_ca_path: rpc::forge_tls_client::DEFAULT_ROOT_CA.to_string(),
+            server_cert_path: rpc::forge_tls_client::DEFAULT_CLIENT_CERT.to_string(),
+            server_key_path: rpc::forge_tls_client::DEFAULT_CLIENT_KEY.to_string(),
         };
 
         let interface_id: uuid::Uuid = interface_id.parse().unwrap();

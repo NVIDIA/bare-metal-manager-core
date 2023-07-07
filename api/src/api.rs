@@ -1399,11 +1399,12 @@ where
     async fn echo(&self, request: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
         log_request_data(&request);
 
-        let conn_info = request.extensions().get::<ConnInfo>().unwrap();
-        println!(
-            "Got a request from: {:?} with authorization_type: {:?}, request: {:?}",
-            conn_info.addr, conn_info.authorization_type, request,
-        );
+        if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
+            println!(
+                "Got a request from: {:?} with authorization_type: {:?}, request: {:?}",
+                conn_info.addr, conn_info.authorization_type, request,
+            );
+        }
 
         let reply = EchoResponse {
             message: request.into_inner().message,
@@ -1468,6 +1469,37 @@ where
     ) -> Result<Response<ValidateTenantPublicKeyResponse>, Status> {
         //TODO: actually implement this
         Ok(Response::new(ValidateTenantPublicKeyResponse {}))
+    }
+
+    async fn renew_machine_certificate(
+        &self,
+        request: Request<rpc::MachineCertificateRenewRequest>,
+    ) -> Result<Response<rpc::MachineCertificateResult>, Status> {
+        if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
+            if let AuthorizationType::Certificate(certificate) = &conn_info.authorization_type {
+                let spiffe_id =
+                    auth::forge_spiffe::validate_x509_certificate(certificate.0.as_slice())
+                        .map_err(|err| CarbideError::ClientCertificateError(format!("{err:?}")))?;
+
+                let identifier = spiffe_id.path().split('/').last().ok_or(
+                    CarbideError::ClientCertificateError("missing / in spiffe path?".to_string()),
+                )?;
+
+                let certificate = self
+                    .certificate_provider
+                    .get_certificate(identifier)
+                    .await
+                    .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
+
+                return Ok(Response::new(rpc::MachineCertificateResult {
+                    machine_certificate: Some(certificate.into()),
+                }));
+            }
+        }
+        Err(
+            CarbideError::ClientCertificateError("no client certificate presented?".to_string())
+                .into(),
+        )
     }
 
     async fn discover_machine(
@@ -2974,7 +3006,6 @@ fn get_tls_acceptor<S: AsRef<str>>(
         }
     }
 
-    //TODO: put the forge root in here
     match ServerConfig::builder()
         .with_safe_defaults()
         .with_client_cert_verifier(AllowAnyAnonymousOrAuthenticatedClient::new(roots))
@@ -3184,19 +3215,10 @@ where
 
         tokio::spawn(async move {
             if let Some(tls_acceptor) = tls_acceptor {
-                let mut certificates = Vec::new();
-
-                match tls_acceptor
-                    .accept_with(conn, |info| {
-                        if let Some(certs) = info.peer_certificates() {
-                            for cert in certs {
-                                certificates.push(cert.clone());
-                            }
-                        }
-                    })
-                    .await
-                {
+                match tls_acceptor.accept(conn).await {
                     Ok(conn) => {
+                        let (_, session) = conn.get_ref();
+                        let certificates = session.peer_certificates().unwrap_or_default().to_vec();
                         let auth = MiddlewareAuth {
                             addr,
                             peer_certs: Arc::new(certificates),

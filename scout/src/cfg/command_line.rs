@@ -33,6 +33,20 @@ pub(crate) struct Options {
     )]
     pub root_ca: String,
 
+    #[clap(
+    long,
+    help = "Full path of client cert in PEM format",
+    default_value_t = rpc::forge_tls_client::DEFAULT_CLIENT_CERT.to_string(),
+    )]
+    pub client_cert: String,
+
+    #[clap(
+    long,
+    help = "Full path of client key",
+    default_value_t = rpc::forge_tls_client::DEFAULT_CLIENT_KEY.to_string(),
+    )]
+    pub client_key: String,
+
     #[clap(subcommand)]
     pub subcmd: Option<Command>,
 }

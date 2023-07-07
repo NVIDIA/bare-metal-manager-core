@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use rand::Rng;
 use vaultrs::api::pki::requests::GenerateCertificateRequest;
 use vaultrs::client::VaultClient;
 use vaultrs::{kv2, pki};
@@ -73,8 +74,6 @@ impl CertificateProvider for ForgeVaultClient {
     where
         S: AsRef<str> + Send,
     {
-        // let mount_path = "forgeca";
-        // let role_name = "forge-cluster";
         let trust_domain = "forge.local";
         let namespace = "forge-system";
 
@@ -86,13 +85,21 @@ impl CertificateProvider for ForgeVaultClient {
             unique_identifier.as_ref()
         );
 
-        // TODO: skew the TTL so that whoever is renewing these will just inherit the skew.
+        let ttl = {
+            // this is to setup a baseline skew of between 80 - 120% of 30 days,
+            // so that not all boxes will renew (or expire) at the same time.
+            let max_hours = 864; // 24 * 30 * 1.2
+            let min_hours = 576;
+            let mut rng = rand::thread_rng();
+            rng.gen_range(min_hours..max_hours)
+        };
+
         let mut certificate_request_builder = GenerateCertificateRequest::builder();
         certificate_request_builder
             .mount(self.pki_mount_location.clone())
             .role(self.pki_role_name.clone())
             .uri_sans(spiffe_id)
-            .ttl("86400s"); // 24 hours
+            .ttl(format!("{ttl}h"));
 
         let response = pki::cert::generate(
             &self.vault_client,

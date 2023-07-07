@@ -17,11 +17,11 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
+use mockall::*;
 use tracing::{error, trace};
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client;
-use mockall::*;
+use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
 
 /// The instance metadata - as fetched from the
 /// Forge Site Controller
@@ -77,7 +77,7 @@ impl Drop for InstanceMetadataFetcher {
 
 impl InstanceMetadataFetcher {
     pub fn new(config: InstanceMetadataFetcherConfig) -> Self {
-        let root_ca = config.root_ca.clone();
+        let forge_tls_config = config.forge_tls_config.clone();
         let state = Arc::new(InstanceMetadataFetcherState {
             current: ArcSwap::default(),
             config,
@@ -86,7 +86,7 @@ impl InstanceMetadataFetcher {
 
         let task_state = state.clone();
         let join_handle = std::thread::spawn(|| {
-            run_instance_metadata_fetcher(root_ca, task_state);
+            run_instance_metadata_fetcher(forge_tls_config, task_state);
         });
 
         Self {
@@ -108,11 +108,14 @@ pub struct InstanceMetadataFetcherConfig {
     pub config_fetch_interval: Duration,
     pub machine_id: String,
     pub forge_api: String,
-    pub root_ca: String,
+    pub forge_tls_config: ForgeTlsConfig,
     pub runtime: tokio::runtime::Handle,
 }
 
-fn run_instance_metadata_fetcher(root_ca: String, state: Arc<InstanceMetadataFetcherState>) {
+fn run_instance_metadata_fetcher(
+    forge_tls_config: ForgeTlsConfig,
+    state: Arc<InstanceMetadataFetcherState>,
+) {
     loop {
         if state
             .is_cancelled
@@ -130,7 +133,7 @@ fn run_instance_metadata_fetcher(root_ca: String, state: Arc<InstanceMetadataFet
         match state
             .config
             .runtime
-            .block_on(async { fetch_latest_ip_addresses(root_ca.clone(), &state).await })
+            .block_on(async { fetch_latest_ip_addresses(forge_tls_config.clone(), &state).await })
         {
             Ok(config) => {
                 state.current.store(Arc::new(Some(config)));
@@ -148,10 +151,10 @@ fn run_instance_metadata_fetcher(root_ca: String, state: Arc<InstanceMetadataFet
 }
 
 async fn fetch_latest_ip_addresses(
-    root_ca: String,
+    forge_tls_config: ForgeTlsConfig,
     state: &InstanceMetadataFetcherState,
 ) -> Result<InstanceMetadata, eyre::Error> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(root_ca)
+    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
         .connect(state.config.forge_api.clone())
         .await
     {

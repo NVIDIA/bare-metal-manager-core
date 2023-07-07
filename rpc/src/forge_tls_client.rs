@@ -7,7 +7,7 @@ use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
-use tokio_rustls::rustls::{ClientConfig, RootCertStore, ServerName};
+use tokio_rustls::rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore, ServerName};
 use tonic::body::BoxBody;
 
 use crate::protos::forge::forge_client::ForgeClient;
@@ -25,6 +25,20 @@ pub fn default_root_ca() -> &'static str {
     DEFAULT_ROOT_CA
 }
 
+/// Where we write the client cert in our clients
+pub const DEFAULT_CLIENT_CERT: &str = "/opt/forge/machine_cert.pem";
+
+pub fn default_client_cert() -> &'static str {
+    DEFAULT_CLIENT_CERT
+}
+
+/// Where we write the client key in our clients
+pub const DEFAULT_CLIENT_KEY: &str = "/opt/forge/machine_cert.key";
+
+pub fn default_client_key() -> &'static str {
+    DEFAULT_CLIENT_KEY
+}
+
 impl ServerCertVerifier for DummyTlsVerifier {
     fn verify_server_cert(
         &self,
@@ -40,16 +54,28 @@ impl ServerCertVerifier for DummyTlsVerifier {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ForgeClientCert {
+    pub cert_path: String,
+    pub key_path: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ForgeTlsConfig {
+    pub root_ca_path: String,
+    pub client_cert: Option<ForgeClientCert>,
+}
+
 pub struct ForgeTlsClient {
-    forge_root_ca_path: String,
+    forge_tls_config: ForgeTlsConfig,
     enforce_tls: bool,
 }
 
 impl ForgeTlsClient {
-    pub fn new(forge_root_ca_path: String) -> Self {
+    pub fn new(forge_tls_config: ForgeTlsConfig) -> Self {
         let disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok();
         Self {
-            forge_root_ca_path,
+            forge_tls_config,
             enforce_tls: !disabled,
         }
     }
@@ -63,7 +89,7 @@ impl ForgeTlsClient {
             if scheme == &Scheme::HTTPS {
                 // TODO: by reading the pemfile every time, we're automatically getting hot-reload
                 // TODO: -- but we could use inotify in order to make this more performant.
-                match tokio::fs::read(&self.forge_root_ca_path).await {
+                match tokio::fs::read(&self.forge_tls_config.root_ca_path).await {
                     Ok(pem_file) => {
                         let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
                         let (_added, _ignored) = roots
@@ -73,7 +99,7 @@ impl ForgeTlsClient {
                         ErrorKind::NotFound => {
                             return Err(eyre::eyre!(
                                 "Root CA file not found at '{}'",
-                                self.forge_root_ca_path
+                                self.forge_tls_config.root_ca_path,
                             ));
                         }
                         _ => {
@@ -85,11 +111,78 @@ impl ForgeTlsClient {
         }
 
         let tls = if self.enforce_tls {
-            ClientConfig::builder()
-                .with_safe_defaults()
-                .with_root_certificates(roots)
-                .with_no_client_auth()
+            let roots_clone = roots.clone();
+            let build_no_client_auth_config = || {
+                ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_root_certificates(roots_clone)
+                    .with_no_client_auth()
+            };
+
+            if let Some(client_cert) = self.forge_tls_config.client_cert.as_ref() {
+                let cert_path = client_cert.cert_path.clone();
+                let key_path = client_cert.key_path.clone();
+                if let Ok(Some((certs, key))) = tokio::task::spawn_blocking(move || {
+                    let certs = {
+                        let fd = match std::fs::File::open(cert_path) {
+                            Ok(fd) => fd,
+                            Err(_) => return None,
+                        };
+                        let mut buf = std::io::BufReader::new(&fd);
+                        match rustls_pemfile::certs(&mut buf) {
+                            Ok(certs) => certs.into_iter().map(Certificate).collect::<Vec<_>>(),
+                            Err(_error) => {
+                                // tracing::error!("Rustls error reading certs: {:?}", error);
+                                return None;
+                            }
+                        }
+                    };
+
+                    let key = {
+                        let fd = match std::fs::File::open(key_path) {
+                            Ok(fd) => fd,
+                            Err(_) => return None,
+                        };
+                        let mut buf = std::io::BufReader::new(&fd);
+
+                        match rustls_pemfile::ec_private_keys(&mut buf) {
+                            Ok(keys) => keys.into_iter().map(PrivateKey).next(),
+                            Err(_error) => {
+                                // tracing::error!("Rustls error reading key: {:?}", error);
+                                None
+                            }
+                        }
+                    };
+
+                    let key = match key {
+                        Some(key) => key,
+                        None => {
+                            // tracing::error!("Rustls error: no keys?");
+                            return None;
+                        }
+                    };
+
+                    Some((certs, key))
+                })
+                .await
+                {
+                    if let Ok(config) = ClientConfig::builder()
+                        .with_safe_defaults()
+                        .with_root_certificates(roots)
+                        .with_single_cert(certs, key)
+                    {
+                        config // happy path, full valid TLS client config with client cert
+                    } else {
+                        build_no_client_auth_config() // error building client config from cert/key
+                    }
+                } else {
+                    build_no_client_auth_config() // unable to parse client cert/key from file
+                }
+            } else {
+                build_no_client_auth_config() // no client cert provided in tls config
+            }
         } else {
+            // tls disabled by environment variable
             ClientConfig::builder()
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier))
