@@ -204,11 +204,17 @@ fn create_resource_pools(root_dir: &path::Path, forge_admin_cli: &path::Path) ->
     // the dev/kube-env one is identical, so switching would be fine
     let pool_defs = root_dir.join("dev/docker-env/resource_pools.toml");
     let root_ca = root_dir.join("dev/certs/forge_root.pem");
+    let client_cert = root_dir.join("dev/certs/server_identity.pem");
+    let client_key = root_dir.join("dev/certs/server_identity.key");
     let out = process::Command::new(forge_admin_cli)
         .arg("-c")
         .arg("https://127.0.0.1:1079")
         .arg("--forge-root-ca-path")
         .arg(root_ca)
+        .arg("--client-key-path")
+        .arg(client_key)
+        .arg("--client-cert-path")
+        .arg(client_cert)
         .arg("resource-pool")
         .arg("define")
         .arg("-f")
