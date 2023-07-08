@@ -82,20 +82,18 @@ pub async fn register_machine(
 }
 
 pub async fn write_certs(machine_certificate: Option<MachineCertificate>) {
-    if let Some(machine_certificate) = machine_certificate {
-        let _ = tokio::fs::write(
-            "/opt/forge/machine_cert.pem",
-            machine_certificate.public_key.as_slice(),
-        )
-        .await;
+    if let Some(mut machine_certificate) = machine_certificate {
+        let mut combined_cert = Vec::with_capacity(
+            machine_certificate.public_key.len() + machine_certificate.issuing_ca.len() + 1,
+        );
+        combined_cert.append(&mut machine_certificate.public_key);
+        combined_cert.append(&mut "\n".to_string().into_bytes());
+        combined_cert.append(&mut machine_certificate.issuing_ca);
+        combined_cert.append(&mut "\n".to_string().into_bytes());
+        let _ = tokio::fs::write("/opt/forge/machine_cert.pem", combined_cert).await;
         let _ = tokio::fs::write(
             "/opt/forge/machine_cert.key",
             machine_certificate.private_key.as_slice(),
-        )
-        .await;
-        let _ = tokio::fs::write(
-            "/opt/forge/issuing_cert.pem",
-            machine_certificate.issuing_ca.as_slice(),
         )
         .await;
     }
