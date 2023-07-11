@@ -119,12 +119,8 @@ fn get_carbide_api_url(carbide_api: Option<String>, file_config: Option<&FileCon
         }
     }
 
-    panic!(
-        r#"Unknown CARBIDE_API_URL. Set (will be read in same sequence.)
-           1. --carbide-api/-c flag or
-           2. environment variable CARBIDE_API_URL or
-           3. add carbide_api_url in $HOME/.config/carbide_api_cli.json."#
-    )
+    // Otherwise we assume the admin-cli is called from inside a kubernetes pod
+    "https://carbide-api.forge-system.svc.cluster.local:1079".to_string()
 }
 
 fn get_client_cert_info(

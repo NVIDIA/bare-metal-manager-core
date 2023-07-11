@@ -24,7 +24,7 @@ pub struct CarbideOptions {
 
     #[clap(short, long, env = "CARBIDE_API_URL")]
     #[clap(
-        help = "Default to CARBIDE_API_URL environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CARBIDE_API_URL environment variable or $HOME/.config/carbide_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
     )]
     pub carbide_api: Option<String>,
 
