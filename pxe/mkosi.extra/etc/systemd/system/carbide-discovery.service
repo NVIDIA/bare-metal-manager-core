@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=idle
 Environment=RUST_BACKTRACE=full
 ExecStart=/opt/forge/run.sh
+OOMScoreAdjust=-1000
 
 [Install]
 WantedBy=multi-user.target
