@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::{HashMap, HashSet};
+use std::net::Ipv4Addr;
 
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
@@ -51,6 +52,18 @@ impl InstanceAddress {
 
     pub fn is_ipv6(&self) -> bool {
         self.address.is_ipv6()
+    }
+
+    pub async fn find_by_address(
+        txn: &mut Transaction<'_, Postgres>,
+        address: &Ipv4Addr,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
+        sqlx::query_as(query)
+            .bind(address.to_string())
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_for_instance(
