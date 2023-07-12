@@ -27,7 +27,25 @@ pub struct IpxeScript<'a> {
 
 #[get("/whoami")]
 pub async fn whoami(machine: Machine) -> Template {
-    Template::render("whoami", machine)
+    if let Some(instructions) = machine.instructions.discovery_instructions {
+        match (instructions.machine_interface, instructions.domain) {
+            (Some(interface), Some(_)) => {
+                let mut context = HashMap::new();
+                context.insert("fqdn", interface.hostname);
+                context.insert("mac_address", interface.mac_address);
+                Template::render("whoami", context)
+            }
+            _ => generate_error_template(
+                "Could not load interface or domain",
+                PxeErrorCode::InterfaceNotFound as isize,
+            ),
+        }
+    } else {
+        generate_error_template(
+            "Could not load instructions",
+            PxeErrorCode::InstructionsEmpty as isize,
+        )
+    }
 }
 
 fn generate_error_template<D1, D2>(error_str: D1, error_code: D2) -> Template
@@ -48,6 +66,8 @@ exit {error_code} ||
 
 pub enum PxeErrorCode {
     ArchitectureNotFound = 105,
+    InterfaceNotFound = 106,
+    InstructionsEmpty = 107,
 }
 
 #[get("/boot")]

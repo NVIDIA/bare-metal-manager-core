@@ -13,6 +13,7 @@ use std::{env, fmt::Debug, fmt::Display};
 
 use clap::Parser;
 use rocket::figment::Figment;
+use rocket::log::private::error;
 use rocket::{
     fairing::AdHoc,
     form::Errors,
@@ -25,18 +26,15 @@ use rocket_dyn_templates::Template;
 use serde::Serialize;
 
 use ::rpc::forge;
-use ::rpc::forge::DomainSearchQuery;
-use ::rpc::forge::InterfaceSearchQuery;
 use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
+use rpc::forge::CloudInitInstructionsRequest;
 
 mod machine_architecture;
 mod routes;
 
 #[derive(Debug)]
 pub struct Machine {
-    interface: forge::MachineInterface,
-    domain: forge::Domain,
-    machine: Option<forge::Machine>,
+    instructions: forge::CloudInitInstructions,
 }
 
 #[derive(Debug, Serialize)]
@@ -74,15 +72,6 @@ struct Args {
     static_dir: String,
 }
 
-impl Serialize for Machine {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_newtype_struct("Machine", &self.interface)
-    }
-}
-
 impl Debug for RPCError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self, f)
@@ -118,7 +107,7 @@ impl<'r> FromRequest<'r> for RuntimeConfig {
         if let Some(config) = request.rocket().state::<RuntimeConfig>() {
             Outcome::Success(config.clone())
         } else {
-            eprintln!("error in client returned none");
+            error!("error in client returned none");
             Outcome::Failure((Status::BadRequest, RPCError::MissingClientConfig))
         }
     }
@@ -129,19 +118,6 @@ impl<'r> FromRequest<'r> for Machine {
     type Error = RPCError<'r>;
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
-        let uuid = match request.query_value::<rocket::serde::uuid::Uuid>("uuid") {
-            Some(Ok(uuid)) => Some(forge::Uuid {
-                value: uuid.to_string(),
-            }),
-            Some(Err(errs)) => {
-                return request::Outcome::Failure((
-                    Status::BadRequest,
-                    RPCError::MalformedMachineId(errs),
-                ));
-            }
-            None => None,
-        };
-
         let mut client = match request.rocket().state::<RuntimeConfig>() {
             Some(runtime_config) => {
                 let forge_tls_config = ForgeTlsConfig {
@@ -183,59 +159,23 @@ impl<'r> FromRequest<'r> for Machine {
             Some(h) => Some(h.to_string()),
         };
 
-        if ip.is_none() && uuid.is_none() {
-            eprintln!("error in client both uuid and ip are none");
-            return request::Outcome::Failure((Status::BadRequest, RPCError::MissingMachineId));
-        }
+        if let Some(ip) = ip {
+            let request = tonic::Request::new(CloudInitInstructionsRequest { ip });
 
-        let request = tonic::Request::new(InterfaceSearchQuery { id: uuid, ip });
-
-        let interface = match client.find_interfaces(request).await {
-            // TODO(baz): fix this blatantly ugly remove(0) w/o checking the size
-            Ok(response) => response.into_inner().interfaces.remove(0),
-            Err(err) => {
-                return request::Outcome::Failure((
-                    Status::BadRequest,
-                    RPCError::RequestError(err),
-                ));
-            }
-        };
-
-        let request = tonic::Request::new(DomainSearchQuery {
-            id: interface.domain_id.clone(),
-            name: None,
-        });
-
-        let domain = match client.find_domain(request).await {
-            // TODO(baz): fix this blatantly ugly remove(0) w/o checking the size
-            Ok(response) => response.into_inner().domains.remove(0),
-            Err(err) => {
-                return request::Outcome::Failure((
-                    Status::BadRequest,
-                    RPCError::RequestError(err),
-                ));
-            }
-        };
-
-        match interface.machine_id.clone() {
-            None => request::Outcome::Success(Machine {
-                interface,
-                domain,
-                machine: None,
-            }),
-            Some(machine_id) => {
-                let request = tonic::Request::new(machine_id);
-                match client.get_machine(request).await {
-                    Ok(machine) => request::Outcome::Success(Machine {
-                        interface,
-                        domain,
-                        machine: Some(machine.into_inner()),
-                    }),
-                    Err(err) => {
-                        request::Outcome::Failure((Status::BadRequest, RPCError::RequestError(err)))
-                    }
+            let instructions = match client.get_cloud_init_instructions(request).await {
+                Ok(response) => response.into_inner(),
+                Err(err) => {
+                    return request::Outcome::Failure((
+                        Status::BadRequest,
+                        RPCError::RequestError(err),
+                    ));
                 }
-            }
+            };
+
+            request::Outcome::Success(Machine { instructions })
+        } else {
+            eprintln!("error in client ip is none");
+            request::Outcome::Failure((Status::BadRequest, RPCError::MissingMachineId))
         }
     }
 }

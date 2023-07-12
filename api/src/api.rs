@@ -55,6 +55,7 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials}
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
+use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::ib;
@@ -2480,6 +2481,98 @@ where
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit get_pxe_instructions", e))?;
 
         Ok(Response::new(rpc::PxeInstructions { pxe_script }))
+    }
+
+    async fn get_cloud_init_instructions(
+        &self,
+        request: Request<rpc::CloudInitInstructionsRequest>,
+    ) -> Result<Response<rpc::CloudInitInstructions>, Status> {
+        log_request_data(&request);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin get_cloud_init_instructions", e)
+        })?;
+
+        let ip = match Ipv4Addr::from_str(request.into_inner().ip.as_ref()) {
+            Ok(ip) => ip,
+            Err(_) => {
+                return Err(CarbideError::GenericError(
+                    "Could not marshall an IP from the request".to_string(),
+                )
+                .into())
+            }
+        };
+
+        let instructions = match InstanceAddress::find_by_address(&mut txn, &ip)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            None => {
+                // assume there is no instance associated with this IP and check if there is an interface associated with it
+                let machine_interface = MachineInterface::find_by_ip(&mut txn, &ip)
+                    .await
+                    .map_err(CarbideError::from)?
+                    .ok_or_else(|| {
+                        CarbideError::GenericError(format!(
+                            "No machine interface with IP {ip} was found"
+                        ))
+                    })?;
+
+                let domain_id = machine_interface.domain_id.ok_or_else(|| {
+                    CarbideError::GenericError(format!(
+                        "Machine Interface did not have an associated domain {}",
+                        machine_interface.id
+                    ))
+                })?;
+
+                let domain = Domain::find(&mut txn, UuidKeyedObjectFilter::One(domain_id))
+                    .await
+                    .map_err(CarbideError::from)?
+                    .first()
+                    .ok_or_else(|| {
+                        CarbideError::GenericError(format!(
+                            "Could not find a domain for {}",
+                            domain_id
+                        ))
+                    })?
+                    .to_owned();
+
+                rpc::CloudInitInstructions {
+                    custom_cloud_init: None,
+                    discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
+                        machine_interface: Some(machine_interface.into()),
+                        domain: Some(domain.into()),
+                    }),
+                }
+            }
+            Some(instance_address) => {
+                let instance = Instance::find(
+                    &mut txn,
+                    UuidKeyedObjectFilter::One(instance_address.instance_id),
+                )
+                .await
+                .map_err(CarbideError::from)?
+                .first()
+                .ok_or_else(|| {
+                    CarbideError::GenericError(format!(
+                        "Could not find an instance for {}",
+                        instance_address.instance_id
+                    ))
+                })?
+                .to_owned();
+
+                rpc::CloudInitInstructions {
+                    custom_cloud_init: instance.tenant_config.user_data,
+                    discovery_instructions: None,
+                }
+            }
+        };
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "commit get_cloud_init_instructions", e)
+        })?;
+
+        Ok(Response::new(instructions))
     }
 
     /// Called on x86 boot by 'forge-scout auto-detect --uuid=<uuid>'.

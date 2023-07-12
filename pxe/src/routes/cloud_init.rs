@@ -16,80 +16,24 @@ use rocket::get;
 use rocket::routes;
 use rocket::Route;
 use rocket_dyn_templates::Template;
-use rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
+use rpc::forge;
 
-use crate::{routes::RpcContext, Machine, RuntimeConfig};
+use crate::{Machine, RuntimeConfig};
 
-async fn user_data_handler_in_assigned(
-    machine: Machine,
-    config: RuntimeConfig,
-) -> (String, HashMap<String, String>) {
-    let machine_id = machine.machine.and_then(|m| m.id);
-
-    let user_data = match &machine_id {
-        Some(rpc_machine) => {
-            let forge_tls_info = ForgeTlsConfig {
-                root_ca_path: config.forge_root_ca_path.clone(),
-                client_cert: Some(ForgeClientCert {
-                    key_path: config.server_key_path.clone(),
-                    cert_path: config.server_cert_path.clone(),
-                }),
-            };
-            match RpcContext::get_instance(
-                rpc_machine.clone(),
-                config.internal_api_url.clone(),
-                forge_tls_info,
-            )
-            .await
-            {
-                Ok(rpc::Instance {
-                    config:
-                        Some(rpc::InstanceConfig {
-                            tenant: Some(tenant_config),
-                            ..
-                        }),
-                    ..
-                }) => tenant_config
-                    .user_data
-                    .unwrap_or_else(|| "User data is not available.".to_string()),
-                Ok(_) => {
-                    // TODO: We shouldn't really pass this into the as PXE user-data?
-                    // However there is currently no way to return an error from here,
-                    // and the error branch below does the same
-                    let error = format!(
-                        "Missing TenantConfig in instance for Machine {}",
-                        rpc_machine
-                    );
-                    eprintln!("{}", error);
-                    error
-                }
-                Err(err) => {
-                    eprintln!("{}", err);
-                    format!("Failed to fetch user_data: {}", err)
-                }
-            }
-        }
-        None => "Failed to fetch machine_details.".to_string(),
-    };
-
-    let mut context: HashMap<String, String> = HashMap::new();
-    context.insert("user_data".to_string(), user_data);
-    ("user-data-assigned".to_string(), context)
-}
-
-async fn user_data_handler(
+fn user_data_handler(
     machine_interface_id: rpc::Uuid,
-    machine: Machine,
+    machine_interface: forge::MachineInterface,
+    domain: forge::Domain,
     config: RuntimeConfig,
 ) -> (String, HashMap<String, String>) {
     let forge_agent_config =
-        generate_forge_agent_config(machine_interface_id.clone(), &machine, &config);
+        generate_forge_agent_config(&machine_interface_id, &machine_interface, &domain, &config);
 
     let mut context: HashMap<String, String> = HashMap::new();
-    context.insert("mac_address".to_string(), machine.interface.mac_address);
+    context.insert("mac_address".to_string(), machine_interface.mac_address);
     context.insert(
         "hostname".to_string(),
-        format!("{}.{}", machine.interface.hostname, machine.domain.name),
+        format!("{}.{}", machine_interface.hostname, domain.name),
     );
     context.insert("interface_id".to_string(), machine_interface_id.to_string());
     context.insert("api_url".to_string(), config.client_facing_api_url);
@@ -116,16 +60,17 @@ async fn user_data_handler(
 
 /// Generates the content of the /etc/forge/config.toml file
 fn generate_forge_agent_config(
-    machine_interface_id: rpc::Uuid,
-    machine: &Machine,
+    machine_interface_id: &rpc::Uuid,
+    machine_interface: &forge::MachineInterface,
+    domain: &forge::Domain,
     config: &RuntimeConfig,
 ) -> String {
     let api_url = config.client_facing_api_url.as_str();
     let pxe_url = config.pxe_url.as_str();
     let ntp_server = config.ntp_server.as_str();
 
-    let mac_address = machine.interface.mac_address.clone();
-    let hostname = format!("{}.{}", machine.interface.hostname, machine.domain.name);
+    let mac_address = machine_interface.mac_address.clone();
+    let hostname = format!("{}.{}", machine_interface.hostname, domain.name);
 
     // TODO we need to figure out the addresses on which those services should run
     let instance_metadata_service_address = "0.0.0.0:7777";
@@ -163,20 +108,52 @@ fn generate_forge_agent_config(
     lines.join("\n")
 }
 
+fn print_and_generate_generic_error(error: String) -> (String, HashMap<String, String>) {
+    eprintln!("{error}");
+    let mut context: HashMap<String, String> = HashMap::new();
+    context.insert(
+        "error".to_string(),
+        "An error occurred while rendering the user-data".to_string(),
+    );
+    ("error".to_string(), context) // Send a generic error back
+}
+
 #[get("/user-data")]
 pub async fn user_data(machine: Machine, config: RuntimeConfig) -> Template {
-    let uuid = machine
-        .interface
-        .clone()
-        .id
-        .expect("The interface should not have a null ID");
-    let (template, context) = match machine.machine.as_ref() {
-        Some(rpc_machine) if rpc_machine.state.to_lowercase().starts_with("assigned") => {
-            user_data_handler_in_assigned(machine, config).await
+    let (template, context) = match (
+        machine.instructions.custom_cloud_init,
+        machine.instructions.discovery_instructions,
+    ) {
+        (Some(custom_cloud_init), _) => {
+            let mut context: HashMap<String, String> = HashMap::new();
+            context.insert("user_data".to_string(), custom_cloud_init);
+            ("user-data-assigned".to_string(), context)
         }
-
-        _ => user_data_handler(uuid, machine, config).await,
+        (None, Some(discovery_instructions)) => {
+            match (
+                discovery_instructions.machine_interface,
+                discovery_instructions.domain,
+            ) {
+                (Some(interface), Some(domain)) => match interface.id.clone() {
+                    Some(machine_interface_id) => {
+                        user_data_handler(machine_interface_id, interface, domain, config)
+                    }
+                    None => print_and_generate_generic_error(format!(
+                        "The interface ID should not be null: {:?}",
+                        interface
+                    )),
+                },
+                (d, i) => print_and_generate_generic_error(format!(
+                    "The interface and domain were not found: {:?}, {:?}",
+                    i, d
+                )),
+            }
+        }
+        (None, None) => print_and_generate_generic_error(
+            "The custom cloud init and discovery instructions were both None".to_string(),
+        ),
     };
+
     Template::render(template, context)
 }
 
@@ -196,8 +173,6 @@ pub fn routes() -> Vec<Route> {
 
 #[cfg(test)]
 mod tests {
-    use rpc::forge::{BmcInfo, MachineType};
-
     use super::*;
 
     #[test]
@@ -206,7 +181,7 @@ mod tests {
 
         let interface = rpc::forge::MachineInterface {
             id: Some(rpc::Uuid {
-                value: interface_id.clone(),
+                value: interface_id,
             }),
             attached_dpu_machine_id: Some(rpc::MachineId {
                 id: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
@@ -222,34 +197,12 @@ mod tests {
             address: vec!["192.123.184.244".to_string()],
         };
 
-        let machine = Machine {
-            interface: interface.clone(),
-            domain: rpc::Domain {
-                id: None,
-                name: "myforge.com".to_string(),
-                created: None,
-                updated: None,
-                deleted: None,
-            },
-            machine: Some(rpc::forge::Machine {
-                id: Some(rpc::MachineId {
-                    id: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
-                }),
-                created: None,
-                updated: None,
-                deployed: None,
-                state: "ready".to_string(),
-                events: Vec::new(),
-                interfaces: vec![interface],
-                discovery_info: None,
-                machine_type: MachineType::Dpu as i32,
-                bmc_info: Some(BmcInfo {
-                    ip: None,
-                    mac: None,
-                    version: None,
-                    firmware_version: None,
-                }),
-            }),
+        let domain = rpc::Domain {
+            id: None,
+            name: "myforge.com".to_string(),
+            created: None,
+            updated: None,
+            deleted: None,
         };
 
         let runtime_config = RuntimeConfig {
@@ -262,9 +215,10 @@ mod tests {
             server_key_path: rpc::forge_tls_client::DEFAULT_CLIENT_KEY.to_string(),
         };
 
-        let interface_id: uuid::Uuid = interface_id.parse().unwrap();
+        let interface_id: rpc::Uuid = interface.id.clone().unwrap();
 
-        let config = generate_forge_agent_config(interface_id.into(), &machine, &runtime_config);
+        let config =
+            generate_forge_agent_config(&interface_id, &interface, &domain, &runtime_config);
 
         let data: toml::Value = config.parse().unwrap();
 
