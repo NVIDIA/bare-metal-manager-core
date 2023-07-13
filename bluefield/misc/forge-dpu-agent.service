@@ -1,12 +1,16 @@
 [Unit]
 Description=Forge DPU agent service
 After=networking.service network-online.target time-sync.target containerd@mgmt.service
+# allow 2 starts in 60s to limit the max requests towards forge-site controller
+StartLimitIntervalSec=60
+StartLimitBurst=2
 
 [Service]
 Type=simple
 Environment="RUST_BACKTRACE=1"
 Environment="RUST_LOG=debug"
 ExecStart=+/usr/sbin/ip vrf exec mgmt /usr/bin/forge-dpu-agent
+Restart=always
 
 [Install]
 WantedBy=multi-user.target
