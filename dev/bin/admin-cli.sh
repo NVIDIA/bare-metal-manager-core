@@ -12,9 +12,11 @@ if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
   echo ${REPO_ROOT}/target/debug/forge-admin-cli -c https://${API_SERVER_HOST}:${API_SERVER_PORT} ${CLI_ARGS}
   ${REPO_ROOT}/target/debug/forge-admin-cli -c https://${API_SERVER_HOST}:${API_SERVER_PORT} ${CLI_ARGS}
 else
+  # docker-compose case
+
   API_CONTAINER=$(docker ps | grep carbide-api | awk -F" " '{print $NF}')
 
-  echo docker exec -ti ${API_CONTAINER} /opt/forge-admin-cli/debug/forge-admin-cli -c https://${API_SERVER_HOST}:${API_SERVER_PORT} $CLI_ARGS
-  docker exec -ti ${API_CONTAINER} /opt/forge-admin-cli/debug/forge-admin-cli -c https://${API_SERVER_HOST}:${API_SERVER_PORT} $CLI_ARGS
+  echo docker exec -ti ${API_CONTAINER} /opt/forge-admin-cli/debug/forge-admin-cli -c https://${API_SERVER_HOST}:${API_SERVER_PORT} --client-cert-path=/opt/forge/server_identity.pem --client-key-path=/opt/forge/server_identity.key $CLI_ARGS
+  docker exec -ti ${API_CONTAINER} /opt/forge-admin-cli/debug/forge-admin-cli -c https://${API_SERVER_HOST}:${API_SERVER_PORT} --client-cert-path=/opt/forge/server_identity.pem --client-key-path=/opt/forge/server_identity.key $CLI_ARGS
 fi
 

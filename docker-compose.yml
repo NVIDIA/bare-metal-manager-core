@@ -100,7 +100,6 @@ services:
         --casbin-policy-file=/app/code/api/casbin-policy.csv
         --config-path=/app/code/dev/docker-env/carbide-api-config.toml
         --site-config-path=/app/code/dev/docker-env/carbide-api-site-config.toml
-        --manage-vpc
         --asn 65535
         --auth-permissive-mode
         --rapid-iterations"
