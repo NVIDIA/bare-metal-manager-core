@@ -17,6 +17,8 @@ if [ $# -ne 4 ]; then
   exit 1
 fi
 
+export DISABLE_TLS_ENFORCEMENT=true
+
 API_SERVER_HOST=$1
 API_SERVER_PORT=$2
 HOST_DHCP_FILE=$3/host_dhcp_discovery.json

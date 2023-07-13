@@ -17,6 +17,8 @@ if [ $# -ne 1 ]; then
   exit 1
 fi
 
+export DISABLE_TLS_ENFORCEMENT=true
+
 DATA_DIR=$1
 source $DATA_DIR/envrc
 
