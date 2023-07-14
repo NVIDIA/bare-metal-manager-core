@@ -68,6 +68,11 @@ Host azurejump 20.237.179.67
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
+Host gavlejump 20.240.129.104
+  Hostname 20.240.129.104
+  Compression yes
+  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
+
 # You can specify that the jump host is automatically applied for certain IPs
 # using sections like this.
 Host *.nsv.sjc4.nvmetal.net 10.150.* 10.181.20.* 10.181.21.*
