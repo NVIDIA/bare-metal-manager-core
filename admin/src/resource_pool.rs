@@ -28,10 +28,12 @@ pub async fn define_all_from(filename: &str, api_config: Config) -> CarbideCliRe
         let d: ResourcePoolDef = def.try_into()?;
 
         let rpc_type: forgerpc::ResourcePoolType = d.pool_type.into();
+        let rpc_ranges: Vec<forgerpc::Range> = d.ranges.into_iter().map(|r| r.into()).collect();
         let rpc_req = forgerpc::DefineResourcePoolRequest {
             name: name.to_string(),
             pool_type: rpc_type.into(),
-            ranges: d.ranges.into_iter().map(|r| r.into()).collect(),
+            ranges: rpc_ranges,
+            prefix: d.prefix,
         };
         let _ = rpc::define_resource_pool(rpc_req, api_config.clone()).await?;
         info!("Pool {name} populated.");
@@ -41,7 +43,10 @@ pub async fn define_all_from(filename: &str, api_config: Config) -> CarbideCliRe
 
 #[derive(Debug, Deserialize)]
 struct ResourcePoolDef {
+    #[serde(default)]
     ranges: Vec<Range>,
+    #[serde(default)]
+    prefix: Option<String>,
     #[serde(rename = "type")]
     pool_type: ResourcePoolType,
 }

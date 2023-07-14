@@ -1549,6 +1549,7 @@ message DefineResourcePoolRequest {
     string name = 1;
     ResourcePoolType pool_type = 2;
     repeated Range ranges = 3;
+	optional string prefix = 4;
 }
 
 message DefineResourcePoolResponse {}
