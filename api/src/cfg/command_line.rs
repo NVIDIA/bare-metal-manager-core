@@ -56,7 +56,7 @@ pub struct Daemon {
     /// configuration. And the field `database_url` in the site specific configuration
     /// will take precedence over the same field in the global configuration.
     #[clap(long)]
-    pub config_path: Option<String>,
+    pub config_path: String,
     /// Path to the configuration file which contains per-site overwrites
     #[clap(long)]
     pub site_config_path: Option<String>,
@@ -68,7 +68,7 @@ pub struct Daemon {
 
     /// A connection string for the utilized postgres database
     #[clap(long, require_equals(true), env = "DATABASE_URL")]
-    pub datastore: String,
+    pub datastore: Option<String>,
 
     /// A connection string for the utilized IBFabricManager
     #[clap(long, require_equals(true), env = "IBFABRIC_MANAGER_URL")]
@@ -100,7 +100,7 @@ pub struct Daemon {
     // Move this to per-site toml configuration file once that exists.
     //
     #[clap(long)]
-    pub asn: u32,
+    pub asn: Option<u32>,
 
     /// List of DHCP servers that should be announced
     /// TODO: The env variable approach at the moment will just accept a single
@@ -141,7 +141,7 @@ pub struct Daemon {
 
     /// The Casbin policy file (in CSV format).
     #[clap(long, require_equals(true), env = "CASBIN_POLICY_FILE")]
-    pub casbin_policy_file: std::path::PathBuf,
+    pub casbin_policy_file: Option<std::path::PathBuf>,
 }
 
 #[derive(Parser)]

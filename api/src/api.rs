@@ -70,7 +70,7 @@ use crate::resource_pool::common::CommonPools;
 use crate::state_controller::controller::ReachabilityParams;
 use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 use crate::{
-    auth, cfg,
+    auth,
     credentials::UpdateCredentials,
     db::{
         auth::SshKeyValidationRequest,
@@ -3288,8 +3288,7 @@ where
 
     #[tracing::instrument(skip_all)]
     pub async fn run(
-        carbide_config: Option<Arc<CarbideConfig>>,
-        daemon_config: &cfg::Daemon,
+        carbide_config: Arc<CarbideConfig>,
         credential_provider: Arc<C1>,
         certificate_provider: Arc<C2>,
         meter: opentelemetry::metrics::Meter,
@@ -3297,7 +3296,7 @@ where
         // TODO: Use parameters from carbide_config here once the config looks right
         let _ = carbide_config;
 
-        let service_config = if daemon_config.rapid_iterations {
+        let service_config = if carbide_config.rapid_iterations {
             tracing::info!("Running with rapid iterations for local development");
             ServiceConfig::for_local_development()
         } else {
@@ -3317,14 +3316,14 @@ where
 
         let database_connection = sqlx::pool::PoolOptions::new()
             .max_connections(service_config.max_db_connections)
-            .connect(&daemon_config.datastore)
+            .connect(&carbide_config.database_url)
             .await?;
 
         let common_pools = CommonPools::create(database_connection.clone());
 
         let ib_fabric_manager: Arc<dyn IBFabricManager> =
-            if let Some(fabric_manager) = daemon_config.ib_fabric_manager.as_ref() {
-                let token = daemon_config
+            if let Some(fabric_manager) = carbide_config.ib_fabric_manager.as_ref() {
+                let token = carbide_config
                     .ib_fabric_manager_token
                     .as_ref()
                     .ok_or(Status::invalid_argument("ib fabric manager token is empty"))?;
@@ -3334,15 +3333,23 @@ where
             };
 
         let authorizer = auth::Authorizer::build_casbin(
-            &daemon_config.casbin_policy_file,
-            daemon_config.auth_permissive_mode,
+            &carbide_config
+                .auth
+                .as_ref()
+                .expect("Missing auth config")
+                .casbin_policy_file,
+            carbide_config
+                .auth
+                .as_ref()
+                .expect("Missing auth config")
+                .permissive_mode,
         )
         .await?;
 
         let eth_data = ethernet_virtualization::EthVirtData {
-            asn: daemon_config.asn,
-            dhcp_servers: daemon_config.dhcp_server.clone(),
-            route_servers: daemon_config.route_servers.clone(),
+            asn: carbide_config.asn,
+            dhcp_servers: carbide_config.dhcp_servers.clone(),
+            route_servers: carbide_config.route_servers.clone(),
         };
 
         let health_pool = database_connection.clone();
@@ -3360,9 +3367,24 @@ where
             shared_redfish_pool.clone(),
             eth_data,
             common_pools.clone(),
-            daemon_config.identity_pemfile_path.clone(),
-            daemon_config.identity_keyfile_path.clone(),
-            daemon_config.root_cafile_path.clone(),
+            carbide_config
+                .tls
+                .as_ref()
+                .expect("Missing tls config")
+                .identity_pemfile_path
+                .clone(),
+            carbide_config
+                .tls
+                .as_ref()
+                .expect("Missing tls config")
+                .identity_keyfile_path
+                .clone(),
+            carbide_config
+                .tls
+                .as_ref()
+                .expect("Missing tls config")
+                .root_cafile_path
+                .clone(),
         ));
 
         // handles need to be stored in a variable
@@ -3420,8 +3442,8 @@ where
             .build()
             .expect("Unable to build IBSubnetController");
 
-        let listen_port = daemon_config.listen[0];
-        api_handler(api_service, listen_port, meter).await
+        let listen_addr = carbide_config.listen;
+        api_handler(api_service, listen_addr, meter).await
     }
 
     async fn load_machine(

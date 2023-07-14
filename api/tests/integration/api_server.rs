@@ -32,9 +32,13 @@ pub fn start(
     vault_token: &str,
     carbide_api: &path::Path,
 ) -> Result<CarbideApi, eyre::Report> {
-    let tls_cert = root_dir.join("dev/certs/server_identity.pem");
-    let tls_key = root_dir.join("dev/certs/server_identity.key");
-    let root_cert = root_dir.join("dev/certs/forge_developer_local_only_root_cert_pem");
+    let cfg_file_template = root_dir.join("api/tests/integration/config/carbide-api-config.toml");
+    let template = std::fs::read_to_string(cfg_file_template)?;
+    let config_file = template
+        .replace("$ROOT_DIR", root_dir.to_str().unwrap())
+        .replace("$DATABASE_URL", db_url);
+    const CONFIG_FILE_PATH: &str = "/tmp/carbide-api-integration-test-config.toml";
+    std::fs::write(CONFIG_FILE_PATH, config_file)?;
 
     let mut process = process::Command::new(carbide_api)
         .env("VAULT_ADDR", "http://127.0.0.1:8200")
@@ -43,18 +47,8 @@ pub fn start(
         .env("VAULT_PKI_ROLE_NAME", "forge-cluster")
         .env("VAULT_TOKEN", vault_token)
         .arg("run")
-        .arg("--listen=127.0.0.1:1079")
-        .arg(format!("--identity-pemfile-path={}", tls_cert.display()))
-        .arg(format!("--identity-keyfile-path={}", tls_key.display()))
-        .arg(format!("--root-cafile-path={}", root_cert.display()))
-        .arg(format!("--datastore={db_url}"))
-        .arg("--auth-permissive-mode")
-        .arg("--asn=65535")
-        .arg("--rapid-iterations")
-        .arg(format!(
-            "--casbin-policy-file={}",
-            root_dir.join("api/casbin-policy.csv").display()
-        ))
+        .arg("--config-path")
+        .arg(CONFIG_FILE_PATH)
         .stdout(process::Stdio::piped())
         .stderr(process::Stdio::piped())
         .spawn()?;

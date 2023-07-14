@@ -123,28 +123,21 @@ async fn main() -> eyre::Result<()> {
             carbide::db::migrations::migrate(&pool).await?;
         }
         Command::Run(ref config) => {
-            let carbide_config = match &config.config_path {
-                Some(path) => {
-                    use figment::providers::Format;
-
-                    let mut figment =
-                        figment::Figment::new().merge(figment::providers::Toml::file(path));
-                    if let Some(site_path) = &config.site_config_path {
-                        figment = figment.merge(figment::providers::Toml::file(site_path));
-                    }
-
-                    let config: CarbideConfig = figment
-                        .merge(figment::providers::Env::prefixed("CARBIDE_API_"))
-                        .extract()
-                        .expect("Failed to load configuration files");
-                    Some(Arc::new(config))
-                }
-                None => None,
-            };
+            use figment::providers::Format;
+            let mut figment =
+                figment::Figment::new().merge(figment::providers::Toml::file(&config.config_path));
+            if let Some(site_path) = &config.site_config_path {
+                figment = figment.merge(figment::providers::Toml::file(site_path));
+            }
+            let config: CarbideConfig = figment
+                .merge(figment::providers::Env::prefixed("CARBIDE_API_"))
+                .extract()
+                .expect("Failed to load configuration files");
+            let carbide_config = Arc::new(config);
 
             // Redact credentials before printing the config
-            let print_config = if let Some(config) = carbide_config.as_ref() {
-                let mut config = config.as_ref().clone();
+            let print_config = {
+                let mut config = carbide_config.as_ref().clone();
                 if let Some(host_index) = config.database_url.find('@') {
                     let host = config.database_url.split_at(host_index).1;
                     config.database_url = format!("postgres://redacted{}", host);
@@ -152,9 +145,7 @@ async fn main() -> eyre::Result<()> {
                 if config.ib_fabric_manager_token.is_some() {
                     config.ib_fabric_manager_token = Some("redacted".to_string());
                 }
-                Some(config)
-            } else {
-                None
+                config
             };
             tracing::info!("Using configuration: {:#?}", print_config);
 
@@ -183,7 +174,7 @@ async fn main() -> eyre::Result<()> {
             let meter = opentelemetry::global::meter("carbide-api");
 
             // Spin up the webserver which servers `/metrics` requests
-            if let Some(metrics_address) = config.metrics_endpoint {
+            if let Some(metrics_address) = carbide_config.metrics_endpoint {
                 tokio::spawn(async move {
                     if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
                         address: metrics_address,
@@ -225,12 +216,11 @@ async fn main() -> eyre::Result<()> {
 
             tracing::info!(
                 "Start carbide-api on {}, {}",
-                config.listen[0],
+                carbide_config.listen,
                 forge_version::version!()
             );
             carbide::api::Api::run(
                 carbide_config,
-                config,
                 forge_vault_client.clone(),
                 forge_vault_client,
                 meter,
