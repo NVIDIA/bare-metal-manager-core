@@ -11,10 +11,13 @@
  */
 
 use std::collections::HashSet;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use carbide::resource_pool::ResourcePoolStats as St;
 use carbide::resource_pool::{all, DbResourcePool, OwnerType, ResourcePoolError, ValueType};
+use common::api_fixtures::create_test_env;
+use rpc::forge::forge_server::Forge;
 use sqlx::migrate::MigrateDatabase;
 
 mod common;
@@ -22,6 +25,59 @@ mod common;
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
+}
+
+// Define an IPv4 pool from a range via the admin grpc
+#[sqlx::test]
+async fn test_define_range(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+
+    let rp_req = rpc::forge::DefineResourcePoolRequest {
+        name: "test_define_range".to_string(),
+        pool_type: rpc::forge::ResourcePoolType::Ipv4.into(),
+        ranges: vec![rpc::forge::Range {
+            start: "172.0.1.0".to_string(),
+            end: "172.0.1.255".to_string(),
+        }],
+        prefix: None,
+    };
+    env.api
+        .admin_define_resource_pool(tonic::Request::new(rp_req))
+        .await
+        .unwrap();
+
+    let pool: DbResourcePool<Ipv4Addr> =
+        DbResourcePool::new("test_define_range".to_string(), ValueType::Ipv4);
+
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(pool.stats(&mut txn).await?, St { used: 0, free: 255 });
+
+    Ok(())
+}
+
+// Define an IPv4 pool from a prefix via the admin grpc
+#[sqlx::test]
+async fn test_define_prefix(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+
+    let rp_req = rpc::forge::DefineResourcePoolRequest {
+        name: "test_define_range".to_string(),
+        pool_type: rpc::forge::ResourcePoolType::Ipv4.into(),
+        ranges: vec![],
+        prefix: Some("172.0.1.0/24".to_string()),
+    };
+    env.api
+        .admin_define_resource_pool(tonic::Request::new(rp_req))
+        .await
+        .unwrap();
+
+    let pool: DbResourcePool<Ipv4Addr> =
+        DbResourcePool::new("test_define_range".to_string(), ValueType::Ipv4);
+
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(pool.stats(&mut txn).await?, St { used: 0, free: 255 });
+
+    Ok(())
 }
 
 #[sqlx::test]

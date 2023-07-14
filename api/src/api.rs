@@ -11,7 +11,7 @@
  */
 
 use std::convert::TryFrom;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -2912,40 +2912,36 @@ where
         let def = request.into_inner();
         let pool_type = rpc::ResourcePoolType::try_from(def.pool_type)
             .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
-        let name = &def.name;
+        let name = def.name.as_ref();
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin admin_define_resource_pool", e)
         })?;
-        for range in def.ranges {
-            match pool_type {
-                rpc::ResourcePoolType::Ipv4 => {
-                    let values = expand_ip_range(&range.start, &range.end)
-                        .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
-                    let num_values = values.len();
-                    let pool = resource_pool::DbResourcePool::new(
-                        name.to_string(),
-                        resource_pool::ValueType::Ipv4,
-                    );
-                    pool.populate(&mut txn, values)
-                        .await
-                        .map_err(CarbideError::from)?;
-                    tracing::debug!("Populated IP resource pool {name} with {num_values} values");
+
+        match (&def.prefix, &def.ranges) {
+            // Neither is given
+            (None, ranges) if ranges.is_empty() => {
+                return Err(Status::invalid_argument(
+                    "Please provide one of 'prefix' or 'ranges'",
+                ));
+            }
+            // Both are given
+            (Some(_), ranges) if !ranges.is_empty() => {
+                return Err(Status::invalid_argument(
+                    "Please provide only one of 'prefix' or 'ranges'",
+                ));
+            }
+            // Just prefix
+            (Some(prefix), _) => {
+                define_by_prefix(&mut txn, name, pool_type, prefix).await?;
+            }
+            // Just ranges
+            (None, ranges) => {
+                for range in ranges {
+                    define_by_range(&mut txn, name, pool_type, &range.start, &range.end).await?;
                 }
-                rpc::ResourcePoolType::Integer => {
-                    let values = expand_int_range(&range.start, &range.end)
-                        .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
-                    let num_values = values.len();
-                    let pool = resource_pool::DbResourcePool::new(
-                        name.to_string(),
-                        resource_pool::ValueType::Integer,
-                    );
-                    pool.populate(&mut txn, values)
-                        .await
-                        .map_err(CarbideError::from)?;
-                    tracing::debug!("Populated int resource pool {name} with {num_values} values");
-                }
-            };
+            }
         }
+
         txn.commit().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "end admin_define_resource_pool", e)
         })?;
@@ -3016,6 +3012,83 @@ where
             total_vpc_count,
         }))
     }
+}
+
+async fn define_by_prefix(
+    txn: &mut Transaction<'_, Postgres>,
+    name: &str,
+    pool_type: rpc::ResourcePoolType,
+    prefix: &str,
+) -> Result<(), tonic::Status> {
+    if !matches!(pool_type, rpc::ResourcePoolType::Ipv4) {
+        return Err(Status::invalid_argument(
+            "Only type 'ipv4' can take a prefix",
+        ));
+    }
+    let values =
+        expand_ip_prefix(prefix).map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+    let num_values = values.len();
+    let pool = resource_pool::DbResourcePool::new(name.to_string(), resource_pool::ValueType::Ipv4);
+    pool.populate(txn, values)
+        .await
+        .map_err(CarbideError::from)?;
+    tracing::debug!("Populated IP resource pool {name} with {num_values} values from prefix");
+
+    Ok(())
+}
+
+async fn define_by_range(
+    txn: &mut Transaction<'_, Postgres>,
+    name: &str,
+    pool_type: rpc::ResourcePoolType,
+    range_start: &str,
+    range_end: &str,
+) -> Result<(), tonic::Status> {
+    match pool_type {
+        rpc::ResourcePoolType::Ipv4 => {
+            let values = expand_ip_range(range_start, range_end)
+                .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+            let num_values = values.len();
+            let pool = resource_pool::DbResourcePool::new(
+                name.to_string(),
+                resource_pool::ValueType::Ipv4,
+            );
+            pool.populate(txn, values)
+                .await
+                .map_err(CarbideError::from)?;
+            tracing::debug!(
+                "Populated IP resource pool {name} with {num_values} values from range"
+            );
+        }
+        rpc::ResourcePoolType::Integer => {
+            let values = expand_int_range(range_start, range_end)
+                .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+            let num_values = values.len();
+            let pool = resource_pool::DbResourcePool::new(
+                name.to_string(),
+                resource_pool::ValueType::Integer,
+            );
+            pool.populate(txn, values)
+                .await
+                .map_err(CarbideError::from)?;
+            tracing::debug!("Populated int resource pool {name} with {num_values} values");
+        }
+    }
+    Ok(())
+}
+
+// Expands a string like "10.180.62.1/26" into all the ip addresses it covers
+fn expand_ip_prefix(network: &str) -> Result<Vec<Ipv4Addr>, eyre::Report> {
+    let n: ipnetwork::IpNetwork = network.parse()?;
+    let (start_addr, end_addr) = match (n.network(), n.broadcast()) {
+        (IpAddr::V4(start), IpAddr::V4(end)) => (start, end),
+        _ => {
+            eyre::bail!("Invalid IPv4 network: {network}");
+        }
+    };
+    let start: u32 = start_addr.into();
+    let end: u32 = end_addr.into();
+    Ok((start..end).map(Ipv4Addr::from).collect())
 }
 
 // All the IPv4 addresses between start_s and end_s
