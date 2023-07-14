@@ -1,0 +1,16 @@
+listen="127.0.0.1:1079"
+metrics_endpoint="127.0.0.1:1080"
+database_url="$DATABASE_URL"
+asn=65535
+dhcp_servers=[]
+route_servers=[]
+rapid_iterations=true
+
+[tls]
+identity_pemfile_path="$ROOT_DIR/dev/certs/server_identity.pem"
+identity_keyfile_path="$ROOT_DIR/dev/certs/server_identity.key"
+root_cafile_path="$ROOT_DIR/dev/certs/forge_developer_local_only_root_cert_pem"
+
+[auth]
+permissive_mode=true
+casbin_policy_file="$ROOT_DIR/api/casbin-policy.csv"
