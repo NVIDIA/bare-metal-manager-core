@@ -252,6 +252,7 @@ dependencies = [
   "build-debug-test-prerequisites",
   "test",
 ]
+workspace = false
 
 [tasks.workspace-ci-flow]
 args = ["--no-default-features"]
