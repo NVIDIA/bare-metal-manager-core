@@ -142,6 +142,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     identity_pemfile_path: String,
     identity_keyfile_path: String,
     root_cafile_path: String,
+    admin_root_cafile_path: String,
 }
 
 #[tonic::async_trait]
@@ -3113,6 +3114,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
     identity_pemfile_path: S,
     identity_keyfile_path: S,
     root_cafile_path: S,
+    admin_root_cafile_path: S,
 ) -> Option<TlsAcceptor> {
     let certs = {
         let fd = match std::fs::File::open(identity_pemfile_path.as_ref()) {
@@ -3170,6 +3172,18 @@ fn get_tls_acceptor<S: AsRef<str>>(
             tracing::error!("error reading root ca cert file: {:?}", error);
             return None;
         }
+    }
+
+    if let Ok(pem_file) = std::fs::read(admin_root_cafile_path.as_ref()) {
+        let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
+        let certs_to_add = match rustls_pemfile::certs(&mut cert_cursor) {
+            Ok(certs) => certs,
+            Err(error) => {
+                tracing::error!("error parsing admin ca cert file: {:?}", error);
+                return None;
+            }
+        };
+        let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add.as_slice());
     }
 
     match ServerConfig::builder()
@@ -3323,16 +3337,19 @@ where
     let identity_pemfile_path = api_service.identity_pemfile_path.clone();
     let identity_keyfile_path = api_service.identity_keyfile_path.clone();
     let root_cafile_path = api_service.root_cafile_path.clone();
+    let admin_root_cafile_path = api_service.admin_root_cafile_path.clone();
 
     let identity_pemfile_path_clone = identity_pemfile_path.clone();
     let identity_keyfile_path_clone = identity_keyfile_path.clone();
     let root_cafile_path_clone = root_cafile_path.clone();
+    let admin_root_cafile_path_clone = admin_root_cafile_path.clone();
 
     let mut tls_acceptor = tokio::task::spawn_blocking(move || {
         get_tls_acceptor(
             identity_pemfile_path_clone,
             identity_keyfile_path_clone,
             root_cafile_path_clone,
+            admin_root_cafile_path_clone,
         )
     })
     .await?;
@@ -3365,11 +3382,13 @@ where
             let identity_pemfile_path_clone = identity_pemfile_path.clone();
             let identity_keyfile_path_clone = identity_keyfile_path.clone();
             let root_cafile_path_clone = root_cafile_path.clone();
+            let admin_root_cafile_path_clone = admin_root_cafile_path.clone();
             tls_acceptor = tokio::task::spawn_blocking(move || {
                 get_tls_acceptor(
                     identity_pemfile_path_clone,
                     identity_keyfile_path_clone,
                     root_cafile_path_clone,
+                    admin_root_cafile_path_clone,
                 )
             })
             .await?;
@@ -3437,6 +3456,7 @@ where
         identity_pemfile_path: String,
         identity_keyfile_path: String,
         root_cafile_path: String,
+        admin_root_cafile_path: String,
     ) -> Self {
         Self {
             database_connection,
@@ -3449,6 +3469,7 @@ where
             identity_pemfile_path,
             identity_keyfile_path,
             root_cafile_path,
+            admin_root_cafile_path,
         }
     }
 
@@ -3550,6 +3571,12 @@ where
                 .as_ref()
                 .expect("Missing tls config")
                 .root_cafile_path
+                .clone(),
+            carbide_config
+                .tls
+                .as_ref()
+                .expect("Missing tls config")
+                .admin_root_cafile_path
                 .clone(),
         ));
 
