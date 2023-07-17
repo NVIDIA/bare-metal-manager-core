@@ -241,6 +241,18 @@ script = '''
 cargo build --release -p agent -p admin
 '''
 
+[tasks.build-debug-test-prerequisites]
+script = '''
+cargo build -p agent -p admin -p carbide-api
+'''
+workspace = false
+
+[tasks.correctly-execute-tests]
+dependencies = [
+  "build-debug-test-prerequisites",
+  "test",
+]
+
 [tasks.workspace-ci-flow]
 args = ["--no-default-features"]
 
