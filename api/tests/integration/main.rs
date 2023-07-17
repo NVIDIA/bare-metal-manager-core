@@ -113,16 +113,22 @@ async fn host_boostrap(forge_dpu_agent: &path::Path, dpu_info: &dpu::Info) -> ey
 fn find_prerequisites(root_dir: &path::Path) -> (HashMap<String, path::PathBuf>, bool) {
     let mut bins = HashMap::with_capacity(5);
     let cargo_paths = [
-        root_dir.join("target/release"),
         root_dir.join("target/debug"),
+        root_dir.join("target/release"),
     ];
-    bins.insert("carbide-api", find_in("carbide-api", &cargo_paths));
-    bins.insert("forge-admin-cli", find_in("forge-admin-cli", &cargo_paths));
-    bins.insert("forge-dpu-agent", find_in("forge-dpu-agent", &cargo_paths));
+    bins.insert("carbide-api", find_latest_in("carbide-api", &cargo_paths));
+    bins.insert(
+        "forge-admin-cli",
+        find_latest_in("forge-admin-cli", &cargo_paths),
+    );
+    bins.insert(
+        "forge-dpu-agent",
+        find_latest_in("forge-dpu-agent", &cargo_paths),
+    );
 
     let paths: Vec<path::PathBuf> = env::split_paths(&env::var_os("PATH").unwrap()).collect();
-    bins.insert("vault", find_in("vault", &paths));
-    bins.insert("grpcurl", find_in("grpcurl", &paths));
+    bins.insert("vault", find_first_in("vault", &paths));
+    bins.insert("grpcurl", find_first_in("grpcurl", &paths));
 
     let mut has_all = true;
     let mut full_paths = HashMap::with_capacity(bins.len());
@@ -145,7 +151,7 @@ fn find_prerequisites(root_dir: &path::Path) -> (HashMap<String, path::PathBuf>,
 }
 
 // Look for a binary in the given paths, return full path or None if not found
-fn find_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf> {
+fn find_first_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf> {
     for path in paths {
         let candidate = path.join(binary);
         if candidate.exists() {
@@ -153,4 +159,27 @@ fn find_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf> {
         }
     }
     None
+}
+
+// Look the latest binary in the given paths, return full path or None if not found
+fn find_latest_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf> {
+    let mut latest = None;
+
+    for path in paths {
+        let candidate = path.join(binary);
+        if let Ok(metadata) = std::fs::metadata(&candidate) {
+            if let Ok(modified) = metadata.modified() {
+                match latest {
+                    None => latest = Some((candidate, modified)),
+                    Some((_, other_modified)) => {
+                        if modified > other_modified {
+                            latest = Some((candidate, modified));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    latest.map(|(path, _)| path)
 }
