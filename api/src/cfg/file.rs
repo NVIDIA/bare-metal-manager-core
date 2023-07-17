@@ -74,6 +74,9 @@ pub struct TlsConfig {
 
     #[serde(default)]
     pub identity_keyfile_path: String,
+
+    #[serde(default)]
+    pub admin_root_cafile_path: String,
 }
 
 /// Autentication related configuration

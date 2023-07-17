@@ -97,6 +97,7 @@ impl TestEnv {
             "not a real pemfile path".to_string(),
             "not a real keyfile path".to_string(),
             "not a real cafile path".to_string(),
+            "not a real admin cafile path".to_string(),
         ));
 
         StateHandlerServices {
@@ -292,6 +293,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         "not a real pemfile path".to_string(),
         "not a real keyfile path".to_string(),
         "not a real cafile path".to_string(),
+        "not a real admin cafile path".to_string(),
     );
     TestEnv {
         api,
