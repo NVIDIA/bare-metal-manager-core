@@ -26,6 +26,9 @@ use opentelemetry::{
     sdk::{self, export::metrics::aggregation, metrics},
     trace::TracerProvider,
 };
+use opentelemetry_api::trace::TraceError;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
 use opentelemetry_semantic_conventions as semcov;
 use sqlx::PgPool;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
@@ -65,6 +68,21 @@ async fn main() -> eyre::Result<()> {
         tracer
     };
 
+    fn init_otlp_tracer(endpoint: &str) -> Result<sdktrace::Tracer, TraceError> {
+        opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_exporter(
+                opentelemetry_otlp::new_exporter()
+                    .tonic()
+                    .with_endpoint(endpoint),
+            )
+            .with_trace_config(sdktrace::config().with_resource(Resource::new(vec![
+                semcov::resource::SERVICE_NAME.string("carbide-api"),
+                semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
+            ])))
+            .install_batch(runtime::Tokio)
+    }
+
     // This configures the tracing framework
     // We ignore a lot of spans and events from 3rd party frameworks
     let mut env_filter = EnvFilter::builder()
@@ -103,11 +121,6 @@ async fn main() -> eyre::Result<()> {
         .with_file(true)
         .with_line_number(true)
         .with_ansi(false);
-    tracing_subscriber::registry()
-        .with(stdout_formatter)
-        .with(env_filter)
-        .with(telemetry)
-        .try_init()?;
 
     let sub_cmd = match &config.sub_cmd {
         None => {
@@ -134,6 +147,26 @@ async fn main() -> eyre::Result<()> {
                 .extract()
                 .expect("Failed to load configuration files");
             let carbide_config = Arc::new(config);
+
+            if let Some(otel) = carbide_config.as_ref().clone().otlp_endpoint {
+                let otel_tracer = tracing_opentelemetry::layer()
+                    .with_tracer(init_otlp_tracer(otel.as_ref())?)
+                    .with_exception_fields(true)
+                    .with_threads(false);
+
+                tracing_subscriber::registry()
+                    .with(stdout_formatter)
+                    .with(env_filter)
+                    .with(telemetry)
+                    .with(otel_tracer)
+                    .try_init()?;
+            } else {
+                tracing_subscriber::registry()
+                    .with(stdout_formatter)
+                    .with(env_filter)
+                    .with(telemetry)
+                    .try_init()?;
+            };
 
             // Redact credentials before printing the config
             let print_config = {

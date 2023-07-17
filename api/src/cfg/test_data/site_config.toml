@@ -1,6 +1,7 @@
 asn=777
 dhcp_servers=["99.101.102.103"]
 rapid_iterations=true
+otlp_endpoint="https://localhost:4399"
 
 [tls]
 identity_pemfile_path="/patched/path/to/cert"

@@ -23,6 +23,9 @@ pub struct CarbideConfig {
     /// prometheus metrics under /metrics
     pub metrics_endpoint: Option<std::net::SocketAddr>,
 
+    /// The DNS name and port of the opentelemetry collector
+    pub otlp_endpoint: Option<String>,
+
     /// A connection string for the utilized postgres database
     pub database_url: String,
 
@@ -164,6 +167,10 @@ mod tests {
         );
         assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
         assert_eq!(
+            config.otlp_endpoint,
+            Some("https://localhost:4317".to_string())
+        );
+        assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/path/to/cert"
         );
@@ -189,6 +196,10 @@ mod tests {
         assert_eq!(config.listen, "[::]:1081".parse().unwrap());
         assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
+        assert_eq!(
+            config.otlp_endpoint,
+            Some("https://localhost:4399".to_string())
+        );
         assert!(config.rapid_iterations);
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
@@ -230,6 +241,10 @@ mod tests {
                 .unwrap();
             assert_eq!(config.listen, "[::]:1081".parse().unwrap());
             assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
+            assert_eq!(
+                config.otlp_endpoint,
+                Some("https://localhost:4317".to_string())
+            );
             assert_eq!(config.database_url, "postgres://othersql".to_string());
             assert!(!config.rapid_iterations);
             assert_eq!(config.asn, 777);
