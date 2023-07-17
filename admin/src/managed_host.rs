@@ -94,12 +94,15 @@ fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
 struct ManagedHostOutput {
     hostname: Option<String>,
     machine_id: Option<String>,
+    state: String,
     host_serial_number: Option<String>,
     host_bios_version: Option<String>,
     host_bmc_ip: Option<String>,
     host_bmc_mac: Option<String>,
     host_bmc_version: Option<String>,
     host_bmc_firmware_version: Option<String>,
+    host_admin_ip: Option<String>,
+    host_admin_mac: Option<String>,
     host_gpu_count: usize,
     host_memory: Option<String>,
     dpu_machine_id: Option<String>,
@@ -118,6 +121,7 @@ impl From<ManagedHostOutput> for Row {
         row![
             value.hostname.unwrap_or(UNKNOWN.to_owned()),
             value.machine_id.unwrap_or(UNKNOWN.to_owned()),
+            value.state,
             value.host_serial_number.unwrap_or(UNKNOWN.to_owned()),
             value.host_bios_version.unwrap_or(UNKNOWN.to_owned()),
             value.host_bmc_ip.unwrap_or(UNKNOWN.to_owned()),
@@ -126,6 +130,8 @@ impl From<ManagedHostOutput> for Row {
             value
                 .host_bmc_firmware_version
                 .unwrap_or(UNKNOWN.to_owned()),
+            value.host_admin_ip.unwrap_or(UNKNOWN.to_owned()),
+            value.host_admin_mac.unwrap_or(UNKNOWN.to_owned()),
             value.host_gpu_count,
             value.host_memory.unwrap_or(UNKNOWN.to_owned()),
             value.dpu_machine_id.unwrap_or(UNKNOWN.to_owned()),
@@ -185,6 +191,7 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
             Some(primary_interface.hostname.clone())
         };
         managed_host_output.machine_id = Some(machine_id.to_string());
+        managed_host_output.state = machine.state.clone();
         managed_host_output.host_serial_number =
             get_dmi_data_from_machine!(machine, chassis_serial);
         managed_host_output.host_bios_version = get_dmi_data_from_machine!(machine, bios_version);
@@ -193,6 +200,8 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
         managed_host_output.host_bmc_version = get_bmc_info_from_machine!(machine, version);
         managed_host_output.host_bmc_firmware_version =
             get_bmc_info_from_machine!(machine, firmware_version);
+        managed_host_output.host_admin_ip = Some(primary_interface.address.join(","));
+        managed_host_output.host_admin_mac = Some(primary_interface.mac_address.to_string());
         managed_host_output.host_gpu_count = machine
             .discovery_info
             .as_ref()
@@ -245,12 +254,15 @@ fn convert_managed_hosts_to_nice_output(managed_hosts: Vec<ManagedHostOutput>) -
     table.add_row(row![
         "Hostname",
         "Machine ID",
+        "State",
         "Host Serial Number",
         "Host BIOS Version",
         "Host BMC IP",
         "Host BMC MAC",
         "Host BMC Version",
         "Host BMC Firmware Version",
+        "Host ADMIN IP",
+        "Host ADMIN MAC",
         "Host GPU Count",
         "Host Memory",
         "DPU Machine ID",
