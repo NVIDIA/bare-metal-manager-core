@@ -1,11 +1,15 @@
-listen="[::]:1081"
+listen="[::]:1079"
 metrics_endpoint="[::]:1080"
-database_url="postgres://specified_as_env_variable"
 asn=65535
 dhcp_servers=["172.20.0.12"]
 route_servers=[]
-rapid_iterations=false
+rapid_iterations=true
+
+[tls]
+identity_pemfile_path="/app/code/dev/certs/server_identity.pem"
+identity_keyfile_path="/app/code/dev/certs/server_identity.key"
+root_cafile_path="/app/code/dev/certs/forge_developer_local_only_root_cert_pem"
 
 [auth]
-permissive_mode=false
+permissive_mode=true
 casbin_policy_file="/app/code/api/casbin-policy.csv"
