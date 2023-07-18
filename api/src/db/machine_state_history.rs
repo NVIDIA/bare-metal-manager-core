@@ -59,6 +59,7 @@ impl From<MachineStateHistory> for rpc::MachineEvent {
             machine_id: Some(event.machine_id.to_string().into()),
             time: Some(event.timestamp.into()),
             event: event.state,
+            version: event.state_version.version_string(),
         }
     }
 }

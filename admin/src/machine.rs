@@ -23,25 +23,14 @@ use super::cfg::carbide_options::ShowMachine;
 use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
 
 fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResult<String> {
-    let width = 13;
+    let width = 14;
     let mut lines = String::new();
     let machine_id = machine.id.clone().unwrap_or_default().id;
 
     let data = vec![
         ("ID", machine.id.clone().unwrap_or_default().id),
-        (
-            "CREATED",
-            machine.created.clone().unwrap_or_default().to_string(),
-        ),
-        (
-            "UPDATED",
-            machine.updated.clone().unwrap_or_default().to_string(),
-        ),
-        (
-            "DEPLOYED",
-            machine.deployed.clone().unwrap_or_default().to_string(),
-        ),
         ("STATE", machine.state.clone().to_uppercase()),
+        ("STATE_VERSION", machine.state_version.clone()),
         ("MACHINE TYPE", get_machine_type(&machine_id)),
     ];
     for (key, value) in data {
@@ -52,24 +41,28 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
     if machine.events.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
-        let mut max_len = 0;
+        let mut max_state_len = 0;
+        let mut max_version_len = 0;
         for x in machine.events.iter().rev().take(5).rev() {
-            if x.event.len() > max_len {
-                max_len = x.event.len();
-            }
+            max_state_len = max_state_len.max(x.event.len());
+            max_version_len = max_version_len.max(x.version.len());
         }
-        writeln!(&mut lines, "\tId    {:<max_len$}   Time", "State")?;
-        let mut div = "-------------------------".to_string();
-        for _ in 0..max_len {
+        let header = format!(
+            "{:<max_state_len$} {:<max_version_len$} Time",
+            "State", "Version"
+        );
+        writeln!(&mut lines, "\t{header}")?;
+        let mut div = "".to_string();
+        for _ in 0..header.len() + 27 {
             div.push('-')
         }
         writeln!(&mut lines, "\t{}", div)?;
         for x in machine.events.iter().rev().take(5).rev() {
             writeln!(
                 &mut lines,
-                "\t{:<5} {:<max_len$} {}",
-                x.id,
+                "\t{:<max_state_len$} {:<max_version_len$} {}",
                 x.event,
+                x.version,
                 x.time.clone().unwrap_or_default()
             )?;
         }
@@ -151,8 +144,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 
     table.add_row(row![
         "Id",
-        "Created",
         "State",
+        "State Version",
         "Attached DPU",
         "Primary Interface",
         "IP Address",
@@ -192,8 +185,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 
         table.add_row(row![
             machine_id,
-            machine.created.unwrap_or_default(),
             machine.state.to_uppercase(),
+            machine.state_version.clone(),
             dpu_id,
             id,
             address,
