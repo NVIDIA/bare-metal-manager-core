@@ -42,6 +42,17 @@ write_files:
     content: |
       BOOT0=NET-OOB-IPV4-HTTP
       BOOT1=DISK
+  - path: /var/lib/hbn/etc/supervisor/conf.d/acltool.conf
+    content: |
+      [program: cl-acltool]
+      command = bash -c "sleep 5 && /usr/cumulus/bin/cl-acltool -i" ; wait for nl2docad to fully come online, revisit in hbn 1.4
+      startsecs = 0
+      autorestart = false
+      priority = 200
+  - path: /var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules
+    content: |
+      [iptables]
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0hpf_sf -j DROP
   - path: /etc/vrf/systemd.conf
     permissions: '0644'
     content: |
