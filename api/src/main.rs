@@ -20,6 +20,7 @@ use carbide::{
         otel_stdout_exporter::OtelStdoutExporter,
     },
 };
+use clap::CommandFactory;
 use eyre::WrapErr;
 use forge_secrets::ForgeVaultClient;
 use opentelemetry::{
@@ -124,8 +125,7 @@ async fn main() -> eyre::Result<()> {
 
     let sub_cmd = match &config.sub_cmd {
         None => {
-            tracing::error!("error: 'carbide-api' requires a subcommand but one was not provided. Re-run with '--help'.");
-            return Ok(());
+            return Ok(Options::command().print_long_help()?);
         }
         Some(s) => s,
     };

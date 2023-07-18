@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use cfg::{AutoDetect, Command, Options};
+use clap::CommandFactory;
 use once_cell::sync::Lazy;
 use rpc::forge::forge_agent_control_response::Action;
 use rpc::{forge as rpc_forge, ForgeScoutErrorReport};
@@ -61,7 +62,7 @@ async fn main() -> Result<(), eyre::Report> {
 
     let subcmd = match &config.subcmd {
         None => {
-            eprintln!("'forge-scout' requires a subcommand but one was not provided. Re-run with '--help'.");
+            Options::command().print_long_help()?;
             std::process::exit(1);
         }
         Some(s) => s,

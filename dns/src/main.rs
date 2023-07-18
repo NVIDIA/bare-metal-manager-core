@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use cfg::{Command, Options};
+use clap::CommandFactory;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 
@@ -38,8 +39,7 @@ async fn main() -> Result<(), eyre::Report> {
 
     let sub_cmd = match &config.sub_cmd {
         None => {
-            eprintln!("error: 'forge-dns' requires a subcommand but one was not provided. Re-run with '--help'.");
-            return Ok(());
+            return Ok(Options::command().print_long_help()?);
         }
         Some(s) => s,
     };
