@@ -822,15 +822,20 @@ message BmcInfo {
 }
 
 message Machine {
+  // Uniquely identifies a Forge machine.
+  // The value of this field is globally unique.
   MachineId id = 1;
 
-  google.protobuf.Timestamp created = 4;
-  google.protobuf.Timestamp updated = 5;
-  google.protobuf.Timestamp deployed = 6;
+  reserved 4, 5, 6; // Used for timestamps in the past
 
-  // Note: These might change if ore lifecycle mention flows into `Instance`
+  // The current lifecycle state of the machine
   string state = 7;
+  // Version field that is associated with the `state` of the machine.
+  // Every time the lifecycle state of the `Machine` changes for any reason, the version field will be updated.
+  string state_version = 13;
+  // The history of the state for the machine. Only populated if `include_history` is set.
   repeated MachineEvent events = 8;
+
   // Note: This is not yet removed in this change to limit the amount of breaking
   // changes at once - but users shouldn't rely on it. The actually interesting
   // information around interfaces for Instance users is in `Instance::InstanceNetworkStatus`.
@@ -872,7 +877,10 @@ message MachineEvent {
   int64 id = 1;
   MachineId machine_id = 2;
 
+  // The lifecycle state of the Machine
   string event = 3;
+  // The version field that is associated with this event
+  string version = 5;
 
   google.protobuf.Timestamp time = 4;
 }

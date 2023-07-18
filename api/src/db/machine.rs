@@ -68,7 +68,7 @@ pub struct Machine {
     updated: DateTime<Utc>,
 
     /// When the machine was last deployed
-    deployed: Option<DateTime<Utc>>,
+    _deployed: Option<DateTime<Utc>>,
 
     /// The current state of the machine.
     state: Versioned<ManagedHostState>,
@@ -132,7 +132,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             id,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
-            deployed: row.try_get("deployed")?,
+            _deployed: row.try_get("deployed")?,
             state: Versioned::new(controller_state.0, controller_state_version),
             network_config: Versioned::new(network_config.0, network_config_version),
             network_status_observation,
@@ -214,10 +214,8 @@ impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
         rpc::Machine {
             id: Some(machine.id.to_string().into()),
-            created: Some(machine.created.into()),
-            updated: Some(machine.updated.into()),
-            deployed: machine.deployed.map(|ts| ts.into()),
             state: machine.state.value.to_string(),
+            state_version: machine.state.version.version_string(),
             machine_type: *RpcMachineTypeWrapper::from(machine.machine_type()) as i32,
             events: machine
                 .history
