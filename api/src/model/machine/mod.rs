@@ -25,7 +25,7 @@ use super::{
     config_version::{ConfigVersion, Versioned},
     instance::snapshot::InstanceSnapshot,
 };
-use crate::model::hardware_info::HardwareInfo;
+use crate::model::hardware_info::{BMCVendor, HardwareInfo};
 
 pub mod machine_id;
 pub mod network;
@@ -58,6 +58,7 @@ pub struct MachineSnapshot {
     pub network_status_observation: Option<MachineNetworkStatusObservation>,
     /// BMC related information
     pub bmc_info: BmcInfo,
+    pub bmc_vendor: BMCVendor,
     /// Network interfaces
     pub interfaces: Vec<MachineInterfaceSnapshot>,
     /// Desired state of the machine

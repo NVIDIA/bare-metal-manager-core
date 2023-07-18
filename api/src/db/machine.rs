@@ -31,7 +31,7 @@ use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::config_version::{ConfigVersion, Versioned};
-use crate::model::hardware_info::HardwareInfo;
+use crate::model::hardware_info::{BMCVendor, HardwareInfo};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
@@ -255,6 +255,13 @@ impl Machine {
     /// BMC related information
     pub fn bmc_info(&self) -> &BmcInfo {
         &self.bmc_info
+    }
+
+    pub fn bmc_vendor(&self) -> BMCVendor {
+        match self.hardware_info() {
+            Some(hw) => hw.bmc_vendor(),
+            None => BMCVendor::Unknown,
+        }
     }
 
     /// Hardware information

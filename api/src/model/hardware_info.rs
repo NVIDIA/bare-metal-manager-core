@@ -612,6 +612,39 @@ impl HardwareInfo {
 
         Ok(MacAddress::from_str(&dpu_info.factory_mac_address)?)
     }
+
+    /// Is this a Dell or Lenovo machine?
+    pub fn bmc_vendor(&self) -> BMCVendor {
+        match self.dmi_data.as_ref() {
+            Some(dmi_info) => match dmi_info.sys_vendor.as_ref() {
+                "Lenovo" => BMCVendor::Lenovo,
+                "Dell Inc." => BMCVendor::Dell,
+                "https://www.mellanox.com" => BMCVendor::Mellanox,
+                _ => BMCVendor::Unknown,
+            },
+            None => BMCVendor::Unknown,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BMCVendor {
+    Lenovo,
+    Dell,
+    Mellanox,
+    Unknown,
+}
+
+impl BMCVendor {
+    pub fn is_lenovo(self) -> bool {
+        self == BMCVendor::Lenovo
+    }
+    pub fn is_dell(self) -> bool {
+        self == BMCVendor::Dell
+    }
+    pub fn is_mellanox(self) -> bool {
+        self == BMCVendor::Mellanox
+    }
 }
 
 #[cfg(test)]
