@@ -18,9 +18,6 @@ use tracing::{debug, error, trace};
 
 use crate::{daemons, dhcp, frr, hbn, interfaces};
 
-/// HBN container root
-pub const HBN_ROOT: &str = "/var/lib/hbn";
-
 // VPC writes these to various HBN config files
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 
@@ -28,13 +25,12 @@ const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 
 pub fn update(
-    hbn_root: &str,
+    hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     status_out: &mut rpc::DpuNetworkStatus,
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
 ) {
-    let hbn_root = Path::new(hbn_root);
     let (mut dhcp_path, mut interfaces_path, mut frr_path, mut daemons_path) = (
         hbn_root.join(dhcp::PATH),
         hbn_root.join(interfaces::PATH),

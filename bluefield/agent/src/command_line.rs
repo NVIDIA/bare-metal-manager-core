@@ -52,20 +52,6 @@ pub enum AgentCommand {
 pub struct NetconfParams {
     #[clap(long, short, help = "machine id of the DPU to configure")]
     pub dpu_machine_id: String,
-
-    #[clap(
-        long,
-        default_value = "/var/lib/hbn",
-        help = "Where to write the network config files"
-    )]
-    pub chroot: String,
-
-    #[clap(
-        long,
-        default_value = "false",
-        help = "Do not run the config reload commands. Local dev only."
-    )]
-    pub skip_reload: bool,
 }
 
 #[derive(Parser, Debug)]

@@ -81,6 +81,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     env.api
         .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
             dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_agent_version: Some("test".to_string()),
             observed_at: Some(SystemTime::now().into()),
             health: Some(hs),
             network_config_version: Some(network_config_version.clone()),

@@ -91,7 +91,7 @@ fn configure_network(
     dpu_machine_id: &str,
 ) -> eyre::Result<path::PathBuf> {
     let hbn_root = make_dpu_filesystem(root_dir, interface_id)?;
-    crate::forge_dpu_agent::run(forge_dpu_agent, &hbn_root, dpu_machine_id)?;
+    crate::forge_dpu_agent::run(forge_dpu_agent, dpu_machine_id)?;
     wait_for_dpu_up(dpu_machine_id)?;
     tracing::info!("DPU is up now.");
     Ok(hbn_root)
@@ -148,7 +148,7 @@ fn make_dpu_filesystem(
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
 
-    crate::forge_dpu_agent::write_config(root_dir, machine_interface_id)?;
+    crate::forge_dpu_agent::write_config(root_dir, machine_interface_id, &hbn_root)?;
     Ok(hbn_root)
 }
 

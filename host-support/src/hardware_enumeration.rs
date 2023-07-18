@@ -20,7 +20,7 @@ use crate::cmd::CmdError;
 use ::rpc::machine_discovery as rpc_discovery;
 use libudev::Device;
 use rpc::machine_discovery::MemoryDevice;
-use tracing::error;
+use tracing::{error, warn};
 use uname::uname;
 
 mod dpu;
@@ -33,6 +33,7 @@ const PCI_MODEL_ID: &str = "ID_MODEL_ID";
 const PCI_DEV_PATH: &str = "DEVPATH";
 const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
 const GPU_PCI_CLASS: &str = "0x030200";
+const MEMORY_TYPE: &str = "MEMORY_DEVICE_0_MEMORY_TECHNOLOGY";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CpuArchitecture {
@@ -172,8 +173,6 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
     let arch = info.machine.parse()?;
 
-    tracing::trace!("{:?}", info);
-
     let device_debug_log = |device: &Device| {
         tracing::debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
@@ -239,11 +238,11 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     for device in devices {
         tracing::debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
-            tracing::trace!("Property - {:?} - {:?}", p.name(), p.value());
+            tracing::trace!("net device property - {:?} - {:?}", p.name(), p.value());
         }
-        for a in device.attributes() {
-            tracing::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
-        }
+        //for a in device.attributes() {
+        //    tracing::trace!("attribute - {:?} - {:?}", a.name(), a.value());
+        //}
 
         if device
             .property_value(PCI_SUBCLASS)
@@ -267,36 +266,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             });
         }
     }
-    // on x86 physical_package_id == physical socket number
-    // package_cpu_list = list of CPU's sharing the same physical_package_id
-    // core_cpus_list = list of CPU's within the same core
-    // key name in attribute of 'nodeX' indicates the numa node the CPU is part of
-    let mut enumerator = libudev::Enumerator::new(&context)?;
-    enumerator.match_subsystem("cpu")?;
-    let devices = enumerator.scan_devices()?;
 
-    for device in devices {
-        tracing::debug!("Syspath - {:?}", device.syspath());
-        for p in device.properties() {
-            tracing::trace!("Property - {:?} - {:?}", p.name(), p.value());
-        }
-        for a in device.attributes() {
-            tracing::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
-        }
-    }
-    let mut enumerator = libudev::Enumerator::new(&context)?;
-    enumerator.match_subsystem("node")?;
-    let devices = enumerator.scan_devices()?;
-
-    for device in devices {
-        tracing::debug!("Syspath - {:?}", device.syspath());
-        for p in device.properties() {
-            tracing::trace!("Property - {:?} - {:?}", p.name(), p.value());
-        }
-        for a in device.attributes() {
-            tracing::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
-        }
-    }
     // cpus
     // TODO(baz): make this work with udev one day... I tried and it gave me useless information on the cpu subsystem
     let cpu_info = procfs::CpuInfo::new()
@@ -304,7 +274,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
     let mut cpus: Vec<rpc_discovery::Cpu> = Vec::new();
     for cpu_num in 0..cpu_info.num_cores() {
-        tracing::debug!("{:?}", cpu_info.get_info(cpu_num));
+        tracing::debug!("CPU info: {:?}", cpu_info.get_info(cpu_num));
         match arch {
             CpuArchitecture::Aarch64 => {
                 cpus.push(rpc_discovery::Cpu {
@@ -405,10 +375,10 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let mut disks: Vec<rpc_discovery::BlockDevice> = Vec::new();
 
     for device in devices {
-        tracing::debug!("{:?}", device.syspath());
-        for p in device.properties() {
-            tracing::trace!("{:?} - {:?}", p.name(), p.value());
-        }
+        tracing::debug!("Block device syspath: {:?}", device.syspath());
+        //for p in device.properties() {
+        //    tracing::trace!("{:?} - {:?}", p.name(), p.value());
+        //}
 
         if device
             .property_value(PCI_DEV_PATH)
@@ -437,11 +407,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let mut nvmes: Vec<rpc_discovery::NvmeDevice> = Vec::new();
 
     for device in devices {
-        tracing::debug!("{:?}", device.syspath());
-        for p in device.properties() {
-            tracing::trace!("{:?} - {:?}", p.name(), p.value());
-        }
-
+        tracing::debug!("NVME device syspath: {:?}", device.syspath());
         if device
             .property_value(PCI_DEV_PATH)
             .map(|v| v.to_str())
@@ -462,16 +428,18 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let mut enumerator = libudev::Enumerator::new(&context)?;
     enumerator.match_subsystem("dmi")?;
     let mut devices = enumerator.scan_devices()?;
-
+    let mut backup_ram_type = None;
     let mut dmi = rpc_discovery::DmiData::default();
     // We only enumerate the first set of dmi data
     // There is only expected to be a single set, and we don't want to
     // accidentally overwrite it with other data
     if let Some(device) = devices.next() {
-        tracing::debug!("{:?}", device.syspath());
-        for p in device.properties() {
-            tracing::trace!("{:?} - {:?}", p.name(), p.value());
-        }
+        tracing::debug!("DMI device syspath: {:?}", device.syspath());
+
+        // e.g. 'DRAM'. We will use this later if smbios fails.
+        backup_ram_type = device
+            .property_value(MEMORY_TYPE)
+            .map(|v| v.to_string_lossy().to_string());
 
         if device
             .property_value(PCI_DEV_PATH)
@@ -481,13 +449,17 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             })?
             .is_some()
         {
+            //for a in device.attributes() {
+            //    tracing::debug!("Attribute: {:?} - {:?}", a.name(), a.value());
+            //}
+
             dmi.board_name = convert_sysattr_to_string("board_name", &device)?.to_string();
             dmi.board_version = convert_sysattr_to_string("board_version", &device)?.to_string();
             dmi.bios_version = convert_sysattr_to_string("bios_version", &device)?.to_string();
             dmi.bios_date = convert_sysattr_to_string("bios_date", &device)?.to_string();
-            dmi.product_serial = convert_sysattr_to_string("product_serial", &device)?.to_string();
             dmi.board_serial = convert_sysattr_to_string("board_serial", &device)?.to_string();
             dmi.chassis_serial = convert_sysattr_to_string("chassis_serial", &device)?.to_string();
+            dmi.product_serial = convert_sysattr_to_string("product_serial", &device)?.to_string();
             dmi.product_name = convert_sysattr_to_string("product_name", &device)?.to_string();
             dmi.sys_vendor = convert_sysattr_to_string("sys_vendor", &device)?.to_string();
         }
@@ -525,20 +497,46 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     };
 
     let mut memory_devices = vec![];
-    let smbios_info = smbioslib::table_load_from_device().unwrap();
-    for i in smbios_info.collect::<smbioslib::SMBiosMemoryDevice>() {
-        let size_mb = match i.size() {
-            Some(smbioslib::MemorySize::Megabytes(size)) => Some(size as u32),
-            _ => None,
-        };
+    match smbioslib::table_load_from_device() {
+        Ok(smbios_info) => {
+            for i in smbios_info.collect::<smbioslib::SMBiosMemoryDevice>() {
+                let size_mb = match i.size() {
+                    Some(smbioslib::MemorySize::Megabytes(size)) => Some(size as u32),
+                    _ => None,
+                };
 
-        let mem_type = match i.memory_type() {
-            Some(smbioslib::MemoryDeviceTypeData { value, .. }) => {
-                Some(format!("{:?}", value).to_uppercase())
+                let mem_type = match i.memory_type() {
+                    Some(smbioslib::MemoryDeviceTypeData { value, .. }) => {
+                        Some(format!("{:?}", value).to_uppercase())
+                    }
+                    _ => backup_ram_type.clone(),
+                };
+                memory_devices.push(MemoryDevice { size_mb, mem_type });
             }
-            _ => None,
-        };
-        memory_devices.push(MemoryDevice { size_mb, mem_type });
+        }
+        Err(err) => {
+            warn!("Could not discover host memory using smbios device, using /proc/meminfo: {err}");
+            let mut mem = 0u32;
+            let meminfo = std::fs::read_to_string("/proc/meminfo").map_err(|e| {
+                HardwareEnumerationError::GenericError(format!("Err reading /proc/meminfo: {e}"))
+            })?;
+            for line in meminfo.lines() {
+                // line is "MemTotal:       32572708 kB"
+                if line.starts_with("MemTotal:") {
+                    mem = line
+                        .split_ascii_whitespace()
+                        .nth(1)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or_default();
+                    break;
+                }
+            }
+            memory_devices.push(MemoryDevice {
+                size_mb: Some(mem / 1024),
+                mem_type: backup_ram_type,
+            });
+        }
     }
 
     tracing::debug!("Discovered Disks: {:?}", disks);

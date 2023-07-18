@@ -23,30 +23,32 @@ root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
 interface-id = "$MACHINE_INTERFACE_ID"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.example.com"
+
+[hbn]
+root-dir = "$HBN_ROOT"
+skip-reload = true
 "#;
 
 // Must be called before 'run'
-pub fn write_config(root_dir: &path::Path, machine_interface_id: &str) -> io::Result<()> {
+pub fn write_config(
+    root_dir: &path::Path,
+    machine_interface_id: &str,
+    hbn_root: &path::Path,
+) -> io::Result<()> {
     let cfg = DPU_CONFIG
         .replace("$MACHINE_INTERFACE_ID", machine_interface_id)
+        .replace("$HBN_ROOT", &hbn_root.display().to_string())
         .replace("$ROOT_DIR", &root_dir.display().to_string());
     fs::write(DPU_CONFIG_FILE, cfg)
 }
 
-pub fn run(
-    forge_dpu_agent: &path::Path,
-    hbn_root: &path::Path,
-    dpu_machine_id: &str,
-) -> eyre::Result<()> {
+pub fn run(forge_dpu_agent: &path::Path, dpu_machine_id: &str) -> eyre::Result<()> {
     let out = process::Command::new(forge_dpu_agent)
         .arg("--config-path")
         .arg(DPU_CONFIG_FILE)
         .arg("netconf")
         .arg("--dpu-machine-id")
         .arg(dpu_machine_id)
-        .arg("--chroot")
-        .arg(&hbn_root.display().to_string())
-        .arg("--skip-reload")
         .output()?;
     let response = String::from_utf8_lossy(&out.stdout);
     if !out.status.success() {

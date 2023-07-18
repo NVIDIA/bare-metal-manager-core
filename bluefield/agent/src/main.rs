@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::{process::Command, thread::sleep, time::Duration};
 
+use ::rpc::machine_discovery::DpuData;
 use axum::Router;
 use opentelemetry::sdk::export::metrics::aggregation;
 use opentelemetry::sdk::metrics;
@@ -22,7 +23,7 @@ use opentelemetry::{sdk, Context};
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tokio::runtime::Runtime;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
@@ -58,6 +59,9 @@ const MAIN_LOOP_PERIOD: Duration = Duration::from_secs(30);
 
 /// How often we fetch the desired network configuration for a host
 const NETWORK_CONFIG_FETCH_PERIOD: Duration = Duration::from_secs(30);
+
+/// Check if we have latest forge-dpu-agent version every four hours
+const VERSION_CHECK_PERIOD: Duration = Duration::from_secs(4 * 3600);
 
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 
@@ -103,27 +107,25 @@ fn main() -> eyre::Result<()> {
         // We want to run the "run" command by default if no mode is explicitly mentioned
         None => {
             let machine_id = register(&mut rt, &agent)?;
-            run(
-                &mut rt,
-                &machine_id,
-                &agent.forge_system.api_server,
-                forge_tls_config,
-            );
+            run(&mut rt, &machine_id, forge_tls_config, agent);
         }
         // "run" is the normal and default command
         Some(AgentCommand::Run(options)) => {
+            if agent.machine.is_fake_dpu {
+                tracing::warn!("Pretending local host is a DPU. Dev only.");
+            }
             let machine_id = register(&mut rt, &agent)?;
             if options.enable_metadata_service {
                 if let (Some(metadata_service_config), Some(telemetry_config)) =
-                    (agent.metadata_service, agent.telemetry)
+                    (&agent.metadata_service, &agent.telemetry)
                 {
                     if let Err(e) = run_metadata_service(
                         &mut rt,
                         &machine_id,
                         &agent.forge_system.api_server,
                         forge_tls_config.clone(),
-                        metadata_service_config.address,
-                        telemetry_config.metrics_address,
+                        metadata_service_config.address.clone(),
+                        telemetry_config.metrics_address.clone(),
                     ) {
                         return Err(eyre::eyre!("Failed to run metadata service: {:?}", e));
                     }
@@ -131,12 +133,7 @@ fn main() -> eyre::Result<()> {
                     error!("metadata-service and telemetry configs are not present. Can't run metadata service");
                 }
             }
-            run(
-                &mut rt,
-                &machine_id,
-                &agent.forge_system.api_server,
-                forge_tls_config,
-            );
+            run(&mut rt, &machine_id, forge_tls_config, agent);
         }
 
         // already done, the cmd allows us to do only this.
@@ -160,6 +157,7 @@ fn main() -> eyre::Result<()> {
             ))?;
             let mut status_out = rpc::DpuNetworkStatus {
                 dpu_machine_id: Some(params.dpu_machine_id.into()),
+                dpu_agent_version: Some(forge_version::v!(build_version).to_string()),
                 observed_at: None, // None makes carbide-api set it on receipt
                 health: Some(rpc::NetworkHealth {
                     is_healthy: true,
@@ -172,10 +170,10 @@ fn main() -> eyre::Result<()> {
                 instance_id: None,
             };
             ethernet_virtualization::update(
-                &params.chroot,
+                &agent.hbn.root_dir,
                 &conf,
                 &mut status_out,
-                params.skip_reload,
+                agent.hbn.skip_reload,
             );
             if let Some(v) = status_out.network_config_version.as_ref() {
                 info!("Applied: {v}");
@@ -270,8 +268,29 @@ fn main() -> eyre::Result<()> {
 /// Discover hardware, register DPU with carbide-api, and return machine id
 fn register(rt: &mut tokio::runtime::Runtime, agent: &AgentConfig) -> Result<String, eyre::Report> {
     let interface_id = agent.machine.interface_id;
-    let hardware_info = enumerate_hardware()?;
+    let mut hardware_info = enumerate_hardware()?;
     debug!("Successfully enumerated DPU hardware");
+
+    if agent.machine.is_fake_dpu {
+        // Pretend to be a bluefield DPU for local dev.
+        // see model/hardware_info.rs::is_dpu
+        hardware_info.machine_type = "aarch64".to_string();
+        if let Some(dmi) = hardware_info.dmi_data.as_mut() {
+            dmi.board_name = "BlueField SoC".to_string();
+            if dmi.product_serial.is_empty() {
+                // Older Dell Precision 5760 don't have any serials
+                dmi.product_serial = "Stable Local Dev serial".to_string();
+            }
+        }
+        hardware_info.dpu_info = Some(DpuData {
+            part_number: "1".to_string(),
+            part_description: "1".to_string(),
+            product_version: "1".to_string(),
+            factory_mac_address: "11:22:33:44:55:66".to_string(),
+            firmware_version: "1".to_string(),
+            firmware_date: "01/01/1970".to_string(),
+        });
+    }
 
     let registration_data = rt.block_on(register_machine(
         &agent.forge_system.api_server,
@@ -287,7 +306,9 @@ fn register(rt: &mut tokio::runtime::Runtime, agent: &AgentConfig) -> Result<Str
 }
 
 // main loop when running in daemon mode
-fn run(rt: &mut Runtime, machine_id: &str, forge_api: &str, forge_tls_config: ForgeTlsConfig) {
+fn run(rt: &mut Runtime, machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentConfig) {
+    let forge_api = &agent.forge_system.api_server;
+    let build_version = forge_version::v!(build_version).to_string();
     let network_config_fetcher = network_config_fetcher::NetworkConfigFetcher::new(
         network_config_fetcher::NetworkConfigFetcherConfig {
             config_fetch_interval: NETWORK_CONFIG_FETCH_PERIOD,
@@ -297,15 +318,16 @@ fn run(rt: &mut Runtime, machine_id: &str, forge_api: &str, forge_tls_config: Fo
             runtime: rt.handle().to_owned(),
         },
     );
-
     let network_config_reader = network_config_fetcher.reader();
 
     let min_cert_renewal_time = 5 * 24 * 60 * 60; // 5 days
     let max_cert_renewal_time = 7 * 24 * 60 * 60; // 7 days
     let mut rng = rand::thread_rng();
     // we will attempt to refresh the cert at this frequency.
-    let cert_renewal_duration = rng.gen_range(min_cert_renewal_time..max_cert_renewal_time);
-    let mut cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_duration));
+    let cert_renewal_period = rng.gen_range(min_cert_renewal_time..max_cert_renewal_time);
+    let mut cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_period));
+
+    let mut version_check_time = Instant::now(); // check it on the first loop
     let mut first = true;
     loop {
         if !first {
@@ -333,6 +355,7 @@ fn run(rt: &mut Runtime, machine_id: &str, forge_api: &str, forge_tls_config: Fo
 
         let mut status_out = rpc::DpuNetworkStatus {
             dpu_machine_id: Some(machine_id.to_string().into()),
+            dpu_agent_version: Some(build_version.clone()),
             observed_at: None, // None makes carbide-api set it on receipt
             health: Some(hs),
             network_config_version: None,
@@ -343,10 +366,10 @@ fn run(rt: &mut Runtime, machine_id: &str, forge_api: &str, forge_tls_config: Fo
         };
         if let Some(ref network_config) = *network_config_reader.read() {
             ethernet_virtualization::update(
-                ethernet_virtualization::HBN_ROOT,
+                &agent.hbn.root_dir,
                 network_config,
                 &mut status_out,
-                false,
+                agent.hbn.skip_reload,
             );
         };
         rt.block_on(record_network_status(
@@ -357,10 +380,36 @@ fn run(rt: &mut Runtime, machine_id: &str, forge_api: &str, forge_tls_config: Fo
 
         let now = Instant::now();
         if now > cert_renewal_time {
-            cert_renewal_time = now.add(Duration::from_secs(cert_renewal_duration));
+            cert_renewal_time = now.add(Duration::from_secs(cert_renewal_period));
             rt.block_on(renew_certificates(forge_api, forge_tls_config.clone()));
         }
+        if now > version_check_time {
+            version_check_time = now.add(VERSION_CHECK_PERIOD);
+            if let Err(e) = rt.block_on(version_check(forge_api, forge_tls_config.clone())) {
+                error!("version_check: Cannot talk to carbide-api at {forge_api}: {e}");
+            }
+        }
     }
+}
+
+pub async fn version_check(forge_api: &str, tls_config: ForgeTlsConfig) -> eyre::Result<()> {
+    let mut client = forge_tls_client::ForgeTlsClient::new(tls_config)
+        .connect(forge_api)
+        .await?;
+    let remote_version = client
+        .version(tonic::Request::new(()))
+        .await
+        .map(|response| response.into_inner())?;
+    let remote_build = remote_version.build_version;
+
+    let local_build = forge_version::v!(build_version);
+
+    if remote_build == local_build {
+        trace!("forge-dpu-agent is up to date");
+    } else {
+        warn!("forge-dpu-agent version {local_build} does not match server {remote_build}");
+    }
+    Ok(())
 }
 
 async fn renew_certificates(forge_api: &str, forge_tls_config: ForgeTlsConfig) {

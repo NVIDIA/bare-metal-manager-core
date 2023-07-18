@@ -270,7 +270,7 @@ impl MachineId {
     /// Generates a Machine ID from a hardware fingerprint
     ///
     /// Returns `None` if no sufficient data is available
-    pub fn from_hardware_info(hardware_info: &HardwareInfo) -> Option<Self> {
+    pub fn from_hardware_info(hardware_info: &HardwareInfo) -> Result<Self, MissingHardwareInfo> {
         let machine_type = if hardware_info.is_dpu() {
             MachineType::Dpu
         } else {
@@ -286,7 +286,9 @@ impl MachineId {
     /// Returns `None` if no sufficient data is available
     ///
     /// Panics of the Machine is not a DPU
-    pub fn host_id_from_dpu_hardware_info(hardware_info: &HardwareInfo) -> Option<Self> {
+    pub fn host_id_from_dpu_hardware_info(
+        hardware_info: &HardwareInfo,
+    ) -> Result<Self, MissingHardwareInfo> {
         assert!(hardware_info.is_dpu(), "Method can only be called on a DPU");
 
         Self::from_hardware_info_with_type(hardware_info, MachineType::PredictedHost)
@@ -298,32 +300,34 @@ impl MachineId {
     fn from_hardware_info_with_type(
         hardware_info: &HardwareInfo,
         machine_type: MachineType,
-    ) -> Option<Self> {
-        let mut bytes = &[][..];
-        let mut source = MachineIdSource::Tpm;
+    ) -> Result<Self, MissingHardwareInfo> {
+        let bytes;
+        let source;
         let all_serials;
 
         if let Some(cert) = &hardware_info.tpm_ek_certificate {
             bytes = cert.as_bytes();
+            if bytes.is_empty() {
+                return Err(MissingHardwareInfo::TPMCertEmpty);
+            }
+            source = MachineIdSource::Tpm;
         } else if let Some(dmi_data) = &hardware_info.dmi_data {
             // We need at least 1 valid serial number
             if dmi_data.product_serial.is_empty()
                 && dmi_data.board_serial.is_empty()
                 && dmi_data.chassis_serial.is_empty()
             {
-                return None;
+                return Err(MissingHardwareInfo::Serial);
             }
 
             all_serials = format!(
                 "p{}-b{}-c{}",
                 dmi_data.product_serial, dmi_data.board_serial, dmi_data.chassis_serial
             );
-            source = MachineIdSource::ProductBoardChassisSerial;
             bytes = all_serials.as_bytes();
-        }
-
-        if bytes.is_empty() {
-            return None;
+            source = MachineIdSource::ProductBoardChassisSerial;
+        } else {
+            return Err(MissingHardwareInfo::All);
         }
 
         let mut hasher = Sha256::new();
@@ -335,11 +339,31 @@ impl MachineId {
         let encoded = BASE32_DNSSEC.encode(&hash);
         assert_eq!(encoded.len(), MACHINE_ID_HARDWARE_ID_LENGTH);
 
-        Some(MachineId {
+        Ok(MachineId {
             source,
             hardware_id: encoded,
             ty: machine_type,
         })
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum MissingHardwareInfo {
+    /// The TPM certificate had no bytes
+    TPMCertEmpty,
+    /// Serial number missing (product, board and chassis)
+    Serial,
+    /// TPM and dmi data are both missing
+    All,
+}
+
+impl std::fmt::Display for MissingHardwareInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TPMCertEmpty => f.write_str("The TPM certificate has no bytes"),
+            Self::Serial => f.write_str("Serial number missing (product, board and chassis)"),
+            Self::All => f.write_str("TPM and DMI data are both missing"),
+        }
     }
 }
 
@@ -392,7 +416,7 @@ mod tests {
     fn test_derive_machine_id(
         fingerprint: &mut HardwareInfo,
         expected_type: MachineType,
-        constructor: fn(&HardwareInfo) -> Option<MachineId>,
+        constructor: fn(&HardwareInfo) -> Result<MachineId, MissingHardwareInfo>,
     ) {
         fingerprint.tpm_ek_certificate = Some(TpmEkCertificate::from(vec![1, 2, 3, 4]));
 
@@ -461,7 +485,7 @@ mod tests {
             .unwrap()
             .chassis_serial
             .clear();
-        assert!(constructor(fingerprint).is_none());
+        assert!(constructor(fingerprint).is_err());
     }
 
     #[test]
