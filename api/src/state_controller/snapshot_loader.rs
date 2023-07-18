@@ -102,6 +102,7 @@ pub async fn get_machine_snapshot(
     let snapshot = MachineSnapshot {
         machine_id: machine_id.clone(),
         bmc_info: machine.bmc_info().clone(),
+        bmc_vendor: machine.bmc_vendor(),
         hardware_info: machine.hardware_info().cloned(),
         network_config: machine.network_config().clone(),
         interfaces: interface_to_snapshot(txn, machine.interfaces()).await?,
