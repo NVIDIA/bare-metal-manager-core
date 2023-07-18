@@ -94,7 +94,7 @@ async fn host_boostrap(forge_dpu_agent: &path::Path, dpu_info: &dpu::Info) -> ey
     host::wait_for_state(&host_machine_id, "WaitForDPUUp")?;
 
     // After DPU reboot forge_dpu_agent reports health to carbide-api, triggering state transition
-    crate::forge_dpu_agent::run(forge_dpu_agent, &dpu_info.hbn_root, &dpu_info.machine_id)?;
+    crate::forge_dpu_agent::run(forge_dpu_agent, &dpu_info.machine_id)?;
 
     host::wait_for_state(&host_machine_id, "Host/Discovered")?;
 

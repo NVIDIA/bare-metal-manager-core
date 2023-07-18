@@ -1329,6 +1329,7 @@ message DpuNetworkStatus {
   repeated InstanceInterfaceStatusObservation interfaces = 6;
   optional string network_config_error = 7;
   optional UUID instance_id = 8;
+  optional string dpu_agent_version = 9;
 }
 
 // Observed status of the networking subsystem of an instance

@@ -1537,9 +1537,9 @@ where
         let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
 
         // Generate a stable Machine ID based on the hardware information
-        let stable_machine_id = MachineId::from_hardware_info(&hardware_info).ok_or_else(|| {
+        let stable_machine_id = MachineId::from_hardware_info(&hardware_info).map_err(|e| {
             CarbideError::InvalidArgument(
-                format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {}", interface_id),
+                format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {}: {e}", interface_id),
             )
         })?;
         log_machine_id(&stable_machine_id);
@@ -1609,8 +1609,8 @@ where
             // Create host machine with temporary ID if no machine is attached.
             if machine_interface.machine_id.is_none() {
                 let predicted_machine_id =
-                    MachineId::host_id_from_dpu_hardware_info(&hardware_info).ok_or_else(|| {
-                        CarbideError::InvalidArgument("hardware info".to_string())
+                    MachineId::host_id_from_dpu_hardware_info(&hardware_info).map_err(|e| {
+                        CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
                     })?;
                 let mi_id = machine_interface.id;
                 let (proactive_machine, _) =

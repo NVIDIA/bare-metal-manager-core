@@ -454,6 +454,7 @@ pub async fn network_configured(
     };
     let status = rpc::forge::DpuNetworkStatus {
         dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+        dpu_agent_version: Some("test".to_string()),
         observed_at: Some(SystemTime::now().into()),
         health: Some(rpc::forge::NetworkHealth {
             is_healthy: true,

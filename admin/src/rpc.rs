@@ -1,12 +1,3 @@
-use std::future::Future;
-
-use ::rpc::forge::{self as rpc, MachineType, NetworkSegmentSearchConfig};
-use ::rpc::forge_tls_client::{self, ForgeClientT};
-
-use super::{CarbideCliError, CarbideCliResult};
-use crate::cfg::carbide_options::ForceDeleteMachineQuery;
-use crate::Config;
-
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -18,6 +9,15 @@ use crate::Config;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
+use std::future::Future;
+
+use ::rpc::forge::{self as rpc, MachineType, NetworkSegmentSearchConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientT};
+
+use super::{CarbideCliError, CarbideCliResult};
+use crate::cfg::carbide_options::ForceDeleteMachineQuery;
+use crate::Config;
 pub async fn with_forge_client<T, F>(
     api_config: Config,
     callback: impl FnOnce(ForgeClientT) -> F,

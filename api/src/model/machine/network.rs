@@ -11,6 +11,7 @@ use crate::model::{config_version::ConfigVersion, RpcDataConversionError};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MachineNetworkStatusObservation {
     machine_id: String,
+    agent_version: Option<String>,
     pub observed_at: DateTime<Utc>,
     health_status: HealthStatus,
     pub network_config_version: Option<ConfigVersion>,
@@ -43,6 +44,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
                 .dpu_machine_id
                 .ok_or(Self::Error::MissingArgument("dpu_machine_id"))?
                 .id,
+            agent_version: obs.dpu_agent_version.clone(),
             health_status: HealthStatus {
                 is_healthy: health.is_healthy,
                 passed: health.passed,
@@ -58,6 +60,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
     fn from(m: MachineNetworkStatusObservation) -> rpc::DpuNetworkStatus {
         rpc::DpuNetworkStatus {
             dpu_machine_id: Some(rpc::MachineId { id: m.machine_id }),
+            dpu_agent_version: m.agent_version.clone(),
             observed_at: Some(m.observed_at.into()),
             health: Some(rpc::NetworkHealth {
                 is_healthy: m.health_status.is_healthy,
