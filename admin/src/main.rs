@@ -23,6 +23,7 @@ use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, MigrateAction,
     NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
 };
+use clap::CommandFactory; // for CarbideOptions::command()
 use prettytable::{row, Table};
 use serde::Deserialize;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
@@ -318,8 +319,7 @@ async fn main() -> color_eyre::Result<()> {
 
     let command = match config.commands {
         None => {
-            eprintln!("error: 'forge-admin-cli' requires a subcommand but one was not provided. Re-run with '--help'.");
-            return Ok(());
+            return Ok(CarbideOptions::command().print_long_help()?);
         }
         Some(s) => s,
     };
