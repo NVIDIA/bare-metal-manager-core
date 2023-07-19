@@ -53,6 +53,20 @@ write_files:
     content: |
       [iptables]
       -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0hpf_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf0_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf1_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf2_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf3_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf4_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf5_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf6_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf7_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf8_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf9_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf10_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf11_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf12_sf -j DROP
+      -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf13_sf -j DROP
   - path: /etc/vrf/systemd.conf
     permissions: '0644'
     content: |
