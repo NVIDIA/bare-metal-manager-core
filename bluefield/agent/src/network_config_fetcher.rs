@@ -17,7 +17,7 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
@@ -74,9 +74,15 @@ impl NetworkConfigFetcher {
             is_cancelled: AtomicBool::new(false),
         });
 
+        // Do an initial synchronous fetch so that caller has data to use
+        // This gets a DPU on the network immediately
+        single_fetch(forge_tls_config.clone(), state.clone());
+
         let task_state = state.clone();
-        let join_handle = std::thread::spawn(|| {
-            run_network_config_fetcher(forge_tls_config, task_state);
+        let join_handle = std::thread::spawn(move || {
+            while single_fetch(forge_tls_config.clone(), task_state.clone()) {
+                sleep(task_state.config.config_fetch_interval);
+            }
         });
 
         Self {
@@ -102,45 +108,46 @@ pub struct NetworkConfigFetcherConfig {
     pub runtime: tokio::runtime::Handle,
 }
 
-fn run_network_config_fetcher(
-    forge_tls_config: ForgeTlsConfig,
-    state: Arc<NetworkConfigFetcherState>,
-) {
-    loop {
-        if state
-            .is_cancelled
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            trace!("NetworkConfigReader was dropped. Stopping config reading");
-            return;
+fn single_fetch(forge_tls_config: ForgeTlsConfig, state: Arc<NetworkConfigFetcherState>) -> bool {
+    if state
+        .is_cancelled
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        trace!("NetworkConfigReader was dropped. Stopping config reading");
+        return false; // exit fetching thread
+    }
+
+    trace!(
+        "Fetching managed host network configuration for Machine {}",
+        state.config.machine_id
+    );
+
+    match state.config.runtime.block_on(async {
+        fetch(
+            &state.config.machine_id,
+            &state.config.forge_api,
+            forge_tls_config,
+        )
+        .await
+    }) {
+        Ok(config) => {
+            state.current.store(Arc::new(Some(config)));
         }
-
-        trace!(
-            "Fetching managed host network configuration for Machine {}",
-            state.config.machine_id
-        );
-
-        match state.config.runtime.block_on(async {
-            fetch(
-                &state.config.machine_id,
-                &state.config.forge_api,
-                forge_tls_config.clone(),
-            )
-            .await
-        }) {
-            Ok(config) => {
-                state.current.store(Arc::new(Some(config)));
+        Err(err) => match err.downcast_ref::<tonic::Status>() {
+            Some(grpc_status) if grpc_status.code() == tonic::Code::NotFound => {
+                warn!("DPU not found: {}", state.config.machine_id);
+                state.current.store(Arc::new(None));
             }
-            Err(err) => {
+            _ => {
                 error!(
-                    "Failed to fetch the latest configuration: {err}.\n Will retry in {:?}",
+                    "Failed to fetch the latest configuration. Will retry in {:?}. {err:#?}",
                     state.config.config_fetch_interval
                 );
             }
-        };
+        },
+    };
 
-        sleep(state.config.config_fetch_interval);
-    }
+    true
 }
 
 /// Make the network request to get network config
@@ -148,16 +155,16 @@ pub async fn fetch(
     dpu_machine_id: &str,
     forge_api: &str,
     forge_tls_config: ForgeTlsConfig,
-) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Error> {
+) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
     let mut client = match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
         .connect(forge_api)
         .await
     {
         Ok(client) => client,
         Err(err) => {
-            return Err(eyre::eyre!(
-                "Could not connect to Forge API server at {forge_api}: {err}"
-            ));
+            return Err(err.wrap_err(format!(
+                "Could not connect to Forge API server at {forge_api}"
+            )));
         }
     };
     let request = tonic::Request::new(rpc::ManagedHostNetworkConfigRequest {
@@ -169,10 +176,8 @@ pub async fn fetch(
     let config = match client.get_managed_host_network_config(request).await {
         Ok(config) => config.into_inner(),
         Err(err) => {
-            return Err(eyre::eyre!(
-                "Error while executing the GetManagedHostNetworkConfig gRPC call: {}",
-                err.to_string()
-            ));
+            return Err(eyre::Report::new(err)
+                .wrap_err("Error while executing the GetManagedHostNetworkConfig gRPC call"));
         }
     };
 

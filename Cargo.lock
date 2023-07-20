@@ -46,6 +46,7 @@ dependencies = [
  "arc-swap",
  "axum",
  "clap 4.3.11",
+ "ctor",
  "eyre",
  "forge-host-support",
  "forge-version",

@@ -16,11 +16,14 @@ use carbide::{
         network_segment::NetworkSegment,
     },
     model::machine::machine_id::MachineId,
-    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
-    CarbideError, CarbideResult,
+    state_controller::snapshot_loader::{
+        DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError,
+    },
+    CarbideError,
 };
 use mac_address::MacAddress;
 use sqlx::Executor;
+use std::str::FromStr;
 
 use crate::common::api_fixtures::{
     dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
@@ -31,7 +34,7 @@ const FIXTURE_CREATED_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9
 const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
 #[sqlx::test]
-async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
+async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
     let mut txn = pool
         .begin()
         .await
@@ -116,6 +119,20 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     assert_eq!(snapshot.dpu_snapshot.machine_id, *machine.id());
     assert_eq!(snapshot.dpu_snapshot.hardware_info.unwrap(), hardware_info);
+
+    // Now try a non-existent DPU. This happens if we force-delete it.
+    let missing_dpu_id =
+        MachineId::from_str("fm100ds1forsgf39sldfcbmi0jvs8g4ik9iqtbma89k0gom104sl397eke0")?;
+    let err = snapshot_loader
+        .load_machine_snapshot(&mut txn, &missing_dpu_id)
+        .await
+        .unwrap_err();
+    match err {
+        SnapshotLoaderError::HostNotFound(_) => {} // expected
+        unexpected => {
+            panic!("load_machine_snapshot of missing DPU should be HostNotFound. Instead got {unexpected}");
+        }
+    }
 
     Ok(())
 }
