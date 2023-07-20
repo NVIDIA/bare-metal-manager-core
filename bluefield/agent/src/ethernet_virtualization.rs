@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{fs, net::Ipv4Addr, path::Path, process::Command};
+use std::path::{Path, PathBuf};
+use std::{fs, net::Ipv4Addr, process::Command};
 
 use ::rpc::forge as rpc;
 use eyre::WrapErr;
@@ -24,6 +25,38 @@ const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 
+struct Paths {
+    dhcp: PathBuf,
+    interfaces: PathBuf,
+    frr: PathBuf,
+    daemons: PathBuf,
+}
+
+fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
+    let (mut dhcp, mut interfaces, mut frr, mut daemons) = (
+        hbn_root.join(dhcp::PATH),
+        hbn_root.join(interfaces::PATH),
+        hbn_root.join(frr::PATH),
+        hbn_root.join(daemons::PATH),
+    );
+    if is_prod_mode {
+        trace!("Ethernet virtualization running in production mode");
+    } else {
+        trace!("Ethernet virtualization running in test mode");
+        dhcp.set_extension("TEST");
+        interfaces.set_extension("TEST");
+        frr.set_extension("TEST");
+        daemons.set_extension("TEST");
+    }
+    Paths {
+        dhcp,
+        interfaces,
+        frr,
+        daemons,
+    }
+}
+
+/// Write out all the network config files
 pub fn update(
     hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
@@ -31,35 +64,20 @@ pub fn update(
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
 ) {
-    let (mut dhcp_path, mut interfaces_path, mut frr_path, mut daemons_path) = (
-        hbn_root.join(dhcp::PATH),
-        hbn_root.join(interfaces::PATH),
-        hbn_root.join(frr::PATH),
-        hbn_root.join(daemons::PATH),
-    );
-
-    if network_config.is_production_mode {
-        trace!("Ethernet virtualization running in production mode");
-    } else {
-        trace!("Ethernet virtualization running in test mode");
-        dhcp_path.set_extension("TEST");
-        interfaces_path.set_extension("TEST");
-        frr_path.set_extension("TEST");
-        daemons_path.set_extension("TEST");
-    }
     debug!("Desired network config is {:?}", network_config);
+    let paths = paths(hbn_root, network_config.is_production_mode);
 
     let mut errs = vec![];
-    if let Err(err) = write_dhcp_relay_config(dhcp_path, network_config, skip_post) {
+    if let Err(err) = write_dhcp_relay_config(paths.dhcp, network_config, skip_post) {
         errs.push(format!("write_dhcp_relay_config: {err:#}"));
     }
-    if let Err(err) = write_interfaces(interfaces_path, network_config, skip_post) {
+    if let Err(err) = write_interfaces(paths.interfaces, network_config, skip_post) {
         errs.push(format!("write_interfaces: {err:#}"));
     }
-    if let Err(err) = write_frr(frr_path, network_config, skip_post) {
+    if let Err(err) = write_frr(paths.frr, network_config, skip_post) {
         errs.push(format!("write_frr: {err:#}"));
     }
-    if let Err(err) = write_daemons(daemons_path, skip_post) {
+    if let Err(err) = write_daemons(paths.daemons, skip_post) {
         errs.push(format!("write_daemons: {err:#}"));
     }
     let err_message = errs.join(", ");
@@ -100,6 +118,63 @@ pub fn update(
         }
     }
     status_out.interfaces = interfaces;
+}
+
+/// Reset networking to blank.
+/// Replace all networking files with their blank version.
+pub fn reset(
+    hbn_root: &Path,
+    // if true don't run the reload/restart commands after file update
+    skip_post: bool,
+) {
+    debug!("Setting network config to blank");
+    let paths = paths(hbn_root, true);
+    dhcp::blank();
+
+    let mut errs = vec![];
+    if let Err(err) = write(
+        dhcp::blank(),
+        paths.dhcp,
+        "DHCP relay",
+        if skip_post {
+            None
+        } else {
+            Some(dhcp::RELOAD_CMD)
+        },
+    ) {
+        errs.push(format!("Write blank DHCP relay: {err:#}"));
+    }
+    if let Err(err) = write(
+        interfaces::blank(),
+        paths.interfaces,
+        "/etc/network/interfaces",
+        if skip_post {
+            None
+        } else {
+            Some(interfaces::RELOAD_CMD)
+        },
+    ) {
+        errs.push(format!("write blank interfaces: {err:#}"));
+    }
+    if let Err(err) = write(
+        frr::blank(),
+        paths.frr,
+        "frr.conf",
+        if skip_post {
+            None
+        } else {
+            Some(frr::RELOAD_CMD)
+        },
+    ) {
+        errs.push(format!("write blank frr: {err:#}"));
+    }
+    if let Err(err) = write_daemons(paths.daemons, skip_post) {
+        errs.push(format!("write_daemons: {err:#}"));
+    }
+    let err_message = errs.join(", ");
+    if !err_message.is_empty() {
+        error!(err_message);
+    }
 }
 
 fn dhcp_servers(nc: &rpc::ManagedHostNetworkConfigResponse) -> Vec<Ipv4Addr> {
@@ -390,11 +465,14 @@ mod tests {
     use ::rpc::forge as rpc;
     use eyre::WrapErr;
 
+    #[ctor::ctor]
+    fn setup() {
+        forge_host_support::init_logging().unwrap();
+    }
+
     // Pretend we received a new config from API server. Apply it and check the resulting files.
     #[test]
     fn test_with_tenant() -> Result<(), Box<dyn std::error::Error>> {
-        forge_host_support::init_logging()?;
-
         // The config we received from API server
         // Admin won't be used
         let admin_interface = rpc::FlatInterfaceConfig {
@@ -475,6 +553,26 @@ mod tests {
         let _ = super::write_frr(&f, &network_config, true);
         let expected = include_str!("../templates/tests/tenant_frr.conf");
         compare(&f, expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_reset() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("etc/frr"))?;
+        fs::create_dir_all(hbn_root.join("etc/network"))?;
+        fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
+
+        // test
+        super::reset(hbn_root, true);
+
+        // check
+        let frr_path = hbn_root.join("etc/frr/frr.conf");
+        let frr_contents = fs::read_to_string(frr_path)?;
+        assert_eq!(frr_contents, crate::frr::TMPL_EMPTY);
 
         Ok(())
     }

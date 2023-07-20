@@ -328,13 +328,8 @@ fn run(rt: &mut Runtime, machine_id: &str, forge_tls_config: ForgeTlsConfig, age
     let mut cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_period));
 
     let mut version_check_time = Instant::now(); // check it on the first loop
-    let mut first = true;
+    let mut seen_blank = false;
     loop {
-        if !first {
-            sleep(MAIN_LOOP_PERIOD);
-        }
-        first = false;
-
         let health_report = health::health_check();
         trace!("{} health is {}", machine_id, health_report);
 
@@ -364,19 +359,30 @@ fn run(rt: &mut Runtime, machine_id: &str, forge_tls_config: ForgeTlsConfig, age
             network_config_error: None,
             instance_id: None,
         };
-        if let Some(ref network_config) = *network_config_reader.read() {
-            ethernet_virtualization::update(
-                &agent.hbn.root_dir,
-                network_config,
-                &mut status_out,
-                agent.hbn.skip_reload,
-            );
+        match *network_config_reader.read() {
+            Some(ref network_config) => {
+                ethernet_virtualization::update(
+                    &agent.hbn.root_dir,
+                    network_config,
+                    &mut status_out,
+                    agent.hbn.skip_reload,
+                );
+                rt.block_on(record_network_status(
+                    status_out,
+                    forge_api,
+                    forge_tls_config.clone(),
+                ));
+                seen_blank = false;
+            }
+            None => {
+                // Only reset network config the _second_ time we can't find the DPU
+                // Safety first
+                if seen_blank {
+                    ethernet_virtualization::reset(&agent.hbn.root_dir, agent.hbn.skip_reload);
+                }
+                seen_blank = true;
+            }
         };
-        rt.block_on(record_network_status(
-            status_out,
-            forge_api,
-            forge_tls_config.clone(),
-        ));
 
         let now = Instant::now();
         if now > cert_renewal_time {
@@ -389,6 +395,8 @@ fn run(rt: &mut Runtime, machine_id: &str, forge_tls_config: ForgeTlsConfig, age
                 error!("version_check: Cannot talk to carbide-api at {forge_api}: {e}");
             }
         }
+
+        sleep(MAIN_LOOP_PERIOD);
     }
 }
 

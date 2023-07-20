@@ -47,4 +47,5 @@ rpc = { path = "../../rpc" }
 forge-version = { path = "../../version" }
 
 [dev-dependencies]
+ctor = "0.1"
 tempfile = "3"

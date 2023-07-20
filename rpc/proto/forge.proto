@@ -1008,7 +1008,7 @@ message ManagedHostNetworkConfigRequest {
 }
 
 message ManagedHostNetworkConfigResponse {
-  // Should forge-dpu-agent right the real files.
+  // Should forge-dpu-agent write the real files.
   // false means to append .TEST to filenames to run in parallel with VPC
   bool is_production_mode = 1;
 

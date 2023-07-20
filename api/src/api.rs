@@ -69,7 +69,7 @@ use crate::model::RpcDataConversionError;
 use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::controller::ReachabilityParams;
-use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
+use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
 use crate::{
     auth,
     credentials::UpdateCredentials,
@@ -1061,10 +1061,18 @@ where
             CarbideError::DatabaseError(file!(), "begin get_managed_host_network_config", e)
         })?;
 
-        let snapshot = loader
+        let snapshot = match loader
             .load_machine_snapshot(&mut txn, &dpu_machine_id)
             .await
-            .map_err(CarbideError::from)?;
+        {
+            Ok(snap) => snap,
+            Err(SnapshotLoaderError::HostNotFound(_)) => {
+                return Err(tonic::Status::not_found(dpu_machine_id.to_string()));
+            }
+            Err(err) => {
+                return Err(CarbideError::from(err).into());
+            }
+        };
 
         let loopback_ip = match snapshot.dpu_snapshot.loopback_ip() {
             Some(ip) => ip,
