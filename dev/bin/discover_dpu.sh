@@ -70,14 +70,18 @@ root-ca = "./dev/certs/forge_developer_local_only_root_cert_pem"
 interface-id = "$MACHINE_INTERFACE_ID"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.com"
+
+[hbn]
+root-dir = "$HBN_ROOT"
+skip-reload = true
 !
 
 # Apply the networking configuration
 #
 # TODO: This rebuilds everything locally. Instead put forge-dpu-agent in a container, then
 # API_CONTAINER=$(docker ps | grep carbide-api | awk -F" " '{print $NF}')
-# docker exec -ti ${API_CONTAINER} /opt/forge-dpu-agent netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
-cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
+# docker exec -ti ${API_CONTAINER} /opt/forge-dpu-agent netconf --dpu-machine-id ${DPU_MACHINE_ID}
+cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
 echo "HBN files are in ${HBN_ROOT}"
 
 # Wait until DPU becomes ready

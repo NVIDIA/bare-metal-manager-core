@@ -56,7 +56,7 @@ if [[ "$1" == "test" || "$1" == "create" ]]; then
     echo "Even after $MAX_RETRY retries, machine did not reach in WaitingForNetworkConfig state."
     exit 3
   fi
-  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
+  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
  fi
 
 # Check Instance state
@@ -129,7 +129,7 @@ if [[ "$1" == "test" || "$1" == "delete" ]]; then
     exit 3
   fi
 
-  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
+  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
   # Boot host up with discovery image on admin network.
   echo "Machine comes up, forge-scout tells API that we're back"
   grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure ${API_SERVER} forge.Forge/ForgeAgentControl

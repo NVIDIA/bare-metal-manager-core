@@ -93,7 +93,7 @@ if [[ $i -ge "$MAX_RETRY" ]]; then
 fi
 
 # Run forge-dpu-agent to report an observation, which shows that DPU has now rebooted
-cd ${REPO_ROOT} && cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --chroot ${HBN_ROOT} --skip-reload
+cd ${REPO_ROOT} && cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
 
 # Wait until host reaches discovered state.
 i=0
