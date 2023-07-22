@@ -243,13 +243,19 @@ pub struct ShowMachine {
 #[clap(group(
         ArgGroup::new("show_managed_host")
         .required(true)
-        .args(&["all", "machine"])))]
+        .args(&["all", "host"])))]
 pub struct ShowManagedHost {
     #[clap(short, long, action)]
     pub all: bool,
 
-    #[clap(short, long)]
-    pub machine: Option<String>,
+    #[clap(short, long, action)]
+    pub ips: bool,
+
+    #[clap(long, action)]
+    pub more: bool,
+
+    #[clap(long)]
+    pub host: Option<String>,
 }
 
 #[derive(Parser, Debug)]

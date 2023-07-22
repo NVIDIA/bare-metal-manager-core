@@ -9,16 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::forge::{MachineInterface, MachineType};
 use ::rpc::machine_discovery::MemoryDevice;
 use ::rpc::Machine;
-use prettytable::{row, Row, Table};
+use prettytable::{Cell, Row, Table};
 use serde::Serialize;
+use std::fmt::Write;
 use tracing::warn;
 
 use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
-use crate::Config;
+use crate::{CarbideCliError, Config};
 
 use super::{rpc, CarbideCliResult};
 
@@ -116,34 +116,64 @@ struct ManagedHostOutput {
     dpu_oob_mac: Option<String>,
 }
 
-impl From<ManagedHostOutput> for Row {
-    fn from(value: ManagedHostOutput) -> Self {
-        row![
-            value.hostname.unwrap_or(UNKNOWN.to_owned()),
+#[derive(Default, Serialize)]
+struct ManagedHostOutputWrapper {
+    show_ips: bool,
+    more_details: bool,
+    managed_host_output: ManagedHostOutput,
+}
+
+impl From<ManagedHostOutputWrapper> for Row {
+    fn from(src: ManagedHostOutputWrapper) -> Self {
+        let value = src.managed_host_output;
+        let machine_ids = format!(
+            "{}\n{}",
             value.machine_id.unwrap_or(UNKNOWN.to_owned()),
-            value.state,
-            value.host_serial_number.unwrap_or(UNKNOWN.to_owned()),
-            value.host_bios_version.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_machine_id.unwrap_or(UNKNOWN.to_owned())
+        );
+
+        let bmc_ip = format!(
+            "{}\n{}",
             value.host_bmc_ip.unwrap_or(UNKNOWN.to_owned()),
-            value.host_bmc_mac.unwrap_or(UNKNOWN.to_owned()),
-            value.host_bmc_version.unwrap_or(UNKNOWN.to_owned()),
-            value
-                .host_bmc_firmware_version
-                .unwrap_or(UNKNOWN.to_owned()),
-            value.host_admin_ip.unwrap_or(UNKNOWN.to_owned()),
-            value.host_admin_mac.unwrap_or(UNKNOWN.to_owned()),
-            value.host_gpu_count,
-            value.host_memory.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_machine_id.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_serial_number.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_bios_version.unwrap_or(UNKNOWN.to_owned()),
             value.dpu_bmc_ip.unwrap_or(UNKNOWN.to_owned()),
+        );
+
+        let bmc_mac = format!(
+            "{}\n{}",
+            value.host_bmc_mac.unwrap_or(UNKNOWN.to_owned()),
             value.dpu_bmc_mac.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_bmc_version.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_bmc_firmware_version.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_oob_ip.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_oob_mac.unwrap_or(UNKNOWN.to_owned()),
-        ]
+        );
+
+        let ips = format!(
+            "{}\n{}",
+            value.host_admin_ip.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_oob_ip.unwrap_or(UNKNOWN.to_owned())
+        );
+
+        let macs = format!(
+            "{}\n{}",
+            value.host_admin_mac.unwrap_or(UNKNOWN.to_owned()),
+            value.dpu_oob_mac.unwrap_or(UNKNOWN.to_owned())
+        );
+
+        let mut row_data = vec![
+            value.hostname.unwrap_or(UNKNOWN.to_owned()),
+            machine_ids,
+            value.state,
+        ];
+
+        if src.show_ips {
+            row_data.extend_from_slice(&[bmc_ip, bmc_mac, ips, macs]);
+        }
+
+        if src.more_details {
+            row_data.extend_from_slice(&[
+                value.host_gpu_count.to_string(),
+                value.host_memory.unwrap_or(UNKNOWN.to_owned()),
+            ]);
+        }
+
+        Row::new(row_data.into_iter().map(|x| Cell::new(&x)).collect())
     }
 }
 
@@ -247,36 +277,43 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
     result
 }
 
-fn convert_managed_hosts_to_nice_output(managed_hosts: Vec<ManagedHostOutput>) -> Box<Table> {
+fn convert_managed_hosts_to_nice_output(
+    managed_hosts: Vec<ManagedHostOutput>,
+    show_ips: bool,
+    more_details: bool,
+) -> Box<Table> {
+    let managed_hosts_wrapper = managed_hosts
+        .into_iter()
+        .map(|x| ManagedHostOutputWrapper {
+            show_ips,
+            more_details,
+            managed_host_output: x,
+        })
+        .collect::<Vec<ManagedHostOutputWrapper>>();
+
     let mut table = Table::new();
 
-    // TODO additional discovery work needed for remaining information
-    table.add_row(row![
-        "Hostname",
-        "Machine ID",
-        "State",
-        "Host Serial Number",
-        "Host BIOS Version",
-        "Host BMC IP",
-        "Host BMC MAC",
-        "Host BMC Version",
-        "Host BMC Firmware Version",
-        "Host ADMIN IP",
-        "Host ADMIN MAC",
-        "Host GPU Count",
-        "Host Memory",
-        "DPU Machine ID",
-        "DPU Serial Number",
-        "DPU Bios Version",
-        "DPU BMC IP",
-        "DPU BMC MAC",
-        "DPU BMC Version",
-        "DPU Firmware Version",
-        "DPU OOB IP",
-        "DPU OOB MAC",
-    ]);
+    let mut headers = vec!["Hostname", "Machine IDs (H/D)", "State"];
 
-    for managed_host in managed_hosts {
+    if show_ips {
+        headers.extend_from_slice(&[
+            "BMC IP(H/D)",
+            "BMC MAC(H/D)",
+            "ADMIN/OOB IP",
+            "ADMIN/OOB MAC",
+        ])
+    }
+
+    if more_details {
+        headers.extend_from_slice(&["GPU #", "Host Memory"]);
+    }
+
+    // TODO additional discovery work needed for remaining information
+    table.add_row(Row::new(
+        headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
+    ));
+
+    for managed_host in managed_hosts_wrapper {
         table.add_row(managed_host.into());
     }
 
@@ -287,20 +324,24 @@ async fn show_managed_hosts(
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
     machines: Vec<Machine>,
+    show_ips: bool,
+    more_details: bool,
 ) -> CarbideCliResult<()> {
     let managed_hosts = get_managed_host_output(machines);
 
     match output_format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&managed_hosts).unwrap()),
         OutputFormat::Csv => {
-            let result = convert_managed_hosts_to_nice_output(managed_hosts);
+            let result =
+                convert_managed_hosts_to_nice_output(managed_hosts, show_ips, more_details);
 
             if let Err(error) = result.to_csv(output) {
                 warn!("Error writing csv data: {}", error);
             }
         }
         _ => {
-            let result = convert_managed_hosts_to_nice_output(managed_hosts);
+            let result =
+                convert_managed_hosts_to_nice_output(managed_hosts, show_ips, more_details);
 
             if let Err(error) = result.print(output) {
                 warn!("Error writing table data: {}", error);
@@ -310,19 +351,101 @@ async fn show_managed_hosts(
     Ok(())
 }
 
+async fn show_managed_host_details_view(machines: Vec<Machine>) -> CarbideCliResult<()> {
+    let managed_hosts = get_managed_host_output(machines);
+    let managed_host = managed_hosts.get(0).ok_or(CarbideCliError::Empty)?;
+
+    let width = 21;
+    let mut lines = String::new();
+
+    writeln!(
+        &mut lines,
+        "Hostname    : {}",
+        managed_host.hostname.clone().unwrap_or(UNKNOWN.to_string())
+    )?;
+
+    writeln!(&mut lines, "State       : {}", managed_host.state)?;
+
+    writeln!(
+        &mut lines,
+        "\nHost:\n----------------------------------------"
+    )?;
+
+    let data = vec![
+        ("  ID", managed_host.machine_id.clone()),
+        ("  Serial Number", managed_host.host_serial_number.clone()),
+        ("  BIOS Version", managed_host.host_bios_version.clone()),
+        ("  GPU Count", Some(managed_host.host_gpu_count.to_string())),
+        ("  Memory", managed_host.host_memory.clone()),
+        ("  Admin IP", managed_host.host_admin_ip.clone()),
+        ("  Admin MAC", managed_host.host_admin_mac.clone()),
+        ("  BMC Details", Some("".to_string())),
+        ("    Version", managed_host.host_bmc_version.clone()),
+        (
+            "    Firmware Version",
+            managed_host.host_bmc_firmware_version.clone(),
+        ),
+        ("    IP", managed_host.host_bmc_ip.clone()),
+        ("    MAC", managed_host.host_bmc_mac.clone()),
+    ];
+
+    for (key, value) in data {
+        writeln!(
+            &mut lines,
+            "{:<width$}: {}",
+            key,
+            value.unwrap_or(UNKNOWN.to_string())
+        )?;
+    }
+
+    writeln!(
+        &mut lines,
+        "\nDPU:\n----------------------------------------"
+    )?;
+
+    let data = vec![
+        ("  ID", managed_host.dpu_machine_id.clone()),
+        ("  Serial Number", managed_host.dpu_serial_number.clone()),
+        ("  BIOS Version", managed_host.dpu_bios_version.clone()),
+        ("  Admin IP", managed_host.dpu_oob_ip.clone()),
+        ("  Admin MAC", managed_host.dpu_oob_mac.clone()),
+        ("  BMC Details", Some("".to_string())),
+        ("    Version", managed_host.dpu_bmc_version.clone()),
+        (
+            "    Firmware Version",
+            managed_host.dpu_bmc_firmware_version.clone(),
+        ),
+        ("    IP", managed_host.dpu_bmc_ip.clone()),
+        ("    MAC", managed_host.dpu_bmc_mac.clone()),
+    ];
+
+    for (key, value) in data {
+        writeln!(
+            &mut lines,
+            "{:<width$}: {}",
+            key,
+            value.unwrap_or(UNKNOWN.to_string())
+        )?;
+    }
+
+    println!("{}", lines);
+
+    Ok(())
+}
+
 pub async fn handle_show(
     output: &mut dyn std::io::Write,
     args: ShowManagedHost,
     output_format: OutputFormat,
     api_config: Config,
 ) -> CarbideCliResult<()> {
-    let machines = if args.all {
-        rpc::get_all_machines(api_config).await?.machines
-    } else if let Some(requested_machine_id) = args.machine {
+    if args.all {
+        let machines = rpc::get_all_machines(api_config).await?.machines;
+        show_managed_hosts(output, output_format, machines, args.ips, args.more).await?;
+    } else if let Some(requested_host_machine_id) = args.host {
         let mut machines = Vec::default();
-
         let requested_machine =
-            rpc::get_host_machine(requested_machine_id, api_config.clone()).await?;
+            rpc::get_host_machine(requested_host_machine_id, api_config.clone()).await?;
 
         for interface in requested_machine.interfaces.iter() {
             if interface.primary_interface {
@@ -336,10 +459,8 @@ pub async fn handle_show(
             }
         }
         machines.push(requested_machine);
-        machines
-    } else {
-        Vec::default()
-    };
+        show_managed_host_details_view(machines).await?;
+    }
 
-    show_managed_hosts(output, output_format, machines).await
+    Ok(())
 }
