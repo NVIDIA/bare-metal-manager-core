@@ -11,17 +11,22 @@
  */
 
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+
+use crate::resource_pool::ResourcePoolDef;
 
 /// carbide-api configuration file content
 #[derive(Clone, Debug, Deserialize)]
 pub struct CarbideConfig {
     /// The socket address that is used for the gRPC API server
     #[serde(default = "default_listen")]
-    pub listen: std::net::SocketAddr,
+    pub listen: SocketAddr,
 
     /// The socket address that is used for the HTTP server which serves
     /// prometheus metrics under /metrics
-    pub metrics_endpoint: Option<std::net::SocketAddr>,
+    pub metrics_endpoint: Option<SocketAddr>,
 
     /// The DNS name and port of the opentelemetry collector
     pub otlp_endpoint: Option<String>,
@@ -61,6 +66,11 @@ pub struct CarbideConfig {
 
     /// Authentication related configuration
     pub auth: Option<AuthConfig>,
+
+    // Resource pools to allocate IPs, VNIs, etc.
+    // Required.
+    // Option so that we can de-serialize partial configs (and then merge them).
+    pub pools: Option<HashMap<String, ResourcePoolDef>>,
 }
 
 /// TLS related configuration
@@ -86,10 +96,10 @@ pub struct AuthConfig {
     pub permissive_mode: bool,
 
     /// The Casbin policy file (in CSV format).
-    pub casbin_policy_file: std::path::PathBuf,
+    pub casbin_policy_file: PathBuf,
 }
 
-fn default_listen() -> std::net::SocketAddr {
+fn default_listen() -> SocketAddr {
     "[::]:1079".parse().unwrap()
 }
 

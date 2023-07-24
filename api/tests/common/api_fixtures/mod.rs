@@ -12,7 +12,7 @@
 
 //! Contains fixtures that use the Carbide API for setting up
 
-use std::{net::Ipv4Addr, sync::Arc, time::SystemTime};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use chrono::Duration;
 use sqlx::PgPool;
@@ -29,7 +29,7 @@ use carbide::{
         ManagedHostState,
     },
     redfish::RedfishSim,
-    resource_pool::common::CommonPools,
+    resource_pool::{self, common::CommonPools},
     state_controller::{
         controller::{ReachabilityParams, StateControllerIO},
         ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
@@ -230,7 +230,6 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     let credential_provider = Arc::new(TestCredentialProvider::new());
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
-    let common_pools = CommonPools::create(db_pool.clone());
     let ib_fabric_manager = ib::local_ib_fabric_manager();
 
     let eth_virt_data = EthVirtData {
@@ -241,46 +240,14 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
 
     // Populate resource pools
     let mut txn = db_pool.begin().await.unwrap();
-    common_pools
-        .infiniband
-        .pool_pkey
-        .populate(&mut txn, (1..100).collect())
-        .await
-        .unwrap();
-    common_pools
-        .ethernet
-        .pool_loopback_ip
-        .as_ref()
-        .populate(
-            &mut txn,
-            // Must match a network_prefix in fixtures/create_network_segment.sql
-            // Here it's 192.0.2.X
-            (0xC0_00_02_00..0xC0_00_02_FF).map(Ipv4Addr::from).collect(),
-        )
-        .await
-        .unwrap();
-    common_pools
-        .ethernet
-        .pool_vni
-        .as_ref()
-        .populate(&mut txn, (10001..10005).collect())
-        .await
-        .unwrap();
-    common_pools
-        .ethernet
-        .pool_vlan_id
-        .as_ref()
-        .populate(&mut txn, (1..5).collect())
-        .await
-        .unwrap();
-    common_pools
-        .ethernet
-        .pool_vpc_vni
-        .as_ref()
-        .populate(&mut txn, (20001..20005).collect())
+    resource_pool::define_all_from(&mut txn, &pool_defs())
         .await
         .unwrap();
     txn.commit().await.unwrap();
+
+    let common_pools = CommonPools::create(db_pool.clone())
+        .await
+        .expect("Creating pools should work");
 
     let api = Api::new(
         credential_provider.clone(),
@@ -311,6 +278,64 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         },
         ib_subnet_state_controller_io: IBSubnetStateControllerIO::default(),
     }
+}
+
+fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
+    let mut defs = HashMap::new();
+    defs.insert(
+        resource_pool::common::PKEY.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Integer,
+            ranges: vec![resource_pool::Range {
+                start: "1".to_string(),
+                end: "100".to_string(),
+            }],
+            prefix: None,
+        },
+    );
+    defs.insert(
+        resource_pool::common::LOOPBACK_IP.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Ipv4,
+            // Must match a network_prefix in fixtures/create_network_segment.sql
+            prefix: Some("192.0.2.0/24".to_string()),
+            ranges: vec![],
+        },
+    );
+    defs.insert(
+        resource_pool::common::VNI.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Integer,
+            ranges: vec![resource_pool::Range {
+                start: "10001".to_string(),
+                end: "10005".to_string(),
+            }],
+            prefix: None,
+        },
+    );
+    defs.insert(
+        resource_pool::common::VLANID.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Integer,
+            ranges: vec![resource_pool::Range {
+                start: "1".to_string(),
+                end: "5".to_string(),
+            }],
+            prefix: None,
+        },
+    );
+    defs.insert(
+        resource_pool::common::VPC_VNI.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Integer,
+            ranges: vec![resource_pool::Range {
+                start: "20001".to_string(),
+                end: "20005".to_string(),
+            }],
+            prefix: None,
+        },
+    );
+    defs
 }
 
 /// Runs a single state controller iteration for any kind of state controller

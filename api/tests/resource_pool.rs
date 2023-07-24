@@ -31,18 +31,16 @@ fn setup() {
 #[sqlx::test]
 async fn test_define_range(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
-
-    let rp_req = rpc::forge::DefineResourcePoolRequest {
-        name: "test_define_range".to_string(),
-        pool_type: rpc::forge::ResourcePoolType::Ipv4.into(),
-        ranges: vec![rpc::forge::Range {
-            start: "172.0.1.0".to_string(),
-            end: "172.0.1.255".to_string(),
-        }],
-        prefix: None,
+    let toml = r#"
+[test_define_range]
+type = "ipv4"
+ranges = [{ start = "172.0.1.0", end = "172.0.1.255" }]
+"#;
+    let rp_req = rpc::forge::GrowResourcePoolRequest {
+        text: toml.to_string(),
     };
     env.api
-        .admin_define_resource_pool(tonic::Request::new(rp_req))
+        .admin_grow_resource_pool(tonic::Request::new(rp_req))
         .await
         .unwrap();
 
@@ -59,15 +57,16 @@ async fn test_define_range(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 #[sqlx::test]
 async fn test_define_prefix(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
-
-    let rp_req = rpc::forge::DefineResourcePoolRequest {
-        name: "test_define_range".to_string(),
-        pool_type: rpc::forge::ResourcePoolType::Ipv4.into(),
-        ranges: vec![],
-        prefix: Some("172.0.1.0/24".to_string()),
+    let toml = r#"
+[test_define_range]
+type = "ipv4"
+prefix = "172.0.1.0/24"
+"#;
+    let rp_req = rpc::forge::GrowResourcePoolRequest {
+        text: toml.to_string(),
     };
     env.api
-        .admin_define_resource_pool(tonic::Request::new(rp_req))
+        .admin_grow_resource_pool(tonic::Request::new(rp_req))
         .await
         .unwrap();
 

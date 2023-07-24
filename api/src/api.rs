@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -2912,49 +2913,53 @@ where
         Ok(Response::new(response))
     }
 
-    async fn admin_define_resource_pool(
+    /// Example TOML data in request.text:
+    ///
+    /// [lo-ip]
+    /// type = "ipv4"
+    /// prefix = "10.180.62.1/26"
+    ///
+    /// or
+    ///
+    /// [vlan-id]
+    /// type = "integer"
+    /// ranges = [{ start = "100", end = "501" }]
+    ///
+    async fn admin_grow_resource_pool(
         &self,
-        request: Request<rpc::DefineResourcePoolRequest>,
-    ) -> Result<Response<rpc::DefineResourcePoolResponse>, Status> {
+        request: Request<rpc::GrowResourcePoolRequest>,
+    ) -> Result<Response<rpc::GrowResourcePoolResponse>, Status> {
         log_request_data(&request);
 
-        let def = request.into_inner();
-        let pool_type = rpc::ResourcePoolType::try_from(def.pool_type)
-            .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
-        let name = def.name.as_ref();
+        let toml_text = request.into_inner().text;
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "begin admin_define_resource_pool", e)
+            CarbideError::DatabaseError(file!(), "begin admin_grow_resource_pool", e)
         })?;
 
-        match (&def.prefix, &def.ranges) {
-            // Neither is given
-            (None, ranges) if ranges.is_empty() => {
-                return Err(Status::invalid_argument(
-                    "Please provide one of 'prefix' or 'ranges'",
-                ));
-            }
-            // Both are given
-            (Some(_), ranges) if !ranges.is_empty() => {
-                return Err(Status::invalid_argument(
-                    "Please provide only one of 'prefix' or 'ranges'",
-                ));
-            }
-            // Just prefix
-            (Some(prefix), _) => {
-                define_by_prefix(&mut txn, name, pool_type, prefix).await?;
-            }
-            // Just ranges
-            (None, ranges) => {
-                for range in ranges {
-                    define_by_range(&mut txn, name, pool_type, &range.start, &range.end).await?;
-                }
-            }
+        let mut pools = HashMap::new();
+        let table: toml::Table = toml_text
+            .parse()
+            .map_err(|e: toml::de::Error| tonic::Status::invalid_argument(e.to_string()))?;
+        for (name, def) in table {
+            let d: resource_pool::ResourcePoolDef = def
+                .try_into()
+                .map_err(|e: toml::de::Error| tonic::Status::invalid_argument(e.to_string()))?;
+            pools.insert(name, d);
         }
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "end admin_define_resource_pool", e)
-        })?;
-        Ok(Response::new(rpc::DefineResourcePoolResponse {}))
+        use resource_pool::DefineResourcePoolError as DE;
+        match resource_pool::define_all_from(&mut txn, &pools).await {
+            Ok(()) => {
+                txn.commit().await.map_err(|e| {
+                    CarbideError::DatabaseError(file!(), "end admin_grow_resource_pool", e)
+                })?;
+                Ok(Response::new(rpc::GrowResourcePoolResponse {}))
+            }
+            Err(DE::InvalidArgument(msg)) => Err(tonic::Status::invalid_argument(msg)),
+            Err(DE::InvalidToml(err)) => Err(tonic::Status::invalid_argument(err.to_string())),
+            Err(DE::ResourcePoolError(msg)) => Err(tonic::Status::internal(msg.to_string())),
+            Err(err @ DE::TooBig(_, _)) => Err(tonic::Status::out_of_range(err.to_string())),
+        }
     }
 
     async fn admin_list_resource_pools(
@@ -3021,99 +3026,6 @@ where
             total_vpc_count,
         }))
     }
-}
-
-async fn define_by_prefix(
-    txn: &mut Transaction<'_, Postgres>,
-    name: &str,
-    pool_type: rpc::ResourcePoolType,
-    prefix: &str,
-) -> Result<(), tonic::Status> {
-    if !matches!(pool_type, rpc::ResourcePoolType::Ipv4) {
-        return Err(Status::invalid_argument(
-            "Only type 'ipv4' can take a prefix",
-        ));
-    }
-    let values =
-        expand_ip_prefix(prefix).map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
-    let num_values = values.len();
-    let pool = resource_pool::DbResourcePool::new(name.to_string(), resource_pool::ValueType::Ipv4);
-    pool.populate(txn, values)
-        .await
-        .map_err(CarbideError::from)?;
-    tracing::debug!("Populated IP resource pool {name} with {num_values} values from prefix");
-
-    Ok(())
-}
-
-async fn define_by_range(
-    txn: &mut Transaction<'_, Postgres>,
-    name: &str,
-    pool_type: rpc::ResourcePoolType,
-    range_start: &str,
-    range_end: &str,
-) -> Result<(), tonic::Status> {
-    match pool_type {
-        rpc::ResourcePoolType::Ipv4 => {
-            let values = expand_ip_range(range_start, range_end)
-                .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
-            let num_values = values.len();
-            let pool = resource_pool::DbResourcePool::new(
-                name.to_string(),
-                resource_pool::ValueType::Ipv4,
-            );
-            pool.populate(txn, values)
-                .await
-                .map_err(CarbideError::from)?;
-            tracing::debug!(
-                "Populated IP resource pool {name} with {num_values} values from range"
-            );
-        }
-        rpc::ResourcePoolType::Integer => {
-            let values = expand_int_range(range_start, range_end)
-                .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
-            let num_values = values.len();
-            let pool = resource_pool::DbResourcePool::new(
-                name.to_string(),
-                resource_pool::ValueType::Integer,
-            );
-            pool.populate(txn, values)
-                .await
-                .map_err(CarbideError::from)?;
-            tracing::debug!("Populated int resource pool {name} with {num_values} values");
-        }
-    }
-    Ok(())
-}
-
-// Expands a string like "10.180.62.1/26" into all the ip addresses it covers
-fn expand_ip_prefix(network: &str) -> Result<Vec<Ipv4Addr>, eyre::Report> {
-    let n: ipnetwork::IpNetwork = network.parse()?;
-    let (start_addr, end_addr) = match (n.network(), n.broadcast()) {
-        (IpAddr::V4(start), IpAddr::V4(end)) => (start, end),
-        _ => {
-            eyre::bail!("Invalid IPv4 network: {network}");
-        }
-    };
-    let start: u32 = start_addr.into();
-    let end: u32 = end_addr.into();
-    Ok((start..end).map(Ipv4Addr::from).collect())
-}
-
-// All the IPv4 addresses between start_s and end_s
-fn expand_ip_range(start_s: &str, end_s: &str) -> Result<Vec<Ipv4Addr>, eyre::Report> {
-    let start_addr: Ipv4Addr = start_s.parse()?;
-    let end_addr: Ipv4Addr = end_s.parse()?;
-    let start: u32 = start_addr.into();
-    let end: u32 = end_addr.into();
-    Ok((start..end).map(Ipv4Addr::from).collect())
-}
-
-// All the numbers between start_s and end_s
-fn expand_int_range(start_s: &str, end_s: &str) -> Result<Vec<i32>, eyre::Report> {
-    let start: i32 = start_s.parse()?;
-    let end: i32 = end_s.parse()?;
-    Ok((start..end).collect())
 }
 
 ///
@@ -3514,7 +3426,16 @@ where
             .connect(&carbide_config.database_url)
             .await?;
 
-        let common_pools = CommonPools::create(database_connection.clone());
+        let mut txn = database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin define resource pools", e))?;
+        resource_pool::define_all_from(&mut txn, carbide_config.pools.as_ref().unwrap()).await?;
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit define resource pools", e))?;
+
+        let common_pools = CommonPools::create(database_connection.clone()).await?;
 
         let ib_fabric_manager: Arc<dyn IBFabricManager> =
             if let Some(fabric_manager) = carbide_config.ib_fabric_manager.as_ref() {
