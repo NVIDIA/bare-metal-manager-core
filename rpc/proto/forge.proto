@@ -165,8 +165,8 @@ service Forge {
   // List existing resource pools and their stats
   rpc AdminListResourcePools(ListResourcePoolsRequest) returns (ResourcePools);
 
-  // Create or edit a resource pool
-  rpc AdminDefineResourcePool(DefineResourcePoolRequest) returns (DefineResourcePoolResponse);
+  // Add capacity to a resource pool
+  rpc AdminGrowResourcePool(GrowResourcePoolRequest) returns (GrowResourcePoolResponse);
 
   // Assign all VPCs a VNI
   rpc MigrateVpcVni(google.protobuf.Empty) returns (MigrateVpcVniResponse);
@@ -1554,14 +1554,12 @@ message ResourcePool {
     uint64 allocated = 5;
 }
 
-message DefineResourcePoolRequest {
-    string name = 1;
-    ResourcePoolType pool_type = 2;
-    repeated Range ranges = 3;
-	optional string prefix = 4;
+message GrowResourcePoolRequest {
+	// TOML definition of resized pools
+	string text = 1;
 }
 
-message DefineResourcePoolResponse {}
+message GrowResourcePoolResponse {}
 
 message Range {
     string start = 1;

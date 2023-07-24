@@ -9,78 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::fs::read_to_string;
-
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
-use serde::Deserialize;
-use tracing::info;
 
 use super::CarbideCliResult;
 use crate::{rpc, Config};
-
-/// Create or edit the resource pools, making them match the given toml file
-/// Does not currently delete pools that were removed from the file.
-pub async fn define_all_from(filename: &str, api_config: Config) -> CarbideCliResult<()> {
-    let defs = read_to_string(filename)?;
-    let table: toml::Table = defs.parse()?;
-    for (name, def) in table {
-        let d: ResourcePoolDef = def.try_into()?;
-
-        let rpc_type: forgerpc::ResourcePoolType = d.pool_type.into();
-        let rpc_ranges: Vec<forgerpc::Range> = d.ranges.into_iter().map(|r| r.into()).collect();
-        let rpc_req = forgerpc::DefineResourcePoolRequest {
-            name: name.to_string(),
-            pool_type: rpc_type.into(),
-            ranges: rpc_ranges,
-            prefix: d.prefix,
-        };
-        let _ = rpc::define_resource_pool(rpc_req, api_config.clone()).await?;
-        info!("Pool {name} populated.");
-    }
-    Ok(())
-}
-
-#[derive(Debug, Deserialize)]
-struct ResourcePoolDef {
-    #[serde(default)]
-    ranges: Vec<Range>,
-    #[serde(default)]
-    prefix: Option<String>,
-    #[serde(rename = "type")]
-    pool_type: ResourcePoolType,
-}
-
-#[derive(Debug, Deserialize)]
-struct Range {
-    start: String,
-    end: String,
-}
-
-impl From<Range> for forgerpc::Range {
-    fn from(r: Range) -> Self {
-        Self {
-            start: r.start,
-            end: r.end,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum ResourcePoolType {
-    Ipv4,
-    Integer,
-}
-
-impl From<ResourcePoolType> for forgerpc::ResourcePoolType {
-    fn from(r: ResourcePoolType) -> Self {
-        match r {
-            ResourcePoolType::Ipv4 => Self::Ipv4,
-            ResourcePoolType::Integer => Self::Integer,
-        }
-    }
-}
 
 pub async fn list(api_config: Config) -> CarbideCliResult<()> {
     let response =

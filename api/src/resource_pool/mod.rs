@@ -16,8 +16,12 @@ use std::str::FromStr;
 use crate::CarbideError;
 
 mod db;
-pub use db::{all, DbResourcePool};
+pub use db::{all, stats, DbResourcePool};
 pub mod common;
+mod define;
+pub use define::{
+    define_all_from, DefineResourcePoolError, Range, ResourcePoolDef, ResourcePoolType,
+};
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum OwnerType {

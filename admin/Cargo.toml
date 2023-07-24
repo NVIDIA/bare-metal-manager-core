@@ -21,7 +21,6 @@ thiserror = "1"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 tokio = { workspace = true }
-toml = "0.7.3"
 tonic = { workspace = true }
 uuid = "1.0"
 

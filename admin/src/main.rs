@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::env;
-use std::fs::{File, OpenOptions};
+use std::fs;
 use std::io::BufReader;
 use std::path::Path;
 
@@ -74,9 +74,6 @@ pub enum CarbideCliError {
 
     #[error("Error while handling json: {0}")]
     JsonError(#[from] serde_json::Error),
-
-    #[error("Error parsing TOML file: {0}")]
-    TomlError(#[from] toml::de::Error),
 
     #[error("Unexpected machine type.  expected {0:?} but found {1:?}")]
     UnexpectedMachineType(MachineType, MachineType),
@@ -249,7 +246,7 @@ fn get_config_from_file() -> Option<FileConfig> {
     if let Ok(home) = env::var("HOME") {
         let file = Path::new(&home).join(".config/carbide_api_cli.json");
         if file.exists() {
-            let file = File::open(file).unwrap();
+            let file = fs::File::open(file).unwrap();
             let reader = BufReader::new(file);
             let file_config: FileConfig = serde_json::from_reader(reader).unwrap();
 
@@ -420,7 +417,7 @@ async fn main() -> color_eyre::Result<()> {
             ManagedHost::Show(managed_host) => {
                 let mut output_file = if let Some(filename) = config.output {
                     Box::new(
-                        OpenOptions::new()
+                        fs::OpenOptions::new()
                             .write(true)
                             .create_new(true)
                             .open(filename)?,
@@ -433,8 +430,11 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CarbideCommand::ResourcePool(rp) => match rp {
-            ResourcePool::Define(def) => {
-                resource_pool::define_all_from(&def.filename, api_config).await?;
+            ResourcePool::Grow(def) => {
+                let defs = fs::read_to_string(&def.filename)?;
+                let rpc_req = forgerpc::GrowResourcePoolRequest { text: defs };
+                let _ = rpc::grow_resource_pool(rpc_req, api_config.clone()).await?;
+                tracing::info!("Resource Pool request sent.");
             }
             ResourcePool::List => {
                 resource_pool::list(api_config).await?;

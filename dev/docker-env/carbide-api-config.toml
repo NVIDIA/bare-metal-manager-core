@@ -13,3 +13,23 @@ root_cafile_path="/app/code/dev/certs/forge_developer_local_only_root_cert_pem"
 [auth]
 permissive_mode=true
 casbin_policy_file="/app/code/api/casbin-policy.csv"
+
+[pools.lo-ip]
+type = "ipv4"
+prefix = "10.180.62.1/26"
+
+[pools.vlan-id]
+type = "integer"
+ranges = [{ start = "100", end = "501" }]
+
+[pools.vni]
+type = "integer"
+ranges = [{ start = "1024500", end = "1024550" }]
+
+[pools.vpc-vni]
+type = "integer"
+ranges = [{ start = "2024500", end = "2024550" }]
+
+[pools.pkey]
+type = "integer"
+ranges = [{ start = "1", end = "10" }]

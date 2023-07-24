@@ -118,10 +118,6 @@ fn find_prerequisites(root_dir: &path::Path) -> (HashMap<String, path::PathBuf>,
     ];
     bins.insert("carbide-api", find_latest_in("carbide-api", &cargo_paths));
     bins.insert(
-        "forge-admin-cli",
-        find_latest_in("forge-admin-cli", &cargo_paths),
-    );
-    bins.insert(
         "forge-dpu-agent",
         find_latest_in("forge-dpu-agent", &cargo_paths),
     );

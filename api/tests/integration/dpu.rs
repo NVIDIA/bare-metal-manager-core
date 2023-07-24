@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, fs, path, process, thread, time};
+use std::{collections::HashMap, fs, path, thread, time};
 
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +28,7 @@ pub fn bootstrap(
     root_dir: &path::Path,
     bins: &HashMap<String, path::PathBuf>,
 ) -> eyre::Result<Info> {
-    let (_vpc_id, _domain_id, segment_id) = basic(root_dir, bins.get("forge-admin-cli").unwrap())?;
+    let (_vpc_id, _domain_id, segment_id) = basic()?;
     let (interface_id, dpu_machine_id, ip_address) = discover()?;
     let hbn_root = configure_network(
         root_dir,
@@ -47,11 +47,7 @@ pub fn bootstrap(
     Ok(dpu)
 }
 
-fn basic(
-    root_dir: &path::Path,
-    forge_admin_cli: &path::Path,
-) -> eyre::Result<(String, String, String)> {
-    create_resource_pools(root_dir, forge_admin_cli)?;
+fn basic() -> eyre::Result<(String, String, String)> {
     let vpc_id = grpcurl_id("CreateVpc", r#"{"name": "test_vpc"}"#)?;
     let domain_id = grpcurl_id("CreateDomain", r#"{"name": "forge.integrationtest"}"#)?;
     let segment_id = create_segment(&vpc_id, &domain_id)?;
@@ -198,41 +194,6 @@ fn create_segment(vpc_id: &str, domain_id: &str) -> eyre::Result<String> {
     })
     .unwrap();
     grpcurl_id("CreateNetworkSegment", &segment_data)
-}
-
-fn create_resource_pools(root_dir: &path::Path, forge_admin_cli: &path::Path) -> eyre::Result<()> {
-    // the dev/kube-env one is identical, so switching would be fine
-    let pool_defs = root_dir.join("dev/docker-env/resource_pools.toml");
-    let root_ca = root_dir.join("dev/certs/forge_root.pem");
-    let client_cert = root_dir.join("dev/certs/server_identity.pem");
-    let client_key = root_dir.join("dev/certs/server_identity.key");
-    let out = process::Command::new(forge_admin_cli)
-        .arg("-c")
-        .arg("https://127.0.0.1:1079")
-        .arg("--forge-root-ca-path")
-        .arg(root_ca)
-        .arg("--client-key-path")
-        .arg(client_key)
-        .arg("--client-cert-path")
-        .arg(client_cert)
-        .arg("resource-pool")
-        .arg("define")
-        .arg("-f")
-        .arg(pool_defs)
-        .output()?;
-    if !out.status.success() {
-        tracing::error!(
-            "forge-admin-cli STDOUT: {}",
-            String::from_utf8_lossy(&out.stdout)
-        );
-        tracing::error!(
-            "forge-admin-cli STDERR: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        eyre::bail!("forge-admin-cli exit status code {}", out.status);
-    }
-
-    Ok(())
 }
 
 // Note that we intentionally don't use the rpc package. This test is intended to be completely

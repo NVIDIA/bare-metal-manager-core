@@ -337,18 +337,20 @@ impl CarbideOptions {
 
 #[derive(Parser, Debug)]
 pub enum ResourcePool {
-    #[clap(about = "Define a set of resource pools from a yaml file")]
-    Define(ResourcePoolDefinition),
+    #[clap(
+        about = "Add capacity to one or more resource pools from a TOML file. See carbide-api admin_grow_resource_pool docs for example TOML."
+    )]
+    Grow(ResourcePoolDefinition),
     #[clap(about = "List all resource pools with stats")]
     List,
 }
 
 #[derive(Parser, Debug)]
 #[clap(group(
-        ArgGroup::new("define")
+        ArgGroup::new("grow")
         .required(true)
         .args(&["filename"])))]
 pub struct ResourcePoolDefinition {
-    #[clap(short, long, default_value = "dev/resource_pools.toml")]
+    #[clap(short, long)]
     pub filename: String,
 }

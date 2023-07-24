@@ -161,19 +161,7 @@ WHERE name = $2 AND value = $3
     where
         E: sqlx::Executor<'c, Database = Postgres>,
     {
-        // Will do an index scan on idx_resource_pools_name, same as without the FILTER, so doing
-        // both at once is faster than two queries.
-        let free_state = ResourcePoolEntryState::Free;
-        let query = "SELECT COUNT(*) FILTER (WHERE state != $1) AS used,
-                            COUNT(*) FILTER (WHERE state = $1) AS free
-                    FROM resource_pool WHERE NAME = $2";
-        let s: super::ResourcePoolStats = sqlx::query_as(query)
-            .bind(sqlx::types::Json(free_state))
-            .bind(&self.name)
-            .fetch_one(executor)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(s)
+        stats(executor, &self.name).await
     }
 
     /// Mark this value as already taken. Used during migration from K8s resource pools.
@@ -199,6 +187,28 @@ WHERE name = $2 AND value = $3
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
+}
+
+pub async fn stats<'c, E>(
+    executor: E,
+    name: &str,
+) -> Result<super::ResourcePoolStats, ResourcePoolError>
+where
+    E: sqlx::Executor<'c, Database = Postgres>,
+{
+    // Will do an index scan on idx_resource_pools_name, same as without the FILTER, so doing
+    // both at once is faster than two queries.
+    let free_state = ResourcePoolEntryState::Free;
+    let query = "SELECT COUNT(*) FILTER (WHERE state != $1) AS used,
+                            COUNT(*) FILTER (WHERE state = $1) AS free
+                    FROM resource_pool WHERE NAME = $2";
+    let s: super::ResourcePoolStats = sqlx::query_as(query)
+        .bind(sqlx::types::Json(free_state))
+        .bind(name)
+        .fetch_one(executor)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+    Ok(s)
 }
 
 pub async fn all(

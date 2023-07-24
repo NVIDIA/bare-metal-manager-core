@@ -314,14 +314,14 @@ pub async fn reboot(
     .await
 }
 
-pub async fn define_resource_pool(
-    req: rpc::DefineResourcePoolRequest,
+pub async fn grow_resource_pool(
+    req: rpc::GrowResourcePoolRequest,
     api_config: Config,
-) -> CarbideCliResult<rpc::DefineResourcePoolResponse> {
+) -> CarbideCliResult<rpc::GrowResourcePoolResponse> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(req);
         let out = client
-            .admin_define_resource_pool(request)
+            .admin_grow_resource_pool(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
