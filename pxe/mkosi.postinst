@@ -56,6 +56,7 @@ wget https://download.lenovo.com/servers/mig/2020/06/11/22050/lnvgy_utl_bootstor
 mkdir -p /opt/forge/mnvcli
 tar zxvf lnvgy_utl_bootstor_mnvcli-1.0.20.1040-0_linux_x86-64.tgz -C /opt/forge/mnvcli
 mv /opt/forge/mnvcli/lnvgy_utl_bootstor_mnvcli-1.0.20.1040-0_linux_x86-64/64/mnv_cli /opt/forge
+chmod +x /opt/forge/mnv_cli
 
 set >/home/set.$1
 ls -l /boot
