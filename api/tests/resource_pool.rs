@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
+use carbide::resource_pool::common::VPC_VNI;
 use carbide::resource_pool::ResourcePoolStats as St;
 use carbide::resource_pool::{all, DbResourcePool, OwnerType, ResourcePoolError, ValueType};
 use common::api_fixtures::create_test_env;
@@ -179,6 +180,83 @@ async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // And now it's really allocated
     assert_eq!(pool.stats(&db_pool).await?, St { used: 1, free: 0 });
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+
+    // create_test_env makes a vpc-vni pool, so clean that up first
+    let mut txn = db_pool.begin().await?;
+    sqlx::query("DELETE FROM resource_pool WHERE name = $1")
+        .bind(VPC_VNI)
+        .execute(&mut txn)
+        .await?;
+    txn.commit().await?;
+
+    // Only one vpc-vni available with 1 value
+    let mut txn = db_pool.begin().await?;
+    let vpc_vni_pool = DbResourcePool::new("vpc-vni".to_string(), ValueType::Integer);
+    vpc_vni_pool
+        .populate(&mut txn, vec!["1".to_string()])
+        .await?;
+    txn.commit().await?;
+
+    // CreateVpc rpc call
+    let vpc_req = rpc::forge::VpcCreationRequest {
+        name: "test_vpc_assign_after_delete_1".to_string(),
+        tenant_organization_id: "test".to_string(),
+        tenant_keyset_id: None,
+        network_virtualization_type: Some(
+            rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
+        ),
+    };
+    let resp = env
+        .api
+        .create_vpc(tonic::Request::new(vpc_req))
+        .await
+        .unwrap();
+
+    // Value is allocated
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(vpc_vni_pool.stats(&mut txn).await?, St { used: 1, free: 0 });
+    txn.commit().await?;
+
+    // DeleteVpc rpc call
+    let del_req = rpc::forge::VpcDeletionRequest {
+        id: resp.into_inner().id,
+    };
+    env.api
+        .delete_vpc(tonic::Request::new(del_req))
+        .await
+        .unwrap();
+
+    // Value is free
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(vpc_vni_pool.stats(&mut txn).await?, St { used: 0, free: 1 });
+    txn.commit().await?;
+
+    // CreateVpc
+    let vpc_req = rpc::forge::VpcCreationRequest {
+        name: "test_vpc_assign_after_delete_2".to_string(),
+        tenant_organization_id: "test".to_string(),
+        tenant_keyset_id: None,
+        network_virtualization_type: Some(
+            rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
+        ),
+    };
+    let _ = env
+        .api
+        .create_vpc(tonic::Request::new(vpc_req))
+        .await
+        .unwrap();
+
+    // Value allocated again
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(vpc_vni_pool.stats(&mut txn).await?, St { used: 1, free: 0 });
+    txn.commit().await?;
 
     Ok(())
 }

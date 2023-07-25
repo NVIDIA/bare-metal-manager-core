@@ -154,16 +154,66 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
+#[sqlx::test]
+async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    // Create two VPCs
+
+    let forge_vpc_1 = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            name: "prevent_duplicate_vni".to_string(),
+            tenant_organization_id: String::new(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(forge_vpc_1.vni.is_some());
+    let forge_vpc_2 = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            name: "prevent_duplicate_vni".to_string(),
+            tenant_organization_id: String::new(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(forge_vpc_2.vni.is_some());
+    assert_ne!(forge_vpc_1.vni, forge_vpc_2.vni);
+
+    let vpc_2_id = forge_vpc_2.id.unwrap().try_into()?;
+
+    // We can only update the VNI on a VPC that doesn't already have one, so clear it first
+    let mut txn = pool.begin().await?;
+    sqlx::query("UPDATE vpcs SET vni = NULL WHERE id = $1")
+        .bind(vpc_2_id)
+        .execute(&mut txn)
+        .await?;
+    txn.commit().await?;
+
+    // Try to set the second one's VNI to the first ones. It should fail
+    let mut txn = pool.begin().await?;
+    if let Ok(()) = Vpc::set_vni(&mut txn, vpc_2_id, forge_vpc_1.vni.unwrap() as i32).await {
+        panic!("VPCs should be prevented from having duplicate VNIs");
+    }
+    txn.commit().await?;
+
+    Ok(())
+}
+
 #[sqlx::test(fixtures("create_vpc"))]
 async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
     let some_vpc = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(FIXTURE_CREATED_VPC_ID)).await?;
-
     assert_eq!(1, some_vpc.len());
 
     let first = some_vpc.first();
-
     assert!(matches!(first, Some(x) if x.id == FIXTURE_CREATED_VPC_ID));
 
     Ok(())
