@@ -25,7 +25,7 @@ load-minikube-registry: runtime-container-minikube build-container-minikube
   minikube image load registry.minikube/runtime-container:latest
 
 check-binaries-in-path:
-  @which paralllel 2>&1 &>/dev/null || (echo "parallel not found" && exit 1)
+  @which parallel 2>&1 &>/dev/null || (echo "parallel not found" && exit 1)
   @which skaffold 2>&1 &>/dev/null || (echo "skaffold not found" && exit 1)
   @echo "checked binaries, OK"
 
