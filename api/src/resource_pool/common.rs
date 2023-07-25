@@ -42,6 +42,9 @@ pub const PKEY: &str = "pkey";
 /// We will validate they exist and monitor metrics for them.
 const ALL_POOLS: [&str; 5] = [LOOPBACK_IP, VLANID, VNI, VPC_VNI, PKEY];
 
+/// Pools that are not necessarily needed at startup
+const OPTIONAL_POOLS: [&str; 1] = [PKEY];
+
 /// How often to update the resource pool metrics
 const METRICS_RESOURCEPOOL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -83,9 +86,9 @@ impl CommonPools {
         let pool_pkey: Arc<DbResourcePool<i16>> =
             Arc::new(DbResourcePool::new(PKEY.to_string(), ValueType::Integer));
 
-        // We can't run if any of the pools are missing
+        // We can't run if any of the mandatory pools are missing
         for name in ALL_POOLS {
-            if stats(&db, name).await?.free == 0 {
+            if !OPTIONAL_POOLS.contains(&name) && stats(&db, name).await?.free == 0 {
                 eyre::bail!(
                     "Resource pool '{name}' missing or full. Edit config file and restart."
                 );

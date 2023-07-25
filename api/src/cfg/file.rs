@@ -105,6 +105,8 @@ fn default_listen() -> SocketAddr {
 
 #[cfg(test)]
 mod tests {
+    use crate::resource_pool;
+
     use super::*;
     use figment::{
         providers::{Env, Format, Toml},
@@ -128,6 +130,7 @@ mod tests {
         assert!(config.route_servers.is_empty());
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
+        assert!(config.pools.is_none());
     }
 
     #[test]
@@ -161,6 +164,16 @@ mod tests {
             config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
             "/patched/path/to/policy"
         );
+        let pools = config.pools.as_ref().unwrap();
+        assert_eq!(
+            pools.get("lo-ip").unwrap(),
+            &ResourcePoolDef {
+                ranges: Vec::new(),
+                prefix: Some("10.180.63.0/26".to_string()),
+                pool_type: resource_pool::ResourcePoolType::Ipv4
+            }
+        );
+        assert!(pools.get("pkey").is_none());
     }
 
     #[test]
@@ -196,6 +209,37 @@ mod tests {
         assert_eq!(
             config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
             "/path/to/policy"
+        );
+        let pools = config.pools.as_ref().unwrap();
+        assert_eq!(
+            pools.get("lo-ip").unwrap(),
+            &ResourcePoolDef {
+                ranges: Vec::new(),
+                prefix: Some("10.180.62.1/26".to_string()),
+                pool_type: resource_pool::ResourcePoolType::Ipv4
+            }
+        );
+        assert_eq!(
+            pools.get("vlan-id").unwrap(),
+            &ResourcePoolDef {
+                ranges: vec![resource_pool::Range {
+                    start: "100".to_string(),
+                    end: "501".to_string()
+                }],
+                prefix: None,
+                pool_type: resource_pool::ResourcePoolType::Integer
+            }
+        );
+        assert_eq!(
+            pools.get("pkey").unwrap(),
+            &ResourcePoolDef {
+                ranges: vec![resource_pool::Range {
+                    start: "1".to_string(),
+                    end: "10".to_string()
+                }],
+                prefix: None,
+                pool_type: resource_pool::ResourcePoolType::Integer
+            }
         );
     }
 
@@ -233,6 +277,37 @@ mod tests {
         assert_eq!(
             config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
             "/patched/path/to/policy"
+        );
+        let pools = config.pools.as_ref().unwrap();
+        assert_eq!(
+            pools.get("lo-ip").unwrap(),
+            &ResourcePoolDef {
+                ranges: Vec::new(),
+                prefix: Some("10.180.63.0/26".to_string()),
+                pool_type: resource_pool::ResourcePoolType::Ipv4
+            }
+        );
+        assert_eq!(
+            pools.get("vlan-id").unwrap(),
+            &ResourcePoolDef {
+                ranges: vec![resource_pool::Range {
+                    start: "100".to_string(),
+                    end: "501".to_string()
+                }],
+                prefix: None,
+                pool_type: resource_pool::ResourcePoolType::Integer
+            }
+        );
+        assert_eq!(
+            pools.get("pkey").unwrap(),
+            &ResourcePoolDef {
+                ranges: vec![resource_pool::Range {
+                    start: "1".to_string(),
+                    end: "10".to_string()
+                }],
+                prefix: None,
+                pool_type: resource_pool::ResourcePoolType::Integer
+            }
         );
     }
 

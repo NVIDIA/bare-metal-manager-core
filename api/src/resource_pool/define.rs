@@ -82,7 +82,7 @@ async fn define(
     Ok(())
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub struct ResourcePoolDef {
     #[serde(default)]
     pub ranges: Vec<Range>,
@@ -92,13 +92,13 @@ pub struct ResourcePoolDef {
     pub pool_type: ResourcePoolType,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub struct Range {
     pub start: String,
     pub end: String,
 }
 
-#[derive(Debug, Deserialize, Copy, Clone)]
+#[derive(Debug, Deserialize, Copy, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ResourcePoolType {
     Ipv4,

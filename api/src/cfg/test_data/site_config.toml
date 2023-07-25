@@ -11,3 +11,7 @@ root_cafile_path="/patched/path/to/ca"
 [auth]
 permissive_mode=true
 casbin_policy_file="/patched/path/to/policy"
+
+[pools.lo-ip]
+type = "ipv4"
+prefix = "10.180.63.0/26"
