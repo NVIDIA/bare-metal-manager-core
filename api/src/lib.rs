@@ -12,8 +12,10 @@
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::net::IpAddr;
 
-use dhcp::allocation::DhcpError;
 use mac_address::MacAddress;
+use tonic::Status;
+
+use dhcp::allocation::DhcpError;
 use model::hardware_info::HardwareInfoError;
 use model::machine::machine_id::MachineId;
 use model::{
@@ -21,7 +23,8 @@ use model::{
     ConfigValidationError, RpcDataConversionError,
 };
 use state_controller::snapshot_loader::SnapshotLoaderError;
-use tonic::Status;
+
+use crate::logging::metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig};
 
 pub mod api;
 pub mod auth;
@@ -39,6 +42,7 @@ pub mod logging;
 pub mod model;
 pub mod redfish;
 pub mod resource_pool;
+pub mod setup;
 pub mod state_controller;
 
 /// Represents various Errors that can occur throughout the system.
@@ -245,3 +249,55 @@ impl From<CarbideError> for tonic::Status {
 /// assert!(matches!(do_something(), Err(CarbideError::GenericError(_))));
 /// ```
 pub type CarbideResult<T> = Result<T, CarbideError>;
+
+pub async fn run(
+    debug: u8,
+    config_str: String,
+    site_config_str: Option<String>,
+) -> eyre::Result<()> {
+    let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
+    let (metrics_exporter, meter) = setup::setup_telemetry(debug, carbide_config.clone()).await?;
+
+    // Redact credentials before printing the config
+    let print_config = {
+        let mut config = carbide_config.as_ref().clone();
+        if let Some(host_index) = config.database_url.find('@') {
+            let host = config.database_url.split_at(host_index).1;
+            config.database_url = format!("postgres://redacted{}", host);
+        }
+        if config.ib_fabric_manager_token.is_some() {
+            config.ib_fabric_manager_token = Some("redacted".to_string());
+        }
+        config
+    };
+    tracing::info!("Using configuration: {:#?}", print_config);
+
+    // Spin up the webserver which servers `/metrics` requests
+    if let Some(metrics_address) = carbide_config.metrics_endpoint {
+        tokio::spawn(async move {
+            if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
+                address: metrics_address,
+                exporter: metrics_exporter,
+            })
+            .await
+            {
+                tracing::error!("Metrics endpoint failed with error: {}", e);
+            }
+        });
+    }
+
+    let forge_vault_client = setup::create_vault_client()?;
+
+    tracing::info!(
+        "Start carbide-api on {}, {}",
+        carbide_config.listen,
+        forge_version::version!()
+    );
+    api::Api::start(
+        carbide_config,
+        forge_vault_client.clone(),
+        forge_vault_client,
+        meter,
+    )
+    .await
+}

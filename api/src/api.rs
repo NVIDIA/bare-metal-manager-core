@@ -3394,7 +3394,7 @@ where
     }
 
     #[tracing::instrument(skip_all)]
-    pub async fn run(
+    pub async fn start(
         carbide_config: Arc<CarbideConfig>,
         credential_provider: Arc<C1>,
         certificate_provider: Arc<C2>,
