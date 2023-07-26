@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::str::FromStr;
+use std::time::Duration;
 
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::machine_interface::MachineInterface;
@@ -19,6 +20,8 @@ use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
 use carbide::db::vpc::Vpc;
 use carbide::db::UuidKeyedObjectFilter;
 use carbide::model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState};
+use carbide::resource_pool::common::VLANID;
+use carbide::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
 use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use mac_address::MacAddress;
 
@@ -164,7 +167,7 @@ async fn test_network_segment_lifecycle_impl(
         .await;
 
     // Wait for the drain period
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     // delete the segment
     env.run_network_segment_controller_iteration(segment_id, &state_handler)
@@ -453,6 +456,89 @@ async fn test_network_segment_max_history_length(
         );
     }
     txn.rollback().await.unwrap();
+
+    Ok(())
+}
+
+/// Create a network segment, delete it - release it's vlan_id,
+/// and then create an new network segment.
+/// The new segment should be able to re-use the vlan_id from
+/// the deleted segment.
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+
+    let state_handler = NetworkSegmentStateHandler::new(
+        chrono::Duration::milliseconds(500),
+        env.common_pools.ethernet.pool_vlan_id.clone(),
+        env.common_pools.ethernet.pool_vni.clone(),
+    );
+
+    // create_test_env makes a vlan-id pool, so clean that up first
+    let mut txn = db_pool.begin().await?;
+    sqlx::query("DELETE FROM resource_pool WHERE name = $1")
+        .bind(VLANID)
+        .execute(&mut txn)
+        .await?;
+    txn.commit().await?;
+
+    // Only one vlan-id available
+    let mut txn = db_pool.begin().await?;
+    let vlan_pool = DbResourcePool::new(VLANID.to_string(), ValueType::Integer);
+    vlan_pool.populate(&mut txn, vec!["1".to_string()]).await?;
+    txn.commit().await?;
+
+    // Create a network segment rpc call
+    let segment = create_network_segment_with_api(&env.api, false, true).await;
+    let segment_id = segment.id.clone().unwrap().try_into()?;
+
+    // Value is allocated
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(
+        vlan_pool.stats(&mut txn).await?,
+        ResourcePoolStats { used: 1, free: 0 }
+    );
+    txn.commit().await?;
+
+    // Delete the segment, releasing the VNI back to the pool
+    env.api
+        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+            id: segment.id.clone(),
+        }))
+        .await?;
+    // Ready
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
+    // DrainAllocatedIPs
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
+    // Wait for the drain period
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    // Deleting
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
+    // DBDelete
+    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+        .await;
+
+    // Value is free
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(
+        vlan_pool.stats(&mut txn).await?,
+        ResourcePoolStats { used: 0, free: 1 }
+    );
+    txn.commit().await?;
+
+    // Create a new segment, re-using the VLAN
+    create_network_segment_with_api(&env.api, false, true).await;
+
+    // Value allocated again
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(
+        vlan_pool.stats(&mut txn).await?,
+        ResourcePoolStats { used: 1, free: 0 }
+    );
+    txn.commit().await?;
 
     Ok(())
 }

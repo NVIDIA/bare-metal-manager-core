@@ -196,9 +196,9 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
         .await?;
     txn.commit().await?;
 
-    // Only one vpc-vni available with 1 value
+    // Only one vpc-vni available
     let mut txn = db_pool.begin().await?;
-    let vpc_vni_pool = DbResourcePool::new("vpc-vni".to_string(), ValueType::Integer);
+    let vpc_vni_pool = DbResourcePool::new(VPC_VNI.to_string(), ValueType::Integer);
     vpc_vni_pool
         .populate(&mut txn, vec!["1".to_string()])
         .await?;
