@@ -7,7 +7,7 @@ set -eo pipefail
 # If you need more than one HOST, you can edit the MAC address in the file and call
 # `discover_dpu.sh` to create DPU first and `discover_host.sh` to create host again
 
-MAX_RETRY=10
+MAX_RETRY=20
 if [ $# -ne 4 ]; then
   echo
   echo "Must provide api_server_host, api_server_port, data directory and discovery mode as positional arguments"

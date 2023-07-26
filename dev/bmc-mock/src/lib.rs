@@ -34,6 +34,7 @@ macro_rules! rf {
 #[derive(Clone)]
 pub struct BmcState {
     pub use_qemu: bool,
+    pub cert_path: Option<String>,
 }
 
 pub async fn run(state: BmcState) {
@@ -62,21 +63,25 @@ pub async fn run(state: BmcState) {
             rf!("Systems/:manager_id/Actions/ComputerSystem.Reset"),
             post(set_system_power),
         )
-        .with_state(state);
+        .with_state(state.clone());
 
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-
-    let root = match manifest_dir.try_exists() {
-        Ok(false) => Path::new("/opt/carbide"),
-        Err(error) => panic!(
-            "Could not determine if CARGO_MANIFEST_DIR exists: {}",
-            error
-        ),
-        Ok(true) => manifest_dir,
+    let cert_path = match state.cert_path.as_ref() {
+        Some(cert_path) => Path::new(cert_path),
+        None => {
+            let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+            match manifest_dir.try_exists() {
+                Ok(true) => manifest_dir,
+                Ok(false) => Path::new("/opt/carbide"),
+                Err(error) => panic!(
+                    "Could not determine if CARGO_MANIFEST_DIR exists: {}",
+                    error
+                ),
+            }
+        }
     };
 
-    let cert_file = root.join("cert.pem");
-    let key_file = root.join("key.pem");
+    let cert_file = cert_path.join("tls.crt");
+    let key_file = cert_path.join("tls.key");
     info!("Loading {:?} and {:?}", cert_file, key_file);
     let config = RustlsConfig::from_pem_file(cert_file, key_file)
         .await

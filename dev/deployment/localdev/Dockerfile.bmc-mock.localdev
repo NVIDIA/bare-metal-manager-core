@@ -13,5 +13,5 @@ FROM registry.minikube/runtime-container:latest as carbide
 
 WORKDIR ./carbide
 COPY .skaffold/target/bmc-mock/debug/bmc-mock /opt/carbide/
-COPY dev/bmc-mock/cert.pem /opt/carbide/
-COPY dev/bmc-mock/key.pem /opt/carbide/
+COPY dev/bmc-mock/tls.crt /opt/carbide/
+COPY dev/bmc-mock/tls.key /opt/carbide/

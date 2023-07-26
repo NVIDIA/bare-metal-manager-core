@@ -41,9 +41,10 @@ async fn main() {
 
     let args = command_line::parse_args();
     info!("Using qemu: {}", args.use_qemu);
-
+    info!("Using cert_path: {:?}", args.cert_path);
     bmc_mock::run(bmc_mock::BmcState {
         use_qemu: args.use_qemu,
+        cert_path: args.cert_path,
     })
     .await;
 }

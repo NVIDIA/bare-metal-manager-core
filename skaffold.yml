@@ -38,6 +38,12 @@ build:
       sync:
         infer:
           - "libdhcp.so"
+    - image: registry.minikube/bmc-mock
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.bmc-mock.localdev
+      sync:
+        infer:
+          - "bmc-mock"
 
 manifests:
   kustomize:
