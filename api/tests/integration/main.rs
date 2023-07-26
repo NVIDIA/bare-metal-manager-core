@@ -65,7 +65,10 @@ async fn test_integration() -> eyre::Result<()> {
     // Dependencies: Postgres, Vault and a Redfish BMC
     m.run(&db_pool).await?;
     let vault = vault::start(bins.get("vault").unwrap())?;
-    tokio::spawn(bmc_mock::run(bmc_mock::BmcState { use_qemu: false }));
+    tokio::spawn(bmc_mock::run(bmc_mock::BmcState {
+        use_qemu: false,
+        cert_path: None,
+    }));
 
     let api = api_server::start(
         &root_dir,
