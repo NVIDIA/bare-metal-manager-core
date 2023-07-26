@@ -135,7 +135,7 @@ impl StateHandler for NetworkSegmentStateHandler {
                             "Network Segment {} getting removed from the database",
                             segment_id
                         );
-                        NetworkSegment::force_delete(*segment_id, txn).await?;
+                        NetworkSegment::final_delete(*segment_id, txn).await?;
                     }
                 }
             }

@@ -555,7 +555,7 @@ impl NetworkSegment {
         Ok(segment)
     }
 
-    pub async fn force_delete(
+    pub async fn final_delete(
         segment_id: uuid::Uuid,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<uuid::Uuid, DatabaseError> {

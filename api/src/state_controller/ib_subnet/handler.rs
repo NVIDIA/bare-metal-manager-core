@@ -70,7 +70,7 @@ impl StateHandler for IBSubnetStateHandler {
                             match e {
                                 // The IBSubnet maybe deleted during controller cycle.
                                 CarbideError::NotFoundError { .. } => {
-                                    IBSubnet::force_delete(*subnet_id, txn).await?;
+                                    IBSubnet::final_delete(*subnet_id, txn).await?;
                                     // Release pkey after ib_subnet deleted.
                                     if let Some(pool_pkey) = ctx.services.pool_pkey.as_ref() {
                                         pool_pkey.release(txn, pkey).await?;
