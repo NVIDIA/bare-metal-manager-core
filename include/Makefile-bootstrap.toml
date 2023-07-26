@@ -69,17 +69,24 @@ source ${DATA_PATH}/envrc
 CONTAINER_DATA_PATH=${CONTAINER_REPO_ROOT:-${REPO_ROOT}}/dev/${FORGE_BOOTSTRAP_KIND}-env
 echo using container data path ${CONTAINER_DATA_PATH}
 
-vpc=$(grpcurl -d '{"name":"test_vpc"}' -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateVpc | jq ".id.value" | tr -d '"')
-domain=$(grpcurl -d '{"name":"forge.local"}' -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateDomain | jq ".id.value" | tr -d '"')
-segment=$(grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"segment_type\":1, \"prefixes\":[{\"prefix\":\"${NET_PREFIX}\",\"gateway\":\"${NET_GATEWAY}\",\"reserve_first\":100}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateNetworkSegment | jq ".id.value" | tr -d '"')
+SEGMENT_COUNT=$(${REPO_ROOT}/dev/bin/psql.sh 'select count(*) from network_segments;' | tr -d '\n\r ')
 
-echo "vpc: $vpc domain: $domain segment: $segment"
+if [ 0 -eq ${SEGMENT_COUNT} ]
+then
+	vpc=$(grpcurl -d '{"name":"test_vpc"}' -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateVpc | jq ".id.value" | tr -d '"')
+	domain=$(grpcurl -d '{"name":"forge.local"}' -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateDomain | jq ".id.value" | tr -d '"')
+	segment=$(grpcurl -d "{\"name\":\"test\", \"mtu\": 1490, \"segment_type\":1, \"prefixes\":[{\"prefix\":\"${NET_PREFIX}\",\"gateway\":\"${NET_GATEWAY}\",\"reserve_first\":100}], \"subdomain_id\": { \"value\":\"$domain\"}, \"vpc_id\": { \"value\": \"$vpc\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateNetworkSegment | jq ".id.value" | tr -d '"')
 
-echo "Waiting for the network segment to become ready"
-while [ $(grpcurl -d "{\"id\": {\"value\": \"$segment\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindNetworkSegments | jq ".networkSegments[0].state") != '"READY"' ]; do
-	echo -n '.'
-	sleep 1
-done
+	echo "vpc: $vpc domain: $domain segment: $segment"
+
+	echo "Waiting for the network segment to become ready"
+	while [ $(grpcurl -d "{\"id\": {\"value\": \"$segment\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindNetworkSegments | jq ".networkSegments[0].state") != '"READY"' ]; do
+		echo -n '.'
+		sleep 1
+	done
+else
+	echo "${SEGMENT_COUNT} network segments exist. Skipping."
+fi
 echo ''
 '''
 
