@@ -9,90 +9,106 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
 
-use std::io::{BufRead, BufReader};
-use std::path;
-use std::process;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use carbide::cfg::{AuthConfig, CarbideConfig, TlsConfig};
+use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
 
-// What to look for in logs toknow the server has started
-const START_TOKEN: &str = "Started carbide-api HTTP listener";
+use crate::common;
 
-pub struct CarbideApi(Arc<Mutex<CarbideApiInner>>);
+pub async fn start(root_dir: String, db_url: String, vault_token: String) -> eyre::Result<()> {
+    let carbide_config = CarbideConfig {
+        listen: "127.0.0.1:1079".parse().unwrap(),
+        metrics_endpoint: Some("127.0.0.1:1080".parse().unwrap()),
+        otlp_endpoint: None,
+        database_url: db_url,
+        ib_fabric_manager: None,
+        ib_fabric_manager_token: None,
+        rapid_iterations: true,
+        asn: 65535,
+        dhcp_servers: vec![],
+        route_servers: vec![],
+        tls: Some(TlsConfig {
+            identity_pemfile_path: format!("{root_dir}/dev/certs/server_identity.pem"),
+            identity_keyfile_path: format!("{root_dir}/dev/certs/server_identity.key"),
+            root_cafile_path: format!(
+                "{root_dir}/dev/certs/forge_developer_local_only_root_cert_pem"
+            ),
+            admin_root_cafile_path: "nothing_will_read_from_this_during_integration_tests"
+                .to_string(),
+        }),
+        auth: Some(AuthConfig {
+            permissive_mode: true,
+            casbin_policy_file: format!("{root_dir}/api/casbin-policy.csv").into(),
+        }),
+        pools: Some(HashMap::from([
+            (
+                "lo-ip".to_string(),
+                ResourcePoolDef {
+                    pool_type: ResourcePoolType::Ipv4,
+                    prefix: Some("10.180.62.1/26".to_string()),
+                    ranges: vec![],
+                },
+            ),
+            (
+                "vlan-id".to_string(),
+                ResourcePoolDef {
+                    pool_type: ResourcePoolType::Integer,
+                    prefix: None,
+                    ranges: vec![Range {
+                        start: "100".to_string(),
+                        end: "501".to_string(),
+                    }],
+                },
+            ),
+            (
+                "vni".to_string(),
+                ResourcePoolDef {
+                    pool_type: ResourcePoolType::Integer,
+                    prefix: None,
+                    ranges: vec![Range {
+                        start: "1024500".to_string(),
+                        end: "1024550".to_string(),
+                    }],
+                },
+            ),
+            (
+                "vpc-vni".to_string(),
+                ResourcePoolDef {
+                    pool_type: ResourcePoolType::Integer,
+                    prefix: None,
+                    ranges: vec![Range {
+                        start: "2024500".to_string(),
+                        end: "2024550".to_string(),
+                    }],
+                },
+            ),
+            (
+                "pkey".to_string(),
+                ResourcePoolDef {
+                    pool_type: ResourcePoolType::Integer,
+                    prefix: None,
+                    ranges: vec![Range {
+                        start: "1".to_string(),
+                        end: "10".to_string(),
+                    }],
+                },
+            ),
+        ])),
+    };
 
-struct CarbideApiInner {
-    pub has_started: bool,
-    process: process::Child,
-}
+    std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");
+    std::env::set_var("VAULT_KV_MOUNT_LOCATION", "secret");
+    std::env::set_var("VAULT_PKI_MOUNT_LOCATION", "forgeca");
+    std::env::set_var("VAULT_PKI_ROLE_NAME", "forge-cluster");
+    std::env::set_var("VAULT_TOKEN", vault_token);
 
-pub fn start(
-    root_dir: &path::Path,
-    db_url: &str,
-    vault_token: &str,
-    carbide_api: &path::Path,
-) -> Result<CarbideApi, eyre::Report> {
-    let cfg_file_template = root_dir.join("api/tests/integration/config/carbide-api-config.toml");
-    let template = std::fs::read_to_string(cfg_file_template)?;
-    let config_file = template
-        .replace("$ROOT_DIR", root_dir.to_str().unwrap())
-        .replace("$DATABASE_URL", db_url);
-    const CONFIG_FILE_PATH: &str = "/tmp/carbide-api-integration-test-config.toml";
-    std::fs::write(CONFIG_FILE_PATH, config_file)?;
-
-    let mut process = process::Command::new(carbide_api)
-        .env("VAULT_ADDR", "http://127.0.0.1:8200")
-        .env("VAULT_KV_MOUNT_LOCATION", "secret")
-        .env("VAULT_PKI_MOUNT_LOCATION", "forgeca")
-        .env("VAULT_PKI_ROLE_NAME", "forge-cluster")
-        .env("VAULT_TOKEN", vault_token)
-        .arg("run")
-        .arg("--config-path")
-        .arg(CONFIG_FILE_PATH)
-        .stdout(process::Stdio::piped())
-        .stderr(process::Stdio::piped())
-        .spawn()?;
-    let stdout = BufReader::new(process.stdout.take().unwrap());
-    let stderr = BufReader::new(process.stderr.take().unwrap());
-
-    let api = Arc::new(Mutex::new(CarbideApiInner {
-        has_started: false,
-        process,
-    }));
-
-    let api_stdout = api.clone();
-    thread::spawn(move || {
-        let mut maybe_api = Some(api_stdout);
-        for line in stdout.lines().map(|l| l.unwrap()) {
-            if line.contains(START_TOKEN) {
-                maybe_api.unwrap().lock().unwrap().has_started = true;
-                maybe_api = None; // drop it so we can reclaim the Arc later
-            }
-            tracing::debug!("{}", line);
-        }
-    });
-    thread::spawn(move || {
-        for line in stderr.lines() {
-            tracing::error!("{}", line.unwrap());
-        }
-    });
-
-    Ok(CarbideApi(api))
-}
-
-impl CarbideApi {
-    pub fn has_started(&self) -> bool {
-        self.0.lock().unwrap().has_started
-    }
-}
-
-impl Drop for CarbideApi {
-    fn drop(&mut self) {
-        let inner = self.0.lock().unwrap();
-        let mut kill = process::Command::new("kill")
-            .args(["-s", "TERM", &inner.process.id().to_string()])
-            .spawn()
-            .expect("'kill' carbide-api");
-        kill.wait().expect("wait");
-    }
+    let carbide_config_str = toml::to_string(&carbide_config).unwrap();
+    carbide::run(
+        0,
+        carbide_config_str,
+        None,
+        Some(common::test_logging::test_logging_subscriber()),
+    )
+    .await
 }

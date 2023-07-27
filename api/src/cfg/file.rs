@@ -10,15 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 use crate::resource_pool::ResourcePoolDef;
 
 /// carbide-api configuration file content
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CarbideConfig {
     /// The socket address that is used for the gRPC API server
     #[serde(default = "default_listen")]
@@ -74,7 +75,7 @@ pub struct CarbideConfig {
 }
 
 /// TLS related configuration
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TlsConfig {
     #[serde(default)]
     pub root_cafile_path: String,
@@ -90,7 +91,7 @@ pub struct TlsConfig {
 }
 
 /// Autentication related configuration
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AuthConfig {
     /// Enable permissive mode in the authorization enforcer (for development).
     pub permissive_mode: bool,
@@ -105,13 +106,14 @@ fn default_listen() -> SocketAddr {
 
 #[cfg(test)]
 mod tests {
-    use crate::resource_pool;
-
-    use super::*;
     use figment::{
         providers::{Env, Format, Toml},
         Figment,
     };
+
+    use crate::resource_pool;
+
+    use super::*;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 

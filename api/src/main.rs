@@ -12,6 +12,7 @@
 
 use clap::CommandFactory;
 use sqlx::PgPool;
+use tracing::subscriber::NoSubscriber;
 
 use carbide::cfg::{Command, Options};
 
@@ -37,6 +38,9 @@ async fn main() -> eyre::Result<()> {
             carbide::db::migrations::migrate(&pool).await?;
         }
         Command::Run(ref config) => {
+            // THIS SECTION HAS BEEN INTENTIONALLY KEPT SMALL.
+            // Nothing should go before the call to carbide::run that isn't already here.
+            // Everything that you think might belong here, belongs in carbide::run.
             let config_str = tokio::fs::read_to_string(&config.config_path).await?;
             let site_config_str = if let Some(site_path) = &config.site_config_path {
                 Some(tokio::fs::read_to_string(&site_path).await?)
@@ -44,7 +48,7 @@ async fn main() -> eyre::Result<()> {
                 None
             };
 
-            carbide::run(debug, config_str, site_config_str).await?;
+            carbide::run(debug, config_str, site_config_str, None::<NoSubscriber>).await?;
         }
     }
     Ok(())

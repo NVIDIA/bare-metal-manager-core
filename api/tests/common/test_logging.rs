@@ -11,10 +11,9 @@
  */
 
 use tracing::metadata::LevelFilter;
-use tracing_subscriber::{filter::EnvFilter, fmt::TestWriter, prelude::*};
+use tracing_subscriber::{filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt};
 
-/// Initializes the `tracing` logging system for the use in integration tests
-pub fn init() {
+pub fn test_logging_subscriber() -> impl SubscriberInitExt {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy()
@@ -27,12 +26,18 @@ pub fn init() {
     // Note: `TestWriter` is required to use the standard behavior of Rust unit tests:
     // - Successful tests won't show output unless forced by the `--nocapture` CLI argument
     // - Failing tests will have their output printed
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::Layer::default()
-                .compact()
-                .with_writer(TestWriter::new),
-        )
-        .with(env_filter)
-        .init();
+    Box::new(
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::fmt::Layer::default()
+                    .compact()
+                    .with_writer(TestWriter::new),
+            )
+            .with(env_filter),
+    )
+}
+
+/// Initializes the `tracing` logging system for the use in integration tests
+pub fn init() {
+    test_logging_subscriber().init();
 }

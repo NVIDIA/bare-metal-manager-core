@@ -26,7 +26,9 @@ use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_prometheus::PrometheusExporter;
 use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
 use opentelemetry_semantic_conventions as semcov;
-use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
+use tracing_subscriber::{
+    filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, util::SubscriberInitExt,
+};
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
 use forge_secrets::ForgeVaultClient;
@@ -81,6 +83,7 @@ pub fn create_vault_client() -> eyre::Result<Arc<ForgeVaultClient>> {
 pub async fn setup_telemetry(
     debug: u8,
     carbide_config: Arc<CarbideConfig>,
+    logging_subscriber: Option<impl SubscriberInitExt>,
 ) -> eyre::Result<(Arc<PrometheusExporter>, Meter)> {
     // This configures the tracing framework
     // We ignore a lot of spans and events from 3rd party frameworks
@@ -162,20 +165,23 @@ pub async fn setup_telemetry(
         .with_line_number(true)
         .with_ansi(false);
 
-    let logging_subscriber = tracing_subscriber::registry()
-        .with(stdout_formatter)
-        .with(env_filter)
-        .with(telemetry);
-
-    if let Some(otel) = carbide_config.as_ref().clone().otlp_endpoint {
-        let otel_tracer = tracing_opentelemetry::layer()
-            .with_tracer(init_otlp_tracer(otel.as_ref())?)
-            .with_exception_fields(true)
-            .with_threads(false);
-        logging_subscriber.with(otel_tracer).try_init()?;
-    } else {
+    if let Some(logging_subscriber) = logging_subscriber {
         logging_subscriber.try_init()?;
-    }
+    } else {
+        let logging_subscriber = tracing_subscriber::registry()
+            .with(stdout_formatter)
+            .with(env_filter)
+            .with(telemetry);
+        if let Some(otel) = carbide_config.as_ref().clone().otlp_endpoint {
+            let otel_tracer = tracing_opentelemetry::layer()
+                .with_tracer(init_otlp_tracer(otel.as_ref())?)
+                .with_exception_fields(true)
+                .with_threads(false);
+            logging_subscriber.with(otel_tracer).try_init()?;
+        } else {
+            logging_subscriber.try_init()?;
+        }
+    };
 
     // Set up OpenTelemetry metrics export via prometheus
     // TODO: The configuration here is copy&pasted from
