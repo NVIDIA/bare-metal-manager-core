@@ -770,6 +770,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3be2866a3a3174b9d31a11d9f9ef219ab84a444d107981c51bf79d7be221adc"
 dependencies = [
  "async-trait",
+ "globset",
  "lazy_static",
  "parking_lot 0.11.2",
  "regex",

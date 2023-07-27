@@ -12,12 +12,17 @@
 use std::error;
 use std::path::{Path, PathBuf};
 
-use crate::auth::{Action, Authorization, AuthorizationError, Object, PolicyEngine, Principal};
+use crate::auth::{Authorization, AuthorizationError, PolicyEngine, Predicate, Principal};
 
 use casbin::{CoreApi, DefaultModel, Enforcer, FileAdapter};
 
 pub enum ModelType {
-    BasicAcl,
+    // Basic ACL with three arguments (subject, action, object)
+    _BasicAcl,
+
+    // A custom model that does RBAC on (subject, action) with glob matching
+    // on the action.
+    Rbac,
 }
 
 pub struct CasbinEngine {
@@ -29,9 +34,7 @@ impl CasbinEngine {
         model_type: ModelType,
         policy_path: &Path,
     ) -> Result<Self, Box<dyn error::Error>> {
-        let model = match model_type {
-            ModelType::BasicAcl => build_acl_model().await,
-        };
+        let model = build_model(model_type).await;
         let policy_path = PathBuf::from(policy_path);
         let adapter = FileAdapter::new(policy_path);
         let enforcer = Enforcer::new(model, adapter).await?;
@@ -43,29 +46,31 @@ impl PolicyEngine for CasbinEngine {
     fn authorize(
         &self,
         principals: &[Principal],
-        action: Action,
-        object: Object,
+        predicate: Predicate,
     ) -> Result<Authorization, AuthorizationError> {
-        let cas_action = action.as_str();
-        let cas_object = object.as_str();
-        let mut principals = Vec::from(principals);
-
-        // Make sure we always check anonymous access as a last resort.
-        principals.push(Principal::Anonymous);
-
         let enforcer = &self.inner;
+
+        // We move the predicate into the Authorization later, so let's record a
+        // printable version of it up front for our logging needs.
+        let dbg_predicate = format!("{:?}", &predicate);
 
         let auth_result = principals
             .iter()
             .find(|principal| {
                 let cas_subject = principal.as_identifier();
-                // Casbin doesn't type these very strongly; be careful
-                // they're in the correct order:
-                let sub_obj_act = (cas_subject, cas_object, cas_action);
-                match enforcer.enforce(sub_obj_act) {
+                // Casbin is pretty stringly-typed under the hood. Be careful
+                // that what we're passing in here matches the order that the
+                // model and policy use.
+                let enforce_result = match &predicate {
+                    Predicate::ForgeCall(method) => {
+                        let forge_call = format!("forge/{method}");
+                        enforcer.enforce((cas_subject, forge_call))
+                        }
+                };
+                match enforce_result {
                     Ok(true) => true,
                     Ok(false) => {
-                        tracing::debug!("CasbinEngine: denied (principal={principal:?}, object={object:?}, action={action:?})");
+                        tracing::debug!("CasbinEngine: denied (principal={principal:?}, predicate={dbg_predicate:?})");
                         false
                     }
                     Err(e) => {
@@ -76,13 +81,12 @@ impl PolicyEngine for CasbinEngine {
             })
             .map(|principal| Authorization {
                 principal: principal.clone(),
-                action,
-                object,
+                predicate,
             })
             .ok_or_else(|| {
                 let reason = format!(
                     "CasbinEngine: all auth principals denied by enforcer \
-                    (object={object:?}, action={action:?}, principals={principals:?})"
+                    (predicate={dbg_predicate:?}, principals={principals:?})"
                 );
                 AuthorizationError::Unauthorized(reason)
                 }
@@ -96,11 +100,15 @@ impl PolicyEngine for CasbinEngine {
     }
 }
 
-async fn build_acl_model() -> DefaultModel {
+async fn build_model(model_type: ModelType) -> DefaultModel {
     // TODO: Is it possible to build this using the inscrutable .add_def()
     // method of DefaultModel? That seems to be what from_str() is implemented
     // on top of.
-    DefaultModel::from_str(MODEL_CONFIG_ACL)
+    let policy_config = match model_type {
+        ModelType::_BasicAcl => MODEL_CONFIG_ACL,
+        ModelType::Rbac => MODEL_CONFIG_RBAC,
+    };
+    DefaultModel::from_str(policy_config)
         .await
         .expect("Could not load ACL model")
 }
@@ -118,4 +126,21 @@ e = some(where (p.eft == allow))
 
 [matchers]
 m = r.sub == p.sub && r.obj == p.obj && r.act == p.act
+"#;
+
+const MODEL_CONFIG_RBAC: &str = r#"
+[request_definition]
+r = sub, act
+
+[policy_definition]
+p = sub, act
+
+[role_definition]
+g = _, _
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = g(r.sub, p.sub) && globMatch(r.act, p.act)
 "#;

@@ -15,6 +15,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 mod casbin_engine;
+pub mod middleware;
 pub mod spiffe_id; // public for doctests
 
 // Principal: something like an account, service, address, or other
@@ -22,7 +23,19 @@ pub mod spiffe_id; // public for doctests
 // construction.
 #[derive(Clone, Debug)]
 pub enum Principal {
-    CertificateIdentity(String),
+    // A SPIFFE ID after the trust domain and base path have been removed.
+    SpiffeServiceIdentifier(String),
+    SpiffeMachineIdentifier(String),
+
+    // The role from an Nvinit cert.
+    _NvinitUserRole(String),
+
+    // Any certificate that was trusted by the TLS acceptor. This is a superset
+    // of what gets mapped into the SPIFFE or nvinit principals, so any request
+    // with one of those will also have one of these (but not necessarily the
+    // other way around).
+    TrustedCertificate,
+
     // JWT(Claims),
     // ClientAddress(IPAddr),
 
@@ -34,7 +47,18 @@ pub enum Principal {
 impl Principal {
     pub fn as_identifier(&self) -> String {
         match self {
-            Principal::CertificateIdentity(identity) => format!("certificate-identity/{identity}"),
+            Principal::SpiffeServiceIdentifier(identifier) => {
+                format!("spiffe-service-id/{identifier}")
+            }
+            Principal::SpiffeMachineIdentifier(_identifier) => {
+                // We don't care so much about the specific machine id, but we
+                // do want to grant permissions to machines as a class.
+                "spiffe-machine-id".into()
+            }
+            Principal::_NvinitUserRole(role) => {
+                format!("nvinit-user-role/{role}")
+            }
+            Principal::TrustedCertificate => "trusted-certificate".into(),
             Principal::Anonymous => "anonymous".into(),
         }
     }
@@ -42,17 +66,56 @@ impl Principal {
     // Note: no certificate verification is performed here!
     pub fn try_from_client_certificate(
         certificate: &tokio_rustls::rustls::Certificate,
+        spiffe_context: &forge_spiffe::ForgeSpiffeContext,
     ) -> Result<Principal, SpiffeError> {
+        // TODO: recognize and parse an nvinit certificate.
         let der_bytes = &certificate.0;
         let spiffe_id = forge_spiffe::validate_x509_certificate(der_bytes.as_slice())?;
-        // FIXME: we shouldn't be making a new one of these every time, better
-        // to pass one in from somewhere so we can reuse it
-        let context = forge_spiffe::ForgeSpiffeContext::new(
-            spiffe_id::TrustDomain::new("forge.local").unwrap(),
-            String::from("/ns/forge-system/sa/"),
-        );
-        let service_id = context.extract_service_identifier(&spiffe_id)?;
-        Ok(Principal::CertificateIdentity(service_id))
+        let service_id = spiffe_context.extract_service_identifier(&spiffe_id)?;
+        Ok(match service_id {
+            forge_spiffe::SpiffeIdClass::Service(service_id) => {
+                Principal::SpiffeServiceIdentifier(service_id)
+            }
+            forge_spiffe::SpiffeIdClass::Machine(machine_id) => {
+                Principal::SpiffeMachineIdentifier(machine_id)
+            }
+        })
+    }
+}
+
+// This is added to the extensions of a request. The authentication (authn)
+// middleware populates the `principals` field, and the authorization (authz)
+// middleware sets the `authorization` field.
+pub struct AuthContext {
+    pub principals: Vec<Principal>,
+    pub authorization: Option<Authorization>,
+}
+
+impl AuthContext {
+    pub fn get_spiffe_service_id(&self) -> Option<&str> {
+        self.principals.iter().find_map(|p| match p {
+            Principal::SpiffeServiceIdentifier(identifier) => Some(identifier.as_str()),
+            _ => None,
+        })
+    }
+
+    pub fn get_spiffe_machine_id(&self) -> Option<&str> {
+        self.principals.iter().find_map(|p| match p {
+            Principal::SpiffeMachineIdentifier(identifier) => Some(identifier.as_str()),
+            _ => None,
+        })
+    }
+}
+
+impl Default for AuthContext {
+    fn default() -> Self {
+        // We'll probably only ever see 1-2 principals associated with a request.
+        let principals = Vec::with_capacity(4);
+        let authorization = None;
+        AuthContext {
+            principals,
+            authorization,
+        }
     }
 }
 
@@ -65,36 +128,14 @@ pub enum SpiffeError {
     Recognition(#[from] forge_spiffe::ForgeSpiffeContextError),
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Action {
-    Create,
-    Read,
-    Update,
-    Delete,
-}
-
-impl Action {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Action::Create => "create",
-            Action::Read => "read",
-            Action::Update => "update",
-            Action::Delete => "delete",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum Object {
-    Instance,
-}
-
-impl Object {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Object::Instance => "instance",
-        }
-    }
+// This is a "predicate" in the grammar sense of the word, so it's some sort of
+// action that may or may not specify an object it's acting on.
+#[derive(Clone, Debug)]
+pub enum Predicate {
+    // A call to a Forge-owned gRPC method. The string is the gRPC method name,
+    // relative to the Forge service that contains it (i.e. without any slash
+    // delimiters).
+    ForgeCall(String),
 }
 
 pub trait PrincipalExtractor {
@@ -110,6 +151,12 @@ impl<T> PrincipalExtractor for tonic::Request<T> {
     }
 }
 
+impl PrincipalExtractor for &[Principal] {
+    fn principals(&self) -> Vec<Principal> {
+        self.to_vec()
+    }
+}
+
 // An Authorization is sort of like a ticket that says we're allowed to do the
 // thing we're trying to do, and specifically which Principal was permitted to
 // do it.
@@ -117,8 +164,7 @@ impl<T> PrincipalExtractor for tonic::Request<T> {
 #[derive(Clone, Debug)]
 pub struct Authorization {
     principal: Principal,
-    action: Action,
-    object: Object,
+    predicate: Predicate,
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
@@ -139,8 +185,7 @@ pub trait PolicyEngine {
     fn authorize(
         &self,
         principals: &[Principal],
-        action: Action,
-        object: Object,
+        predicate: Predicate,
     ) -> Result<Authorization, AuthorizationError>;
 }
 
@@ -159,16 +204,20 @@ impl Authorizer {
     pub fn authorize<R: PrincipalExtractor>(
         &self,
         req: &R,
-        action: Action,
-        object: Object,
+        predicate: Predicate,
     ) -> Result<Authorization, AuthorizationError> {
-        let principals = req.principals();
+        let mut principals = req.principals();
+
+        // We will also explicitly check anonymous to make the policy easier
+        // to express.
+        principals.push(Principal::Anonymous);
+
         let engine = self.policy_engine.clone();
         tracing::debug!(
-            "Checking authorization with (object={object:?}, action={action:?}, \
+            "Checking authorization with (predicate={predicate:?}, \
             principals={principals:?})"
         );
-        engine.authorize(&principals, action, object)
+        engine.authorize(&principals, predicate)
     }
 
     // TODO: config this out in release mode?
@@ -184,7 +233,7 @@ impl Authorizer {
         permissive_mode: bool,
     ) -> Result<Self, AuthorizerError> {
         use casbin_engine::{CasbinEngine, ModelType};
-        let engine = CasbinEngine::new(ModelType::BasicAcl, policy_path)
+        let engine = CasbinEngine::new(ModelType::Rbac, policy_path)
             .await
             .map_err(|e| AuthorizerError::InitializationError(e.to_string()))?;
         let engine_object: Arc<PolicyEngineObject> = Arc::new(engine);
@@ -217,10 +266,9 @@ impl PolicyEngine for PermissiveWrapper {
     fn authorize(
         &self,
         principals: &[Principal],
-        action: Action,
-        object: Object,
+        predicate: Predicate,
     ) -> Result<Authorization, AuthorizationError> {
-        let result = self.inner.authorize(principals, action, object);
+        let result = self.inner.authorize(principals, predicate.clone());
         result.or_else(|e| {
             tracing::warn!(
                 "The policy engine denied this request, but \
@@ -234,8 +282,7 @@ impl PolicyEngine for PermissiveWrapper {
             // to use here? "Development"?
             let authorization = Authorization {
                 principal: Principal::Anonymous,
-                action,
-                object,
+                predicate,
             };
             Ok(authorization)
         })
@@ -248,15 +295,13 @@ impl PolicyEngine for NoopEngine {
     fn authorize(
         &self,
         _principals: &[Principal],
-        action: Action,
-        object: Object,
+        predicate: Predicate,
     ) -> Result<Authorization, AuthorizationError> {
         // FIXME: same problem again as the PermissiveWrapper implementation.
         // Figure out a name for this use case, and use that instead.
         Ok(Authorization {
             principal: Principal::Anonymous,
-            action,
-            object,
+            predicate,
         })
     }
 }
@@ -351,23 +396,44 @@ pub mod forge_spiffe {
         ValidationError(String),
     }
 
+    pub enum SpiffeIdClass {
+        Service(String),
+        Machine(String),
+    }
+
+    impl SpiffeIdClass {
+        fn identifier(&self) -> &str {
+            let identifier = match self {
+                SpiffeIdClass::Service(identifier) => identifier,
+                SpiffeIdClass::Machine(identifier) => identifier,
+            };
+            identifier.as_str()
+        }
+    }
+
     pub struct ForgeSpiffeContext {
         trust_domain: spiffe_id::TrustDomain,
         service_base_path: String,
+        machine_base_path: String,
     }
 
     impl ForgeSpiffeContext {
-        pub fn new(trust_domain: spiffe_id::TrustDomain, service_base_path: String) -> Self {
+        pub fn new(
+            trust_domain: spiffe_id::TrustDomain,
+            service_base_path: String,
+            machine_base_path: String,
+        ) -> Self {
             ForgeSpiffeContext {
                 trust_domain,
                 service_base_path,
+                machine_base_path,
             }
         }
 
         pub fn extract_service_identifier(
             &self,
             spiffe_id: &spiffe_id::SpiffeId,
-        ) -> Result<String, ForgeSpiffeContextError> {
+        ) -> Result<SpiffeIdClass, ForgeSpiffeContextError> {
             use ForgeSpiffeContextError::*;
 
             if !spiffe_id.is_member_of(&self.trust_domain) {
@@ -380,17 +446,37 @@ pub mod forge_spiffe {
                 )));
             };
             let spiffe_id_path = spiffe_id.path();
-            let service_base_path = self.service_base_path.as_str();
-            let path_remainder = spiffe_id_path.strip_prefix(service_base_path);
-            match path_remainder {
-                Some(identifier) if !identifier.is_empty() => Ok(identifier.into()),
-                Some(_empty) => Err(ContextError(
+            let maybe_service = spiffe_id_path
+                .strip_prefix(self.service_base_path.as_str())
+                .map(|i| SpiffeIdClass::Service(i.into()));
+            let maybe_machine = spiffe_id_path
+                .strip_prefix(self.machine_base_path.as_str())
+                .map(|i| SpiffeIdClass::Machine(i.into()));
+            let maybe_identifier = maybe_service.or(maybe_machine);
+            match maybe_identifier {
+                Some(identifier) if !identifier.identifier().is_empty() => Ok(identifier),
+                Some(_empty_identifier) => Err(ContextError(
                     "The service identifier was empty after removing the base prefix".into(),
                 )),
                 None => Err(ContextError(format!(
                     "The SPIFFE ID path \"{spiffe_id_path}\" does not begin \
-                        with the expected prefix \"{service_base_path}\""
+                        with a recognized prefix (one of \"{0}\" or \"{1}\")",
+                    self.service_base_path.as_str(),
+                    self.machine_base_path.as_str(),
                 ))),
+            }
+        }
+    }
+
+    impl Default for ForgeSpiffeContext {
+        fn default() -> Self {
+            let trust_domain = spiffe_id::TrustDomain::new("forge.local").unwrap();
+            let service_base_path = String::from("/ns/forge-system/sa/");
+            let machine_base_path = String::from("/forge-system/machine/");
+            ForgeSpiffeContext {
+                trust_domain,
+                service_base_path,
+                machine_base_path,
             }
         }
     }

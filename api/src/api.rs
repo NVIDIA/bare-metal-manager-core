@@ -17,11 +17,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::Duration;
-use futures_util::future::BoxFuture;
-use http::header::USER_AGENT;
-use http::{header::AUTHORIZATION, StatusCode};
 use hyper::server::conn::Http;
-use hyper::{Request as HyperRequest, Response as HyperResponse};
 use opentelemetry::metrics::Meter;
 use sqlx::{Postgres, Transaction};
 use tokio::net::TcpListener;
@@ -32,11 +28,11 @@ use tokio_rustls::{
     rustls::{Certificate, PrivateKey, ServerConfig},
     TlsAcceptor,
 };
-use tonic::body::BoxBody;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
-use tower_http::auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer};
+use tower_http::add_extension::AddExtensionLayer;
+use tower_http::auth::AsyncRequireAuthorizationLayer;
 use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
 
@@ -851,10 +847,6 @@ where
     ) -> Result<Response<rpc::InstanceList>, Status> {
         log_request_data(&request);
 
-        let _auth =
-            self.authorizer
-                .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
-
         let mut txn = self
             .database_connection
             .begin()
@@ -908,10 +900,6 @@ where
         request: Request<rpc::MachineId>,
     ) -> Result<Response<InstanceList>, Status> {
         log_request_data(&request);
-
-        let _auth =
-            self.authorizer
-                .authorize(&request, auth::Action::Read, auth::Object::Instance)?;
 
         let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
         log_machine_id(&machine_id);
@@ -1410,13 +1398,6 @@ where
     async fn echo(&self, request: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
         log_request_data(&request);
 
-        if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
-            println!(
-                "Got a request from: {:?} with authorization_type: {:?}, request: {:?}",
-                conn_info.addr, conn_info.authorization_type, request,
-            );
-        }
-
         let reply = EchoResponse {
             message: request.into_inner().message,
         };
@@ -1486,27 +1467,24 @@ where
         &self,
         request: Request<rpc::MachineCertificateRenewRequest>,
     ) -> Result<Response<rpc::MachineCertificateResult>, Status> {
-        if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
-            if let AuthorizationType::Certificate(certificate) = &conn_info.authorization_type {
-                let spiffe_id =
-                    auth::forge_spiffe::validate_x509_certificate(certificate.0.as_slice())
-                        .map_err(|err| CarbideError::ClientCertificateError(format!("{err:?}")))?;
+        if let Some(machine_identity) = request
+            .extensions()
+            .get::<auth::AuthContext>()
+            // XXX: Does a machine's certificate resemble a service's
+            // certificate enough for this to work?
+            .and_then(|auth_context| auth_context.get_spiffe_machine_id())
+        {
+            let certificate = self
+                .certificate_provider
+                .get_certificate(machine_identity)
+                .await
+                .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
 
-                let identifier = spiffe_id.path().split('/').last().ok_or(
-                    CarbideError::ClientCertificateError("missing / in spiffe path?".to_string()),
-                )?;
-
-                let certificate = self
-                    .certificate_provider
-                    .get_certificate(identifier)
-                    .await
-                    .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
-
-                return Ok(Response::new(rpc::MachineCertificateResult {
-                    machine_certificate: Some(certificate.into()),
-                }));
-            }
+            return Ok(Response::new(rpc::MachineCertificateResult {
+                machine_certificate: Some(certificate.into()),
+            }));
         }
+
         Err(
             CarbideError::ClientCertificateError("no client certificate presented?".to_string())
                 .into(),
@@ -1518,15 +1496,6 @@ where
         request: Request<rpc::MachineDiscoveryInfo>,
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
         log_request_data(&request);
-
-        if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
-            tracing::info!(
-                "Got a request from: {:?} with authorization_type: {:?}, request: {:?}",
-                conn_info.addr,
-                conn_info.authorization_type,
-                request,
-            );
-        }
 
         let machine_discovery_info = request.into_inner();
 
@@ -2360,14 +2329,6 @@ where
             ),
         );
 
-        if let Some(conn_info) = request.extensions().get::<ConnInfo>() {
-            tracing::info!(
-                "Got a UpdateBmcMetadata request from: {:?} with authorization_type: {:?}",
-                conn_info.addr,
-                conn_info.authorization_type,
-            );
-        }
-
         let request = BmcMetaDataUpdateRequest::try_from(request.into_inner())?;
         log_machine_id(&request.machine_id);
 
@@ -3122,122 +3083,23 @@ fn get_tls_acceptor<S: AsRef<str>>(
     }
 }
 
-async fn check_auth<B>(
-    request: &HyperRequest<B>,
-    peer_certs: &Arc<Vec<Certificate>>,
-) -> AuthorizationType {
-    if let Some(peer_cert) = peer_certs.first() {
-        //TODO: actually check that this cert is in some way "valid".  Also, check more than just the first one in the list?
-        return AuthorizationType::Certificate(peer_cert.clone());
-    } else if let Some(header) = request.headers().get(AUTHORIZATION) {
-        //TODO: validate that the token is an encoded, valid JWT
-        return AuthorizationType::Jwt(
-            header
-                .to_str()
-                .expect("header not a valid utf8 string?")
-                .to_string(),
-        );
+// This is used as an extension to requests for anything that is an attribute of
+// the connection the request came in on, as opposed to the HTTP request itself.
+// Note that if you're trying to retrieve it, it's probably inside an Arc in the
+// extensions typemap, so .get::<Arc<ConnectionAttributes>>() is what you want.
+pub struct ConnectionAttributes {
+    peer_address: SocketAddr,
+    peer_certificates: Vec<Certificate>,
+}
+
+impl ConnectionAttributes {
+    pub fn peer_address(&self) -> &SocketAddr {
+        &self.peer_address
     }
 
-    let request_uri = request.uri().to_string().to_lowercase();
-    if request_uri.contains("discovermachine") {
-        // TODO: we will eventually need the actual hardware identifier in a header to use right here.
-        return AuthorizationType::TrustedHardwareIdentifier(None);
-    } else if cfg!(debug_assertions) {
-        // only in debug builds, allow grpcurl unrestricted access to the API.
-        if let Some(user_agent) = request.headers().get(USER_AGENT) {
-            if user_agent
-                .to_str()
-                .expect("header not a valid utf8 string?")
-                .to_lowercase()
-                .contains("grpcurl")
-            {
-                return AuthorizationType::AuthorizationNotRequired("grpcurl user agent dev build");
-            }
-        }
+    pub fn peer_certificates(&self) -> &[Certificate] {
+        self.peer_certificates.as_slice()
     }
-
-    AuthorizationType::Unauthorized
-}
-
-#[derive(Debug)]
-enum AuthorizationType {
-    Certificate(Certificate),
-    Jwt(
-        String, /*TODO: type this as some kind of proper JWT struct not just a string*/
-    ),
-    TrustedHardwareIdentifier(
-        Option<String>, /*TODO: make this not optional once we require TPMs*/
-    ),
-    AuthorizationNotRequired(&'static str /*reason*/),
-    Unauthorized,
-}
-
-#[derive(Debug, Clone)]
-struct MiddlewareAuth {
-    addr: SocketAddr,
-    peer_certs: Arc<Vec<Certificate>>,
-}
-
-impl<B> AsyncAuthorizeRequest<B> for MiddlewareAuth
-where
-    B: Send + Sync + 'static,
-{
-    type RequestBody = B;
-    type ResponseBody = BoxBody;
-    type Future = BoxFuture<'static, Result<HyperRequest<B>, HyperResponse<Self::ResponseBody>>>;
-
-    fn authorize(&mut self, mut request: HyperRequest<B>) -> Self::Future {
-        let peer_certs = self.peer_certs.clone();
-        let addr = self.addr;
-        Box::pin(async move {
-            let authorization_type = check_auth(&request, &peer_certs).await;
-
-            match authorization_type {
-                AuthorizationType::Unauthorized => {
-                    // TODO: Since mTLS is not implemented and we always fail auth at the moment,
-                    // don't log the failure, overwrite the result, and let the request proceed
-
-                    // tracing::error!(
-                    //     "failed to authorize request. Peer certs: {:?}. Headers: {:?}. URI: {:?}",
-                    //     peer_certs,
-                    //     request.headers(),
-                    //     request.uri()
-                    // );
-
-                    let boxed = BoxBody::default();
-                    let unauthorized_response = HyperResponse::builder()
-                        .status(StatusCode::UNAUTHORIZED)
-                        .body(boxed)
-                        .unwrap();
-                    let _unused_error_response: Result<
-                        HyperRequest<B>,
-                        HyperResponse<Self::ResponseBody>,
-                    > = Err(unauthorized_response); // TODO: the explicit type is only needed because it's unused, we can delete the type hint when we use the error.
-
-                    request.extensions_mut().insert(ConnInfo {
-                        addr,
-                        authorization_type: AuthorizationType::Unauthorized,
-                    }); //TODO: this is only necessary because we're not erroring out, delete the entire line when we reject unauthorized requests
-                    Ok(request) //TODO: remove this and return the previous error to reject unauthorized requests
-                }
-                authorized_request_type => {
-                    request.extensions_mut().insert(ConnInfo {
-                        addr,
-                        authorization_type: authorized_request_type,
-                    });
-
-                    Ok(request)
-                }
-            }
-        })
-    }
-}
-
-#[derive(Debug)]
-struct ConnInfo {
-    addr: SocketAddr,
-    authorization_type: AuthorizationType,
 }
 
 #[tracing::instrument(skip_all)]
@@ -3278,8 +3140,18 @@ where
     let mut http = Http::new();
     http.http2_only(true);
 
+    let authn_layer = auth::middleware::AuthenticationMiddleware::default();
+    let authz_layer = {
+        // TODO: move the initialization of the Authorizer here instead
+        let authorizer = Arc::new(api_service.authorizer.clone());
+        let authz_handler = auth::middleware::AuthzHandler::new(authorizer);
+        AsyncRequireAuthorizationLayer::new(authz_handler)
+    };
+
     let svc = Server::builder()
         .layer(LogLayer::new(meter))
+        .layer(authn_layer)
+        .layer(authz_layer)
         .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
         .add_service(api_reflection_service)
         .into_service();
@@ -3329,13 +3201,20 @@ where
                 match tls_acceptor.accept(conn).await {
                     Ok(conn) => {
                         let (_, session) = conn.get_ref();
-                        let certificates = session.peer_certificates().unwrap_or_default().to_vec();
-                        let auth = MiddlewareAuth {
-                            addr,
-                            peer_certs: Arc::new(certificates),
+                        let connection_attributes = {
+                            let peer_address = addr;
+                            let peer_certificates =
+                                session.peer_certificates().unwrap_or_default().to_vec();
+                            Arc::new(ConnectionAttributes {
+                                peer_address,
+                                peer_certificates,
+                            })
                         };
+                        let conn_attrs_extension_layer =
+                            AddExtensionLayer::new(connection_attributes);
+
                         let svc = tower::ServiceBuilder::new()
-                            .layer(AsyncRequireAuthorizationLayer::new(auth))
+                            .layer(conn_attrs_extension_layer)
                             .service(svc);
                         if let Err(error) = http.serve_connection(conn, svc).await {
                             tracing::debug!("error servicing http connection: {:?}", error);
@@ -3358,6 +3237,9 @@ where
 
 fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
     tracing::Span::current().record("request", format!("{:?}", request.get_ref()));
+    // TODO: pull out Arc<ConnectionAttributes> and AuthContext from request
+    // extensions and record them separately -- the Debug impl for Request skips
+    // all extensions.
 }
 
 /// Logs the Machine ID in the current tracing span

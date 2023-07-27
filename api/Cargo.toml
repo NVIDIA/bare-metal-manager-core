@@ -17,7 +17,7 @@ path = "src/main.rs"
 arc-swap = "1.6"
 async-trait = "*"
 base64 = "0.13"
-casbin = "2.0"
+casbin = { version = "2.0", features = ["glob"] }
 chrono = "0.4.19"
 clap = { workspace = true }
 data-encoding = "2.3.3"
