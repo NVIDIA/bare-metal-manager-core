@@ -76,7 +76,17 @@ async fn test_integration() -> eyre::Result<()> {
         vault.token(),
         bins.get("carbide-api").unwrap(),
     )?;
-    thread::sleep(time::Duration::from_millis(500));
+
+    let start_time = time::Instant::now();
+    while !api.has_started() {
+        const MAX_STARTUP_TIME: time::Duration = time::Duration::from_secs(5);
+        assert!(
+            start_time.elapsed() <= MAX_STARTUP_TIME,
+            "carbide-api failed to start"
+        );
+        thread::sleep(time::Duration::from_millis(100));
+    }
+
     assert!(api.has_started(), "carbide-api failed to start");
 
     let dpu_info = dpu::bootstrap(&root_dir, &bins)?;
