@@ -473,15 +473,15 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         }
     };
 
-    let dpu_vpd = match arch {
-        CpuArchitecture::Aarch64 => match dpu::get_dpu_info() {
+    let dpu_vpd = match dmi.sys_vendor.as_str() {
+        "https://www.mellanox.com" => match dpu::get_dpu_info() {
             Ok(dpu_data) => Some(dpu_data),
             Err(e) => {
                 tracing::error!("Could not get DPU data: {:?}", e);
                 None
             }
         },
-        CpuArchitecture::X86_64 => None,
+        _ => None,
     };
 
     // Check udev for existing GPUs.  If there are none, then the driver will not be loaded and the tools used to gather information will fail.
