@@ -130,6 +130,22 @@ pub struct DpuData {
     pub firmware_version: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub firmware_date: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tors: Vec<TorLldpData>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TorLldpData {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub local_port: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ip_address: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -329,6 +345,34 @@ impl TryFrom<DmiData> for rpc::machine_discovery::DmiData {
     }
 }
 
+impl TryFrom<rpc::machine_discovery::TorLldpData> for TorLldpData {
+    type Error = RpcDataConversionError;
+
+    fn try_from(data: rpc::machine_discovery::TorLldpData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            name: data.name,
+            id: data.id,
+            description: data.description,
+            local_port: data.local_port,
+            ip_address: data.ip_address,
+        })
+    }
+}
+
+impl TryFrom<TorLldpData> for rpc::machine_discovery::TorLldpData {
+    type Error = RpcDataConversionError;
+
+    fn try_from(data: TorLldpData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            name: data.name,
+            id: data.id,
+            description: data.description,
+            local_port: data.local_port,
+            ip_address: data.ip_address,
+        })
+    }
+}
+
 impl TryFrom<rpc::machine_discovery::DpuData> for DpuData {
     type Error = RpcDataConversionError;
 
@@ -340,6 +384,7 @@ impl TryFrom<rpc::machine_discovery::DpuData> for DpuData {
             factory_mac_address: data.factory_mac_address,
             firmware_version: data.firmware_version,
             firmware_date: data.firmware_date,
+            tors: try_convert_vec(data.tors)?,
         })
     }
 }
@@ -355,6 +400,7 @@ impl TryFrom<DpuData> for rpc::machine_discovery::DpuData {
             factory_mac_address: data.factory_mac_address,
             firmware_version: data.firmware_version,
             firmware_date: data.firmware_date,
+            tors: try_convert_vec(data.tors)?,
         })
     }
 }

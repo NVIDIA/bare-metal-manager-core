@@ -97,6 +97,14 @@ message PciDeviceProperties{
   optional string description = 5;
 }
 
+message TorLldpData {
+  string name = 1;
+  string id = 2;
+  string description = 3;
+  string local_port = 4;
+  repeated string ip_address = 5;
+}
+
 message DpuData {
   string part_number = 1;
   string part_description = 2;
@@ -104,6 +112,7 @@ message DpuData {
   string factory_mac_address = 4;
   string firmware_version = 5;
   string firmware_date = 6;
+  repeated TorLldpData tors = 7;
 }
 
 message Gpu {

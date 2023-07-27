@@ -187,6 +187,12 @@ write_files:
   - path: /var/log/forge/forge-scout.log
     permissions: '0644'
     content: Not Started
+# install specific packages from distro apt repos, without upgrading any installed ones.
+package_update: true
+package_upgrade: false
+packages:
+  - lldpd
+# run these commands (last)
 runcmd:
   - [ date, -s , '@{{ seconds_since_epoch }}' ]
   - [ hwclock, --systohc ]
