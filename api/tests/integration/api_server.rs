@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 // What to look for in logs toknow the server has started
-const START_TOKEN: &str = "Start carbide-api";
+const START_TOKEN: &str = "Started carbide-api HTTP listener";
 
 pub struct CarbideApi(Arc<Mutex<CarbideApiInner>>);
 

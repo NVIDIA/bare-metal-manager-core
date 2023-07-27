@@ -162,25 +162,20 @@ pub async fn setup_telemetry(
         .with_line_number(true)
         .with_ansi(false);
 
+    let logging_subscriber = tracing_subscriber::registry()
+        .with(stdout_formatter)
+        .with(env_filter)
+        .with(telemetry);
+
     if let Some(otel) = carbide_config.as_ref().clone().otlp_endpoint {
         let otel_tracer = tracing_opentelemetry::layer()
             .with_tracer(init_otlp_tracer(otel.as_ref())?)
             .with_exception_fields(true)
             .with_threads(false);
-
-        tracing_subscriber::registry()
-            .with(stdout_formatter)
-            .with(env_filter)
-            .with(telemetry)
-            .with(otel_tracer)
-            .try_init()?;
+        logging_subscriber.with(otel_tracer).try_init()?;
     } else {
-        tracing_subscriber::registry()
-            .with(stdout_formatter)
-            .with(env_filter)
-            .with(telemetry)
-            .try_init()?;
-    };
+        logging_subscriber.try_init()?;
+    }
 
     // Set up OpenTelemetry metrics export via prometheus
     // TODO: The configuration here is copy&pasted from

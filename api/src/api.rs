@@ -3284,6 +3284,12 @@ where
         .add_service(api_reflection_service)
         .into_service();
 
+    tracing::info!(
+        "Started carbide-api HTTP listener on {}, {}",
+        listen_port,
+        forge_version::version!()
+    );
+
     let mut tls_acceptor_created = Instant::now();
     loop {
         let (conn, addr) = match listener.accept().await {
@@ -3400,9 +3406,6 @@ where
         certificate_provider: Arc<C2>,
         meter: opentelemetry::metrics::Meter,
     ) -> eyre::Result<()> {
-        // TODO: Use parameters from carbide_config here once the config looks right
-        let _ = carbide_config;
-
         let service_config = if carbide_config.rapid_iterations {
             tracing::info!("Running with rapid iterations for local development");
             ServiceConfig::for_local_development()
@@ -3421,9 +3424,11 @@ where
         let redfish_pool = RedfishClientPoolImpl::new(credential_provider.clone(), rf_pool);
         let shared_redfish_pool: Arc<dyn RedfishClientPool> = Arc::new(redfish_pool);
 
+        let database_connect_options: sqlx::postgres::PgConnectOptions =
+            carbide_config.database_url.parse()?;
         let database_connection = sqlx::pool::PoolOptions::new()
             .max_connections(service_config.max_db_connections)
-            .connect(&carbide_config.database_url)
+            .connect_with(database_connect_options)
             .await?;
 
         let mut txn = database_connection
