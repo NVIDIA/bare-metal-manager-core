@@ -125,7 +125,7 @@ impl Tag {
         sqlx::query_as(query)
             .bind(&self.slug)
             .bind(&self.name)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -137,7 +137,7 @@ impl Tag {
         let query = "DELETE from tags WHERE slug=$1 RETURNING *";
         sqlx::query_as(query)
             .bind(&self.slug)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -147,7 +147,7 @@ impl Tag {
     ) -> Result<Vec<Tag>, DatabaseError> {
         let query = "SELECT * FROM tags";
         sqlx::query_as(query)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -159,7 +159,7 @@ impl Tag {
         let query = "SELECT * FROM tags where slug=$1";
         sqlx::query_as(query)
             .bind(slug)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -338,7 +338,7 @@ impl TagAssociation {
         let query = "DELETE FROM {table} WHERE target_id=$1 RETURNING *";
         sqlx::query_as::<_, TagAssociation>(&query.replace("{table}", table_name.as_str()))
             .bind(target)
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -365,7 +365,7 @@ impl TagAssociation {
         sqlx::query_as::<_, TagAssociation>(&query.replace("{table}", table_name.as_str()))
             .bind(tag_id)
             .bind(self.target)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -393,7 +393,7 @@ impl TagAssociation {
         sqlx::query_as::<_, TagAssociation>(&query.replace("{table}", table_name.as_str()))
             .bind(tag_id)
             .bind(self.target)
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 

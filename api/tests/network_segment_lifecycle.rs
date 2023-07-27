@@ -478,7 +478,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let mut txn = db_pool.begin().await?;
     sqlx::query("DELETE FROM resource_pool WHERE name = $1")
         .bind(VLANID)
-        .execute(&mut txn)
+        .execute(&mut *txn)
         .await?;
     txn.commit().await?;
 
@@ -495,7 +495,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Value is allocated
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vlan_pool.stats(&mut txn).await?,
+        vlan_pool.stats(&mut *txn).await?,
         ResourcePoolStats { used: 1, free: 0 }
     );
     txn.commit().await?;
@@ -524,7 +524,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Value is free
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vlan_pool.stats(&mut txn).await?,
+        vlan_pool.stats(&mut *txn).await?,
         ResourcePoolStats { used: 0, free: 1 }
     );
     txn.commit().await?;
@@ -535,7 +535,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Value allocated again
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vlan_pool.stats(&mut txn).await?,
+        vlan_pool.stats(&mut *txn).await?,
         ResourcePoolStats { used: 1, free: 0 }
     );
     txn.commit().await?;

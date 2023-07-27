@@ -247,7 +247,7 @@ impl<IO: StateControllerIO> StateController<IO> {
         let mut txn = self.handler_services.pool.begin().await?;
 
         let locked: bool = sqlx::query_scalar(&self.lock_query)
-            .fetch_one(&mut txn)
+            .fetch_one(&mut *txn)
             .await?;
         tracing::Span::current().record("skipped_iteration", !locked);
 

@@ -32,7 +32,7 @@ impl DhcpEntry {
         let query = "SELECT * FROM dhcp_entries WHERE machine_interface_id = $1::uuid";
         sqlx::query_as(query)
             .bind(machine_interface_id)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -48,7 +48,7 @@ ON CONFLICT DO NOTHING";
         let _result = sqlx::query(query)
             .bind(self.machine_interface_id)
             .bind(&self.vendor_string)
-            .execute(&mut *txn)
+            .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

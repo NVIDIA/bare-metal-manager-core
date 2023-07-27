@@ -39,7 +39,7 @@ pub async fn load_instance_network_status_observation(
     let query = "SELECT network_status_observation FROM instances where id = $1::uuid";
     let observation: OptionalObservation = sqlx::query_as(query)
         .bind(instance_id)
-        .fetch_one(&mut *txn)
+        .fetch_one(&mut **txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -80,7 +80,7 @@ pub async fn update_instance_network_status_observation(
     let (_,): (uuid::Uuid,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(status))
         .bind(instance_id)
-        .fetch_one(&mut *txn)
+        .fetch_one(&mut **txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

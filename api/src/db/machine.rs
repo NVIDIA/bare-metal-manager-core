@@ -360,7 +360,7 @@ impl Machine {
                     .bind(sqlx::types::Json(&state))
                     .bind(network_config_version.version_string())
                     .bind(sqlx::types::Json(&network_config))
-                    .fetch_one(&mut *txn)
+                    .fetch_one(&mut **txn)
                     .await
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
@@ -427,7 +427,7 @@ SELECT m.id FROM
         let id: Option<DbMachineId> = sqlx::query_as(query)
             .bind(macaddr)
             .bind(IpNetwork::from(relay))
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -505,7 +505,7 @@ SELECT m.id FROM
         .bind(version.version_string())
         .bind(sqlx::types::Json(state))
         .bind(self.id().to_string())
-        .fetch_one(txn)
+        .fetch_one(&mut **txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "update machines state", e))?;
 
@@ -530,13 +530,13 @@ SELECT m.id FROM
 
         let mut all_machines: Vec<Machine> = match filter {
             ObjectFilter::All => sqlx::query_as::<_, Machine>(&base_query.replace("{where}", ""))
-                .fetch_all(&mut *txn)
+                .fetch_all(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "machines All", e))?,
             ObjectFilter::One(id) => {
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=$1"))
                     .bind(id.to_string())
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "machines One", e))?
             }
@@ -544,7 +544,7 @@ SELECT m.id FROM
                 let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
                 sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
                     .bind(str_list)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "machines List", e))?
             }
@@ -632,7 +632,7 @@ SELECT m.id FROM
             WHERE mia.address = $1::inet"#;
         let machine: Option<Self> = sqlx::query_as(query)
             .bind(ip.to_string())
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         let mut machine = match machine {
@@ -653,7 +653,7 @@ SELECT m.id FROM
             WHERE mi.hostname = $1"#;
         let machine: Option<Self> = sqlx::query_as(query)
             .bind(hostname)
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -675,7 +675,7 @@ SELECT m.id FROM
             WHERE mi.mac_address = $1::macaddr"#;
         let machine: Option<Self> = sqlx::query_as(query)
             .bind(mac_address)
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -695,7 +695,7 @@ SELECT m.id FROM
         let query = "SELECT * FROM machines WHERE network_config->>'loopback_ip' = $1";
         let machine: Option<Self> = sqlx::query_as(query)
             .bind(loopback_ip)
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         let mut machine = match machine {
@@ -715,7 +715,7 @@ SELECT m.id FROM
 
         let machine_id: Option<DbMachineId> = sqlx::query_as(query)
             .bind(fqdn)
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         let machine_id = match machine_id {
@@ -773,7 +773,7 @@ SELECT m.id FROM
         let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -786,7 +786,7 @@ SELECT m.id FROM
         let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -800,7 +800,7 @@ SELECT m.id FROM
         let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -818,7 +818,7 @@ SELECT m.id FROM
                     AND mi.attached_dpu_machine_id != mi.machine_id"#;
         let machine: Option<Self> = sqlx::query_as(query)
             .bind(dpu_machine_id.to_string())
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -842,7 +842,7 @@ SELECT m.id FROM
                 WHERE mi.machine_id=$1"#;
         let machine: Option<Self> = sqlx::query_as(query)
             .bind(host_machine_id.to_string())
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -866,7 +866,7 @@ SELECT m.id FROM
         let _id: (DbMachineId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(observation))
             .bind(machine_id.to_string())
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -881,7 +881,7 @@ SELECT m.id FROM
             ORDER BY network_status_observation->'machine_id'
             LIMIT 1000";
         let rows = sqlx::query(query)
-            .fetch_all(txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         let mut all = Vec::with_capacity(rows.len());
@@ -908,7 +908,7 @@ SELECT m.id FROM
         let query = r#"call cleanup_machine_by_id($1)"#;
         let _query_result = sqlx::query(query)
             .bind(machine_id.to_string())
-            .execute(txn)
+            .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -942,7 +942,7 @@ SELECT m.id FROM
             .bind(sqlx::types::Json(new_state))
             .bind(machine_id.to_string())
             .bind(&expected_version_str)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await;
 
         match query_result {
@@ -990,7 +990,7 @@ SELECT m.id FROM
         let res = sqlx::query_as::<_, Machine>(query)
             .bind(stable_machine_id.to_string())
             .bind(current_machine_id.to_string())
-            .fetch_one(txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(res)

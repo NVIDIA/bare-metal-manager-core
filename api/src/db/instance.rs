@@ -120,21 +120,21 @@ impl Instance {
         let all_instances: Vec<Instance> = match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, Instance>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "instances All", e))?
             }
             UuidKeyedObjectFilter::One(uuid) => {
                 sqlx::query_as::<_, Instance>(&base_query.replace("{where}", "WHERE m.id=$1"))
                     .bind(uuid)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "instances One", e))?
             }
             UuidKeyedObjectFilter::List(list) => {
                 sqlx::query_as::<_, Instance>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
                     .bind(list)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?
             }
@@ -159,7 +159,7 @@ impl Instance {
         let query = "SELECT id from instances WHERE machine_id = $1";
         let instance_id = sqlx::query_as::<_, InstanceId>(query)
             .bind(machine_id.to_string())
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -173,7 +173,7 @@ impl Instance {
         let query = "SELECT * from instances WHERE machine_id = $1";
         let instance = sqlx::query_as::<_, Instance>(query)
             .bind(machine_id.to_string())
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -193,7 +193,7 @@ INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
 WHERE s.network_config->>'loopback_ip'=$1";
         sqlx::query_as(query)
             .bind(relay.to_string())
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -209,7 +209,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         let _: (DbMachineId,) = sqlx::query_as(query)
             .bind(boot_with_custom_ipxe)
             .bind(machine_id.to_string())
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -240,7 +240,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
             .bind(&expected_version_str)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await;
 
         match query_result {
@@ -282,7 +282,7 @@ impl<'a> NewInstance<'a> {
             .bind(sqlx::types::Json(&self.network_config.value))
             .bind(&network_version_string)
             .bind(sqlx::types::Json(network_status_observation))
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -298,7 +298,7 @@ impl DeleteInstance {
         let query = "DELETE FROM instances where id=$1::uuid RETURNING *";
         sqlx::query_as(query)
             .bind(self.instance_id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
@@ -310,7 +310,7 @@ impl DeleteInstance {
 
         sqlx::query_as(query)
             .bind(self.instance_id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }

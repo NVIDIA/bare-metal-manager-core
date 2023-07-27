@@ -154,7 +154,7 @@ impl NewVpc {
             .bind(&self.tenant_organization_id)
             .bind(&version_string)
             .bind(self.network_virtualization_type)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -170,7 +170,7 @@ impl Vpc {
         let _ = sqlx::query(query)
             .bind(vni)
             .bind(id)
-            .execute(txn)
+            .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -184,7 +184,7 @@ impl Vpc {
             UuidKeyedObjectFilter::All => {
                 let query = "SELECT * FROM vpcs WHERE deleted is NULL";
                 sqlx::query_as(query)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
@@ -192,7 +192,7 @@ impl Vpc {
                 let query = "SELECT * FROM vpcs WHERE id = $1 and deleted is NULL";
                 sqlx::query_as(query)
                     .bind(uuid)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
@@ -200,7 +200,7 @@ impl Vpc {
                 let query = "select * from vpcs WHERE id = ANY($1) and deleted is NULL";
                 sqlx::query_as(query)
                     .bind(list)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
@@ -216,7 +216,7 @@ impl Vpc {
         let query = "SELECT * FROM vpcs WHERE name = $1 and deleted is NULL";
         sqlx::query_as(query)
             .bind(name)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -231,7 +231,7 @@ impl Vpc {
             LIMIT 1";
         sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_one(txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -339,7 +339,7 @@ impl UpdateVpc {
             .bind(&next_version_str)
             .bind(self.id)
             .bind(&current_version_str)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await;
 
         match query_result {
@@ -371,7 +371,7 @@ impl DeleteVpc {
         let query = "UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
         sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

@@ -49,7 +49,7 @@ ranges = [{ start = "172.0.1.0", end = "172.0.1.255" }]
         DbResourcePool::new("test_define_range".to_string(), ValueType::Ipv4);
 
     let mut txn = db_pool.begin().await?;
-    assert_eq!(pool.stats(&mut txn).await?, St { used: 0, free: 255 });
+    assert_eq!(pool.stats(&mut *txn).await?, St { used: 0, free: 255 });
 
     Ok(())
 }
@@ -75,7 +75,7 @@ prefix = "172.0.1.0/24"
         DbResourcePool::new("test_define_range".to_string(), ValueType::Ipv4);
 
     let mut txn = db_pool.begin().await?;
-    assert_eq!(pool.stats(&mut txn).await?, St { used: 0, free: 255 });
+    assert_eq!(pool.stats(&mut *txn).await?, St { used: 0, free: 255 });
 
     Ok(())
 }
@@ -91,7 +91,7 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // which we get
     let allocated = pool.allocate(&mut txn, OwnerType::Machine, "123").await?;
     assert_eq!(allocated, "1");
-    assert_eq!(pool.stats(&mut txn).await?, St { used: 1, free: 0 });
+    assert_eq!(pool.stats(&mut *txn).await?, St { used: 1, free: 0 });
 
     // no more values
     match pool.allocate(&mut txn, OwnerType::Machine, "id456").await {
@@ -104,7 +104,7 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     pool.release(&mut txn, allocated).await?;
 
     // and then there was one
-    assert_eq!(pool.stats(&mut txn).await?, St { used: 0, free: 1 });
+    assert_eq!(pool.stats(&mut *txn).await?, St { used: 0, free: 1 });
 
     txn.rollback().await?;
     Ok(())
@@ -127,9 +127,9 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .populate(&mut txn, (1..=500).collect::<Vec<_>>())
         .await?;
 
-    assert_eq!(pool1.stats(&mut txn).await?, St { used: 0, free: 10 });
-    assert_eq!(pool2.stats(&mut txn).await?, St { used: 0, free: 100 });
-    assert_eq!(pool3.stats(&mut txn).await?, St { used: 0, free: 500 });
+    assert_eq!(pool1.stats(&mut *txn).await?, St { used: 0, free: 10 });
+    assert_eq!(pool2.stats(&mut *txn).await?, St { used: 0, free: 100 });
+    assert_eq!(pool3.stats(&mut *txn).await?, St { used: 0, free: 500 });
 
     let mut got = Vec::with_capacity(10);
     for _ in 1..=10 {
@@ -141,17 +141,17 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         );
     }
 
-    assert_eq!(pool1.stats(&mut txn).await?, St { used: 0, free: 10 });
-    assert_eq!(pool2.stats(&mut txn).await?, St { used: 10, free: 90 });
-    assert_eq!(pool3.stats(&mut txn).await?, St { used: 0, free: 500 });
+    assert_eq!(pool1.stats(&mut *txn).await?, St { used: 0, free: 10 });
+    assert_eq!(pool2.stats(&mut *txn).await?, St { used: 10, free: 90 });
+    assert_eq!(pool3.stats(&mut *txn).await?, St { used: 0, free: 500 });
 
     for val in got {
         pool2.release(&mut txn, val).await?;
     }
 
-    assert_eq!(pool1.stats(&mut txn).await?, St { used: 0, free: 10 });
-    assert_eq!(pool2.stats(&mut txn).await?, St { used: 0, free: 100 });
-    assert_eq!(pool3.stats(&mut txn).await?, St { used: 0, free: 500 });
+    assert_eq!(pool1.stats(&mut *txn).await?, St { used: 0, free: 10 });
+    assert_eq!(pool2.stats(&mut *txn).await?, St { used: 0, free: 100 });
+    assert_eq!(pool3.stats(&mut *txn).await?, St { used: 0, free: 500 });
 
     txn.rollback().await?;
     Ok(())
@@ -169,7 +169,7 @@ async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Which we allocate then rollback
     let mut txn = db_pool.begin().await?;
     pool.allocate(&mut txn, OwnerType::Machine, "my_id").await?;
-    assert_eq!(pool.stats(&mut txn).await?, St { used: 1, free: 0 });
+    assert_eq!(pool.stats(&mut *txn).await?, St { used: 1, free: 0 });
     txn.rollback().await?;
 
     // The single value should be available
@@ -192,7 +192,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     let mut txn = db_pool.begin().await?;
     sqlx::query("DELETE FROM resource_pool WHERE name = $1")
         .bind(VPC_VNI)
-        .execute(&mut txn)
+        .execute(&mut *txn)
         .await?;
     txn.commit().await?;
 
@@ -221,7 +221,10 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // Value is allocated
     let mut txn = db_pool.begin().await?;
-    assert_eq!(vpc_vni_pool.stats(&mut txn).await?, St { used: 1, free: 0 });
+    assert_eq!(
+        vpc_vni_pool.stats(&mut *txn).await?,
+        St { used: 1, free: 0 }
+    );
     txn.commit().await?;
 
     // DeleteVpc rpc call
@@ -235,7 +238,10 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // Value is free
     let mut txn = db_pool.begin().await?;
-    assert_eq!(vpc_vni_pool.stats(&mut txn).await?, St { used: 0, free: 1 });
+    assert_eq!(
+        vpc_vni_pool.stats(&mut *txn).await?,
+        St { used: 0, free: 1 }
+    );
     txn.commit().await?;
 
     // CreateVpc
@@ -255,7 +261,10 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // Value allocated again
     let mut txn = db_pool.begin().await?;
-    assert_eq!(vpc_vni_pool.stats(&mut txn).await?, St { used: 1, free: 0 });
+    assert_eq!(
+        vpc_vni_pool.stats(&mut *txn).await?,
+        St { used: 1, free: 0 }
+    );
     txn.commit().await?;
 
     Ok(())

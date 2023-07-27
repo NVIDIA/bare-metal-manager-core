@@ -87,7 +87,8 @@ impl HostMachine {
     ) -> Result<Vec<MachineId>, sqlx::Error> {
         let mut results = Vec::new();
         let mut machine_id_stream =
-            sqlx::query_as::<_, DbMachineId>("SELECT machine_id FROM host_machines;").fetch(txn);
+            sqlx::query_as::<_, DbMachineId>("SELECT machine_id FROM host_machines;")
+                .fetch(&mut **txn);
         while let Some(maybe_id) = machine_id_stream.next().await {
             let id = maybe_id?;
             results.push(id.into_inner());
@@ -103,7 +104,7 @@ impl HostMachine {
         let query = "SELECT * FROM host_machines WHERE machine_id = $1";
         sqlx::query_as(query)
             .bind(host_machine_id.to_string())
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -119,7 +120,7 @@ JOIN machine_interfaces mi on hm.machine_id = hi.attached_dpu_machine_id
 WHERE mi.machine_id=$1";
         sqlx::query_as(query)
             .bind(dpu_machine_id.to_string())
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

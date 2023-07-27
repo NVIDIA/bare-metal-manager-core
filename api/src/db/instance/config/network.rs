@@ -40,7 +40,7 @@ pub async fn load_instance_network_config(
     let query = "SELECT network_config, network_config_version FROM instances where id = $1::uuid";
     sqlx::query_as(query)
         .bind(instance_id)
-        .fetch_one(&mut *txn)
+        .fetch_one(&mut **txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }

@@ -79,7 +79,7 @@ impl DpuMachine {
         let query = "SELECT * FROM dpu_machines WHERE machine_id = $1";
         sqlx::query_as(query)
             .bind(dpu_machine_id.to_string())
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -94,7 +94,7 @@ JOIN machine_interfaces mi on dm.machine_id = mi.attached_dpu_machine_id
 WHERE mi.machine_id=$1";
         sqlx::query_as(query)
             .bind(machine_id.to_string())
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

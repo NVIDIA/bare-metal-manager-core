@@ -96,7 +96,7 @@ impl NetworkPrefix {
         let query = "select * from network_prefixes where prefix && $1::inet";
         let dups = sqlx::query_as::<_, NetworkPrefix>(query)
             .bind(prefix)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(!dups.is_empty())
@@ -115,7 +115,7 @@ impl NetworkPrefix {
         let query = "select * from network_prefixes where id=$1";
         sqlx::query_as::<_, NetworkPrefix>(query)
             .bind(uuid)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -131,7 +131,7 @@ impl NetworkPrefix {
         Ok(match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, NetworkPrefix>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes All", e))?
             }
@@ -139,14 +139,14 @@ impl NetworkPrefix {
                 &base_query.replace("{where}", "WHERE segment_id=$1"),
             )
             .bind(uuid)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes One", e))?,
             UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, NetworkPrefix>(
                 &base_query.replace("{where}", "WHERE segment_id=ANY($1)"),
             )
             .bind(list)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes List", e))?,
         })
@@ -215,7 +215,7 @@ impl NetworkPrefix {
         let query = "DELETE FROM network_prefixes WHERE segment_id=$1::uuid RETURNING id";
         let _deleted_prefixes: Vec<NetworkPrefixId> = sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

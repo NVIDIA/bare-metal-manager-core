@@ -146,7 +146,7 @@ async fn test_topology_missing_mac_field(pool: PgPool) {
 
     sqlx::query(query)
         .bind(rpc_machine_id.to_string())
-        .execute(&mut txn)
+        .execute(&mut *txn)
         .await
         .expect("update failed");
 
