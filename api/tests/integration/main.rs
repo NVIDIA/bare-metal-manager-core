@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, env, fs, path, thread, time};
+use std::{collections::HashMap, env, fs, path, time};
 
 use sqlx::migrate::MigrateDatabase;
+use tokio::time::sleep;
 
 mod api_server;
 #[path = "../common/mod.rs"]
@@ -25,18 +26,9 @@ mod instance;
 mod vault;
 use grpcurl::grpcurl;
 
-#[ctor::ctor]
-fn setup() {
-    common::test_logging::init();
-}
-
 /// Integration test that shells out to start the real carbide-api, and then does all the steps
 /// that `bootstrap-forge-docker` would do.
-/// It requires `grpcurl` and `vault` on PATH, and pre-built carbide binaries in target/debug/ or
-/// target/release.
-///
-/// Developer note: This is only marked as 'async' because sqlx is async. Everything else is normal
-/// threads.
+/// It requires `grpcurl` and `vault` on the PATH,
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn test_integration() -> eyre::Result<()> {
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
@@ -70,31 +62,21 @@ async fn test_integration() -> eyre::Result<()> {
         cert_path: None,
     }));
 
-    let api = api_server::start(
-        &root_dir,
-        &db_url,
-        vault.token(),
-        bins.get("carbide-api").unwrap(),
-    )?;
+    let vault_token = vault.token().to_string();
+    tokio::spawn({
+        let root_dir = root_dir.to_str().unwrap().to_string();
+        let db_url = db_url.to_string();
+        api_server::start(root_dir, db_url, vault_token)
+    });
 
-    let start_time = time::Instant::now();
-    while !api.has_started() {
-        const MAX_STARTUP_TIME: time::Duration = time::Duration::from_secs(5);
-        assert!(
-            start_time.elapsed() <= MAX_STARTUP_TIME,
-            "carbide-api failed to start"
-        );
-        thread::sleep(time::Duration::from_millis(100));
-    }
-
-    assert!(api.has_started(), "carbide-api failed to start");
+    sleep(time::Duration::from_secs(5)).await;
 
     let dpu_info = dpu::bootstrap(&root_dir, &bins)?;
     host_boostrap(bins.get("forge-dpu-agent").unwrap(), &dpu_info).await?;
 
     //instance::create(&host_machine_id, &segment_id)?;
 
-    thread::sleep(time::Duration::from_millis(500));
+    sleep(time::Duration::from_millis(500)).await;
     fs::remove_dir_all(dpu_info.hbn_root)?;
     Ok(())
 }
@@ -107,7 +89,7 @@ async fn host_boostrap(forge_dpu_agent: &path::Path, dpu_info: &dpu::Info) -> ey
     host::wait_for_state(&host_machine_id, "WaitForDPUUp")?;
 
     // After DPU reboot forge_dpu_agent reports health to carbide-api, triggering state transition
-    crate::forge_dpu_agent::run(forge_dpu_agent, &dpu_info.machine_id)?;
+    forge_dpu_agent::run(forge_dpu_agent, &dpu_info.machine_id)?;
 
     host::wait_for_state(&host_machine_id, "Host/Discovered")?;
 
@@ -129,7 +111,6 @@ fn find_prerequisites(root_dir: &path::Path) -> (HashMap<String, path::PathBuf>,
         root_dir.join("target/debug"),
         root_dir.join("target/release"),
     ];
-    bins.insert("carbide-api", find_latest_in("carbide-api", &cargo_paths));
     bins.insert(
         "forge-dpu-agent",
         find_latest_in("forge-dpu-agent", &cargo_paths),

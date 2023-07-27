@@ -11,6 +11,7 @@
  */
 
 mod command_line;
-pub use command_line::{Command, Daemon, Options};
 mod file;
-pub use file::CarbideConfig;
+
+pub use command_line::{Command, Daemon, Options};
+pub use file::{AuthConfig, CarbideConfig, TlsConfig};
