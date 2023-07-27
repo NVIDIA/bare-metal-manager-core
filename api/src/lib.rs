@@ -28,7 +28,6 @@ use crate::logging::metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConf
 
 pub mod api;
 pub mod auth;
-pub mod bg;
 pub mod cfg;
 pub mod credentials;
 pub mod db;

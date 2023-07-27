@@ -84,7 +84,7 @@ impl MachineTopology {
         let query = "SELECT * from machine_topologies WHERE machine_id=$1";
         let res = sqlx::query(query)
             .bind(machine_id.to_string())
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -125,7 +125,7 @@ impl MachineTopology {
         let res = sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(&topology_data))
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -142,7 +142,7 @@ impl MachineTopology {
         let query = "SELECT * FROM machine_topologies WHERE machine_id=ANY($1);";
         let topologies = sqlx::query_as(query)
             .bind(str_ids)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .into_iter()

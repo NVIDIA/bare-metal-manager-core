@@ -192,7 +192,7 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let mut txn = pool.begin().await?;
     sqlx::query("UPDATE vpcs SET vni = NULL WHERE id = $1")
         .bind(vpc_2_id)
-        .execute(&mut txn)
+        .execute(&mut *txn)
         .await?;
     txn.commit().await?;
 

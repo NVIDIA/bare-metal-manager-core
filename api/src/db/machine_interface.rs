@@ -111,7 +111,7 @@ impl MachineInterface {
         let (hostname,) = sqlx::query_as(query)
             .bind(new_hostname)
             .bind(self.id())
-            .fetch_one(txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -130,7 +130,7 @@ impl MachineInterface {
         sqlx::query_as(query)
             .bind(dpu_machine_id.to_string())
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -144,7 +144,7 @@ impl MachineInterface {
         sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e)
@@ -185,7 +185,7 @@ impl MachineInterface {
             WHERE mia.address = $1::inet"#;
         let interface: Option<Self> = sqlx::query_as(query)
             .bind(ip.to_string())
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -215,7 +215,7 @@ impl MachineInterface {
             "SELECT * FROM machine_interfaces WHERE attached_dpu_machine_id = $1 AND primary_interface=TRUE AND (machine_id!=attached_dpu_machine_id OR machine_id IS NULL)";
         let Some(mut machine_interface) = sqlx::query_as::<_, MachineInterface>(query)
             .bind(dpu_machine_id.to_string())
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))? else {
             return Ok(None);
@@ -243,7 +243,7 @@ impl MachineInterface {
         let query = "SELECT count(*) FROM machine_interfaces WHERE segment_id = $1";
         let (address_count,): (i64,) = sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_one(txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -468,7 +468,7 @@ impl MachineInterface {
         let mut interfaces = match filter {
             ObjectFilter::All => {
                 sqlx::query_as::<_, MachineInterface>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_interfaces All", e)
@@ -479,7 +479,7 @@ impl MachineInterface {
                     .replace("{where}", &format!("WHERE mi.{column}='{}'", id))
                     .replace("{column}", column);
                 sqlx::query_as::<_, MachineInterface>(&query)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_interfaces One", e)
@@ -504,7 +504,7 @@ impl MachineInterface {
                     .replace("{column}", column);
 
                 sqlx::query_as::<_, MachineInterface>(&query)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_interfaces List", e)
@@ -615,7 +615,7 @@ impl MachineInterface {
         sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(segment_id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -635,7 +635,7 @@ WHERE network_segments.id = $1::uuid";
 
         sqlx::query_as(query)
             .bind(self.segment_id)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

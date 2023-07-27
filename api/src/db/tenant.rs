@@ -30,7 +30,7 @@ impl Tenant {
         sqlx::query_as(query)
             .bind(organization_id)
             .bind(&version_string)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -42,7 +42,7 @@ impl Tenant {
         let query = "SELECT * FROM tenants WHERE organization_id = $1";
         let results = sqlx::query_as(query)
             .bind(organization_id.as_ref())
-            .fetch_optional(txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -80,7 +80,7 @@ impl Tenant {
             .bind(&next_version_str)
             .bind(organization_id)
             .bind(&current_version_str)
-            .fetch_one(txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|err| match err {
                 sqlx::Error::RowNotFound => {

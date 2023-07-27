@@ -144,7 +144,7 @@ RETURNING *";
             .bind(&self.short_name)
             .bind(&self.description)
             .bind(self.active)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -165,7 +165,7 @@ RETURNING *";
             .bind(&self.description)
             .bind(self.active)
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -179,7 +179,7 @@ impl DeactivateInstanceType {
         let query = "UPDATE instance_types SET active=false, updated=now() WHERE id=$1 RETURNING *";
         sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

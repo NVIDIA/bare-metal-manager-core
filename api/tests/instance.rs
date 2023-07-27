@@ -374,7 +374,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     )
     .bind(&next_config_version.version_string())
     .bind(instance_id)
-    .fetch_one(&mut txn)
+    .fetch_one(&mut *txn)
     .await
     .unwrap();
     let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())

@@ -89,7 +89,7 @@ impl NewDomain {
         let query = "INSERT INTO domains (name) VALUES ($1) returning *";
         sqlx::query_as(query)
             .bind(&self.name)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e)
@@ -128,7 +128,7 @@ impl Domain {
             UuidKeyedObjectFilter::All => {
                 let query = "SELECT * FROM domains WHERE deleted is NULL";
                 sqlx::query_as(query)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
@@ -136,7 +136,7 @@ impl Domain {
                 let query = "SELECT * FROM domains WHERE id = $1 AND deleted is NULL";
                 sqlx::query_as(query)
                     .bind(uuid)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
@@ -144,7 +144,7 @@ impl Domain {
                 let query = "select * from domains WHERE id = ANY($1) AND deleted is NULL";
                 sqlx::query_as(query)
                     .bind(list)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
@@ -173,7 +173,7 @@ impl Domain {
         let query = "INSERT INTO domains (name) VALUES ($1) RETURNING name";
         sqlx::query_as(query)
             .bind(&self.name)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -185,7 +185,7 @@ impl Domain {
         let query = "SELECT * FROM domains where project_id = $1";
         let results: Vec<Self> = sqlx::query_as(query)
             .bind(vpc_id)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(results)
@@ -198,7 +198,7 @@ impl Domain {
         let query = "SELECT * FROM domains WHERE name= $1 and deleted is NULL";
         sqlx::query_as(query)
             .bind(name)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -209,7 +209,7 @@ impl Domain {
         let query = "SELECT * FROM domains WHERE id = $1::uuid";
         sqlx::query_as(query)
             .bind(uuid)
-            .fetch_optional(&mut *txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -221,7 +221,7 @@ impl Domain {
         let query = "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
         sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -234,7 +234,7 @@ impl Domain {
         sqlx::query_as(query)
             .bind(&self.name)
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

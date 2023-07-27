@@ -70,7 +70,7 @@ where
             });
             qb.push("ON CONFLICT (name, value) DO NOTHING");
             let q = qb.build();
-            q.execute(&mut *txn)
+            q.execute(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         }
@@ -84,7 +84,7 @@ where
         owner_type: OwnerType,
         owner_id: &str,
     ) -> Result<T, ResourcePoolError> {
-        if self.stats(&mut *txn).await?.free == 0 {
+        if self.stats(&mut **txn).await?.free == 0 {
             return Err(ResourcePoolError::Empty);
         }
         let query = "
@@ -114,7 +114,7 @@ RETURNING allocate.value
             .bind(&self.name)
             .bind(sqlx::types::Json(&free_state))
             .bind(sqlx::types::Json(&allocated_state))
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         let out = allocated
@@ -147,7 +147,7 @@ WHERE name = $2 AND value = $3
             .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
             .bind(&self.name)
             .bind(&value.to_string())
-            .execute(txn)
+            .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -182,7 +182,7 @@ WHERE name = $2 AND value = $3
             .bind(sqlx::types::Json(state))
             .bind(&self.name)
             .bind(&value.to_string())
-            .execute(&mut *txn)
+            .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -229,7 +229,7 @@ pub async fn all(
 
     for query in &[query_int, query_ipv4] {
         let mut rows: Vec<ResourcePoolSnapshot> = sqlx::query_as(query)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         out.append(&mut rows);

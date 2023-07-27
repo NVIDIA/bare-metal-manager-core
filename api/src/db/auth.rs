@@ -55,7 +55,7 @@ impl SshKeyValidationRequest {
         let query = "SELECT role, pubkeys from ssh_public_keys WHERE username=$1";
         let user_info: SshPublicKeys = sqlx::query_as(query)
             .bind(&self.user)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

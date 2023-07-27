@@ -257,7 +257,7 @@ impl IBSubnet {
             .bind(&version_string)
             .bind(&version_string)
             .bind(sqlx::types::Json(state))
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -273,7 +273,7 @@ impl IBSubnet {
     ) -> Result<Vec<Uuid>, DatabaseError> {
         let query = "SELECT id FROM ib_subnets";
         let mut results = Vec::new();
-        let mut segment_id_stream = sqlx::query_as::<_, IBSubnetId>(query).fetch(txn);
+        let mut segment_id_stream = sqlx::query_as::<_, IBSubnetId>(query).fetch(&mut **txn);
         while let Some(maybe_id) = segment_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id.into());
@@ -290,7 +290,7 @@ impl IBSubnet {
             let query = "SELECT * FROM ib_subnets WHERE vpc_id=$1::uuid";
             sqlx::query_as(query)
                 .bind(vpc_id)
-                .fetch_all(&mut *txn)
+                .fetch_all(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         };
@@ -308,7 +308,7 @@ impl IBSubnet {
         let all_records: Vec<IBSubnet> = match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, IBSubnet>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "ib_subnets All", e))?
             }
@@ -317,14 +317,14 @@ impl IBSubnet {
                 &base_query.replace("{where}", "WHERE ib_subnets.id=ANY($1)"),
             )
             .bind(uuids)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "ib_subnets List", e))?,
             UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, IBSubnet>(
                 &base_query.replace("{where}", "WHERE ib_subnets.id=$1"),
             )
             .bind(uuid)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "ib_subnets One", e))?,
         };
@@ -350,7 +350,7 @@ impl IBSubnet {
             .bind(sqlx::types::Json(new_state))
             .bind(subnet_id)
             .bind(&expected_version_str)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await;
 
         match query_result {
@@ -367,7 +367,7 @@ impl IBSubnet {
         let query = "UPDATE ib_subnets SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
         let segment: IBSubnet = sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -386,7 +386,7 @@ impl IBSubnet {
         let query = "DELETE FROM ib_subnets WHERE id=$1::uuid RETURNING id";
         let segment: IBSubnetId = sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -404,7 +404,7 @@ impl IBSubnet {
             .bind(self.config.vpc_id)
             .bind(sqlx::types::Json(&self.status))
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

@@ -312,7 +312,7 @@ impl NewNetworkSegment {
             .bind(self.vlan_id)
             .bind(self.vni)
             .bind(self.segment_type)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         segment.prefixes =
@@ -333,7 +333,7 @@ impl NetworkSegment {
             let query = "SELECT * FROM network_segments WHERE vpc_id=$1::uuid";
             sqlx::query_as(query)
                 .bind(vpc_id)
-                .fetch_all(&mut *txn)
+                .fetch_all(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         };
@@ -351,7 +351,7 @@ impl NetworkSegment {
             WHERE $1::inet <<= network_prefixes.prefix"#;
         let mut results = sqlx::query_as(query)
             .bind(IpNetwork::from(relay))
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -364,7 +364,7 @@ impl NetworkSegment {
                 let query = "SELECT * FROM network_prefixes WHERE segment_id=$1::uuid";
                 segment.prefixes = sqlx::query_as(query)
                     .bind(segment.id())
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
@@ -385,7 +385,7 @@ impl NetworkSegment {
     ) -> Result<Vec<Uuid>, DatabaseError> {
         let query = "SELECT id FROM network_segments";
         let mut results = Vec::new();
-        let mut segment_id_stream = sqlx::query_as::<_, NetworkSegmentId>(query).fetch(txn);
+        let mut segment_id_stream = sqlx::query_as::<_, NetworkSegmentId>(query).fetch(&mut **txn);
         while let Some(maybe_id) = segment_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id.into());
@@ -404,7 +404,7 @@ impl NetworkSegment {
         let mut all_records: Vec<NetworkSegment> = match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, NetworkSegment>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments All", e))?
             }
@@ -413,14 +413,14 @@ impl NetworkSegment {
                 &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
             )
             .bind(uuids)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments List", e))?,
             UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, NetworkSegment>(
                 &base_query.replace("{where}", "WHERE network_segments.id=$1"),
             )
             .bind(uuid)
-            .fetch_all(&mut *txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments One", e))?,
         };
@@ -497,7 +497,7 @@ impl NetworkSegment {
             .bind(sqlx::types::Json(new_state))
             .bind(segment_id)
             .bind(&expected_version_str)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await;
 
         match query_result {
@@ -544,7 +544,7 @@ impl NetworkSegment {
             "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
         let segment: NetworkSegment = sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -564,7 +564,7 @@ impl NetworkSegment {
         let query = "DELETE FROM network_segments WHERE id=$1::uuid RETURNING id";
         let segment: NetworkSegmentId = sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -588,7 +588,7 @@ RETURNING *";
             .bind(self.vlan_id)
             .bind(self.vni)
             .bind(self.id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -605,7 +605,7 @@ INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id
 WHERE network_prefixes.circuit_id=$1";
         sqlx::query_as(query)
             .bind(circuit_id)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -613,10 +613,11 @@ WHERE network_prefixes.circuit_id=$1";
     /// This method returns Admin network segment.
     pub async fn admin(txn: &mut Transaction<'_, Postgres>) -> Result<Self, DatabaseError> {
         let query = "SELECT * FROM network_segments WHERE network_segment_type = 'admin'";
-        let mut segments: Vec<NetworkSegment> = sqlx::query_as(query)
-            .fetch_all(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let mut segments: Vec<NetworkSegment> =
+            sqlx::query_as(query)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         if segments.is_empty() {
             return Err(DatabaseError::new(
@@ -646,7 +647,7 @@ WHERE network_prefixes.circuit_id=$1";
         sqlx::query(query)
             .bind(vlan_id)
             .bind(id)
-            .execute(txn)
+            .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -661,7 +662,7 @@ WHERE network_prefixes.circuit_id=$1";
         sqlx::query(query)
             .bind(vni)
             .bind(id)
-            .execute(txn)
+            .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())

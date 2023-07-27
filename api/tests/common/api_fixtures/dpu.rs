@@ -126,7 +126,7 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     let mut txn = env.pool.begin().await.unwrap();
     let query = "select * from machine_interfaces";
     let mi = sqlx::query_as::<_, MachineInterface>(query)
-        .fetch_all(&mut txn)
+        .fetch_all(&mut *txn)
         .await
         .unwrap();
     assert_eq!(mi.len(), 2);

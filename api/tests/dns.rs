@@ -80,7 +80,7 @@ async fn test_dns(pool: sqlx::PgPool) {
     // Database should have only 2 rows.
     let mut txn = pool.begin().await.unwrap();
     let query = "SELECT COUNT(*) as row_cnt FROM dns_records";
-    let rows = sqlx::query::<_>(query).fetch_one(&mut txn).await.unwrap();
+    let rows = sqlx::query::<_>(query).fetch_one(&mut *txn).await.unwrap();
     let rows_count: i64 = rows.try_get("row_cnt").unwrap();
 
     assert_eq!(2, rows_count);
