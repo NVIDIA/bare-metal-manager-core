@@ -37,7 +37,6 @@ http-body = "0.4.5"
 prometheus = "0.13.3"
 mockall = "0.11.4"
 
-
 # Local dependencies
 forge-host-support = { path = "../../host-support" }
 forge-version = { path = "../../version" }
@@ -49,3 +48,7 @@ forge-version = { path = "../../version" }
 [dev-dependencies]
 ctor = "0.1"
 tempfile = "3"
+axum = "0.6.4"
+axum-server = { version = "0.4.4", features = ["tls-rustls"] }
+prost = "0.11.9"
+chrono = "0.4.26"

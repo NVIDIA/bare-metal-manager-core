@@ -44,6 +44,8 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "axum",
+ "axum-server",
+ "chrono",
  "clap 4.3.11",
  "ctor",
  "eyre",
@@ -61,6 +63,7 @@ dependencies = [
  "opentelemetry-prometheus",
  "opentelemetry-semantic-conventions",
  "prometheus",
+ "prost",
  "rand",
  "rpc",
  "serde",

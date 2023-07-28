@@ -1,0 +1,249 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+#![cfg(test)]
+
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{env, fs};
+
+use crate::{command_line, start, Options};
+
+use axum::extract::State as AxumState;
+use axum::http::{header, StatusCode, Uri};
+use axum::response::IntoResponse;
+use axum::routing::post;
+use axum::Router;
+use axum_server::tls_rustls::RustlsConfig;
+use chrono::{DateTime, NaiveDateTime, Utc};
+use tokio::sync::Mutex;
+
+// TODO: Add settings to config file and switch this to true
+// Then assert that it works
+const TEST_METADATA_SERVICE: bool = false;
+
+const AGENT_CONFIG: &str = r#"
+[forge-system]
+api-server = "https://$API_SERVER"
+pxe-server = "http://127.0.0.1:8080"
+root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
+
+[machine]
+is-fake-dpu = true
+interface-id = "f377ed72-d912-4879-958a-8d1f82a50d62"
+mac-address = "11:22:33:44:55:66"
+hostname = "abc.forge.example.com"
+
+[hbn]
+root-dir = "$HBN_ROOT"
+skip-reload = true
+"#;
+
+const TLS_CERT: &[u8] = include_bytes!("../test-certs/tls.crt");
+const TLS_KEY: &[u8] = include_bytes!("../test-certs/tls.key");
+
+#[derive(Default)]
+struct State {
+    has_discovered: bool,
+    has_checked_version: bool,
+    has_fetched_netconf: bool,
+    has_reported_health: bool,
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start() -> eyre::Result<()> {
+    env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
+
+    let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
+            tracing::warn!("Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping.");
+            return Ok(());
+        };
+    let root_dir = PathBuf::from(repo_root);
+
+    let td = tempfile::tempdir()?;
+    let hbn_root = td.path();
+    fs::create_dir_all(hbn_root.join("etc/frr"))?;
+    fs::create_dir_all(hbn_root.join("etc/network"))?;
+    fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
+
+    let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
+
+    // Start carbide API
+    let listener = TcpListener::bind("127.0.0.1:0")?; // 0 let OS choose available port
+    let addr = listener.local_addr()?;
+    let state_carbide = state.clone();
+    tokio::spawn(async move { mock_carbide_api(listener, state_carbide).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let cfg = AGENT_CONFIG
+        .replace("$ROOT_DIR", &root_dir.display().to_string())
+        .replace("$HBN_ROOT", &hbn_root.display().to_string())
+        .replace("$API_SERVER", &addr.to_string());
+
+    let agent_config_file = tempfile::NamedTempFile::new()?;
+    fs::write(agent_config_file.path(), cfg)?;
+    let opts = Options {
+        version: false,
+        config_path: agent_config_file.path().to_path_buf(),
+        cmd: Some(command_line::AgentCommand::Run(command_line::RunOptions {
+            enable_metadata_service: TEST_METADATA_SERVICE,
+        })),
+    };
+
+    // Start forge-dpu-agent
+    tokio::spawn(async move { start(opts).await });
+
+    // Let it run
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // The gRPC calls were made
+    let statel = state.lock().await;
+    assert!(statel.has_discovered);
+    assert!(statel.has_checked_version);
+    assert!(statel.has_fetched_netconf);
+    assert!(statel.has_reported_health);
+
+    // The files were written
+    assert!(hbn_root.join("etc/frr/frr.conf").exists());
+    assert!(hbn_root.join("etc/network/interfaces").exists());
+    assert!(hbn_root
+        .join("etc/supervisor/conf.d/default-isc-dhcp-relay.conf")
+        .exists());
+
+    Ok(())
+}
+
+async fn mock_carbide_api(
+    listener: TcpListener,
+    state: Arc<Mutex<State>>,
+) -> Result<(), std::io::Error> {
+    let app = Router::new()
+        .route("/forge.Forge/DiscoverMachine", post(handle_discover))
+        .route("/forge.Forge/Version", post(handle_version))
+        .route(
+            "/forge.Forge/GetManagedHostNetworkConfig",
+            post(handle_netconf),
+        )
+        .route(
+            "/forge.Forge/RecordDpuNetworkStatus",
+            post(handle_record_netstat),
+        )
+        .fallback(handler)
+        .with_state(state);
+
+    let config = RustlsConfig::from_pem(TLS_CERT.to_vec(), TLS_KEY.to_vec())
+        .await
+        .unwrap();
+    axum_server::from_tcp_rustls(listener, config)
+        .serve(app.into_make_service())
+        .await
+}
+
+fn respond(out: impl prost::Message) -> impl IntoResponse {
+    let msg_len = out.encoded_len() as u32;
+    let mut body = Vec::with_capacity(1 + 4 + msg_len as usize);
+    // first byte is compression: 0 means none
+    body.push(0u8);
+    // next four bytes are length as bigendian u32
+    body.extend_from_slice(&msg_len.to_be_bytes());
+    // and finally the message
+    out.encode(&mut body).unwrap();
+
+    let headers = [(header::CONTENT_TYPE, "application/grpc+tonic")];
+    (headers, body)
+}
+
+async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
+    state.lock().await.has_discovered = true;
+    respond(rpc::forge::MachineDiscoveryResult {
+        machine_id: Some(
+            "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g"
+                .to_string()
+                .into(),
+        ),
+        machine_certificate: None,
+    })
+}
+
+async fn handle_version(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
+    state.lock().await.has_checked_version = true;
+    respond(rpc::forge::VersionResult {
+        build_version: forge_version::v!(build_version).to_string(),
+        build_date: forge_version::v!(build_date).to_string(),
+        git_sha: forge_version::v!(git_sha).to_string(),
+        rust_version: forge_version::v!(rust_version).to_string(),
+        build_user: forge_version::v!(build_user).to_string(),
+        build_hostname: forge_version::v!(build_hostname).to_string(),
+    })
+}
+
+async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
+    state.lock().await.has_fetched_netconf = true;
+    let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
+    let admin_interface = rpc::forge::FlatInterfaceConfig {
+        function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
+        vlan_id: 10,
+        vni: 10100,
+        gateway: "192.168.0.0/16".to_string(),
+        ip: "127.0.0.1".to_string(),
+        virtual_function_id: None,
+    };
+
+    let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
+        is_production_mode: true,
+        asn: 65535,
+        dhcp_servers: vec!["127.0.0.1".to_string()],
+        vni_device: "".to_string(),
+
+        managed_host_config: Some(rpc::forge::ManagedHostNetworkConfig {
+            loopback_ip: "127.0.0.1".to_string(),
+        }),
+        managed_host_config_version: config_version.clone(),
+        use_admin_network: true,
+        admin_interface: Some(admin_interface),
+        tenant_interfaces: vec![],
+        instance_config_version: config_version,
+        instance_id: None,
+        network_virtualization_type: None,
+        vpc_vni: None,
+        route_servers: vec![],
+        remote_id: "".to_string(),
+    };
+    respond(netconf)
+}
+
+async fn handle_record_netstat(
+    AxumState(state): AxumState<Arc<Mutex<State>>>,
+) -> impl IntoResponse {
+    state.lock().await.has_reported_health = true;
+    respond(())
+}
+
+async fn handler(uri: Uri) -> impl IntoResponse {
+    tracing::debug!("general handler: {:?}", uri);
+    StatusCode::NOT_FOUND
+}
+
+// copied from api/src/model/config_version.rs
+fn now() -> DateTime<Utc> {
+    let mut now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before Unix epoch");
+    let round = now.as_nanos() % 1000;
+    now -= Duration::from_nanos(round as _);
+
+    let naive = NaiveDateTime::from_timestamp_opt(now.as_secs() as i64, now.subsec_nanos())
+        .expect("out-of-range number of seconds and/or invalid nanosecond");
+    DateTime::from_utc(naive, Utc)
+}

@@ -12,7 +12,6 @@
 
 use std::{
     sync::{atomic::AtomicBool, Arc},
-    thread::sleep,
     time::Duration,
 };
 
@@ -59,7 +58,7 @@ struct InstanceMetadataFetcherState {
 /// Fetches the desired network configuration for a managed host in regular intervals
 pub struct InstanceMetadataFetcher {
     state: Arc<InstanceMetadataFetcherState>,
-    join_handle: Option<std::thread::JoinHandle<()>>,
+    join_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Drop for InstanceMetadataFetcher {
@@ -70,7 +69,9 @@ impl Drop for InstanceMetadataFetcher {
             .is_cancelled
             .store(true, std::sync::atomic::Ordering::Relaxed);
         if let Some(jh) = self.join_handle.take() {
-            jh.join().unwrap();
+            tokio::spawn(async move {
+                jh.await.unwrap();
+            });
         }
     }
 }
@@ -85,8 +86,8 @@ impl InstanceMetadataFetcher {
         });
 
         let task_state = state.clone();
-        let join_handle = std::thread::spawn(|| {
-            run_instance_metadata_fetcher(forge_tls_config, task_state);
+        let join_handle = tokio::spawn(async move {
+            run_instance_metadata_fetcher(forge_tls_config, task_state).await;
         });
 
         Self {
@@ -109,10 +110,9 @@ pub struct InstanceMetadataFetcherConfig {
     pub machine_id: String,
     pub forge_api: String,
     pub forge_tls_config: ForgeTlsConfig,
-    pub runtime: tokio::runtime::Handle,
 }
 
-fn run_instance_metadata_fetcher(
+async fn run_instance_metadata_fetcher(
     forge_tls_config: ForgeTlsConfig,
     state: Arc<InstanceMetadataFetcherState>,
 ) {
@@ -130,11 +130,7 @@ fn run_instance_metadata_fetcher(
             state.config.machine_id
         );
 
-        match state
-            .config
-            .runtime
-            .block_on(async { fetch_latest_ip_addresses(forge_tls_config.clone(), &state).await })
-        {
+        match fetch_latest_ip_addresses(forge_tls_config.clone(), &state).await {
             Ok(config) => {
                 state.current.store(Arc::new(Some(config)));
             }
@@ -146,7 +142,7 @@ fn run_instance_metadata_fetcher(
             }
         };
 
-        sleep(state.config.config_fetch_interval);
+        tokio::time::sleep(state.config.config_fetch_interval).await;
     }
 }
 
