@@ -14,8 +14,8 @@ use std::{net::Ipv4Addr, path::PathBuf};
 use clap::Parser;
 
 #[derive(Parser)]
-#[clap(name = env!("CARGO_BIN_NAME"))]
-pub(crate) struct Options {
+#[clap(name = "forge-dpu-agent")]
+pub struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
     pub version: bool,
 

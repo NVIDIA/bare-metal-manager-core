@@ -12,7 +12,6 @@
 
 use std::{
     sync::{atomic::AtomicBool, Arc},
-    thread::sleep,
     time::Duration,
 };
 
@@ -22,20 +21,14 @@ use tracing::{error, trace, warn};
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
 
-/// An interface for reading the latest received network configuration for
-/// a Forge host
-pub trait NetworkConfigReader {
-    fn read(&self) -> Arc<Option<rpc::ManagedHostNetworkConfigResponse>>;
-}
-
-struct NetworkConfigReaderImpl {
+pub struct NetworkConfigReader {
     state: Arc<NetworkConfigFetcherState>,
 }
 
-impl NetworkConfigReader for NetworkConfigReaderImpl {
+impl NetworkConfigReader {
     /// Reads the latest desired network configuration obtained from the Forge
     /// Site controller
-    fn read(&self) -> Arc<Option<rpc::ManagedHostNetworkConfigResponse>> {
+    pub fn read(&self) -> Arc<Option<rpc::ManagedHostNetworkConfigResponse>> {
         self.state.current.load_full()
     }
 }
@@ -49,7 +42,7 @@ struct NetworkConfigFetcherState {
 /// Fetches the desired network configuration for a managed host in regular intervals
 pub struct NetworkConfigFetcher {
     state: Arc<NetworkConfigFetcherState>,
-    join_handle: Option<std::thread::JoinHandle<()>>,
+    join_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Drop for NetworkConfigFetcher {
@@ -60,13 +53,17 @@ impl Drop for NetworkConfigFetcher {
             .is_cancelled
             .store(true, std::sync::atomic::Ordering::Relaxed);
         if let Some(jh) = self.join_handle.take() {
-            jh.join().unwrap();
+            // In main.rs we have a shutdown_timeout on the runtime
+            // so this should get to run.
+            tokio::spawn(async move {
+                jh.await.unwrap();
+            });
         }
     }
 }
 
 impl NetworkConfigFetcher {
-    pub fn new(config: NetworkConfigFetcherConfig) -> Self {
+    pub async fn new(config: NetworkConfigFetcherConfig) -> Self {
         let forge_tls_config = config.forge_tls_config.clone();
         let state = Arc::new(NetworkConfigFetcherState {
             current: ArcSwap::default(),
@@ -76,12 +73,12 @@ impl NetworkConfigFetcher {
 
         // Do an initial synchronous fetch so that caller has data to use
         // This gets a DPU on the network immediately
-        single_fetch(forge_tls_config.clone(), state.clone());
+        single_fetch(forge_tls_config.clone(), state.clone()).await;
 
         let task_state = state.clone();
-        let join_handle = std::thread::spawn(move || {
-            while single_fetch(forge_tls_config.clone(), task_state.clone()) {
-                sleep(task_state.config.config_fetch_interval);
+        let join_handle = tokio::spawn(async move {
+            while single_fetch(forge_tls_config.clone(), task_state.clone()).await {
+                tokio::time::sleep(task_state.config.config_fetch_interval).await;
             }
         });
 
@@ -92,8 +89,8 @@ impl NetworkConfigFetcher {
     }
 
     /// Returns a reader for fetching the latest retrieved network config
-    pub fn reader(&self) -> Box<dyn NetworkConfigReader> {
-        Box::new(NetworkConfigReaderImpl {
+    pub fn reader(&self) -> Box<NetworkConfigReader> {
+        Box::new(NetworkConfigReader {
             state: self.state.clone(),
         })
     }
@@ -105,10 +102,12 @@ pub struct NetworkConfigFetcherConfig {
     pub machine_id: String,
     pub forge_api: String,
     pub forge_tls_config: ForgeTlsConfig,
-    pub runtime: tokio::runtime::Handle,
 }
 
-fn single_fetch(forge_tls_config: ForgeTlsConfig, state: Arc<NetworkConfigFetcherState>) -> bool {
+async fn single_fetch(
+    forge_tls_config: ForgeTlsConfig,
+    state: Arc<NetworkConfigFetcherState>,
+) -> bool {
     if state
         .is_cancelled
         .load(std::sync::atomic::Ordering::Relaxed)
@@ -122,14 +121,13 @@ fn single_fetch(forge_tls_config: ForgeTlsConfig, state: Arc<NetworkConfigFetche
         state.config.machine_id
     );
 
-    match state.config.runtime.block_on(async {
-        fetch(
-            &state.config.machine_id,
-            &state.config.forge_api,
-            forge_tls_config,
-        )
-        .await
-    }) {
+    match fetch(
+        &state.config.machine_id,
+        &state.config.forge_api,
+        forge_tls_config,
+    )
+    .await
+    {
         Ok(config) => {
             state.current.store(Arc::new(Some(config)));
         }
