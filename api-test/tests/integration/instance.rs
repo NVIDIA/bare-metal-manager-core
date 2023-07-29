@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{thread, time};
+use std::{net::SocketAddr, thread, time};
 
 use super::grpcurl::{grpcurl, Id};
 
-pub fn _create(host_machine_id: &str, segment_id: &str) -> eyre::Result<()> {
+pub fn _create(addr: SocketAddr, host_machine_id: &str, segment_id: &str) -> eyre::Result<()> {
     tracing::info!(
         "Creating instance with machine: {host_machine_id}, with network segment: {segment_id}"
     );
@@ -34,7 +34,7 @@ pub fn _create(host_machine_id: &str, segment_id: &str) -> eyre::Result<()> {
             }
         }
     });
-    let resp = grpcurl("AllocateInstance", &data.to_string())?;
+    let resp = grpcurl(addr, "AllocateInstance", &data.to_string())?;
     tracing::info!("AllocateInstance:");
     tracing::info!(resp);
 
@@ -42,7 +42,7 @@ pub fn _create(host_machine_id: &str, segment_id: &str) -> eyre::Result<()> {
         id: host_machine_id.to_string(),
     })?;
     loop {
-        let response = grpcurl("GetMachine", &data.to_string())?;
+        let response = grpcurl(addr, "GetMachine", &data.to_string())?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = resp["state"].as_str().unwrap();
         if state == "Assigned/WaitingForNetworkConfig" {

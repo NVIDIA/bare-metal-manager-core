@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{thread, time};
+use std::{net::SocketAddr, thread, time};
 
 use crate::grpcurl::grpcurl;
 
@@ -33,16 +33,17 @@ const BMC_METADATA: &str = r#"{
   "request_type": 1
 }"#;
 
-pub fn bootstrap() -> eyre::Result<String> {
-    let machine_interface_id = discover_dhcp()?;
+pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {
+    let machine_interface_id = discover_dhcp(addr)?;
     tracing::info!("Using Machine Interface with ID {machine_interface_id}");
 
-    let host_machine_id = discover_machine(&machine_interface_id)?;
+    let host_machine_id = discover_machine(addr, &machine_interface_id)?;
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &host_machine_id);
-    grpcurl("UpdateBMCMetaData", &data)?;
+    grpcurl(addr, "UpdateBMCMetaData", &data)?;
     tracing::info!("Created HOST Machine with ID {host_machine_id}. Starting discovery.");
 
     grpcurl(
+        addr,
         "DiscoveryCompleted",
         &serde_json::json!({
             "machine_id": {"id": host_machine_id}
@@ -58,7 +59,11 @@ pub fn bootstrap() -> eyre::Result<String> {
     Ok(host_machine_id)
 }
 
-pub fn wait_for_state(host_machine_id: &str, target_state: &str) -> eyre::Result<()> {
+pub fn wait_for_state(
+    addr: SocketAddr,
+    host_machine_id: &str,
+    target_state: &str,
+) -> eyre::Result<()> {
     let data = serde_json::json!({
         "id": {"id": host_machine_id},
         "search_config": {"include_dpus": true}
@@ -66,7 +71,7 @@ pub fn wait_for_state(host_machine_id: &str, target_state: &str) -> eyre::Result
     tracing::info!("Waiting for Host state {target_state}");
     let mut i = 0;
     while i < MAX_RETRY {
-        let response = grpcurl("FindMachines", &data.to_string())?;
+        let response = grpcurl(addr, "FindMachines", &data.to_string())?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = resp["machines"][0]["state"].as_str().unwrap();
         if state.contains(target_state) {
@@ -83,10 +88,10 @@ pub fn wait_for_state(host_machine_id: &str, target_state: &str) -> eyre::Result
     Ok(())
 }
 
-fn discover_dhcp() -> eyre::Result<String> {
+fn discover_dhcp(addr: SocketAddr) -> eyre::Result<String> {
     // Find network segment's circuit id
     // There's only one network segment
-    let resp = grpcurl("FindNetworkSegments", "{}")?;
+    let resp = grpcurl(addr, "FindNetworkSegments", "{}")?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
     let circuit_id = &response["networkSegments"][0]["prefixes"][0]["circuitId"]
         .as_str()
@@ -99,19 +104,20 @@ fn discover_dhcp() -> eyre::Result<String> {
         "relay_address": "172.20.0.2",
         "circuit_id": circuit_id,
     });
-    let resp = grpcurl("DiscoverDhcp", &data.to_string())?;
+    let resp = grpcurl(addr, "DiscoverDhcp", &data.to_string())?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
     let machine_interface_id = &response["machineInterfaceId"]["value"].as_str().unwrap();
     Ok(machine_interface_id.to_string())
 }
 
-fn discover_machine(machine_interface_id: &str) -> eyre::Result<String> {
+fn discover_machine(addr: SocketAddr, machine_interface_id: &str) -> eyre::Result<String> {
     let data = include_str!("../../../dev/docker-env/host_machine_discovery.json")
         .replace("$MACHINE_INTERFACE_ID", machine_interface_id);
-    let resp = grpcurl("DiscoverMachine", &data)?;
+    let resp = grpcurl(addr, "DiscoverMachine", &data)?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
     let host_machine_id = response["machineId"]["id"].as_str().unwrap();
     grpcurl(
+        addr,
         "ForgeAgentControl",
         &serde_json::json!({
             "machine_id": {"id": host_machine_id}

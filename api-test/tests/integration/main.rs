@@ -10,16 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, env, fs, path, time};
+use std::{
+    collections::HashMap,
+    env, fs,
+    net::{SocketAddr, TcpListener},
+    path, time,
+};
 
 use sqlx::migrate::MigrateDatabase;
 use tokio::time::sleep;
 
 mod api_server;
-#[path = "../common/mod.rs"]
-mod common;
 mod dpu;
-pub mod forge_dpu_agent;
 pub mod grpcurl;
 mod host;
 mod instance;
@@ -39,10 +41,9 @@ async fn test_integration() -> eyre::Result<()> {
         tracing::warn!("Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping.");
         return Ok(());
     };
-    let root_dir = path::PathBuf::from(repo_root);
-    let (bins, has_all) = find_prerequisites(&root_dir);
+    let (bins, has_all) = find_prerequisites();
     if !has_all {
-        eyre::bail!("Missing pre-requisites in {}", root_dir.display());
+        eyre::bail!("Missing pre-requisites");
     }
 
     // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
@@ -52,7 +53,7 @@ async fn test_integration() -> eyre::Result<()> {
     }
     sqlx::Postgres::create_database(&db_url).await?;
     let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&db_url).await?;
-    let m = sqlx::migrate!();
+    let m = sqlx::migrate!("../api/migrations");
 
     // Dependencies: Postgres, Vault and a Redfish BMC
     m.run(&db_pool).await?;
@@ -62,17 +63,25 @@ async fn test_integration() -> eyre::Result<()> {
         cert_path: None,
     }));
 
+    // Ask OS for a free port
+    let carbide_api_addr = {
+        let l = TcpListener::bind("127.0.0.1:0")?;
+        l.local_addr()?
+    };
+
     let vault_token = vault.token().to_string();
+    let root_dir = path::PathBuf::from(repo_root);
     tokio::spawn({
         let root_dir = root_dir.to_str().unwrap().to_string();
         let db_url = db_url.to_string();
-        api_server::start(root_dir, db_url, vault_token)
+        api_server::start(carbide_api_addr, root_dir, db_url, vault_token)
     });
 
     sleep(time::Duration::from_secs(5)).await;
 
-    let dpu_info = dpu::bootstrap(&root_dir, &bins)?;
-    host_boostrap(bins.get("forge-dpu-agent").unwrap(), &dpu_info).await?;
+    let agent_config_file = tempfile::NamedTempFile::new()?;
+    let dpu_info = dpu::bootstrap(agent_config_file.path(), carbide_api_addr, &root_dir).await?;
+    host_boostrap(carbide_api_addr, agent_config_file.path(), &dpu_info).await?;
 
     //instance::create(&host_machine_id, &segment_id)?;
 
@@ -81,41 +90,45 @@ async fn test_integration() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn host_boostrap(forge_dpu_agent: &path::Path, dpu_info: &dpu::Info) -> eyre::Result<()> {
-    let host_machine_id = host::bootstrap()?;
+async fn host_boostrap(
+    carbide_api_addr: SocketAddr,
+    agent_config_file: &path::Path,
+    dpu_info: &dpu::Info,
+) -> eyre::Result<()> {
+    let host_machine_id = host::bootstrap(carbide_api_addr)?;
 
     // Wait until carbide-api is prepared to admit the DPU might have rebooted.
     // There are hard coded sleeps in carbide-api before this happens.
-    host::wait_for_state(&host_machine_id, "WaitForDPUUp")?;
+    host::wait_for_state(carbide_api_addr, &host_machine_id, "WaitForDPUUp")?;
 
     // After DPU reboot forge_dpu_agent reports health to carbide-api, triggering state transition
-    forge_dpu_agent::run(forge_dpu_agent, &dpu_info.machine_id)?;
+    // Run iteration of forge-dpu-agent
+    agent::start(agent::Options {
+        version: false,
+        config_path: agent_config_file.to_path_buf(),
+        cmd: Some(agent::AgentCommand::Netconf(agent::NetconfParams {
+            dpu_machine_id: dpu_info.machine_id.clone(),
+        })),
+    })
+    .await?;
 
-    host::wait_for_state(&host_machine_id, "Host/Discovered")?;
+    host::wait_for_state(carbide_api_addr, &host_machine_id, "Host/Discovered")?;
 
     grpcurl(
+        carbide_api_addr,
         "ForgeAgentControl",
         &serde_json::json!({
             "machine_id": {"id": host_machine_id}
         })
         .to_string(),
     )?;
-    host::wait_for_state(&host_machine_id, "Ready")?;
+    host::wait_for_state(carbide_api_addr, &host_machine_id, "Ready")?;
     tracing::info!("ManagedHost is up in Ready state.");
     Ok(())
 }
 
-fn find_prerequisites(root_dir: &path::Path) -> (HashMap<String, path::PathBuf>, bool) {
-    let mut bins = HashMap::with_capacity(5);
-    let cargo_paths = [
-        root_dir.join("target/debug"),
-        root_dir.join("target/release"),
-    ];
-    bins.insert(
-        "forge-dpu-agent",
-        find_latest_in("forge-dpu-agent", &cargo_paths),
-    );
-
+fn find_prerequisites() -> (HashMap<String, path::PathBuf>, bool) {
+    let mut bins = HashMap::with_capacity(2);
     let paths: Vec<path::PathBuf> = env::split_paths(&env::var_os("PATH").unwrap()).collect();
     bins.insert("vault", find_first_in("vault", &paths));
     bins.insert("grpcurl", find_first_in("grpcurl", &paths));
@@ -134,7 +147,6 @@ fn find_prerequisites(root_dir: &path::Path) -> (HashMap<String, path::PathBuf>,
         }
     }
     if !has_all {
-        tracing::error!("\tcargo paths: {:?}", cargo_paths);
         tracing::error!("\tPATH: {:?}", paths);
     }
     (full_paths, has_all)
@@ -149,27 +161,4 @@ fn find_first_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf>
         }
     }
     None
-}
-
-// Look the latest binary in the given paths, return full path or None if not found
-fn find_latest_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf> {
-    let mut latest = None;
-
-    for path in paths {
-        let candidate = path.join(binary);
-        if let Ok(metadata) = std::fs::metadata(&candidate) {
-            if let Ok(modified) = metadata.modified() {
-                match latest {
-                    None => latest = Some((candidate, modified)),
-                    Some((_, other_modified)) => {
-                        if modified > other_modified {
-                            latest = Some((candidate, modified));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    latest.map(|(path, _)| path)
 }

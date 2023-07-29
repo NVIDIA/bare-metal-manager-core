@@ -3,6 +3,7 @@
 members = [
   "admin",
   "api",
+  "api-test",
   "bluefield/agent",
   "dev/bmc-mock",
   "dev/rainbow",
