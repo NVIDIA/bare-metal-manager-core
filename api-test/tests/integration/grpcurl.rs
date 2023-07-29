@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::process;
+use std::{net::SocketAddr, process};
 
 use serde::{Deserialize, Serialize};
 
-pub fn grpcurl(endpoint: &str, data: &str) -> eyre::Result<String> {
+pub fn grpcurl(addr: SocketAddr, endpoint: &str, data: &str) -> eyre::Result<String> {
     // We don't pass the full path to grpcurl here and rely on the fact
     // that `Command` searches the PATH. This makes function signatures tidier.
     let out = process::Command::new("grpcurl")
@@ -23,7 +23,7 @@ pub fn grpcurl(endpoint: &str, data: &str) -> eyre::Result<String> {
         .arg("-insecure")
         .arg("-max-time")
         .arg("5")
-        .arg("127.0.0.1:1079")
+        .arg(addr.to_string())
         .arg(format!("forge.Forge/{endpoint}"))
         .output()?;
     let response = String::from_utf8_lossy(&out.stdout);
@@ -39,8 +39,8 @@ pub fn grpcurl(endpoint: &str, data: &str) -> eyre::Result<String> {
 }
 
 // grpcurl then extra id from response and return that
-pub fn grpcurl_id(endpoint: &str, data: &str) -> eyre::Result<String> {
-    let response = grpcurl(endpoint, data)?;
+pub fn grpcurl_id(addr: SocketAddr, endpoint: &str, data: &str) -> eyre::Result<String> {
+    let response = grpcurl(addr, endpoint, data)?;
     let resp: IdValue = serde_json::from_str(&response)?;
     Ok(resp.id.value)
 }

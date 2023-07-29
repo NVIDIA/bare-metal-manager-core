@@ -10,11 +10,27 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, fs, path, thread, time};
+use std::{fs, io, net::SocketAddr, path, thread, time};
 
 use serde::{Deserialize, Serialize};
 
 use crate::grpcurl::{grpcurl, grpcurl_id, Id, IdValue, Value};
+
+const DPU_CONFIG: &str = r#"
+[forge-system]
+api-server = "https://$API_SERVER"
+pxe-server = "http://127.0.0.1:8080"
+root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
+
+[machine]
+interface-id = "$MACHINE_INTERFACE_ID"
+mac-address = "11:22:33:44:55:66"
+hostname = "abc.forge.example.com"
+
+[hbn]
+root-dir = "$HBN_ROOT"
+skip-reload = true
+"#;
 
 pub struct Info {
     pub hbn_root: path::PathBuf,
@@ -24,18 +40,21 @@ pub struct Info {
     pub segment_id: String,
 }
 
-pub fn bootstrap(
+pub async fn bootstrap(
+    dpu_config_file: &path::Path,
+    carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
-    bins: &HashMap<String, path::PathBuf>,
 ) -> eyre::Result<Info> {
-    let (_vpc_id, _domain_id, segment_id) = basic()?;
-    let (interface_id, dpu_machine_id, ip_address) = discover()?;
+    let (_vpc_id, _domain_id, segment_id) = basic(carbide_api_addr)?;
+    let (interface_id, dpu_machine_id, ip_address) = discover(carbide_api_addr)?;
     let hbn_root = configure_network(
+        dpu_config_file,
+        carbide_api_addr,
         root_dir,
-        bins.get("forge-dpu-agent").unwrap(),
         &interface_id,
         &dpu_machine_id,
-    )?;
+    )
+    .await?;
 
     let dpu = Info {
         hbn_root,
@@ -47,22 +66,24 @@ pub fn bootstrap(
     Ok(dpu)
 }
 
-fn basic() -> eyre::Result<(String, String, String)> {
-    let vpc_id = grpcurl_id("CreateVpc", r#"{"name": "test_vpc"}"#)?;
-    let domain_id = grpcurl_id("CreateDomain", r#"{"name": "forge.integrationtest"}"#)?;
-    let segment_id = create_segment(&vpc_id, &domain_id)?;
+// addr is carbide-api's gRPC listener
+fn basic(addr: SocketAddr) -> eyre::Result<(String, String, String)> {
+    let vpc_id = grpcurl_id(addr, "CreateVpc", r#"{"name": "test_vpc"}"#)?;
+    let domain_id = grpcurl_id(addr, "CreateDomain", r#"{"name": "forge.integrationtest"}"#)?;
+    let segment_id = create_segment(addr, &vpc_id, &domain_id)?;
     tracing::info!("Created vpc_id={vpc_id}, domain_id={domain_id}, segment_id={segment_id}");
-    wait_for_segment(&segment_id)?;
+    wait_for_segment(addr, &segment_id)?;
 
     Ok((vpc_id, domain_id, segment_id))
 }
 
-fn discover() -> eyre::Result<(String, String, ipnetwork::Ipv4Network)> {
-    let (interface_id, ip_address) = discover_dhcp()?;
+fn discover(addr: SocketAddr) -> eyre::Result<(String, String, ipnetwork::Ipv4Network)> {
+    let (interface_id, ip_address) = discover_dhcp(addr)?;
     tracing::info!("Created Machine Interface with ID {interface_id}");
-    let dpu_machine_id = discover_dpu(&interface_id)?;
+    let dpu_machine_id = discover_dpu(addr, &interface_id)?;
     tracing::info!("Created DPU Machine with ID {dpu_machine_id}");
     grpcurl(
+        addr,
         "UpdateMachineCredentials",
         &serde_json::to_string(&CredentialRequest {
             machine_id: Id {
@@ -80,20 +101,46 @@ fn discover() -> eyre::Result<(String, String, ipnetwork::Ipv4Network)> {
     Ok((interface_id, dpu_machine_id, ip_address))
 }
 
-fn configure_network(
+fn write_config(
+    dpu_config_file: &path::Path,
+    carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
-    forge_dpu_agent: &path::Path,
+    machine_interface_id: &str,
+    hbn_root: &path::Path,
+) -> io::Result<()> {
+    let cfg = DPU_CONFIG
+        .replace("$MACHINE_INTERFACE_ID", machine_interface_id)
+        .replace("$HBN_ROOT", &hbn_root.display().to_string())
+        .replace("$ROOT_DIR", &root_dir.display().to_string())
+        .replace("$API_SERVER", &carbide_api_addr.to_string());
+    fs::write(dpu_config_file, cfg)
+}
+
+async fn configure_network(
+    dpu_config_file: &path::Path,
+    carbide_api_addr: SocketAddr,
+    root_dir: &path::Path,
     interface_id: &str,
     dpu_machine_id: &str,
 ) -> eyre::Result<path::PathBuf> {
-    let hbn_root = make_dpu_filesystem(root_dir, interface_id)?;
-    crate::forge_dpu_agent::run(forge_dpu_agent, dpu_machine_id)?;
-    wait_for_dpu_up(dpu_machine_id)?;
+    let hbn_root = make_dpu_filesystem(dpu_config_file, carbide_api_addr, root_dir, interface_id)?;
+
+    // Run iteration of forge-dpu-agent
+    agent::start(agent::Options {
+        version: false,
+        config_path: dpu_config_file.to_path_buf(),
+        cmd: Some(agent::AgentCommand::Netconf(agent::NetconfParams {
+            dpu_machine_id: dpu_machine_id.to_string(),
+        })),
+    })
+    .await?;
+
+    wait_for_dpu_up(carbide_api_addr, dpu_machine_id)?;
     tracing::info!("DPU is up now.");
     Ok(hbn_root)
 }
 
-fn wait_for_segment(segment_id: &str) -> eyre::Result<()> {
+fn wait_for_segment(addr: SocketAddr, segment_id: &str) -> eyre::Result<()> {
     tracing::info!("Waiting for network segment to become ready");
     let data = serde_json::to_string(&IdValue {
         id: Value {
@@ -101,7 +148,7 @@ fn wait_for_segment(segment_id: &str) -> eyre::Result<()> {
         },
     })?;
     loop {
-        let response = grpcurl("FindNetworkSegments", &data)?;
+        let response = grpcurl(addr, "FindNetworkSegments", &data)?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = &resp["networkSegments"][0]["state"];
         if let Some("READY") = state.as_str() {
@@ -112,14 +159,14 @@ fn wait_for_segment(segment_id: &str) -> eyre::Result<()> {
     Ok(())
 }
 
-fn wait_for_dpu_up(dpu_machine_id: &str) -> eyre::Result<()> {
+fn wait_for_dpu_up(addr: SocketAddr, dpu_machine_id: &str) -> eyre::Result<()> {
     let data = serde_json::json!({
         "id": {"id": dpu_machine_id},
         "search_config": {"include_dpus": true}
     });
     tracing::info!("Waiting for DPU state Host/WaitingForDiscovery");
     loop {
-        let response = grpcurl("FindMachines", &data.to_string())?;
+        let response = grpcurl(addr, "FindMachines", &data.to_string())?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = resp["machines"][0]["state"].as_str().unwrap();
         if state == "Host/WaitingForDiscovery" {
@@ -132,6 +179,8 @@ fn wait_for_dpu_up(dpu_machine_id: &str) -> eyre::Result<()> {
 }
 
 fn make_dpu_filesystem(
+    dpu_config_file: &path::Path,
+    carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
     machine_interface_id: &str,
 ) -> eyre::Result<path::PathBuf> {
@@ -144,17 +193,24 @@ fn make_dpu_filesystem(
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
 
-    crate::forge_dpu_agent::write_config(root_dir, machine_interface_id, &hbn_root)?;
+    write_config(
+        dpu_config_file,
+        carbide_api_addr,
+        root_dir,
+        machine_interface_id,
+        &hbn_root,
+    )?;
     Ok(hbn_root)
 }
 
-fn discover_dpu(interface_id: &str) -> eyre::Result<String> {
+fn discover_dpu(addr: SocketAddr, interface_id: &str) -> eyre::Result<String> {
     let data = include_str!("../../../dev/docker-env/dpu_machine_discovery.json")
         .replace("$MACHINE_INTERFACE_ID", interface_id);
-    let response = grpcurl("DiscoverMachine", &data)?;
+    let response = grpcurl(addr, "DiscoverMachine", &data)?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
     let dpu_machine_id = resp["machineId"]["id"].as_str().unwrap().to_string();
     grpcurl(
+        addr,
         "DiscoveryCompleted",
         &serde_json::json!({"machine_id": {"id": dpu_machine_id}}).to_string(),
     )?;
@@ -162,8 +218,9 @@ fn discover_dpu(interface_id: &str) -> eyre::Result<String> {
     Ok(dpu_machine_id)
 }
 
-fn discover_dhcp() -> eyre::Result<(String, ipnetwork::Ipv4Network)> {
+fn discover_dhcp(addr: SocketAddr) -> eyre::Result<(String, ipnetwork::Ipv4Network)> {
     let response = grpcurl(
+        addr,
         "DiscoverDhcp",
         include_str!("../../../dev/docker-env/dpu_dhcp_discovery.json"),
     )?;
@@ -173,7 +230,7 @@ fn discover_dhcp() -> eyre::Result<(String, ipnetwork::Ipv4Network)> {
     Ok((interface_id.to_string(), ip_address))
 }
 
-fn create_segment(vpc_id: &str, domain_id: &str) -> eyre::Result<String> {
+fn create_segment(addr: SocketAddr, vpc_id: &str, domain_id: &str) -> eyre::Result<String> {
     let net_prefix = "172.20.0.0/24";
     let net_gateway = "172.20.0.1";
     let segment_data = serde_json::to_string(&SegmentRequest {
@@ -193,7 +250,7 @@ fn create_segment(vpc_id: &str, domain_id: &str) -> eyre::Result<String> {
         },
     })
     .unwrap();
-    grpcurl_id("CreateNetworkSegment", &segment_data)
+    grpcurl_id(addr, "CreateNetworkSegment", &segment_data)
 }
 
 // Note that we intentionally don't use the rpc package. This test is intended to be completely

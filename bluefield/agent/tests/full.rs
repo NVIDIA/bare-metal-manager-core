@@ -10,15 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-#![cfg(test)]
-
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs};
-
-use crate::{command_line, start, Options};
 
 use axum::extract::State as AxumState;
 use axum::http::{header, StatusCode, Uri};
@@ -93,16 +89,16 @@ async fn test_start() -> eyre::Result<()> {
 
     let agent_config_file = tempfile::NamedTempFile::new()?;
     fs::write(agent_config_file.path(), cfg)?;
-    let opts = Options {
+    let opts = agent::Options {
         version: false,
         config_path: agent_config_file.path().to_path_buf(),
-        cmd: Some(command_line::AgentCommand::Run(command_line::RunOptions {
+        cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
             enable_metadata_service: TEST_METADATA_SERVICE,
         })),
     };
 
     // Start forge-dpu-agent
-    tokio::spawn(async move { start(opts).await });
+    tokio::spawn(async move { agent::start(opts).await });
 
     // Let it run
     tokio::time::sleep(Duration::from_secs(1)).await;

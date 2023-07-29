@@ -10,15 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::net::SocketAddr;
 
 use carbide::cfg::{AuthConfig, CarbideConfig, TlsConfig};
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
 
-use crate::common;
+use tracing::metadata::LevelFilter;
+use tracing_subscriber::{filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt};
 
-pub async fn start(root_dir: String, db_url: String, vault_token: String) -> eyre::Result<()> {
+pub async fn start(
+    addr: SocketAddr,
+    root_dir: String,
+    db_url: String,
+    vault_token: String,
+) -> eyre::Result<()> {
     let carbide_config = CarbideConfig {
-        listen: "127.0.0.1:1079".parse().unwrap(),
+        listen: addr,
         metrics_endpoint: Some("127.0.0.1:1080".parse().unwrap()),
         otlp_endpoint: None,
         database_url: db_url,
@@ -104,11 +111,29 @@ pub async fn start(root_dir: String, db_url: String, vault_token: String) -> eyr
     std::env::set_var("VAULT_TOKEN", vault_token);
 
     let carbide_config_str = toml::to_string(&carbide_config).unwrap();
-    carbide::run(
-        0,
-        carbide_config_str,
-        None,
-        Some(common::test_logging::test_logging_subscriber()),
+    carbide::run(0, carbide_config_str, None, Some(test_logging_subscriber())).await
+}
+
+pub fn test_logging_subscriber() -> impl SubscriberInitExt {
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        .add_directive("sqlx=warn".parse().unwrap())
+        .add_directive("tower=warn".parse().unwrap())
+        .add_directive("rustls=warn".parse().unwrap())
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("h2=warn".parse().unwrap());
+
+    // Note: `TestWriter` is required to use the standard behavior of Rust unit tests:
+    // - Successful tests won't show output unless forced by the `--nocapture` CLI argument
+    // - Failing tests will have their output printed
+    Box::new(
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::fmt::Layer::default()
+                    .compact()
+                    .with_writer(TestWriter::new),
+            )
+            .with(env_filter),
     )
-    .await
 }

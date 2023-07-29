@@ -31,15 +31,12 @@ use forge_host_support::{
     registration::register_machine,
 };
 
+use crate::frr::FrrVlanConfig;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
 use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
-use crate::{
-    command_line::{AgentCommand, WriteTarget},
-    frr::FrrVlanConfig,
-};
 
 mod command_line;
-pub use command_line::Options;
+pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 mod daemons;
 mod dhcp;
 mod ethernet_virtualization;
@@ -51,7 +48,6 @@ mod instance_metadata_fetcher;
 mod instrumentation;
 mod interfaces;
 mod network_config_fetcher;
-mod test;
 
 // Report HBN health every this long
 //
@@ -71,8 +67,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         println!("{}", forge_version::version!());
         return Ok(());
     }
-
-    forge_host_support::init_logging()?;
 
     let agent = match AgentConfig::load_from(&cmdline.config_path) {
         Ok(cfg) => {
