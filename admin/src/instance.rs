@@ -16,6 +16,7 @@ use prettytable::{row, Table};
 
 use super::cfg::carbide_options::ShowInstance;
 use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
+use crate::cfg::carbide_options::RebootInstance;
 use crate::{CarbideCliError, Config};
 
 fn convert_instance_to_nice_format(
@@ -305,6 +306,27 @@ pub async fn handle_show(
     } else if let Some(machine_id) = args.machine {
         show_machine_details(machine_id, json, api_config, args.extrainfo).await?;
     }
+
+    Ok(())
+}
+
+pub async fn handle_reboot(args: RebootInstance, api_config: Config) -> CarbideCliResult<()> {
+    let machine_id = rpc::get_instances(api_config.clone(), Some(args.instance.clone()))
+        .await?
+        .instances
+        .last()
+        .ok_or_else(|| CarbideCliError::GenericError("Unknown UUID".to_string()))?
+        .machine_id
+        .clone()
+        .ok_or_else(|| {
+            CarbideCliError::GenericError("Instance has no machine associated.".to_string())
+        })?;
+
+    rpc::reboot_instance(api_config, machine_id.clone(), args.custom_pxe).await?;
+    println!(
+        "Reboot for instance {} (machine {}) is requested successfully!",
+        args.instance, machine_id
+    );
 
     Ok(())
 }

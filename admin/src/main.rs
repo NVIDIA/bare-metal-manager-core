@@ -401,6 +401,9 @@ async fn main() -> color_eyre::Result<()> {
                 instance::handle_show(instance, config.format == OutputFormat::Json, api_config)
                     .await?
             }
+            Instance::Reboot(reboot_request) => {
+                instance::handle_reboot(reboot_request, api_config).await?
+            }
         },
         CarbideCommand::NetworkSegment(network) => match network {
             NetworkSegment::Show(network) => {

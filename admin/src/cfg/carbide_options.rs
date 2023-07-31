@@ -262,6 +262,8 @@ pub struct ShowManagedHost {
 pub enum Instance {
     #[clap(about = "Display Instance information")]
     Show(ShowInstance),
+    #[clap(about = "Reboot Instance")]
+    Reboot(RebootInstance),
 }
 
 #[derive(Parser, Debug)]
@@ -281,6 +283,15 @@ pub struct ShowInstance {
 
     #[clap(short, long, action)]
     pub extrainfo: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct RebootInstance {
+    #[clap(short, long)]
+    pub instance: String,
+
+    #[clap(short, long, action)]
+    pub custom_pxe: bool,
 }
 
 #[derive(Parser, Debug)]

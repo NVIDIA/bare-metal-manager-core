@@ -14,6 +14,7 @@ use std::future::Future;
 
 use ::rpc::forge::{self as rpc, MachineType, NetworkSegmentSearchConfig};
 use ::rpc::forge_tls_client::{self, ForgeClientT};
+use ::rpc::MachineId;
 
 use super::{CarbideCliError, CarbideCliResult};
 use crate::cfg::carbide_options::ForceDeleteMachineQuery;
@@ -128,6 +129,29 @@ pub async fn get_all_machines(api_config: Config) -> CarbideCliResult<rpc::Machi
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(machine_details)
+    })
+    .await
+}
+
+pub async fn reboot_instance(
+    api_config: Config,
+    machine_id: MachineId,
+    boot_with_custom_ipxe: bool,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::InstancePowerRequest {
+            machine_id: Some(machine_id),
+            operation: rpc::instance_power_request::Operation::PowerReset as i32,
+            boot_with_custom_ipxe,
+        });
+
+        client
+            .invoke_instance_power(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
     })
     .await
 }
