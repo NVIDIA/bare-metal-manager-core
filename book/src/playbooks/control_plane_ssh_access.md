@@ -68,8 +68,8 @@ Host azurejump 20.237.179.67
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
-Host gavlejump 20.240.129.104
-  Hostname 20.240.129.104
+Host gavlejump 20.240.41.178 
+  Hostname 20.240.41.178 
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
