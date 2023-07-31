@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::fs;
 use std::str::FromStr;
+use std::{fs, thread, time};
 
 use ::rpc::forge as rpc;
 use procfs::Meminfo;
@@ -140,6 +140,9 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             LENOVO_NVMI_CLI_PROG
         ))?;
         cmdrun::run_prog(format!("{} vd -a create -r 1 -d 0,1", LENOVO_NVMI_CLI_PROG))?;
+
+        // This sleep should help the OS dust settle from the creation of this vd
+        thread::sleep(time::Duration::from_secs(5));
     } else {
         // list all namespaces
         let nvmens_output = cmdrun::run_prog(format!("{} list-ns {} -a", NVME_CLI_PROG, nvmename))?;
