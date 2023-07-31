@@ -11,6 +11,7 @@
  */
 pub mod address_selection_strategy;
 pub mod auth;
+pub mod bmc_machine;
 pub mod bmc_metadata;
 pub mod constants;
 pub mod dhcp_entry;

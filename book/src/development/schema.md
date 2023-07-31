@@ -17,6 +17,14 @@ erDiagram
         timestamp_with_time_zone last_updated
     }
 
+    bmc_machine {
+        uuid id PK
+        uuid machine_interface_id
+        bmc_machine_type_t bmc_type
+        character_varying controller_state_version
+        jsonb controller_state
+    }
+
     dhcp_entries {
         uuid machine_interface_id PK
         character_varying vendor_string PK
@@ -257,6 +265,8 @@ erDiagram
         timestamp_with_time_zone deleted
     }
 
+    bmc_machine }o--|| machine_interfaces : "machine_interface_id"
+    bmc_machine }o--|| machines : "machine_id"
     dhcp_entries }o--|| machine_interfaces : "machine_interface_id"
     machine_interfaces }o--|| domains : "domain_id"
     network_segments }o--|| domains : "subdomain_id"

@@ -50,6 +50,7 @@ pub const FIXTURE_DPU_MAC_ADDRESS: &str = "01:11:21:31:41:51";
 /// We might need a more extensive BMC simulation for this
 pub const FIXTURE_DPU_BMC_IP_ADDRESS: &str = "233.233.233.2";
 pub const FIXTURE_DPU_BMC_MAC_ADDRESS: &str = "11:22:33:44:55:66";
+pub const FIXTURE_DPU_BMC_VENDOR_STRING: &str = "NVIDIA/BF/BMC";
 pub const FIXTURE_DPU_BMC_VERSION: &str = "2.1";
 pub const FIXTURE_DPU_BMC_FIRMWARE_VERSION: &str = "3.2";
 
@@ -144,6 +145,28 @@ pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
             mac_address: mac_address.to_string(),
             relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             vendor_string: None,
+            link_address: None,
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    response
+        .machine_interface_id
+        .expect("machine_interface_id must be set")
+}
+
+/// Uses the `discover_dhcp` API to discover a DPU BMC
+///
+/// Returns the created `machine_interface_id`
+pub async fn dpu_discover_bmc_dhcp(env: &TestEnv) -> rpc::Uuid {
+    let response = env
+        .api
+        .discover_dhcp(Request::new(DhcpDiscovery {
+            mac_address: FIXTURE_DPU_BMC_MAC_ADDRESS.to_string(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
+            vendor_string: Some(FIXTURE_DPU_BMC_VENDOR_STRING.to_string()),
             link_address: None,
             circuit_id: None,
             remote_id: None,

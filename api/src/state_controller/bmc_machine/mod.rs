@@ -9,12 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+//! State Controller implementation for BmcMachine.
 
-pub mod bmc_machine;
-pub mod controller;
-pub mod ib_subnet;
-pub mod machine;
-pub mod metrics;
-pub mod network_segment;
-pub mod snapshot_loader;
-pub mod state_handler;
+pub mod handler;
+pub mod io;
