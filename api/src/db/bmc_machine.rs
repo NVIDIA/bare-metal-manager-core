@@ -96,7 +96,7 @@ impl BmcMachine {
                     .bind(bmc_type)
                     .bind(state_version.version_string())
                     .bind(sqlx::types::Json(BmcMachineState::Init))
-                    .fetch_one(&mut *txn)
+                    .fetch_one(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
                 BmcMachine::get_by_id(txn, machine_id.0).await
@@ -110,7 +110,7 @@ impl BmcMachine {
     ) -> Result<Vec<Uuid>, DatabaseError> {
         let query = "SELECT id FROM bmc_machine";
         let mut results = Vec::new();
-        let mut bmc_id_stream = sqlx::query_as::<_, BmcMachineId>(query).fetch(txn);
+        let mut bmc_id_stream = sqlx::query_as::<_, BmcMachineId>(query).fetch(&mut **txn);
         while let Some(maybe_id) = bmc_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id.into());
@@ -129,7 +129,7 @@ impl BmcMachine {
         let machines = match filter {
             ObjectFilter::All => {
                 sqlx::query_as::<_, BmcMachine>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "bmc_machine All", e))?
             }
@@ -138,7 +138,7 @@ impl BmcMachine {
                     .replace("{where}", &format!("WHERE bm.{column}='{}'", id))
                     .replace("{column}", column);
                 sqlx::query_as::<_, BmcMachine>(&query)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "bmc_machine One", e))?
             }
@@ -161,7 +161,7 @@ impl BmcMachine {
                     .replace("{column}", column);
 
                 sqlx::query_as::<_, BmcMachine>(&query)
-                    .fetch_all(&mut *txn)
+                    .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "bmc_machine List", e))?
             }
@@ -191,7 +191,7 @@ impl BmcMachine {
             .bind(sqlx::types::Json(new_state))
             .bind(machine_id)
             .bind(&expected_version_str)
-            .fetch_one(&mut *txn)
+            .fetch_one(&mut **txn)
             .await;
 
         match query_result {
