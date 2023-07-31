@@ -18,6 +18,7 @@ use tonic::{Request, Response, Status};
 
 use crate::{
     db::{
+        bmc_machine::BmcMachine,
         dhcp_entry::DhcpEntry,
         dhcp_record::{DhcpRecord, InstanceDhcpRecord},
         instance::Instance,
@@ -25,7 +26,7 @@ use crate::{
         machine_interface::MachineInterface,
     },
     dhcp::allocation::DhcpError,
-    model::machine::machine_id::MachineId,
+    model::{bmc_machine::BmcMachineType, machine::machine_id::MachineId},
     state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     CarbideError, CarbideResult,
 };
@@ -162,6 +163,14 @@ pub async fn discover_dhcp(
 
     // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
     if let Some(vendor) = vendor_string {
+        if vendor == "NVIDIA/BF/BMC" {
+            let _bmc_machine = BmcMachine::find_or_create_bmc_machine(
+                &mut txn,
+                *machine_interface.id(),
+                BmcMachineType::Dpu,
+            )
+            .await?;
+        }
         let res = DhcpEntry {
             machine_interface_id: *machine_interface.id(),
             vendor_string: vendor,

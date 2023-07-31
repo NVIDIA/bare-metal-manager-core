@@ -31,6 +31,7 @@ use carbide::{
     redfish::RedfishSim,
     resource_pool::common::CommonPools,
     state_controller::{
+        bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
         controller::{ReachabilityParams, StateControllerIO},
         ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
@@ -80,6 +81,7 @@ pub struct TestEnv {
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
     pub reachability_params: ReachabilityParams,
     pub ib_subnet_state_controller_io: IBSubnetStateControllerIO,
+    pub bmc_machine_state_controller_io: BmcMachineStateControllerIO,
 }
 
 impl TestEnv {
@@ -198,6 +200,24 @@ impl TestEnv {
         .await
     }
 
+    /// Runs one iteration of the bmc machine state controller handler with the services
+    /// in this test environment
+    pub async fn run_bmc_machine_controller_iteration(
+        &self,
+        bmc_machine_id: uuid::Uuid,
+        handler: &BmcMachineStateHandler,
+    ) {
+        let services = Arc::new(self.state_handler_services());
+        run_state_controller_iteration(
+            &services,
+            &self.pool,
+            &self.bmc_machine_state_controller_io,
+            bmc_machine_id,
+            handler,
+        )
+        .await
+    }
+
     // Returns all machines using FindMachines call.
     pub async fn find_machines(
         &self,
@@ -310,6 +330,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
             dpu_wait_time: Duration::seconds(0),
         },
         ib_subnet_state_controller_io: IBSubnetStateControllerIO::default(),
+        bmc_machine_state_controller_io: BmcMachineStateControllerIO::default(),
     }
 }
 

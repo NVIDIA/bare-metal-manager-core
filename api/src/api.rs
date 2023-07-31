@@ -104,6 +104,7 @@ use crate::{
     },
     redfish::{RedfishClientPool, RedfishClientPoolImpl},
     state_controller::{
+        bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
         controller::StateController,
         ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
         machine::handler::MachineStateHandler,
@@ -3642,6 +3643,20 @@ where
             )))
             .build()
             .expect("Unable to build IBSubnetController");
+
+        let _bmc_machine_controller_handle =
+            StateController::<BmcMachineStateControllerIO>::builder()
+                .database(database_connection.clone())
+                .redfish_client_pool(shared_redfish_pool.clone())
+                .ib_fabric_manager(ib_fabric_manager.clone())
+                .reachability_params(ReachabilityParams {
+                    dpu_wait_time: service_config.dpu_wait_time,
+                })
+                .forge_api(api_service.clone())
+                .iteration_time(service_config.network_segment_state_controller_iteration_time)
+                .state_handler(Arc::new(BmcMachineStateHandler::default()))
+                .build()
+                .expect("Unable to build BmcMachineController");
 
         let listen_addr = carbide_config.listen;
         api_handler(api_service, listen_addr, meter).await
