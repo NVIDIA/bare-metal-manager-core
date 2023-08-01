@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::fs;
 use std::str::FromStr;
-use std::{fs, thread, time};
 
 use ::rpc::forge as rpc;
 use procfs::Meminfo;
@@ -58,7 +58,6 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
 }
 
 static NVME_CLI_PROG: &str = "/usr/sbin/nvme";
-static LENOVO_NVMI_CLI_PROG: &str = "/opt/forge/mnv_cli";
 
 lazy_static::lazy_static! {
     static ref NVME_NS_RE: Regex = Regex::new(r".*:(0x[0-9]+)").unwrap();
@@ -121,88 +120,64 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
         nvme_drive_params.fr
     );
 
-    if nvme_drive_params.mn.trim() == "M.2 NVMe 2-Bay RAID Kit" {
-        // In no way is this proper support for raid drives, this is a temporary fix for specific drives in lenovo azure
-        // We are entering a world of assumptions
-        // assumption 1: only lenovos have raids - LENOVO_NVMI_CLI_PROG
-        // assumption 2: the vd has 2 drives - passthru -i 0 and -i 1
-        // assumption 3: the raid type is 1 - create -r 1 0,1
-        cmdrun::run_prog(format!(
-            "{} vd -a delete -i {}",
-            LENOVO_NVMI_CLI_PROG, nvme_drive_params.cntlid
-        ))?;
-        cmdrun::run_prog(format!(
-            "{} passthru -i 0 -o 0x80 -n 0xffffffff --cdw10=0x200 -r none",
-            LENOVO_NVMI_CLI_PROG
-        ))?;
-        cmdrun::run_prog(format!(
-            "{} passthru -i 1 -o 0x80 -n 0xffffffff --cdw10=0x200 -r none",
-            LENOVO_NVMI_CLI_PROG
-        ))?;
-        cmdrun::run_prog(format!("{} vd -a create -r 1 -d 0,1", LENOVO_NVMI_CLI_PROG))?;
+    // list all namespaces
+    let nvmens_output = cmdrun::run_prog(format!("{} list-ns {} -a", NVME_CLI_PROG, nvmename))?;
 
-        // This sleep should help the OS dust settle from the creation of this vd
-        thread::sleep(time::Duration::from_secs(5));
-    } else {
-        // list all namespaces
-        let nvmens_output = cmdrun::run_prog(format!("{} list-ns {} -a", NVME_CLI_PROG, nvmename))?;
+    // iterate over namespaces
+    for nsline in nvmens_output.lines() {
+        let caps = match NVME_NS_RE.captures(nsline) {
+            Some(o) => o,
+            None => continue,
+        };
+        let nsid = caps.get(1).map_or("", |m| m.as_str());
+        tracing::debug!("namespace {}", nsid);
 
-        // iterate over namespaces
-        for nsline in nvmens_output.lines() {
-            let caps = match NVME_NS_RE.captures(nsline) {
-                Some(o) => o,
-                None => continue,
-            };
-            let nsid = caps.get(1).map_or("", |m| m.as_str());
-            tracing::debug!("namespace {}", nsid);
-
-            // format with "-s2" is secure erase
-            match cmdrun::run_prog(format!(
-                "{} format {} -s2 -f -n {}",
-                NVME_CLI_PROG, nvmename, nsid
-            )) {
-                Ok(_) => (),
-                Err(e) => {
-                    if namespaces_supported {
-                        // format can fail if there is a wrong params for namespace. We delete it anyway.
-                        tracing::debug!("nvme format error: {}", e);
-                    } else {
-                        return Err(e);
-                    }
+        // format with "-s2" is secure erase
+        match cmdrun::run_prog(format!(
+            "{} format {} -s2 -f -n {}",
+            NVME_CLI_PROG, nvmename, nsid
+        )) {
+            Ok(_) => (),
+            Err(e) => {
+                if namespaces_supported {
+                    // format can fail if there is a wrong params for namespace. We delete it anyway.
+                    tracing::debug!("nvme format error: {}", e);
+                } else {
+                    return Err(e);
                 }
             }
-            if namespaces_supported {
-                // delete namespace
-                cmdrun::run_prog(format!(
-                    "{} delete-ns {} -n {}",
-                    NVME_CLI_PROG, nvmename, nsid
-                ))?;
-            }
         }
-
         if namespaces_supported {
-            let sectors = nvme_drive_params.tnvmcap / 512;
-            // creating new namespace with all available sectors
-            tracing::debug!("Creating namespace on {}", nvmename);
-            let line_created_ns_id = cmdrun::run_prog(format!(
-                "{} create-ns {} --nsze={} --ncap={} --flbas 0 --dps=0",
-                NVME_CLI_PROG, nvmename, sectors, sectors
-            ))?;
-            let nsid = match NVME_NSID_RE.captures(&line_created_ns_id) {
-                Some(o) => o.get(1).map_or("", |m| m.as_str()),
-                None => {
-                    return Err(CarbideClientError::GenericError(format!(
-                        "nvme cant get nsid after create-ns {}",
-                        line_created_ns_id
-                    )))
-                }
-            };
-            // attaching namespace to controller
+            // delete namespace
             cmdrun::run_prog(format!(
-                "{} attach-ns {} -n {} -c {}",
-                NVME_CLI_PROG, nvmename, nsid, nvme_drive_params.cntlid
+                "{} delete-ns {} -n {}",
+                NVME_CLI_PROG, nvmename, nsid
             ))?;
         }
+    }
+
+    if namespaces_supported {
+        let sectors = nvme_drive_params.tnvmcap / 512;
+        // creating new namespace with all available sectors
+        tracing::debug!("Creating namespace on {}", nvmename);
+        let line_created_ns_id = cmdrun::run_prog(format!(
+            "{} create-ns {} --nsze={} --ncap={} --flbas 0 --dps=0",
+            NVME_CLI_PROG, nvmename, sectors, sectors
+        ))?;
+        let nsid = match NVME_NSID_RE.captures(&line_created_ns_id) {
+            Some(o) => o.get(1).map_or("", |m| m.as_str()),
+            None => {
+                return Err(CarbideClientError::GenericError(format!(
+                    "nvme cant get nsid after create-ns {}",
+                    line_created_ns_id
+                )))
+            }
+        };
+        // attaching namespace to controller
+        cmdrun::run_prog(format!(
+            "{} attach-ns {} -n {} -c {}",
+            NVME_CLI_PROG, nvmename, nsid, nvme_drive_params.cntlid
+        ))?;
     }
     tracing::debug!("Cleanup completed for nvme device {}", nvmename);
     Ok(())
