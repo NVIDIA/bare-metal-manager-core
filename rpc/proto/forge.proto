@@ -923,7 +923,10 @@ message DhcpRecord {
   int32 mtu = 8;
 
   string prefix = 9;
+
   optional string gateway = 10;
+
+  optional string booturl = 11;
 }
 
 message NetworkSegmentList {

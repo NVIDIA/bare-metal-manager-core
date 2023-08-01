@@ -19,6 +19,8 @@ use ipnetwork::IpNetwork;
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
 
+use MachineArchitecture::*;
+
 use crate::discovery::Discovery;
 use crate::vendor_class::{MachineArchitecture, VendorClass};
 use crate::CONFIG;
@@ -68,6 +70,10 @@ impl Machine {
             }
             Err(err) => Err(format!("unable to connect to Carbide API: {:?}", err)),
         }
+    }
+
+    pub fn booturl(&self) -> Option<&str> {
+        self.inner.booturl.as_deref()
     }
 }
 
@@ -178,33 +184,49 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
 pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
-    let arch = match &machine.vendor_class {
-        None => {
-            return ptr::null();
-        }
-        Some(v) if !v.is_netboot() => {
-            return ptr::null();
-        }
-        Some(VendorClass { arch, .. }) => arch,
-    };
 
-    let url = if let Some(next_server) = CONFIG
-        .read()
-        .unwrap() // TODO(ajf): don't unwrap
-        .provisioning_server_ipv4
-    {
-        next_server.to_string()
+    // If the API sent us the URL we should boot from, just use it.
+    let url = if let Some(url) = machine.booturl() {
+        url.to_string()
     } else {
-        "127.0.0.1".to_string()
+        let arch = match &machine.vendor_class {
+            None => {
+                return ptr::null();
+            }
+            Some(v) if !v.is_netboot() => {
+                return ptr::null();
+            }
+            Some(VendorClass { arch, .. }) => arch,
+        };
+
+        let base_url = if let Some(next_server) = CONFIG
+            .read()
+            .unwrap() // TODO(ajf): don't unwrap
+            .provisioning_server_ipv4
+        {
+            next_server.to_string()
+        } else {
+            log::warn!("Could not retrieve provisioning-server-ipv4 configuration from Kea");
+            return ptr::null();
+        };
+
+        match arch {
+            EfiX64 => format!(
+                "http://{}:8080/public/blobs/internal/x86_64/ipxe.efi",
+                base_url
+            ),
+            Arm64 => format!(
+                "http://{}:8080/public/blobs/internal/aarch64/ipxe.efi",
+                base_url
+            ),
+            BiosX86 => {
+                log::error!("Matched an HTTP client on a Legacy BIOS client, cannot provide HTTP boot URL {:?}", &machine);
+                return ptr::null();
+            }
+        }
     };
 
-    use MachineArchitecture::*;
-    let fqdn = match arch {
-        EfiX64 => format!("http://{}:8080/public/blobs/internal/x86_64/ipxe.efi", url),
-        Arm64 => format!("http://{}:8080/public/blobs/internal/aarch64/ipxe.efi", url),
-        BiosX86 => unreachable!(), // BIOS never supports HTTPClient
-    };
-    CString::new(fqdn).unwrap().into_raw()
+    CString::new(url).unwrap().into_raw()
 }
 
 // IPv4 address of next-server (siaddr) as big endian int 32.
@@ -423,4 +445,80 @@ pub extern "C" fn machine_free(ctx: *mut Machine) {
     }
 
     unsafe { Box::from_raw(ctx) };
+}
+
+#[cfg(test)]
+mod test {
+    use crate::discovery::Discovery;
+    use crate::machine::machine_get_filename;
+    use crate::machine::Machine;
+    use crate::vendor_class::VendorClass;
+    use rpc::forge as rpc;
+    use std::ffi::CString;
+    use std::net::Ipv4Addr;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_use_booturl_internal() {
+        crate::carbide_set_config_next_server_ipv4("127.0.0.1".parse::<Ipv4Addr>().unwrap().into());
+
+        let mut machine = Box::new(Machine {
+            inner: rpc::DhcpRecord::default(),
+            discovery_info: Discovery {
+                relay_address: "127.0.0.1".parse().unwrap(),
+                mac_address: "00:00:00:00:00:00".parse().unwrap(),
+                _client_system: None,
+                vendor_class: None,
+                link_select_address: "127.0.0.1".parse().ok(),
+                circuit_id: None,
+                remote_id: None,
+            },
+            vendor_class: VendorClass::from_str("HTTPClient:Arch:00011:UNDI:003000")
+                .unwrap()
+                .into(),
+        });
+
+        let out = machine_get_filename(&mut *machine);
+
+        assert_ne!(out, std::ptr::null());
+
+        let cstr = unsafe { CString::from_raw(out as *mut _) };
+
+        assert_eq!(
+            cstr,
+            CString::new("http://127.0.0.1:8080/public/blobs/internal/aarch64/ipxe.efi").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_use_booturl_from_api() {
+        let dhcp_record = rpc::DhcpRecord {
+            booturl: Some("https://foobar".to_string()),
+            ..Default::default()
+        };
+
+        let mut machine = Box::new(Machine {
+            inner: dhcp_record,
+            discovery_info: Discovery {
+                relay_address: "127.0.0.1".parse::<Ipv4Addr>().unwrap(),
+                mac_address: "00:00:00:00:00:00".parse().unwrap(),
+                _client_system: None,
+                vendor_class: None,
+                link_select_address: "127.0.0.1".parse::<Ipv4Addr>().ok(),
+                circuit_id: None,
+                remote_id: None,
+            },
+            vendor_class: VendorClass::from_str("HTTPClient:Arch:00011:UNDI:003000")
+                .unwrap()
+                .into(),
+        });
+
+        let out = machine_get_filename(&mut *machine);
+
+        assert_ne!(out, std::ptr::null());
+
+        let cstr = unsafe { CString::from_raw(out as *mut _) };
+
+        assert_eq!(cstr, CString::new("https://foobar").unwrap());
+    }
 }

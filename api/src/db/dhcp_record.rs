@@ -75,6 +75,7 @@ impl From<DhcpRecord> for rpc::DhcpRecord {
             mtu: record.mtu,
             prefix: record.prefix.to_string(),
             gateway: record.gateway.map(|gw| gw.to_string()),
+            booturl: None, // TODO(ajf): extend database, synthesize URL
         }
     }
 }
@@ -164,6 +165,7 @@ impl TryFrom<InstanceDhcpRecord> for rpc::DhcpRecord {
             mtu: record.mtu,
             prefix: record.prefix.to_string(),
             gateway: record.gateway.map(|gw| gw.to_string()),
+            booturl: None,
         })
     }
 }
