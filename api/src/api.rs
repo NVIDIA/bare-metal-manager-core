@@ -3311,7 +3311,7 @@ where
         // We need logs to be enabled at least at `INFO` level. Otherwise
         // our global logging filter would reject the logs before they get injected
         // into the `SqlxQueryTracing` layer.
-        let database_connect_options: sqlx::postgres::PgConnectOptions = carbide_config
+        let database_connect_options = carbide_config
             .database_url
             .parse::<sqlx::postgres::PgConnectOptions>()?
             .log_statements("INFO".parse().unwrap());

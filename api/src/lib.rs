@@ -9,23 +9,25 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::backtrace::{Backtrace, BacktraceStatus};
-use std::net::IpAddr;
-
-use mac_address::MacAddress;
-use tonic::Status;
-use tracing_subscriber::util::SubscriberInitExt;
-
+use crate::logging::{
+    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
+    setup::setup_telemetry,
+};
 use dhcp::allocation::DhcpError;
-use model::hardware_info::HardwareInfoError;
-use model::machine::machine_id::MachineId;
+use mac_address::MacAddress;
 use model::{
     config_version::{ConfigVersion, ConfigVersionParseError},
+    hardware_info::HardwareInfoError,
+    machine::machine_id::MachineId,
     ConfigValidationError, RpcDataConversionError,
 };
 use state_controller::snapshot_loader::SnapshotLoaderError;
-
-use crate::logging::metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig};
+use std::{
+    backtrace::{Backtrace, BacktraceStatus},
+    net::IpAddr,
+};
+use tonic::Status;
+use tracing_subscriber::util::SubscriberInitExt;
 
 pub mod api;
 pub mod auth;
@@ -258,7 +260,7 @@ pub async fn run(
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
     let (metrics_exporter, meter) =
-        setup::setup_telemetry(debug, carbide_config.clone(), logging_subscriber).await?;
+        setup_telemetry(debug, carbide_config.clone(), logging_subscriber).await?;
 
     // Redact credentials before printing the config
     let print_config = {
