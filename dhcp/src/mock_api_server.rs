@@ -37,10 +37,8 @@ pub const ENDPOINT_DISCOVER_DHCP: &str = "/forge.Forge/DiscoverDhcp";
 const DHCP_RESPONSE_FQDN: &str = "december-nitrogen.forge.local";
 const DHCP_RESPONSE_ADDR_PREFIX: &str = "172.20.0";
 
-// Encode a DhcpRecord to match gRPC HTTP/2 DATA frame that API server (via hyper) produces.
-pub fn dhcp_response(mac_address_str: &str) -> Vec<u8> {
-    let mac_obj: MacAddress = mac_address_str.parse().unwrap();
-    let r = rpc::DhcpRecord {
+pub fn base_dhcp_response(mac_address: MacAddress) -> rpc::DhcpRecord {
+    rpc::DhcpRecord {
         machine_id: None,
         machine_interface_id: Some(rpc::Uuid {
             value: "88750d14-00fa-4d21-9fbc-d562046bc194".to_string(),
@@ -52,12 +50,34 @@ pub fn dhcp_response(mac_address_str: &str) -> Vec<u8> {
             value: "023138e1-ebf1-4ef7-8a2c-bbce928a1601".to_string(),
         }),
         fqdn: DHCP_RESPONSE_FQDN.to_string(),
-        mac_address: mac_address_str.to_string(),
-        address: address_to_offer(mac_obj),
+        mac_address: mac_address.to_string(),
+        address: address_to_offer(mac_address),
         mtu: 1490,
         prefix: "172.20.0.0/24".to_string(),
         gateway: Some("172.20.0.1/32".to_string()),
-    };
+        booturl: None,
+    }
+}
+
+// Encode a DhcpRecord to match gRPC HTTP/2 DATA frame that API server (via hyper) produces.
+pub fn dhcp_response(mac_address_str: &str) -> Vec<u8> {
+    let mac_address = mac_address_str.parse::<MacAddress>().unwrap();
+
+    let mut r = base_dhcp_response(mac_address);
+
+    // Specialization of response based on mac address
+    // Meant to be extended, if let ()... isn't what we want here
+    #[allow(clippy::single_match)]
+    match mac_address.bytes() {
+        [_, _, _, _, _, 0xaa] => {
+            r.booturl =
+                "https://api-specified-ipxe-url.forge/public/blobs/internal/x86_64/ipxe.efi"
+                    .to_string()
+                    .into();
+        }
+        _ => {}
+    }
+
     let mut out = Vec::with_capacity(224);
     out.push(0); // Message is not compressed
     out.extend_from_slice(&(r.encoded_len() as u32).to_be_bytes());

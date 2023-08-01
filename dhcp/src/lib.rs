@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::ffi::CStr;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::Ipv4Addr;
 use std::sync::RwLock;
 
 use libc::c_char;
@@ -38,7 +38,6 @@ pub struct CarbideDhcpContext {
     nameservers: String,
     ntpserver: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
-    _provisioning_server_ipv6: Option<Ipv6Addr>,
     forge_root_ca_path: String,
     forge_client_cert_path: String,
     forge_client_key_path: String,
@@ -57,7 +56,6 @@ impl Default for CarbideDhcpContext {
                 .unwrap_or_else(|_| rpc::forge_tls_client::DEFAULT_CLIENT_KEY.to_string()),
             ntpserver: "172.20.0.24".to_string(), // local ntp server
             provisioning_server_ipv4: None,
-            _provisioning_server_ipv6: None,
         }
     }
 }
