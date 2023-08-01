@@ -19,7 +19,7 @@ use std::sync::Arc;
 use chrono::Duration;
 use hyper::server::conn::Http;
 use opentelemetry::metrics::Meter;
-use sqlx::{Postgres, Transaction};
+use sqlx::{ConnectOptions, Postgres, Transaction};
 use tokio::net::TcpListener;
 use tokio::time::Instant;
 use tokio_rustls::rustls::server::AllowAnyAnonymousOrAuthenticatedClient;
@@ -3307,8 +3307,14 @@ where
         let redfish_pool = RedfishClientPoolImpl::new(credential_provider.clone(), rf_pool);
         let shared_redfish_pool: Arc<dyn RedfishClientPool> = Arc::new(redfish_pool);
 
-        let database_connect_options: sqlx::postgres::PgConnectOptions =
-            carbide_config.database_url.parse()?;
+        // Configure the postgres connection pool
+        // We need logs to be enabled at least at `INFO` level. Otherwise
+        // our global logging filter would reject the logs before they get injected
+        // into the `SqlxQueryTracing` layer.
+        let database_connect_options: sqlx::postgres::PgConnectOptions = carbide_config
+            .database_url
+            .parse::<sqlx::postgres::PgConnectOptions>()?
+            .log_statements("INFO".parse().unwrap());
         let database_connection = sqlx::pool::PoolOptions::new()
             .max_connections(service_config.max_db_connections)
             .connect_with(database_connect_options)

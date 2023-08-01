@@ -23,6 +23,8 @@ use opentelemetry::{
 };
 use tracing::Instrument;
 
+use crate::logging::sqlx_query_tracing;
+
 /// A tower Layer which creates a `LogService` for every request
 #[derive(Debug, Clone)]
 pub struct LogLayer {
@@ -124,7 +126,14 @@ where
                 rpc.service = tracing::field::Empty,
                 rpc.grpc.status_code = tracing::field::Empty,
                 rpc.grpc.status_description = tracing::field::Empty,
-                forge.machine_id = tracing::field::Empty);
+                forge.machine_id = tracing::field::Empty,
+                sql_queries = 0,
+                sql_total_rows_affected = 0,
+                sql_total_rows_returned = 0,
+                sql_max_query_duration_us = 0,
+                sql_max_query_duration_summary = tracing::field::Empty,
+                sql_total_query_duration_us = 0,
+            );
 
             // Try to extract the gRPC service and method from the URI
             let mut grpc_method: Option<String> = None;
@@ -158,6 +167,11 @@ where
             let start = std::time::Instant::now();
 
             let result = service.call(request).instrument(request_span.clone()).await;
+
+            {
+                let _e: tracing::span::Entered<'_> = request_span.enter();
+                sqlx_query_tracing::update_current_span_attributes();
+            }
 
             let elapsed = start.elapsed();
 
