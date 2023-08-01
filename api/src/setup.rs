@@ -33,7 +33,10 @@ use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
 use forge_secrets::ForgeVaultClient;
 
-use crate::{cfg::CarbideConfig, logging::otel_stdout_exporter::OtelStdoutExporter};
+use crate::{
+    cfg::CarbideConfig,
+    logging::{otel_stdout_exporter::OtelStdoutExporter, sqlx_query_tracing},
+};
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -86,13 +89,18 @@ pub async fn setup_telemetry(
     logging_subscriber: Option<impl SubscriberInitExt>,
 ) -> eyre::Result<(Arc<PrometheusExporter>, Meter)> {
     // This configures the tracing framework
+
+    // We set up some global filtering using `tracing`s `EnvFilter` framework
+    // The global filter will apply to all `Layer`s that are added to the
+    // `logging_subscriber` later on. This means it applies for both logging to
+    // stdout as well as for OpenTelemetry integration.
     // We ignore a lot of spans and events from 3rd party frameworks
-    let mut env_filter = EnvFilter::builder()
+    let mut global_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
     if debug != 0 {
         env::set_var("RUST_BACKTRACE", "1");
-        env_filter = env_filter.add_directive(
+        global_filter = global_filter.add_directive(
             match debug {
                 1 => {
                     // command line overrides config file
@@ -104,11 +112,10 @@ pub async fn setup_telemetry(
         );
     }
 
-    env_filter = env_filter
+    global_filter = global_filter
         .add_directive("sqlxmq::runner=warn".parse()?)
         .add_directive("rustify=error".parse()?)
         .add_directive("vaultrs=error".parse()?)
-        .add_directive("sqlx::query=warn".parse()?)
         .add_directive("h2::codec=warn".parse()?);
 
     // This defines attributes that are set on the exported logs **and** metrics
@@ -168,16 +175,30 @@ pub async fn setup_telemetry(
     if let Some(logging_subscriber) = logging_subscriber {
         logging_subscriber.try_init()?;
     } else {
+        // Create a `Filter` that prevents logs with a level below `WARN` for sqlx
+        // We use this solely for stdout and OpenTelemetry logging.
+        // We can't make it a global filter, because our postgres tracing layer requires those logs
+        let block_sqlx_filter = sqlx_query_tracing::block_sqlx_filter();
+
+        // Set up the tracing subscriber
+        // Note that the order here doesn't matter: The global filtering is always
+        // applied before all "sinks" (`Layer`s), because the `.enabled()` function of
+        // all layers and filters will be called before any event is forwarded.
         let logging_subscriber = tracing_subscriber::registry()
-            .with(stdout_formatter)
-            .with(env_filter)
-            .with(telemetry);
+            .with(global_filter)
+            .with(stdout_formatter.with_filter(block_sqlx_filter.clone()))
+            .with(telemetry.with_filter(block_sqlx_filter.clone()))
+            .with(sqlx_query_tracing::create_sqlx_query_tracing_layer());
+
         if let Some(otel) = carbide_config.as_ref().clone().otlp_endpoint {
             let otel_tracer = tracing_opentelemetry::layer()
-                .with_tracer(init_otlp_tracer(otel.as_ref())?)
                 .with_exception_fields(true)
-                .with_threads(false);
-            logging_subscriber.with(otel_tracer).try_init()?;
+                .with_threads(false)
+                .with_tracer(init_otlp_tracer(otel.as_ref())?);
+
+            logging_subscriber
+                .with(otel_tracer.with_filter(block_sqlx_filter))
+                .try_init()?;
         } else {
             logging_subscriber.try_init()?;
         }

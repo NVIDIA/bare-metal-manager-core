@@ -22,6 +22,7 @@ use tracing::Instrument;
 
 use crate::{
     ib::IBFabricManager,
+    logging::sqlx_query_tracing,
     model::config_version::{ConfigVersion, Versioned},
     redfish::RedfishClientPool,
     resource_pool::DbResourcePool,
@@ -173,6 +174,12 @@ impl<IO: StateControllerIO> StateController<IO> {
                 error_types = tracing::field::Empty,
                 times_in_state_s = tracing::field::Empty,
                 handler_latencies_us = tracing::field::Empty,
+                sql_queries = 0,
+                sql_total_rows_affected = 0,
+                sql_total_rows_returned = 0,
+                sql_max_query_duration_us = 0,
+                sql_max_query_duration_summary = tracing::field::Empty,
+                sql_total_query_duration_us = 0,
             );
 
             let res = self
@@ -183,6 +190,11 @@ impl<IO: StateControllerIO> StateController<IO> {
 
             controller_span.record("elapsed_us", elapsed.as_micros());
             controller_span.record("otel.status_code", if res.is_ok() { "ok" } else { "error" });
+
+            {
+                let _e: tracing::span::Entered<'_> = controller_span.enter();
+                sqlx_query_tracing::update_current_span_attributes();
+            }
 
             match &res {
                 Ok(()) | Err(IterationError::LockError) => {
