@@ -358,6 +358,7 @@ async fn main() -> color_eyre::Result<()> {
                         table.add_row(row![
                             "Observed at",
                             "DPU machine ID",
+                            "Network config version",
                             "Is healthy?",
                             "Checks passed",
                             "Checks failed",
@@ -368,6 +369,7 @@ async fn main() -> color_eyre::Result<()> {
                             table.add_row(row![
                                 st.observed_at.unwrap(),
                                 st.dpu_machine_id.unwrap(),
+                                st.network_config_version.unwrap_or_default(),
                                 h.is_healthy,
                                 h.passed.join(","),
                                 h.failed.join(","),

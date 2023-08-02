@@ -61,7 +61,7 @@ fn check_hbn_services_running(
     let sctl = match run_in_container(container_id, &["supervisorctl", "status"], false) {
         Ok(s) => s,
         Err(err) => {
-            debug!("check_hbn_services_running supervisorctl status: {err}");
+            warn!("check_hbn_services_running supervisorctl status: {err}");
             hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
             return;
         }
@@ -69,7 +69,7 @@ fn check_hbn_services_running(
     let st = match parse_status(&sctl) {
         Ok(s) => s,
         Err(err) => {
-            debug!("check_hbn_services_running supervisorctl status parse: {err}");
+            warn!("check_hbn_services_running supervisorctl status parse: {err}");
             hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
             return;
         }
@@ -80,7 +80,7 @@ fn check_hbn_services_running(
         match st.status_of(&service) {
             SctlState::Running => hr.passed(HealthCheck::ServiceRunning(service)),
             status => {
-                debug!("check_hbn_services_running {service}: {status}");
+                warn!("check_hbn_services_running {service}: {status}");
                 hr.failed(
                     HealthCheck::ServiceRunning(service.clone()),
                     status.to_string(),
@@ -100,7 +100,7 @@ fn check_network_stats(hr: &mut HealthReport, container_id: &str) {
     ) {
         Ok(s) => s,
         Err(err) => {
-            debug!("check_network_stats show bgp summary: {err}");
+            warn!("check_network_stats show bgp summary: {err}");
             hr.failed(HealthCheck::BgpStats, err.to_string());
             return;
         }
@@ -108,7 +108,7 @@ fn check_network_stats(hr: &mut HealthReport, container_id: &str) {
     match check_bgp(&bgp_stats) {
         Ok(_) => hr.passed(HealthCheck::BgpStats),
         Err(err) => {
-            debug!("check_network_stats bgp: {err}");
+            warn!("check_network_stats bgp: {err}");
             hr.failed(HealthCheck::BgpStats, err.to_string());
         }
     }
@@ -121,12 +121,12 @@ fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
             if stdout.is_empty() {
                 hr.passed(HealthCheck::Ifreload);
             } else {
-                debug!("check_ifreload: {stdout}");
+                warn!("check_ifreload: {stdout}");
                 hr.failed(HealthCheck::Ifreload, stdout);
             }
         }
         Err(err) => {
-            debug!("check_ifreload: {err}");
+            warn!("check_ifreload: {err}");
             hr.failed(HealthCheck::Ifreload, err.to_string());
         }
     }
@@ -148,7 +148,7 @@ fn check_files(hr: &mut HealthReport, expected_files: &[&str]) {
         let stat = match std::fs::metadata(path) {
             Ok(s) => s,
             Err(err) => {
-                debug!("check_files {filename}: {err}");
+                warn!("check_files {filename}: {err}");
                 hr.failed(
                     HealthCheck::FileIsValid(filename.to_string()),
                     err.to_string(),
@@ -157,7 +157,7 @@ fn check_files(hr: &mut HealthReport, expected_files: &[&str]) {
             }
         };
         if stat.len() < 100 {
-            debug!("check_files {filename}: Too small");
+            warn!("check_files {filename}: Too small");
             hr.failed(
                 HealthCheck::FileIsValid(filename.to_string()),
                 "Too small".to_string(),
@@ -171,7 +171,7 @@ fn check_bgp_daemon_enabled(hr: &mut HealthReport) {
     let daemons = match std::fs::read_to_string(HBN_DAEMONS_FILE) {
         Ok(s) => s,
         Err(err) => {
-            debug!("check_bgp_daemon_enabled: {err}");
+            warn!("check_bgp_daemon_enabled: {err}");
             hr.failed(
                 HealthCheck::BgpDaemonEnabled,
                 format!("Trying to open and read {HBN_DAEMONS_FILE}: {err}"),

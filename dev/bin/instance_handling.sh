@@ -56,6 +56,9 @@ if [[ "$1" == "test" || "$1" == "create" ]]; then
     echo "Even after $MAX_RETRY retries, machine did not reach in WaitingForNetworkConfig state."
     exit 3
   fi
+  # First run applies the config
+  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
+  # Second run marks network as healthy, now that HBN has had time to apply config
   cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
  fi
 

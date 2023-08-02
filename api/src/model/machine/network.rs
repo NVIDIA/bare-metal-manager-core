@@ -13,7 +13,7 @@ pub struct MachineNetworkStatusObservation {
     machine_id: String,
     agent_version: Option<String>,
     pub observed_at: DateTime<Utc>,
-    health_status: HealthStatus,
+    pub health_status: HealthStatus,
     pub network_config_version: Option<ConfigVersion>,
 }
 

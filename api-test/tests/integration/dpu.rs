@@ -125,7 +125,16 @@ async fn configure_network(
 ) -> eyre::Result<path::PathBuf> {
     let hbn_root = make_dpu_filesystem(dpu_config_file, carbide_api_addr, root_dir, interface_id)?;
 
-    // Run iteration of forge-dpu-agent
+    // Run iteration of forge-dpu-agent: Write the config files
+    agent::start(agent::Options {
+        version: false,
+        config_path: dpu_config_file.to_path_buf(),
+        cmd: Some(agent::AgentCommand::Netconf(agent::NetconfParams {
+            dpu_machine_id: dpu_machine_id.to_string(),
+        })),
+    })
+    .await?;
+    // Run iteration of forge-dpu-agent: Report network as healthy
     agent::start(agent::Options {
         version: false,
         config_path: dpu_config_file.to_path_buf(),
