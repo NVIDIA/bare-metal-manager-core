@@ -81,8 +81,11 @@ skip-reload = true
 # TODO: This rebuilds everything locally. Instead put forge-dpu-agent in a container, then
 # API_CONTAINER=$(docker ps | grep carbide-api | awk -F" " '{print $NF}')
 # docker exec -ti ${API_CONTAINER} /opt/forge-dpu-agent netconf --dpu-machine-id ${DPU_MACHINE_ID}
+# 1. First run writes the new config, ask HBN to reload
 cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
 echo "HBN files are in ${HBN_ROOT}"
+# 2. Second run detects healthy network and reports it
+cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
 
 # Wait until DPU becomes ready
 MACHINE_STATE=""

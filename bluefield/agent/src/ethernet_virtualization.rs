@@ -56,50 +56,51 @@ fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
     }
 }
 
-/// Write out all the network config files
+/// Write out all the network config files.
+/// Returns true if any of them changed.
 pub fn update(
     hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
-    status_out: &mut rpc::DpuNetworkStatus,
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
-) {
+) -> eyre::Result<bool> {
     debug!("Desired network config is {:?}", network_config);
     let paths = paths(hbn_root, network_config.is_production_mode);
 
+    let mut has_changes = false;
     let mut errs = vec![];
-    if let Err(err) = write_dhcp_relay_config(paths.dhcp, network_config, skip_post) {
-        errs.push(format!("write_dhcp_relay_config: {err:#}"));
+    match write_dhcp_relay_config(paths.dhcp, network_config, skip_post) {
+        Ok(dhcp_changed) => has_changes |= dhcp_changed,
+        Err(err) => errs.push(format!("write_dhcp_relay_config: {err:#}")),
     }
-    if let Err(err) = write_interfaces(paths.interfaces, network_config, skip_post) {
-        errs.push(format!("write_interfaces: {err:#}"));
+    match write_interfaces(paths.interfaces, network_config, skip_post) {
+        Ok(eni_changed) => has_changes |= eni_changed,
+        Err(err) => errs.push(format!("write_interfaces: {err:#}")),
     }
-    if let Err(err) = write_frr(paths.frr, network_config, skip_post) {
-        errs.push(format!("write_frr: {err:#}"));
+    match write_frr(paths.frr, network_config, skip_post) {
+        Ok(frr_changed) => has_changes |= frr_changed,
+        Err(err) => errs.push(format!("write_frr: {err:#}")),
     }
-    if let Err(err) = write_daemons(paths.daemons, skip_post) {
-        errs.push(format!("write_daemons: {err:#}"));
+    match write_daemons(paths.daemons, skip_post) {
+        Ok(daemons_changed) => has_changes |= daemons_changed,
+        Err(err) => errs.push(format!("write_daemons: {err:#}")),
     }
     let err_message = errs.join(", ");
     if !err_message.is_empty() {
         error!(err_message);
-        status_out.network_config_error = Some(err_message);
-        return;
+        eyre::bail!(err_message);
     }
+    Ok(has_changes)
+}
 
-    status_out.network_config_version = Some(network_config.managed_host_config_version.clone());
-    status_out.instance_id = network_config.instance_id.clone();
-    status_out.instance_config_version = if network_config.instance_config_version.is_empty() {
-        None
-    } else {
-        Some(network_config.instance_config_version.clone())
-    };
-
+/// Interfaces to report back to server
+pub fn interfaces(
+    network_config: &rpc::ManagedHostNetworkConfigResponse,
+) -> eyre::Result<Vec<rpc::InstanceInterfaceStatusObservation>> {
     let mut interfaces = vec![];
     if network_config.use_admin_network {
         let Some(iface) = network_config.admin_interface.as_ref() else {
-            status_out.network_config_error = Some("use_admin_network is true but admin interface is missing".to_string());
-            return;
+            eyre::bail!("use_admin_network is true but admin interface is missing");
         };
         interfaces.push(rpc::InstanceInterfaceStatusObservation {
             function_type: iface.function_type,
@@ -117,7 +118,7 @@ pub fn update(
             });
         }
     }
-    status_out.interfaces = interfaces;
+    Ok(interfaces)
 }
 
 /// Reset networking to blank.
@@ -194,7 +195,7 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
     skip_post: bool,
-) -> Result<(), eyre::Report> {
+) -> Result<bool, eyre::Report> {
     let vlan_ids = if nc.use_admin_network {
         let admin_interface = nc
             .admin_interface
@@ -227,7 +228,7 @@ fn write_interfaces<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
     skip_post: bool,
-) -> Result<(), eyre::Report> {
+) -> Result<bool, eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
             return Err(eyre::eyre!("Missing managed_host_config in response"));
@@ -306,7 +307,7 @@ fn write_frr<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
     skip_post: bool,
-) -> Result<(), eyre::Report> {
+) -> Result<bool, eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
             return Err(eyre::eyre!("Missing managed_host_config in response"));
@@ -362,7 +363,7 @@ fn write_frr<P: AsRef<Path>>(
 }
 
 /// The etc/frr/daemons file has no templated parts
-fn write_daemons<P: AsRef<Path>>(path: P, skip_post: bool) -> Result<(), eyre::Report> {
+fn write_daemons<P: AsRef<Path>>(path: P, skip_post: bool) -> Result<bool, eyre::Report> {
     write(
         daemons::build(),
         path,
@@ -376,6 +377,7 @@ fn write_daemons<P: AsRef<Path>>(path: P, skip_post: bool) -> Result<(), eyre::R
 }
 
 // Update configuration file
+// Returns true if the file has changes, false othewise.
 fn write<P: AsRef<Path>>(
     // What to write into the file
     next_contents: String,
@@ -385,7 +387,7 @@ fn write<P: AsRef<Path>>(
     file_type: &str,
     // Reload or restart command to run after updating the file
     post_cmd: Option<&'static str>,
-) -> Result<(), eyre::Report> {
+) -> Result<bool, eyre::Report> {
     // later we will remove the tmp file on drop, but for now it may help with debugging
     let mut path_tmp = path.as_ref().to_path_buf();
     path_tmp.set_extension("TMP");
@@ -393,14 +395,14 @@ fn write<P: AsRef<Path>>(
         .wrap_err_with(|| format!("fs::write {}", path_tmp.display()))?;
 
     let path = path.as_ref();
-    let should_write = if path.exists() {
+    let has_changed = if path.exists() {
         let current = fs::read_to_string(path)
             .wrap_err_with(|| format!("fs::read_to_string {}", path.display()))?;
         current != next_contents
     } else {
         true
     };
-    if should_write {
+    if has_changed {
         debug!("Applying new {file_type} config");
 
         let mut path_bak = path.to_path_buf();
@@ -437,7 +439,7 @@ fn write<P: AsRef<Path>>(
         }
     }
 
-    Ok(())
+    Ok(has_changed)
 }
 
 // Run the given command inside HBN container
@@ -542,15 +544,21 @@ mod tests {
 
         // What we're testing
 
-        let _ = super::write_dhcp_relay_config(&f, &network_config, true);
+        let Ok(true) = super::write_dhcp_relay_config(&f, &network_config, true) else {
+            panic!("write_dhcp_relay_config either Err-ed or didn't say it wrote");
+        };
         let expected = include_str!("../templates/tests/tenant_dhcp-relay.conf");
         compare(&f, expected)?;
 
-        let _ = super::write_interfaces(&f, &network_config, true);
+        let Ok(true) = super::write_interfaces(&f, &network_config, true) else {
+            panic!("write_interfaces either Err-ed or didn't say it wrote");
+        };
         let expected = include_str!("../templates/tests/tenant_interfaces");
         compare(&f, expected)?;
 
-        let _ = super::write_frr(&f, &network_config, true);
+        let Ok(true) = super::write_frr(&f, &network_config, true) else {
+            panic!("write_frr either Err-ed or didn't say it wrote");
+        };
         let expected = include_str!("../templates/tests/tenant_frr.conf");
         compare(&f, expected)?;
 

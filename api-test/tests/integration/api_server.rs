@@ -132,6 +132,7 @@ pub fn test_logging_subscriber() -> impl SubscriberInitExt {
             .with(
                 tracing_subscriber::fmt::Layer::default()
                     .compact()
+                    .with_ansi(false)
                     .with_writer(TestWriter::new),
             )
             .with(env_filter),

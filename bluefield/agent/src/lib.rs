@@ -49,10 +49,14 @@ mod instrumentation;
 mod interfaces;
 mod network_config_fetcher;
 
-// Report HBN health every this long
-//
+// How often to report network health and poll for new configs when in stable state.
 // Eventually we will need an event system. Block storage requires very fast DPU responses.
-const MAIN_LOOP_PERIOD: Duration = Duration::from_secs(30);
+const MAIN_LOOP_PERIOD_IDLE: Duration = Duration::from_secs(30);
+
+// How often to report network health and poll for new configs when things are in flux.
+// This should be slightly bigger than bgpTimerHoldTimeMsecs as displayed in HBN
+// container by 'show bgp neighbors json' - which is currently 9s.
+const MAIN_LOOP_PERIOD_ACTIVE: Duration = Duration::from_secs(10);
 
 /// How often we fetch the desired network configuration for a host
 const NETWORK_CONFIG_FETCH_PERIOD: Duration = Duration::from_secs(30);
@@ -135,7 +139,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             println!("{health_report}");
         }
 
-        // One-off configure network and report back the observation
+        // One-off configure network and report back the observation.
+        // Pretend network is healthy.
+        // Development / testing only.
         Some(AgentCommand::Netconf(params)) => {
             let forge_api = agent.forge_system.api_server.clone();
             let conf = network_config_fetcher::fetch(
@@ -148,25 +154,43 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 dpu_machine_id: Some(params.dpu_machine_id.into()),
                 dpu_agent_version: Some(forge_version::v!(build_version).to_string()),
                 observed_at: None, // None makes carbide-api set it on receipt
-                health: Some(rpc::NetworkHealth {
-                    is_healthy: true,
-                    ..Default::default()
-                }),
+                health: None,
                 network_config_version: None,
                 instance_config_version: None,
                 interfaces: vec![],
                 network_config_error: None,
                 instance_id: None,
             };
-            ethernet_virtualization::update(
-                &agent.hbn.root_dir,
-                &conf,
-                &mut status_out,
-                agent.hbn.skip_reload,
-            );
+            let mut has_changed_configs = false;
+            match ethernet_virtualization::update(&agent.hbn.root_dir, &conf, agent.hbn.skip_reload)
+            {
+                Ok(has_changed) => {
+                    status_out.network_config_version =
+                        Some(conf.managed_host_config_version.clone());
+                    status_out.instance_id = conf.instance_id.clone();
+                    if !conf.instance_config_version.is_empty() {
+                        status_out.instance_config_version =
+                            Some(conf.instance_config_version.clone());
+                    }
+                    has_changed_configs = has_changed;
+                }
+                Err(err) => {
+                    status_out.network_config_error = Some(err.to_string());
+                }
+            }
+            match ethernet_virtualization::interfaces(&conf) {
+                Ok(interfaces) => status_out.interfaces = interfaces,
+                Err(err) => status_out.network_config_error = Some(err.to_string()),
+            }
             if let Some(v) = status_out.network_config_version.as_ref() {
                 info!("Applied: {v}");
             }
+            status_out.health = Some(rpc::NetworkHealth {
+                // Simulate what main forge-dpu-agent does, which is
+                // report network as unhealthy to give HBN/BGP time to apply the config.
+                is_healthy: !has_changed_configs,
+                ..Default::default()
+            });
             record_network_status(status_out, &forge_api, forge_tls_config).await;
         }
 
@@ -316,29 +340,13 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
     let mut version_check_time = Instant::now(); // check it on the first loop
     let mut seen_blank = false;
     loop {
-        let health_report = health::health_check();
-        trace!("{} health is {}", machine_id, health_report);
-
-        let hs = rpc::NetworkHealth {
-            is_healthy: health_report.is_healthy(),
-            passed: health_report
-                .checks_passed
-                .iter()
-                .map(|hc| hc.to_string())
-                .collect(),
-            failed: health_report
-                .checks_failed
-                .iter()
-                .map(|hc| hc.to_string())
-                .collect(),
-            message: health_report.message,
-        };
-
+        let mut is_healthy = false;
+        let mut has_changed_configs = false;
         let mut status_out = rpc::DpuNetworkStatus {
             dpu_machine_id: Some(machine_id.to_string().into()),
             dpu_agent_version: Some(build_version.clone()),
             observed_at: None, // None makes carbide-api set it on receipt
-            health: Some(hs),
+            health: None,
             network_config_version: None,
             instance_config_version: None,
             interfaces: vec![],
@@ -346,23 +354,72 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
             instance_id: None,
         };
         match *network_config_reader.read() {
-            Some(ref network_config) => {
-                ethernet_virtualization::update(
+            Some(ref conf) => {
+                match ethernet_virtualization::update(
                     &agent.hbn.root_dir,
-                    network_config,
-                    &mut status_out,
+                    conf,
                     agent.hbn.skip_reload,
-                );
+                ) {
+                    Ok(has_changed) => {
+                        // Updating network config succeeded.
+                        // Tell the server about the applied version.
+                        status_out.network_config_version =
+                            Some(conf.managed_host_config_version.clone());
+                        status_out.instance_id = conf.instance_id.clone();
+                        if !conf.instance_config_version.is_empty() {
+                            status_out.instance_config_version =
+                                Some(conf.instance_config_version.clone());
+                        }
+                        match ethernet_virtualization::interfaces(conf) {
+                            Ok(interfaces) => status_out.interfaces = interfaces,
+                            Err(err) => status_out.network_config_error = Some(err.to_string()),
+                        }
+                        has_changed_configs = has_changed
+                    }
+                    Err(err) => {
+                        status_out.network_config_error = Some(err.to_string());
+                    }
+                }
+
+                let health_report = health::health_check();
+                is_healthy = health_report.is_healthy();
+                trace!("{} HBN health is {}", machine_id, health_report);
+                // If we just applied a new network config report network as unhealthy.
+                // This gives HBN / BGP time to act on the config.
+                let hs = rpc::NetworkHealth {
+                    is_healthy: health_report.is_healthy() && !has_changed_configs,
+                    passed: health_report
+                        .checks_passed
+                        .iter()
+                        .map(|hc| hc.to_string())
+                        .collect(),
+                    failed: health_report
+                        .checks_failed
+                        .iter()
+                        .map(|hc| hc.to_string())
+                        .collect(),
+                    message: health_report.message.or_else(|| {
+                        if has_changed_configs {
+                            Some("Post-config waiting period".to_string())
+                        } else {
+                            None
+                        }
+                    }),
+                };
+                status_out.health = Some(hs);
+
                 record_network_status(status_out, forge_api, forge_tls_config.clone()).await;
                 seen_blank = false;
             }
             None => {
-                // Only reset network config the _second_ time we can't find the DPU
-                // Safety first
+                // No network config means server can't find the DPU, usually because it was
+                // force-deleted. Only reset network config the _second_ time we can't find the
+                // DPU. Safety first.
                 if seen_blank {
                     ethernet_virtualization::reset(&agent.hbn.root_dir, agent.hbn.skip_reload);
                 }
                 seen_blank = true;
+                // we don't record_network_status because the server doesn't know about this DPU
             }
         };
 
@@ -378,7 +435,12 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
             }
         }
 
-        tokio::time::sleep(MAIN_LOOP_PERIOD).await;
+        let loop_period = if seen_blank || !is_healthy || has_changed_configs {
+            MAIN_LOOP_PERIOD_ACTIVE
+        } else {
+            MAIN_LOOP_PERIOD_IDLE
+        };
+        tokio::time::sleep(loop_period).await;
     }
 }
 

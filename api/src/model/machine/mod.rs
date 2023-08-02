@@ -78,6 +78,12 @@ impl MachineSnapshot {
     pub fn use_admin_network(&self) -> bool {
         self.network_config.use_admin_network.unwrap_or(true)
     }
+    pub fn has_healthy_network(&self) -> bool {
+        match &self.network_status_observation {
+            None => false,
+            Some(obs) => obs.health_status.is_healthy,
+        }
+    }
 }
 
 /// Represents the current state of `Machine`

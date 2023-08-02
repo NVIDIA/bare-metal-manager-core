@@ -21,7 +21,6 @@ use crate::{
         config_version::ConfigVersion,
         machine::{
             machine_id::MachineId,
-            network::MachineNetworkStatusObservation,
             CleanupState, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineSnapshot, MachineState, ManagedHostState,
@@ -180,15 +179,11 @@ impl StateHandler for DpuMachineStateHandler {
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::WaitingForNetworkConfig,
             } => {
-                // Has forge-dpu-agent written the network config?
-                if !has_applied_network_config(
-                    &state.dpu_snapshot.network_config.version,
-                    state.dpu_snapshot.network_status_observation.as_ref(),
-                ) {
+                if !is_network_ready(&state.dpu_snapshot) {
                     return Ok(());
                 }
 
-                // Network config has been applied, move to next state
+                // Network config has been applied and network is good, move to next state
                 *controller_state.modify() = ManagedHostState::HostNotReady {
                     machine_state: MachineState::WaitingForDiscovery,
                 };
@@ -246,11 +241,11 @@ pub async fn cleanedup_after_state_transition(
 #[derive(Debug, Default)]
 pub struct HostMachineStateHandler {}
 
-/// Has the network config version that the host wants has been applied by DPU?
-fn has_applied_network_config(
-    dpu_expected_version: &ConfigVersion,
-    dpu_observation: Option<&MachineNetworkStatusObservation>,
-) -> bool {
+/// 1. Has the network config version that the host wants been applied by DPU?
+/// 2. Is HBN reporting the network is healthy?
+fn is_network_ready(dpu_snapshot: &MachineSnapshot) -> bool {
+    let dpu_expected_version = dpu_snapshot.network_config.version;
+    let dpu_observation = dpu_snapshot.network_status_observation.as_ref();
     let dpu_observed_version: ConfigVersion = match dpu_observation {
         None => {
             return false;
@@ -262,7 +257,8 @@ fn has_applied_network_config(
             Some(version) => version,
         },
     };
-    *dpu_expected_version == dpu_observed_version
+
+    (dpu_expected_version == dpu_observed_version) && dpu_snapshot.has_healthy_network()
 }
 
 #[async_trait::async_trait]
@@ -416,10 +412,7 @@ impl StateHandler for InstanceStateHandler {
                     // Reboot host and moved to Ready.
 
                     // Check DPU network config has been applied
-                    if !has_applied_network_config(
-                        &state.dpu_snapshot.network_config.version,
-                        state.dpu_snapshot.network_status_observation.as_ref(),
-                    ) {
+                    if !is_network_ready(&state.dpu_snapshot) {
                         return Ok(());
                     }
                     // Check instance network config has been applied
@@ -489,10 +482,7 @@ impl StateHandler for InstanceStateHandler {
                 }
                 InstanceState::WaitingForNetworkReconfig => {
                     // Has forge-dpu-agent written the network config?
-                    if !has_applied_network_config(
-                        &state.dpu_snapshot.network_config.version,
-                        state.dpu_snapshot.network_status_observation.as_ref(),
-                    ) {
+                    if !is_network_ready(&state.dpu_snapshot) {
                         return Ok(());
                     }
 
