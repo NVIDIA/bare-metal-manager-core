@@ -14,6 +14,7 @@ use std::{
     fmt,
     io::{BufRead, Lines, StdinLock},
     str::FromStr,
+    time::Duration,
 };
 
 use clap::Parser as ClapParser;
@@ -39,6 +40,18 @@ const SPAN_ATTR_STATUS_CODE: &str = "rpc.grpc.status_code";
 const SPAN_ATTR_STATUS_DESC: &str = "rpc.grpc.status_description";
 const SPAN_ATTR_SERVICE: &str = "rpc.service";
 const SPAN_ATTR_REQUEST: &str = "request";
+const SPAN_ATTR_SQL_QUERIES: &str = "sql_queries";
+const SPAN_ATTR_SQL_TIME: &str = "sql_total_query_duration_us";
+
+const NOISE: [&str; 6] = [
+    "sql_queries=0 ",
+    "sql_total_rows_affected=0 ",
+    "sql_total_rows_returned=0 ",
+    "sql_max_query_duration_us=0 ",
+    "sql_total_query_duration_us=0 ",
+    "skipped_iteration=false",
+];
+const MIN_SQL_DURATION: Duration = Duration::from_millis(10);
 
 #[derive(ClapParser, Debug)]
 struct Args {
@@ -128,7 +141,7 @@ fn main() -> eyre::Result<()> {
         }
         out.push(loc);
 
-        out.push(truncate(l.message, args.max_length));
+        out.push(truncate(filter(&NOISE, l.message), args.max_length));
 
         println!("{}", out.join(" "));
     }
@@ -375,6 +388,19 @@ impl<'a> LineParser<'a> {
                 );
             }
         }
+
+        if let Some(sql_queries) = self.attributes.remove(SPAN_ATTR_SQL_QUERIES) {
+            let count: usize = sql_queries.parse().unwrap();
+            if count > 10 {
+                l.message += &format!(" {SPAN_ATTR_SQL_QUERIES}={count}");
+            }
+        }
+        if let Some(sql_time) = self.attributes.remove(SPAN_ATTR_SQL_TIME) {
+            let d: Duration = Duration::from_nanos(sql_time.parse::<u64>().unwrap());
+            if d > MIN_SQL_DURATION {
+                l.message += &format!(" sql_time={d:?}");
+            }
+        }
     }
 }
 
@@ -433,5 +459,12 @@ fn truncate(mut s: String, max_chars: usize) -> String {
     let (idx, _) = s.char_indices().nth(max_chars).unwrap();
     s.truncate(idx);
     s += "...";
+    s
+}
+
+fn filter(remove: &[&str], mut s: String) -> String {
+    for n in remove {
+        s = s.replace(n, "");
+    }
     s
 }
