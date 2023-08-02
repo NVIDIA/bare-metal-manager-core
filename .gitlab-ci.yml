@@ -70,6 +70,14 @@ checkmarx-scan-csv:
   rules:
     - when: never
 
+container-scan:
+  rules:
+    - when: never
+
+pulse-open-source:
+  rules:
+    - when: never
+
 produce-binary-artifacts:
   needs: [build-cargo]
   rules:
