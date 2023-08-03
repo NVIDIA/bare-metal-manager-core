@@ -103,47 +103,55 @@ pub struct RedfishAction {
 #[derive(Parser, Debug)]
 #[clap(rename_all = "kebab_case")]
 pub enum RedfishCommand {
-    #[clap(about = "List BIOS attributes")]
+    /// List BIOS attributes
     BiosAttrs,
-    #[clap(about = "Set hard drive first in boot order")]
+    /// Set hard drive first in boot order
     BootHdd,
-    #[clap(about = "Set PXE first in boot order")]
+    /// Set PXE first in boot order
     BootPxe,
-    #[clap(about = "On next boot only, boot from hard drive")]
+    /// On next boot only, boot from hard drive
     BootOnceHdd,
-    #[clap(about = "On next boot only, boot from PXE")]
+    /// On next boot only, boot from PXE
     BootOncePxe,
-    #[clap(about = "Delete all pending jobs")]
+    /// Delete all pending jobs
     ClearPending,
-    #[clap(about = "Setup host for Forge use")]
+    /// Setup host for Forge use
     ForgeSetup,
-    #[clap(about = "Is this thing on?")]
+    /// Is this thing on?
     GetPowerState,
-    #[clap(about = "Disable BMC/BIOS lockdown")]
+    /// Disable BMC/BIOS lockdown
     LockdownDisable,
-    #[clap(about = "Enable BMC/BIOS lockdown")]
+    /// Enable BMC/BIOS lockdown
     LockdownEnable,
-    #[clap(about = "Display status of BMC/BIOS lockdown")]
+    /// Display status of BMC/BIOS lockdown
     LockdownStatus,
-    #[clap(about = "Force turn machine off")]
-    Off,
-    #[clap(about = "Power on a machine")]
+    /// Force turn machine off
+    #[clap(alias = "off", verbatim_doc_comment)]
+    ForceOff,
+    /// Force restart. This is equivalent to pressing the reset button on the front panel.
+    /// - Will not restart DPUs
+    /// - Will apply pending BIOS/UEFI setting changes
+    #[clap(alias = "reset", verbatim_doc_comment)]
+    ForceRestart,
+    /// Graceful restart. Asks the OS to restart via ACPI
+    /// - Might restart DPUs if no OS is running
+    /// - Will not apply pending BIOS/UEFI setting changes
+    #[clap(alias = "restart", verbatim_doc_comment)]
+    GracefulRestart,
+    /// Graceful host shutdown
+    #[clap(alias = "shutdown", verbatim_doc_comment)]
+    GracefulShutdown,
+    /// Power on a machine
     On,
-    #[clap(about = "List PCIe devices")]
+    /// List PCIe devices
     PcieDevices,
-    #[clap(about = "List pending operations")]
+    /// List pending operations
     Pending,
-    #[clap(about = "Force restart, apply pending BMC settings")]
-    Reset,
-    #[clap(about = "Graceful host-only restart, does not apply BMC settings")]
-    Restart,
-    #[clap(about = "Enable serial console")]
+    /// Enable serial console
     SerialEnable,
-    #[clap(about = "Serial console status")]
+    /// Serial console status
     SerialStatus,
-    #[clap(about = "Graceful host shutdown")]
-    Shutdown,
-    #[clap(about = "Clear Trusted Platform Module (TPM)")]
+    /// Clear Trusted Platform Module (TPM)
     TpmReset,
 }
 

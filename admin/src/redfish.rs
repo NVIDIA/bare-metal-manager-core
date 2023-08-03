@@ -70,7 +70,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             LockdownStatus => {
                 println!("{}", redfish.lockdown_status()?);
             }
-            Off => {
+            ForceOff => {
                 redfish.power(SystemPowerControl::ForceOff)?;
             }
             On => {
@@ -106,10 +106,10 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 let pending = redfish.pending()?;
                 println!("{:#?}", pending);
             }
-            Reset => {
+            ForceRestart => {
                 redfish.power(SystemPowerControl::ForceRestart)?;
             }
-            Restart => {
+            GracefulRestart => {
                 redfish.power(SystemPowerControl::GracefulRestart)?;
             }
             SerialEnable => {
@@ -119,7 +119,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             SerialStatus => {
                 println!("{}", redfish.serial_console_status()?);
             }
-            Shutdown => {
+            GracefulShutdown => {
                 redfish.power(SystemPowerControl::GracefulShutdown)?;
             }
             TpmReset => {
