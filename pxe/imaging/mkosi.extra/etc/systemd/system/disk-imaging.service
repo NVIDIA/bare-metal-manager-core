@@ -6,6 +6,8 @@ Wants=network-online.target
 [Service]
 Type=idle
 ExecStart=/opt/forge/disk_imaging.sh
+StandardOutput=journal+console
+StandardError=journal+console
 
 [Install]
 WantedBy=multi-user.target
