@@ -24,6 +24,7 @@ pub mod instance;
 pub mod instance_address;
 pub mod instance_type;
 pub mod machine;
+pub mod machine_boot_override;
 pub mod machine_interface;
 pub mod machine_interface_address;
 pub mod machine_state_history;

@@ -1,6 +1,7 @@
 pub use ::rpc::forge as rpc;
 use sqlx::{Postgres, Transaction};
 
+use crate::db::machine_boot_override::MachineBootOverride;
 use crate::{
     db::{
         instance::Instance,
@@ -104,6 +105,19 @@ exit ||
 
         let mut console = "ttyS0";
         let interface = MachineInterface::find_one(txn, interface_id).await?;
+
+        // This custom pxe is different from a customer instance of pxe. It is more for testing one off
+        // changes until a real dev env is established and we can just override our existing code to test
+        // It is possible for the pxe to be null if we are only trying to test the user data, and this will
+        // follow the same code path and retrieve the non customer pxe
+        if let Some(machine_boot_override) =
+            MachineBootOverride::find_optional(txn, interface_id).await?
+        {
+            if let Some(custom_pxe) = machine_boot_override.custom_pxe {
+                return Ok(custom_pxe);
+            }
+        }
+
         let mac = interface.mac_address.to_string();
         let machine_id = match interface.machine_id {
             None => {
