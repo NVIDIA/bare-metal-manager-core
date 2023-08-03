@@ -464,7 +464,9 @@ fn truncate(mut s: String, max_chars: usize) -> String {
 
 fn filter(remove: &[&str], mut s: String) -> String {
     for n in remove {
-        s = s.replace(n, "");
+        if let Some(start) = s.find(n) {
+            s.replace_range(start..(start + n.len()), "");
+        }
     }
     s
 }
