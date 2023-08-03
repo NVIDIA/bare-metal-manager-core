@@ -54,6 +54,7 @@ use crate::db::bmc_metadata::UserRoles;
 use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::MachineSearchConfig;
+use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::ib;
 use crate::ib::IBFabricManager;
@@ -2509,8 +2510,19 @@ where
                     })?
                     .to_owned();
 
+                // This custom pxe is different from a customer instance of pxe. It is more for testing one off
+                // changes until a real dev env is established and we can just override our existing code to test
+                // It is possible for the user data to be null if we are only trying to test the pxe, and this will
+                // follow the same code path and retrieve the non custom user data
+                let custom_cloud_init =
+                    match MachineBootOverride::find_optional(&mut txn, machine_interface.id).await?
+                    {
+                        Some(machine_boot_override) => machine_boot_override.custom_user_data,
+                        None => None,
+                    };
+
                 rpc::CloudInitInstructions {
-                    custom_cloud_init: None,
+                    custom_cloud_init,
                     discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
                         machine_interface: Some(machine_interface.into()),
                         domain: Some(domain.into()),
