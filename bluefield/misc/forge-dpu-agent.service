@@ -1,16 +1,22 @@
 [Unit]
 Description=Forge DPU agent service
 After=networking.service network-online.target time-sync.target containerd@mgmt.service
-# allow 2 starts in 60s to limit the max requests towards forge-site controller
-StartLimitIntervalSec=60
-StartLimitBurst=2
 
 [Service]
 Type=simple
 Environment="RUST_BACKTRACE=1"
 Environment="RUST_LOG=debug"
 ExecStart=+/usr/sbin/ip vrf exec mgmt /usr/bin/forge-dpu-agent
+# We always want to restart the dpu agent in case of crashes
+# However we don't want to immediatly restart it to avoid flooding the API server
+# with bad requests which could limit the availablity of other clients.
+# Note that we initially experimented with the `StartLimitIntervalSec`
+# and `StartLimitBurst` parameters for this. However we learned that those policies
+# prevented the service from **ever** restarting once the give threshold was
+# exceeded. This required manual actions to enable the agent. The current policy
+# will continuously restart the agent.
 Restart=always
+RestartSec=30
 
 [Install]
 WantedBy=multi-user.target
