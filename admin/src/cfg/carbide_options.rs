@@ -61,21 +61,29 @@ pub struct CarbideOptions {
 
 #[derive(Parser, Debug)]
 pub enum CarbideCommand {
-    #[clap(about = "Print API server version")]
+    #[clap(about = "Print API server version", visible_alias = "v")]
     Version,
-    #[clap(about = "Machine related handling", subcommand)]
+    #[clap(about = "Machine related handling", subcommand, visible_alias = "m")]
     Machine(Machine),
-    #[clap(about = "Instance related handling", subcommand)]
+    #[clap(about = "Instance related handling", subcommand, visible_alias = "i")]
     Instance(Instance),
-    #[clap(about = "Network Segment related handling", subcommand)]
+    #[clap(
+        about = "Network Segment related handling",
+        subcommand,
+        visible_alias = "ns"
+    )]
     NetworkSegment(NetworkSegment),
-    #[clap(about = "Domain related handling", subcommand)]
+    #[clap(about = "Domain related handling", subcommand, visible_alias = "d")]
     Domain(Domain),
-    #[clap(about = "Managed host related handling", subcommand)]
+    #[clap(
+        about = "Managed host related handling",
+        subcommand,
+        visible_alias = "mh"
+    )]
     ManagedHost(ManagedHost),
-    #[clap(about = "Resource pool handling", subcommand)]
+    #[clap(about = "Resource pool handling", subcommand, visible_alias = "rp")]
     ResourcePool(ResourcePool),
-    #[clap(about = "Redfish BMC actions")]
+    #[clap(about = "Redfish BMC actions", visible_alias = "rf")]
     Redfish(RedfishAction),
     #[clap(about = "Migrate data, see sub-command", subcommand)]
     Migrate(MigrateAction),
