@@ -1307,15 +1307,6 @@ ALTER TABLE ONLY public.domains
 ALTER TABLE ONLY public.machine_interfaces
     ADD CONSTRAINT fqdn_must_be_unique UNIQUE (domain_id, hostname);
 
-
---
--- Name: ib_subnets ib_subnets_name_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.ib_subnets
-    ADD CONSTRAINT ib_subnets_name_key UNIQUE (name);
-
-
 --
 -- Name: ib_subnets ib_subnets_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
 --
