@@ -1,11 +1,14 @@
--- Last updated July 26th 2023
+-- Last updated Aug 03 2023
 
 --
 -- Carbide database schema with all migrations applied.
 --
--- Created like this:
+-- Created like this and then maintained manually
 -- PGPASSWORD=notforprod pg_dump -h 172.20.0.16 --schema-only -U carbide_development > ~/carbide_schema.sql
 
+DROP DATABASE IF EXISTS carbide_development;
+CREATE DATABASE carbide_development WITH OWNER = carbide_development;
+\c carbide_development
 
 --
 -- PostgreSQL database dump
@@ -1820,6 +1823,51 @@ ALTER TABLE ONLY public.network_segments
 ALTER TABLE ONLY public.network_segments
     ADD CONSTRAINT network_segments_vpc_id_fkey FOREIGN KEY (vpc_id) REFERENCES public.vpcs(id);
 
+-- Manual updates
+
+-- 20230711095418_bmc_machine.sql
+
+CREATE TABLE public.bmc_machine_controller_lock (
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+ALTER TABLE public.bmc_machine_controller_lock OWNER TO carbide_development;
+
+CREATE TYPE public.bmc_machine_type_t AS ENUM ('dpu', 'host');
+ALTER TYPE public.bmc_machine_type_t OWNER TO carbide_development;
+
+CREATE TABLE public.bmc_machine (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+
+  machine_interface_id uuid NOT NULL,
+
+  -- Bmc type:
+  --   * Dpu
+  --   * Host
+  bmc_type public.bmc_machine_type_t NOT NULL,
+
+  -- The state of BMC Machine:
+  --   * Init: 0
+  controller_state_version VARCHAR(64) NOT NULL DEFAULT ('V1-T1666644937952268'),
+  controller_state         jsonb       NOT NULL DEFAULT ('{"state":"init"}'),
+
+  PRIMARY KEY(id),
+  FOREIGN KEY(machine_interface_id) REFERENCES public.machine_interfaces(id)
+);
+ALTER TABLE public.bmc_machine OWNER TO carbide_development;
+
+-- 20230801424242_add_custom_pxe_table.sql
+
+CREATE TABLE public.machine_boot_override (
+  machine_interface_id uuid NOT NULL,
+  custom_pxe text,
+  custom_user_data text,
+
+  PRIMARY KEY(machine_interface_id),
+  FOREIGN KEY(machine_interface_id) REFERENCES public.machine_interfaces(id),
+  CONSTRAINT custom_pxe_unique_machine_interface_id UNIQUE(machine_interface_id)
+);
+ALTER TABLE public.machine_boot_override OWNER TO carbide_development;
+
 
 --
 -- Name: SCHEMA public; Type: ACL; Schema: -; Owner: carbide_development
@@ -1827,7 +1875,6 @@ ALTER TABLE ONLY public.network_segments
 
 REVOKE USAGE ON SCHEMA public FROM PUBLIC;
 GRANT ALL ON SCHEMA public TO PUBLIC;
-
 
 --
 -- PostgreSQL database dump complete
