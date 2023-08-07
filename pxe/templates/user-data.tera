@@ -189,7 +189,6 @@ write_files:
     content: Not Started
 # install specific packages from distro apt repos, without upgrading any installed ones.
 package_update: true
-package_upgrade: false
 packages:
   - lldpd
 # run these commands (last)
