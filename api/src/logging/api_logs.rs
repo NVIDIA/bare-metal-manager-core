@@ -47,9 +47,12 @@ impl LogLayer {
             .with_unit(Unit::new("ms"))
             .init();
 
+        let db = sqlx_query_tracing::DatabaseMetricEmitters::new(&meter);
+
         let metrics = Arc::new(RequestMetrics {
             _meter: meter,
             request_times,
+            db,
         });
 
         Self { metrics }
@@ -71,6 +74,7 @@ impl<S> tower::Layer<S> for LogLayer {
 struct RequestMetrics {
     _meter: Meter,
     request_times: Histogram<f64>,
+    db: sqlx_query_tracing::DatabaseMetricEmitters,
 }
 
 // This service implements the Forge API server logging behavior
@@ -168,10 +172,10 @@ where
 
             let result = service.call(request).instrument(request_span.clone()).await;
 
-            {
+            let db_query_metrics = {
                 let _e: tracing::span::Entered<'_> = request_span.enter();
-                sqlx_query_tracing::update_current_span_attributes();
-            }
+                sqlx_query_tracing::fetch_and_update_current_span_attributes()
+            };
 
             let elapsed = start.elapsed();
 
@@ -262,7 +266,7 @@ where
 
                 // The attributes follow
                 // https://opentelemetry.io/docs/reference/specification/metrics/semantic_conventions/http-metrics/#attributes
-                let attributes = vec![
+                let mut attributes = vec![
                     KeyValue::new(
                         "grpc.method",
                         grpc_method.unwrap_or_else(|| "unknown".to_string()),
@@ -282,6 +286,11 @@ where
                 metrics
                     .request_times
                     .record(&cx, elapsed.as_secs_f64() * 1000.0, &attributes);
+
+                // We use an attribute to distinguish the query counter from the
+                // ones that are used for state controller operations
+                attributes.push(KeyValue::new("operation", "grpc"));
+                metrics.db.emit(&db_query_metrics, &cx, &attributes);
             }
 
             result

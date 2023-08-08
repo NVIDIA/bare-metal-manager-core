@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use opentelemetry_api::metrics::{Counter, Histogram, Meter, Unit};
 use std::{cell::RefCell, marker::PhantomData};
 use tracing::{field, metadata::LevelFilter, span, Event, Id, Subscriber};
 use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
@@ -232,7 +233,7 @@ where
         // This is the final exit from the Span
         // We are however unable to patch attributes in it. Therefore some other code
         // needs to manually do this before the span is town down.
-        // The `update_current_span_attributes` can be used to achieve this goal
+        // The `fetch_and_update_current_span_attributes` can be used to achieve this goal
     }
 }
 
@@ -242,7 +243,7 @@ thread_local! {
     pub static QUERY_DATA: RefCell<SqlxQueryDataAggregation> = RefCell::new(SqlxQueryDataAggregation::default());
 }
 
-pub fn update_current_span_attributes() {
+pub fn fetch_and_update_current_span_attributes() -> SqlxQueryDataAggregation {
     let span = tracing::Span::current();
     // The magic event will make an attached `SqlxQueryTracingLayer` update `QUERY_DATA` for us
     tracing::event!(target: "sqlx::extract_query_data", tracing::Level::INFO, {});
@@ -257,12 +258,63 @@ pub fn update_current_span_attributes() {
     );
     span.record(
         "sql_max_query_duration_summary",
-        query_data.max_query_duration_summary,
+        &query_data.max_query_duration_summary,
     );
     span.record(
         "sql_total_query_duration_us",
         query_data.total_query_duration.as_micros(),
     );
+    query_data
+}
+
+#[derive(Debug, Clone)]
+pub struct DatabaseMetricEmitters {
+    db_queries_counter: Counter<u64>,
+    db_total_query_times: Histogram<f64>,
+}
+
+impl DatabaseMetricEmitters {
+    pub fn new(meter: &Meter) -> Self {
+        // Loosely modelled after
+        // https://github.com/open-telemetry/semantic-conventions/tree/main/docs/database
+        // The exact operation that we care about - which is just the query time - isn't modelled there
+
+        // Note that this counter does not equal the _count of `carbide-api.db.total_query_time.ms`
+        // The reason for this is the `carbide-api.db.total_query_time.ms` will only be incremented once
+        // per span. It thereby counts the amount of spans - not the amount of DB queries.
+        let db_queries_counter = meter
+            .u64_counter("carbide-api.db.queries")
+            .with_description("The amount of database queries that occured inside a span")
+            .init();
+
+        let db_total_query_times = meter
+            .f64_histogram("carbide-api.db.total_query_time.ms")
+            .with_description("Total time the request spent inside a span on database transactions")
+            .with_unit(Unit::new("ms"))
+            .init();
+
+        Self {
+            db_total_query_times,
+            db_queries_counter,
+        }
+    }
+
+    /// Emits database performance records that have been aggregated inside a Span
+    pub fn emit(
+        &self,
+        metrics: &SqlxQueryDataAggregation,
+        cx: &opentelemetry_api::Context,
+        attributes: &[opentelemetry_api::KeyValue],
+    ) {
+        self.db_queries_counter
+            .add(cx, metrics.num_queries as u64, attributes);
+
+        self.db_total_query_times.record(
+            cx,
+            metrics.total_query_duration.as_secs_f64() * 1000.0,
+            attributes,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -336,7 +388,7 @@ mod tests {
             tracing::event!(target: "sqlx::query", Level::INFO, summary = "Summary3", db.statement = "Statement3", rows_affected = 8u64, rows_returned = 6u64, elapsed = ?Duration::from_millis(311));
             tracing::event!(target: "sqlx::query", Level::INFO, summary = "Summary4", db.statement = "Statement4", rows_affected = 16u64, rows_returned = 9u64, elapsed = ?Duration::from_secs(411));
 
-            update_current_span_attributes();
+            fetch_and_update_current_span_attributes();
 
             // The default formatter will only log attributs on events. Therefore we produce one
             // Note that it will also log the initial values of attributes, e.g. sql_queries = 0

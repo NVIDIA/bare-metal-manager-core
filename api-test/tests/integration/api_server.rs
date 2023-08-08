@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use carbide::cfg::{AuthConfig, CarbideConfig, TlsConfig};
+use carbide::logging::sqlx_query_tracing;
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
 
 use tracing::metadata::LevelFilter;
@@ -118,7 +119,6 @@ pub fn test_logging_subscriber() -> impl SubscriberInitExt {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy()
-        .add_directive("sqlx=warn".parse().unwrap())
         .add_directive("tower=warn".parse().unwrap())
         .add_directive("rustls=warn".parse().unwrap())
         .add_directive("hyper=warn".parse().unwrap())
@@ -133,8 +133,10 @@ pub fn test_logging_subscriber() -> impl SubscriberInitExt {
                 tracing_subscriber::fmt::Layer::default()
                     .compact()
                     .with_ansi(false)
-                    .with_writer(TestWriter::new),
+                    .with_writer(TestWriter::new)
+                    .with_filter(sqlx_query_tracing::block_sqlx_filter()),
             )
+            .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .with(env_filter),
     )
 }
