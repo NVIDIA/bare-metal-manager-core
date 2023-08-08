@@ -17,7 +17,10 @@ use opentelemetry::{
     Context, KeyValue,
 };
 
-use crate::state_controller::{controller::StateControllerIO, state_handler::StateHandlerError};
+use crate::{
+    logging::sqlx_query_tracing,
+    state_controller::{controller::StateControllerIO, state_handler::StateHandlerError},
+};
 
 /// The result of the state handler processing the state of a single object
 pub struct ObjectHandlerMetrics<IO: StateControllerIO> {
@@ -111,6 +114,7 @@ pub struct StateControllerMetricEmitter {
     errors_per_state_gauge: ObservableGauge<u64>,
     time_in_state_histogram: Histogram<f64>,
     handler_latency_in_state_histogram: Histogram<f64>,
+    db: sqlx_query_tracing::DatabaseMetricEmitters,
 }
 
 impl StateControllerMetricEmitter {
@@ -161,6 +165,8 @@ impl StateControllerMetricEmitter {
             .with_unit(Unit::new("ms"))
             .init();
 
+        let db = sqlx_query_tracing::DatabaseMetricEmitters::new(&meter);
+
         Self {
             controller_iteration_latency,
             objects_per_state_gauge,
@@ -168,6 +174,7 @@ impl StateControllerMetricEmitter {
             errors_per_state_gauge,
             handler_latency_in_state_histogram,
             time_in_state_histogram,
+            db,
             _meter: meter,
         }
     }
@@ -175,7 +182,12 @@ impl StateControllerMetricEmitter {
     /// Emites the latency metrics that are captured during a single state handler
     /// iteration. Those are emitted immediately as histograms, whereas the
     /// amount of objects in states is emitted as gauges.
-    pub fn emit_latency_metrics(&self, iteration_metrics: &IterationMetrics) {
+    pub fn emit_latency_metrics(
+        &self,
+        log_span_name: &str,
+        iteration_metrics: &IterationMetrics,
+        db_metrics: &sqlx_query_tracing::SqlxQueryDataAggregation,
+    ) {
         let cx = opentelemetry::Context::current();
 
         self.controller_iteration_latency.record(
@@ -201,6 +213,11 @@ impl StateControllerMetricEmitter {
                 );
             }
         }
+
+        // We use an attribute to distinguish the query counter from the
+        // ones that are used for other state controller and for gRPC requests
+        let attrs = &[KeyValue::new("operation", log_span_name.to_string())];
+        self.db.emit(db_metrics, &cx, attrs);
     }
 
     pub fn emit_gauges(&self, iteration_metrics: &IterationMetrics, otel_cx: &Context) {

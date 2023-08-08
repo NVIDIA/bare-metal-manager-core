@@ -191,10 +191,10 @@ impl<IO: StateControllerIO> StateController<IO> {
             controller_span.record("elapsed_us", elapsed.as_micros());
             controller_span.record("otel.status_code", if res.is_ok() { "ok" } else { "error" });
 
-            {
+            let db_query_metrics = {
                 let _e: tracing::span::Entered<'_> = controller_span.enter();
-                sqlx_query_tracing::update_current_span_attributes();
-            }
+                sqlx_query_tracing::fetch_and_update_current_span_attributes()
+            };
 
             match &res {
                 Ok(()) | Err(IterationError::LockError) => {
@@ -215,7 +215,11 @@ impl<IO: StateControllerIO> StateController<IO> {
             // latter case doesn't handle any objects it will be a no-op apart
             // from emitting the latency for not getting the lock.
             if let Some(emitter) = self.metric_holder.emitter.as_ref() {
-                emitter.emit_latency_metrics(&metrics);
+                emitter.emit_latency_metrics(
+                    IO::LOG_SPAN_CONTROLLER_NAME,
+                    &metrics,
+                    &db_query_metrics,
+                );
                 emitter.set_iteration_span_attributes(&controller_span, &metrics);
             }
 
