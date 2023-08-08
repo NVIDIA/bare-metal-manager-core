@@ -62,7 +62,7 @@ use crate::ipxe::PxeInstructions;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
-use crate::model::machine::ManagedHostState;
+use crate::model::machine::{FailureCause, FailureDetails, FailureSource, ManagedHostState};
 use crate::model::RpcDataConversionError;
 use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
@@ -1682,6 +1682,25 @@ where
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
         machine.update_cleanup_time(&mut txn).await?;
+
+        if let Some(nvme_result) = cleanup_info.nvme {
+            if rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result {
+                // NVME Cleanup failed. Move machine to failed state.
+                machine
+                    .update_failure_details(
+                        &mut txn,
+                        FailureDetails {
+                            cause: FailureCause::NVMECleanFailed {
+                                err: nvme_result.message.to_string(),
+                            },
+                            failed_at: chrono::Utc::now(),
+                            source: FailureSource::Scout,
+                        },
+                    )
+                    .await?;
+            }
+        }
+
         txn.commit().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "commit cleanup_machine_completed", e)
         })?;

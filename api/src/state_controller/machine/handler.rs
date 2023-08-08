@@ -21,7 +21,7 @@ use crate::{
         config_version::ConfigVersion,
         machine::{
             machine_id::MachineId,
-            CleanupState, InstanceState, LockdownInfo,
+            CleanupState, FailureCause, FailureDetails, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineSnapshot, MachineState, ManagedHostState,
             ManagedHostStateSnapshot,
@@ -55,6 +55,25 @@ impl StateHandler for MachineStateHandler {
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let managed_state = &state.managed_state;
+
+        // Don't update failed state failure cause everytime. Record first failure cause only,
+        // otherwise first failure cause will be overwritten.
+        if !matches!(managed_state, ManagedHostState::Failed { .. }) {
+            if let Some((machine_id, details)) = get_failed_state(state) {
+                tracing::error!(
+                        "ManagedHost {}/{} (failed machine: {}) is moved to Failed state with cause: {:?}",
+                        state.host_snapshot.machine_id,
+                        state.dpu_snapshot.machine_id,
+                        machine_id,
+                        details
+                    );
+                *controller_state.modify() = ManagedHostState::Failed {
+                    details,
+                    machine_id,
+                };
+                return Ok(());
+            }
+        }
 
         match &managed_state {
             ManagedHostState::DPUNotReady { .. } => {
@@ -132,9 +151,42 @@ impl StateHandler for MachineStateHandler {
                     host_machine_id
                 );
             }
+            ManagedHostState::Failed {
+                details,
+                machine_id,
+            } => {
+                // Do nothing.
+                // Handle error cause and decide how to recover if possible.
+                tracing::error!(
+                    "ManagedHost {} is in Failed state with machine/cause {}/{}. Failed at: {}, Ignoring.",
+                    host_machine_id,
+                    machine_id,
+                    details.cause,
+                    details.failed_at,
+                );
+            }
         }
 
         Ok(())
+    }
+}
+
+/// This function returns failure cause for both host and dpu.
+fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, FailureDetails)> {
+    // Return updated state only for errors which should cause machine to move into failed
+    // state.
+    if state.host_snapshot.failure_details.cause != FailureCause::NoError {
+        Some((
+            state.host_snapshot.machine_id.clone(),
+            state.host_snapshot.failure_details.clone(),
+        ))
+    } else if state.dpu_snapshot.failure_details.cause != FailureCause::NoError {
+        Some((
+            state.dpu_snapshot.machine_id.clone(),
+            state.dpu_snapshot.failure_details.clone(),
+        ))
+    } else {
+        None
     }
 }
 

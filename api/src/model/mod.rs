@@ -70,6 +70,8 @@ pub enum RpcDataConversionError {
     InvalidPciDeviceInfo(String),
     #[error("VpcVirtualizationType {0} is invalid")]
     InvalidVpcVirtualizationType(i32),
+    #[error("Invalid enum value received for critical error type: {0}")]
+    InvalidCriticalErrorType(i32),
 }
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`
