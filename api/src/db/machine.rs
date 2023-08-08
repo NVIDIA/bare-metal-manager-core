@@ -35,7 +35,7 @@ use crate::model::hardware_info::{BMCVendor, HardwareInfo};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
-use crate::model::machine::{MachineState, ManagedHostState};
+use crate::model::machine::{FailureDetails, MachineState, ManagedHostState};
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -101,6 +101,9 @@ pub struct Machine {
 
     /// Last time when discovery finished.
     last_discovery_time: Option<DateTime<Utc>>,
+
+    /// Failure cause. If failure cause is critical, machine will move into Failed state.
+    failure_details: FailureDetails,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -128,6 +131,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             row.try_get("network_status_observation")?;
         let network_status_observation = network_status_observation.map(|n| n.0);
 
+        let failure_details: sqlx::types::Json<FailureDetails> = row.try_get("failure_details")?;
+
         Ok(Machine {
             id,
             created: row.try_get("created")?,
@@ -148,6 +153,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             last_reboot_time: row.try_get("last_reboot_time")?,
             last_cleanup_time: row.try_get("last_cleanup_time")?,
             last_discovery_time: row.try_get("last_discovery_time")?,
+            failure_details: failure_details.0,
         })
     }
 }
@@ -273,6 +279,11 @@ impl Machine {
     /// configuration. The latter will be tracked as part of the InstanceNetworkConfig.
     pub fn network_config(&self) -> &Versioned<ManagedHostNetworkConfig> {
         &self.network_config
+    }
+
+    /// Returns failure cause of machine.
+    pub fn failure_details(&self) -> FailureDetails {
+        self.failure_details.clone()
     }
 
     /// Actual network info from machine
@@ -994,6 +1005,22 @@ SELECT m.id FROM
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(res)
+    }
+
+    pub async fn update_failure_details(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        failure: FailureDetails,
+    ) -> CarbideResult<()> {
+        let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
+        let _id: (DbMachineId,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(failure))
+            .bind(self.id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 }
 

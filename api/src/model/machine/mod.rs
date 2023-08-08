@@ -69,6 +69,8 @@ pub struct MachineSnapshot {
     pub last_reboot_time: Option<DateTime<Utc>>,
     /// Last cleanup completed message received from scout.
     pub last_cleanup_time: Option<DateTime<Utc>>,
+    /// Failure cause. Needed to move machine in failed state.
+    pub failure_details: FailureDetails,
 }
 
 impl MachineSnapshot {
@@ -116,6 +118,34 @@ pub enum ManagedHostState {
     /// A forced deletion process has been triggered by the admin CLI
     /// State controller will no longer manage the Machine
     ForceDeletion,
+
+    /// Machine moved to failed state. Recovery will be based on FailedCause
+    Failed {
+        details: FailureDetails,
+        machine_id: MachineId,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum FailureCause {
+    NoError,
+    NVMECleanFailed { err: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum FailureSource {
+    NoError,
+    Scout,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub struct FailureDetails {
+    pub cause: FailureCause,
+    pub failed_at: DateTime<Utc>,
+    pub source: FailureSource,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -199,6 +229,27 @@ impl Display for LockdownState {
     }
 }
 
+impl Display for FailureSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Display for FailureCause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FailureCause::NVMECleanFailed { .. } => write!(f, "NVMECleanFailed"),
+            FailureCause::NoError => write!(f, "NoError"),
+        }
+    }
+}
+
+impl Display for FailureDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.source, self.cause)
+    }
+}
+
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -213,6 +264,9 @@ impl Display for ManagedHostState {
             }
             ManagedHostState::ForceDeletion => write!(f, "ForceDeletion"),
             ManagedHostState::Created => write!(f, "Created"),
+            ManagedHostState::Failed { details, .. } => {
+                write!(f, "Failed/{}", details.cause)
+            }
         }
     }
 }
@@ -227,4 +281,36 @@ pub struct MachineInterfaceSnapshot {
     pub vlan_id: u32,
     pub vni: u32,
     pub gateway_cidr: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_json_deserialize_no_error() {
+        let serialized = r#"{"cause": "noerror", "source": "noerror", "failed_at": "2023-07-31T11:26:18.261228950Z"}"#;
+        let deserialized: FailureDetails = serde_json::from_str(serialized).unwrap();
+
+        let expected_time =
+            chrono::DateTime::parse_from_rfc3339("2023-07-31T11:26:18.261228950+00:00").unwrap();
+        assert_eq!(FailureCause::NoError, deserialized.cause);
+        assert_eq!(expected_time, deserialized.failed_at);
+    }
+
+    #[test]
+    fn test_json_deserialize_nvme_error() {
+        let serialized = r#"{"cause": {"nvmecleanfailed":{"err": "error1"}},  "source": "noerror","failed_at": "2023-07-31T11:26:18.261228950Z"}"#;
+        let deserialized: FailureDetails = serde_json::from_str(serialized).unwrap();
+
+        let expected_time =
+            chrono::DateTime::parse_from_rfc3339("2023-07-31T11:26:18.261228950+00:00").unwrap();
+        assert_eq!(
+            FailureCause::NVMECleanFailed {
+                err: "error1".to_string()
+            },
+            deserialized.cause
+        );
+        assert_eq!(expected_time, deserialized.failed_at);
+    }
 }

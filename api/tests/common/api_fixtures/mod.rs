@@ -360,7 +360,7 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
 }
 
 /// Runs a single state controller iteration for any kind of state controller
-async fn run_state_controller_iteration<IO: StateControllerIO>(
+pub async fn run_state_controller_iteration<IO: StateControllerIO>(
     handler_services: &Arc<StateHandlerServices>,
     pool: &PgPool,
     io: &IO,
