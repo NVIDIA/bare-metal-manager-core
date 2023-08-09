@@ -1,42 +1,194 @@
+use std::marker::PhantomData;
+use std::ops::Deref;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
 use async_trait::async_trait;
+use eyre::WrapErr;
 use rand::Rng;
+use tokio::sync::RwLock;
 use vaultrs::api::pki::requests::GenerateCertificateRequest;
-use vaultrs::client::VaultClient;
+use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 use vaultrs::{kv2, pki};
 
 use crate::certificates::{Certificate, CertificateProvider};
 use crate::credentials::{CredentialKey, CredentialProvider, Credentials};
 
+#[derive(Clone, Debug)]
+pub enum ForgeVaultAuthenticationType {
+    Root(String),
+    ServiceAccount(PathBuf),
+}
+
+#[derive(Clone, Debug)]
+pub struct ForgeVaultAuthentication {
+    pub token: String,
+    pub expiry: Instant,
+}
+
+pub enum ForgeVaultAuthenticationStatus {
+    Authenticated(ForgeVaultAuthentication, VaultClient),
+    Initialized,
+}
+
+#[derive(Debug, Clone)]
+pub struct ForgeVaultClientConfig {
+    pub auth_type: ForgeVaultAuthenticationType,
+    pub vault_address: String,
+    pub kv_mount_location: String,
+    pub pki_mount_location: String,
+    pub pki_role_name: String,
+}
+
 pub struct ForgeVaultClient {
-    vault_client: VaultClient,
-    kv_mount_location: String,
-    pki_mount_location: String,
-    pki_role_name: String,
+    vault_client_config: ForgeVaultClientConfig,
+    vault_auth_status: RwLock<ForgeVaultAuthenticationStatus>,
 }
 
 impl ForgeVaultClient {
-    pub fn new(
-        vault_client: VaultClient,
-        kv_mount_location: String,
-        pki_mount_location: String,
-        pki_role_name: String,
-    ) -> Self {
+    pub fn new(vault_client_config: ForgeVaultClientConfig) -> Self {
         Self {
-            vault_client,
-            kv_mount_location,
-            pki_mount_location,
-            pki_role_name,
+            vault_client_config,
+            vault_auth_status: RwLock::new(ForgeVaultAuthenticationStatus::Initialized),
         }
     }
 }
 
 #[async_trait]
-impl CredentialProvider for ForgeVaultClient {
-    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report> {
+pub trait VaultTask<T> {
+    async fn execute(&self, vault_client: &VaultClient) -> Result<T, eyre::Report>;
+}
+
+pub struct VaultTaskHelper<V, T>
+where
+    V: VaultTask<T>,
+{
+    task: V,
+    phantom: PhantomData<T>,
+}
+
+impl<V, T> VaultTaskHelper<V, T>
+where
+    V: VaultTask<T>,
+{
+    pub fn new(task: V) -> Self {
+        Self {
+            task,
+            phantom: PhantomData,
+        }
+    }
+
+    async fn vault_token_refresh(
+        &self,
+        forge_vault_client: &ForgeVaultClient,
+    ) -> Result<(), eyre::ErrReport> {
+        let (vault_token, vault_token_expiry_secs) =
+            match forge_vault_client.vault_client_config.auth_type {
+                ForgeVaultAuthenticationType::Root(ref root_token) => {
+                    (
+                        root_token.clone(),
+                        60 * 60 * 24 * 365 * 10, /*root token never expires just use ten years*/
+                    )
+                }
+                ForgeVaultAuthenticationType::ServiceAccount(ref service_account_token_path) => {
+                    let jwt = std::fs::read_to_string(service_account_token_path)
+                        .wrap_err("service_account_token_file_read")?
+                        .trim()
+                        .to_string();
+
+                    let vault_client_settings = VaultClientSettingsBuilder::default()
+                        .token("silly vaultrs bugs make me sad")
+                        .address(forge_vault_client.vault_client_config.vault_address.clone())
+                        .timeout(Some(Duration::from_secs(60)))
+                        .verify(false) //TODO: remove me when we are starting to validate certs
+                        .build()?;
+                    let vault_client = VaultClient::new(vault_client_settings)?;
+                    let auth_info = vaultrs::auth::kubernetes::login(
+                        &vault_client,
+                        "kubernetes",
+                        "carbide-api",
+                        jwt.as_str(),
+                    )
+                    .await
+                    .wrap_err("Failed to execute kubernetes service account login request")?;
+
+                    // start refreshing before it expires
+                    let lease_expiry_secs = (0.9 * auth_info.lease_duration as f64) as u64;
+                    (auth_info.client_token, lease_expiry_secs)
+                }
+            };
+
+        tracing::info!(
+            "successfully refreshed vault token, with lifetime: {vault_token_expiry_secs}"
+        );
+
+        let vault_client_settings = VaultClientSettingsBuilder::default()
+            .address(forge_vault_client.vault_client_config.vault_address.clone())
+            .token(vault_token.clone())
+            .timeout(Some(Duration::from_secs(60)))
+            .verify(false) //TODO: remove me when we are starting to validate certs
+            .build()?;
+        let vault_client = VaultClient::new(vault_client_settings)?;
+
+        {
+            let mut vault_auth_status = forge_vault_client.vault_auth_status.write().await;
+            *vault_auth_status = ForgeVaultAuthenticationStatus::Authenticated(
+                ForgeVaultAuthentication {
+                    expiry: Instant::now() + Duration::from_secs(vault_token_expiry_secs),
+                    token: vault_token,
+                },
+                vault_client,
+            );
+        }
+        Ok(())
+    }
+
+    pub async fn vault_client_setup(
+        &self,
+        vault_client: &ForgeVaultClient,
+    ) -> Result<(), eyre::ErrReport> {
+        let refresh_required = {
+            let vault_auth_status = vault_client.vault_auth_status.read().await;
+            match *vault_auth_status {
+                ForgeVaultAuthenticationStatus::Initialized => true,
+                ForgeVaultAuthenticationStatus::Authenticated(ref authentication, ref _client) => {
+                    Instant::now() >= authentication.expiry
+                }
+            }
+        };
+
+        if refresh_required {
+            self.vault_token_refresh(vault_client).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn execute(self, vault_client: &ForgeVaultClient) -> Result<T, eyre::Report> {
+        self.vault_client_setup(vault_client).await?;
+        let auth_status = vault_client.vault_auth_status.read().await;
+        if let ForgeVaultAuthenticationStatus::Authenticated(_, ref vault_client) =
+            auth_status.deref()
+        {
+            self.task.execute(vault_client).await
+        } else {
+            Err(eyre::eyre!("vault wasn't initialized?"))
+        }
+    }
+}
+
+pub struct GetCredentialsHelper {
+    pub kv_mount_location: String,
+    pub key: CredentialKey,
+}
+
+#[async_trait]
+impl VaultTask<Credentials> for GetCredentialsHelper {
+    async fn execute(&self, vault_client: &VaultClient) -> Result<Credentials, eyre::Report> {
         let credentials = kv2::read(
-            &self.vault_client,
+            vault_client,
             &self.kv_mount_location,
-            key.to_key_str().as_str(),
+            self.key.to_key_str().as_str(),
         )
         .await
         .map_err(|err| {
@@ -46,17 +198,22 @@ impl CredentialProvider for ForgeVaultClient {
 
         Ok(credentials)
     }
+}
 
-    async fn set_credentials(
-        &self,
-        key: CredentialKey,
-        credentials: Credentials,
-    ) -> Result<(), eyre::Report> {
+pub struct SetCredentialsHelper {
+    pub kv_mount_location: String,
+    pub key: CredentialKey,
+    pub credentials: Credentials,
+}
+
+#[async_trait]
+impl VaultTask<()> for SetCredentialsHelper {
+    async fn execute(&self, vault_client: &VaultClient) -> Result<(), eyre::Report> {
         let _secret_version_metadata = kv2::set(
-            &self.vault_client,
+            vault_client,
             &self.kv_mount_location,
-            key.to_key_str().as_str(),
-            &credentials,
+            self.key.to_key_str().as_str(),
+            &self.credentials,
         )
         .await
         .map_err(|err| {
@@ -69,11 +226,45 @@ impl CredentialProvider for ForgeVaultClient {
 }
 
 #[async_trait]
-impl CertificateProvider for ForgeVaultClient {
-    async fn get_certificate<S>(&self, unique_identifier: S) -> Result<Certificate, eyre::Report>
-    where
-        S: AsRef<str> + Send,
-    {
+impl CredentialProvider for ForgeVaultClient {
+    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report> {
+        let kv_mount_location = self.vault_client_config.kv_mount_location.clone();
+        let get_credentials_helper = GetCredentialsHelper {
+            kv_mount_location,
+            key,
+        };
+        let vault_task_helper = VaultTaskHelper::new(get_credentials_helper);
+        vault_task_helper.execute(self).await
+    }
+
+    async fn set_credentials(
+        &self,
+        key: CredentialKey,
+        credentials: Credentials,
+    ) -> Result<(), eyre::Report> {
+        let kv_mount_location = self.vault_client_config.kv_mount_location.clone();
+        let set_credentials_helper = SetCredentialsHelper {
+            key,
+            credentials,
+            kv_mount_location,
+        };
+        let vault_task_helper = VaultTaskHelper::new(set_credentials_helper);
+        vault_task_helper.execute(self).await
+    }
+}
+
+pub struct GetCertificateHelper<S: AsRef<str> + Sync + Send> {
+    unique_identifier: S,
+    pki_mount_location: String,
+    pki_role_name: String,
+}
+
+#[async_trait]
+impl<S> VaultTask<Certificate> for GetCertificateHelper<S>
+where
+    S: AsRef<str> + Sync + Send,
+{
+    async fn execute(&self, vault_client: &VaultClient) -> Result<Certificate, eyre::Report> {
         let trust_domain = "forge.local";
         let namespace = "forge-system";
 
@@ -82,14 +273,14 @@ impl CertificateProvider for ForgeVaultClient {
             "spiffe://{}/{}/machine/{}",
             trust_domain,
             namespace,
-            unique_identifier.as_ref()
+            self.unique_identifier.as_ref()
         );
 
         let ttl = {
-            // this is to setup a baseline skew of between 80 - 120% of 30 days,
+            // this is to setup a baseline skew of between 60 - 100% of 30 days,
             // so that not all boxes will renew (or expire) at the same time.
-            let max_hours = 864; // 24 * 30 * 1.2
-            let min_hours = 576;
+            let max_hours = 720; // 24 * 30
+            let min_hours = 432; // 24 * 30 * 0.6
             let mut rng = rand::thread_rng();
             rng.gen_range(min_hours..max_hours)
         };
@@ -102,7 +293,7 @@ impl CertificateProvider for ForgeVaultClient {
             .ttl(format!("{ttl}h"));
 
         let response = pki::cert::generate(
-            &self.vault_client,
+            vault_client,
             self.pki_mount_location.as_str(),
             self.pki_role_name.as_str(),
             Some(&mut certificate_request_builder),
@@ -114,5 +305,21 @@ impl CertificateProvider for ForgeVaultClient {
             public_key: response.certificate.into_bytes(),
             private_key: response.private_key.into_bytes(),
         })
+    }
+}
+
+#[async_trait]
+impl CertificateProvider for ForgeVaultClient {
+    async fn get_certificate<S>(&self, unique_identifier: S) -> Result<Certificate, eyre::Report>
+    where
+        S: AsRef<str> + Send + Sync,
+    {
+        let get_certificate_helper = GetCertificateHelper {
+            unique_identifier,
+            pki_mount_location: self.vault_client_config.pki_mount_location.clone(),
+            pki_role_name: self.vault_client_config.pki_role_name.clone(),
+        };
+        let vault_task_helper = VaultTaskHelper::new(get_certificate_helper);
+        vault_task_helper.execute(self).await
     }
 }

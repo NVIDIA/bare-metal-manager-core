@@ -9,13 +9,17 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::cfg::CarbideConfig;
+use std::path::Path;
+use std::{env, sync::Arc};
+
 use eyre::WrapErr;
 use figment::providers::{Env, Format, Toml};
 use figment::Figment;
+
+use forge_secrets::forge_vault::{ForgeVaultAuthenticationType, ForgeVaultClientConfig};
 use forge_secrets::ForgeVaultClient;
-use std::{env, sync::Arc, time::Duration};
-use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
+
+use crate::cfg::CarbideConfig;
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -33,31 +37,28 @@ pub fn parse_carbide_config(
     Ok(Arc::new(config))
 }
 
-pub fn create_vault_client() -> eyre::Result<Arc<ForgeVaultClient>> {
-    let vault_token = env::var("VAULT_TOKEN")
-        .wrap_err("VAULT_TOKEN")?
-        .trim()
-        .to_string();
-    let vault_addr = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
+pub async fn create_vault_client() -> eyre::Result<Arc<ForgeVaultClient>> {
+    let vault_address = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
     let kv_mount_location =
         env::var("VAULT_KV_MOUNT_LOCATION").wrap_err("VAULT_KV_MOUNT_LOCATION")?;
     let pki_mount_location =
         env::var("VAULT_PKI_MOUNT_LOCATION").wrap_err("VAULT_PKI_MOUNT_LOCATION")?;
     let pki_role_name = env::var("VAULT_PKI_ROLE_NAME").wrap_err("VAULT_PKI_ROLE_NAME")?;
 
-    let vault_client_settings = VaultClientSettingsBuilder::default()
-        .address(vault_addr)
-        .token(vault_token)
-        .timeout(Some(Duration::from_secs(60)))
-        .verify(false) //TODO: remove me when we are starting to validate certs
-        .build()?;
-    let vault_client = VaultClient::new(vault_client_settings)?;
+    let service_account_token_path =
+        Path::new("/var/run/secrets/kubernetes.io/serviceaccount/token");
+    let auth_type = if service_account_token_path.exists() {
+        ForgeVaultAuthenticationType::ServiceAccount(service_account_token_path.to_owned())
+    } else {
+        ForgeVaultAuthenticationType::Root(env::var("VAULT_TOKEN").wrap_err("VAULT_TOKEN")?)
+    };
 
-    let forge_vault_client = ForgeVaultClient::new(
-        vault_client,
+    let forge_vault_client = ForgeVaultClient::new(ForgeVaultClientConfig {
+        auth_type,
+        vault_address,
         kv_mount_location,
         pki_mount_location,
         pki_role_name,
-    );
+    });
     Ok(Arc::new(forge_vault_client))
 }

@@ -23,5 +23,5 @@ impl From<Certificate> for MachineCertificate {
 pub trait CertificateProvider: Send + Sync {
     async fn get_certificate<S>(&self, unique_identifier: S) -> Result<Certificate, eyre::Report>
     where
-        S: AsRef<str> + Send;
+        S: AsRef<str> + Send + Sync;
 }
