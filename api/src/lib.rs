@@ -290,7 +290,7 @@ pub async fn run(
         });
     }
 
-    let forge_vault_client = setup::create_vault_client()?;
+    let forge_vault_client = setup::create_vault_client().await?;
 
     tracing::info!(
         "Start carbide-api on {}, {}",

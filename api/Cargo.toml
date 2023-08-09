@@ -45,6 +45,7 @@ toml = "0.7.3"
 patricia_tree = "^0"
 prometheus = "0.13"
 rand = "0.8"
+rustify = "0.5"
 schemars = "*"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
