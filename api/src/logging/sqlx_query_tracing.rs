@@ -270,7 +270,7 @@ pub fn fetch_and_update_current_span_attributes() -> SqlxQueryDataAggregation {
 #[derive(Debug, Clone)]
 pub struct DatabaseMetricEmitters {
     db_queries_counter: Counter<u64>,
-    db_total_query_times: Histogram<f64>,
+    db_span_query_times: Histogram<f64>,
 }
 
 impl DatabaseMetricEmitters {
@@ -287,14 +287,14 @@ impl DatabaseMetricEmitters {
             .with_description("The amount of database queries that occured inside a span")
             .init();
 
-        let db_total_query_times = meter
-            .f64_histogram("carbide-api.db.total_query_time.ms")
+        let db_span_query_times = meter
+            .f64_histogram("carbide-api.db.span_query_time.ms")
             .with_description("Total time the request spent inside a span on database transactions")
             .with_unit(Unit::new("ms"))
             .init();
 
         Self {
-            db_total_query_times,
+            db_span_query_times,
             db_queries_counter,
         }
     }
@@ -309,7 +309,7 @@ impl DatabaseMetricEmitters {
         self.db_queries_counter
             .add(cx, metrics.num_queries as u64, attributes);
 
-        self.db_total_query_times.record(
+        self.db_span_query_times.record(
             cx,
             metrics.total_query_duration.as_secs_f64() * 1000.0,
             attributes,
