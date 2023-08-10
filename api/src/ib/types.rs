@@ -35,7 +35,7 @@ pub struct IBNetwork {
     pub rate_limit: f64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum IBPortState {
     Active,
     Down,
@@ -51,5 +51,6 @@ pub enum IBPortMembership {
 pub struct IBPort {
     pub name: String,
     pub guid: String,
+    pub lid: i32,
     pub state: Option<IBPortState>,
 }

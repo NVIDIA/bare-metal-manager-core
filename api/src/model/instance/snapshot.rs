@@ -44,6 +44,10 @@ pub struct InstanceSnapshot {
     /// of [InstanceConfig::network]
     pub network_config_version: ConfigVersion,
 
+    /// Current version of the infiniband configuration that is stored as part
+    /// of [InstanceConfig::infiniband]
+    pub ib_config_version: ConfigVersion,
+
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
 
@@ -63,6 +67,7 @@ impl TryFrom<InstanceSnapshot> for rpc::Instance {
             config: Some(snapshot.config.try_into()?),
             status: Some(status.try_into()?),
             network_config_version: snapshot.network_config_version.version_string(),
+            ib_config_version: snapshot.ib_config_version.version_string(),
         })
     }
 }
@@ -73,6 +78,7 @@ impl InstanceSnapshot {
     pub fn derive_status(&self) -> Result<InstanceStatus, RpcDataConversionError> {
         InstanceStatus::from_config_and_observation(
             Versioned::new(&self.config.network, self.network_config_version),
+            Versioned::new(&self.config.infiniband, self.ib_config_version),
             &self.observations,
             self.machine_state.clone(),
         )

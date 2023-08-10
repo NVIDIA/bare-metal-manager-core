@@ -12,13 +12,28 @@
 
 //! State Handler implementation for Machines
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use eyre::eyre;
 
 use crate::{
-    db::{instance::DeleteInstance, machine::Machine},
+    db::{
+        ib_subnet,
+        instance::{
+            status::infiniband::update_instance_infiniband_status_observation, DeleteInstance,
+        },
+        machine::Machine,
+    },
+    ib,
+    ib::types::IBNetwork,
     model::{
         config_version::ConfigVersion,
+        instance::config::infiniband::InstanceIbInterfaceConfig,
+        instance::snapshot::InstanceSnapshot,
+        instance::status::infiniband::{
+            InstanceIbInterfaceStatusObservation, InstanceInfinibandStatusObservation,
+        },
         machine::{
             machine_id::MachineId,
             CleanupState, FailureCause, FailureDetails, InstanceState, LockdownInfo,
@@ -480,6 +495,22 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(());
                     }
 
+                    bind_ib_ports(
+                        ctx,
+                        txn,
+                        instance.instance_id,
+                        instance.config.infiniband.ib_interfaces.clone(),
+                    )
+                    .await?;
+
+                    record_infiniband_status_observation(
+                        ctx,
+                        txn,
+                        instance,
+                        instance.config.infiniband.ib_interfaces.clone(),
+                    )
+                    .await?;
+
                     // Reboot host
                     restart_machine(&state.host_snapshot, ctx).await?;
 
@@ -501,6 +532,14 @@ impl StateHandler for InstanceStateHandler {
                         *controller_state.modify() = ManagedHostState::Assigned {
                             instance_state: InstanceState::BootingWithDiscoveryImage,
                         };
+                    } else {
+                        record_infiniband_status_observation(
+                            ctx,
+                            txn,
+                            instance,
+                            instance.config.infiniband.ib_interfaces.clone(),
+                        )
+                        .await?;
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage => {
@@ -539,6 +578,14 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(());
                     }
 
+                    unbind_ib_ports(
+                        ctx,
+                        txn,
+                        instance.instance_id,
+                        instance.config.infiniband.ib_interfaces.clone(),
+                    )
+                    .await?;
+
                     // Delete from database now. Once done, reboot and move to next state.
                     DeleteInstance {
                         instance_id: instance.instance_id,
@@ -560,6 +607,173 @@ impl StateHandler for InstanceStateHandler {
 
         Ok(())
     }
+}
+
+async fn record_infiniband_status_observation(
+    ctx: &StateHandlerContext<'_>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    instance: &InstanceSnapshot,
+    ib_interfaces: Vec<InstanceIbInterfaceConfig>,
+) -> Result<(), StateHandlerError> {
+    let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
+
+    for ib in &ib_interfaces {
+        let guid = ib.guid.clone().ok_or(StateHandlerError::MissingData {
+            object_id: instance.instance_id.to_string(),
+            missing: "GUID of IB Port",
+        })?;
+
+        ibconf
+            .entry(ib.ib_subnet_id)
+            .or_insert(Vec::new())
+            .push(guid);
+    }
+
+    let mut ib_interfaces_status = Vec::with_capacity(ib_interfaces.len());
+
+    for (k, v) in ibconf {
+        let ibsubnets = ib_subnet::IBSubnet::find(
+            txn,
+            crate::db::UuidKeyedObjectFilter::One(k),
+            ib_subnet::IBSubnetSearchConfig {
+                include_history: false,
+            },
+        )
+        .await?;
+
+        let ibsubnet = ibsubnets.first().ok_or(StateHandlerError::MissingData {
+            object_id: k.to_string(),
+            missing: "ib_subnet not found",
+        })?;
+
+        // Get the status of ports from UFM, and persist it as observed status.
+        let filter = ib::Filter {
+            guids: Some(v),
+            pkey: ibsubnet.config.pkey.map(|pkey| pkey as i32),
+        };
+        let ports = ctx
+            .services
+            .ib_fabric_manager
+            .find_ib_port(Some(filter))
+            .await
+            .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+
+        ib_interfaces_status.extend(
+            ports
+                .iter()
+                .map(InstanceIbInterfaceStatusObservation::from)
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    if ib_interfaces.len() != ib_interfaces_status.len() {
+        return Err(StateHandlerError::MissingData {
+            object_id: instance.instance_id.to_string(),
+            missing: "number of infiniband interfaces mismatched",
+        });
+    }
+
+    let status = InstanceInfinibandStatusObservation {
+        config_version: instance.ib_config_version,
+        ib_interfaces: ib_interfaces_status,
+        observed_at: Utc::now(),
+    };
+    update_instance_infiniband_status_observation(txn, instance.instance_id, &status).await?;
+
+    Ok(())
+}
+
+async fn bind_ib_ports(
+    ctx: &StateHandlerContext<'_>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    instance_id: uuid::Uuid,
+    ib_interfaces: Vec<InstanceIbInterfaceConfig>,
+) -> Result<(), StateHandlerError> {
+    let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
+
+    for ib in ib_interfaces {
+        let guid = ib.guid.ok_or(StateHandlerError::MissingData {
+            object_id: instance_id.to_string(),
+            missing: "GUID of IB Port",
+        })?;
+
+        ibconf
+            .entry(ib.ib_subnet_id)
+            .or_insert(Vec::new())
+            .push(guid);
+    }
+
+    for (k, v) in ibconf {
+        let ibsubnets = ib_subnet::IBSubnet::find(
+            txn,
+            crate::db::UuidKeyedObjectFilter::One(k),
+            ib_subnet::IBSubnetSearchConfig {
+                include_history: false,
+            },
+        )
+        .await?;
+
+        let ibsubnet = ibsubnets.first().ok_or(StateHandlerError::MissingData {
+            object_id: k.to_string(),
+            missing: "ib_subnet not found",
+        })?;
+
+        ctx.services
+            .ib_fabric_manager
+            .bind_ib_ports(IBNetwork::from(ibsubnet), v)
+            .await
+            .map_err(|_| StateHandlerError::IBFabricError("bind_ib_ports".to_string()))?;
+    }
+
+    Ok(())
+}
+
+async fn unbind_ib_ports(
+    ctx: &StateHandlerContext<'_>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    instance_id: uuid::Uuid,
+    ib_interfaces: Vec<InstanceIbInterfaceConfig>,
+) -> Result<(), StateHandlerError> {
+    let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
+
+    for ib in ib_interfaces {
+        let guid = ib.guid.ok_or(StateHandlerError::MissingData {
+            object_id: instance_id.to_string(),
+            missing: "GUID of IB Port",
+        })?;
+        ibconf
+            .entry(ib.ib_subnet_id)
+            .or_insert(Vec::new())
+            .push(guid);
+    }
+
+    for (k, v) in ibconf {
+        let ibsubnets = ib_subnet::IBSubnet::find(
+            txn,
+            crate::db::UuidKeyedObjectFilter::One(k),
+            ib_subnet::IBSubnetSearchConfig {
+                include_history: false,
+            },
+        )
+        .await?;
+
+        let ibsubnet = ibsubnets.first().ok_or(StateHandlerError::MissingData {
+            object_id: k.to_string(),
+            missing: "ib_subnet not found",
+        })?;
+        let pkey = ibsubnet.config.pkey.ok_or(StateHandlerError::MissingData {
+            object_id: ibsubnet.id.to_string(),
+            missing: "ib_subnet pkey",
+        })?;
+
+        ctx.services
+            .ib_fabric_manager
+            .unbind_ib_ports(pkey as i32, v)
+            .await
+            .map_err(|_| StateHandlerError::IBFabricError("unbind_ib_ports".to_string()))?;
+    }
+
+    Ok(())
 }
 
 /// Issues a reboot request command to a host or DPU

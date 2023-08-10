@@ -14,6 +14,7 @@ use sqlx::PgPool;
 
 use crate::{
     db::{
+        ib_subnet,
         instance::{config::network::load_instance_network_config, Instance, NewInstance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
@@ -99,12 +100,14 @@ pub async fn allocate_instance(
         .ok_or_else(|| ConfigValidationError::invalid_value("TenantConfig is missing"))?;
 
     let network_config = Versioned::new(request.config.network, ConfigVersion::initial());
+    let ib_config = Versioned::new(request.config.infiniband, ConfigVersion::initial());
 
     let new_instance = NewInstance {
         machine_id: request.machine_id,
         tenant_config: &tenant_config,
         ssh_keys: request.ssh_keys,
         network_config: network_config.as_ref(),
+        ib_config: ib_config.as_ref(),
     };
 
     let machine_id = new_instance.machine_id.clone();
@@ -150,6 +153,7 @@ pub async fn allocate_instance(
     // Allocate IPs. This also updates the `InstanceNetworkConfig` to store the IPs
     let network_config =
         InstanceAddress::allocate(&mut txn, *instance.id(), &network_config).await?;
+
     // Persist the updated `InstanceNetworkConfig`
     // We need to retain version 1
     Instance::update_network_config(
@@ -157,6 +161,21 @@ pub async fn allocate_instance(
         instance.id,
         network_config.version,
         &network_config.value,
+        false,
+    )
+    .await?;
+
+    // Allocate GUID for infiniband interfaces/ports.
+    let ib_config =
+        ib_subnet::allocate_port_guid(&mut txn, *instance.id(), &ib_config, &machine).await?;
+
+    // Persist the GUID for Infiniband configuration.
+    // We need to retain version 1.
+    Instance::update_ib_config(
+        &mut txn,
+        instance.id,
+        ib_config.version,
+        &ib_config.value,
         false,
     )
     .await?;

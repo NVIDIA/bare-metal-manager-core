@@ -26,7 +26,11 @@ use crate::{
     model::{
         config_version::{ConfigVersion, Versioned},
         instance::{
-            config::{network::InstanceNetworkConfig, tenant_config::TenantConfig},
+            config::{
+                infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
+                tenant_config::TenantConfig,
+            },
+            status::infiniband::InstanceInfinibandStatusObservation,
             status::network::InstanceNetworkStatusObservation,
         },
         machine::machine_id::MachineId,
@@ -61,6 +65,7 @@ pub struct NewInstance<'a> {
     pub tenant_config: &'a TenantConfig,
     pub ssh_keys: Vec<String>,
     pub network_config: Versioned<&'a InstanceNetworkConfig>,
+    pub ib_config: Versioned<&'a InstanceInfinibandConfig>,
 }
 
 pub struct DeleteInstance {
@@ -248,6 +253,39 @@ WHERE s.network_config->>'loopback_ip'=$1";
             Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
         }
     }
+
+    /// Updates the desired infiniband configuration for an instance
+    pub async fn update_ib_config(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+        expected_version: ConfigVersion,
+        new_state: &InstanceInfinibandConfig,
+        increment_version: bool,
+    ) -> Result<(), DatabaseError> {
+        let expected_version_str = expected_version.version_string();
+        let next_version = if increment_version {
+            expected_version.increment()
+        } else {
+            expected_version
+        };
+        let next_version_str = next_version.version_string();
+
+        let query = "UPDATE instances SET ib_config_version=$1, ib_config=$2::json
+            WHERE id=$3 AND ib_config_version=$4
+            RETURNING id";
+        let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
+            .bind(&next_version_str)
+            .bind(sqlx::types::Json(new_state))
+            .bind(instance_id)
+            .bind(&expected_version_str)
+            .fetch_one(&mut **txn)
+            .await;
+
+        match query_result {
+            Ok((_instance_id,)) => Ok(()),
+            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+        }
+    }
 }
 
 impl<'a> NewInstance<'a> {
@@ -260,6 +298,9 @@ impl<'a> NewInstance<'a> {
         // The first report from the networking subsytem will set the field
         let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
 
+        let ib_config_version = self.ib_config.version.version_string();
+        let ib_status_observation = Option::<InstanceInfinibandStatusObservation>::None;
+
         let query = "INSERT INTO instances (
                         machine_id,
                         user_data,
@@ -269,9 +310,12 @@ impl<'a> NewInstance<'a> {
                         use_custom_pxe_on_boot,
                         network_config,
                         network_config_version,
-                        network_status_observation
+                        network_status_observation,
+                        ib_config,
+                        ib_config_version,
+                        ib_status_observation
                     )
-                    VALUES ($1, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json)
+                    VALUES ($1, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json, $9::json, $10, $11::json)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.machine_id.to_string())
@@ -282,6 +326,9 @@ impl<'a> NewInstance<'a> {
             .bind(sqlx::types::Json(&self.network_config.value))
             .bind(&network_version_string)
             .bind(sqlx::types::Json(network_status_observation))
+            .bind(sqlx::types::Json(&self.ib_config.value))
+            .bind(&ib_config_version)
+            .bind(sqlx::types::Json(ib_status_observation))
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

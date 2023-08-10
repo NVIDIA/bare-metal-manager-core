@@ -15,6 +15,12 @@ use async_trait::async_trait;
 use crate::ib::types::{IBNetwork, IBPort};
 use crate::CarbideError;
 
+#[derive(Default)]
+pub struct Filter {
+    pub guids: Option<Vec<String>>,
+    pub pkey: Option<i32>,
+}
+
 #[async_trait]
 pub trait IBFabricManager: Send + Sync {
     /// Delete IBNetwork
@@ -30,12 +36,12 @@ pub trait IBFabricManager: Send + Sync {
     async fn bind_ib_ports(
         &self,
         ibnetwork: IBNetwork,
-        ports: Vec<IBPort>,
+        ports: Vec<String>,
     ) -> Result<(), CarbideError>;
 
     /// Delete IBPort
     async fn unbind_ib_ports(&self, pkey: i32, id: Vec<String>) -> Result<(), CarbideError>;
 
     /// Find IBPort
-    async fn find_ib_port(&self) -> Result<Vec<IBPort>, CarbideError>;
+    async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, CarbideError>;
 }

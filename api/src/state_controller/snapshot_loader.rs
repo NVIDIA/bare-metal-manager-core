@@ -14,7 +14,9 @@ use crate::{
     db::{
         dpu_machine::DpuMachine,
         instance::{
+            config::infiniband::load_instance_infiniband_config,
             config::network::load_instance_network_config,
+            status::infiniband::load_instance_infiniband_status_observation,
             status::network::load_instance_network_status_observation, Instance,
         },
         machine::Machine,
@@ -241,6 +243,11 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
         let network_status_observations =
             load_instance_network_status_observation(txn, instance_id).await?;
 
+        let ib_config = load_instance_infiniband_config(txn, instance_id).await?;
+        let ib_config_version = ib_config.version;
+        let ib_status_observations =
+            load_instance_infiniband_status_observation(txn, instance_id).await?;
+
         let snapshot = InstanceSnapshot {
             instance_id,
             machine_id: instance.machine_id,
@@ -248,10 +255,13 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
             config: InstanceConfig {
                 tenant: Some(instance.tenant_config),
                 network: network_config.value,
+                infiniband: ib_config.value,
             },
             network_config_version,
+            ib_config_version,
             observations: InstanceStatusObservations {
                 network: network_status_observations,
+                infiniband: ib_status_observations,
             },
             delete_requested: instance.deleted.is_some(),
         };

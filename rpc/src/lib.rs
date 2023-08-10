@@ -40,7 +40,8 @@ pub use crate::protos::forge::{
 
 pub use crate::protos::forge::{
     IbSubnet, IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult,
-    IbSubnetList, IbSubnetQuery, InstanceIbInterfaceConfig,
+    IbSubnetList, IbSubnetQuery, InstanceIbInterfaceConfig, InstanceIbInterfaceStatus,
+    InstanceInfinibandConfig, InstanceInfinibandStatus,
 };
 
 pub use crate::protos::machine_discovery::{

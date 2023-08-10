@@ -10,13 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod infiniband;
 pub mod network;
 pub mod tenant_config;
 
+use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    instance::config::{network::InstanceNetworkConfig, tenant_config::TenantConfig},
+    instance::config::{
+        infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
+        tenant_config::TenantConfig,
+    },
     ConfigValidationError, RpcDataConversionError,
 };
 
@@ -37,6 +42,9 @@ pub struct InstanceConfig {
     /// Configures instance networking
     #[serde(default)]
     pub network: InstanceNetworkConfig,
+
+    /// Configures instance infiniband
+    pub infiniband: InstanceInfinibandConfig,
 }
 
 impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
@@ -52,7 +60,17 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
             RpcDataConversionError::MissingArgument("InstanceConfig::network"),
         )?)?;
 
-        Ok(InstanceConfig { tenant, network })
+        let infiniband = config
+            .infiniband
+            .map(InstanceInfinibandConfig::try_from)
+            .transpose()?
+            .unwrap_or(InstanceInfinibandConfig::default());
+
+        Ok(InstanceConfig {
+            tenant,
+            network,
+            infiniband,
+        })
     }
 }
 
@@ -66,10 +84,16 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
         };
 
         let network = rpc::InstanceNetworkConfig::try_from(config.network)?;
+        let infiniband = rpc::InstanceInfinibandConfig::try_from(config.infiniband)?;
+        let infiniband = match infiniband.ib_interfaces.is_empty() {
+            true => None,
+            false => Some(infiniband),
+        };
 
         Ok(rpc::InstanceConfig {
             tenant,
             network: Some(network),
+            infiniband,
         })
     }
 }
@@ -81,6 +105,10 @@ impl InstanceConfig {
             tenant.validate()?;
         }
 
-        self.network.validate()
+        self.network.validate()?;
+
+        self.infiniband.validate()?;
+
+        Ok(())
     }
 }

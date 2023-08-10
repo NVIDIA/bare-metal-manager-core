@@ -27,6 +27,7 @@ pub async fn create_instance(
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
     network: Option<rpc::InstanceNetworkConfig>,
+    infiniband: Option<rpc::InstanceInfinibandConfig>,
 ) -> (uuid::Uuid, rpc::Instance) {
     let mut info = env
         .api
@@ -42,6 +43,7 @@ pub async fn create_instance(
                     tenant_keyset_ids: vec![],
                 }),
                 network,
+                infiniband,
             }),
             ssh_keys: vec!["mykey1".to_owned()],
         }))
