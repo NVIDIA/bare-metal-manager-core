@@ -19,6 +19,7 @@ use std::sync::Arc;
 use chrono::Duration;
 use hyper::server::conn::Http;
 use opentelemetry::metrics::Meter;
+use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Postgres, Transaction};
 use tokio::net::TcpListener;
 use tokio::time::Instant;
@@ -3355,10 +3356,19 @@ where
         // We need logs to be enabled at least at `INFO` level. Otherwise
         // our global logging filter would reject the logs before they get injected
         // into the `SqlxQueryTracing` layer.
-        let database_connect_options = carbide_config
+        let mut database_connect_options = carbide_config
             .database_url
             .parse::<sqlx::postgres::PgConnectOptions>()?
             .log_statements("INFO".parse().unwrap());
+        if let Some(ref tls_config) = carbide_config.tls {
+            let tls_disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok(); // the integration test doesn't like this
+            if !tls_disabled {
+                info!("using TLS for postgres connection.");
+                database_connect_options = database_connect_options
+                    .ssl_mode(PgSslMode::Require) //TODO: move this to VerifyFull once it actually works
+                    .ssl_root_cert(&tls_config.root_cafile_path);
+            }
+        }
         let database_connection = sqlx::pool::PoolOptions::new()
             .max_connections(service_config.max_db_connections)
             .connect_with(database_connect_options)
