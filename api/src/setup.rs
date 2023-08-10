@@ -37,7 +37,9 @@ pub fn parse_carbide_config(
     Ok(Arc::new(config))
 }
 
-pub async fn create_vault_client() -> eyre::Result<Arc<ForgeVaultClient>> {
+pub async fn create_vault_client(
+    forge_root_ca_path: Option<String>,
+) -> eyre::Result<Arc<ForgeVaultClient>> {
     let vault_address = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
     let kv_mount_location =
         env::var("VAULT_KV_MOUNT_LOCATION").wrap_err("VAULT_KV_MOUNT_LOCATION")?;
@@ -59,6 +61,7 @@ pub async fn create_vault_client() -> eyre::Result<Arc<ForgeVaultClient>> {
         kv_mount_location,
         pki_mount_location,
         pki_role_name,
+        forge_root_ca_path,
     });
     Ok(Arc::new(forge_vault_client))
 }

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -8,7 +8,7 @@ use eyre::WrapErr;
 use rand::Rng;
 use tokio::sync::RwLock;
 use vaultrs::api::pki::requests::GenerateCertificateRequest;
-use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
+use vaultrs::client::{VaultClient, VaultClientSettings, VaultClientSettingsBuilder};
 use vaultrs::{kv2, pki};
 
 use crate::certificates::{Certificate, CertificateProvider};
@@ -38,6 +38,7 @@ pub struct ForgeVaultClientConfig {
     pub kv_mount_location: String,
     pub pki_mount_location: String,
     pub pki_role_name: String,
+    pub forge_root_ca_path: Option<String>,
 }
 
 pub struct ForgeVaultClient {
@@ -78,6 +79,39 @@ where
         }
     }
 
+    fn create_vault_client_settings<S>(
+        &self,
+        token: S,
+        forge_vault_client: &ForgeVaultClient,
+    ) -> Result<VaultClientSettings, eyre::ErrReport>
+    where
+        S: Into<String>,
+    {
+        let mut vault_client_settings_builder = VaultClientSettingsBuilder::default();
+        let vault_client_settings_builder = vault_client_settings_builder
+            .token(token)
+            .address(forge_vault_client.vault_client_config.vault_address.clone())
+            .timeout(Some(Duration::from_secs(60)));
+
+        let vault_client_settings_builder = if let Some(forge_root_ca_path) = forge_vault_client
+            .vault_client_config
+            .forge_root_ca_path
+            .as_ref()
+        {
+            if Path::new(forge_root_ca_path).exists() {
+                vault_client_settings_builder
+                    .ca_certs(vec![forge_root_ca_path.clone()])
+                    .verify(true)
+            } else {
+                vault_client_settings_builder.verify(false)
+            }
+        } else {
+            vault_client_settings_builder.verify(false)
+        };
+
+        Ok(vault_client_settings_builder.build()?)
+    }
+
     async fn vault_token_refresh(
         &self,
         forge_vault_client: &ForgeVaultClient,
@@ -96,12 +130,10 @@ where
                         .trim()
                         .to_string();
 
-                    let vault_client_settings = VaultClientSettingsBuilder::default()
-                        .token("silly vaultrs bugs make me sad")
-                        .address(forge_vault_client.vault_client_config.vault_address.clone())
-                        .timeout(Some(Duration::from_secs(60)))
-                        .verify(false) //TODO: remove me when we are starting to validate certs
-                        .build()?;
+                    let vault_client_settings = self.create_vault_client_settings(
+                        "silly vaultrs bugs make me sad",
+                        forge_vault_client,
+                    )?;
                     let vault_client = VaultClient::new(vault_client_settings)?;
                     let auth_info = vaultrs::auth::kubernetes::login(
                         &vault_client,
@@ -122,12 +154,8 @@ where
             "successfully refreshed vault token, with lifetime: {vault_token_expiry_secs}"
         );
 
-        let vault_client_settings = VaultClientSettingsBuilder::default()
-            .address(forge_vault_client.vault_client_config.vault_address.clone())
-            .token(vault_token.clone())
-            .timeout(Some(Duration::from_secs(60)))
-            .verify(false) //TODO: remove me when we are starting to validate certs
-            .build()?;
+        let vault_client_settings =
+            self.create_vault_client_settings(vault_token.clone(), forge_vault_client)?;
         let vault_client = VaultClient::new(vault_client_settings)?;
 
         {
