@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::convert::TryFrom;
+use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
@@ -26,7 +27,7 @@ pub struct NetworkPrefix {
     pub id: uuid::Uuid,
     pub segment_id: Uuid,
     pub prefix: IpNetwork,
-    pub gateway: Option<IpNetwork>,
+    pub gateway: Option<IpAddr>,
     pub num_reserved: i32,
     pub circuit_id: Option<String>,
 }
@@ -34,7 +35,7 @@ pub struct NetworkPrefix {
 #[derive(Debug)]
 pub struct NewNetworkPrefix {
     pub prefix: IpNetwork,
-    pub gateway: Option<IpNetwork>,
+    pub gateway: Option<IpAddr>,
     pub num_reserved: i32,
 }
 
@@ -103,8 +104,11 @@ impl NetworkPrefix {
     }
 
     pub fn gateway_cidr(&self) -> Option<String> {
+        // TODO: This was here before, but seems broken
+        // The gateway address should always be a /32
+        // Should we directly return the prefix?
         self.gateway
-            .map(|g| format!("{}/{}", g.ip(), self.prefix.prefix()))
+            .map(|g| format!("{}/{}", g, self.prefix.prefix()))
     }
 
     // Search for specific prefix

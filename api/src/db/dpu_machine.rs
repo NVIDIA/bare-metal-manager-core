@@ -13,7 +13,8 @@
 // DpuMachine - represents a database-backed DpuMachine object
 //
 
-use ipnetwork::IpNetwork;
+use std::net::IpAddr;
+
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
@@ -32,7 +33,7 @@ pub struct DpuMachine {
     machine_id: MachineId,
     _machine_interface_id: uuid::Uuid,
     _mac_address: MacAddress,
-    address: IpNetwork,
+    address: IpAddr,
     _hostname: String,
 }
 
@@ -64,7 +65,7 @@ impl DpuMachine {
         &self._mac_address
     }
 
-    pub fn address(&self) -> &IpNetwork {
+    pub fn address(&self) -> &IpAddr {
         &self.address
     }
 

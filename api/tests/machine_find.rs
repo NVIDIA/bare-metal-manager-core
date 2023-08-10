@@ -70,14 +70,14 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .unwrap();
-    let ip = dpu_machine.interfaces()[0].addresses()[0].address.ip();
+    let ip = dpu_machine.interfaces()[0].addresses()[0].address;
 
     let machine = Machine::find_by_query(&mut txn, &ip.to_string())
         .await
         .unwrap()
         .expect("expect DPU to be found");
     assert_eq!(*machine.id(), dpu_machine_id);
-    assert_eq!(machine.interfaces()[0].addresses()[0].address.ip(), ip);
+    assert_eq!(machine.interfaces()[0].addresses()[0].address, ip);
 
     // We shouldn't find a machine that doesn't exist
     let ip2: IpAddr = "254.254.254.254".parse().unwrap();

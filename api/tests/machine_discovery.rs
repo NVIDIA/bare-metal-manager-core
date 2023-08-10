@@ -9,12 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::str::FromStr;
+use std::{net::IpAddr, str::FromStr};
 
 use carbide::{
     db::machine_interface::MachineInterface, model::machine::machine_id::try_parse_machine_id,
 };
-use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
 
@@ -46,17 +45,17 @@ async fn test_machine_discovery_no_domain(
     .await
     .expect("Unable to create machine");
 
-    let wanted_ips: Vec<IpNetwork> = vec!["192.0.2.3".parse().unwrap()]
+    let wanted_ips: Vec<IpAddr> = vec!["192.0.2.3".parse().unwrap()]
         .into_iter()
         .sorted()
-        .collect::<Vec<IpNetwork>>();
+        .collect::<Vec<IpAddr>>();
 
     let actual_ips = machine_interface
         .addresses()
         .iter()
         .map(|address| address.address)
         .sorted()
-        .collect::<Vec<IpNetwork>>();
+        .collect::<Vec<IpAddr>>();
 
     assert_eq!(actual_ips, wanted_ips);
 
@@ -80,7 +79,7 @@ async fn test_machine_discovery_with_domain(
     .await
     .expect("Unable to create machine");
 
-    let wanted_ips: Vec<IpNetwork> = vec!["192.0.2.3".parse().unwrap()];
+    let wanted_ips: Vec<IpAddr> = vec!["192.0.2.3".parse().unwrap()];
 
     assert_eq!(
         machine_interface
@@ -88,14 +87,14 @@ async fn test_machine_discovery_with_domain(
             .iter()
             .map(|address| address.address)
             .sorted()
-            .collect::<Vec<IpNetwork>>(),
-        wanted_ips.into_iter().sorted().collect::<Vec<IpNetwork>>()
+            .collect::<Vec<IpAddr>>(),
+        wanted_ips.into_iter().sorted().collect::<Vec<IpAddr>>()
     );
 
     assert!(machine_interface
         .addresses()
         .iter()
-        .any(|item| item.address == "192.0.2.3".parse().unwrap()));
+        .any(|item| item.address == "192.0.2.3".parse::<IpAddr>().unwrap()));
 
     Ok(())
 }

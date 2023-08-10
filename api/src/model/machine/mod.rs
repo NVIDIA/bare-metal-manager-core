@@ -16,7 +16,6 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
@@ -36,7 +35,7 @@ use machine_id::MachineId;
 pub struct ManagedHostStateSnapshot {
     pub host_snapshot: MachineSnapshot,
     pub dpu_snapshot: MachineSnapshot,
-    pub dpu_ssh_ip_address: IpNetwork,
+    pub dpu_ssh_ip_address: IpAddr,
     /// If there is an instance provisioned on top of the machine, this holds
     /// it's state
     pub instance: Option<InstanceSnapshot>,

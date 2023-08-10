@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -10,7 +12,6 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
-use ipnetwork::IpNetwork;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
@@ -18,7 +19,7 @@ use super::DatabaseError;
 
 #[derive(Debug, Clone)]
 pub struct ResourceRecord {
-    record: IpNetwork,
+    record: IpAddr,
 }
 
 #[derive(Default, Debug, Clone, FromRow)]
@@ -69,7 +70,7 @@ impl From<ResourceRecord> for String {
 impl From<DnsResourceRecord> for rpc::dns_message::dns_response::Dnsrr {
     fn from(dns: DnsResourceRecord) -> Self {
         rpc::dns_message::dns_response::Dnsrr {
-            rdata: dns.record_data.map(|r| r.record.ip().to_string()),
+            rdata: dns.record_data.map(|r| r.record.to_string()),
         }
     }
 }

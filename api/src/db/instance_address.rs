@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::{HashMap, HashSet};
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 
-use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 use uuid::Uuid;
@@ -31,18 +30,11 @@ use crate::model::ConfigValidationError;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, FromRow, Clone)]
-pub struct InstanceSegmentAddress {
-    pub segment_id: Uuid,
-    pub prefix_id: Uuid,
-    pub address: IpNetwork,
-}
-
-#[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
     pub id: Uuid,
     pub instance_id: Uuid,
     pub circuit_id: String,
-    pub address: IpNetwork,
+    pub address: IpAddr,
 }
 
 impl InstanceAddress {
@@ -296,7 +288,7 @@ impl UsedIpResolver for UsedOverlayNetworkIpResolver {
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<(IpNetwork,)>, DatabaseError> {
+    ) -> Result<Vec<(IpAddr,)>, DatabaseError> {
         let query: &str = "
 SELECT address FROM instance_addresses
 INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id

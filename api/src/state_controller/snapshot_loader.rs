@@ -162,7 +162,7 @@ pub async fn interface_to_snapshot(
             hostname: iface.hostname().to_string(),
             is_primary: iface.primary_interface(),
             mac_address: iface.mac_address.to_string(),
-            ip_address: address.address.ip(),
+            ip_address: address.address,
             vlan_id: segment.vlan_id.unwrap_or_default() as u32,
             vni: segment.vni.map(|v| v as u32).unwrap_or_default(), // we only have this if `--manage-vpc`
             gateway_cidr: prefix.gateway_cidr().unwrap_or_default(),

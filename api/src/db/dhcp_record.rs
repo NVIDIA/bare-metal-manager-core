@@ -13,6 +13,7 @@ use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use std::net::IpAddr;
 
 use crate::{
     db::{instance::Instance, machine::DbMachineId, DatabaseError},
@@ -36,11 +37,11 @@ pub struct DhcpRecord {
     fqdn: String,
 
     mac_address: MacAddress,
-    address: IpNetwork,
+    address: IpAddr,
     mtu: i32,
 
     prefix: IpNetwork,
-    gateway: Option<IpNetwork>,
+    gateway: Option<IpAddr>,
 }
 
 impl<'r> FromRow<'r, PgRow> for DhcpRecord {
@@ -95,7 +96,7 @@ impl DhcpRecord {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub fn address(&self) -> IpNetwork {
+    pub fn address(&self) -> IpAddr {
         self.address
     }
 }
@@ -110,11 +111,11 @@ pub struct InstanceDhcpRecord {
     fqdn: String,
 
     mac_address: Option<MacAddress>,
-    address: IpNetwork,
+    address: IpAddr,
     mtu: i32,
 
     prefix: IpNetwork,
-    gateway: Option<IpNetwork>,
+    gateway: Option<IpAddr>,
     function_id: Option<InterfaceFunctionId>,
 }
 
@@ -204,7 +205,8 @@ WHERE machine_id=$1
         record.update_function_id(function_id);
         Ok(record)
     }
-    pub fn address(&self) -> IpNetwork {
+
+    pub fn address(&self) -> IpAddr {
         self.address
     }
 }
