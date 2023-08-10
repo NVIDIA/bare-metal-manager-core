@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 
 use ::rpc::forge as rpc;
-use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
@@ -579,7 +578,7 @@ impl MachineInterface {
             .last()
             .ok_or(CarbideError::AdminNetworkNotConfigured)?;
 
-        let Some(gateway) = prefix.gateway.map(|x|x.ip()) else {
+        let Some(gateway) = prefix.gateway else {
             return Err(CarbideError::AdminNetworkNotConfigured);
         };
 
@@ -626,7 +625,7 @@ impl UsedIpResolver for UsedAdminNetworkIpResolver {
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<(IpNetwork,)>, DatabaseError> {
+    ) -> Result<Vec<(IpAddr,)>, DatabaseError> {
         let query = "
 SELECT address FROM machine_interface_addresses
 INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id

@@ -9,9 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
+use std::{collections::HashMap, net::IpAddr};
 
-use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
@@ -21,7 +20,7 @@ use super::{DatabaseError, UuidKeyedObjectFilter};
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {
     pub interface_id: Uuid,
-    pub address: IpNetwork,
+    pub address: IpAddr,
 }
 
 impl MachineInterfaceAddress {

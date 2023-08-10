@@ -19,7 +19,6 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
-use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
@@ -437,7 +436,7 @@ SELECT m.id FROM
 
         let id: Option<DbMachineId> = sqlx::query_as(query)
             .bind(macaddr)
-            .bind(IpNetwork::from(relay))
+            .bind(relay)
             .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

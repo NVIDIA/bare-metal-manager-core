@@ -54,7 +54,7 @@ pub fn base_dhcp_response(mac_address: MacAddress) -> rpc::DhcpRecord {
         address: address_to_offer(mac_address),
         mtu: 1490,
         prefix: "172.20.0.0/24".to_string(),
-        gateway: Some("172.20.0.1/32".to_string()),
+        gateway: Some("172.20.0.1".to_string()),
         booturl: None,
     }
 }
@@ -87,7 +87,7 @@ pub fn dhcp_response(mac_address_str: &str) -> Vec<u8> {
 
 // Given a MAC address, make the IP address we should offer it
 fn address_to_offer(mac: MacAddress) -> String {
-    format!("{}.{}/32", DHCP_RESPONSE_ADDR_PREFIX, mac.bytes()[5])
+    format!("{}.{}", DHCP_RESPONSE_ADDR_PREFIX, mac.bytes()[5])
 }
 
 // Does this Machine the result we expected?

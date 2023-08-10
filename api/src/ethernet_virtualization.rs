@@ -68,7 +68,7 @@ pub async fn admin_network(
         vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
         vni: 0, // admin isn't an overlay network, so no vni
         gateway: prefix.gateway_cidr().unwrap_or_default(),
-        ip: address.address.ip().to_string(),
+        ip: address.address.to_string(),
     };
     Ok(cfg)
 }

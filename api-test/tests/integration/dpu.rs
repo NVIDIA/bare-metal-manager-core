@@ -10,7 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{fs, io, net::SocketAddr, path, thread, time};
+use std::{
+    fs, io,
+    net::{Ipv4Addr, SocketAddr},
+    path, thread, time,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +40,7 @@ pub struct Info {
     pub hbn_root: path::PathBuf,
     pub machine_id: String,
     pub interface_id: String,
-    pub interface_addr: ipnetwork::Ipv4Network,
+    pub interface_addr: Ipv4Addr,
     pub segment_id: String,
 }
 
@@ -77,7 +81,7 @@ fn basic(addr: SocketAddr) -> eyre::Result<(String, String, String)> {
     Ok((vpc_id, domain_id, segment_id))
 }
 
-fn discover(addr: SocketAddr) -> eyre::Result<(String, String, ipnetwork::Ipv4Network)> {
+fn discover(addr: SocketAddr) -> eyre::Result<(String, String, Ipv4Addr)> {
     let (interface_id, ip_address) = discover_dhcp(addr)?;
     tracing::info!("Created Machine Interface with ID {interface_id}");
     let dpu_machine_id = discover_dpu(addr, &interface_id)?;
@@ -227,7 +231,7 @@ fn discover_dpu(addr: SocketAddr, interface_id: &str) -> eyre::Result<String> {
     Ok(dpu_machine_id)
 }
 
-fn discover_dhcp(addr: SocketAddr) -> eyre::Result<(String, ipnetwork::Ipv4Network)> {
+fn discover_dhcp(addr: SocketAddr) -> eyre::Result<(String, Ipv4Addr)> {
     let response = grpcurl(
         addr,
         "DiscoverDhcp",

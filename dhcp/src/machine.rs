@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::ffi::CString;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::primitive::u32;
 use std::ptr;
 
@@ -103,12 +103,12 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
             );
             &default_router
         })
-        .parse::<IpNetwork>();
+        .parse::<IpAddr>();
 
     match maybe_gateway {
         Ok(gateway) => match gateway {
-            IpNetwork::V4(gateway) => return u32::from_be_bytes(gateway.ip().octets()),
-            IpNetwork::V6(gateway) => {
+            IpAddr::V4(gateway) => return u32::from_be_bytes(gateway.octets()),
+            IpAddr::V6(gateway) => {
                 log::error!(
                     "Gateway ({}) is an IPv6 address, which is not supported.",
                     gateway
@@ -137,12 +137,12 @@ pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
 
-    let maybe_address = machine.inner.address.parse::<IpNetwork>();
+    let maybe_address = machine.inner.address.parse::<IpAddr>();
 
     match maybe_address {
         Ok(address) => match address {
-            IpNetwork::V4(address) => return u32::from_be_bytes(address.ip().octets()),
-            IpNetwork::V6(address) => {
+            IpAddr::V4(address) => return u32::from_be_bytes(address.octets()),
+            IpAddr::V6(address) => {
                 log::error!(
                     "Address ({}) is an IPv6 address, which is not supported.",
                     address

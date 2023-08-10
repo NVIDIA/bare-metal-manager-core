@@ -179,9 +179,9 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
-    assert_eq!(record.address().ip().to_string(), "192.0.2.3");
+    assert_eq!(record.address().to_string(), "192.0.2.3");
     assert_eq!(
-        &record.address().ip(),
+        &record.address(),
         network_config.value.interfaces[0]
             .ip_addrs
             .iter()

@@ -88,9 +88,9 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         response.subdomain_id.unwrap(),
         common::api_fixtures::FIXTURE_DOMAIN_ID.into()
     );
-    assert_eq!(response.address, "192.0.2.3/32".to_owned());
+    assert_eq!(response.address, "192.0.2.3".to_owned());
     assert_eq!(response.prefix, "192.0.2.0/24".to_owned());
-    assert_eq!(response.gateway.unwrap(), "192.0.2.1/32".to_owned());
+    assert_eq!(response.gateway.unwrap(), "192.0.2.1".to_owned());
 
     // After DHCP, 1 address is allocated on the segment
     let mut txn = pool.begin().await?;
@@ -126,7 +126,7 @@ async fn test_multiple_machines_dhcp_with_api(
     const NUM_MACHINES: usize = 6;
     for i in 0..NUM_MACHINES {
         let mac = format!("{}{}", mac_address, i);
-        let expected_ip = format!("192.0.2.{}/32", i + 3); // IP starts with 3.
+        let expected_ip = format!("192.0.2.{}", i + 3); // IP starts with 3.
         let response = api
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
                 mac_address: mac.clone(),
@@ -152,7 +152,7 @@ async fn test_multiple_machines_dhcp_with_api(
         );
         assert_eq!(response.address, expected_ip);
         assert_eq!(response.prefix, "192.0.2.0/24".to_owned());
-        assert_eq!(response.gateway.unwrap(), "192.0.2.1/32".to_owned());
+        assert_eq!(response.gateway.unwrap(), "192.0.2.1".to_owned());
     }
 
     let mut txn = pool.begin().await?;
@@ -221,9 +221,9 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         response.subdomain_id.unwrap(),
         common::api_fixtures::FIXTURE_DOMAIN_ID.into()
     );
-    assert_eq!(response.address, "192.0.2.3/32".to_owned());
+    assert_eq!(response.address, "192.0.2.3".to_owned());
     assert_eq!(response.prefix, "192.0.2.0/24".to_owned());
-    assert_eq!(response.gateway.unwrap(), "192.0.2.1/32".to_owned());
+    assert_eq!(response.gateway.unwrap(), "192.0.2.1".to_owned());
 
     let response = env
         .api
@@ -248,9 +248,9 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
 
     assert_eq!(response.mac_address, mac_address);
     assert!(response.subdomain_id.is_none(),);
-    assert_eq!(response.address, "192.0.3.3/32".to_owned());
+    assert_eq!(response.address, "192.0.3.3".to_owned());
     assert_eq!(response.prefix, "192.0.3.0/24".to_owned());
-    assert_eq!(response.gateway.unwrap(), "192.0.3.1/32".to_owned());
+    assert_eq!(response.gateway.unwrap(), "192.0.3.1".to_owned());
     Ok(())
 }
 

@@ -29,7 +29,7 @@ pub trait UsedIpResolver {
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<(IpNetwork,)>, DatabaseError>;
+    ) -> Result<Vec<(IpAddr,)>, DatabaseError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -61,13 +61,13 @@ pub enum DhcpError {
 struct Prefix {
     id: uuid::Uuid,
     prefix: IpNetwork,
-    gateway: Option<IpNetwork>,
+    gateway: Option<IpAddr>,
     num_reserved: i32,
 }
 
 pub struct IpAllocator {
     prefixes: Vec<Prefix>,
-    used_ips: Vec<(IpNetwork,)>,
+    used_ips: Vec<(IpAddr,)>,
 }
 
 impl IpAllocator {
@@ -134,13 +134,13 @@ impl Iterator for IpAllocator {
         excluded_ips.extend(self.used_ips.iter().filter_map(|(ip,)| {
             segment_prefix
                 .prefix
-                .contains(ip.ip())
-                .then(|| (to_vec(&ip.ip()), ()))
+                .contains(*ip)
+                .then(|| (to_vec(ip), ()))
         }));
 
         // TODO: add gateway to the list of used IPs above?
         if let Some(gateway) = segment_prefix.gateway {
-            excluded_ips.insert(to_vec(&gateway.ip()), ());
+            excluded_ips.insert(to_vec(&gateway), ());
         }
 
         // Exclude the first "N" number of addresses
@@ -187,7 +187,7 @@ mod tests {
             prefixes: vec![Prefix {
                 id: prefix_id,
                 prefix: IpNetwork::V4("10.1.1.0/24".parse().unwrap()),
-                gateway: Some(IpNetwork::V4("10.1.1.1".parse().unwrap())),
+                gateway: Some(IpAddr::V4("10.1.1.1".parse().unwrap())),
                 num_reserved: 1,
             }],
             used_ips: vec![],
@@ -225,7 +225,7 @@ mod tests {
                 Prefix {
                     id: prefix_id1,
                     prefix: IpNetwork::V4("10.1.1.0/24".parse().unwrap()),
-                    gateway: Some(IpNetwork::V4("10.1.1.1".parse().unwrap())),
+                    gateway: Some(IpAddr::V4("10.1.1.1".parse().unwrap())),
                     num_reserved: 1,
                 },
                 Prefix {
@@ -253,7 +253,7 @@ mod tests {
             prefixes: vec![Prefix {
                 id: prefix_id,
                 prefix: IpNetwork::V4("10.1.1.0/30".parse().unwrap()),
-                gateway: Some(IpNetwork::V4("10.1.1.1".parse().unwrap())),
+                gateway: Some(IpAddr::V4("10.1.1.1".parse().unwrap())),
                 num_reserved: 4,
             }],
             used_ips: vec![],
