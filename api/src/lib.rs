@@ -9,12 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::logging::{
-    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
-    setup::setup_telemetry,
+use std::{
+    backtrace::{Backtrace, BacktraceStatus},
+    net::IpAddr,
 };
-use dhcp::allocation::DhcpError;
+
 use mac_address::MacAddress;
+use tonic::Status;
+use tracing_subscriber::util::SubscriberInitExt;
+
+use dhcp::allocation::DhcpError;
 use model::{
     config_version::{ConfigVersion, ConfigVersionParseError},
     hardware_info::HardwareInfoError,
@@ -22,12 +26,11 @@ use model::{
     ConfigValidationError, RpcDataConversionError,
 };
 use state_controller::snapshot_loader::SnapshotLoaderError;
-use std::{
-    backtrace::{Backtrace, BacktraceStatus},
-    net::IpAddr,
+
+use crate::logging::{
+    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
+    setup::setup_telemetry,
 };
-use tonic::Status;
-use tracing_subscriber::util::SubscriberInitExt;
 
 pub mod api;
 pub mod auth;
@@ -290,7 +293,13 @@ pub async fn run(
         });
     }
 
-    let forge_vault_client = setup::create_vault_client().await?;
+    let forge_vault_client = setup::create_vault_client(
+        carbide_config
+            .tls
+            .as_ref()
+            .map(|tls_config| tls_config.root_cafile_path.clone()),
+    )
+    .await?;
 
     tracing::info!(
         "Start carbide-api on {}, {}",
