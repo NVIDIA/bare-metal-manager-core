@@ -11,7 +11,10 @@
  */
 
 use clap::CommandFactory;
+use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use sqlx::PgPool;
+use std::path::Path;
+use std::str::FromStr;
 use tracing::subscriber::NoSubscriber;
 
 use carbide::cfg::{Command, Options};
@@ -34,7 +37,16 @@ async fn main() -> eyre::Result<()> {
     match sub_cmd {
         Command::Migrate(ref m) => {
             tracing::info!("Running migrations");
-            let pool = PgPool::connect(&m.datastore[..]).await?;
+            let mut pg_connection_options = PgConnectOptions::from_str(&m.datastore[..])?;
+            let root_cafile_path = Path::new("/var/run/secrets/spiffe.io/ca.crt");
+            if root_cafile_path.exists() {
+                tracing::info!("using TLS for postgres connection.");
+                pg_connection_options = pg_connection_options
+                    .ssl_mode(PgSslMode::Require) //TODO: move this to VerifyFull once it actually works
+                    .ssl_root_cert(root_cafile_path);
+            }
+
+            let pool = PgPool::connect_with(pg_connection_options).await?;
             carbide::db::migrations::migrate(&pool).await?;
         }
         Command::Run(ref config) => {
