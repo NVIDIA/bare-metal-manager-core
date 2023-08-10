@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::{
     db::{DatabaseError, UuidKeyedObjectFilter},
     model::config_version::{ConfigVersion, Versioned},
@@ -31,6 +32,8 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
+
+use super::machine::Machine;
 
 #[derive(Debug, Clone, Copy, FromRow)]
 pub struct IBSubnetId(uuid::Uuid);
@@ -320,6 +323,7 @@ impl IBSubnet {
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "ib_subnets List", e))?,
+
             UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, IBSubnet>(
                 &base_query.replace("{where}", "WHERE ib_subnets.id=$1"),
             )
@@ -410,4 +414,29 @@ impl IBSubnet {
 
         Ok(segment)
     }
+}
+
+pub async fn allocate_port_guid(
+    _txn: &mut Transaction<'_, Postgres>,
+    _instance_id: uuid::Uuid,
+    ib_config: &Versioned<InstanceInfinibandConfig>,
+    machine: &Machine,
+) -> CarbideResult<Versioned<InstanceInfinibandConfig>> {
+    let mut ib_config = ib_config.clone();
+
+    let ib_hw_info = &machine
+        .hardware_info()
+        .ok_or(CarbideError::MissingArgument("no hardware info"))?
+        .infiniband_interfaces;
+
+    let mut ib_hw_info_iter = ib_hw_info.iter();
+    // Assign IB Ports of Machine to Instance accordingly.
+    for ib in &mut ib_config.value.ib_interfaces {
+        let ib_hw = ib_hw_info_iter.next().ok_or(CarbideError::InvalidArgument(
+            "not enough ib interfaces".to_string(),
+        ))?;
+        ib.guid = Some(ib_hw.guid.clone());
+    }
+
+    Ok(ib_config)
 }

@@ -14,11 +14,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     config_version::Versioned,
-    instance::config::network::InstanceNetworkConfig,
+    instance::config::{infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig},
     machine::{InstanceState, ManagedHostState},
     RpcDataConversionError,
 };
 
+pub mod infiniband;
 pub mod network;
 pub mod tenant;
 
@@ -34,6 +35,9 @@ pub struct InstanceStatus {
     /// Status of the networking subsystem of an instance
     pub network: network::InstanceNetworkStatus,
 
+    /// Status of the infiniband subsystem of an instance
+    pub infiniband: infiniband::InstanceInfinibandStatus,
+
     /// Whether all configurations related to an instance are in-sync.
     /// This is a logical AND for the settings of all sub-configurations.
     /// At this time it equals `InstanceNetworkStatus::configs_synced`,
@@ -48,6 +52,7 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
         Ok(rpc::InstanceStatus {
             tenant: status.tenant.map(|status| status.try_into()).transpose()?,
             network: Some(status.network.try_into()?),
+            infiniband: Some(status.infiniband.try_into()?),
             configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
         })
     }
@@ -94,6 +99,7 @@ impl InstanceStatus {
     /// and the interfaces therefore won't match.
     pub fn from_config_and_observation(
         network_config: Versioned<&InstanceNetworkConfig>,
+        ib_config: Versioned<&InstanceInfinibandConfig>,
         observations: &InstanceStatusObservations,
         machine_state: ManagedHostState,
     ) -> Result<Self, RpcDataConversionError> {
@@ -101,8 +107,16 @@ impl InstanceStatus {
             network_config,
             observations.network.as_ref(),
         );
+        let infiniband = infiniband::InstanceInfinibandStatus::from_config_and_observation(
+            ib_config,
+            observations.infiniband.as_ref(),
+        );
+
         // If additional configs are added, they need to be incorporated here
-        let configs_synced = network.configs_synced;
+        let configs_synced = match (network.configs_synced, infiniband.configs_synced) {
+            (SyncState::Synced, SyncState::Synced) => SyncState::Synced,
+            _ => SyncState::Pending,
+        };
 
         let tenant = tenant::InstanceTenantStatus {
             state: match configs_synced {
@@ -115,6 +129,7 @@ impl InstanceStatus {
         Ok(Self {
             tenant: Some(tenant),
             network,
+            infiniband,
             configs_synced,
         })
     }
@@ -148,4 +163,7 @@ impl TryFrom<SyncState> for rpc::SyncState {
 pub struct InstanceStatusObservations {
     /// Observed status of the networking subsystem
     pub network: Option<network::InstanceNetworkStatusObservation>,
+
+    /// Observed status of the infiniband subsystem
+    pub infiniband: Option<infiniband::InstanceInfinibandStatusObservation>,
 }

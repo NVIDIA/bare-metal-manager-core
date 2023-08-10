@@ -86,8 +86,10 @@ struct Pkey {
     guids: Vec<String>,
 }
 
+#[derive(Default)]
 pub struct Filter {
     pub guids: Option<Vec<String>>,
+    pub pkey: Option<PartitionKey>,
 }
 
 impl Filter {
@@ -119,7 +121,10 @@ impl From<Vec<PortConfig>> for Filter {
             v.push(i.guid.to_string());
         }
 
-        Self { guids: Some(v) }
+        Self {
+            guids: Some(v),
+            pkey: None,
+        }
     }
 }
 
@@ -357,14 +362,33 @@ impl Ufm {
         Ok(())
     }
 
+    async fn list_partition_ports(&self, pkey: &PartitionKey) -> Result<Vec<String>, UFMError> {
+        // get GUIDs from pkey
+        #[derive(Serialize, Deserialize, Debug)]
+        struct PkeyWithGUIDs {
+            pub partition: String,
+            pub ip_over_ib: bool,
+            pub guids: Vec<PortConfig>,
+        }
+
+        let path = format!("resources/pkeys/{}?guids_data=true", pkey.to_string());
+        let pkeywithguids: PkeyWithGUIDs = self.client.get(&path).await?;
+
+        let filter = Filter::from(pkeywithguids.guids);
+
+        Ok(filter.guids.unwrap_or(vec![]))
+    }
+
     pub async fn list_port(&self, filter: Option<Filter>) -> Result<Vec<Port>, UFMError> {
         let path = String::from("/resources/ports?sys_type=Computer");
         let ports: Vec<Port> = self.client.list(&path).await?;
 
-        let f = match filter {
-            None => Filter { guids: None },
-            Some(f) => f,
-        };
+        let mut f = filter.unwrap_or(Filter::default());
+        if let Some(pkey) = &f.pkey {
+            let mut ports = self.list_partition_ports(pkey).await?;
+            ports.extend(f.guids.unwrap_or(vec![]));
+            f.guids = Some(ports);
+        }
 
         let mut res = Vec::new();
         for port in ports {

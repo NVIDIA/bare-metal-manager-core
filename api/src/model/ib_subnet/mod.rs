@@ -12,6 +12,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::db::ib_subnet::IBSubnet;
+use crate::ib::types::{IBNetwork, IBNETWORK_DEFAULT_INDEX0, IBNETWORK_DEFAULT_MEMBERSHIP};
+
 pub const IB_DEFAULT_MTU: i32 = 2048;
 pub const IB_MTU_ENV: &str = "IB_DEFAULT_MTU";
 pub const IB_DEFAULT_RATE_LIMIT: i32 = 100;
@@ -31,6 +34,22 @@ pub enum IBSubnetControllerState {
     Error,
     /// The IB subnet is in the process of deleting.
     Deleting,
+}
+
+impl From<&IBSubnet> for IBNetwork {
+    fn from(ib: &IBSubnet) -> IBNetwork {
+        Self {
+            name: ib.config.name.clone(),
+            pkey: ib.config.pkey.unwrap_or(0) as i32,
+            enable_sharp: false,
+            mtu: ib.config.mtu as u16,
+            ipoib: true,
+            service_level: ib.config.service_level as u8,
+            membership: IBNETWORK_DEFAULT_MEMBERSHIP,
+            index0: IBNETWORK_DEFAULT_INDEX0,
+            rate_limit: ib.config.rate_limit as f64,
+        }
+    }
 }
 
 #[cfg(test)]

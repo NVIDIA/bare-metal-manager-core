@@ -1,0 +1,226 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use chrono::{DateTime, Utc};
+use rpc::forge as rpc;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    ib::types::IBPort,
+    model::{
+        config_version::{ConfigVersion, Versioned},
+        instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
+        RpcDataConversionError, StatusValidationError,
+    },
+};
+
+/// Status of the infiniband subsystem of an instance
+///
+/// The status report is only valid against one particular version of
+/// [`InstanceInterfaceConfig`]. It can not be interpreted without it, since
+/// e.g. the amount and configuration of ib interfaces can change between
+/// configs.
+///
+/// Since the user can change the configuration at any point in time for an instance,
+/// we can not directly store this status in the database - it might not match
+/// the newest config anymore.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstanceInfinibandStatus {
+    /// Status for each configured interface
+    ///
+    /// Each entry in this status array maps to it's corresponding entry in the
+    /// Config section. E.g. `instance.status.infiniband.ib_interface_status[1]`
+    /// would map to `instance.config.infiniband.ib_interface_configs[1]`.
+    pub ib_interfaces: Vec<InstanceIbInterfaceStatus>,
+
+    /// Whether all desired network changes that the user has applied have taken effect
+    /// This includes:
+    /// - Whether `InstanceNetworkConfig` is of exactly the same version as the
+    ///   version the user desires.
+    /// - Whether the version of each security policy that is either directly referenced
+    ///   as part of an `InstanceInterfaceConfig` or indirectly referenced via the
+    ///   the security policies that are applied to the VPC or NetworkSegment
+    ///   is exactly the same version as the version the user desires.
+    ///
+    /// Note for the implementation: We need to monitor all these config versions
+    /// on the feedback path from DPU to carbide in order to know whether the
+    /// changes have indeed taken effect.
+    /// TODO: Do we also want to show all applied versios here, or just track them
+    /// internally? Probably not helpfor for tenants at all - but it could be helpful
+    /// for the Forge operating team to debug settings that to do do not go in-sync
+    /// without having to attach to the database.
+    pub configs_synced: SyncState,
+}
+
+impl TryFrom<InstanceInfinibandStatus> for rpc::InstanceInfinibandStatus {
+    type Error = RpcDataConversionError;
+
+    fn try_from(status: InstanceInfinibandStatus) -> Result<Self, Self::Error> {
+        let mut ib_interfaces = Vec::with_capacity(status.ib_interfaces.len());
+        for iface in status.ib_interfaces {
+            ib_interfaces.push(rpc::InstanceIbInterfaceStatus::try_from(iface)?);
+        }
+        Ok(rpc::InstanceInfinibandStatus {
+            ib_interfaces,
+            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
+        })
+    }
+}
+
+impl InstanceInfinibandStatus {
+    /// Derives an Instances network status from the users desired config
+    /// and status that we observed from the infiniband subsystem.
+    ///
+    /// This mechanism guarantees that the status we return to the user always
+    /// matches the latest `Config` set by the user. We can not directly
+    /// forwarding the last observed status without taking `Config` into account,
+    /// because the observation might have been related to a different config,
+    /// and the interfaces therefore won't match.
+    pub fn from_config_and_observation(
+        config: Versioned<&InstanceInfinibandConfig>,
+        observations: Option<&InstanceInfinibandStatusObservation>,
+    ) -> Self {
+        let observations = match observations {
+            Some(observations) => observations,
+            None => return Self::unsynchronized_for_config(&config),
+        };
+
+        if observations.config_version != config.version {
+            return Self::unsynchronized_for_config(&config);
+        }
+
+        let ib_interfaces = config.ib_interfaces.iter().map(|config| {
+            // TODO: This isn't super efficient. We could do it better if there would be a guarantee
+            // that interfaces in the observation are in the same order as in the config.
+            // But it isn't obvious at the moment whether we can achieve this while
+            // not mixing up order for users.
+            let observation = observations.ib_interfaces.iter().find(|iface| iface.guid == config.guid);
+            match observation {
+                Some(observation) => InstanceIbInterfaceStatus {
+                    guid: observation.guid.clone(),
+                    lid: observation.lid,
+                    addresses: observation.addresses.clone(),
+                },
+                None => {
+                    tracing::error!("Could not find matching status for interface {:?}. Configs: {:?}, Obsevations: {:?}", config.function_id, config, observation);
+                    // TODO: Might also be worthwhile to return an error?
+                    // On the other hand the error is also visible via returning no IPs - and at least we don't break
+                    // all other interfaces this way
+                    InstanceIbInterfaceStatus {
+                        guid: None,
+                        lid: 0,
+                        addresses: Vec::new(),
+                    }
+                }
+            }
+        }).collect();
+
+        Self {
+            ib_interfaces,
+            configs_synced: SyncState::Synced,
+        }
+    }
+
+    /// Creates a `InstanceNetworkStatus` report for cases there the configuration
+    /// has not been synchronized.
+    ///
+    /// This status report will contain an interface for each requested interface,
+    /// but all interfaces will have no addresses assigned to them.
+    fn unsynchronized_for_config(config: &InstanceInfinibandConfig) -> Self {
+        Self {
+            ib_interfaces: config
+                .ib_interfaces
+                .iter()
+                .map(|iface| InstanceIbInterfaceStatus {
+                    guid: iface.guid.clone(),
+                    lid: 0,
+                    addresses: Vec::new(),
+                })
+                .collect(),
+            configs_synced: SyncState::Pending,
+        }
+    }
+}
+
+/// The network status that was last reported by the infiniband subystem
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceInfinibandStatusObservation {
+    /// The version of the config that is applied on the networking subsystem
+    /// Only if the version is equivalent to the latest desired version we
+    /// can actually interpret the results. If the version is outdated, then the
+    /// list of interfaces might actually relate to a different interfaces than
+    /// the ones that are currently required by the infiniband config.
+    pub config_version: ConfigVersion,
+
+    /// Observed status for each configured interface
+    #[serde(default)]
+    pub ib_interfaces: Vec<InstanceIbInterfaceStatusObservation>,
+
+    /// When this status was observed
+    pub observed_at: DateTime<Utc>,
+}
+
+impl InstanceInfinibandStatusObservation {
+    /// Validates that a report about an observed network status has a valid
+    /// format
+    pub fn validate(&self) -> Result<(), StatusValidationError> {
+        Ok(())
+    }
+}
+
+/// The network status that was last reported by the infiniband subystem
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceIbInterfaceStatus {
+    guid: Option<String>,
+    lid: u32,
+    addresses: Vec<String>,
+}
+
+impl TryFrom<InstanceIbInterfaceStatus> for rpc::InstanceIbInterfaceStatus {
+    type Error = RpcDataConversionError;
+    fn try_from(status: InstanceIbInterfaceStatus) -> Result<Self, Self::Error> {
+        Ok(Self {
+            guid: status.guid.clone(),
+            lid: status.lid,
+            addresses: status.addresses,
+        })
+    }
+}
+
+impl TryFrom<rpc::InstanceIbInterfaceStatus> for InstanceIbInterfaceStatus {
+    type Error = RpcDataConversionError;
+    fn try_from(status: rpc::InstanceIbInterfaceStatus) -> Result<Self, Self::Error> {
+        Ok(Self {
+            guid: status.guid.clone(),
+            lid: status.lid,
+            addresses: status.addresses,
+        })
+    }
+}
+
+/// The network status that was last reported by the infiniband subystem
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceIbInterfaceStatusObservation {
+    guid: Option<String>,
+    lid: u32,
+    addresses: Vec<String>,
+}
+
+impl From<&IBPort> for InstanceIbInterfaceStatusObservation {
+    fn from(p: &IBPort) -> Self {
+        Self {
+            guid: Some(p.guid.clone()),
+            lid: p.lid as u32,
+            addresses: vec![],
+        }
+    }
+}

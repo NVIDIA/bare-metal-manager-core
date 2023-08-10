@@ -15,8 +15,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
-use crate::ib::types::{IBNetwork, IBPort, IBPortState};
-use crate::ib::IBFabricManager;
+use super::iface::Filter;
+use super::types::{IBNetwork, IBPort, IBPortState};
+use super::IBFabricManager;
 use crate::CarbideError;
 
 pub struct LocalIBFabricManager {
@@ -76,25 +77,26 @@ impl IBFabricManager for LocalIBFabricManager {
         Ok(ibs)
     }
 
-    /// Create IBPort
-    async fn bind_ib_ports(&self, ib: IBNetwork, ports: Vec<IBPort>) -> Result<(), CarbideError> {
+    async fn bind_ib_ports(&self, ib: IBNetwork, ports: Vec<String>) -> Result<(), CarbideError> {
         {
             let mut ibports = self.ibports.lock().map_err(|_| {
                 CarbideError::IBFabricError("create_ib_port mutex lock".to_string())
             })?;
 
             for port in ports {
-                if ibports.contains_key(&port.guid) {
+                if ibports.contains_key(&port) {
                     return Err(CarbideError::IBFabricError(
                         "duplicated ib port".to_string(),
                     ));
                 }
 
                 ibports.insert(
-                    port.guid.clone(),
+                    port.clone(),
                     IBPort {
+                        name: port.clone(),
+                        guid: port.clone(),
+                        lid: 1,
                         state: Some(IBPortState::Active),
-                        ..port.clone()
                     },
                 );
             }
@@ -117,7 +119,7 @@ impl IBFabricManager for LocalIBFabricManager {
     }
 
     /// Find IBPort
-    async fn find_ib_port(&self) -> Result<Vec<IBPort>, CarbideError> {
+    async fn find_ib_port(&self, _: Option<Filter>) -> Result<Vec<IBPort>, CarbideError> {
         let ibports = self
             .ibports
             .lock()

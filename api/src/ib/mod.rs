@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::CarbideError;
 
+pub use self::iface::Filter;
 pub use self::iface::IBFabricManager;
 
 mod iface;

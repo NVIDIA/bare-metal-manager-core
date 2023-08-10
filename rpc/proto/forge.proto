@@ -608,6 +608,9 @@ message InstanceConfig {
 
   // Configures instance networking configurations
   InstanceNetworkConfig network = 11;
+
+  // Configures instance infiniband configurations.
+  InstanceInfinibandConfig infiniband = 12;
 }
 
 // Desired network configuration for an instance
@@ -615,14 +618,17 @@ message InstanceNetworkConfig {
   // Configures how instance network interfaces are set up
   repeated InstanceInterfaceConfig interfaces = 1;
 
-  // Configures how ib subnet interfaces are set up
-  repeated InstanceIBInterfaceConfig ib_interfaces = 2;
-
   // The ID of security group that is attached to this instance.
   // The configurations in this group apply to all interfaces on the instance.
   // Note: This is commented because we will not supported setting these in the first
   // release of the new Instance API
   // optional UUID security_group_id = 4;
+}
+
+// Desired infiniband configuration for an instance
+message InstanceInfinibandConfig {
+  // Configures how instance infiniband interfaces are set up
+  repeated InstanceIBInterfaceConfig ib_interfaces = 1;
 }
 
 // New configuration for the instances network interfaces
@@ -660,6 +666,9 @@ message InstanceStatus {
   // Status of the networking subsystem of an instance
   InstanceNetworkStatus network = 11;
 
+  // Status of the infiniband subsystem of an instance
+  InstanceInfinibandStatus infiniband = 12;
+
   // Whether all configurations related to an instance are in-sync.
   // This is a logical AND for the settings of all sub-configurations.
   // At this time it equals `InstanceNetworkStatus::configs_synced`,
@@ -676,11 +685,6 @@ message InstanceNetworkStatus {
   // would map to `instance.config.network.interface_configs[1]`.
   repeated InstanceInterfaceStatus interfaces = 1;
 
-  // Each entry in this status array maps to it's corresponding entry in the
-  // Config section. E.g. `instance.status.network.ib_interface_status[1]`
-  // would map to `instance.config.network.ib_interface_configs[1]`.
-  repeated InstanceIBInterfaceStatus ib_interfaces = 2;
-
   // Whether all desired network changes that the user has applied have taken effect
   // This includes:
   // - Whether `InstanceNetworkConfig` is of exactly the same version as the
@@ -693,6 +697,27 @@ message InstanceNetworkStatus {
   // Note for the implementation: We need to monitor all these config versions
   // on the feedback path from DPU to carbide in order to know whether the
   // changes have indeed taken effect.
+  // TODO: Do we also want to show all applied versions here, or just track them
+  // internally? Probably not help for for tenants at all - but it could be helpful
+  // for the Forge operating team to debug settings that to do do not go in-sync
+  // without having to attach to the database.
+  SyncState configs_synced = 101;
+}
+
+// State of the infiniband subsystem of an instance
+message InstanceInfinibandStatus {
+  // Status for each configured interface
+  // 
+  // Each entry in this status array maps to it's corresponding entry in the
+  // Config section. E.g. `instance.status.network.ib_interface_status[1]`
+  // would map to `instance.config.network.ib_interface_configs[1]`.
+  repeated InstanceIBInterfaceStatus ib_interfaces = 1;
+
+  // Whether all desired infiniband changes that the user has applied have taken effect
+  // This includes:
+  // - Whether `InstanceInfinibandConfig` is of exactly the same version as the
+  //   version the user desires.
+  //
   // TODO: Do we also want to show all applied versions here, or just track them
   // internally? Probably not help for for tenants at all - but it could be helpful
   // for the Forge operating team to debug settings that to do do not go in-sync
@@ -718,6 +743,11 @@ message Instance {
   // This field can be used in InstanceNetworkConfigUpdateRequest::if_version_match
   // to only request updates if the version hasn't been updated in between.
   string network_config_version = 201;
+
+  // Current version of the infiniband configuration that is applied on the instance
+  // This field can be used in InstanceInfinibandConfigUpdateRequest::if_version_match
+  // to only request updates if the version hasn't been updated in between.
+  string ib_config_version = 202;
 }
 
 // The configuration that a customer desires for an instances network interface
@@ -736,11 +766,11 @@ message InstanceInterfaceConfig {
 
 // The configuration that a customer desires for an instances IB interface
 message InstanceIBInterfaceConfig {
-  // IB subnet ID can change.
-  repeated UUID ib_subnet_id = 1;
+  // Whether the user wants to create a physical or virtual function
+  InterfaceFunctionType function_type = 1;
 
-  // The guid of IB interface
-  string guid = 2;
+  // IB subnet ID can change.
+  UUID ib_subnet_id = 2;
 }
 
 // The actual status of a single network interface of an instance
@@ -1358,9 +1388,6 @@ message InstanceNetworkStatusObservation {
 
   // Status for each configured interface
   repeated InstanceInterfaceStatusObservation interfaces = 4;
-
-  // Status for each configured IB interface
-  repeated InstanceIBInterfaceStatusObservation ib_interfaces = 5;
 }
 
 // Result for the RecordObservedInstanceNetworkStatus method
@@ -1389,21 +1416,6 @@ message InstanceInterfaceStatusObservation {
   // based on the requested subnet.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 4;
-}
-
-// Observed status of a single network interface of an instance
-message InstanceIBInterfaceStatusObservation {
-  // The GUID which has been assigned to this interface
-  // Only relevant for IB interfaces
-  optional string guid = 1;
-
-  // The local id of this IB interface; if interface configuration has not been completed, the value is 0.
-  uint32 lid = 2;
-
-  // The list of IP addresses that had been assigned to this interface,
-  // based on the requested subnet.
-  // The list will be empty if interface configuration hasn't been completed or IPoIB disabled
-  repeated string addresses = 3;
 }
 
 message TenantContent {

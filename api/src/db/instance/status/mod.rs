@@ -10,4 +10,5 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod infiniband;
 pub mod network;

@@ -15,6 +15,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::info;
 
+use super::iface::Filter;
 use super::types::{IBNetwork, IBPort, IBNETWORK_DEFAULT_INDEX0, IBNETWORK_DEFAULT_MEMBERSHIP};
 use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, UFMConfig,
@@ -26,6 +27,9 @@ use crate::CarbideError;
 pub struct RestIBFabricManager {
     ufm: Ufm,
 }
+
+const DEFAULT_INDEX0: bool = true;
+const DEFAULT_MEMBERSHIP: PortMembership = PortMembership::Full;
 
 pub async fn connect(addr: &str, token: &str) -> Result<Arc<dyn IBFabricManager>, CarbideError> {
     let conf = UFMConfig {
@@ -75,7 +79,7 @@ impl IBFabricManager for RestIBFabricManager {
     async fn bind_ib_ports(
         &self,
         ibnetwork: IBNetwork,
-        ports: Vec<IBPort>,
+        ports: Vec<String>,
     ) -> Result<(), CarbideError> {
         let partition = Partition::try_from(ibnetwork)?;
         let ports = ports.iter().map(PortConfig::from).collect();
@@ -97,9 +101,10 @@ impl IBFabricManager for RestIBFabricManager {
     }
 
     /// Find IBPort
-    async fn find_ib_port(&self) -> Result<Vec<IBPort>, CarbideError> {
+    async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, CarbideError> {
+        let filter = filter.map(ufmclient::Filter::try_from).transpose()?;
         self.ufm
-            .list_port(None)
+            .list_port(filter)
             .await
             .map(|p| p.iter().map(IBPort::from).collect())
             .map_err(CarbideError::from)
@@ -137,6 +142,19 @@ impl From<&Partition> for IBNetwork {
     }
 }
 
+impl TryFrom<Filter> for ufmclient::Filter {
+    type Error = CarbideError;
+    fn try_from(filter: Filter) -> Result<Self, Self::Error> {
+        Ok(Self {
+            guids: filter.guids.clone(),
+            pkey: filter
+                .pkey
+                .map(ufmclient::PartitionKey::try_from)
+                .transpose()?,
+        })
+    }
+}
+
 impl TryFrom<IBNetwork> for Partition {
     type Error = CarbideError;
     fn try_from(p: IBNetwork) -> Result<Self, Self::Error> {
@@ -166,6 +184,7 @@ impl From<&Port> for IBPort {
         IBPort {
             name: p.name.clone(),
             guid: p.guid.clone(),
+            lid: p.lid,
             state: None,
         }
     }
@@ -181,8 +200,8 @@ impl From<&IBPort> for PortConfig {
     fn from(p: &IBPort) -> Self {
         PortConfig {
             guid: p.guid.clone(),
-            index0: true,
-            membership: PortMembership::Full,
+            index0: DEFAULT_INDEX0,
+            membership: DEFAULT_MEMBERSHIP,
         }
     }
 }
@@ -190,5 +209,21 @@ impl From<&IBPort> for PortConfig {
 impl From<IBPort> for PortConfig {
     fn from(p: IBPort) -> Self {
         PortConfig::from(&p)
+    }
+}
+
+impl From<&String> for PortConfig {
+    fn from(guid: &String) -> Self {
+        PortConfig {
+            guid: guid.clone(),
+            index0: DEFAULT_INDEX0,
+            membership: DEFAULT_MEMBERSHIP,
+        }
+    }
+}
+
+impl From<String> for PortConfig {
+    fn from(guid: String) -> Self {
+        PortConfig::from(&guid)
     }
 }

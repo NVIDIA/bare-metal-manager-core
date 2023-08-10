@@ -159,6 +159,7 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(config: rpc::InstanceNetworkConfig) -> Result<Self, Self::Error> {
+        // try_from for interfaces:
         let mut assigned_vfs: u8 = 0;
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
         for iface in config.interfaces.into_iter() {
@@ -216,11 +217,7 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
             });
         }
 
-        Ok(rpc::InstanceNetworkConfig {
-            interfaces,
-            // TODO(k82cn): Add IB interface configuration.
-            ib_interfaces: Vec::new(),
-        })
+        Ok(rpc::InstanceNetworkConfig { interfaces })
     }
 }
 
@@ -394,7 +391,6 @@ mod tests {
                 function_type: rpc::InterfaceFunctionType::Physical as _,
                 network_segment_id: Some(BASE_SEGMENT_ID.into()),
             }],
-            ib_interfaces: vec![],
         };
 
         let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
@@ -421,10 +417,7 @@ mod tests {
             });
         }
 
-        let config = rpc::InstanceNetworkConfig {
-            interfaces,
-            ib_interfaces: vec![],
-        };
+        let config = rpc::InstanceNetworkConfig { interfaces };
 
         let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
         let mut expected_interfaces = vec![InstanceInterfaceConfig {

@@ -65,10 +65,15 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             function_type: physical,
             network_segment_id: Some(network_segment::FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
-        ib_interfaces: vec![],
     });
-    let (instance_id, instance) =
-        instance::create_instance(&env, &dpu_machine_id, &host_machine_id, instance_network).await;
+    let (instance_id, instance) = instance::create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        instance_network,
+        None,
+    )
+    .await;
 
     // Tell API about latest network config and machine health
     let network_config_version = response.all[0].network_config_version.clone().unwrap();

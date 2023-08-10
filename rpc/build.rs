@@ -39,6 +39,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.InstanceNetworkConfig", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.InstanceInfinibandConfig",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.TenantConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceConfig", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -50,6 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.InstanceNetworkStatus", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.InstanceInfinibandStatus",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.InstanceTenantStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Instance", "#[derive(serde::Serialize)]")

@@ -25,10 +25,10 @@ use super::{
 };
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::config_version::Versioned;
+use crate::model::instance::config::network::InstanceNetworkConfig;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::ConfigValidationError;
-use crate::CarbideResult;
-use crate::{model::instance::config::network::InstanceNetworkConfig, CarbideError};
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceSegmentAddress {

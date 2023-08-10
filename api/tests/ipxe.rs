@@ -217,7 +217,6 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let network = Some(rpc::InstanceNetworkConfig {
-        ib_interfaces: vec![],
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
@@ -225,7 +224,7 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
     });
 
     let (_instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network).await;
+        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
 
     let instructions = get_pxe_instructions(
         &env,

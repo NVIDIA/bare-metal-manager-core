@@ -30,6 +30,7 @@ use carbide::{
     model::{
         instance::{
             config::{
+                infiniband::InstanceInfinibandConfig,
                 network::{InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType},
                 tenant_config::TenantConfig,
                 InstanceConfig,
@@ -102,12 +103,10 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
-        // TODO(k82cn): Add IB interface configuration.
-        ib_interfaces: Vec::new(),
     });
 
     let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network).await;
+        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
 
     let mut txn = pool
         .clone()
@@ -263,12 +262,10 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
-        // TODO(k82cn): Add IB interface configuration.
-        ib_interfaces: Vec::new(),
     });
 
     let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network).await;
+        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
 
     let mut txn = pool
         .clone()
@@ -323,9 +320,11 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
     );
+
     let status = snapshot.derive_status().unwrap();
     assert_eq!(status.configs_synced, SyncState::Synced);
     assert_eq!(status.network.configs_synced, SyncState::Synced);
+    assert_eq!(status.infiniband.configs_synced, SyncState::Synced);
     assert_eq!(status.tenant.as_ref().unwrap().state, TenantState::Ready);
     assert_eq!(
         status.network.interfaces,
@@ -478,12 +477,10 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
-        // TODO(k82cn): Add IB interface configuration.
-        ib_interfaces: Vec::new(),
     });
 
     let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network).await;
+        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
 
     let mut txn = pool
         .clone()
@@ -540,6 +537,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
                 tenant_keyset_ids: vec![],
             }),
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
+            infiniband: InstanceInfinibandConfig::for_ib_subnet_id(FIXTURE_NETWORK_SEGMENT_ID),
         },
         ssh_keys: vec!["mykey1".to_owned()],
     };
@@ -593,12 +591,10 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
                 network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
             },
         ],
-        // TODO(k82cn): Add IB interface configuration.
-        ib_interfaces: Vec::new(),
     });
 
     let (instance_id, instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network).await;
+        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
 
     let mut txn = pool
         .clone()
@@ -675,8 +671,6 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
                         addresses: vec!["192.0.3.3".to_string()],
                     },
                 ],
-                // TODO(k82cn): Add IB interface status observation.
-                ib_interfaces: Vec::new(),
             },
         ))
         .await
