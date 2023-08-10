@@ -186,9 +186,9 @@ fn get_client_cert_info(
            1. --client-cert-path and --client-key-path flag or
            2. environment variables CLIENT_KEY_PATH and CLIENT_CERT_PATH or
            3. add client_key_path and client_cert_path in $HOME/.config/carbide_api_cli.json.
-           5. a file existing at "/var/run/secrets/spiffe.io/tls.crt" and "/var/run/secrets/spiffe.io/tls.key".
+           4. a file existing at "/var/run/secrets/spiffe.io/tls.crt" and "/var/run/secrets/spiffe.io/tls.key".
            5. a file existing at "/opt/forge/machine_cert.pem" and "/opt/forge/machine_cert.key".
-           5. a file existing at "$REPO_ROOT/dev/certs/server_identity.pem" and "$REPO_ROOT/dev/certs/server_identity.key."###
+           6. a file existing at "$REPO_ROOT/dev/certs/server_identity.pem" and "$REPO_ROOT/dev/certs/server_identity.key."###
     )
 }
 
@@ -235,9 +235,9 @@ fn get_forge_root_ca_path(
            1. --forge-root-ca-path flag or
            2. environment variable FORGE_ROOT_CA_PATH or
            3. add forge_root_ca_path in $HOME/.config/carbide_api_cli.json.
-           5. a file existing at "/var/run/secrets/spiffe.io/ca.crt".
+           4. a file existing at "/var/run/secrets/spiffe.io/ca.crt".
            5. a file existing at "/opt/forge/forge_root.pem".
-           5. a file existing at "$REPO_ROOT/dev/certs/forge_developer_local_only_root_cert_pem"."###
+           6. a file existing at "$REPO_ROOT/dev/certs/forge_developer_local_only_root_cert_pem"."###
     )
 }
 
