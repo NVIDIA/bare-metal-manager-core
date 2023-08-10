@@ -16,19 +16,26 @@ use std::{
 };
 
 use async_trait::async_trait;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use libredfish::{Endpoint, Redfish, RedfishError};
 
-use crate::{db::bmc_metadata::UserRoles, model::machine::machine_id::MachineId};
+use crate::db::bmc_metadata::UserRoles;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
-    #[error("Failed to look up credentials for Machine {0}: {1}")]
-    MissingCredentials(MachineId, eyre::Report),
-    #[error("Failed redfish request for Machine {0}: {1}")]
-    RedfishError(MachineId, RedfishError),
-    #[error("Failed subtask to create redfish client for Machine {0}: {1}")]
-    SubtaskError(MachineId, tokio::task::JoinError),
+    #[error("Failed to look up credentials {0}")]
+    MissingCredentials(eyre::Report),
+    #[error("Failed redfish request {0}")]
+    RedfishError(RedfishError),
+    #[error("Failed subtask to create redfish client  {0}")]
+    SubtaskError(tokio::task::JoinError),
+}
+
+#[derive(Debug, Clone)]
+pub enum RedfishCredentialType {
+    HardwareDefault,
+    SiteDefault,
+    Machine { machine_id: String },
 }
 
 /// Allows to create Redfish clients for a certain Redfish BMC endpoint
@@ -38,9 +45,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
     /// `host` is the IP address or hostname of the BMC
     async fn create_client(
         &self,
-        machine_id: &MachineId,
         host: &str,
         port: Option<u16>,
+        credential_type: RedfishCredentialType,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
 }
 
@@ -63,18 +70,27 @@ impl<C: CredentialProvider + 'static> RedfishClientPoolImpl<C> {
 impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImpl<C> {
     async fn create_client(
         &self,
-        machine_id: &MachineId,
         host: &str,
         port: Option<u16>,
+        credential_type: RedfishCredentialType,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        let credentials_key: CredentialKey = match credential_type {
+            RedfishCredentialType::HardwareDefault => CredentialKey::DpuRedfish {
+                credential_type: CredentialType::HardwareDefault,
+            },
+            RedfishCredentialType::SiteDefault => CredentialKey::DpuRedfish {
+                credential_type: CredentialType::SiteDefault,
+            },
+            RedfishCredentialType::Machine { machine_id } => CredentialKey::Bmc {
+                machine_id,
+                user_role: UserRoles::Administrator.to_string(),
+            },
+        };
         let credentials = self
             .credential_provider
-            .get_credentials(CredentialKey::Bmc {
-                machine_id: machine_id.to_string(),
-                user_role: UserRoles::Administrator.to_string(),
-            })
+            .get_credentials(credentials_key)
             .await
-            .map_err(|e| RedfishClientCreationError::MissingCredentials(machine_id.clone(), e))?;
+            .map_err(RedfishClientCreationError::MissingCredentials)?;
 
         let (username, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
@@ -92,8 +108,8 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         let pool = self.pool.clone();
         tokio::task::spawn_blocking(move || pool.create_client(endpoint))
             .await
-            .map_err(|e| RedfishClientCreationError::SubtaskError(machine_id.clone(), e))?
-            .map_err(|e| RedfishClientCreationError::RedfishError(machine_id.clone(), e))
+            .map_err(RedfishClientCreationError::SubtaskError)?
+            .map_err(RedfishClientCreationError::RedfishError)
     }
 }
 
@@ -113,7 +129,7 @@ pub struct RedfishSim {
 #[derive(Debug)]
 struct RedfishSimClient {
     _state: Arc<Mutex<RedfishSimState>>,
-    _machine_id: MachineId,
+    _credentials_type: RedfishCredentialType,
     _host: String,
     _port: Option<u16>,
 }
@@ -182,13 +198,13 @@ impl Redfish for RedfishSimClient {
 impl RedfishClientPool for RedfishSim {
     async fn create_client(
         &self,
-        machine_id: &MachineId,
         host: &str,
         port: Option<u16>,
+        credential_type: RedfishCredentialType,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         Ok(Box::new(RedfishSimClient {
             _state: self.state.clone(),
-            _machine_id: machine_id.clone(),
+            _credentials_type: credential_type,
             _host: host.to_string(),
             _port: port,
         }))
