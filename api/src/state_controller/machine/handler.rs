@@ -27,6 +27,7 @@ use crate::{
             ManagedHostStateSnapshot,
         },
     },
+    redfish::RedfishCredentialType,
     state_controller::state_handler::{
         ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
     },
@@ -580,7 +581,13 @@ async fn restart_machine(
     let client = ctx
         .services
         .redfish_client_pool
-        .create_client(&machine_snapshot.machine_id, bmc_ip, None)
+        .create_client(
+            bmc_ip,
+            None,
+            RedfishCredentialType::Machine {
+                machine_id: machine_snapshot.machine_id.to_string(),
+            },
+        )
         .await
         .map_err(|e| StateHandlerError::GenericError(e.into()))?;
 
@@ -621,7 +628,13 @@ async fn lockdown_host(
     let client = ctx
         .services
         .redfish_client_pool
-        .create_client(&machine_snapshot.machine_id, bmc_ip, None)
+        .create_client(
+            bmc_ip,
+            None,
+            RedfishCredentialType::Machine {
+                machine_id: machine_snapshot.machine_id.to_string(),
+            },
+        )
         .await
         .map_err(|e| StateHandlerError::GenericError(e.into()))?;
 

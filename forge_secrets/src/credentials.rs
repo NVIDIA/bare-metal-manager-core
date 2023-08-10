@@ -19,6 +19,12 @@ pub trait CredentialProvider: Send + Sync {
     ) -> Result<(), eyre::Report>;
 }
 
+#[allow(clippy::enum_variant_names)]
+pub enum CredentialType {
+    HardwareDefault,
+    SiteDefault,
+}
+
 pub enum CredentialKey {
     Bmc {
         user_role: String,
@@ -29,6 +35,9 @@ pub enum CredentialKey {
     },
     DpuHbn {
         machine_id: String,
+    },
+    DpuRedfish {
+        credential_type: CredentialType,
     },
 }
 
@@ -47,6 +56,14 @@ impl CredentialKey {
             CredentialKey::DpuHbn { machine_id } => {
                 format!("machines/{machine_id}/dpu-hbn")
             }
+            CredentialKey::DpuRedfish { credential_type } => match credential_type {
+                CredentialType::HardwareDefault => {
+                    "machines/all_factory_default/bmc-metadata-items/root".to_string()
+                }
+                CredentialType::SiteDefault => {
+                    "machines/all_site_default/bmc-metadata-items/root".to_string()
+                }
+            },
         }
     }
 }

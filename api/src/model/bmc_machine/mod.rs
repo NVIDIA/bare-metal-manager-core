@@ -21,9 +21,16 @@ pub enum BmcMachineType {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
+pub enum BmcMachineError {
+    RedfishConnectionError { message: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
 pub enum BmcMachineState {
     /// Bmc machine got discovered through DHCP interface
     Init,
+    Error(BmcMachineError),
 }
 
 #[cfg(test)]

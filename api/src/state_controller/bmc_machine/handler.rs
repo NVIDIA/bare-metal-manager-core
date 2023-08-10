@@ -11,8 +11,9 @@
  */
 
 use crate::{
-    db::bmc_machine::BmcMachine,
-    model::bmc_machine::BmcMachineState,
+    db::{bmc_machine::BmcMachine, machine_interface::MachineInterface},
+    model::bmc_machine::{BmcMachineError, BmcMachineState},
+    redfish::RedfishCredentialType,
     state_controller::state_handler::{
         ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
     },
@@ -30,15 +31,38 @@ impl StateHandler for BmcMachineStateHandler {
     async fn handle_object_state(
         &self,
         _machine_id: &uuid::Uuid,
-        _state: &mut BmcMachine,
+        state: &mut BmcMachine,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
-        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _ctx: &mut StateHandlerContext,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let read_state: &BmcMachineState = &*controller_state;
         match read_state {
             BmcMachineState::Init => {
                 tracing::info!("Starting machine discovery with redfish.");
+                let bmc_network_interface =
+                    MachineInterface::find_one(txn, state.machine_interface_id)
+                        .await
+                        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+                let _client = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client(
+                        bmc_network_interface.hostname(),
+                        None,
+                        RedfishCredentialType::HardwareDefault,
+                    )
+                    .await
+                    .map_err(|e| {
+                        *controller_state.modify() =
+                            BmcMachineState::Error(BmcMachineError::RedfishConnectionError {
+                                message: e.to_string(),
+                            });
+                        StateHandlerError::GenericError(e.into())
+                    })?;
+            }
+            BmcMachineState::Error(error_type) => {
+                tracing::error!("Bmc state machine error: {:#?}", error_type)
             }
         }
         Ok(())

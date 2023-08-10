@@ -64,6 +64,7 @@ use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::{FailureCause, FailureDetails, FailureSource, ManagedHostState};
 use crate::model::RpcDataConversionError;
+use crate::redfish::RedfishCredentialType;
 use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::controller::ReachabilityParams;
@@ -1376,7 +1377,13 @@ where
         // with other internal reboot requests from the state handler.
         let client = self
             .redfish_pool
-            .create_client(&machine_id, &bmc_ip, None)
+            .create_client(
+                &bmc_ip,
+                None,
+                RedfishCredentialType::Machine {
+                    machine_id: machine_id.to_string(),
+                },
+            )
             .await
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
@@ -2799,7 +2806,13 @@ where
 
                 match self
                     .redfish_pool
-                    .create_client(machine.id(), ip, None)
+                    .create_client(
+                        ip,
+                        None,
+                        RedfishCredentialType::Machine {
+                            machine_id: machine.id().to_string(),
+                        },
+                    )
                     .await
                 {
                     Ok(client) => {
