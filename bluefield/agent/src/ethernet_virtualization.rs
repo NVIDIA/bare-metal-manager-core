@@ -17,7 +17,7 @@ use ::rpc::forge as rpc;
 use eyre::WrapErr;
 use tracing::{debug, error, trace};
 
-use crate::{daemons, dhcp, frr, hbn, interfaces};
+use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces};
 
 // VPC writes these to various HBN config files
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
@@ -30,14 +30,16 @@ struct Paths {
     interfaces: PathBuf,
     frr: PathBuf,
     daemons: PathBuf,
+    acl_rules: PathBuf,
 }
 
 fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
-    let (mut dhcp, mut interfaces, mut frr, mut daemons) = (
+    let (mut dhcp, mut interfaces, mut frr, mut daemons, mut acl_rules) = (
         hbn_root.join(dhcp::PATH),
         hbn_root.join(interfaces::PATH),
         hbn_root.join(frr::PATH),
         hbn_root.join(daemons::PATH),
+        hbn_root.join(acl_rules::PATH),
     );
     if is_prod_mode {
         trace!("Ethernet virtualization running in production mode");
@@ -47,12 +49,14 @@ fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
         interfaces.set_extension("TEST");
         frr.set_extension("TEST");
         daemons.set_extension("TEST");
+        acl_rules.as_mut_os_string().push(".TEST");
     }
     Paths {
         dhcp,
         interfaces,
         frr,
         daemons,
+        acl_rules,
     }
 }
 
@@ -85,6 +89,11 @@ pub fn update(
         Ok(daemons_changed) => has_changes |= daemons_changed,
         Err(err) => errs.push(format!("write_daemons: {err:#}")),
     }
+    match write_acl_rules(paths.acl_rules, network_config, skip_post) {
+        Ok(acls_changed) => has_changes |= acls_changed,
+        Err(err) => errs.push(format!("write_acl_rules: {err:#}")),
+    }
+
     let err_message = errs.join(", ");
     if !err_message.is_empty() {
         error!(err_message);
@@ -376,6 +385,30 @@ fn write_daemons<P: AsRef<Path>>(path: P, skip_post: bool) -> Result<bool, eyre:
     )
 }
 
+fn write_acl_rules<P: AsRef<Path>>(
+    path: P,
+    dpu_network_config: &rpc::ManagedHostNetworkConfigResponse,
+    skip_post: bool,
+) -> Result<bool, eyre::Report> {
+    let ingress_interfaces = dpu_network_config
+        .tenant_interfaces
+        .iter()
+        .map(|interface| format!("vlan{}", interface.vlan_id))
+        .collect();
+    let config = acl_rules::AclConfig {
+        ingress_interfaces,
+        deny_prefixes: dpu_network_config.deny_prefixes.clone(),
+    };
+    let contents = acl_rules::build(config)?;
+    let reload_cmd = acl_rules::RELOAD_CMD;
+    write(
+        contents,
+        path,
+        "forge-acl.rules",
+        (!skip_post).then_some(reload_cmd),
+    )
+}
+
 // Update configuration file
 // Returns true if the file has changes, false othewise.
 fn write<P: AsRef<Path>>(
@@ -538,6 +571,7 @@ mod tests {
             network_virtualization_type: None,
             vpc_vni: None,
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
+            deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
         };
 
         let f = tempfile::NamedTempFile::new()?;
@@ -561,6 +595,12 @@ mod tests {
         };
         let expected = include_str!("../templates/tests/tenant_frr.conf");
         compare(&f, expected)?;
+
+        let Ok(true) = super::write_acl_rules(&f, &network_config, true) else {
+            panic!("write_acl_rules either Err-ed or didn't say it wrote");
+        };
+        let expected = include_str!("../templates/tests/tenant_acl_rules");
+        compare_diffed(&f, expected)?;
 
         Ok(())
     }
@@ -607,6 +647,19 @@ mod tests {
         }
         assert!(!has_error);
 
+        Ok(())
+    }
+
+    fn compare_diffed<P: AsRef<Path>>(
+        p1: P,
+        expected: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let left_contents = fs::read_to_string(p1.as_ref())?;
+        let left_contents = left_contents.as_str();
+        let right_contents = expected;
+        let r = crate::util::compare_lines(left_contents, right_contents, None);
+        eprint!("Diff output:\n{}", r.report());
+        assert!(r.is_identical());
         Ok(())
     }
 }

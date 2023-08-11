@@ -72,6 +72,7 @@ async fn test_start() -> eyre::Result<()> {
     fs::create_dir_all(hbn_root.join("etc/frr"))?;
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
+    fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
 
@@ -115,6 +116,9 @@ async fn test_start() -> eyre::Result<()> {
     assert!(hbn_root.join("etc/network/interfaces").exists());
     assert!(hbn_root
         .join("etc/supervisor/conf.d/default-isc-dhcp-relay.conf")
+        .exists());
+    assert!(hbn_root
+        .join("etc/cumulus/acl/policy.d/60-forge.rules")
         .exists());
 
     Ok(())
@@ -215,6 +219,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         vpc_vni: None,
         route_servers: vec![],
         remote_id: "".to_string(),
+        deny_prefixes: vec![],
     };
     respond(netconf)
 }

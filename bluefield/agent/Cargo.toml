@@ -13,6 +13,7 @@ path = "src/main.rs"
 arc-swap = "1.6"
 axum = "0.6.18"
 clap = { workspace = true }
+diff = "0.1"
 eyre = "*"
 gtmpl = "0.7.1"
 gtmpl_derive = "0.5.0"
