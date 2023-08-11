@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use std::convert::TryFrom;
 use std::str::FromStr;
 
@@ -54,6 +55,42 @@ impl TryFrom<rpc::forge::Tenant> for Tenant {
             organization_id,
             version,
         })
+    }
+}
+
+impl From<Tenant> for rpc::forge::CreateTenantResponse {
+    fn from(value: Tenant) -> Self {
+        rpc::forge::CreateTenantResponse {
+            tenant: Some(rpc::forge::Tenant {
+                organization_id: value.organization_id.0,
+                tenant_content: None,
+                version: value.version.to_string(),
+            }),
+        }
+    }
+}
+
+impl From<Tenant> for rpc::forge::FindTenantResponse {
+    fn from(value: Tenant) -> Self {
+        rpc::forge::FindTenantResponse {
+            tenant: Some(rpc::forge::Tenant {
+                organization_id: value.organization_id.0,
+                tenant_content: None,
+                version: value.version.to_string(),
+            }),
+        }
+    }
+}
+
+impl From<Tenant> for rpc::forge::UpdateTenantResponse {
+    fn from(value: Tenant) -> Self {
+        rpc::forge::UpdateTenantResponse {
+            tenant: Some(rpc::forge::Tenant {
+                organization_id: value.organization_id.0,
+                tenant_content: None,
+                version: value.version.to_string(),
+            }),
+        }
     }
 }
 
@@ -176,6 +213,77 @@ impl From<TenantKeyset> for rpc::forge::TenantKeyset {
             keyset_content: Some(src.keyset_content.into()),
             version: src.version.version_string(),
         }
+    }
+}
+
+impl TryFrom<rpc::forge::CreateTenantKeysetRequest> for TenantKeyset {
+    type Error = RpcDataConversionError;
+
+    fn try_from(src: rpc::forge::CreateTenantKeysetRequest) -> Result<Self, Self::Error> {
+        let keyset_identifier: TenantKeysetIdentifier = src
+            .keyset_identifier
+            .ok_or(RpcDataConversionError::MissingArgument(
+                "tenant keyset identifier",
+            ))?
+            .try_into()?;
+
+        let keyset_content: TenantKeysetContent =
+            src.keyset_content
+                .map(|x| x.into())
+                .unwrap_or(TenantKeysetContent {
+                    public_keys: vec![],
+                });
+
+        let version = src
+            .version
+            .parse::<ConfigVersion>()
+            .map_err(|_| RpcDataConversionError::InvalidConfigVersion(src.version))?;
+
+        Ok(Self {
+            keyset_content,
+            keyset_identifier,
+            version,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateTenantKeyset {
+    pub keyset_identifier: TenantKeysetIdentifier,
+    pub keyset_content: TenantKeysetContent,
+    pub version: ConfigVersion,
+    pub if_version_match: Option<String>,
+}
+
+impl TryFrom<rpc::forge::UpdateTenantKeysetRequest> for UpdateTenantKeyset {
+    type Error = RpcDataConversionError;
+
+    fn try_from(src: rpc::forge::UpdateTenantKeysetRequest) -> Result<Self, Self::Error> {
+        let keyset_identifier: TenantKeysetIdentifier = src
+            .keyset_identifier
+            .ok_or(RpcDataConversionError::MissingArgument(
+                "tenant keyset identifier",
+            ))?
+            .try_into()?;
+
+        let keyset_content: TenantKeysetContent =
+            src.keyset_content
+                .map(|x| x.into())
+                .unwrap_or(TenantKeysetContent {
+                    public_keys: vec![],
+                });
+
+        let version = src
+            .version
+            .parse::<ConfigVersion>()
+            .map_err(|_| RpcDataConversionError::InvalidConfigVersion(src.version))?;
+
+        Ok(Self {
+            keyset_content,
+            keyset_identifier,
+            version,
+            if_version_match: src.if_version_match,
+        })
     }
 }
 

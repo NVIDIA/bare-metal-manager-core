@@ -60,10 +60,12 @@ use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::ib;
 use crate::ib::IBFabricManager;
 use crate::ipxe::PxeInstructions;
+use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::{FailureCause, FailureDetails, FailureSource, ManagedHostState};
+use crate::model::tenant::{Tenant, TenantKeyset, TenantKeysetIdentifier, UpdateTenantKeyset};
 use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishCredentialType;
 use crate::resource_pool;
@@ -1418,51 +1420,280 @@ where
     /// Tenant-related actions
     async fn create_tenant(
         &self,
-        _request: Request<CreateTenantRequest>,
+        request: Request<CreateTenantRequest>,
     ) -> Result<Response<CreateTenantResponse>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        let rpc::CreateTenantRequest { organization_id } = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin create_tenant",
+                e,
+            ))
+        })?;
+
+        let response = Tenant::create_and_persist(organization_id, &mut txn)
+            .await
+            .map(|x| x.into())
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit create_tenant",
+                e,
+            ))
+        })?;
+
+        Ok(response)
     }
 
     async fn find_tenant(
         &self,
-        _request: Request<FindTenantRequest>,
+        request: Request<FindTenantRequest>,
     ) -> Result<Response<FindTenantResponse>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        let rpc::FindTenantRequest {
+            tenant_organization_id,
+        } = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(file!(), line!(), "begin find_tenant", e))
+        })?;
+
+        let response = Tenant::find(tenant_organization_id, &mut txn)
+            .await
+            .map(|x| {
+                x.map(|a| a.into())
+                    .unwrap_or(rpc::FindTenantResponse { tenant: None })
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit find_tenant",
+                e,
+            ))
+        })?;
+
+        Ok(response)
     }
 
     async fn update_tenant(
         &self,
-        _request: Request<UpdateTenantRequest>,
+        request: Request<UpdateTenantRequest>,
     ) -> Result<Response<UpdateTenantResponse>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        // This doesn't update anything yet :|
+        let rpc::UpdateTenantRequest {
+            organization_id,
+            if_version_match,
+            ..
+        } = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin update_tenant",
+                e,
+            ))
+        })?;
+
+        let if_version_match: Option<ConfigVersion> =
+            if let Some(config_version_str) = if_version_match {
+                Some(config_version_str.parse().map_err(CarbideError::from)?)
+            } else {
+                None
+            };
+
+        let response = Tenant::update(organization_id, if_version_match, &mut txn)
+            .await
+            .map(|x| x.into())
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit update_tenant",
+                e,
+            ))
+        })?;
+
+        Ok(response)
     }
 
     async fn create_tenant_keyset(
         &self,
-        _request: Request<CreateTenantKeysetRequest>,
+        request: Request<CreateTenantKeysetRequest>,
     ) -> Result<Response<CreateTenantKeysetResponse>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        let keyset_request: TenantKeyset = request
+            .into_inner()
+            .try_into()
+            .map_err(CarbideError::from)?;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin create_tenant_keyset",
+                e,
+            ))
+        })?;
+
+        let keyset = keyset_request
+            .create(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit create_tenant_keyset",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(rpc::CreateTenantKeysetResponse {
+            keyset: Some(keyset.into()),
+        }))
     }
 
     async fn find_tenant_keyset(
         &self,
-        _request: Request<FindTenantKeysetRequest>,
+        request: Request<FindTenantKeysetRequest>,
     ) -> Result<Response<TenantKeySetList>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        let rpc::FindTenantKeysetRequest {
+            organization_id,
+            keyset_id,
+            include_key_data,
+        } = request.into_inner();
+
+        if organization_id.is_none() && keyset_id.is_some() {
+            return Err(Status::invalid_argument(
+                "Keyset id is given but Organization id is missing.",
+            ));
+        }
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_tenant_keyset",
+                e,
+            ))
+        })?;
+
+        let keyset = TenantKeyset::find(organization_id, keyset_id, include_key_data, &mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit find_tenant_keyset",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(rpc::TenantKeySetList {
+            keyset: keyset.into_iter().map(|x| x.into()).collect(),
+        }))
     }
 
     async fn update_tenant_keyset(
         &self,
-        _request: Request<UpdateTenantKeysetRequest>,
+        request: Request<UpdateTenantKeysetRequest>,
     ) -> Result<Response<UpdateTenantKeysetResponse>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        let update_request: UpdateTenantKeyset = request
+            .into_inner()
+            .try_into()
+            .map_err(CarbideError::from)?;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin update_tenant_keyset",
+                e,
+            ))
+        })?;
+
+        update_request
+            .update(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit update_tenant_keyset",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(rpc::UpdateTenantKeysetResponse {}))
     }
 
     async fn delete_tenant_keyset(
         &self,
-        _request: Request<DeleteTenantKeysetRequest>,
+        request: Request<DeleteTenantKeysetRequest>,
     ) -> Result<Response<DeleteTenantKeysetResponse>, Status> {
-        todo!()
+        log_request_data(&request);
+
+        let rpc::DeleteTenantKeysetRequest { keyset_identifier } = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin delete_tenant_keyset",
+                e,
+            ))
+        })?;
+
+        let Some(keyset_identifier) = keyset_identifier else {
+            return Err(Status::invalid_argument("Keyset identifier is missing."))
+        };
+
+        let keyset_identifier: TenantKeysetIdentifier =
+            keyset_identifier.try_into().map_err(CarbideError::from)?;
+
+        TenantKeyset::delete(keyset_identifier, &mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit delete_tenant_keyset",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(rpc::DeleteTenantKeysetResponse {}))
     }
 
     async fn validate_tenant_public_key(

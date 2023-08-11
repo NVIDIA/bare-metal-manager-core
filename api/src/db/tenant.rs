@@ -15,7 +15,9 @@ use sqlx::{Postgres, Row};
 
 use crate::db::DatabaseError;
 use crate::model::config_version::ConfigVersion;
-use crate::model::tenant::{Tenant, TenantKeyset, TenantKeysetContent, TenantKeysetIdentifier};
+use crate::model::tenant::{
+    Tenant, TenantKeyset, TenantKeysetContent, TenantKeysetIdentifier, UpdateTenantKeyset,
+};
 use crate::{CarbideError, CarbideResult};
 
 impl Tenant {
@@ -131,7 +133,121 @@ impl<'r> sqlx::FromRow<'r, PgRow> for TenantKeyset {
 }
 
 impl TenantKeyset {
-    pub fn find(_organization_id: String, _keyset_id: String) -> CarbideResult<Self> {
-        todo!()
+    pub async fn create(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Self, DatabaseError> {
+        let query = "INSERT INTO tenant_keysets VALUES($1, $2, $3, $4) RETURNING *";
+
+        sqlx::query_as(query)
+            .bind(self.keyset_identifier.organization_id.to_string())
+            .bind(&self.keyset_identifier.keyset_id)
+            .bind(sqlx::types::Json(&self.keyset_content))
+            .bind(self.version.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    pub async fn find(
+        organization_id: Option<String>,
+        keyset_id: Option<String>,
+        include_key_data: bool,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let mut result = if let Some(organization_id) = organization_id {
+            if let Some(keyset_id) = keyset_id {
+                let query =
+                    "SELECT * FROM tenant_keysets WHERE organization_id = $1 AND keyset_id = $2";
+
+                sqlx::query_as::<_, TenantKeyset>(query)
+                    .bind(organization_id.to_string())
+                    .bind(keyset_id)
+                    .fetch_all(&mut **txn)
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            } else {
+                let query = "SELECT * FROM tenant_keysets WHERE organization_id = $1";
+                sqlx::query_as::<_, TenantKeyset>(query)
+                    .bind(organization_id.to_string())
+                    .fetch_all(&mut **txn)
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            }
+        } else {
+            let query = "SELECT * FROM tenant_keysets";
+            sqlx::query_as::<_, TenantKeyset>(query)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        }?;
+
+        if !include_key_data {
+            for data in &mut result {
+                data.keyset_content.public_keys.clear();
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn delete(
+        keyset_identifier: TenantKeysetIdentifier,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "DELETE FROM tenant_keysets WHERE organization_id = $1 AND keyset_id = $2 RETURNING *";
+
+        let _ = sqlx::query_as::<_, TenantKeyset>(query)
+            .bind(keyset_identifier.organization_id.to_string())
+            .bind(&keyset_identifier.keyset_id)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+}
+
+impl UpdateTenantKeyset {
+    pub async fn update(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        // Validate if sent version is same.
+        let current_keyset = TenantKeyset::find(
+            Some(self.keyset_identifier.organization_id.to_string()),
+            Some(self.keyset_identifier.keyset_id.clone()),
+            false,
+            txn,
+        )
+        .await?;
+
+        if current_keyset.is_empty() {
+            return Err(DatabaseError::new(
+                file!(),
+                line!(),
+                "No keyset found.",
+                sqlx::Error::RowNotFound,
+            ));
+        }
+
+        let expected_version = self
+            .if_version_match
+            .clone()
+            .unwrap_or(current_keyset[0].version.to_string());
+
+        let query = "UPDATE tenant_keysets SET content=$1, version=$2 WHERE organization_id=$3 AND keyset_id=$4 AND version=$5 RETURNING *";
+        let _ = sqlx::query_as::<_, TenantKeyset>(query)
+            .bind(sqlx::types::Json(&self.keyset_content))
+            .bind(self.version.to_string())
+            .bind(self.keyset_identifier.organization_id.to_string())
+            .bind(&self.keyset_identifier.keyset_id)
+            .bind(expected_version)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 }
