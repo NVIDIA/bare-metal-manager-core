@@ -38,7 +38,7 @@ pub struct ForgeVaultClientConfig {
     pub kv_mount_location: String,
     pub pki_mount_location: String,
     pub pki_role_name: String,
-    pub forge_root_ca_path: Option<String>,
+    pub vault_root_ca_path: String,
 }
 
 pub struct ForgeVaultClient {
@@ -93,23 +93,17 @@ where
             .address(forge_vault_client.vault_client_config.vault_address.clone())
             .timeout(Some(Duration::from_secs(60)));
 
-        let vault_client_settings_builder = if let Some(forge_root_ca_path) = forge_vault_client
-            .vault_client_config
-            .forge_root_ca_path
-            .as_ref()
-        {
-            if Path::new(forge_root_ca_path).exists() {
-                // vault_client_settings_builder
-                //     .ca_certs(vec![forge_root_ca_path.clone()])
-                //     .verify(true)
-                tracing::info!("using temporarily disabled tls while we fix it");
-                vault_client_settings_builder.verify(false)
+        let vault_client_settings_builder =
+            if Path::new(&forge_vault_client.vault_client_config.vault_root_ca_path).exists() {
+                vault_client_settings_builder
+                    .ca_certs(vec![forge_vault_client
+                        .vault_client_config
+                        .vault_root_ca_path
+                        .clone()])
+                    .verify(true)
             } else {
                 vault_client_settings_builder.verify(false)
-            }
-        } else {
-            vault_client_settings_builder.verify(false)
-        };
+            };
 
         Ok(vault_client_settings_builder.build()?)
     }

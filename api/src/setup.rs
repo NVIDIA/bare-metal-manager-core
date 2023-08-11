@@ -37,9 +37,7 @@ pub fn parse_carbide_config(
     Ok(Arc::new(config))
 }
 
-pub async fn create_vault_client(
-    forge_root_ca_path: Option<String>,
-) -> eyre::Result<Arc<ForgeVaultClient>> {
+pub async fn create_vault_client() -> eyre::Result<Arc<ForgeVaultClient>> {
     let vault_address = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
     let kv_mount_location =
         env::var("VAULT_KV_MOUNT_LOCATION").wrap_err("VAULT_KV_MOUNT_LOCATION")?;
@@ -47,6 +45,7 @@ pub async fn create_vault_client(
         env::var("VAULT_PKI_MOUNT_LOCATION").wrap_err("VAULT_PKI_MOUNT_LOCATION")?;
     let pki_role_name = env::var("VAULT_PKI_ROLE_NAME").wrap_err("VAULT_PKI_ROLE_NAME")?;
 
+    let vault_root_ca_path = "/var/run/secrets/forge-roots/ca.crt".to_string();
     let service_account_token_path =
         Path::new("/var/run/secrets/kubernetes.io/serviceaccount/token");
     let auth_type = if service_account_token_path.exists() {
@@ -61,7 +60,7 @@ pub async fn create_vault_client(
         kv_mount_location,
         pki_mount_location,
         pki_role_name,
-        forge_root_ca_path,
+        vault_root_ca_path,
     });
     Ok(Arc::new(forge_vault_client))
 }
