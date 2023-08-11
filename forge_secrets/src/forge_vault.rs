@@ -99,9 +99,11 @@ where
             .as_ref()
         {
             if Path::new(forge_root_ca_path).exists() {
-                vault_client_settings_builder
-                    .ca_certs(vec![forge_root_ca_path.clone()])
-                    .verify(true)
+                // vault_client_settings_builder
+                //     .ca_certs(vec![forge_root_ca_path.clone()])
+                //     .verify(true)
+                tracing::info!("using temporarily disabled tls while we fix it");
+                vault_client_settings_builder.verify(false)
             } else {
                 vault_client_settings_builder.verify(false)
             }
