@@ -802,8 +802,7 @@ async fn restart_machine(
                 machine_id: machine_snapshot.machine_id.to_string(),
             },
         )
-        .await
-        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+        .await?;
 
     // Since libredfish calls are thread blocking and we are inside an async function,
     // we have to delegate the actual call into a threadpool
@@ -818,7 +817,10 @@ async fn restart_machine(
     .map_err(|e| {
         StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
     })?
-    .map_err(|e| StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e)))?;
+    .map_err(|e| StateHandlerError::RedfishError {
+        operation: "restart",
+        error: e,
+    })?;
 
     Ok(())
 }
@@ -849,8 +851,7 @@ async fn lockdown_host(
                 machine_id: machine_snapshot.machine_id.to_string(),
             },
         )
-        .await
-        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+        .await?;
 
     // Since libredfish calls are thread blocking and we are inside an async function,
     // we have to delegate the actual call into a threadpool
@@ -869,11 +870,9 @@ async fn lockdown_host(
     .map_err(|e| {
         StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
     })?
-    .map_err(|e| {
-        StateHandlerError::GenericError(eyre!(
-            "Failed to restart machine during lockdown handling: {}",
-            e
-        ))
+    .map_err(|e| StateHandlerError::RedfishError {
+        operation: "lockdown",
+        error: e,
     })?;
 
     Ok(())

@@ -58,7 +58,7 @@ impl StateHandler for BmcMachineStateHandler {
                             BmcMachineState::Error(BmcMachineError::RedfishConnectionError {
                                 message: e.to_string(),
                             });
-                        StateHandlerError::GenericError(e.into())
+                        StateHandlerError::from(e)
                     })?;
             }
             BmcMachineState::Error(error_type) => {
