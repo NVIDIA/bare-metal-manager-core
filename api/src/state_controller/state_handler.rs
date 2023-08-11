@@ -12,13 +12,14 @@
 
 use std::sync::Arc;
 
+use libredfish::RedfishError;
 use opentelemetry::metrics::Meter;
 
 use crate::{
     db::DatabaseError,
     ib::IBFabricManager,
     model::machine::{machine_id::MachineId, ManagedHostState},
-    redfish::RedfishClientPool,
+    redfish::{RedfishClientCreationError, RedfishClientPool},
     resource_pool::{DbResourcePool, ResourcePoolError},
     state_controller::{controller::ReachabilityParams, snapshot_loader::SnapshotLoaderError},
 };
@@ -171,6 +172,15 @@ pub enum StateHandlerError {
 
     #[error("Failed to call IBFabricManager: {0}")]
     IBFabricError(String),
+
+    #[error("Failed to create redfish client: {0}")]
+    RedfishClientCreationError(#[from] RedfishClientCreationError),
+
+    #[error("Failed redfish operation: {operation}. Details: {error}")]
+    RedfishError {
+        operation: &'static str,
+        error: RedfishError,
+    },
 }
 
 impl StateHandlerError {
@@ -190,6 +200,12 @@ impl StateHandlerError {
             StateHandlerError::PoolAllocateError { .. } => "pool_allocate_error",
             StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",
             StateHandlerError::IBFabricError(_) => "ib_fabric_error",
+            StateHandlerError::RedfishClientCreationError(_) => "redfish_client_creation_error",
+            StateHandlerError::RedfishError { operation, .. } => match *operation {
+                "restart" => "redfish_restart_error",
+                "lockdown" => "redfish_lockdown_error",
+                _ => "redfish_other_error",
+            },
         }
     }
 }
