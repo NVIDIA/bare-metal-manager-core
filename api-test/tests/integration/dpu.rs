@@ -205,6 +205,7 @@ fn make_dpu_filesystem(
     fs::create_dir_all(hbn_root.join("etc/frr"))?;
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
+    fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
     write_config(
         dpu_config_file,

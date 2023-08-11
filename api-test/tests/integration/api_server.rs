@@ -36,6 +36,7 @@ pub async fn start(
         asn: 65535,
         dhcp_servers: vec![],
         route_servers: vec![],
+        deny_prefixes: vec![],
         tls: Some(TlsConfig {
             identity_pemfile_path: format!("{root_dir}/dev/certs/server_identity.pem"),
             identity_keyfile_path: format!("{root_dir}/dev/certs/server_identity.key"),

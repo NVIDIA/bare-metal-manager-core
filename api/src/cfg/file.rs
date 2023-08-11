@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use ipnetwork::Ipv4Network;
 use serde::{Deserialize, Serialize};
 
 use crate::resource_pool::ResourcePoolDef;
@@ -61,6 +62,10 @@ pub struct CarbideConfig {
     /// Comma-separated list of route server IP addresses. Optional, only for L2VPN (Eth Virt).
     #[serde(default)]
     pub route_servers: Vec<String>,
+
+    /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
+    #[serde(default)]
+    pub deny_prefixes: Vec<Ipv4Network>,
 
     /// TLS related configuration
     pub tls: Option<TlsConfig>,

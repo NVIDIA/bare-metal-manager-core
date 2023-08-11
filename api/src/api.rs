@@ -1132,6 +1132,17 @@ where
             asn: self.eth_data.asn,
             dhcp_servers: self.eth_data.dhcp_servers.clone(),
             route_servers: self.eth_data.route_servers.clone(),
+            // TODO: Automatically add the prefix(es?) from the IPv4 loopback
+            // pool to deny_prefixes. The database stores the pool in an
+            // exploded representation, so we either need to reconstruct the
+            // original prefix from what's in the database, or find some way to
+            // store it when it's added or resized.
+            deny_prefixes: self
+                .eth_data
+                .deny_prefixes
+                .iter()
+                .map(|net| net.to_string())
+                .collect(),
             vni_device: if use_admin_network {
                 "".to_string()
             } else {
@@ -3414,6 +3425,7 @@ where
             asn: carbide_config.asn,
             dhcp_servers: carbide_config.dhcp_servers.clone(),
             route_servers: carbide_config.route_servers.clone(),
+            deny_prefixes: carbide_config.deny_prefixes.clone(),
         };
 
         let health_pool = database_connection.clone();

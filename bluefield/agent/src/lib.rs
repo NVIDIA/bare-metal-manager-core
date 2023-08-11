@@ -35,6 +35,7 @@ use crate::frr::FrrVlanConfig;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
 use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
 
+mod acl_rules;
 mod command_line;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 mod daemons;
@@ -48,6 +49,7 @@ mod instance_metadata_fetcher;
 mod instrumentation;
 mod interfaces;
 mod network_config_fetcher;
+mod util;
 
 // How often to report network health and poll for new configs when in stable state.
 // Eventually we will need an event system. Block storage requires very fast DPU responses.

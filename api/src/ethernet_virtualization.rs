@@ -11,6 +11,7 @@
  */
 
 pub use ::rpc::forge as rpc;
+use ipnetwork::Ipv4Network;
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
 
@@ -33,6 +34,7 @@ pub struct EthVirtData {
     pub asn: u32,
     pub dhcp_servers: Vec<String>,
     pub route_servers: Vec<String>,
+    pub deny_prefixes: Vec<Ipv4Network>,
 }
 
 pub async fn admin_network(

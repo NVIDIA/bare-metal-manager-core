@@ -1,0 +1,8 @@
+# This file is managed by the Forge DPU agent.
+
+[iptables]
+# Prevent the host from talking to the infrastructure prefixes.
+-A FORWARD -i vlan196 -d 192.0.2.0/24 -j DROP
+-A FORWARD -i vlan185 -d 192.0.2.0/24 -j DROP
+-A FORWARD -i vlan196 -d 198.51.100.0/24 -j DROP
+-A FORWARD -i vlan185 -d 198.51.100.0/24 -j DROP

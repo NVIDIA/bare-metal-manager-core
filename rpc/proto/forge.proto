@@ -1078,6 +1078,9 @@ message ManagedHostNetworkConfigResponse {
 
   // Remote ID. Used by DPU to update host's DHCP request with option 82.
   string remote_id = 15;
+
+  // IPv4 prefixes to be denied in the DPU ACL rules.
+  repeated string deny_prefixes = 16;
 }
 
 // Network configuration for a managed host (host + DPU pair) managed by Forge

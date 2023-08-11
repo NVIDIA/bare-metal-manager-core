@@ -256,6 +256,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         asn: 65535,
         dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()],
         route_servers: vec![],
+        deny_prefixes: vec![],
     };
 
     // Populate resource pools
