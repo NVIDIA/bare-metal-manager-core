@@ -293,13 +293,7 @@ pub async fn run(
         });
     }
 
-    let forge_vault_client = setup::create_vault_client(
-        carbide_config
-            .tls
-            .as_ref()
-            .map(|tls_config| tls_config.root_cafile_path.clone()),
-    )
-    .await?;
+    let forge_vault_client = setup::create_vault_client().await?;
 
     tracing::info!(
         "Start carbide-api on {}, {}",
