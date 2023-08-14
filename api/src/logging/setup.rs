@@ -137,13 +137,18 @@ pub async fn setup_telemetry(
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer());
 
         if let Some(otel) = carbide_config.as_ref().clone().otlp_endpoint {
-            let otel_tracer = tracing_opentelemetry::layer()
+            tracing::info!("Starting OTLP tracer. Sending tracing data to: {}", &otel);
+
+            let otlp_tracer = init_otlp_tracer(otel.as_ref())?;
+
+            let otlp_layer = tracing_opentelemetry::layer()
+                .with_tracer(otlp_tracer)
                 .with_exception_fields(true)
-                .with_threads(false)
-                .with_tracer(init_otlp_tracer(otel.as_ref())?);
+                .with_location(true)
+                .with_threads(false);
 
             logging_subscriber
-                .with(otel_tracer.with_filter(block_sqlx_filter))
+                .with(otlp_layer.with_filter(block_sqlx_filter))
                 .try_init()?;
         } else {
             logging_subscriber.try_init()?;
