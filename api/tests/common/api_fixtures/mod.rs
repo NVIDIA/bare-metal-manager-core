@@ -239,6 +239,15 @@ impl TestEnv {
             .unwrap()
             .into_inner()
     }
+
+    // Returns all instances using FindInstances call.
+    pub async fn find_instances(&self, id: Option<rpc::forge::Uuid>) -> rpc::forge::InstanceList {
+        self.api
+            .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery { id }))
+            .await
+            .unwrap()
+            .into_inner()
+    }
 }
 
 /// Creates an environment for unit-testing
