@@ -48,8 +48,9 @@ use carbide::{
         machine::{InstanceState, ManagedHostState},
         tenant::TenantOrganizationId,
     },
-    state_controller::snapshot_loader::{
-        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
+    state_controller::{
+        machine::handler::MachineStateHandler,
+        snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader},
     },
 };
 use chrono::Utc;
@@ -695,4 +696,61 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
                 .to_owned()
         );
     }
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_add_infiniband_data_via_migration(pool: sqlx::PgPool) {
+    use sqlx::Executor;
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let (instance_id, _instance) =
+        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+
+    // Now that the instance is created, we delete the Infiniband information from tables,
+    // apply the migration, and see if state loading and handling still works
+
+    let mut txn = pool.begin().await.unwrap();
+    let query = "ALTER TABLE instances DROP COLUMN ib_config_version, DROP COLUMN ib_config, DROP COLUMN ib_status_observation;";
+    txn.execute(query).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = pool.begin().await.unwrap();
+    const MIGRATIONS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
+    for migration in &[
+        "20230630000000_instance_ib_config",
+        "20230814000000_fix_instance_ib_observation_default",
+    ] {
+        let content = std::fs::read(format!("{}/{}.sql", MIGRATIONS_DIR, migration)).unwrap();
+        let content = String::from_utf8(content).unwrap();
+        txn.execute(content.as_str())
+            .await
+            .unwrap_or_else(|e| panic!("failed to apply test fixture {:?}: {:?}", migration, e));
+    }
+    txn.commit().await.unwrap();
+
+    // Without the 2nd migration this function would have panicked, because
+    // state loading doesn't work
+    let handler = MachineStateHandler::default();
+    env.run_machine_state_controller_iteration(host_machine_id, &handler)
+        .await;
+
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    let status = instance.status.as_ref().unwrap();
+    assert_eq!(
+        status.tenant.as_ref().unwrap().state(),
+        rpc::TenantState::Ready
+    );
+    assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
 }
