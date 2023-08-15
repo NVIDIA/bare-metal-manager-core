@@ -4,7 +4,8 @@ After=networking.service network-online.target time-sync.target containerd@mgmt.
 
 [Service]
 Type=simple
-Environment="RUST_BACKTRACE=1"
+Environment="RUST_BACKTRACE=full"
+Environment="RUST_LIB_BACKTRACE=0"
 Environment="RUST_LOG=debug"
 ExecStart=+/usr/sbin/ip vrf exec mgmt /usr/bin/forge-dpu-agent
 # We always want to restart the dpu agent in case of crashes

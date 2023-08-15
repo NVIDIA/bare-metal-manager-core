@@ -19,7 +19,7 @@ use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_prometheus::PrometheusExporter;
 use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
 use opentelemetry_semantic_conventions as semcov;
-use std::{env, sync::Arc};
+use std::sync::Arc;
 use tracing_subscriber::{
     filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, util::SubscriberInitExt,
 };
@@ -45,7 +45,6 @@ pub async fn setup_telemetry(
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
     if debug != 0 {
-        env::set_var("RUST_BACKTRACE", "1");
         global_filter = global_filter.add_directive(
             match debug {
                 1 => {

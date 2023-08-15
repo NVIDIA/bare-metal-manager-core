@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=idle
 Environment=RUST_BACKTRACE=full
+Environment=RUST_LIB_BACKTRACE=0
 ExecStart=/opt/forge/run.sh
 OOMScoreAdjust=-1000
 
