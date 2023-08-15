@@ -95,7 +95,6 @@ impl DnsQuestion {
     ) -> Result<DnsResponse, DatabaseError> {
         let mut response = DnsResponse::default();
 
-        tracing::info!("{:?}", question);
         match question.query_type {
             Some(1) => {
                 let query = "SELECT resource_record from dns_records WHERE q_name=$1 AND family(resource_record) = 4;";
@@ -104,7 +103,6 @@ impl DnsQuestion {
                     .fetch_one(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-                tracing::info!("{:?}", result);
                 let rr = DnsResourceRecord {
                     record_data: Some(result),
                 };

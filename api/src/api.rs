@@ -1308,7 +1308,7 @@ where
             }
         };
 
-        let results = DnsQuestion::find_record(&mut txn, question)
+        let response = DnsQuestion::find_record(&mut txn, question)
             .await
             .map(|dnsrr| rpc::dns_message::DnsResponse {
                 rcode: dnsrr.response_code,
@@ -1318,10 +1318,10 @@ where
                     .map(|r| r.into())
                     .collect(),
             })
-            .map(Response::new)
             .map_err(CarbideError::from)?;
+        tracing::info!("DnsResponse: {:?}", response);
 
-        Ok(results)
+        Ok(Response::new(response))
     }
 
     async fn invoke_instance_power(

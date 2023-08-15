@@ -19,6 +19,7 @@ pub fn test_logging_subscriber() -> impl SubscriberInitExt {
         .from_env_lossy()
         .add_directive("sqlx=warn".parse().unwrap())
         .add_directive("tower=warn".parse().unwrap())
+        .add_directive("rustify=off".parse().unwrap())
         .add_directive("rustls=warn".parse().unwrap())
         .add_directive("hyper=warn".parse().unwrap())
         .add_directive("h2=warn".parse().unwrap());

@@ -137,7 +137,6 @@ impl BmcMetaDataGetRequest {
         C: CredentialProvider + ?Sized,
     {
         let bmc_info = self.get_bmc_information(txn).await?;
-        tracing::info!("got bmc_info: {:?}", bmc_info);
         let credentials = credential_provider
             .get_credentials(CredentialKey::Bmc {
                 machine_id: self.machine_id.to_string(),
