@@ -43,10 +43,8 @@ impl<W: Write> OtelStdoutExporter<W> {
 
 const IGNORED_SPANS: &[&str] = &[];
 
-const IGNORED_REQUEST_METHODDS: &[&str] = &[
-    "GetManagedHostNetworkConfig",
-    "RecordManagedHostNetworkStatus",
-];
+const IGNORED_REQUEST_METHODDS: &[&str] =
+    &["GetManagedHostNetworkConfig", "RecordDpuNetworkStatus"];
 
 #[async_trait]
 impl<W> SpanExporter for OtelStdoutExporter<W>
@@ -66,7 +64,12 @@ where
                 .map(|value| value.as_str().into_owned())
                 .unwrap_or_default();
 
-            if IGNORED_REQUEST_METHODDS.contains(&method.as_str()) {
+            // We ignore periodic requests if their outcome is OK
+            // If these RPCs fail we keep them around, so that its more obvious
+            // for operators that something went wrong
+            if span.status == opentelemetry_api::trace::Status::Ok
+                && IGNORED_REQUEST_METHODDS.contains(&method.as_str())
+            {
                 continue;
             }
 
