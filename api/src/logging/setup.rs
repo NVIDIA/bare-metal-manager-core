@@ -60,7 +60,7 @@ pub async fn setup_telemetry(
 
     global_filter = global_filter
         .add_directive("sqlxmq::runner=warn".parse()?)
-        .add_directive("rustify=error".parse()?)
+        .add_directive("rustify=off".parse()?)
         .add_directive("vaultrs=error".parse()?)
         .add_directive("h2::codec=warn".parse()?);
 
