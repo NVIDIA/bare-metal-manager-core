@@ -109,7 +109,8 @@ services:
       - UNSUPPORTED_CERTIFICATE_PROVIDER=true
       - VAULT_TOKEN=notforprodtoken
       - VAULT_ADDR=http://vault:8200
-      - RUST_BACKTRACE=1
+      - RUST_BACKTRACE=full
+      - RUST_LIB_BACKTRACE=0
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
