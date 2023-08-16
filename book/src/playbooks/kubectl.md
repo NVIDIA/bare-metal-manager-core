@@ -7,25 +7,19 @@ This page lists `kubectl` commands that can be executed on Forge clusters for ma
 ### Tail forge API server (carbide-api) logs
 
 ```
-kubectl logs -n forge-system -l app.kubernetes.io/component=carbide-api --all-containers -f
-```
-
-### Tail forge VPC logs
-
-```
-kubectl logs -n forge-system -l app.kubernetes.io/component=vpc-controller-manager --all-containers -f
-```
-
-### Tail logs for all all site controller components (incl PXE, DHCP)
-
-```
-kubectl logs -n forge-system -l app.kubernetes.io/instance=carbide --all-containers -f
+kubectl logs -n forge-system deploy/carbide-api --all-containers -f
 ```
 
 ### Tee logs (for offline viewing)
 
 ```
-kubectl logs -n forge-system -l app.kubernetes.io/component=carbide-api --all-containers -f | tee -a /tmp/myuserlogs.txt
+kubectl logs -n forge-system deploy/carbide-api --all-containers -f | tee -a /tmp/myuserlogs.txt
+```
+
+## carbide-api shell access
+
+```
+kubectl exec -it -n forge-system deploy/carbide-api -- /bin/sh
 ```
 
 ## Database access
