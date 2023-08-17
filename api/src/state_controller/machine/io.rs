@@ -68,7 +68,7 @@ impl StateControllerIO for MachineStateControllerIO {
         _object_id: &Self::ObjectId,
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, SnapshotLoaderError> {
-        let current = state.dpu_snapshot.current.clone();
+        let current = state.host_snapshot.current.clone();
 
         Ok(Versioned::new(current.state, current.version))
     }
