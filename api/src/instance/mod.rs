@@ -181,7 +181,7 @@ pub async fn allocate_instance(
     .await?;
 
     // Machine will be rebooted once managed resource creation is successful.
-    let snapshot = DbSnapshotLoader::default()
+    let snapshot = DbSnapshotLoader {}
         .load_instance_snapshot(&mut txn, instance.id, machine.current_state())
         .await?;
 

@@ -153,7 +153,7 @@ exit ||
             }
         }
 
-        let machine_snapshot = DbSnapshotLoader::default()
+        let machine_snapshot = DbSnapshotLoader {}
             .load_machine_snapshot(txn, machine.id())
             .await?;
 

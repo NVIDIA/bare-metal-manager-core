@@ -19,33 +19,49 @@
 # - `docker push urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:{OUTPUT_OF_GIT_DESCRIBE_HERE}`
 
 # This should match rust-toolchain.toml
-FROM rust:1.70.0
+FROM rust:1.71.1-slim-bookworm
 
-COPY pgdg.gpg /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
-COPY pgdg.list /etc/apt/sources.list.d/pgdg.list
-COPY isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
-COPY isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
+RUN apt update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y \
+	automake \
+	binutils-aarch64-linux-gnu \
+	build-essential \
+	clang \
+	cmake \
+	curl \
+	fdisk dosfstools \
+	gcc-aarch64-linux-gnu \
+	iproute2 \
+	iputils-ping \
+	jq \
+	kea-dev \
+	kea-dhcp4-server \
+	libboost-dev \
+	libgrpc-dev \
+	libopenipmi-dev \
+	libprotobuf-dev \
+	libssh-dev \
+	libssl-dev \
+	libudev-dev \
+	libgrpc++-dev \
+	libaio-dev \
+	pkg-config \
+	protobuf-compiler-grpc \
+	postgresql-15 \
+	protobuf-compiler \
+	sudo \
+	unzip \
+	wget \
+	git && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
-
-RUN apt update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y curl wget postgresql-14 build-essential isc-kea-dhcp4-server isc-kea-dhcp6-server isc-kea-dev libboost-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libudev-dev libssl-dev clang automake cmake pkg-config sudo iproute2 protobuf-compiler fdisk dosfstools jq unzip iputils-ping git && rm -rf /var/lib/apt/lists/*
 RUN rustup component add rustfmt
 RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache && cargo cache -r registry-index,registry-sources
+
+# install stuff that's not in debian
+RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
 RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.14.0/kind-linux-amd64  && chmod +x ./kind && mv kind /usr/local/bin
 RUN cd /tmp && curl -Lo ./grpcurl.tar.gz https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz && tar xzf grpcurl.tar.gz && chmod +x ./grpcurl && mv grpcurl /usr/local/bin/ && rm LICENSE && rm grpcurl.tar.gz
-RUN cd /tmp && curl -Lo vault.zip https://releases.hashicorp.com/vault/1.13.3/vault_1.13.3_linux_amd64.zip && unzip vault.zip && chmod u+x vault && mv vault /usr/local/bin/ && rm vault.zip
+RUN cd /tmp && curl -Lo vault.zip https://releases.hashicorp.com/vault/1.14.1/vault_1.14.1_linux_amd64.zip && unzip vault.zip && chmod u+x vault && mv vault /usr/local/bin/ && rm vault.zip
 RUN cd /usr/local/bin && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
-RUN /etc/init.d/postgresql start && su postgres -c "/usr/lib/postgresql/14/bin/createuser -d root" && /etc/init.d/postgresql stop
-RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
-RUN mkdir /usr/local/go && cd /usr/local/go && curl -Lo go.tar.gz https://go.dev/dl/go1.18.3.linux-amd64.tar.gz && tar --strip-components 1 -zxf go.tar.gz && rm -f go.tar.gz
-RUN mkdir -p /opt/protobuf && \
-  rm -rf /tmp/protobuf && \
-  mkdir -p /tmp/protobuf && \
-  curl -L https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-linux-x86_64.zip -o /tmp/protobuf/protobuf.zip && \
-  unzip -d /tmp/protobuf /tmp/protobuf/protobuf.zip && \
-  mv /tmp/protobuf/bin/protoc /opt/protobuf/ && \
-  mv /tmp/protobuf/include /opt/protobuf/ && \
-  rm -rf /tmp/protobuf
-ENV PATH "$PATH:/opt/protobuf:/usr/local/bin/go"
-ENV PROTOC "/opt/protobuf/protoc"
-ENV PROTOC_INCLUDE "/opt/protobuf/include"
+
+# create a postgres user
+RUN /etc/init.d/postgresql start && su postgres -c "/usr/lib/postgresql/15/bin/createuser -d root" && /etc/init.d/postgresql stop

@@ -140,6 +140,7 @@ command = "sudo"
 args = [
 	"mkosi/builddir/mkosi",
 	"--split-artifacts",
+	"--cache=/var/tmp",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"clean"
 ]
@@ -149,6 +150,7 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
 	"mkosi/builddir/mkosi",
+	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"build"
@@ -159,6 +161,7 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
         "mkosi/builddir/mkosi",
+	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"clean"
@@ -169,6 +172,7 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
         "mkosi/builddir/mkosi",
+	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"build"
@@ -179,6 +183,7 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
 	"../mkosi/builddir/mkosi",
+	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "../static/blobs/internal/x86_64/qcow-imaging",
 	"build"
@@ -190,6 +195,7 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
 	"../mkosi/builddir/mkosi",
+	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "../static/blobs/internal/x86_64/qcow-imaging",
 	"clean"
@@ -219,7 +225,6 @@ dependencies = [
 	"ipxe-install-pcbios-x86_64",
 	"ipxe-install-efi-x86_64",
     "package-boot-artifacts-x86_64",
-    "upload-boot-artifacts-x86_64"
 ]
 
 [tasks.ipxe-config]
@@ -252,7 +257,6 @@ dependencies = [
     "ipxe-config",
     "ipxe-install-efi-aarch64",
     "package-boot-artifacts-aarch64",
-    "upload-boot-artifacts-aarch64",
 ]
 
 [tasks.ipxe-install-efi-aarch64]
@@ -464,21 +468,3 @@ description = "Package aarch64 EFI iPXE kernel and rootdisk"
 command = "tar"
 args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_JOB_ID}.tar.gz", "ipxe.efi", "carbide.root", "carbide.efi",]
 cwd = "static/blobs/internal/aarch64"
-
-[tasks.upload-boot-artifacts-x86_64]
-category = "iPXE Kernel"
-description = "Upload x86_64 EFI iPXE kernel and rootdisk"
-command = "/usr/local/bin/jfrog"
-args = [ "rt", "u", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_JOB_ID}.tar.gz", "swngc-ngcc-generic-local/nvmetal/boot-artifacts/x86_64/forge-boot-artifacts-${CI_JOB_ID}.tar.gz"]
-dependencies = [
-  "package-boot-artifacts-x86_64"
-]
-
-[tasks.upload-boot-artifacts-aarch64]
-category = "iPXE Kernel"
-description = "Upload aarch64 EFI iPXE kernel and rootdisk"
-command = "/usr/local/bin/jfrog"
-args = [ "rt", "u", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_JOB_ID}.tar.gz", "swngc-ngcc-generic-local/nvmetal/boot-artifacts/aarch64/forge-boot-artifacts-${CI_JOB_ID}.tar.gz"]
-dependencies = [
-  "package-boot-artifacts-aarch64"
-]

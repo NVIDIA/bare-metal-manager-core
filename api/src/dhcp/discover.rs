@@ -39,7 +39,7 @@ async fn validate_dhcp_request(
     remote_id: Option<String>,
     host_machine_id: &MachineId,
 ) -> CarbideResult<()> {
-    let snapshot = DbSnapshotLoader::default()
+    let snapshot = DbSnapshotLoader {}
         .load_machine_snapshot(txn, host_machine_id)
         .await
         .map_err(CarbideError::from)?;

@@ -96,7 +96,7 @@ async fn test_find_temp_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     let mut txn = pool.begin().await?;
 
-    let host_machine_id = DbSnapshotLoader::default()
+    let host_machine_id = DbSnapshotLoader {}
         .load_machine_snapshot(&mut txn, &dpu_machine_id)
         .await
         .unwrap()

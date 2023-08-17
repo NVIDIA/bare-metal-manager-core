@@ -883,7 +883,7 @@ where
                 .map_err(CarbideError::from),
         }?;
 
-        let loader = DbSnapshotLoader::default();
+        let loader = DbSnapshotLoader {};
         let mut instances = Vec::with_capacity(raw_instances.len());
         for instance in raw_instances {
             let snapshot = loader
@@ -919,7 +919,7 @@ where
             ))
         })?;
 
-        let Some(snapshot) = DbSnapshotLoader::default()
+        let Some(snapshot) = DbSnapshotLoader {}
             .load_machine_snapshot(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?.instance else {
@@ -1051,7 +1051,7 @@ where
         };
         log_machine_id(&dpu_machine_id);
 
-        let loader = DbSnapshotLoader::default();
+        let loader = DbSnapshotLoader {};
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin get_managed_host_network_config", e)
         })?;
@@ -1348,7 +1348,7 @@ where
         };
         log_machine_id(&machine_id);
 
-        let loader = DbSnapshotLoader::default();
+        let loader = DbSnapshotLoader {};
         let snapshot = loader
             .load_machine_snapshot(&mut txn, &machine_id)
             .await

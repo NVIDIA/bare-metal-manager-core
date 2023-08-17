@@ -111,7 +111,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
 
-    let snapshot_loader = DbSnapshotLoader::default();
+    let snapshot_loader = DbSnapshotLoader {};
     let snapshot = snapshot_loader
         .load_machine_snapshot(&mut txn, machine.id())
         .await

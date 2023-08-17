@@ -203,13 +203,6 @@ dependencies = [
   {name="test-instance-forge-docker", path="include/Makefile-bootstrap.toml"}
 ]
 
-[tasks.update-kube-structs]
-workspace = false
-dependencies = [
-  {name="update-vpc-submodule", path="include/Makefile-vpc.toml"},
-  {name="generate-rust-from-crd", path="include/Makefile-vpc.toml"}
-]
-
 [tasks.pre-commit-verify]
 description = "Runs the same set of tasks CI will."
 category = "CI"

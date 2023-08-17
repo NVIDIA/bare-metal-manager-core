@@ -35,5 +35,3 @@ export SECRET_ID=${VAULT_SECRET_ID}
 
 VAULT_TOKEN=$(curl --header "X-Vault-Namespace:${VAULT_NAMESPACE}" -s --request POST --data "{\"role_id\":\"$ROLE_ID\",\"secret_id\":\"$SECRET_ID\"}" "${VAULT_ADDR}/v1/auth/approle/login" | jq -r '.auth.client_token')
 curl --header "X-Vault-Token:${VAULT_TOKEN}" --header "X-Vault-Namespace: ${VAULT_NAMESPACE}" -s "${VAULT_ADDR}/v1/secrets/data/forge/docker" | jq -r '.data.data.docker_json'  > ${CI_PROJECT_DIR}/kaniko/.docker/config.json
-
-

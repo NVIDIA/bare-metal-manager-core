@@ -14,21 +14,13 @@
 #[cfg(target_arch = "x86_64")]
 fn main() {
     use std::env;
-    use std::process::Command;
 
     let kea_include_path =
         env::var("KEA_INCLUDE_PATH").unwrap_or_else(|_| "/usr/include/kea".to_string());
-    let kea_bin_path = env::var("KEA_BIN_PATH").unwrap_or_else(|_| "/usr/bin".to_string());
     let kea_lib_path =
         env::var("KEA_LIB_PATH").unwrap_or_else(|_| "/usr/lib/x86_64-linux-gnu/kea".to_string());
 
     let kea_shim_root = format!("{}/src/kea", env!("CARGO_MANIFEST_DIR"));
-
-    Command::new(format!("{}/kea-msg-compiler", kea_bin_path))
-        .args(["-d", &kea_shim_root[..]])
-        .arg(format!("{}/carbide_logger.mes", kea_shim_root))
-        .status()
-        .expect("Cannot find `kea-msg-compiler` binary. Check your package installation for the `-dev` package, or, if compiling it yourself use `./configure --enable-generate-messages` to produce the binary");
 
     cbindgen::Builder::new()
         .with_crate(env!("CARGO_MANIFEST_DIR"))
