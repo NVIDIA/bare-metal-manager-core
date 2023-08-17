@@ -173,7 +173,7 @@ build-runtime-container-x86_64:
     BUILD_DOCKER_IMAGE: urm.nvidia.com/swngc-ngcc-docker-local/forge/$CI_PROJECT_NAME/x86-64/runtime-container
   rules:
     - changes:
-        - dev/docker/Dockerfile.build-container-x86_64
+        - dev/docker/Dockerfile.runtime-container-x86_64
   after_script:
     - echo "CONTAINER_RUNTIME_X86_64=$CONTAINER_REGISTRY_X86_64/runtime-container:$VERSION" > runtime-container-x86_64.env
   artifacts:
@@ -196,6 +196,8 @@ build-runtime-container-aarch64:
   script: /bin/true
   rules:
     - when: never # TODO - we don't run carbide on ARM yet
+#    - changes:
+#        - dev/docker/Dockerfile.runtime-container-aarch64
   after_script:
     - echo "CONTAINER_RUNTIME_AARCH64=$CONTAINER_REGISTRY_AARCH64/runtime-container:$VERSION" > runtime-container-aarch64.env
   artifacts:
@@ -323,7 +325,7 @@ build-release-artifacts-aarch64:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
   tags:
-    - aarch64
+    - x86_64 # The AARCH64 artifacts are still packaged into the X86_64 version of the image because we execute commands in it on an X86_64 host
   needs:
     - job: prepare-ci
       optional: false
@@ -334,7 +336,6 @@ build-release-artifacts-aarch64:
     - job: build-boot-artifacts-aarch64
       optional: false
   variables:
-    BUILD_DOCKER_IMAGE: urm.nvidia.com/swngc-ngcc-docker-local/forge/$CI_PROJECT_NAME/arm64v8/build-container
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.release-artifacts-aarch64
   before_script: |
     mkdir -p /kaniko/.docker
