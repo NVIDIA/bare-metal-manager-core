@@ -140,7 +140,6 @@ command = "sudo"
 args = [
 	"mkosi/builddir/mkosi",
 	"--split-artifacts",
-	"--cache=/var/tmp",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"clean"
 ]
@@ -150,7 +149,6 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
 	"mkosi/builddir/mkosi",
-	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"build"
@@ -161,7 +159,6 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
         "mkosi/builddir/mkosi",
-	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"clean"
@@ -172,7 +169,6 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
         "mkosi/builddir/mkosi",
-	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"build"
@@ -183,7 +179,6 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
 	"../mkosi/builddir/mkosi",
-	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "../static/blobs/internal/x86_64/qcow-imaging",
 	"build"
@@ -195,7 +190,6 @@ category = "Ephemeral Image"
 command = "sudo"
 args = [
 	"../mkosi/builddir/mkosi",
-	"--cache=/var/tmp",
 	"--split-artifacts",
 	"--output", "../static/blobs/internal/x86_64/qcow-imaging",
 	"clean"
