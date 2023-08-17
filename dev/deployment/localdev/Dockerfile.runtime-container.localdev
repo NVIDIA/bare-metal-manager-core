@@ -9,20 +9,24 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
-FROM ubuntu:focal as carbide
+FROM debian:bookworm-slim as carbide
 
 RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/pxe/templates && \
   mkdir -p /opt/carbide/static && \
   mkdir -p /forge-boot-artifacts/blobs
-RUN --mount=type=cache,target=/var/cache/apt apt-get update && apt-get install -y --no-install-recommends \
-  ca-certificates curl iproute2 iputils-ping libudev1
 
-COPY dev/deployment/pgdg.gpg /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
-COPY dev/deployment/pgdg.list /etc/apt/sources.list.d/pgdg.list
-COPY dev/deployment/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
-COPY dev/deployment/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
 RUN --mount=type=cache,target=/var/cache/apt apt-get update && apt-get install -y --no-install-recommends \
-  postgresql-client-14 postgresql-client-14-dbgsym \
-  ca-certificates curl iproute2 iputils-ping \
-  isc-kea-dhcp4-server isc-kea-dhcp6-server libudev1
+  postgresql-client-15 \
+  ca-certificates \
+  curl \
+  iproute2 \
+  iputils-ping \
+  kea-dev \
+  kea-dhcp4-server  \
+  libudev1 \
+  ca-certificates \
+  curl \
+  iproute2 \
+  iputils-ping \
+  libudev1

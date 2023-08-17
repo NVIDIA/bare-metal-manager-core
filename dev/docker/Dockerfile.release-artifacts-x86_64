@@ -7,9 +7,11 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
+ARG CONTAINER_RUNTIME_X86_64
 
-FROM alpine:latest
+FROM $CONTAINER_RUNTIME_X86_64
 
 WORKDIR /
 COPY pxe/static/blobs/internal/ /
+
 CMD exec /bin/sh -c "trap : TERM INT; sleep 9999999999d & wait"

@@ -1,9 +1,0 @@
-# Source: ISC - Internet Systems Consortium
-# Site: https://www.isc.org
-# Repository: ISC - Internet Systems Consortium / kea-2-0
-# Description: The Kea 2.0 branch is the latest stable version of Kea, suitable for production deployment.
-
-
-deb https://dl.cloudsmith.io/public/isc/kea-2-0/deb/ubuntu focal main
-
-deb-src https://dl.cloudsmith.io/public/isc/kea-2-0/deb/ubuntu focal main

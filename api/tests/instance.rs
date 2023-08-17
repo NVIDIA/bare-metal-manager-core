@@ -194,7 +194,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    let snapshot_loader = DbSnapshotLoader::default();
+    let snapshot_loader = DbSnapshotLoader {};
     let snapshot = snapshot_loader
         .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
         .await
@@ -276,7 +276,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
 
     // When no network status has been observed, we report an interface
     // list with no IPs and MACs to the user
-    let snapshot_loader = DbSnapshotLoader::default();
+    let snapshot_loader = DbSnapshotLoader {};
     let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
@@ -456,7 +456,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let snapshot_loader = DbSnapshotLoader::default();
+    let snapshot_loader = DbSnapshotLoader {};
 
     let mut txn = pool
         .clone()
@@ -617,7 +617,7 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
     );
 
     // The addresses should show up in the internal config
-    let snapshot_loader = DbSnapshotLoader::default();
+    let snapshot_loader = DbSnapshotLoader {};
     let snapshot = snapshot_loader
         .load_machine_snapshot(&mut txn, &host_machine_id)
         .await
