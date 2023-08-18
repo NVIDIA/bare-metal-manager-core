@@ -637,36 +637,6 @@ WHERE network_prefixes.circuit_id=$1";
 
         Ok(segments.remove(0))
     }
-
-    pub async fn update_vlan_id(
-        txn: &mut Transaction<'_, Postgres>,
-        id: uuid::Uuid,
-        vlan_id: i32,
-    ) -> Result<(), DatabaseError> {
-        let query = "UPDATE network_segments SET vlan_id = $1 WHERE id = $2";
-        sqlx::query(query)
-            .bind(vlan_id)
-            .bind(id)
-            .execute(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
-    }
-
-    pub async fn update_vni(
-        txn: &mut Transaction<'_, Postgres>,
-        id: uuid::Uuid,
-        vni: i32,
-    ) -> Result<(), DatabaseError> {
-        let query = "UPDATE network_segments SET vni_id = $1 WHERE id = $2";
-        sqlx::query(query)
-            .bind(vni)
-            .bind(id)
-            .execute(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Copy, FromRow)]
