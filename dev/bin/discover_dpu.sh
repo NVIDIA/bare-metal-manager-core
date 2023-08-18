@@ -59,6 +59,7 @@ echo "$HBN_ROOT" > /tmp/hbn_root
 mkdir -p ${HBN_ROOT}/etc/frr
 mkdir -p ${HBN_ROOT}/etc/network
 mkdir -p ${HBN_ROOT}/etc/supervisor/conf.d
+mkdir -p ${HBN_ROOT}/etc/cumulus/acl/policy.d
 
 cat <<!> $DPU_CONFIG_FILE
 [forge-system]

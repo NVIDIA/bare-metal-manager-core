@@ -134,7 +134,7 @@ pub enum CarbideError {
     IdentifierSpecifiedForNewObject(String),
 
     #[error("A unique identifier was not specified for an existing object.  Please specify an identifier")]
-    IdentifierNotSpecifiedForObject(),
+    IdentifierNotSpecifiedForObject,
 
     #[error("The Domain name {0} contains illegal characters")]
     InvalidDomainName(String),
@@ -192,6 +192,9 @@ pub enum CarbideError {
 
     #[error("Failed to generate client certificate: {0}")]
     ClientCertificateError(String),
+
+    #[error("Machine is in maintenance mode. Cannot allocate instance on it.")]
+    MaintenanceMode,
 }
 
 impl From<CarbideError> for tonic::Status {
@@ -231,6 +234,9 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
             CarbideError::NotFoundError { kind, id } => {
                 Status::not_found(format!("missing {kind} {id}"))
+            }
+            CarbideError::MaintenanceMode => {
+                Status::failed_precondition("MaintenanceMode".to_string())
             }
             error @ CarbideError::ConcurrentModificationError(_, _) => {
                 Status::failed_precondition(error.to_string())

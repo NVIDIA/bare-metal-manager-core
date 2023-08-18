@@ -12,15 +12,13 @@
 use std::fmt::Write;
 use std::time::Duration;
 
-use prettytable::{row, Table};
-
 use ::rpc::forge as forgerpc;
-
-use crate::cfg::carbide_options::ForceDeleteMachineQuery;
-use crate::Config;
+use prettytable::{row, Table};
 
 use super::cfg::carbide_options::ShowMachine;
 use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
+use crate::cfg::carbide_options::ForceDeleteMachineQuery;
+use crate::Config;
 
 fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResult<String> {
     let width = 14;
@@ -199,7 +197,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 }
 
 async fn show_all_machines(json: bool, api_config: Config) -> CarbideCliResult<()> {
-    let machines = rpc::get_all_machines(api_config).await?;
+    let machines = rpc::get_all_machines(api_config, false).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&machines).unwrap());
     } else {

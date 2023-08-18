@@ -33,6 +33,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &dpu_machine_id,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
+            ..Default::default()
         },
     )
     .await?
@@ -77,6 +78,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &dpu_machine_id,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
+            ..Default::default()
         },
     )
     .await?
@@ -112,6 +114,7 @@ async fn test_old_machine_state_history(
         &dpu_machine_id,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
+            ..Default::default()
         },
     )
     .await?

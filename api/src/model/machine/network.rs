@@ -62,17 +62,23 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             dpu_machine_id: Some(rpc::MachineId { id: m.machine_id }),
             dpu_agent_version: m.agent_version.clone(),
             observed_at: Some(m.observed_at.into()),
-            health: Some(rpc::NetworkHealth {
-                is_healthy: m.health_status.is_healthy,
-                passed: m.health_status.passed,
-                failed: m.health_status.failed,
-                message: m.health_status.message,
-            }),
+            health: Some(m.health_status.into()),
             network_config_version: m.network_config_version.map(|v| v.version_string()),
             instance_id: None,
             instance_config_version: None,
             interfaces: vec![],
             network_config_error: None,
+        }
+    }
+}
+
+impl From<HealthStatus> for rpc::NetworkHealth {
+    fn from(h: HealthStatus) -> rpc::NetworkHealth {
+        rpc::NetworkHealth {
+            is_healthy: h.is_healthy,
+            passed: h.passed.clone(),
+            failed: h.failed.clone(),
+            message: h.message.clone(),
         }
     }
 }

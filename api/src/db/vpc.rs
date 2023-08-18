@@ -282,7 +282,7 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
         Ok(UpdateVpc {
             id: value
                 .id
-                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
+                .ok_or(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
             if_version_match,
             name: value.name,
@@ -298,7 +298,7 @@ impl TryFrom<rpc::VpcDeletionRequest> for DeleteVpc {
         Ok(DeleteVpc {
             id: value
                 .id
-                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
+                .ok_or(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
         })
     }

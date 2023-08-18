@@ -479,6 +479,9 @@ impl StateHandler for InstanceStateHandler {
                     // Wait for instance network config to be applied
                     // Reboot host and moved to Ready.
 
+                    // TODO GK if delete_requested skip this whole step,
+                    // reboot and jump to BootingWithDiscoveryImage
+
                     // Check DPU network config has been applied
                     if !is_network_ready(&state.dpu_snapshot) {
                         return Ok(());

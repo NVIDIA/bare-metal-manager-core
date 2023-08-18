@@ -10,6 +10,8 @@ name = "forge-admin-cli"
 path = "src/main.rs"
 
 [dependencies]
+byte-unit = "4.0.19"
+chrono = "0.4.26"
 clap = { workspace = true }
 color-eyre = "*"
 libredfish = { version = "0.7.4", registry = "sw-ngc-forge-cargo-local" }
@@ -27,7 +29,6 @@ uuid = "1.0"
 # local crate dependencies
 rpc = { path = "../rpc" }
 forge-version = { path = "../version" }
-byte-unit = "4.0.19"
 
 [build-dependencies]
 forge-version = { path = "../version" }

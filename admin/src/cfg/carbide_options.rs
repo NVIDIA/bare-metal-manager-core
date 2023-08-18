@@ -195,6 +195,12 @@ pub enum NetworkCommand {
 pub enum ManagedHost {
     #[clap(about = "Display managed host information")]
     Show(ShowManagedHost),
+    #[clap(
+        about = "Switch a machine in/out of maintenance mode",
+        subcommand,
+        visible_alias = "fix"
+    )]
+    Maintenance(MaintenanceAction),
 }
 
 #[derive(Parser, Debug)]
@@ -264,22 +270,58 @@ pub struct ShowManagedHost {
     #[clap(short, long, action)]
     pub all: bool,
 
+    #[clap(long)]
+    pub host: Option<String>,
+
     #[clap(short, long, action)]
     pub ips: bool,
 
     #[clap(long, action)]
     pub more: bool,
 
-    #[clap(long)]
-    pub host: Option<String>,
+    #[clap(long, action, help = "Show only hosts in maintenance mode")]
+    pub fix: bool,
+}
+
+/// Enable or disable maintenance mode on a managed host.
+/// To list machines in maintenance mode use `forge-admin-cli mh show --all --fix`
+#[derive(Parser, Debug)]
+pub enum MaintenanceAction {
+    /// Put this machine into maintenance mode. Prevents an instance being assigned to it.
+    On(MaintenanceOn),
+    /// Return this machine to normal operation.
+    Off(MaintenanceOff),
+}
+
+#[derive(Parser, Debug)]
+pub struct MaintenanceOn {
+    #[clap(long, require_equals(true), required(true), help = "Managed Host ID")]
+    pub host: String,
+
+    #[clap(
+        long,
+        visible_alias = "ref",
+        require_equals(true),
+        required(true),
+        help = "URL of reference (ticket, issue, etc) for this machine's maintenance"
+    )]
+    pub reference: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct MaintenanceOff {
+    #[clap(long, require_equals(true), required(true), help = "Managed Host ID")]
+    pub host: String,
 }
 
 #[derive(Parser, Debug)]
 pub enum Instance {
-    #[clap(about = "Display Instance information")]
+    #[clap(about = "Display instance information")]
     Show(ShowInstance),
-    #[clap(about = "Reboot Instance")]
+    #[clap(about = "Reboot instance")]
     Reboot(RebootInstance),
+    #[clap(about = "De-allocate instance")]
+    Release(ReleaseInstance),
 }
 
 #[derive(Parser, Debug)]
@@ -308,6 +350,19 @@ pub struct RebootInstance {
 
     #[clap(short, long, action)]
     pub custom_pxe: bool,
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+        ArgGroup::new("release_instance")
+        .required(true)
+        .args(&["instance", "machine"])))]
+pub struct ReleaseInstance {
+    #[clap(short, long)]
+    pub instance: Option<String>,
+
+    #[clap(short, long)]
+    pub machine: Option<String>,
 }
 
 #[derive(Parser, Debug)]

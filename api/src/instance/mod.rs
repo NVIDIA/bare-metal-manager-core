@@ -139,6 +139,10 @@ pub async fn allocate_instance(
         )));
     }
 
+    if machine.is_maintenance_mode() {
+        return Err(CarbideError::MaintenanceMode);
+    }
+
     // This persists the instance with initial configs, but this is lacking the config
     // for related items we are allocating. At this point in time mostly the allocated
     // IPs for the instance.
