@@ -43,8 +43,11 @@ use crate::{
         },
     },
     redfish::RedfishCredentialType,
-    state_controller::state_handler::{
-        ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+    state_controller::{
+        machine::metrics::MachineMetrics,
+        state_handler::{
+            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+        },
     },
 };
 
@@ -61,6 +64,7 @@ impl StateHandler for MachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
+    type ObjectMetrics = MachineMetrics;
 
     async fn handle_object_state(
         &self,
@@ -68,9 +72,20 @@ impl StateHandler for MachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        metrics: &mut Self::ObjectMetrics,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let managed_state = &state.managed_state;
+
+        metrics.dpu_healthy = state.dpu_snapshot.has_healthy_network();
+        if let Some(observation) = state.dpu_snapshot.network_status_observation.as_ref() {
+            metrics.agent_version = observation.agent_version.clone();
+            metrics.dpu_up = Utc::now().signed_duration_since(observation.observed_at)
+                <= chrono::Duration::from_std(DPU_UP_THRESHOLD).unwrap();
+            for failed in &observation.health_status.failed {
+                metrics.failed_dpu_healthchecks.insert(failed.clone());
+            }
+        }
 
         // Don't update failed state failure cause everytime. Record first failure cause only,
         // otherwise first failure cause will be overwritten.
@@ -94,13 +109,27 @@ impl StateHandler for MachineStateHandler {
         match &managed_state {
             ManagedHostState::DPUNotReady { .. } => {
                 self.dpu_handler
-                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
+                    .handle_object_state(
+                        host_machine_id,
+                        state,
+                        controller_state,
+                        txn,
+                        metrics,
+                        ctx,
+                    )
                     .await?;
             }
 
             ManagedHostState::HostNotReady { .. } => {
                 self.host_handler
-                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
+                    .handle_object_state(
+                        host_machine_id,
+                        state,
+                        controller_state,
+                        txn,
+                        metrics,
+                        ctx,
+                    )
                     .await?;
             }
 
@@ -129,7 +158,14 @@ impl StateHandler for MachineStateHandler {
             ManagedHostState::Assigned { instance_state: _ } => {
                 // Process changes needed for instance.
                 self.instance_handler
-                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
+                    .handle_object_state(
+                        host_machine_id,
+                        state,
+                        controller_state,
+                        txn,
+                        metrics,
+                        ctx,
+                    )
                     .await?;
             }
 
@@ -215,6 +251,7 @@ impl StateHandler for DpuMachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
+    type ObjectMetrics = MachineMetrics;
 
     async fn handle_object_state(
         &self,
@@ -222,6 +259,7 @@ impl StateHandler for DpuMachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _metrics: &mut Self::ObjectMetrics,
         _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         match &state.managed_state {
@@ -334,6 +372,7 @@ impl StateHandler for HostMachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
+    type ObjectMetrics = MachineMetrics;
 
     async fn handle_object_state(
         &self,
@@ -341,6 +380,7 @@ impl StateHandler for HostMachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _metrics: &mut Self::ObjectMetrics,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         if let ManagedHostState::HostNotReady { machine_state } = &state.managed_state {
@@ -455,6 +495,7 @@ impl StateHandler for InstanceStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
+    type ObjectMetrics = MachineMetrics;
 
     async fn handle_object_state(
         &self,
@@ -462,6 +503,7 @@ impl StateHandler for InstanceStateHandler {
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _metrics: &mut Self::ObjectMetrics,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let Some(ref instance) = state.instance else {
@@ -880,3 +922,6 @@ async fn lockdown_host(
 
     Ok(())
 }
+
+/// We assume a DPU is up if we have received a status report from it within the last 5 minutes
+const DPU_UP_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(5 * 60);

@@ -18,7 +18,10 @@ use crate::{
         config_version::{ConfigVersion, Versioned},
         network_segment::NetworkSegmentControllerState,
     },
-    state_controller::{controller::StateControllerIO, snapshot_loader::SnapshotLoaderError},
+    state_controller::{
+        controller::StateControllerIO, metrics::NoopMetricsEmitter,
+        snapshot_loader::SnapshotLoaderError,
+    },
 };
 
 /// State Controller IO implementation for network segments
@@ -30,6 +33,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     type ObjectId = uuid::Uuid;
     type State = NetworkSegment;
     type ControllerState = NetworkSegmentControllerState;
+    type MetricsEmitter = NoopMetricsEmitter;
 
     fn db_lock_name() -> &'static str {
         "network_segments_controller_lock"

@@ -35,6 +35,7 @@ impl StateHandler for IBSubnetStateHandler {
     type ObjectId = uuid::Uuid;
     type State = IBSubnet;
     type ControllerState = IBSubnetControllerState;
+    type ObjectMetrics = ();
 
     async fn handle_object_state(
         &self,
@@ -42,6 +43,7 @@ impl StateHandler for IBSubnetStateHandler {
         state: &mut IBSubnet,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _metrics: &mut Self::ObjectMetrics,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let read_state: &IBSubnetControllerState = &*controller_state;

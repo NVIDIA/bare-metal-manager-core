@@ -20,6 +20,7 @@ use crate::{
     },
     state_controller::{
         controller::StateControllerIO,
+        machine::metrics::MachineMetricsEmitter,
         snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError},
     },
 };
@@ -35,6 +36,7 @@ impl StateControllerIO for MachineStateControllerIO {
     type ObjectId = MachineId;
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
+    type MetricsEmitter = MachineMetricsEmitter;
 
     fn db_lock_name() -> &'static str {
         "machine_state_controller_lock"
