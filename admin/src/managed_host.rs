@@ -1,3 +1,8 @@
+use std::collections::BTreeMap;
+use std::convert::From;
+use std::fmt::Write;
+use std::time::SystemTime;
+
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -9,21 +14,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::forge::{MachineInterface, MachineType};
+use ::rpc::forge::{MachineId, MachineInterface, MachineType};
 use ::rpc::machine_discovery::MemoryDevice;
 use ::rpc::Machine;
+use ::rpc::Timestamp;
+use chrono::{DateTime, Utc};
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
-use std::fmt::Write;
 use tracing::warn;
 
-use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
-use crate::{CarbideCliError, Config};
-
 use super::{rpc, CarbideCliResult};
-
-use std::collections::BTreeMap;
-use std::convert::From;
+use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
+use crate::Config;
 
 const UNKNOWN: &str = "Unknown";
 
@@ -90,7 +92,7 @@ fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
     }
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, PartialEq)]
 struct ManagedHostOutput {
     hostname: Option<String>,
     machine_id: Option<String>,
@@ -105,6 +107,12 @@ struct ManagedHostOutput {
     host_admin_mac: Option<String>,
     host_gpu_count: usize,
     host_memory: Option<String>,
+    maintenance_reference: Option<String>,
+    maintenance_start_time: Option<String>,
+    host_last_reboot_time: Option<String>,
+    is_network_healthy: bool,
+    network_err_message: Option<String>,
+
     dpu_machine_id: Option<String>,
     dpu_serial_number: Option<String>,
     dpu_bios_version: Option<String>,
@@ -114,12 +122,15 @@ struct ManagedHostOutput {
     dpu_bmc_firmware_version: Option<String>,
     dpu_oob_ip: Option<String>,
     dpu_oob_mac: Option<String>,
+    dpu_last_reboot_time: Option<String>,
+    dpu_last_observation_time: Option<String>,
 }
 
 #[derive(Default, Serialize)]
 struct ManagedHostOutputWrapper {
     show_ips: bool,
     more_details: bool,
+    has_maintenance: bool,
     managed_host_output: ManagedHostOutput,
 }
 
@@ -161,6 +172,13 @@ impl From<ManagedHostOutputWrapper> for Row {
             machine_ids,
             value.state,
         ];
+
+        if src.has_maintenance {
+            row_data.extend_from_slice(&[
+                value.maintenance_reference.unwrap_or_default(),
+                value.maintenance_start_time.unwrap_or_default(),
+            ]);
+        }
 
         if src.show_ips {
             row_data.extend_from_slice(&[bmc_ip, bmc_mac, ips, macs]);
@@ -236,11 +254,16 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
             .discovery_info
             .as_ref()
             .map_or(0, |di| di.gpus.len());
-
         managed_host_output.host_memory = machine
             .discovery_info
             .as_ref()
             .and_then(|di| get_memory_details(&di.memory_devices));
+        managed_host_output.maintenance_reference = machine.maintenance_reference.clone();
+        managed_host_output.maintenance_start_time =
+            to_time(machine.maintenance_start_time.clone(), machine_id);
+        managed_host_output.host_last_reboot_time =
+            to_time(machine.last_reboot_time.clone(), machine_id);
+
         if let Some(dpu_machine_id) = primary_interface.attached_dpu_machine_id.as_ref() {
             if dpu_machine_id != machine_id {
                 let dpu_machine = machines
@@ -248,6 +271,17 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
                     .find(|m| m.id.as_ref().map_or(false, |id| id == dpu_machine_id));
 
                 if let Some(dpu_machine) = dpu_machine {
+                    // Network health is in observation, on DPU, but it relates to
+                    // the managed host as a whole.
+                    managed_host_output.is_network_healthy = match &dpu_machine.health {
+                        Some(h) => h.is_healthy,
+                        None => false,
+                    };
+                    managed_host_output.network_err_message = match &dpu_machine.health {
+                        Some(h) => h.message.clone(),
+                        None => None,
+                    };
+
                     managed_host_output.dpu_machine_id = Some(dpu_machine_id.to_string());
                     managed_host_output.dpu_serial_number =
                         get_dmi_data_from_machine!(dpu_machine, chassis_serial);
@@ -259,6 +293,10 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
                         get_bmc_info_from_machine!(dpu_machine, version);
                     managed_host_output.dpu_bmc_firmware_version =
                         get_bmc_info_from_machine!(dpu_machine, firmware_version);
+                    managed_host_output.dpu_last_reboot_time =
+                        to_time(dpu_machine.last_reboot_time.clone(), dpu_machine_id);
+                    managed_host_output.dpu_last_observation_time =
+                        to_time(dpu_machine.last_observation_time.clone(), dpu_machine_id);
 
                     if let Some(primary_interface) =
                         dpu_machine.interfaces.iter().find(|x| x.primary_interface)
@@ -282,11 +320,15 @@ fn convert_managed_hosts_to_nice_output(
     show_ips: bool,
     more_details: bool,
 ) -> Box<Table> {
+    let has_maintenance = managed_hosts
+        .iter()
+        .any(|m| m.maintenance_reference.is_some());
     let managed_hosts_wrapper = managed_hosts
         .into_iter()
         .map(|x| ManagedHostOutputWrapper {
             show_ips,
             more_details,
+            has_maintenance,
             managed_host_output: x,
         })
         .collect::<Vec<ManagedHostOutputWrapper>>();
@@ -294,6 +336,10 @@ fn convert_managed_hosts_to_nice_output(
     let mut table = Table::new();
 
     let mut headers = vec!["Hostname", "Machine IDs (H/D)", "State"];
+    // if any machines in the list are in maintenance mode we add the columns
+    if has_maintenance {
+        headers.extend_from_slice(&["Maintenance reference", "Maintenance since"]);
+    }
 
     if show_ips {
         headers.extend_from_slice(&[
@@ -342,7 +388,6 @@ async fn show_managed_hosts(
         _ => {
             let result =
                 convert_managed_hosts_to_nice_output(managed_hosts, show_ips, more_details);
-
             if let Err(error) = result.print(output) {
                 warn!("Error writing table data: {}", error);
             }
@@ -351,51 +396,77 @@ async fn show_managed_hosts(
     Ok(())
 }
 
-async fn show_managed_host_details_view(machines: Vec<Machine>) -> CarbideCliResult<()> {
-    let managed_hosts = get_managed_host_output(machines);
-    let managed_host = managed_hosts.get(0).ok_or(CarbideCliError::Empty)?;
-
+fn show_managed_host_details_view(m: ManagedHostOutput) -> CarbideCliResult<()> {
     let width = 21;
     let mut lines = String::new();
 
     writeln!(
         &mut lines,
         "Hostname    : {}",
-        managed_host.hostname.clone().unwrap_or(UNKNOWN.to_string())
+        m.hostname.clone().unwrap_or(UNKNOWN.to_string())
     )?;
 
-    writeln!(&mut lines, "State       : {}", managed_host.state)?;
+    writeln!(&mut lines, "State       : {}", m.state)?;
+
+    if m.maintenance_reference.is_some() {
+        writeln!(&mut lines, "Host is in maintenance mode")?;
+        writeln!(
+            &mut lines,
+            "  Reference  : {}",
+            m.maintenance_reference
+                .expect("Host in maintenance mode without reference - impossible")
+        )?;
+        writeln!(
+            &mut lines,
+            "  Started at : {}",
+            m.maintenance_start_time
+                .expect("Missing maintenance_start_time - impossible")
+        )?;
+    }
 
     writeln!(
         &mut lines,
         "\nHost:\n----------------------------------------"
     )?;
 
-    let data = vec![
-        ("  ID", managed_host.machine_id.clone()),
-        ("  Serial Number", managed_host.host_serial_number.clone()),
-        ("  BIOS Version", managed_host.host_bios_version.clone()),
-        ("  GPU Count", Some(managed_host.host_gpu_count.to_string())),
-        ("  Memory", managed_host.host_memory.clone()),
-        ("  Admin IP", managed_host.host_admin_ip.clone()),
-        ("  Admin MAC", managed_host.host_admin_mac.clone()),
-        ("  BMC Details", Some("".to_string())),
-        ("    Version", managed_host.host_bmc_version.clone()),
-        (
-            "    Firmware Version",
-            managed_host.host_bmc_firmware_version.clone(),
-        ),
-        ("    IP", managed_host.host_bmc_ip.clone()),
-        ("    MAC", managed_host.host_bmc_mac.clone()),
+    let mut data = vec![
+        ("  ID", m.machine_id.clone()),
+        ("  Last reboot", m.host_last_reboot_time),
+        ("  Serial Number", m.host_serial_number.clone()),
+        ("  BIOS Version", m.host_bios_version.clone()),
+        ("  GPU Count", Some(m.host_gpu_count.to_string())),
+        ("  Memory", m.host_memory.clone()),
+        ("  Admin IP", m.host_admin_ip.clone()),
+        ("  Admin MAC", m.host_admin_mac.clone()),
     ];
+    if m.is_network_healthy {
+        data.push(("  Network is healthy", Some("".to_string())));
+    } else {
+        data.push((
+            "  Network unhealthy",
+            Some(m.network_err_message.clone().unwrap_or_default()),
+        ));
+    }
+    let mut bmc_details = vec![
+        ("  BMC", Some("".to_string())),
+        ("    Version", m.host_bmc_version.clone()),
+        ("    Firmware Version", m.host_bmc_firmware_version.clone()),
+        ("    IP", m.host_bmc_ip.clone()),
+        ("    MAC", m.host_bmc_mac.clone()),
+    ];
+    data.append(&mut bmc_details);
 
     for (key, value) in data {
-        writeln!(
-            &mut lines,
-            "{:<width$}: {}",
-            key,
-            value.unwrap_or(UNKNOWN.to_string())
-        )?;
+        if matches!(&value, Some(x) if x.is_empty()) {
+            writeln!(&mut lines, "{:<width$}", key)?;
+        } else {
+            writeln!(
+                &mut lines,
+                "{:<width$}: {}",
+                key,
+                value.unwrap_or(UNKNOWN.to_string())
+            )?;
+        }
     }
 
     writeln!(
@@ -404,28 +475,31 @@ async fn show_managed_host_details_view(machines: Vec<Machine>) -> CarbideCliRes
     )?;
 
     let data = vec![
-        ("  ID", managed_host.dpu_machine_id.clone()),
-        ("  Serial Number", managed_host.dpu_serial_number.clone()),
-        ("  BIOS Version", managed_host.dpu_bios_version.clone()),
-        ("  Admin IP", managed_host.dpu_oob_ip.clone()),
-        ("  Admin MAC", managed_host.dpu_oob_mac.clone()),
-        ("  BMC Details", Some("".to_string())),
-        ("    Version", managed_host.dpu_bmc_version.clone()),
-        (
-            "    Firmware Version",
-            managed_host.dpu_bmc_firmware_version.clone(),
-        ),
-        ("    IP", managed_host.dpu_bmc_ip.clone()),
-        ("    MAC", managed_host.dpu_bmc_mac.clone()),
+        ("  ID", m.dpu_machine_id.clone()),
+        ("  Last reboot", m.dpu_last_reboot_time),
+        ("  Last seen", m.dpu_last_observation_time),
+        ("  Serial Number", m.dpu_serial_number.clone()),
+        ("  BIOS Version", m.dpu_bios_version.clone()),
+        ("  Admin IP", m.dpu_oob_ip.clone()),
+        ("  Admin MAC", m.dpu_oob_mac.clone()),
+        ("  BMC", Some("".to_string())),
+        ("    Version", m.dpu_bmc_version.clone()),
+        ("    Firmware Version", m.dpu_bmc_firmware_version.clone()),
+        ("    IP", m.dpu_bmc_ip.clone()),
+        ("    MAC", m.dpu_bmc_mac.clone()),
     ];
 
     for (key, value) in data {
-        writeln!(
-            &mut lines,
-            "{:<width$}: {}",
-            key,
-            value.unwrap_or(UNKNOWN.to_string())
-        )?;
+        if matches!(&value, Some(x) if x.is_empty()) {
+            writeln!(&mut lines, "{:<width$}", key)?;
+        } else {
+            writeln!(
+                &mut lines,
+                "{:<width$}: {}",
+                key,
+                value.unwrap_or(UNKNOWN.to_string())
+            )?;
+        }
     }
 
     println!("{}", lines);
@@ -440,7 +514,7 @@ pub async fn handle_show(
     api_config: Config,
 ) -> CarbideCliResult<()> {
     if args.all {
-        let machines = rpc::get_all_machines(api_config).await?.machines;
+        let machines = rpc::get_all_machines(api_config, args.fix).await?.machines;
         show_managed_hosts(output, output_format, machines, args.ips, args.more).await?;
     } else if let Some(requested_host_machine_id) = args.host {
         let mut machines = Vec::default();
@@ -459,8 +533,33 @@ pub async fn handle_show(
             }
         }
         machines.push(requested_machine);
-        show_managed_host_details_view(machines).await?;
+        if args.fix {
+            machines.retain(|m| m.maintenance_reference.is_some());
+        }
+        for m in get_managed_host_output(machines).into_iter() {
+            show_managed_host_details_view(m)?;
+        }
     }
 
     Ok(())
+}
+
+// Prepare an Option<rpc::Timestamp> for display:
+// - Parse the timestamp into a chrono::Time and format as string.
+// - Or return empty string
+// machine_id is only for logging a more useful error.
+fn to_time(t: Option<Timestamp>, machine_id: &MachineId) -> Option<String> {
+    match t {
+        None => None,
+        Some(tt) => match SystemTime::try_from(tt) {
+            Ok(system_time) => {
+                let dt: DateTime<Utc> = DateTime::from(system_time);
+                Some(dt.to_string())
+            }
+            Err(err) => {
+                warn!("get_managed_host_output {machine_id}, invalid timestamp: {err}");
+                None
+            }
+        },
+    }
 }

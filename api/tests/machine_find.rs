@@ -98,6 +98,7 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
         &dpu_machine_id,
         MachineSearchConfig {
             include_history: true,
+            ..Default::default()
         },
     )
     .await
@@ -137,6 +138,7 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
         &dpu_machine_id,
         MachineSearchConfig {
             include_history: true,
+            ..Default::default()
         },
     )
     .await
@@ -230,6 +232,7 @@ async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
         ObjectFilter::All,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
+            ..Default::default()
         },
     )
     .await

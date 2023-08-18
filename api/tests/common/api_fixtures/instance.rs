@@ -117,6 +117,7 @@ pub async fn delete_instance(
         host_machine_id,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
+            ..Default::default()
         },
     )
     .await
@@ -163,6 +164,7 @@ pub async fn delete_instance(
         host_machine_id,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
+            ..Default::default()
         },
     )
     .await
@@ -191,6 +193,7 @@ pub async fn delete_instance(
         host_machine_id,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
+            ..Default::default()
         },
     )
     .await

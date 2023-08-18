@@ -41,12 +41,15 @@ use crate::{CarbideError, CarbideResult};
 #[derive(Default, Debug)]
 pub struct MachineSearchConfig {
     pub include_history: bool,
+    /// Only include machines in maintenance mode
+    pub only_maintenance: bool,
 }
 
 impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
     fn from(value: rpc::MachineSearchConfig) -> Self {
         MachineSearchConfig {
             include_history: value.include_history,
+            only_maintenance: value.only_maintenance,
         }
     }
 }
@@ -91,6 +94,14 @@ pub struct Machine {
 
     /// The BMC info for this machine
     bmc_info: BmcInfo,
+
+    /// URL of the reference tracking this machine's maintenance (e.g. JIRA)
+    /// Some(_) means the machine is in maintenance mode.
+    /// None means not in maintenance mode.
+    maintenance_reference: Option<String>,
+
+    /// What time was this machine set into maintenance mode?
+    maintenance_start_time: Option<DateTime<Utc>>,
 
     /// Last time when machine came up.
     last_reboot_time: Option<DateTime<Utc>>,
@@ -149,6 +160,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
                 version: None,
                 firmware_version: None,
             },
+            maintenance_reference: row.try_get("maintenance_reference")?,
+            maintenance_start_time: row.try_get("maintenance_start_time")?,
             last_reboot_time: row.try_get("last_reboot_time")?,
             last_cleanup_time: row.try_get("last_cleanup_time")?,
             last_discovery_time: row.try_get("last_discovery_time")?,
@@ -246,6 +259,12 @@ impl From<Machine> for rpc::Machine {
                 }
             }),
             bmc_info: Some(machine.bmc_info.into()),
+            last_reboot_time: machine.last_reboot_time.map(|t| t.into()),
+            health: machine.network_status_observation.as_ref().map(|obs| obs.health_status.clone().into()),
+            last_observation_time: machine.network_status_observation.map(|obs|
+                obs.observed_at.into()),
+            maintenance_reference: machine.maintenance_reference,
+            maintenance_start_time: machine.maintenance_start_time.map(|t| t.into()),
         }
     }
 }
@@ -488,6 +507,11 @@ SELECT m.id FROM
         self.state.version
     }
 
+    /// Does this host have an instance assigned to it?
+    pub fn has_instance(&self) -> bool {
+        matches!(self.state.value, ManagedHostState::Assigned { .. })
+    }
+
     /// Perform an arbitrary action to a Machine and advance it to the next state given the last
     /// state.
     ///
@@ -539,20 +563,35 @@ SELECT m.id FROM
         let base_query = "SELECT * FROM machines m {where} GROUP BY m.id".to_owned();
 
         let mut all_machines: Vec<Machine> = match filter {
-            ObjectFilter::All => sqlx::query_as::<_, Machine>(&base_query.replace("{where}", ""))
-                .fetch_all(&mut **txn)
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "machines All", e))?,
+            ObjectFilter::All => {
+                let where_clause = if search_config.only_maintenance {
+                    "WHERE maintenance_reference IS NOT NULL"
+                } else {
+                    ""
+                };
+                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", where_clause))
+                    .fetch_all(&mut **txn)
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "machines All", e))?
+            }
             ObjectFilter::One(id) => {
-                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=$1"))
+                let mut where_clause = "WHERE m.id=$1".to_string();
+                if search_config.only_maintenance {
+                    where_clause += " AND maintenance_reference IS NOT NULL";
+                }
+                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", &where_clause))
                     .bind(id.to_string())
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "machines One", e))?
             }
             ObjectFilter::List(list) => {
+                let mut where_clause = "WHERE m.id=ANY($1)".to_string();
+                if search_config.only_maintenance {
+                    where_clause += " AND maintenance_reference IS NOT NULL";
+                }
                 let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
-                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
+                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", &where_clause))
                     .bind(str_list)
                     .fetch_all(&mut **txn)
                     .await
@@ -762,6 +801,14 @@ SELECT m.id FROM
         }
 
         Self::find_by_hostname(txn, query).await
+    }
+
+    pub fn is_maintenance_mode(&self) -> bool {
+        self.maintenance_reference.is_some()
+    }
+
+    pub fn maintenance_reference(&self) -> Option<String> {
+        self.maintenance_reference.clone()
     }
 
     pub fn last_reboot_time(&self) -> Option<DateTime<Utc>> {
@@ -1021,6 +1068,39 @@ SELECT m.id FROM
 
         Ok(())
     }
+
+    pub async fn set_maintenance_mode(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        mode: MaintenanceMode,
+    ) -> Result<(), DatabaseError> {
+        match mode {
+            MaintenanceMode::On { reference } => {
+                let query = "UPDATE machines SET maintenance_reference=$1, maintenance_start_time=NOW() WHERE id=$2";
+                sqlx::query(query)
+                    .bind(reference)
+                    .bind(machine_id.to_string())
+                    .execute(&mut **txn)
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            }
+            MaintenanceMode::Off => {
+                let query = "UPDATE machines SET maintenance_reference=NULL, maintenance_start_time=NULL WHERE id=$1";
+                sqlx::query(query)
+                    .bind(machine_id.to_string())
+                    .execute(&mut **txn)
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MaintenanceMode {
+    Off,
+    On { reference: String },
 }
 
 #[cfg(test)]

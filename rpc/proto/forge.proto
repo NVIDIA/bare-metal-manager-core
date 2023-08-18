@@ -170,6 +170,10 @@ service Forge {
 
   // Assign all VPCs a VNI
   rpc MigrateVpcVni(google.protobuf.Empty) returns (MigrateVpcVniResponse);
+
+  // Maintenance mode operations: enable, disable
+  rpc SetMaintenance(MaintenanceRequest) returns (google.protobuf.Empty);
+
 }
 
 message VersionResult {
@@ -707,7 +711,7 @@ message InstanceNetworkStatus {
 // State of the infiniband subsystem of an instance
 message InstanceInfinibandStatus {
   // Status for each configured interface
-  // 
+  //
   // Each entry in this status array maps to it's corresponding entry in the
   // Config section. E.g. `instance.status.network.ib_interface_status[1]`
   // would map to `instance.config.network.ib_interface_configs[1]`.
@@ -817,6 +821,7 @@ message MachineSearchConfig {
   bool include_dpus = 1;
   bool include_history = 2;
   bool include_predicted_host = 3;
+  bool only_maintenance = 4;
 }
 
 message MachineSearchQuery {
@@ -881,6 +886,12 @@ message Machine {
   MachineType machine_type = 11;
 
   BmcInfo bmc_info = 12;
+
+  google.protobuf.Timestamp last_reboot_time = 14;
+  NetworkHealth health = 15;
+  google.protobuf.Timestamp last_observation_time = 16;
+  optional string maintenance_reference = 17;
+  optional google.protobuf.Timestamp maintenance_start_time = 18;
 }
 
 // The most recent tenant related status
@@ -1592,4 +1603,17 @@ enum ResourcePoolType {
 message MigrateVpcVniResponse {
 	uint32 updated_count = 1;
 	uint32 total_vpc_count = 2;
+}
+
+enum MaintenanceOperation {
+  Enable = 0;
+  Disable = 1;
+}
+
+message MaintenanceRequest {
+  MaintenanceOperation operation = 1;
+  // Managed host ID
+  MachineId host_id = 2;
+  // For Enable: The ticket tracker URL.
+  optional string reference = 3;
 }

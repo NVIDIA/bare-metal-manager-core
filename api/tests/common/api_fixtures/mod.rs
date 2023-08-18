@@ -14,10 +14,6 @@
 
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
-use chrono::Duration;
-use sqlx::PgPool;
-use tonic::Request;
-
 use carbide::{
     api::Api,
     auth::{Authorizer, NoopEngine},
@@ -43,7 +39,10 @@ use carbide::{
         },
     },
 };
+use chrono::Duration;
 use rpc::forge::forge_server::Forge;
+use sqlx::PgPool;
+use tonic::Request;
 
 use crate::common::{
     api_fixtures::{dpu::create_dpu_machine, host::create_host_machine},
@@ -230,7 +229,7 @@ impl TestEnv {
                 search_config: Some(rpc::forge::MachineSearchConfig {
                     include_dpus,
                     include_history: true,
-                    include_predicted_host: false,
+                    ..Default::default()
                 }),
                 id,
                 fqdn,

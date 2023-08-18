@@ -108,7 +108,7 @@ impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
     fn try_from(value: rpc::InstanceReleaseRequest) -> Result<Self, Self::Error> {
         let id = value
             .id
-            .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?;
+            .ok_or(CarbideError::IdentifierNotSpecifiedForObject)?;
         Ok(DeleteInstance {
             instance_id: id.try_into()?,
         })

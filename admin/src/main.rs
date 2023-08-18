@@ -20,8 +20,8 @@ use ::rpc::{
     MachineId,
 };
 use cfg::carbide_options::{
-    CarbideCommand, CarbideOptions, Domain, Instance, Machine, ManagedHost, MigrateAction,
-    NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
+    CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
+    MigrateAction, NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
 };
 use clap::CommandFactory; // for CarbideOptions::command()
 use prettytable::{row, Table};
@@ -406,6 +406,22 @@ async fn main() -> color_eyre::Result<()> {
             Instance::Reboot(reboot_request) => {
                 instance::handle_reboot(reboot_request, api_config).await?
             }
+            Instance::Release(release_request) => {
+                let instance_id = match (release_request.instance, release_request.machine) {
+                    (Some(instance_id), _) => uuid::Uuid::parse_str(&instance_id)?.into(),
+                    (_, Some(machine_id)) => {
+                        let instances =
+                            rpc::get_instances_by_machine_id(api_config.clone(), machine_id)
+                                .await?;
+                        if instances.instances.is_empty() {
+                            color_eyre::eyre::bail!("No instances assigned to that machine");
+                        }
+                        instances.instances[0].id.clone().unwrap()
+                    }
+                    _ => unreachable!("clap will enforce exactly one of the two"),
+                };
+                rpc::release_instance(api_config, instance_id).await?
+            }
         },
         CarbideCommand::NetworkSegment(network) => match network {
             NetworkSegment::Show(network) => {
@@ -433,6 +449,24 @@ async fn main() -> color_eyre::Result<()> {
                 managed_host::handle_show(&mut output_file, managed_host, config.format, api_config)
                     .await?
             }
+            ManagedHost::Maintenance(maint) => match maint {
+                MaintenanceAction::On(maint_on) => {
+                    let req = forgerpc::MaintenanceRequest {
+                        operation: forgerpc::MaintenanceOperation::Enable.into(),
+                        host_id: Some(maint_on.host.into()),
+                        reference: Some(maint_on.reference),
+                    };
+                    rpc::set_maintenance(req, api_config).await?;
+                }
+                MaintenanceAction::Off(maint_off) => {
+                    let req = forgerpc::MaintenanceRequest {
+                        operation: forgerpc::MaintenanceOperation::Disable.into(),
+                        host_id: Some(maint_off.host.into()),
+                        reference: None,
+                    };
+                    rpc::set_maintenance(req, api_config).await?;
+                }
+            },
         },
         CarbideCommand::ResourcePool(rp) => match rp {
             ResourcePool::Grow(def) => {

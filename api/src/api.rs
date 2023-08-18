@@ -16,7 +16,19 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::{
+    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
+    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
+    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbSubnet,
+    IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult, IbSubnetList,
+    IbSubnetQuery, InstanceList, MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
+    TenantKeySetList, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
+    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+};
 use chrono::Duration;
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use hyper::server::conn::Http;
 use opentelemetry::metrics::Meter;
 use sqlx::postgres::PgSslMode;
@@ -37,24 +49,12 @@ use tower_http::auth::AsyncRequireAuthorizationLayer;
 use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::forge::{
-    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
-    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbSubnet,
-    IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult, IbSubnetList,
-    IbSubnetQuery, InstanceList, MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
-    TenantKeySetList, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
-    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
-};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-
+use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
 use crate::db::instance_address::InstanceAddress;
-use crate::db::machine::MachineSearchConfig;
+use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::ib;
@@ -118,8 +118,6 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
-
-use self::rpc::forge_server::Forge;
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -947,6 +945,7 @@ where
         request: Request<rpc::InstanceReleaseRequest>,
     ) -> Result<Response<rpc::InstanceReleaseResult>, Status> {
         log_request_data(&request);
+        let delete_instance = DeleteInstance::try_from(request.into_inner())?;
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -957,7 +956,6 @@ where
             ))
         })?;
 
-        let delete_instance = DeleteInstance::try_from(request.into_inner())?;
         let instance = Instance::find(
             &mut txn,
             UuidKeyedObjectFilter::One(delete_instance.instance_id),
@@ -1007,7 +1005,7 @@ where
             request
                 .instance_id
                 .clone()
-                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?,
+                .ok_or(CarbideError::IdentifierNotSpecifiedForObject)?,
         )
         .map_err(CarbideError::from)?;
 
@@ -1997,6 +1995,7 @@ where
                 &machine_id,
                 MachineSearchConfig {
                     include_history: true,
+                    only_maintenance: false,
                 },
             )
             .await?;
@@ -3274,6 +3273,63 @@ where
             updated_count,
             total_vpc_count,
         }))
+    }
+
+    /// Maintenance mode: Put a machine into maintenance mode or take it out.
+    /// Switching a host into maintenance mode prevents an instance being assigned to it.
+    async fn set_maintenance(
+        &self,
+        request: tonic::Request<rpc::MaintenanceRequest>,
+    ) -> Result<tonic::Response<()>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let machine_id = match &req.host_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                tracing::warn!("forge agent control: missing host ID");
+                return Err(Status::invalid_argument("Missing host ID"));
+            }
+        };
+        log_machine_id(&machine_id);
+
+        let (host_machine, mut txn) = self
+            .load_machine(&machine_id, MachineSearchConfig::default())
+            .await?;
+        if host_machine.is_dpu() {
+            return Err(Status::invalid_argument(
+                "DPU ID provided. Need managed host.",
+            ));
+        }
+        let dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id)
+            .await?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "dpu machine for host",
+                id: machine_id.to_string(),
+            })?;
+
+        // We set status on both host and dpu machine to make them easier to query from DB
+        let mode = match req.operation() {
+            rpc::MaintenanceOperation::Enable => {
+                let Some(reference) = req.reference else {
+                    return Err(Status::invalid_argument("Missing reference url".to_string()));
+                };
+                MaintenanceMode::On { reference }
+            }
+            rpc::MaintenanceOperation::Disable => MaintenanceMode::Off,
+        };
+        Machine::set_maintenance_mode(&mut txn, host_machine.id(), mode.clone())
+            .await
+            .map_err(CarbideError::from)?;
+        Machine::set_maintenance_mode(&mut txn, dpu_machine.id(), mode)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "end maintenance handler", e))?;
+
+        Ok(Response::new(()))
     }
 }
 

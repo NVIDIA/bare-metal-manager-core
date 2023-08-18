@@ -89,7 +89,7 @@ impl TryFrom<rpc::InstanceType> for UpdateInstanceType {
         Ok(UpdateInstanceType {
             id: value
                 .id
-                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
+                .ok_or(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
             short_name: value.short_name,
             description: value.description,
@@ -105,7 +105,7 @@ impl TryFrom<rpc::InstanceTypeDeletion> for DeactivateInstanceType {
         Ok(DeactivateInstanceType {
             id: value
                 .id
-                .ok_or_else(CarbideError::IdentifierNotSpecifiedForObject)?
+                .ok_or(CarbideError::IdentifierNotSpecifiedForObject)?
                 .try_into()?,
         })
     }

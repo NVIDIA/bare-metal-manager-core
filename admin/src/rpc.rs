@@ -54,9 +54,8 @@ pub async fn get_host_machine(id: String, api_config: Config) -> CarbideCliResul
             id: Some(rpc::MachineId { id: id.clone() }),
             fqdn: None,
             search_config: Some(rpc::MachineSearchConfig {
-                include_dpus: false,
-                include_history: false,
                 include_predicted_host: true,
+                ..Default::default()
             }),
         });
 
@@ -82,8 +81,7 @@ pub async fn get_dpu_machine(id: String, api_config: Config) -> CarbideCliResult
             fqdn: None,
             search_config: Some(rpc::MachineSearchConfig {
                 include_dpus: true,
-                include_history: false,
-                include_predicted_host: false,
+                ..Default::default()
             }),
         });
 
@@ -111,7 +109,10 @@ pub async fn get_dpu_machine(id: String, api_config: Config) -> CarbideCliResult
     .await
 }
 
-pub async fn get_all_machines(api_config: Config) -> CarbideCliResult<rpc::MachineList> {
+pub async fn get_all_machines(
+    api_config: Config,
+    only_maintenance: bool,
+) -> CarbideCliResult<rpc::MachineList> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::MachineSearchQuery {
             id: None,
@@ -120,6 +121,7 @@ pub async fn get_all_machines(api_config: Config) -> CarbideCliResult<rpc::Machi
                 include_dpus: true,
                 include_history: true,
                 include_predicted_host: true,
+                only_maintenance,
             }),
         });
         let machine_details = client
@@ -151,6 +153,21 @@ pub async fn reboot_instance(
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
 
+        Ok(())
+    })
+    .await
+}
+
+pub async fn release_instance(api_config: Config, instance_id: rpc::Uuid) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::InstanceReleaseRequest {
+            id: Some(instance_id),
+        });
+        client
+            .release_instance(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
         Ok(())
     })
     .await
@@ -378,6 +395,21 @@ pub async fn version(api_config: &Config) -> CarbideCliResult<rpc::VersionResult
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
         Ok(out)
+    })
+    .await
+}
+
+pub async fn set_maintenance(
+    req: rpc::MaintenanceRequest,
+    api_config: Config,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        client
+            .set_maintenance(tonic::Request::new(req))
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
     })
     .await
 }
