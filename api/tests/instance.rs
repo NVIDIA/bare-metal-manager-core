@@ -15,14 +15,7 @@ use ::rpc::forge::forge_server::Forge;
 use carbide::{
     db::{
         dhcp_record::InstanceDhcpRecord,
-        instance::{
-            config::network::load_instance_network_config,
-            status::network::{
-                load_instance_network_status_observation,
-                update_instance_network_status_observation,
-            },
-            Instance,
-        },
+        instance::{status::network::update_instance_network_status_observation, Instance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
     },
@@ -129,9 +122,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         1
     );
 
-    let network_config = load_instance_network_config(&mut txn, instance_id)
-        .await
-        .unwrap();
+    let network_config = fetched_instance.network_config.clone();
     assert_eq!(network_config.version.version_nr(), 1);
     let mut network_config_no_addresses = network_config.value.clone();
     for iface in network_config_no_addresses.interfaces.iter_mut() {
@@ -143,12 +134,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID)
     );
 
-    let network_status_observation =
-        load_instance_network_status_observation(&mut txn, instance_id)
-            .await
-            .unwrap();
-    assert!(network_status_observation.is_some());
-
+    assert!(fetched_instance.network_status_observation.is_some());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;

@@ -13,12 +13,7 @@
 use crate::{
     db::{
         dpu_machine::DpuMachine,
-        instance::{
-            config::infiniband::load_instance_infiniband_config,
-            config::network::load_instance_network_config,
-            status::infiniband::load_instance_infiniband_status_observation,
-            status::network::load_instance_network_status_observation, Instance,
-        },
+        instance::Instance,
         machine::Machine,
         machine_interface::MachineInterface,
         machine_interface_address::MachineInterfaceAddress,
@@ -238,30 +233,20 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
         }
         let instance = instances.pop().unwrap();
 
-        let network_config = load_instance_network_config(txn, instance_id).await?;
-        let network_config_version = network_config.version;
-        let network_status_observations =
-            load_instance_network_status_observation(txn, instance_id).await?;
-
-        let ib_config = load_instance_infiniband_config(txn, instance_id).await?;
-        let ib_config_version = ib_config.version;
-        let ib_status_observations =
-            load_instance_infiniband_status_observation(txn, instance_id).await?;
-
         let snapshot = InstanceSnapshot {
             instance_id,
             machine_id: instance.machine_id,
             machine_state,
             config: InstanceConfig {
                 tenant: Some(instance.tenant_config),
-                network: network_config.value,
-                infiniband: ib_config.value,
+                network: instance.network_config.value,
+                infiniband: instance.ib_config.value,
             },
-            network_config_version,
-            ib_config_version,
+            network_config_version: instance.network_config.version,
+            ib_config_version: instance.ib_config.version,
             observations: InstanceStatusObservations {
-                network: network_status_observations,
-                infiniband: ib_status_observations,
+                network: instance.network_status_observation,
+                infiniband: instance.ib_status_observation,
             },
             delete_requested: instance.deleted.is_some(),
         };

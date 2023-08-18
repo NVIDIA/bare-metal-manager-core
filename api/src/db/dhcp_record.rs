@@ -199,9 +199,13 @@ WHERE machine_id=$1
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         record.update_mac(mac_address);
-        let function_id =
-            crate::instance::circuit_id_to_function_id(&mut *txn, instance.id, circuit_id.clone())
-                .await?;
+        let function_id = crate::instance::circuit_id_to_function_id(
+            &mut *txn,
+            instance.id,
+            &instance.network_config,
+            circuit_id.clone(),
+        )
+        .await?;
         record.update_function_id(function_id);
         Ok(record)
     }

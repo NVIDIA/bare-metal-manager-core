@@ -10,41 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
+use sqlx::{Postgres, Transaction};
 
 use crate::{
     db::DatabaseError, model::instance::status::infiniband::InstanceInfinibandStatusObservation,
 };
-
-/// Loads the latest infiniband status observation for an instance
-///
-/// The result will be `Ok(None)` if no infiniband status has ever been reported for this
-/// instance.
-pub async fn load_instance_infiniband_status_observation(
-    txn: &mut Transaction<'_, Postgres>,
-    instance_id: uuid::Uuid,
-) -> Result<Option<InstanceInfinibandStatusObservation>, DatabaseError> {
-    /// This is wrapper to allow implementing FromRow on the Option
-    #[derive(serde::Deserialize)]
-    struct OptionalObservation(Option<InstanceInfinibandStatusObservation>);
-
-    impl<'r> sqlx::FromRow<'r, PgRow> for OptionalObservation {
-        fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-            let ib_status_observation: sqlx::types::Json<OptionalObservation> =
-                row.try_get("ib_status_observation")?;
-            Ok(ib_status_observation.0)
-        }
-    }
-
-    let query = "SELECT ib_status_observation FROM instances where id = $1::uuid";
-    let observation: OptionalObservation = sqlx::query_as(query)
-        .bind(instance_id)
-        .fetch_one(&mut **txn)
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-    Ok(observation.0)
-}
 
 /// Updates the latest infiniband status observation for an instance
 pub async fn update_instance_infiniband_status_observation(
