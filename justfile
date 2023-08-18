@@ -12,7 +12,7 @@ _dockerbuild NAME FILE CONTEXT=(invocation_directory()):
   DOCKER_BUILDKIT=1 docker build -t {{NAME}} -f {{FILE}} {{CONTEXT}}
 
 # Build the carbide build-container used for compiling
-build-container: (_dockerbuild "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v2023.06-rc1-68-g15b83abf" "dev/docker/Dockerfile.build-container" "dev/docker")
+build-container: (_dockerbuild "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v2023.06-rc1-68-g15b83abf" "dev/docker/Dockerfile.build-container-x86_64" "dev/docker")
 
 # Build the build-container used for minikube forge development
 build-container-minikube: build-container (_dockerbuild "registry.minikube/build-container:latest" "dev/deployment/localdev/Dockerfile.build-container.localdev" "dev/deployment")

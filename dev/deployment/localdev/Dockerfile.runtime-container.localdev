@@ -16,6 +16,9 @@ RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/static && \
   mkdir -p /forge-boot-artifacts/blobs
 
+# This is required for kea pid file
+RUN mkdir -p /var/run/kea
+
 RUN --mount=type=cache,target=/var/cache/apt apt-get update && apt-get install -y --no-install-recommends \
   postgresql-client-15 \
   ca-certificates \
@@ -24,6 +27,7 @@ RUN --mount=type=cache,target=/var/cache/apt apt-get update && apt-get install -
   iputils-ping \
   kea-dev \
   kea-dhcp4-server  \
+  libssl-dev \
   libudev1 \
   ca-certificates \
   curl \
