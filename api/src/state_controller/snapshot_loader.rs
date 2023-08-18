@@ -206,12 +206,14 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
         };
 
         let dpu = DpuMachine::find_by_host_machine_id(txn, &host_machine_id).await?;
+        let host_snapshot = get_machine_snapshot(txn, &host_machine_id).await?;
+        let managed_state = host_snapshot.current.state.clone();
         let snapshot = ManagedHostStateSnapshot {
-            host_snapshot: get_machine_snapshot(txn, &host_machine_id).await?,
+            host_snapshot,
             dpu_snapshot: dpu_snapshot.clone(),
             dpu_ssh_ip_address: *dpu.address(),
             instance: instance_snapshot,
-            managed_state: dpu_snapshot.current.state,
+            managed_state,
         };
 
         Ok(snapshot)
