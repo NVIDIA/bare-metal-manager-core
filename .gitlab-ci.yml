@@ -229,9 +229,11 @@ build-release-container-x86_64:
           echo "Deploying build container: intermediate-container-$CI_COMMIT_SHORT_SHA to $APPLICATION_DOCKER_IMAGE:$VERSION"
           docker tag "intermediate-container-$CI_COMMIT_SHORT_SHA" "$APPLICATION_DOCKER_IMAGE:$VERSION"
           docker push "$APPLICATION_DOCKER_IMAGE:$VERSION"
+          docker rmi "$APPLICATION_DOCKER_IMAGE:$VERSION"
         else
           echo "Skipping deployment of intermediate-container-$CI_COMMIT_SHORT_SHA"
         fi
+    - docker rmi intermediate-container-$CI_COMMIT_SHORT_SHA
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
       variables:
