@@ -157,6 +157,14 @@ impl Iterator for IpAllocator {
                 .map(|ip| (to_vec(&ip), ())),
         );
 
+        if segment_prefix.prefix.prefix() < 31 {
+            // Drop inetwork address.
+            excluded_ips.insert(to_vec(&segment_prefix.prefix.network()), ());
+
+            // Drop broadcast address.
+            excluded_ips.insert(to_vec(&segment_prefix.prefix.broadcast()), ());
+        }
+
         // Iterate over all the IPs until we find one that's not in the map, that's our
         // first free IPs
         Some((
@@ -262,5 +270,52 @@ mod tests {
         assert_eq!(result.0, prefix_id);
         assert!(result.1.is_err());
         assert!(allocator.next().is_none());
+    }
+    #[test]
+    fn test_ip_allocation_broadcast_address_is_excluded() {
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let mut allocator = IpAllocator {
+            prefixes: vec![Prefix {
+                id: prefix_id,
+                prefix: IpNetwork::V4("10.217.4.160/30".parse().unwrap()),
+                gateway: Some(IpAddr::V4("10.217.4.161".parse().unwrap())),
+                num_reserved: 3,
+            }],
+            used_ips: vec![],
+        };
+        assert!(allocator.next().unwrap().1.is_err());
+    }
+    #[test]
+    fn test_ip_allocation_network_broadcast_address_is_excluded() {
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let allocator = IpAllocator {
+            prefixes: vec![Prefix {
+                id: prefix_id,
+                prefix: IpNetwork::V4("10.217.4.160/30".parse().unwrap()),
+                gateway: Some(IpAddr::V4("10.217.4.161".parse().unwrap())),
+                num_reserved: 0,
+            }],
+            used_ips: vec![],
+        };
+        let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpAddr>>()[0];
+        assert_eq!(result, IpAddr::V4("10.217.4.162".parse().unwrap()));
+    }
+    #[test]
+    fn test_ip_allocation_with_used_ips() {
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let allocator = IpAllocator {
+            prefixes: vec![Prefix {
+                id: prefix_id,
+                prefix: IpNetwork::V4("10.217.4.160/28".parse().unwrap()),
+                gateway: Some(IpAddr::V4("10.217.4.161".parse().unwrap())),
+                num_reserved: 1,
+            }],
+            used_ips: vec![
+                (IpAddr::V4("10.217.4.162".parse().unwrap()),),
+                (IpAddr::V4("10.217.4.163".parse().unwrap()),),
+            ],
+        };
+        let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpAddr>>()[0];
+        assert_eq!(result, IpAddr::V4("10.217.4.164".parse().unwrap()));
     }
 }
