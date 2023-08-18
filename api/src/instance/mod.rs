@@ -15,7 +15,7 @@ use sqlx::PgPool;
 use crate::{
     db::{
         ib_subnet,
-        instance::{config::network::load_instance_network_config, Instance, NewInstance},
+        instance::{Instance, NewInstance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
         network_segment::NetworkSegment,
@@ -24,7 +24,10 @@ use crate::{
     model::{
         config_version::{ConfigVersion, Versioned},
         instance::{
-            config::{network::InterfaceFunctionId, InstanceConfig},
+            config::{
+                network::{InstanceNetworkConfig, InterfaceFunctionId},
+                InstanceConfig,
+            },
             snapshot::InstanceSnapshot,
         },
         machine::machine_id::{try_parse_machine_id, MachineId},
@@ -199,12 +202,10 @@ pub async fn allocate_instance(
 pub async fn circuit_id_to_function_id(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     instance_id: uuid::Uuid,
+    network_config: &InstanceNetworkConfig,
     circuit_id: String,
 ) -> CarbideResult<InterfaceFunctionId> {
     let segment = NetworkSegment::find_by_circuit_id(&mut *txn, &circuit_id).await?;
-    let network_config = load_instance_network_config(&mut *txn, instance_id)
-        .await?
-        .value;
 
     network_config
         .interfaces

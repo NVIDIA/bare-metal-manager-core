@@ -39,7 +39,6 @@ use crate::{
     CarbideError, CarbideResult,
 };
 
-pub mod config;
 pub mod status;
 
 #[derive(Debug, Clone)]
@@ -53,6 +52,10 @@ pub struct Instance {
     pub ssh_keys: Vec<String>,
     pub use_custom_pxe_on_boot: bool,
     pub deleted: Option<DateTime<Utc>>,
+    pub network_config: Versioned<InstanceNetworkConfig>,
+    pub network_status_observation: Option<InstanceNetworkStatusObservation>,
+    pub ib_config: Versioned<InstanceInfinibandConfig>,
+    pub ib_status_observation: Option<InstanceInfinibandStatusObservation>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +77,12 @@ pub struct DeleteInstance {
 
 impl<'r> FromRow<'r, PgRow> for Instance {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        /// This is wrapper to allow implementing FromRow on the Option
+        #[derive(serde::Deserialize)]
+        struct OptionalNetworkStatusObservation(Option<InstanceNetworkStatusObservation>);
+        #[derive(serde::Deserialize)]
+        struct OptionalIbStatusObservation(Option<InstanceInfinibandStatusObservation>);
+
         let user_data: Option<String> = row.try_get("user_data")?;
         let custom_ipxe = row.try_get("custom_ipxe")?;
         let machine_id: DbMachineId = row.try_get("machine_id")?;
@@ -88,6 +97,23 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             tenant_keyset_ids: vec![], //TODO: fixme once DB Schema gets updated
         };
 
+        let network_config_version_str: &str = row.try_get("network_config_version")?;
+        let network_config_version = network_config_version_str
+            .parse()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let network_config: sqlx::types::Json<InstanceNetworkConfig> =
+            row.try_get("network_config")?;
+        let network_status_observation: sqlx::types::Json<OptionalNetworkStatusObservation> =
+            row.try_get("network_status_observation")?;
+
+        let ib_config_version_str: &str = row.try_get("ib_config_version")?;
+        let ib_config_version = ib_config_version_str
+            .parse()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let ib_config: sqlx::types::Json<InstanceInfinibandConfig> = row.try_get("ib_config")?;
+        let ib_status_observation: sqlx::types::Json<OptionalIbStatusObservation> =
+            row.try_get("ib_status_observation")?;
+
         Ok(Instance {
             id: row.try_get("id")?,
             machine_id: machine_id.into_inner(),
@@ -98,6 +124,10 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             ssh_keys: Vec::new(),
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
             deleted: row.try_get("deleted")?,
+            network_config: Versioned::new(network_config.0, network_config_version),
+            network_status_observation: network_status_observation.0 .0,
+            ib_config: Versioned::new(ib_config.0, ib_config_version),
+            ib_status_observation: ib_status_observation.0 .0,
         })
     }
 }
