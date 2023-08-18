@@ -27,6 +27,7 @@ impl StateHandler for BmcMachineStateHandler {
     type ObjectId = uuid::Uuid;
     type State = BmcMachine;
     type ControllerState = BmcMachineState;
+    type ObjectMetrics = ();
 
     async fn handle_object_state(
         &self,
@@ -34,6 +35,7 @@ impl StateHandler for BmcMachineStateHandler {
         state: &mut BmcMachine,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _metrics: &mut Self::ObjectMetrics,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let read_state: &BmcMachineState = &*controller_state;

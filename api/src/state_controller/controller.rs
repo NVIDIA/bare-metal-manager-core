@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+#![allow(clippy::type_complexity)]
+
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -27,7 +29,9 @@ use crate::{
     redfish::RedfishClientPool,
     resource_pool::DbResourcePool,
     state_controller::{
-        metrics::{IterationMetrics, ObjectHandlerMetrics, StateControllerMetricEmitter},
+        metrics::{
+            IterationMetrics, MetricsEmitter, ObjectHandlerMetrics, StateControllerMetricEmitter,
+        },
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
             ControllerStateReader, NoopStateHandler, StateHandler, StateHandlerContext,
@@ -52,21 +56,22 @@ pub struct StateController<IO: StateControllerIO> {
         dyn StateHandler<
             State = IO::State,
             ControllerState = IO::ControllerState,
+            ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
             ObjectId = IO::ObjectId,
         >,
     >,
-    metric_holder: Arc<MetricHolder>,
+    metric_holder: Arc<MetricHolder<IO>>,
     stop_receiver: oneshot::Receiver<()>,
     config: Config,
 }
 
 /// Stores Metric data shared between the Controller and the OpenTelemetry background task
-struct MetricHolder {
-    emitter: Option<StateControllerMetricEmitter>,
-    last_iteration_metrics: ArcSwapOption<IterationMetrics>,
+struct MetricHolder<IO: StateControllerIO> {
+    emitter: Option<StateControllerMetricEmitter<IO>>,
+    last_iteration_metrics: ArcSwapOption<IterationMetrics<IO>>,
 }
 
-impl MetricHolder {
+impl<IO: StateControllerIO> MetricHolder<IO> {
     pub fn new(meter: Option<Meter>, object_type_for_metrics: &str) -> Self {
         let emitter = meter
             .as_ref()
@@ -83,9 +88,19 @@ impl MetricHolder {
 /// and how it loads the objects state.
 #[async_trait::async_trait]
 pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
+    /// Uniquely identifies the object that is controlled
     type ObjectId: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static + Clone;
+    /// The full state of the object.
+    /// This might contain all kinds of information, which different pieces of the full
+    /// state being updated by various components.
     type State: Send + Sync + 'static;
+    /// This defines the state that the state machine implemented in the state handler
+    /// actively acts upon. It is passed via the `controller_state` parameter to
+    /// each state handler, and can be modified via this parameter.
+    /// This state may not be updated by any other component.
     type ControllerState: std::fmt::Debug + Send + Sync + 'static + Clone;
+    /// Defines how metrics that are specific to this kind of object are handled
+    type MetricsEmitter: MetricsEmitter;
 
     /// Returns the name of the table in the database that will be used for advisory locking
     ///
@@ -258,7 +273,7 @@ impl<IO: StateControllerIO> StateController<IO> {
 
     async fn single_iteration(
         &mut self,
-        iteration_metrics: &mut IterationMetrics,
+        iteration_metrics: &mut IterationMetrics<IO>,
     ) -> Result<(), IterationError> {
         let mut txn = self.handler_services.pool.begin().await?;
 
@@ -297,12 +312,13 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
         dyn StateHandler<
             State = IO::State,
             ControllerState = IO::ControllerState,
+            ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
             ObjectId = IO::ObjectId,
         >,
     >,
     handler_services: &Arc<StateHandlerServices>,
     config: &Config,
-    iteration_metrics: &mut IterationMetrics,
+    iteration_metrics: &mut IterationMetrics<IO>,
 ) -> Result<(), IterationError> {
     // We start by grabbing a list of objects that should be active
     // The list might change until we fetch more data. However that should be ok:
@@ -336,12 +352,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                     .await
                     .expect("Semaphore can't be closed");
 
-                let mut metrics = ObjectHandlerMetrics::<IO> {
-                    state: None,
-                    handler_latency: Duration::from_secs(0),
-                    time_in_state: Duration::from_secs(0),
-                    error: None,
-                };
+                let mut metrics = ObjectHandlerMetrics::<IO>::default();
 
                 let start = Instant::now();
 
@@ -354,9 +365,9 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                     let mut controller_state = io
                         .load_controller_state(&mut txn, &object_id, &snapshot)
                         .await?;
-                    metrics.state = Some(controller_state.value.clone());
+                    metrics.common.state = Some(controller_state.value.clone());
                     // Unwrap uses a very large duration as default to show something is wrong
-                    metrics.time_in_state = chrono::Utc::now()
+                    metrics.common.time_in_state = chrono::Utc::now()
                         .signed_duration_since(controller_state.version.timestamp())
                         .to_std()
                         .unwrap_or(Duration::from_secs(60 * 60 * 24));
@@ -373,6 +384,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                             &mut snapshot,
                             &mut state_holder,
                             &mut txn,
+                            &mut metrics.specific,
                             &mut ctx,
                         )
                         .await
@@ -397,7 +409,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                 }
                 .await;
 
-                metrics.handler_latency = start.elapsed();
+                metrics.common.handler_latency = start.elapsed();
 
                 if let Err(e) = &result {
                     tracing::warn!("State handler for {} returned error: {:?}", object_id, e);
@@ -422,7 +434,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                 last_join_error = Some(join_error);
             }
             Ok((mut metrics, Err(handler_error))) => {
-                metrics.error = Some(handler_error);
+                metrics.common.error = Some(handler_error);
                 iteration_metrics.merge_object_handling_metrics(&metrics);
                 // Since we log StateHandlerErrors including the objectId inside the
                 // handling task themselves, we don't have to forward these errors.
@@ -498,6 +510,7 @@ pub struct Builder<IO: StateControllerIO> {
         dyn StateHandler<
             State = IO::State,
             ControllerState = IO::ControllerState,
+            ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
             ObjectId = IO::ObjectId,
         >,
     >,
@@ -526,6 +539,7 @@ impl<IO: StateControllerIO> Builder<IO> {
                 IO::ObjectId,
                 IO::State,
                 IO::ControllerState,
+                <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
             >::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
             meter: None,
@@ -702,6 +716,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             dyn StateHandler<
                 State = IO::State,
                 ControllerState = IO::ControllerState,
+                ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
                 ObjectId = IO::ObjectId,
             >,
         >,

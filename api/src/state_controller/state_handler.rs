@@ -130,6 +130,7 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
     type ObjectId: Clone + std::fmt::Display + std::fmt::Debug;
     type State;
     type ControllerState;
+    type ObjectMetrics;
 
     async fn handle_object_state(
         &self,
@@ -137,6 +138,7 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
         state: &mut Self::State,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        metrics: &mut Self::ObjectMetrics,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError>;
 }
@@ -211,17 +213,17 @@ impl StateHandlerError {
 }
 
 /// A `StateHandler` implementation which does nothing
-pub struct NoopStateHandler<I, S, CS> {
-    _phantom_data: std::marker::PhantomData<Option<(I, S, CS)>>,
+pub struct NoopStateHandler<I, S, CS, OM> {
+    _phantom_data: std::marker::PhantomData<Option<(I, S, CS, OM)>>,
 }
 
-impl<I, S, CS> std::fmt::Debug for NoopStateHandler<I, S, CS> {
+impl<I, S, CS, OM> std::fmt::Debug for NoopStateHandler<I, S, CS, OM> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NoopStateHandler").finish()
     }
 }
 
-impl<I, S, CS> Default for NoopStateHandler<I, S, CS> {
+impl<I, S, CS, OM> Default for NoopStateHandler<I, S, CS, OM> {
     fn default() -> Self {
         Self {
             _phantom_data: Default::default(),
@@ -234,11 +236,13 @@ impl<
         I: Clone + std::fmt::Display + std::fmt::Debug + Send + Sync + 'static,
         S: Send + Sync + 'static,
         CS: Send + Sync + 'static,
-    > StateHandler for NoopStateHandler<I, S, CS>
+        OM: Send + Sync + 'static,
+    > StateHandler for NoopStateHandler<I, S, CS, OM>
 {
     type State = S;
     type ControllerState = CS;
     type ObjectId = I;
+    type ObjectMetrics = OM;
 
     async fn handle_object_state(
         &self,
@@ -246,6 +250,7 @@ impl<
         _state: &mut Self::State,
         _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _metrics: &mut Self::ObjectMetrics,
         _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         Ok(())

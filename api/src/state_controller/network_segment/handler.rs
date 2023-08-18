@@ -56,6 +56,7 @@ impl StateHandler for NetworkSegmentStateHandler {
     type ObjectId = uuid::Uuid;
     type State = NetworkSegment;
     type ControllerState = NetworkSegmentControllerState;
+    type ObjectMetrics = ();
 
     async fn handle_object_state(
         &self,
@@ -63,6 +64,7 @@ impl StateHandler for NetworkSegmentStateHandler {
         state: &mut NetworkSegment,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _metrics: &mut Self::ObjectMetrics,
         _ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let read_state: &NetworkSegmentControllerState = &*controller_state;

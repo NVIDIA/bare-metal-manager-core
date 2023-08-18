@@ -16,7 +16,10 @@ use crate::{
         bmc_machine::BmcMachineState,
         config_version::{ConfigVersion, Versioned},
     },
-    state_controller::{controller::StateControllerIO, snapshot_loader::SnapshotLoaderError},
+    state_controller::{
+        controller::StateControllerIO, metrics::NoopMetricsEmitter,
+        snapshot_loader::SnapshotLoaderError,
+    },
 };
 
 /// State Controller IO implementation for network segments
@@ -28,6 +31,7 @@ impl StateControllerIO for BmcMachineStateControllerIO {
     type ObjectId = uuid::Uuid;
     type State = BmcMachine;
     type ControllerState = BmcMachineState;
+    type MetricsEmitter = NoopMetricsEmitter;
 
     fn db_lock_name() -> &'static str {
         "bmc_machine_controller_lock"
