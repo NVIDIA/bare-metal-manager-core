@@ -126,6 +126,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 redfish.clear_tpm()?;
                 println!("BIOS settings changes require system restart");
             }
+            BmcReset => {
+                redfish.bmc_reset()?;
+            }
         }
         Ok(())
     })

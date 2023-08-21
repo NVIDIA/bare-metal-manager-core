@@ -117,7 +117,7 @@ async fn get_system_id() -> impl IntoResponse {
     };
     let systems = libredfish::Systems {
         odata,
-        description: "BMC Mock systems for Forge".to_string(),
+        description: Some("BMC Mock systems for Forge".to_string()),
         members: vec![libredfish::model::ODataId {
             odata_id: "123".to_string(),
         }],
@@ -136,7 +136,7 @@ async fn get_manager_id() -> impl IntoResponse {
     };
     let managers = libredfish::model::Systems {
         odata,
-        description: "BMC Mock managers for Forge".to_string(),
+        description: Some("BMC Mock managers for Forge".to_string()),
         members: vec![libredfish::model::ODataId {
             odata_id: "123".to_string(),
         }],

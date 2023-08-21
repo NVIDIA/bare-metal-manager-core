@@ -161,6 +161,8 @@ pub enum RedfishCommand {
     SerialStatus,
     /// Clear Trusted Platform Module (TPM)
     TpmReset,
+    /// Reboot the BMC itself
+    BmcReset,
 }
 
 #[derive(Parser, Debug)]
