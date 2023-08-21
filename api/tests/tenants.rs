@@ -14,6 +14,10 @@ pub mod common;
 use common::api_fixtures::{create_test_env, TestEnv};
 use rpc::forge::{forge_server::Forge, CreateTenantKeysetResponse};
 
+use crate::common::api_fixtures::{
+    create_managed_host, instance::create_instance, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+};
+
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
@@ -454,4 +458,96 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
         "V3-T1691517639501030".to_string(),
         find_result.keyset[0].version
     );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let _keyset = create_keyset(
+        &env,
+        "Tenant1".to_string(),
+        "keyset1".to_string(),
+        "V1-T1691517639501025".to_string(),
+        rpc::forge::TenantKeysetContent {
+            public_keys: vec![rpc::forge::TenantPublicKey {
+                public_key: "ssh-rsa some_long_key_base64_encoded test@myname".to_string(),
+                comment: Some("some random comment".to_string()),
+            }],
+        },
+    )
+    .await
+    .keyset
+    .unwrap();
+
+    let _keyset = create_keyset(
+        &env,
+        "org1".to_string(),
+        "keyset1".to_string(),
+        "V1-T1691517639501025".to_string(),
+        rpc::forge::TenantKeysetContent {
+            public_keys: vec![rpc::forge::TenantPublicKey {
+                public_key: "ssh-rsa some_long_key_base64_encoded_1 test@myname".to_string(),
+                comment: Some("some random comment".to_string()),
+            }],
+        },
+    )
+    .await
+    .keyset
+    .unwrap();
+
+    // Create instance
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+    let (instance_id, _instance) =
+        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+
+    // Test that key set validation NOT ok with ssh keys passed with instance.
+    assert!(env
+        .api
+        .validate_tenant_public_key(tonic::Request::new(
+            rpc::forge::ValidateTenantPublicKeyRequest {
+                instance_id: instance_id.to_string(),
+                tenant_public_key: "mykey1".to_string()
+            },
+        ))
+        .await
+        .is_err());
+
+    assert!(env
+        .api
+        .validate_tenant_public_key(tonic::Request::new(
+            rpc::forge::ValidateTenantPublicKeyRequest {
+                instance_id: instance_id.to_string(),
+                tenant_public_key: "some_long_key_base64_encoded".to_string()
+            },
+        ))
+        .await
+        .is_ok());
+
+    assert!(env
+        .api
+        .validate_tenant_public_key(tonic::Request::new(
+            rpc::forge::ValidateTenantPublicKeyRequest {
+                instance_id: instance_id.to_string(),
+                tenant_public_key: "some_long_key_base64_encoded_1".to_string()
+            },
+        ))
+        .await
+        .is_err());
+
+    assert!(env
+        .api
+        .validate_tenant_public_key(tonic::Request::new(
+            rpc::forge::ValidateTenantPublicKeyRequest {
+                instance_id: instance_id.to_string(),
+                tenant_public_key: "unknown_key1".to_string()
+            },
+        ))
+        .await
+        .is_err());
 }

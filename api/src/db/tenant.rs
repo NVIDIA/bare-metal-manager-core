@@ -16,9 +16,12 @@ use sqlx::{Postgres, Row};
 use crate::db::DatabaseError;
 use crate::model::config_version::ConfigVersion;
 use crate::model::tenant::{
-    Tenant, TenantKeyset, TenantKeysetContent, TenantKeysetIdentifier, UpdateTenantKeyset,
+    Tenant, TenantKeyset, TenantKeysetContent, TenantKeysetIdentifier,
+    TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
 use crate::{CarbideError, CarbideResult};
+
+use super::instance::Instance;
 
 impl Tenant {
     pub async fn create_and_persist(
@@ -249,5 +252,30 @@ impl UpdateTenantKeyset {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(())
+    }
+}
+
+impl TenantPublicKeyValidationRequest {
+    pub async fn validate(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), CarbideError> {
+        let instance =
+            Instance::find(txn, super::UuidKeyedObjectFilter::One(self.instance_id)).await?;
+
+        let instance = instance.get(0).ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: self.instance_id.to_string(),
+        })?;
+
+        let keysets = TenantKeyset::find(
+            Some(instance.tenant_config.tenant_organization_id.to_string()),
+            None,
+            true,
+            txn,
+        )
+        .await?;
+
+        self.validate_key(keysets).map_err(CarbideError::from)
     }
 }

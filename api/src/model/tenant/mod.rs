@@ -11,12 +11,20 @@
  */
 
 use std::convert::TryFrom;
+use std::fmt::Display;
 use std::str::FromStr;
 
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::model::config_version::ConfigVersion;
 use crate::model::RpcDataConversionError;
+
+#[derive(thiserror::Error, Debug)]
+pub enum TenantError {
+    #[error("Publickey validation fail for instance {0}, key {1}")]
+    PublickeyValidationFailed(uuid::Uuid, String),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tenant {
@@ -100,9 +108,20 @@ pub struct TenantKeysetIdentifier {
     pub keyset_id: String,
 }
 
+/// Possible format:
+/// 1. <algo> <key> <comment>
+/// 2. <algo> <key>
+/// 3. <key>
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicKey {
+    pub algo: Option<String>,
+    pub key: String,
+    pub comment: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TenantPublicKey {
-    pub public_key: String,
+    pub public_key: PublicKey,
     pub comment: Option<String>,
 }
 
@@ -118,10 +137,51 @@ pub struct TenantKeyset {
     pub version: ConfigVersion,
 }
 
+impl Display for PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let algo = if let Some(algo) = self.algo.as_ref() {
+            format!("{} ", algo)
+        } else {
+            "".to_string()
+        };
+
+        let comment = if let Some(comment) = self.comment.as_ref() {
+            format!(" {}", comment)
+        } else {
+            "".to_string()
+        };
+
+        write!(f, "{}{}{}", algo, self.key, comment)
+    }
+}
+
+impl FromStr for PublicKey {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let key_parts = s.split(' ').collect_vec();
+
+        // If length is greater than 1, key contains algo and key at least.
+        Ok(if key_parts.len() > 1 {
+            PublicKey {
+                algo: Some(key_parts[0].to_string()),
+                key: key_parts[1].to_string(),
+                comment: key_parts.get(2).map(|x| x.to_string()),
+            }
+        } else {
+            PublicKey {
+                algo: None,
+                key: s.to_string(),
+                comment: None,
+            }
+        })
+    }
+}
+
 impl From<rpc::forge::TenantPublicKey> for TenantPublicKey {
     fn from(src: rpc::forge::TenantPublicKey) -> Self {
+        let public_key: PublicKey = src.public_key.parse().expect("Key parsing can never fail.");
         Self {
-            public_key: src.public_key,
+            public_key,
             comment: src.comment,
         }
     }
@@ -130,7 +190,7 @@ impl From<rpc::forge::TenantPublicKey> for TenantPublicKey {
 impl From<TenantPublicKey> for rpc::forge::TenantPublicKey {
     fn from(src: TenantPublicKey) -> Self {
         Self {
-            public_key: src.public_key,
+            public_key: src.public_key.to_string(),
             comment: src.comment,
         }
     }
@@ -293,7 +353,7 @@ pub struct TenantOrganizationId(String);
 
 impl std::fmt::Debug for TenantOrganizationId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }
 
@@ -341,6 +401,45 @@ impl FromStr for TenantOrganizationId {
     }
 }
 
+pub struct TenantPublicKeyValidationRequest {
+    pub instance_id: uuid::Uuid,
+    pub public_key: String,
+}
+
+impl TryFrom<rpc::forge::ValidateTenantPublicKeyRequest> for TenantPublicKeyValidationRequest {
+    type Error = RpcDataConversionError;
+    fn try_from(value: rpc::forge::ValidateTenantPublicKeyRequest) -> Result<Self, Self::Error> {
+        let instance_id: uuid::Uuid = uuid::Uuid::parse_str(&value.instance_id).map_err(|_| {
+            RpcDataConversionError::InvalidUuid(
+                "Instance id is invalid in tenant public key validation",
+            )
+        })?;
+
+        Ok(TenantPublicKeyValidationRequest {
+            instance_id,
+            public_key: value.tenant_public_key,
+        })
+    }
+}
+
+impl TenantPublicKeyValidationRequest {
+    pub fn validate_key(&self, keysets: Vec<TenantKeyset>) -> Result<(), TenantError> {
+        // Validate with all available keysets
+        for keyset in keysets {
+            for key in keyset.keyset_content.public_keys {
+                if key.public_key.key == self.public_key {
+                    return Ok(());
+                }
+            }
+        }
+
+        Err(TenantError::PublickeyValidationFailed(
+            self.instance_id,
+            self.public_key.clone(),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,5 +467,38 @@ mod tests {
         assert_eq!(format!("{}", tenant), "TenantA");
         assert_eq!(format!("{:?}", tenant), "\"TenantA\"");
         assert_eq!(serde_json::to_string(&tenant).unwrap(), "\"TenantA\"");
+    }
+
+    #[test]
+    fn public_key_formatting() {
+        let pub_key = PublicKey {
+            algo: Some("ssh-rsa".to_string()),
+            key: "randomkey123".to_string(),
+            comment: Some("test@myorg".to_string()),
+        };
+
+        assert_eq!("ssh-rsa randomkey123 test@myorg", pub_key.to_string());
+    }
+
+    #[test]
+    fn public_key_formatting_no_comment() {
+        let pub_key = PublicKey {
+            algo: Some("ssh-rsa".to_string()),
+            key: "randomkey123".to_string(),
+            comment: None,
+        };
+
+        assert_eq!("ssh-rsa randomkey123", pub_key.to_string());
+    }
+
+    #[test]
+    fn public_key_formatting_only_key() {
+        let pub_key = PublicKey {
+            algo: None,
+            key: "randomkey123".to_string(),
+            comment: None,
+        };
+
+        assert_eq!("randomkey123", pub_key.to_string());
     }
 }

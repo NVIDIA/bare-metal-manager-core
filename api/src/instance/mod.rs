@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use itertools::Itertools;
 use sqlx::PgPool;
 
 use crate::{
@@ -105,10 +106,22 @@ pub async fn allocate_instance(
     let network_config = Versioned::new(request.config.network, ConfigVersion::initial());
     let ib_config = Versioned::new(request.config.infiniband, ConfigVersion::initial());
 
+    // SSH keys can have 3 segments <algorithm> <key> <owner>
+    // We are interested only in key.
     let new_instance = NewInstance {
         machine_id: request.machine_id,
         tenant_config: &tenant_config,
-        ssh_keys: request.ssh_keys,
+        ssh_keys: request
+            .ssh_keys
+            .into_iter()
+            .map(|x| {
+                x.split(' ')
+                    .collect::<Vec<&str>>()
+                    .get(1)
+                    .map(|x| x.to_string())
+                    .unwrap_or(x)
+            })
+            .collect_vec(),
         network_config: network_config.as_ref(),
         ib_config: ib_config.as_ref(),
     };

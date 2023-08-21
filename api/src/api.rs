@@ -65,7 +65,10 @@ use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::{FailureCause, FailureDetails, FailureSource, ManagedHostState};
-use crate::model::tenant::{Tenant, TenantKeyset, TenantKeysetIdentifier, UpdateTenantKeyset};
+use crate::model::tenant::{
+    Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
+    UpdateTenantKeyset,
+};
 use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishCredentialType;
 use crate::resource_pool;
@@ -1707,9 +1710,30 @@ where
 
     async fn validate_tenant_public_key(
         &self,
-        _request: Request<ValidateTenantPublicKeyRequest>,
+        request: Request<ValidateTenantPublicKeyRequest>,
     ) -> Result<Response<ValidateTenantPublicKeyResponse>, Status> {
-        //TODO: actually implement this
+        let request = TenantPublicKeyValidationRequest::try_from(request.into_inner())
+            .map_err(CarbideError::from)?;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin validate_tenant_public_key",
+                e,
+            ))
+        })?;
+
+        request.validate(&mut txn).await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit validate_tenant_public_key",
+                e,
+            ))
+        })?;
         Ok(Response::new(ValidateTenantPublicKeyResponse {}))
     }
 

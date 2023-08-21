@@ -23,6 +23,7 @@ use model::{
     config_version::{ConfigVersion, ConfigVersionParseError},
     hardware_info::HardwareInfoError,
     machine::machine_id::MachineId,
+    tenant::TenantError,
     ConfigValidationError, RpcDataConversionError,
 };
 use state_controller::snapshot_loader::SnapshotLoaderError;
@@ -192,6 +193,9 @@ pub enum CarbideError {
 
     #[error("Failed to generate client certificate: {0}")]
     ClientCertificateError(String),
+
+    #[error("Tenant handling error: {0}")]
+    TenantError(#[from] TenantError),
 
     #[error("Machine is in maintenance mode. Cannot allocate instance on it.")]
     MaintenanceMode,
