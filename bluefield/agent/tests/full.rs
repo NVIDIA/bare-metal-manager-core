@@ -101,7 +101,11 @@ async fn test_start() -> eyre::Result<()> {
     };
 
     // Start forge-dpu-agent
-    tokio::spawn(async move { agent::start(opts).await });
+    tokio::spawn(async move {
+        if let Err(e) = agent::start(opts).await {
+            tracing::error!("Failed to start DPU agent: {}", e);
+        }
+    });
 
     // Let it run
     tokio::time::sleep(Duration::from_secs(1)).await;
