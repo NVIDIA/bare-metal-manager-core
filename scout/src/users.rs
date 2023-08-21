@@ -1,11 +1,11 @@
 use std::path::Path;
 
-use forge_host_support::cmd::Cmd;
 use pwhash::sha512_crypt;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use utils::cmd::Cmd;
 
 use ::rpc::forge::{
     machine_credentials_update_request::CredentialPurpose,

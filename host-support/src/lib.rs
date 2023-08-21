@@ -19,7 +19,6 @@ use tracing::metadata::LevelFilter;
 use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
 
 pub mod agent_config;
-pub mod cmd;
 pub mod hardware_enumeration;
 pub mod registration;
 

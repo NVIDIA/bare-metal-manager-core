@@ -15,11 +15,12 @@ use std::{env, sync::Arc};
 use eyre::WrapErr;
 use figment::providers::{Env, Format, Toml};
 use figment::Figment;
-
-use forge_secrets::forge_vault::{ForgeVaultAuthenticationType, ForgeVaultClientConfig};
-use forge_secrets::ForgeVaultClient;
+use forge_secrets::credentials::CredentialProvider;
 
 use crate::cfg::CarbideConfig;
+use crate::ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl};
+use forge_secrets::forge_vault::{ForgeVaultAuthenticationType, ForgeVaultClientConfig};
+use forge_secrets::ForgeVaultClient;
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -63,4 +64,23 @@ pub async fn create_vault_client() -> eyre::Result<Arc<ForgeVaultClient>> {
         vault_root_ca_path,
     });
     Ok(Arc::new(forge_vault_client))
+}
+
+pub fn create_ipmi_tool<C: CredentialProvider + 'static>(
+    credential_provider: Arc<C>,
+    carbide_config: &CarbideConfig,
+) -> Arc<dyn IPMITool> {
+    if carbide_config
+        .dpu_impi_tool_impl
+        .as_ref()
+        .is_some_and(|tool| tool == "test")
+    {
+        Arc::new(IPMIToolTestImpl {})
+    } else {
+        Arc::new(IPMIToolImpl::new(
+            credential_provider,
+            &carbide_config.dpu_ipmi_reboot_args,
+            &carbide_config.dpu_ipmi_reboot_attempts,
+        ))
+    }
 }

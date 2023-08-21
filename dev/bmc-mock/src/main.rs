@@ -45,6 +45,7 @@ async fn main() {
     bmc_mock::run(bmc_mock::BmcState {
         use_qemu: args.use_qemu,
         cert_path: args.cert_path,
+        listen_port: args.port,
     })
     .await;
 }

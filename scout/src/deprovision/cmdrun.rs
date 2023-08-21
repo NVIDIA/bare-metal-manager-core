@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use forge_host_support::cmd::Cmd;
 use scout::CarbideClientError;
+use utils::cmd::Cmd;
 
 pub fn run_prog(cmd: String) -> Result<String, CarbideClientError> {
     let mut cmdpar = cmd.split(' ');

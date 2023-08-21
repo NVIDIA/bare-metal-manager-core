@@ -9,12 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use mac_address::MacAddress;
 use std::{
     backtrace::{Backtrace, BacktraceStatus},
     net::IpAddr,
 };
-
-use mac_address::MacAddress;
 use tonic::Status;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -43,6 +42,7 @@ pub mod ethernet_virtualization;
 mod human_hash;
 pub mod ib;
 pub mod instance;
+pub mod ipmitool;
 mod ipxe;
 pub mod logging;
 pub mod model;
@@ -305,6 +305,8 @@ pub async fn run(
 
     let forge_vault_client = setup::create_vault_client().await?;
 
+    let ipmi_tool = setup::create_ipmi_tool(forge_vault_client.clone(), &carbide_config);
+
     tracing::info!(
         "Start carbide-api on {}, {}",
         carbide_config.listen,
@@ -315,6 +317,7 @@ pub async fn run(
         forge_vault_client.clone(),
         forge_vault_client,
         meter,
+        ipmi_tool,
     )
     .await
 }

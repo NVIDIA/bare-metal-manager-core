@@ -36,6 +36,23 @@ root-dir = "$HBN_ROOT"
 skip-reload = true
 "#;
 
+const BMC_METADATA: &str = r#"{
+    "machine_id": {
+      "id": "$HOST_MACHINE_ID"
+    },
+    "bmc_info": {
+      "ip": "localhost"
+    },
+    "data": [
+      {
+        "user": "forge_admin",
+        "password": "notforprod",
+        "role": 1
+      }
+    ],
+    "request_type": 1
+  }"#;
+
 pub struct Info {
     pub hbn_root: path::PathBuf,
     pub machine_id: String,
@@ -51,6 +68,10 @@ pub async fn bootstrap(
 ) -> eyre::Result<Info> {
     let (_vpc_id, _domain_id, segment_id) = basic(carbide_api_addr)?;
     let (interface_id, dpu_machine_id, ip_address) = discover(carbide_api_addr)?;
+
+    let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
+    grpcurl(carbide_api_addr, "UpdateBMCMetaData", &data)?;
+
     let hbn_root = configure_network(
         dpu_config_file,
         carbide_api_addr,

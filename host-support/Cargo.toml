@@ -26,5 +26,6 @@ uuid = "1.0"
 
 # local crate dependencies
 rpc = { path = "../rpc" }
+utils = { path = "../utils" }
 csv = "1.2.1"
 smbios-lib = "0.9.0"

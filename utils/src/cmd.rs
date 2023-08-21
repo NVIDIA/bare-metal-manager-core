@@ -47,12 +47,14 @@ pub type CmdResult<T> = std::result::Result<T, CmdError>;
 
 pub struct Cmd {
     command: Command,
+    attempts: u32,
 }
 
 impl Cmd {
     pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
         Self {
             command: Command::new(program),
+            attempts: 1,
         }
     }
 
@@ -65,20 +67,42 @@ impl Cmd {
         self
     }
 
+    pub fn env<S>(mut self, key: S, value: S) -> Self
+    where
+        S: AsRef<OsStr>,
+    {
+        self.command.env(key, value);
+        self
+    }
+
+    pub fn attempts(mut self, attempts: u32) -> Self {
+        self.attempts = attempts;
+        self
+    }
+
     pub fn output(mut self) -> CmdResult<String> {
         if cfg!(test) {
             return Ok("test string".to_string());
         }
 
-        let output = self
-            .command
-            .output()
-            .map_err(|x| CmdError::Generic(x.to_string()))?;
+        let mut last_output = None;
+        for _attempt in 0..self.attempts {
+            let output = self
+                .command
+                .output()
+                .map_err(|x| CmdError::Generic(x.to_string()))?;
 
-        if !output.status.success() {
-            return Err(CmdError::subprocess_error(&self.command, &output));
+            last_output = Some(output.clone());
+
+            if output.status.success() {
+                return String::from_utf8(output.stdout)
+                    .map_err(|_| CmdError::output_parse_error(&self));
+            }
         }
-
-        String::from_utf8(output.stdout).map_err(|_| CmdError::output_parse_error(&self))
+        if let Some(output) = last_output {
+            Err(CmdError::subprocess_error(&self.command, &output))
+        } else {
+            Err(CmdError::Generic("Invalid retry value".to_owned()))
+        }
     }
 }

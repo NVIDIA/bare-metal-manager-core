@@ -24,6 +24,7 @@ use tracing::Instrument;
 
 use crate::{
     ib::IBFabricManager,
+    ipmitool::IPMITool,
     logging::sqlx_query_tracing,
     model::config_version::{ConfigVersion, Versioned},
     redfish::RedfishClientPool,
@@ -517,6 +518,7 @@ pub struct Builder<IO: StateControllerIO> {
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
     pool_pkey: Option<Arc<DbResourcePool<i16>>>,
     reachability_params: Option<ReachabilityParams>,
+    ipmi_tool: Option<Arc<dyn IPMITool>>,
 }
 
 #[derive(Clone)]
@@ -547,6 +549,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             forge_api: None,
             reachability_params: None,
             pool_pkey: None,
+            ipmi_tool: None,
         }
     }
 
@@ -600,6 +603,11 @@ impl<IO: StateControllerIO> Builder<IO> {
                 .unwrap_or_else(|| "undefined".to_string()),
         };
 
+        let ipmi_tool = self
+            .ipmi_tool
+            .take()
+            .ok_or(StateControllerBuildError::MissingArgument("ipmi_tool"))?;
+
         let handler_services = Arc::new(StateHandlerServices {
             pool: database,
             ib_fabric_manager,
@@ -608,6 +616,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             reachability_params,
             meter: meter.clone(),
             pool_pkey: self.pool_pkey.take(),
+            ipmi_tool,
         });
 
         // This defines the shared storage location for metrics between the state handler
@@ -722,6 +731,11 @@ impl<IO: StateControllerIO> Builder<IO> {
         >,
     ) -> Self {
         self.state_handler = handler;
+        self
+    }
+
+    pub fn ipmi_tool(mut self, ipmi_tool: Arc<dyn IPMITool>) -> Self {
+        self.ipmi_tool = Some(ipmi_tool);
         self
     }
 }

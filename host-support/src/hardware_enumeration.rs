@@ -16,8 +16,8 @@ use std::{
     str::{FromStr, Utf8Error},
 };
 
-use crate::cmd::CmdError;
 use ::rpc::machine_discovery as rpc_discovery;
+use ::utils::cmd::CmdError;
 use libudev::Device;
 use rpc::machine_discovery::MemoryDevice;
 use tracing::{error, warn};
