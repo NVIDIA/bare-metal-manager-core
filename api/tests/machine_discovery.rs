@@ -12,7 +12,11 @@
 use std::{net::IpAddr, str::FromStr};
 
 use carbide::{
-    db::machine_interface::MachineInterface, model::machine::machine_id::try_parse_machine_id,
+    db::{machine::Machine, machine_interface::MachineInterface},
+    model::machine::{
+        machine_id::try_parse_machine_id, FailureCause, FailureDetails, FailureSource,
+        ManagedHostState,
+    },
 };
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -25,6 +29,8 @@ use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS,
 };
 use rpc::forge::forge_server::Forge;
+
+use crate::common::api_fixtures::dpu::create_dpu_machine_with_discovery_error;
 
 #[ctor::ctor]
 fn setup() {
@@ -132,5 +138,48 @@ async fn test_reject_host_machine_with_disabled_tpm(
     let machines = env.find_machines(None, None, false).await;
     assert!(machines.machines.is_empty());
 
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_discovery_complete_with_error(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env: common::api_fixtures::TestEnv = create_test_env(pool.clone()).await;
+    let dpu_rpc_machine_id =
+        create_dpu_machine_with_discovery_error(&env, Some("Test Error".to_owned())).await;
+    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
+
+    let mut txn = pool.begin().await?;
+
+    let machine = Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    match machine.current_state() {
+        ManagedHostState::Failed {
+            details,
+            machine_id,
+        } => {
+            let FailureDetails { cause, source, .. } = details;
+            assert_eq!(
+                cause,
+                FailureCause::Discovery {
+                    err: "Test Error".to_owned()
+                }
+            );
+            assert_eq!(source, FailureSource::Scout);
+
+            assert_eq!(machine_id, dpu_machine_id);
+        }
+        s => {
+            panic!("Incorrect state: {}", s);
+        }
+    }
     Ok(())
 }

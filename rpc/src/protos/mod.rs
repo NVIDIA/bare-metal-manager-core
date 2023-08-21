@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-#[allow(unknown_lints, clippy::all)]
+#[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
 pub mod forge;
-#[allow(unknown_lints, clippy::all)]
+#[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
 pub mod machine_discovery;

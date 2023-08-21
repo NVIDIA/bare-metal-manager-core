@@ -1239,6 +1239,7 @@ message MachineDiscoveryInfo {
 
 message MachineDiscoveryCompletedRequest {
 	MachineId machine_id = 1;
+  optional string DiscoveryError = 2;
 }
 
 message MachineCleanupInfo {

@@ -130,6 +130,7 @@ pub enum ManagedHostState {
 pub enum FailureCause {
     NoError,
     NVMECleanFailed { err: String },
+    Discovery { err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -239,6 +240,7 @@ impl Display for FailureCause {
         match self {
             FailureCause::NVMECleanFailed { .. } => write!(f, "NVMECleanFailed"),
             FailureCause::NoError => write!(f, "NoError"),
+            FailureCause::Discovery { .. } => write!(f, "Discovery"),
         }
     }
 }

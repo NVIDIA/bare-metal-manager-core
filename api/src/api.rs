@@ -1922,11 +1922,35 @@ where
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
         machine.update_discovery_time(&mut txn).await?;
+
+        let dicovery_result = match req.discovery_error {
+            Some(discovery_error) => {
+                machine
+                    .update_failure_details(
+                        &mut txn,
+                        FailureDetails {
+                            cause: FailureCause::Discovery {
+                                err: discovery_error.clone(),
+                            },
+                            failed_at: chrono::Utc::now(),
+                            source: FailureSource::Scout,
+                        },
+                    )
+                    .await?;
+                discovery_error
+            }
+            None => "Success".to_owned(),
+        };
+
         txn.commit()
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit discovery_completed", e))?;
 
-        tracing::info!("discovery_completed_success: {machine_id}");
+        tracing::info!(
+            "discovery_completed for machine {}: {}",
+            machine_id,
+            dicovery_result
+        );
         Ok(Response::new(rpc::MachineDiscoveryCompletedResponse {}))
     }
 
