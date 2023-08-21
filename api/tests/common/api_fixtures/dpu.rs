@@ -102,7 +102,7 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     )
     .await;
 
-    discovery_completed(env, dpu_rpc_machine_id.clone()).await;
+    discovery_completed(env, dpu_rpc_machine_id.clone(), None).await;
     network_configured(env, &dpu_machine_id).await;
     let mut txn = env.pool.begin().await.unwrap();
     let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
@@ -249,4 +249,80 @@ pub async fn loopback_ip(
         .unwrap()
         .unwrap();
     IpAddr::V4(dpu.loopback_ip().unwrap())
+}
+
+/// Creates a Machine Interface and Machine for a DPU
+///
+/// Returns the ID of the created machine
+pub async fn create_dpu_machine_with_discovery_error(
+    env: &TestEnv,
+    discovery_error: Option<String>,
+) -> rpc::MachineId {
+    let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
+    let dpu_machine_id = dpu_discover_machine(env, machine_interface_id).await;
+    let handler = MachineStateHandler::default();
+
+    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+    let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
+
+    // Simulate the ForgeAgentControl request of the DPU
+    let agent_control_response = env
+        .api
+        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
+            machine_id: Some(dpu_rpc_machine_id.clone()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        agent_control_response.action,
+        rpc::forge_agent_control_response::Action::Discovery as i32
+    );
+
+    update_dpu_machine_credentials(env, dpu_rpc_machine_id.clone()).await;
+
+    // TODO: This it not really happening in the current version of forge-scout.
+    // But it's in the test setup to verify reading back submitted credentials
+    update_bmc_metadata(
+        env,
+        dpu_rpc_machine_id.clone(),
+        FIXTURE_DPU_BMC_IP_ADDRESS,
+        FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
+        FIXTURE_DPU_BMC_MAC_ADDRESS.to_string(),
+        FIXTURE_DPU_BMC_VERSION.to_owned(),
+        FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_owned(),
+    )
+    .await;
+
+    discovery_completed(env, dpu_rpc_machine_id.clone(), discovery_error).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .id()
+        .clone();
+
+    env.run_machine_state_controller_iteration(host_machine_id, &handler)
+        .await;
+    let machine = Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    match machine.current_state() {
+        ManagedHostState::Failed { .. } => {}
+        s => {
+            panic!("Incorrect state: {}", s);
+        }
+    }
+
+    txn.commit().await.unwrap();
+
+    dpu_rpc_machine_id
 }

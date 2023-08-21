@@ -145,7 +145,7 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
     )
     .await;
 
-    discovery_completed(env, host_rpc_machine_id.clone()).await;
+    discovery_completed(env, host_rpc_machine_id.clone(), None).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(

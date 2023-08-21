@@ -458,11 +458,16 @@ pub async fn update_bmc_metadata(
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
-pub async fn discovery_completed(env: &TestEnv, machine_id: rpc::forge::MachineId) {
+pub async fn discovery_completed(
+    env: &TestEnv,
+    machine_id: rpc::forge::MachineId,
+    discovery_error: Option<String>,
+) {
     let _response = env
         .api
         .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
             machine_id: Some(machine_id),
+            discovery_error,
         }))
         .await
         .unwrap()
