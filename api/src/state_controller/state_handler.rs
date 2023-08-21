@@ -18,6 +18,7 @@ use opentelemetry::metrics::Meter;
 use crate::{
     db::DatabaseError,
     ib::IBFabricManager,
+    ipmitool::IPMITool,
     model::machine::{machine_id::MachineId, ManagedHostState},
     redfish::{RedfishClientCreationError, RedfishClientPool},
     resource_pool::{DbResourcePool, ResourcePoolError},
@@ -46,6 +47,8 @@ pub struct StateHandlerServices {
 
     /// Resource pool for ib pkey allocate/release.
     pub pool_pkey: Option<Arc<DbResourcePool<i16>>>,
+
+    pub ipmi_tool: Arc<dyn IPMITool>,
 }
 
 /// Context parameter passed to `StateHandler`

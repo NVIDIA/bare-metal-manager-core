@@ -23,6 +23,7 @@ DATA_DIR=$1
 source $DATA_DIR/envrc
 
 DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"
+BMC_METADATA_FILE=${DATA_DIR}/update_dpu_bmc_metadata.json
 
 # Simulate the DHCP request of a DPU
 RESULT=`grpcurl -d @ -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverDhcp < "${DATA_DIR}/dpu_dhcp_discovery.json"`
@@ -45,6 +46,10 @@ else
 	echo "Failed to create DPU SSH account"
 	exit $cred_ret
 fi
+
+UPDATE_BMC_METADATA=$(jq --arg machine_id "$DPU_MACHINE_ID" '.machine_id.id = $machine_id' "$BMC_METADATA_FILE")
+grpcurl -d "$UPDATE_BMC_METADATA" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/UpdateBMCMetaData
+
 
 # Mark discovery complete
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)

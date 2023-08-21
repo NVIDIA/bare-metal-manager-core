@@ -20,6 +20,7 @@ use std::{
 };
 
 use carbide::{
+    ipmitool::IPMIToolTestImpl,
     model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
     redfish::RedfishSim,
     state_controller::{
@@ -140,6 +141,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: chrono::Duration::seconds(0),
                 })
+                .ipmi_tool(Arc::new(IPMIToolTestImpl {}))
                 .build()
                 .unwrap(),
         );

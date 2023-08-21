@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_host_support::cmd::CmdError;
+use utils::cmd::CmdError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideClientError {

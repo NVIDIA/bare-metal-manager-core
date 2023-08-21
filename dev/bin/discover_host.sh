@@ -23,7 +23,7 @@ API_SERVER_HOST=$1
 API_SERVER_PORT=$2
 HOST_DHCP_FILE=$3/host_dhcp_discovery.json
 HOST_MACHINE_FILE=$3/host_machine_discovery.json
-BMC_METADATA_FILE=$3/update_bmc_metadata.json
+BMC_METADATA_FILE=$3/update_host_bmc_metadata.json
 DISCOVERY_MODE=$4
 
 # Relies on the assumption that the DPU is the only entry

@@ -59,6 +59,7 @@ use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::ib;
 use crate::ib::IBFabricManager;
+use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
@@ -3631,6 +3632,7 @@ where
         credential_provider: Arc<C1>,
         certificate_provider: Arc<C2>,
         meter: opentelemetry::metrics::Meter,
+        ipmi_tool: Arc<dyn IPMITool>,
     ) -> eyre::Result<()> {
         let service_config = if carbide_config.rapid_iterations {
             tracing::info!("Running with rapid iterations for local development");
@@ -3770,6 +3772,7 @@ where
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,
                 })
+                .ipmi_tool(ipmi_tool.clone())
                 .build()
                 .expect("Unable to build MachineStateController");
 
@@ -3792,6 +3795,7 @@ where
             .reachability_params(ReachabilityParams {
                 dpu_wait_time: service_config.dpu_wait_time,
             })
+            .ipmi_tool(ipmi_tool.clone())
             .build()
             .expect("Unable to build NetworkSegmentController");
 
@@ -3808,6 +3812,7 @@ where
             .state_handler(Arc::new(IBSubnetStateHandler::new(
                 service_config.network_segment_drain_time,
             )))
+            .ipmi_tool(ipmi_tool.clone())
             .build()
             .expect("Unable to build IBSubnetController");
 
@@ -3822,6 +3827,7 @@ where
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.network_segment_state_controller_iteration_time)
                 .state_handler(Arc::new(BmcMachineStateHandler::default()))
+                .ipmi_tool(ipmi_tool.clone())
                 .build()
                 .expect("Unable to build BmcMachineController");
 

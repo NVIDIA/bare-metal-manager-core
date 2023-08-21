@@ -70,6 +70,7 @@ CONTAINER_DATA_PATH=${CONTAINER_REPO_ROOT:-${REPO_ROOT}}/dev/${FORGE_BOOTSTRAP_K
 echo using container data path ${CONTAINER_DATA_PATH}
 
 SEGMENT_COUNT=$(${REPO_ROOT}/dev/bin/psql.sh 'select count(*) from network_segments;' | tr -d '\n\r ')
+echo "segment count: ${SEGMENT_COUNT}"
 
 if [ 0 -eq ${SEGMENT_COUNT} ]
 then

@@ -13,12 +13,12 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::time::Instant;
 
-use forge_host_support::cmd::Cmd;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use regex::Regex;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error};
+use utils::cmd::Cmd;
 
 use ::rpc::forge::{self as rpc, BmcInfo, BmcMetaDataUpdateRequest};
 use ::rpc::forge_tls_client::ForgeClientT;

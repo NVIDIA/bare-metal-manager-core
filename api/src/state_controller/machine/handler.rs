@@ -260,7 +260,7 @@ impl StateHandler for DpuMachineStateHandler {
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _metrics: &mut Self::ObjectMetrics,
-        _ctx: &mut StateHandlerContext,
+        ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         match &state.managed_state {
             ManagedHostState::DPUNotReady {
@@ -277,6 +277,8 @@ impl StateHandler for DpuMachineStateHandler {
                 {
                     return Ok(());
                 }
+
+                restart_machine(&state.dpu_snapshot, ctx).await?;
 
                 *controller_state.modify() = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkConfig,
@@ -826,6 +828,17 @@ async fn restart_machine(
     machine_snapshot: &MachineSnapshot,
     ctx: &StateHandlerContext<'_>,
 ) -> Result<(), StateHandlerError> {
+    if machine_snapshot.machine_id.machine_type().is_dpu() {
+        restart_dpu(machine_snapshot, ctx).await
+    } else {
+        restart_host(machine_snapshot, ctx).await
+    }
+}
+
+async fn restart_host(
+    machine_snapshot: &MachineSnapshot,
+    ctx: &StateHandlerContext<'_>,
+) -> Result<(), StateHandlerError> {
     let bmc_ip =
         machine_snapshot
             .bmc_info
@@ -866,6 +879,31 @@ async fn restart_machine(
         operation: "restart",
         error: e,
     })?;
+
+    Ok(())
+}
+
+async fn restart_dpu(
+    machine_snapshot: &MachineSnapshot,
+    ctx: &StateHandlerContext<'_>,
+) -> Result<(), StateHandlerError> {
+    let bmc_ip =
+        machine_snapshot
+            .bmc_info
+            .ip
+            .clone()
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: machine_snapshot.machine_id.to_string(),
+                missing: "bmc_info.ip",
+            })?;
+
+    ctx.services
+        .ipmi_tool
+        .restart(&machine_snapshot.machine_id, bmc_ip)
+        .await
+        .map_err(|e: eyre::ErrReport| {
+            StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e))
+        })?;
 
     Ok(())
 }

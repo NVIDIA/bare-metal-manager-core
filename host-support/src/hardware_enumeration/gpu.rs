@@ -1,5 +1,5 @@
-use crate::cmd::Cmd;
 use ::rpc::machine_discovery::Gpu as RpcGpu;
+use utils::cmd::Cmd;
 
 use super::HardwareEnumerationResult;
 

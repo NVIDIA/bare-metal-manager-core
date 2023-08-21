@@ -3,6 +3,8 @@ name = "api-test"
 version = "0.1.0"
 edition = "2021"
 description = "End-to-end test for carbide-api"
+license = "LicenseRef-NvidiaProprietary"
+authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 
 [dev-dependencies]
 eyre = "*"
@@ -21,3 +23,6 @@ agent = { path = "../bluefield/agent" }
 carbide-api = { path = "../api" }
 bmc-mock = { path = "../dev/bmc-mock" }
 rpc = { path = "../rpc" }
+
+[dependencies]
+async-trait = "0.1.72"

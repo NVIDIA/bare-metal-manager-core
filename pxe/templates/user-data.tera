@@ -200,7 +200,6 @@ runcmd:
   - [ /usr/bin/systemctl, enable, --now, systemd-timesyncd@mgmt ]
   - [ /usr/bin/timedatectl, set-ntp, true ]
   - [ chmod, +x, /opt/forge/forge-scout ]
-  - [ bash, -c, 'ip vrf exec mgmt /opt/forge/forge-scout --api={{ api_url }} auto-detect --uuid={{ interface_id }} > /var/log/forge/forge-scout.log 2>&1']
   - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
   - [ bash, -c, '/usr/bin/mlxconfig -y -d /dev/mst/mt*_pciconf0 s SRIOV_EN=True NUM_OF_VFS=16 HIDE_PORT2_PF=True NUM_OF_PF=1' ]
   - [ dpkg, -i, /opt/forge/forge-dpu_1.0-1.deb ]
@@ -213,7 +212,7 @@ runcmd:
   - [ cp, /opt/hbn_installer/configs/1.5.1/doca_telemetry.yaml, /etc/kubelet.d/ ]
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
   - [ /usr/bin/bfcfg ]
-  - [ /usr/sbin/reboot ]
+  - [ bash, -c, 'ip vrf exec mgmt /opt/forge/forge-scout --api={{ api_url }} auto-detect --uuid={{ interface_id }} > /var/log/forge/forge-scout.log 2>&1']
 EOF
 
 }

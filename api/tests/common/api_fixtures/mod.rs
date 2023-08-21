@@ -20,6 +20,7 @@ use carbide::{
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
     ib,
+    ipmitool::IPMIToolTestImpl,
     model::machine::{
         machine_id::{try_parse_machine_id, MachineId},
         ManagedHostState,
@@ -110,6 +111,7 @@ impl TestEnv {
             meter: None,
             reachability_params: self.reachability_params.clone(),
             pool_pkey: Some(self.common_pools.infiniband.pool_pkey.clone()),
+            ipmi_tool: Arc::new(IPMIToolTestImpl {}),
         }
     }
 

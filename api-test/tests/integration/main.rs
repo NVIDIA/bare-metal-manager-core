@@ -61,6 +61,7 @@ async fn test_integration() -> eyre::Result<()> {
     tokio::spawn(bmc_mock::run(bmc_mock::BmcState {
         use_qemu: false,
         cert_path: None,
+        listen_port: None,
     }));
 
     // Ask OS for a free port

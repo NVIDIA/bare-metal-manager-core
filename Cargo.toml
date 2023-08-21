@@ -15,6 +15,7 @@ members = [
   "rpc",
   "scout",
   "version",
+  "utils",
 ]
 
 [workspace.package]

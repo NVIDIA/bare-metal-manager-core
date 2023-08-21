@@ -8,6 +8,9 @@ pub struct Args {
 
     #[clap(short, long)]
     pub cert_path: Option<String>,
+
+    #[clap(short, long)]
+    pub port: Option<u16>,
 }
 
 pub fn parse_args() -> Args {

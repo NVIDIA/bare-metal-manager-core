@@ -77,6 +77,15 @@ pub struct CarbideConfig {
     // Required.
     // Option so that we can de-serialize partial configs (and then merge them).
     pub pools: Option<HashMap<String, ResourcePoolDef>>,
+
+    // The ipmi command (and args) to use to reboot a dpu
+    pub dpu_ipmi_reboot_args: Option<String>,
+
+    // The type of ipmitool to user (prod or fake)
+    pub dpu_impi_tool_impl: Option<String>,
+
+    // The number of retries to perform if ipmi returns an error
+    pub dpu_ipmi_reboot_attempts: Option<u32>,
 }
 
 /// TLS related configuration

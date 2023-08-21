@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::cmd::{Cmd, CmdError};
 use regex::Regex;
 use rpc::machine_discovery::{DpuData, TorLldpData};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{error, warn};
+use utils::cmd::{Cmd, CmdError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DpuEnumerationError {

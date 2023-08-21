@@ -35,6 +35,7 @@ macro_rules! rf {
 pub struct BmcState {
     pub use_qemu: bool,
     pub cert_path: Option<String>,
+    pub listen_port: Option<u16>,
 }
 
 pub async fn run(state: BmcState) {
@@ -80,6 +81,8 @@ pub async fn run(state: BmcState) {
         }
     };
 
+    let listen_port = state.listen_port.unwrap_or(1266);
+
     let cert_file = cert_path.join("tls.crt");
     let key_file = cert_path.join("tls.key");
     info!("Loading {:?} and {:?}", cert_file, key_file);
@@ -87,7 +90,7 @@ pub async fn run(state: BmcState) {
         .await
         .unwrap();
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 1266));
+    let addr = SocketAddr::from(([0, 0, 0, 0], listen_port));
     debug!("Listening on {}", addr);
     axum_server::bind_rustls(addr, config)
         .serve(app.into_make_service())

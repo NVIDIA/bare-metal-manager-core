@@ -35,6 +35,7 @@ uuid = "1.0"
 rpc = { path = "../rpc" }
 forge-host-support = { path = "../host-support" }
 forge-version = { path = "../version" }
+utils = { path = "../utils" }
 
 [build-dependencies]
 forge-version = { path = "../version" }
