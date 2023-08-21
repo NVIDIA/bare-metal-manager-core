@@ -139,9 +139,21 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
+    fn get_power_metrics(&self) -> Result<libredfish::model::power::Power, RedfishError> {
+        todo!()
+    }
+
     fn power(&self, _action: libredfish::SystemPowerControl) -> Result<(), RedfishError> {
         // TODO: Only return Ok if the machine is actually known
         Ok(())
+    }
+
+    fn bmc_reset(&self) -> Result<(), RedfishError> {
+        Ok(())
+    }
+
+    fn get_thermal_metrics(&self) -> Result<libredfish::model::thermal::Thermal, RedfishError> {
+        todo!()
     }
 
     fn forge_setup(&self) -> Result<(), RedfishError> {
@@ -162,6 +174,17 @@ impl Redfish for RedfishSimClient {
     }
 
     fn serial_console_status(&self) -> Result<libredfish::Status, RedfishError> {
+        todo!()
+    }
+
+    fn get_boot_options(&self) -> Result<libredfish::BootOptions, RedfishError> {
+        todo!()
+    }
+
+    fn get_boot_option(
+        &self,
+        _option_id: &str,
+    ) -> Result<libredfish::model::BootOption, RedfishError> {
         todo!()
     }
 
@@ -190,6 +213,129 @@ impl Redfish for RedfishSimClient {
     }
 
     fn pcie_devices(&self) -> Result<Vec<libredfish::PCIeDevice>, RedfishError> {
+        todo!()
+    }
+
+    fn change_password(&self, _user: &str, _new: &str) -> Result<(), RedfishError> {
+        todo!()
+    }
+
+    fn get_firmware(
+        &self,
+        _id: &str,
+    ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError> {
+        todo!()
+    }
+
+    fn update_firmware(
+        &self,
+        _firmware: std::fs::File,
+    ) -> Result<libredfish::model::task::Task, RedfishError> {
+        todo!()
+    }
+
+    fn get_task(&self, _id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
+        todo!()
+    }
+
+    fn get_chassises(&self) -> Result<libredfish::model::chassis::ChassisCollection, RedfishError> {
+        todo!()
+    }
+
+    fn get_chassis(&self, _id: &str) -> Result<libredfish::model::chassis::Chassis, RedfishError> {
+        todo!()
+    }
+
+    fn get_ethernet_interfaces(
+        &self,
+    ) -> Result<libredfish::model::ethernet_interface::EthernetInterfaceCollection, RedfishError>
+    {
+        todo!()
+    }
+
+    fn get_ethernet_interface(
+        &self,
+        _id: &str,
+    ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError> {
+        todo!()
+    }
+
+    fn get_software_inventories(
+        &self,
+    ) -> Result<libredfish::model::software_inventory::SoftwareInventoryCollection, RedfishError>
+    {
+        todo!()
+    }
+
+    fn get_system(&self) -> Result<libredfish::model::ComputerSystem, RedfishError> {
+        todo!()
+    }
+
+    fn get_secure_boot(&self) -> Result<libredfish::model::secure_boot::SecureBoot, RedfishError> {
+        todo!()
+    }
+
+    fn disable_secure_boot(&self) -> Result<(), RedfishError> {
+        todo!()
+    }
+
+    fn get_network_device_functions(
+        &self,
+        _chassis_id: &str,
+    ) -> Result<
+        libredfish::model::network_device_function::NetworkDeviceFunctionCollection,
+        RedfishError,
+    > {
+        todo!()
+    }
+
+    fn get_network_device_function(
+        &self,
+        _chassis_id: &str,
+        _id: &str,
+    ) -> Result<libredfish::model::network_device_function::NetworkDeviceFunction, RedfishError>
+    {
+        todo!()
+    }
+
+    fn get_ports(
+        &self,
+        _chassis_id: &str,
+    ) -> Result<libredfish::model::port::NetworkPortCollection, RedfishError> {
+        todo!()
+    }
+
+    fn get_port(
+        &self,
+        _chassis_id: &str,
+        _id: &str,
+    ) -> Result<libredfish::model::port::NetworkPort, RedfishError> {
+        todo!()
+    }
+
+    fn change_uefi_password(
+        &self,
+        _current_uefi_password: &str,
+        _new_uefi_password: &str,
+    ) -> Result<(), RedfishError> {
+        todo!()
+    }
+
+    fn change_boot_order(&self, _boot_array: Vec<String>) -> Result<(), RedfishError> {
+        todo!()
+    }
+
+    fn set_internal_cpu_model(
+        &self,
+        _model: libredfish::model::oem::nvidia::InternalCPUModel,
+    ) -> Result<(), RedfishError> {
+        todo!()
+    }
+
+    fn set_host_privilege_level(
+        &self,
+        _level: libredfish::model::oem::nvidia::HostPrivilegeLevel,
+    ) -> Result<(), RedfishError> {
         todo!()
     }
 }
