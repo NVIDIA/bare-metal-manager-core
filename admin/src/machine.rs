@@ -196,8 +196,27 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
     table.into()
 }
 
-async fn show_all_machines(json: bool, api_config: Config) -> CarbideCliResult<()> {
-    let machines = rpc::get_all_machines(api_config, false).await?;
+#[derive(Debug, Default, Copy, Clone)]
+pub struct MachineFilter {
+    only_dpus: bool,
+    only_hosts: bool,
+}
+
+async fn show_all_machines(
+    json: bool,
+    api_config: Config,
+    f: MachineFilter,
+) -> CarbideCliResult<()> {
+    let mut machines = rpc::get_all_machines(api_config, false).await?;
+    if f.only_dpus {
+        machines
+            .machines
+            .retain(|m| m.machine_type == forgerpc::MachineType::Dpu as i32);
+    } else if f.only_hosts {
+        machines
+            .machines
+            .retain(|m| m.machine_type == forgerpc::MachineType::Host as i32);
+    }
     if json {
         println!("{}", serde_json::to_string_pretty(&machines).unwrap());
     } else {
@@ -228,8 +247,12 @@ pub async fn handle_show(
     json: bool,
     api_config: Config,
 ) -> CarbideCliResult<()> {
-    if args.all {
-        show_all_machines(json, api_config).await?;
+    if args.all || args.dpus || args.hosts {
+        let f = MachineFilter {
+            only_dpus: args.dpus,
+            only_hosts: args.hosts,
+        };
+        show_all_machines(json, api_config, f).await?;
     } else if let Some(machine_id) = args.machine {
         show_machine_information(machine_id, json, api_config).await?;
     }

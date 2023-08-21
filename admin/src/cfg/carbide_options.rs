@@ -252,10 +252,16 @@ pub struct NetworkConfigQuery {
 #[clap(group(
         ArgGroup::new("show_machine")
         .required(true)
-        .args(&["all", "machine"])))]
+        .args(&["all", "dpus", "hosts", "machine"])))]
 pub struct ShowMachine {
-    #[clap(short, long, action)]
+    #[clap(short, long, action, help = "Show all machines")]
     pub all: bool,
+
+    #[clap(long, action, help = "Show only DPUs")]
+    pub dpus: bool,
+
+    #[clap(long, action, help = "Show only hosts")]
+    pub hosts: bool,
 
     #[clap(short, long)]
     pub machine: Option<String>,
