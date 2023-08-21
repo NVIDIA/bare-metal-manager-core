@@ -102,15 +102,17 @@ fn convert_property_to_string<'a>(
     match device.property_value(name) {
         None => match default_value.is_empty() {
             true => Err(HardwareEnumerationError::GenericError(format!(
-                "Could not find property {}",
-                name
+                "Could not find property {} on device {:?}",
+                name,
+                device.devpath()
             ))),
             false => Ok(default_value),
         },
         Some(p) => p.to_str().map(|s| s.trim()).ok_or_else(|| {
             HardwareEnumerationError::GenericError(format!(
-                "Could not transform os string to string for property {}",
-                name
+                "Could not transform os string to string for property {} on device {:?}",
+                name,
+                device.devpath()
             ))
         }),
     }
