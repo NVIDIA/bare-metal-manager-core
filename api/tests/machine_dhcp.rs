@@ -192,8 +192,15 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             },
         ],
     });
-    let (_instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+    let (_instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
     let response = env
         .api

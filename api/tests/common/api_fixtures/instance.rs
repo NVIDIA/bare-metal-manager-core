@@ -28,6 +28,7 @@ pub async fn create_instance(
     host_machine_id: &MachineId,
     network: Option<rpc::InstanceNetworkConfig>,
     infiniband: Option<rpc::InstanceInfinibandConfig>,
+    keyset_ids: Vec<String>,
 ) -> (uuid::Uuid, rpc::Instance) {
     let mut info = env
         .api
@@ -40,7 +41,7 @@ pub async fn create_instance(
                     user_data: Some("SomeRandomData".to_string()),
                     custom_ipxe: "SomeRandomiPxe".to_string(),
                     tenant_organization_id: "Tenant1".to_string(),
-                    tenant_keyset_ids: vec![],
+                    tenant_keyset_ids: keyset_ids,
                 }),
                 network,
                 infiniband,
