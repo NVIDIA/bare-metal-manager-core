@@ -22,6 +22,7 @@ use crate::model::tenant::{
 use crate::{CarbideError, CarbideResult};
 
 use super::instance::Instance;
+use super::ObjectFilter;
 
 impl Tenant {
     pub async fn create_and_persist(
@@ -154,28 +155,39 @@ impl TenantKeyset {
 
     pub async fn find(
         organization_id: Option<String>,
-        keyset_id: Option<String>,
+        keyset_filter: ObjectFilter<'_, String>,
         include_key_data: bool,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vec<Self>, DatabaseError> {
         let mut result = if let Some(organization_id) = organization_id {
-            if let Some(keyset_id) = keyset_id {
-                let query =
-                    "SELECT * FROM tenant_keysets WHERE organization_id = $1 AND keyset_id = $2";
+            let base_query = "SELECT * FROM tenant_keysets WHERE organization_id = $1 {where}";
 
-                sqlx::query_as::<_, TenantKeyset>(query)
-                    .bind(organization_id.to_string())
-                    .bind(keyset_id)
-                    .fetch_all(&mut **txn)
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-            } else {
-                let query = "SELECT * FROM tenant_keysets WHERE organization_id = $1";
-                sqlx::query_as::<_, TenantKeyset>(query)
-                    .bind(organization_id.to_string())
-                    .fetch_all(&mut **txn)
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            match keyset_filter {
+                ObjectFilter::All => {
+                    sqlx::query_as::<_, TenantKeyset>(&base_query.replace("{where}", ""))
+                        .bind(organization_id.to_string())
+                        .fetch_all(&mut **txn)
+                        .await
+                        .map_err(|e| DatabaseError::new(file!(), line!(), "keyset All", e))
+                }
+
+                ObjectFilter::One(keyset_id) => sqlx::query_as::<_, TenantKeyset>(
+                    &base_query.replace("{where}", "AND keyset_id = $2"),
+                )
+                .bind(organization_id.to_string())
+                .bind(keyset_id)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e)),
+
+                ObjectFilter::List(keyset_ids) => sqlx::query_as::<_, TenantKeyset>(
+                    &base_query.replace("{where}", "AND keyset_id = ANY($2)"),
+                )
+                .bind(organization_id.to_string())
+                .bind(keyset_ids)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e)),
             }
         } else {
             let query = "SELECT * FROM tenant_keysets";
@@ -220,7 +232,7 @@ impl UpdateTenantKeyset {
         // Validate if sent version is same.
         let current_keyset = TenantKeyset::find(
             Some(self.keyset_identifier.organization_id.to_string()),
-            Some(self.keyset_identifier.keyset_id.clone()),
+            ObjectFilter::One(self.keyset_identifier.keyset_id.clone()),
             false,
             txn,
         )
@@ -270,7 +282,7 @@ impl TenantPublicKeyValidationRequest {
 
         let keysets = TenantKeyset::find(
             Some(instance.tenant_config.tenant_organization_id.to_string()),
-            None,
+            ObjectFilter::List(&instance.tenant_config.tenant_keyset_ids),
             true,
             txn,
         )

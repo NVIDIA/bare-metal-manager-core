@@ -72,6 +72,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         &host_machine_id,
         instance_network,
         None,
+        vec![],
     )
     .await;
 

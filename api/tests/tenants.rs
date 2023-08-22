@@ -481,8 +481,40 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
 
     let _keyset = create_keyset(
         &env,
+        "Tenant1".to_string(),
+        "keyset2".to_string(),
+        "V1-T1691517639501025".to_string(),
+        rpc::forge::TenantKeysetContent {
+            public_keys: vec![rpc::forge::TenantPublicKey {
+                public_key: "ssh-rsa my_another_key test@myname".to_string(),
+                comment: Some("some random comment".to_string()),
+            }],
+        },
+    )
+    .await
+    .keyset
+    .unwrap();
+
+    let _keyset = create_keyset(
+        &env,
+        "Tenant1".to_string(),
+        "keyset3".to_string(),
+        "V1-T1691517639501025".to_string(),
+        rpc::forge::TenantKeysetContent {
+            public_keys: vec![rpc::forge::TenantPublicKey {
+                public_key: "ssh-rsa my_another_keyset3 test@myname".to_string(),
+                comment: Some("some random comment".to_string()),
+            }],
+        },
+    )
+    .await
+    .keyset
+    .unwrap();
+
+    let _keyset = create_keyset(
+        &env,
         "org1".to_string(),
-        "keyset1".to_string(),
+        "keyset2".to_string(),
         "V1-T1691517639501025".to_string(),
         rpc::forge::TenantKeysetContent {
             public_keys: vec![rpc::forge::TenantPublicKey {
@@ -503,8 +535,15 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
             network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
         }],
     });
-    let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec!["keyset1".to_string(), "keyset2".to_string()],
+    )
+    .await;
 
     // Test that key set validation NOT ok with ssh keys passed with instance.
     assert!(env
@@ -518,6 +557,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         .await
         .is_err());
 
+    // Only key associated with Tenant1 and keyset1, keyset2 are accepted.
     assert!(env
         .api
         .validate_tenant_public_key(tonic::Request::new(
@@ -528,6 +568,29 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         ))
         .await
         .is_ok());
+
+    assert!(env
+        .api
+        .validate_tenant_public_key(tonic::Request::new(
+            rpc::forge::ValidateTenantPublicKeyRequest {
+                instance_id: instance_id.to_string(),
+                tenant_public_key: "my_another_key".to_string()
+            },
+        ))
+        .await
+        .is_ok());
+
+    // Any other keyset except mentioned in keyset_ids is not accepted.
+    assert!(env
+        .api
+        .validate_tenant_public_key(tonic::Request::new(
+            rpc::forge::ValidateTenantPublicKeyRequest {
+                instance_id: instance_id.to_string(),
+                tenant_public_key: "my_another_keyset3".to_string()
+            },
+        ))
+        .await
+        .is_err());
 
     assert!(env
         .api

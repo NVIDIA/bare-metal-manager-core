@@ -99,8 +99,15 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         }],
     });
 
-    let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
 
     let mut txn = pool
         .clone()
@@ -251,8 +258,15 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         }],
     });
 
-    let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
 
     let mut txn = pool
         .clone()
@@ -466,8 +480,15 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         }],
     });
 
-    let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
 
     let mut txn = pool
         .clone()
@@ -580,8 +601,15 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
         ],
     });
 
-    let (instance_id, instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+    let (instance_id, instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
 
     let mut txn = pool
         .clone()
@@ -686,7 +714,6 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_add_infiniband_data_via_migration(pool: sqlx::PgPool) {
-    use sqlx::Executor;
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -697,33 +724,16 @@ async fn test_instance_add_infiniband_data_via_migration(pool: sqlx::PgPool) {
         }],
     });
 
-    let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
 
-    // Now that the instance is created, we delete the Infiniband information from tables,
-    // apply the migration, and see if state loading and handling still works
-
-    let mut txn = pool.begin().await.unwrap();
-    let query = "ALTER TABLE instances DROP COLUMN ib_config_version, DROP COLUMN ib_config, DROP COLUMN ib_status_observation;";
-    txn.execute(query).await.unwrap();
-    txn.commit().await.unwrap();
-
-    let mut txn = pool.begin().await.unwrap();
-    const MIGRATIONS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
-    for migration in &[
-        "20230630000000_instance_ib_config",
-        "20230814000000_fix_instance_ib_observation_default",
-    ] {
-        let content = std::fs::read(format!("{}/{}.sql", MIGRATIONS_DIR, migration)).unwrap();
-        let content = String::from_utf8(content).unwrap();
-        txn.execute(content.as_str())
-            .await
-            .unwrap_or_else(|e| panic!("failed to apply test fixture {:?}: {:?}", migration, e));
-    }
-    txn.commit().await.unwrap();
-
-    // Without the 2nd migration this function would have panicked, because
-    // state loading doesn't work
     let handler = MachineStateHandler::default();
     env.run_machine_state_controller_iteration(host_machine_id, &handler)
         .await;

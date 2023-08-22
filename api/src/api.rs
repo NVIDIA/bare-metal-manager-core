@@ -1614,7 +1614,13 @@ where
             ))
         })?;
 
-        let keyset = TenantKeyset::find(organization_id, keyset_id, include_key_data, &mut txn)
+        let keyset_ids = if let Some(keyset_id) = keyset_id {
+            ObjectFilter::One(keyset_id)
+        } else {
+            ObjectFilter::All
+        };
+
+        let keyset = TenantKeyset::find(organization_id, keyset_ids, include_key_data, &mut txn)
             .await
             .map_err(CarbideError::from)?;
 

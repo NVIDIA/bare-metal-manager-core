@@ -223,8 +223,15 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
         }],
     });
 
-    let (_instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network, None).await;
+    let (_instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
 
     let instructions = get_pxe_instructions(
         &env,

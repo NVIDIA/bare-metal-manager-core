@@ -94,7 +94,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             tenant_organization_id: tenant_org,
             custom_ipxe,
             user_data,
-            tenant_keyset_ids: vec![], //TODO: fixme once DB Schema gets updated
+            tenant_keyset_ids: row.try_get("keyset_ids")?,
         };
 
         let network_config_version_str: &str = row.try_get("network_config_version")?;
@@ -343,9 +343,10 @@ impl<'a> NewInstance<'a> {
                         network_status_observation,
                         ib_config,
                         ib_config_version,
-                        ib_status_observation
+                        ib_status_observation,
+                        keyset_ids
                     )
-                    VALUES ($1, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json, $9::json, $10, $11::json)
+                    VALUES ($1, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json, $9::json, $10, $11::json, $12)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.machine_id.to_string())
@@ -359,6 +360,7 @@ impl<'a> NewInstance<'a> {
             .bind(sqlx::types::Json(&self.ib_config.value))
             .bind(&ib_config_version)
             .bind(sqlx::types::Json(ib_status_observation))
+            .bind(&self.tenant_config.tenant_keyset_ids)
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
