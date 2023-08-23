@@ -4,6 +4,7 @@ asn=65535
 dhcp_servers=["172.20.0.12"]
 route_servers=[]
 rapid_iterations=true
+dpu_impi_tool_impl="test"
 
 [tls]
 identity_pemfile_path="/app/code/dev/certs/server_identity.pem"

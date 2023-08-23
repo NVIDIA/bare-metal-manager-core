@@ -1,0 +1,70 @@
+#!/bin/bash
+#
+# forge-dpu-agent needs these two commands to succeed:
+# $ crictl ps --name=doca-hbn -o=json
+# $ crictl exec <id-from-previous-cmd> sudo supervisorctl status
+#
+# The integration tests puts this path, hence this script, on the front of the PATH to ensure they do.
+#
+
+PS_OUT='{
+  "containers": [
+    {
+      "id": "0dba92491080fd12b885a0cc5249b8fdda3ff36eea7ec06f499bfccf77a0be44",
+      "podSandboxId": "07b5118ad9f62b2d1f1d255b7b04251f47d217ed33ff4736d1de37d94965f4a1",
+      "metadata": {
+        "name": "doca-hbn",
+        "attempt": 0
+      },
+      "image": {
+        "image": "sha256:b1e7cf48e472bd0b8afcad135e337d6ccd483c9ae87e73a8c5538361c1ec3a51",
+        "annotations": {
+        }
+      },
+      "imageRef": "sha256:b1e7cf48e472bd0b8afcad135e337d6ccd483c9ae87e73a8c5538361c1ec3a51",
+      "state": "CONTAINER_RUNNING",
+      "createdAt": "1691185575590889827",
+      "labels": {
+        "io.kubernetes.container.name": "doca-hbn",
+        "io.kubernetes.pod.name": "doca-hbn-service-yellow-violet.dev3.frg.nvidia.com",
+        "io.kubernetes.pod.namespace": "default",
+        "io.kubernetes.pod.uid": "bbba3648e8cab53e0b107171e680a5da"
+      },
+      "annotations": {
+        "io.kubernetes.container.hash": "325a7490",
+        "io.kubernetes.container.restartCount": "0",
+        "io.kubernetes.container.terminationMessagePath": "/dev/termination-log",
+        "io.kubernetes.container.terminationMessagePolicy": "File",
+        "io.kubernetes.pod.terminationGracePeriod": "30"
+      }
+    }
+  ]
+}
+'
+
+EXEC_OUT='cl-acltool                       EXITED    Aug 04 09:46 PM
+cron                             RUNNING   pid 16, uptime 18 days, 17:30:33
+decrypt-user-add                 EXITED    Aug 04 09:46 PM
+frr                              RUNNING   pid 1511289, uptime 16:29:22
+frr-reload                       STOPPED   Not started
+ifreload                         EXITED    Aug 04 09:46 PM
+isc-dhcp-relay-default           RUNNING   pid 21, uptime 18 days, 17:30:33
+neighmgr                         RUNNING   pid 23, uptime 18 days, 17:30:33
+nginx                            RUNNING   pid 25, uptime 18 days, 17:30:33
+nl2doca                          RUNNING   pid 26, uptime 18 days, 17:30:33
+nl2doca-reload                   STOPPED   Not started
+nvued                            RUNNING   pid 27, uptime 18 days, 17:30:33
+nvued-startup                    EXITED    Aug 04 09:46 PM
+rsyslog                          RUNNING   pid 1672565, uptime 8:51:49
+sysctl-apply                     EXITED    Aug 04 09:46 PM
+'
+
+case "$1" in
+	"ps" )
+		printf "$PS_OUT"
+		;;
+	"exec" )
+		printf "$EXEC_OUT"
+		;;
+esac
+

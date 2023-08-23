@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
+use agent::MAIN_LOOP_PERIOD_ACTIVE;
 use axum::extract::State as AxumState;
 use axum::http::{header, StatusCode, Uri};
 use axum::response::IntoResponse;
@@ -100,6 +101,15 @@ async fn test_start() -> eyre::Result<()> {
         })),
     };
 
+    // Put our fake `crictl` on front of path so that HBN health checks succeed
+    let dev_bin = root_dir.join("dev/bin");
+    if let Some(path) = env::var_os("PATH") {
+        let mut paths = env::split_paths(&path).collect::<Vec<_>>();
+        paths.insert(0, dev_bin);
+        let new_path = env::join_paths(paths)?;
+        env::set_var("PATH", new_path);
+    }
+
     // Start forge-dpu-agent
     tokio::spawn(async move {
         if let Err(e) = agent::start(opts).await {
@@ -107,8 +117,9 @@ async fn test_start() -> eyre::Result<()> {
         }
     });
 
-    // Let it run
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    // Let it run twice
+    // First time it noticed HBN is up. Second time it applies config.
+    tokio::time::sleep(MAIN_LOOP_PERIOD_ACTIVE + Duration::from_secs(1)).await;
 
     // The gRPC calls were made
     let statel = state.lock().await;

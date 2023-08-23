@@ -41,9 +41,12 @@ pub fn health_check() -> HealthReport {
     hr.passed(HealthCheck::ContainerExists);
 
     check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES);
+
+    // At this point HBN is up so we can configure it
+
+    check_ifreload(&mut hr, &container_id);
     check_bgp_daemon_enabled(&mut hr);
     check_network_stats(&mut hr, &container_id);
-    check_ifreload(&mut hr, &container_id);
     check_files(&mut hr, &EXPECTED_FILES);
 
     hr
@@ -288,6 +291,20 @@ impl HealthReport {
         }
     }
 
+    /// Is enough of HBN ready so that we can configure it?
+    pub fn is_up(&self) -> bool {
+        let has_failed_services = self
+            .checks_failed
+            .iter()
+            .any(|c| matches!(c, HealthCheck::ServiceRunning(_)));
+        self.checks_passed.contains(&HealthCheck::ContainerExists)
+            && self
+                .checks_passed
+                .contains(&HealthCheck::SupervisorctlStatus)
+            && !has_failed_services
+    }
+
+    /// Is networking in the expected healthy normal connected state?
     pub fn is_healthy(&self) -> bool {
         !self.checks_passed.is_empty() && self.checks_failed.is_empty()
     }
@@ -313,7 +330,7 @@ impl fmt::Display for HealthReport {
         } else {
             write!(
                 f,
-                "Passed: {}, failed: {}, first failure: {}",
+                "Checks passed: {}, Checks failed: {}, First failure: {}",
                 self.checks_passed
                     .iter()
                     .map(|hc| hc.to_string())
@@ -350,11 +367,11 @@ fn run_in_container(
     command: &[&str],
     need_success: bool,
 ) -> eyre::Result<String> {
-    let mut args = vec!["crictl", "exec", container_id];
+    let mut crictl = Command::new("crictl");
+    let mut args = vec!["exec", container_id];
     args.extend_from_slice(command);
 
-    let mut sudo = Command::new("sudo");
-    let cmd = sudo.args(args);
+    let cmd = crictl.args(args);
     let out = cmd.output()?;
     if need_success && !out.status.success() {
         debug!(
