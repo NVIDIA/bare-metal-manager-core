@@ -288,7 +288,7 @@ impl DatabaseMetricEmitters {
             .init();
 
         let db_span_query_times = meter
-            .f64_histogram("carbide-api.db.span_query_time.ms")
+            .f64_histogram("carbide-api.db.span_query_time")
             .with_description("Total time the request spent inside a span on database transactions")
             .with_unit(Unit::new("ms"))
             .init();
