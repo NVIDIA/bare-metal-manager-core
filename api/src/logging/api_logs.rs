@@ -42,7 +42,7 @@ impl LogLayer {
         // impact on the prometheus export. On prometheus the metric shows up
         // unitless - which makes the user guess
         let request_times = meter
-            .f64_histogram("carbide-api.grpc.server.duration.ms")
+            .f64_histogram("carbide-api.grpc.server.duration")
             .with_description("Processing time for a request on the carbide API server")
             .with_unit(Unit::new("ms"))
             .init();
