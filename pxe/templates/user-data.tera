@@ -67,6 +67,10 @@ write_files:
       -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf11_sf -j DROP
       -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf12_sf -j DROP
       -t filter -A FORWARD -p udp --dport 67 -m physdev --physdev-in pf0vf13_sf -j DROP
+  - path: /var/lib/hbn/etc/cumulus/acl/policy.d/15-arp.rules
+    content: |
+      [ebtables]
+      -A OUTPUT -o vxlan5555 -p ARP -j DROP
   - path: /etc/vrf/systemd.conf
     permissions: '0644'
     content: |
