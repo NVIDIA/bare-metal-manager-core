@@ -15,8 +15,8 @@
 use std::collections::{HashMap, HashSet};
 
 use opentelemetry_api::{
-    metrics::{Meter, ObservableGauge},
-    Context, KeyValue,
+    metrics::{self, Meter, ObservableGauge},
+    KeyValue,
 };
 
 use crate::state_controller::metrics::MetricsEmitter;
@@ -80,6 +80,15 @@ impl MetricsEmitter for MachineMetricsEmitter {
         }
     }
 
+    fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
+        vec![
+            self.dpus_up_gauge.as_any(),
+            self.dpus_healthy_gauge.as_any(),
+            self.dpu_agent_version_gauge.as_any(),
+            self.failed_dpu_healthchecks_gauge.as_any(),
+        ]
+    }
+
     fn merge_object_handling_metrics(
         iteration_metrics: &mut Self::IterationMetrics,
         object_metrics: &Self::ObjectMetrics,
@@ -108,22 +117,28 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
     fn emit_gauges(
         &self,
+        observer: &dyn metrics::Observer,
         iteration_metrics: &Self::IterationMetrics,
         attributes: &[KeyValue],
-        otel_cx: &Context,
     ) {
-        self.dpus_up_gauge
-            .observe(otel_cx, iteration_metrics.dpus_up as u64, attributes);
-        self.dpus_healthy_gauge
-            .observe(otel_cx, iteration_metrics.dpus_healthy as u64, attributes);
+        observer.observe_u64(
+            &self.dpus_up_gauge,
+            iteration_metrics.dpus_up as u64,
+            attributes,
+        );
+        observer.observe_u64(
+            &self.dpus_healthy_gauge,
+            iteration_metrics.dpus_healthy as u64,
+            attributes,
+        );
 
         let mut failed_health_check_attr = attributes.to_vec();
         // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
         failed_health_check_attr.push(KeyValue::new("failure", "".to_string()));
         for (failure, count) in &iteration_metrics.failed_dpu_healthchecks {
             failed_health_check_attr.last_mut().unwrap().value = failure.clone().into();
-            self.failed_dpu_healthchecks_gauge.observe(
-                otel_cx,
+            observer.observe_u64(
+                &self.failed_dpu_healthchecks_gauge,
                 *count as u64,
                 &failed_health_check_attr,
             );
@@ -137,8 +152,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
             // Since there is no `try_into()` into method for those values,
             // we assume OpenTelemetry escapes them internally
             agent_version_attrs.last_mut().unwrap().value = version.clone().into();
-            self.dpu_agent_version_gauge
-                .observe(otel_cx, *count as u64, &agent_version_attrs);
+            observer.observe_u64(
+                &self.dpu_agent_version_gauge,
+                *count as u64,
+                &agent_version_attrs,
+            );
         }
     }
 }

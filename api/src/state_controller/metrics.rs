@@ -14,8 +14,9 @@ use std::{collections::HashMap, marker::PhantomData, time::Duration};
 
 use opentelemetry::{
     metrics::{Histogram, Meter, ObservableGauge, Unit},
-    Context, KeyValue,
+    KeyValue,
 };
+use opentelemetry_api::metrics;
 
 use crate::{
     logging::sqlx_query_tracing,
@@ -203,10 +204,14 @@ pub trait MetricsEmitter: std::fmt::Debug + Send + Sync + 'static {
     /// be added to each emitted gauge.
     fn emit_gauges(
         &self,
+        observer: &dyn metrics::Observer,
         iteration_metrics: &Self::IterationMetrics,
         attributes: &[KeyValue],
-        otel_cx: &Context,
     );
+
+    /// Returns the list of instruments that are used by this emitter.
+    /// Used for opentelemetry callback registration
+    fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>>;
 }
 
 /// A [MetricsEmitter] that can be used if no custom metrics are required.
@@ -232,10 +237,14 @@ impl MetricsEmitter for NoopMetricsEmitter {
 
     fn emit_gauges(
         &self,
+        _observer: &dyn metrics::Observer,
         _iteration_metrics: &Self::IterationMetrics,
         _attributes: &[KeyValue],
-        _otel_cx: &Context,
     ) {
+    }
+
+    fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
+        Vec::new()
     }
 }
 
@@ -314,6 +323,14 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         }
     }
 
+    fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
+        vec![
+            self.objects_per_state_gauge.as_any(),
+            self.total_objects_gauge.as_any(),
+            self.errors_per_state_gauge.as_any(),
+        ]
+    }
+
     fn merge_object_handling_metrics(
         iteration_metrics: &mut Self::IterationMetrics,
         object_metrics: &Self::ObjectMetrics,
@@ -323,9 +340,9 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
 
     fn emit_gauges(
         &self,
+        observer: &dyn metrics::Observer,
         iteration_metrics: &Self::IterationMetrics,
         attributes: &[KeyValue],
-        otel_cx: &Context,
     ) {
         let mut total_objects = 0;
 
@@ -338,8 +355,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             attrs.push(state_attr.clone());
             attrs.push(substate_attr.clone());
 
-            self.objects_per_state_gauge
-                .observe(otel_cx, m.num_objects as u64, &attrs);
+            observer.observe_u64(&self.objects_per_state_gauge, m.num_objects as u64, &attrs);
 
             // Placeholder attribute that we will mutate for each error via .last_mut()
             attrs.push(KeyValue::new("error", "".to_string()));
@@ -348,17 +364,14 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             for (error, &count) in m.handling_errors_per_type.iter() {
                 total_errs += count;
                 attrs.last_mut().unwrap().value = error.to_string().into();
-                self.errors_per_state_gauge
-                    .observe(otel_cx, count as u64, &attrs);
+                observer.observe_u64(&self.errors_per_state_gauge, count as u64, &attrs);
             }
 
             attrs.last_mut().unwrap().value = "any".to_string().into();
-            self.errors_per_state_gauge
-                .observe(otel_cx, total_errs as u64, &attrs);
+            observer.observe_u64(&self.errors_per_state_gauge, total_errs as u64, &attrs);
         }
 
-        self.total_objects_gauge
-            .observe(otel_cx, total_objects as u64, attributes);
+        observer.observe_u64(&self.total_objects_gauge, total_objects as u64, attributes);
     }
 }
 
@@ -367,10 +380,7 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
     /// iteration. Those are emitted immediately as histograms, whereas the
     /// amount of objects in states is emitted as gauges.
     pub fn emit_latency_metrics(&self, iteration_metrics: &IterationMetrics<IO>) {
-        let cx = opentelemetry::Context::current();
-
         self.controller_iteration_latency.record(
-            &cx,
             1000.0 * iteration_metrics.recorded_at.elapsed().as_secs_f64(),
             &[],
         );
@@ -382,14 +392,11 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
 
             for time_in_state in m.time_in_state.iter() {
                 self.time_in_state_histogram
-                    .record(&cx, time_in_state.as_secs_f64(), attrs);
+                    .record(time_in_state.as_secs_f64(), attrs);
             }
             for handler_latency in m.handler_latencies.iter() {
-                self.handler_latency_in_state_histogram.record(
-                    &cx,
-                    1000.0 * handler_latency.as_secs_f64(),
-                    attrs,
-                );
+                self.handler_latency_in_state_histogram
+                    .record(1000.0 * handler_latency.as_secs_f64(), attrs);
             }
         }
     }
@@ -496,6 +503,16 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
         }
     }
 
+    /// Returns the list of instruments that are used by this emitter.
+    /// Used for opentelemetry callback registration
+    pub fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
+        // db metrics don't have to be inserted here, since there are not Observable
+        // and are therefore not queried in callbacks
+        let mut instruments = self.common.instruments();
+        instruments.extend(self.specific.instruments());
+        instruments
+    }
+
     /// Emits the latency metrics that are captured during a single state handler
     /// iteration. Those are emitted immediately as histograms, whereas the
     /// amount of objects in states is emitted as gauges.
@@ -507,14 +524,17 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
     ) {
         self.common.emit_latency_metrics(iteration_metrics);
 
-        let cx = opentelemetry::Context::current();
         // We use an attribute to distinguish the query counter from the
         // ones that are used for other state controller and for gRPC requests
         let attrs = &[KeyValue::new("operation", log_span_name.to_string())];
-        self.db.emit(db_metrics, &cx, attrs);
+        self.db.emit(db_metrics, attrs);
     }
 
-    pub fn emit_gauges(&self, iteration_metrics: &IterationMetrics<IO>, otel_cx: &Context) {
+    pub fn emit_gauges(
+        &self,
+        observer: &dyn metrics::Observer,
+        iteration_metrics: &IterationMetrics<IO>,
+    ) {
         // This attributes defines whether we captured the metrics recently,
         // where recently here means in the last Minute. in the case multiple
         // state controllers run in a 3 control plane cluster, this will help
@@ -528,9 +548,9 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
 
         let attributes = &[fresh_attr];
         self.common
-            .emit_gauges(&iteration_metrics.common, attributes, otel_cx);
+            .emit_gauges(observer, &iteration_metrics.common, attributes);
         self.specific
-            .emit_gauges(&iteration_metrics.specific, attributes, otel_cx);
+            .emit_gauges(observer, &iteration_metrics.specific, attributes);
     }
 
     /// Emits the metrics that had been collected during a state controller iteration

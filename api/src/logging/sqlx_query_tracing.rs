@@ -303,14 +303,12 @@ impl DatabaseMetricEmitters {
     pub fn emit(
         &self,
         metrics: &SqlxQueryDataAggregation,
-        cx: &opentelemetry_api::Context,
         attributes: &[opentelemetry_api::KeyValue],
     ) {
         self.db_queries_counter
-            .add(cx, metrics.num_queries as u64, attributes);
+            .add(metrics.num_queries as u64, attributes);
 
         self.db_span_query_times.record(
-            cx,
             metrics.total_query_duration.as_secs_f64() * 1000.0,
             attributes,
         );

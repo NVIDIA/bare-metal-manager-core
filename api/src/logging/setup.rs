@@ -11,12 +11,12 @@
  */
 
 use opentelemetry::{
-    sdk::{self, export::metrics::aggregation, metrics},
+    metrics::MeterProvider,
+    sdk::{self, metrics},
     trace::TracerProvider,
 };
 use opentelemetry_api::{metrics::Meter, trace::TraceError};
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_prometheus::PrometheusExporter;
 use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
 use opentelemetry_semantic_conventions as semcov;
 use std::sync::Arc;
@@ -33,7 +33,7 @@ pub async fn setup_telemetry(
     debug: u8,
     carbide_config: Arc<CarbideConfig>,
     logging_subscriber: Option<impl SubscriberInitExt>,
-) -> eyre::Result<(Arc<PrometheusExporter>, Meter)> {
+) -> eyre::Result<(prometheus::Registry, Meter)> {
     // This configures the tracing framework
 
     // We set up some global filtering using `tracing`s `EnvFilter` framework
@@ -154,27 +154,97 @@ pub async fn setup_telemetry(
         }
     };
 
-    // Set up OpenTelemetry metrics export via prometheus
-    // TODO: The configuration here is copy&pasted from
-    // https://github.com/open-telemetry/opentelemetry-rust/blob/main/examples/hyper-prometheus/src/main.rs
-    // and should likely be fine-tuned.
-    // One particular challenge seems that these histogram buckets are used for all histograms
-    // created by the library. But we might want different buckets for e.g. request timings
-    // than for e.g. data sizes
-    let metrics_controller = metrics::controllers::basic(metrics::processors::factory(
-        metrics::selectors::simple::histogram([
-            0.01, 0.05, 0.09, 0.1, 0.5, 0.9, 1.0, 5.0, 9.0, 10.0, 50.0, 90.0, 100.0, 500.0, 900.0,
-            1000.0,
-        ]),
-        aggregation::cumulative_temporality_selector(),
-    ))
-    .with_resource(service_telemetry_attributes)
-    .build();
-
     // This sets the global meter provider
+    // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
+    // for tracking milliseconds
+    // See https://github.com/open-telemetry/opentelemetry-rust/blob/495330f63576cfaec2d48946928f3dc3332ba058/opentelemetry-sdk/src/metrics/reader.rs#L155-L158
+    let prometheus_registry = prometheus::Registry::new();
+    let metrics_exporter = opentelemetry_prometheus::exporter()
+        .with_registry(prometheus_registry.clone())
+        .without_scope_info()
+        .without_target_info()
+        .build()?;
+    let meter_provider = metrics::MeterProvider::builder()
+        .with_reader(metrics_exporter)
+        .with_resource(service_telemetry_attributes)
+        .build();
     // After this call `global::meter()` will be available
-    let metrics_exporter = Arc::new(opentelemetry_prometheus::exporter(metrics_controller).init());
+    opentelemetry::global::set_meter_provider(meter_provider.clone());
 
-    let meter = opentelemetry::global::meter("carbide-api");
-    Ok((metrics_exporter, meter))
+    let meter = meter_provider.meter("carbide-api");
+    Ok((prometheus_registry, meter))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use opentelemetry_api::KeyValue;
+    use prometheus::{Encoder, TextEncoder};
+
+    use super::*;
+
+    /// This test mostly mimics the test setup above and checks whether
+    /// the prometheus opentelemetry stack will only report the most recent
+    /// values for gauges and not cached values that are not important anymore
+    #[test]
+    fn test_gauge_aggregation() {
+        let prometheus_registry = prometheus::Registry::new();
+        let metrics_exporter = opentelemetry_prometheus::exporter()
+            .with_registry(prometheus_registry.clone())
+            .without_scope_info()
+            .without_target_info()
+            .build()
+            .unwrap();
+
+        let meter_provider = metrics::MeterProvider::builder()
+            .with_reader(metrics_exporter)
+            .build();
+
+        let meter = meter_provider.meter("myservice");
+        let x = meter.u64_observable_gauge("mygauge").init();
+
+        let state = KeyValue::new("state", "mystate");
+        let p1 = vec![state.clone(), KeyValue::new("error", "ErrA")];
+        let p2 = vec![state.clone(), KeyValue::new("error", "ErrB")];
+        let p3 = vec![state.clone(), KeyValue::new("error", "ErrC")];
+
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        meter
+            .register_callback(&[x.as_any()], move |observer| {
+                let count = counter.fetch_add(1, Ordering::SeqCst);
+                println!("Collection {}", count);
+                if count % 2 == 0 {
+                    observer.observe_u64(&x, 1, &p1);
+                } else {
+                    observer.observe_u64(&x, 1, &p2);
+                }
+                if count % 3 == 1 {
+                    observer.observe_u64(&x, 1, &p3);
+                }
+            })
+            .unwrap();
+
+        for i in 0..10 {
+            let mut buffer = vec![];
+            let encoder = TextEncoder::new();
+            let metric_families = prometheus_registry.gather();
+            encoder.encode(&metric_families, &mut buffer).unwrap();
+            let encoded = String::from_utf8(buffer).unwrap();
+
+            if i % 2 == 0 {
+                assert!(encoded.contains(r#"mygauge{error="ErrA",state="mystate"} 1"#));
+                assert!(!encoded.contains(r#"mygauge{error="ErrB",state="mystate"} 1"#));
+            } else {
+                assert!(encoded.contains(r#"mygauge{error="ErrB",state="mystate"} 1"#));
+                assert!(!encoded.contains(r#"mygauge{error="ErrA",state="mystate"} 1"#));
+            }
+            if i % 3 == 1 {
+                assert!(encoded.contains(r#"mygauge{error="ErrC",state="mystate"} 1"#));
+            } else {
+                assert!(!encoded.contains(r#"mygauge{error="ErrC",state="mystate"} 1"#));
+            }
+        }
+    }
 }

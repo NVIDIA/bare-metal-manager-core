@@ -17,9 +17,8 @@ use std::{process::Command, time::Duration};
 
 use ::rpc::machine_discovery::DpuData;
 use axum::Router;
-use opentelemetry::sdk::export::metrics::aggregation;
+use opentelemetry::sdk;
 use opentelemetry::sdk::metrics;
-use opentelemetry::{sdk, Context};
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tracing::{debug, error, info, trace, warn};
@@ -536,27 +535,25 @@ async fn run_metadata_service(
     ]);
 
     // Set up OpenTelemetry metrics export via prometheus
-    // TODO: The configuration here is copy&pasted from
-    // https://github.com/open-telemetry/opentelemetry-rust/blob/main/examples/hyper-prometheus/src/main.rs
-    // and should likely be fine-tuned.
-    // One particular challenge seems that these histogram buckets are used for all histograms
-    // created by the library. But we might want different buckets for e.g. request timings
-    // than for e.g. data sizes
-    let metrics_controller = metrics::controllers::basic(metrics::processors::factory(
-        metrics::selectors::simple::histogram([
-            0.01, 0.05, 0.09, 0.1, 0.5, 0.9, 1.0, 5.0, 9.0, 10.0, 50.0, 90.0, 100.0, 500.0, 900.0,
-            1000.0,
-        ]),
-        aggregation::cumulative_temporality_selector(),
-    ))
-    .with_resource(service_telemetry_attributes)
-    .build();
 
     // This sets the global meter provider
+    // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
+    // for tracking milliseconds
+    // See https://github.com/open-telemetry/opentelemetry-rust/blob/495330f63576cfaec2d48946928f3dc3332ba058/opentelemetry-sdk/src/metrics/reader.rs#L155-L158
+    let prometheus_registry = prometheus::Registry::new();
+    let metrics_exporter = opentelemetry_prometheus::exporter()
+        .with_registry(prometheus_registry.clone())
+        .without_scope_info()
+        .without_target_info()
+        .build()?;
+    let meter_provider = metrics::MeterProvider::builder()
+        .with_reader(metrics_exporter)
+        .with_resource(service_telemetry_attributes)
+        .build();
     // After this call `global::meter()` will be available
-    let metrics_exporter = Arc::new(opentelemetry_prometheus::exporter(metrics_controller).init());
+    opentelemetry::global::set_meter_provider(meter_provider.clone());
 
-    let meter = opentelemetry::global::meter("carbide-api");
+    let meter = opentelemetry::global::meter("forge-dpu-agent");
 
     let instance_metadata_fetcher =
         Arc::new(instance_metadata_fetcher::InstanceMetadataFetcher::new(
@@ -571,7 +568,6 @@ async fn run_metadata_service(
     let instance_metadata_reader = instance_metadata_fetcher.reader();
 
     let metrics_state = create_metrics(meter);
-    let context = Context::new();
 
     tokio::spawn(async move {
         run_server(
@@ -579,7 +575,7 @@ async fn run_metadata_service(
             Router::new().nest(
                 "/latest/meta-data",
                 get_instance_metadata_router(instance_metadata_reader.clone())
-                    .with_tracing_layer(metrics_state, context),
+                    .with_tracing_layer(metrics_state),
             ),
         )
         .await
@@ -588,7 +584,7 @@ async fn run_metadata_service(
 
     run_server(
         metrics_address,
-        Router::new().nest("/metrics", get_metrics_router(metrics_exporter)),
+        Router::new().nest("/metrics", get_metrics_router(prometheus_registry)),
     )
     .await?;
 

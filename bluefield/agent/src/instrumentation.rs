@@ -8,8 +8,6 @@ use axum::Router;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, Request, Response};
 use opentelemetry::metrics::{Counter, Histogram, Meter, Unit};
-use opentelemetry::Context;
-use opentelemetry_prometheus::PrometheusExporter;
 use tower::ServiceBuilder;
 use tracing::Span;
 
@@ -28,7 +26,7 @@ pub fn create_metrics(meter: Meter) -> Arc<MetricsState> {
     let http_req_latency_histogram = meter
         .f64_histogram("request_latency")
         .with_description("HTTP request latency")
-        .with_unit(Unit::new("s"))
+        .with_unit(Unit::new("ms"))
         .init();
 
     Arc::new(MetricsState {
@@ -37,16 +35,16 @@ pub fn create_metrics(meter: Meter) -> Arc<MetricsState> {
     })
 }
 
-pub fn get_metrics_router(exporter: Arc<PrometheusExporter>) -> Router {
+pub fn get_metrics_router(registry: prometheus::Registry) -> Router {
     Router::new()
         .route("/", get(export_metrics))
-        .with_state(exporter)
+        .with_state(registry)
 }
 
-async fn export_metrics(State(exporter): State<Arc<PrometheusExporter>>) -> Response<Body> {
+async fn export_metrics(State(registry): State<prometheus::Registry>) -> Response<Body> {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
-    let metric_families = exporter.registry().gather();
+    let metric_families = registry.gather();
     encoder.encode(&metric_families, &mut buffer).unwrap();
 
     Response::builder()
@@ -57,16 +55,15 @@ async fn export_metrics(State(exporter): State<Arc<PrometheusExporter>>) -> Resp
         .unwrap()
 }
 pub trait WithTracingLayer {
-    fn with_tracing_layer(self, metrics: Arc<MetricsState>, context: Context) -> Router;
+    fn with_tracing_layer(self, metrics: Arc<MetricsState>) -> Router;
 }
 
 impl WithTracingLayer for Router {
-    fn with_tracing_layer(self, metrics: Arc<MetricsState>, context: Context) -> Router {
+    fn with_tracing_layer(self, metrics: Arc<MetricsState>) -> Router {
         let metrics_copy = metrics.clone();
-        let context_copy = context.clone();
         let layer = tower_http::trace::TraceLayer::new_for_http()
             .on_request(move |request: &Request<Body>, _span: &Span| {
-                metrics.http_counter.add(&context, 1, &[]);
+                metrics.http_counter.add(1, &[]);
                 tracing::info!("started {} {}", request.method(), request.uri().path())
             })
             .on_response(
@@ -76,11 +73,9 @@ impl WithTracingLayer for Router {
                       latency: Duration,
                       _span: &Span| {
                     // TODO revisit time units
-                    metrics_copy.http_req_latency_histogram.record(
-                        &context_copy,
-                        latency.as_secs_f64(),
-                        &[],
-                    );
+                    metrics_copy
+                        .http_req_latency_histogram
+                        .record(latency.as_secs_f64() * 1000.0, &[]);
 
                     tracing::info!("response generated in {:?}", latency)
                 },

@@ -122,7 +122,7 @@ where
                 start_time = format!("{:?}", chrono::Utc::now()),
                 elapsed_us = tracing::field::Empty,
                 http.url = %request.uri(),
-                http.status_code = tracing::field::Empty,
+                http.response.status_code = tracing::field::Empty,
                 request = tracing::field::Empty,
                 otel.status_code = tracing::field::Empty,
                 otel.status_message = tracing::field::Empty,
@@ -188,7 +188,8 @@ where
                 Ok(result) => {
                     http_code = Some(result.status());
                     request_span.record(
-                        opentelemetry_semantic_conventions::trace::HTTP_STATUS_CODE.as_str(),
+                        opentelemetry_semantic_conventions::trace::HTTP_RESPONSE_STATUS_CODE
+                            .as_str(),
                         result.status().as_u16(),
                     );
 
@@ -262,7 +263,6 @@ where
             // creates a `Context`
             {
                 let _entered = request_span.enter();
-                let cx = opentelemetry::Context::current();
 
                 // The attributes follow
                 // https://opentelemetry.io/docs/reference/specification/metrics/semantic_conventions/http-metrics/#attributes
@@ -285,12 +285,12 @@ where
 
                 metrics
                     .request_times
-                    .record(&cx, elapsed.as_secs_f64() * 1000.0, &attributes);
+                    .record(elapsed.as_secs_f64() * 1000.0, &attributes);
 
                 // We use an attribute to distinguish the query counter from the
                 // ones that are used for state controller operations
                 attributes.push(KeyValue::new("operation", "grpc"));
-                metrics.db.emit(&db_query_metrics, &cx, &attributes);
+                metrics.db.emit(&db_query_metrics, &attributes);
             }
 
             result
