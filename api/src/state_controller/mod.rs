@@ -13,6 +13,7 @@
 pub mod bmc_machine;
 pub mod controller;
 pub mod ib_subnet;
+pub mod io;
 pub mod machine;
 pub mod metrics;
 pub mod network_segment;
