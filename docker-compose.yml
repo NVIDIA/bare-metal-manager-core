@@ -69,7 +69,7 @@ services:
       - ca-certificate:/identity
     environment:
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C api -x "run --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem'"
+    command: cargo watch -C api -x "run --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql'"
 
   carbide-api:
     depends_on:
@@ -102,7 +102,7 @@ services:
     environment:
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
-      - CARBIDE_API_DATABASE_URL=postgres://carbide_development:notforprod@postgresql?sslmode=verify-full&sslrootcert=/identity/development-root-ca.pem
+      - CARBIDE_API_DATABASE_URL=postgres://carbide_development:notforprod@postgresql
       - VAULT_KV_MOUNT_LOCATION=secret
       - VAULT_PKI_MOUNT_LOCATION=unsupported
       - VAULT_PKI_ROLE_NAME=unsupported
@@ -151,7 +151,7 @@ services:
       - POSTGRES_USER=${DBUSER:-carbide_development}
       - POSTGRES_DB=${DBNAME:-carbide_development}
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
-    command: -c ssl=on -c ssl_cert_file=/identity/postgresql.metal.dev.pem -c ssl_key_file=/identity/postgresql.metal.dev.key
+    command: -c ssl=off
     ports:
       - 5432:5432
 
