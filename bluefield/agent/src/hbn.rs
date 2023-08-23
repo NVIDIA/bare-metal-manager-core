@@ -16,8 +16,8 @@ use serde::Deserialize;
 use tracing::debug;
 
 pub fn get_hbn_container_id() -> eyre::Result<String> {
-    let mut sudo = Command::new("crictl");
-    let cmd = sudo.args(["ps", "--name=doca-hbn", "-o=json"]);
+    let mut crictl = Command::new("crictl");
+    let cmd = crictl.args(["ps", "--name=doca-hbn", "-o=json"]);
     let out = cmd.output()?;
     if !out.status.success() {
         debug!(

@@ -15,20 +15,19 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::{process::Command, time::Duration};
 
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
 use ::rpc::machine_discovery::DpuData;
 use axum::Router;
+use forge_host_support::{
+    agent_config::AgentConfig, hardware_enumeration::enumerate_hardware, registration,
+    registration::register_machine,
+};
 use opentelemetry::sdk;
 use opentelemetry::sdk::metrics;
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tracing::{debug, error, info, trace, warn};
-
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
-use forge_host_support::{
-    agent_config::AgentConfig, hardware_enumeration::enumerate_hardware, registration,
-    registration::register_machine,
-};
 
 use crate::frr::FrrVlanConfig;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
@@ -57,7 +56,7 @@ const MAIN_LOOP_PERIOD_IDLE: Duration = Duration::from_secs(30);
 // How often to report network health and poll for new configs when things are in flux.
 // This should be slightly bigger than bgpTimerHoldTimeMsecs as displayed in HBN
 // container by 'show bgp neighbors json' - which is currently 9s.
-const MAIN_LOOP_PERIOD_ACTIVE: Duration = Duration::from_secs(10);
+pub const MAIN_LOOP_PERIOD_ACTIVE: Duration = Duration::from_secs(10);
 
 /// How often we fetch the desired network configuration for a host
 const NETWORK_CONFIG_FETCH_PERIOD: Duration = Duration::from_secs(30);
@@ -340,6 +339,7 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
 
     let mut version_check_time = Instant::now(); // check it on the first loop
     let mut seen_blank = false;
+    let mut is_hbn_up = false;
     loop {
         let mut is_healthy = false;
         let mut has_changed_configs = false;
@@ -356,39 +356,42 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
         };
         match *network_config_reader.read() {
             Some(ref conf) => {
-                match ethernet_virtualization::update(
-                    &agent.hbn.root_dir,
-                    conf,
-                    agent.hbn.skip_reload,
-                ) {
-                    Ok(has_changed) => {
-                        // Updating network config succeeded.
-                        // Tell the server about the applied version.
-                        status_out.network_config_version =
-                            Some(conf.managed_host_config_version.clone());
-                        status_out.instance_id = conf.instance_id.clone();
-                        if !conf.instance_config_version.is_empty() {
-                            status_out.instance_config_version =
-                                Some(conf.instance_config_version.clone());
+                if is_hbn_up {
+                    match ethernet_virtualization::update(
+                        &agent.hbn.root_dir,
+                        conf,
+                        agent.hbn.skip_reload,
+                    ) {
+                        Ok(has_changed) => {
+                            // Updating network config succeeded.
+                            // Tell the server about the applied version.
+                            status_out.network_config_version =
+                                Some(conf.managed_host_config_version.clone());
+                            status_out.instance_id = conf.instance_id.clone();
+                            if !conf.instance_config_version.is_empty() {
+                                status_out.instance_config_version =
+                                    Some(conf.instance_config_version.clone());
+                            }
+                            match ethernet_virtualization::interfaces(conf) {
+                                Ok(interfaces) => status_out.interfaces = interfaces,
+                                Err(err) => status_out.network_config_error = Some(err.to_string()),
+                            }
+                            has_changed_configs = has_changed
                         }
-                        match ethernet_virtualization::interfaces(conf) {
-                            Ok(interfaces) => status_out.interfaces = interfaces,
-                            Err(err) => status_out.network_config_error = Some(err.to_string()),
+                        Err(err) => {
+                            status_out.network_config_error = Some(err.to_string());
                         }
-                        has_changed_configs = has_changed
-                    }
-                    Err(err) => {
-                        status_out.network_config_error = Some(err.to_string());
                     }
                 }
 
                 let health_report = health::health_check();
                 is_healthy = health_report.is_healthy();
-                trace!("{} HBN health is {}", machine_id, health_report);
+                is_hbn_up = health_report.is_up(); // subset of is_healthy
+                trace!("{} HBN health is: {}", machine_id, health_report);
                 // If we just applied a new network config report network as unhealthy.
                 // This gives HBN / BGP time to act on the config.
                 let hs = rpc::NetworkHealth {
-                    is_healthy: health_report.is_healthy() && !has_changed_configs,
+                    is_healthy: is_healthy && !has_changed_configs,
                     passed: health_report
                         .checks_passed
                         .iter()

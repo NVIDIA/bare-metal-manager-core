@@ -16,11 +16,11 @@ use eyre::WrapErr;
 use figment::providers::{Env, Format, Toml};
 use figment::Figment;
 use forge_secrets::credentials::CredentialProvider;
+use forge_secrets::forge_vault::{ForgeVaultAuthenticationType, ForgeVaultClientConfig};
+use forge_secrets::ForgeVaultClient;
 
 use crate::cfg::CarbideConfig;
 use crate::ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl};
-use forge_secrets::forge_vault::{ForgeVaultAuthenticationType, ForgeVaultClientConfig};
-use forge_secrets::ForgeVaultClient;
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -75,6 +75,7 @@ pub fn create_ipmi_tool<C: CredentialProvider + 'static>(
         .as_ref()
         .is_some_and(|tool| tool == "test")
     {
+        tracing::trace!("Disabling ipmitool");
         Arc::new(IPMIToolTestImpl {})
     } else {
         Arc::new(IPMIToolImpl::new(
