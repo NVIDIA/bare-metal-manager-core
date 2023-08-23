@@ -80,24 +80,38 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
     // to do
     let meter = health_context.meter.clone();
     meter
-        .register_callback(move |cx| {
-            ready_metric.observe(cx, 1, &[]);
-            version_metric.observe(cx, 1, &version_attributes);
+        .register_callback(
+            &[
+                ready_metric.as_any(),
+                version_metric.as_any(),
+                db_pool_idle_conns_metric.as_any(),
+                db_pool_total_conns_metric.as_any(),
+                pool_used.as_any(),
+                pool_free.as_any(),
+            ],
+            move |observer| {
+                observer.observe_u64(&ready_metric, 1, &[]);
+                observer.observe_u64(&version_metric, 1, &version_attributes);
 
-            db_pool_total_conns_metric.observe(cx, health_context.database_pool.size() as u64, &[]);
-            db_pool_idle_conns_metric.observe(
-                cx,
-                health_context.database_pool.num_idle() as u64,
-                &[],
-            );
+                observer.observe_u64(
+                    &db_pool_total_conns_metric,
+                    health_context.database_pool.size() as u64,
+                    &[],
+                );
+                observer.observe_u64(
+                    &db_pool_idle_conns_metric,
+                    health_context.database_pool.num_idle() as u64,
+                    &[],
+                );
 
-            if let Some(rp_stats) = &health_context.resource_pool_stats {
-                for (name, stats) in rp_stats.lock().unwrap().iter() {
-                    let name_attr = KeyValue::new("pool", name.to_string());
-                    pool_used.observe(cx, stats.used as u64, &[name_attr.clone()]);
-                    pool_free.observe(cx, stats.free as u64, &[name_attr]);
+                if let Some(rp_stats) = &health_context.resource_pool_stats {
+                    for (name, stats) in rp_stats.lock().unwrap().iter() {
+                        let name_attr = KeyValue::new("pool", name.to_string());
+                        observer.observe_u64(&pool_used, stats.used as u64, &[name_attr.clone()]);
+                        observer.observe_u64(&pool_free, stats.free as u64, &[name_attr]);
+                    }
                 }
-            }
-        })
+            },
+        )
         .unwrap();
 }

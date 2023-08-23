@@ -626,17 +626,19 @@ impl<IO: StateControllerIO> Builder<IO> {
         // This callback will get executed whenever OTEL needs to publish metrics
         if let Some(meter) = handler_services.meter.as_ref() {
             let metric_holder_clone = metric_holder.clone();
-            meter
-                .register_callback(move |otel_cx| {
-                    if let Some(emitter) = metric_holder_clone.emitter.as_ref() {
-                        if let Some(metrics) =
-                            metric_holder_clone.last_iteration_metrics.load_full()
-                        {
-                            emitter.emit_gauges(&metrics, otel_cx);
+            if let Some(emitter) = metric_holder.emitter.as_ref() {
+                meter
+                    .register_callback(&emitter.instruments(), move |observer| {
+                        if let Some(emitter) = metric_holder_clone.emitter.as_ref() {
+                            if let Some(metrics) =
+                                metric_holder_clone.last_iteration_metrics.load_full()
+                            {
+                                emitter.emit_gauges(observer, &metrics);
+                            }
                         }
-                    }
-                })
-                .unwrap();
+                    })
+                    .unwrap();
+            }
         }
 
         let controller = StateController::<IO> {

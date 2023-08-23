@@ -16,7 +16,6 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Method, Request, Response, Server,
 };
-use opentelemetry_prometheus::PrometheusExporter;
 use prometheus::{Encoder, TextEncoder};
 use std::sync::Arc;
 use std::{convert::Infallible, net::SocketAddr};
@@ -30,7 +29,7 @@ async fn handle_metrics_request(
         (&Method::GET, "/metrics") => {
             let mut buffer = vec![];
             let encoder = TextEncoder::new();
-            let metric_families = state.exporter.registry().gather();
+            let metric_families = state.registry.gather();
             encoder.encode(&metric_families, &mut buffer).unwrap();
 
             Response::builder()
@@ -57,19 +56,19 @@ async fn handle_metrics_request(
 
 /// The shared state between HTTP requests
 struct MetricsHandlerState {
-    exporter: Arc<PrometheusExporter>,
+    registry: prometheus::Registry,
 }
 
 /// Configuration for the metrics endpoint
 pub struct MetricsEndpointConfig {
     pub address: SocketAddr,
-    pub exporter: Arc<PrometheusExporter>,
+    pub registry: prometheus::Registry,
 }
 
 /// Start a HTTP endpoint which exposes metrics using the provided configuration
 pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), hyper::Error> {
     let handler_state = Arc::new(MetricsHandlerState {
-        exporter: config.exporter.clone(),
+        registry: config.registry.clone(),
     });
 
     // `connection_handler` defines the closure that will be called at the start

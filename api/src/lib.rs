@@ -272,7 +272,7 @@ pub async fn run(
     logging_subscriber: Option<impl SubscriberInitExt>,
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
-    let (metrics_exporter, meter) =
+    let (prometheus_registry, meter) =
         setup_telemetry(debug, carbide_config.clone(), logging_subscriber).await?;
 
     // Redact credentials before printing the config
@@ -294,7 +294,7 @@ pub async fn run(
         tokio::spawn(async move {
             if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
                 address: metrics_address,
-                exporter: metrics_exporter,
+                registry: prometheus_registry,
             })
             .await
             {
