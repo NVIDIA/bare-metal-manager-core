@@ -20,7 +20,7 @@ use opentelemetry_api::metrics;
 
 use crate::{
     logging::sqlx_query_tracing,
-    state_controller::{controller::StateControllerIO, state_handler::StateHandlerError},
+    state_controller::{io::StateControllerIO, state_handler::StateHandlerError},
 };
 
 /// The result of the state handler processing the state of a single object

@@ -20,8 +20,7 @@ use crate::{
     model::config_version::{ConfigVersion, Versioned},
     model::ib_subnet::IBSubnetControllerState,
     state_controller::{
-        controller::StateControllerIO, metrics::NoopMetricsEmitter,
-        snapshot_loader::SnapshotLoaderError,
+        io::StateControllerIO, metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
     },
 };
 
@@ -36,9 +35,7 @@ impl StateControllerIO for IBSubnetStateControllerIO {
     type ControllerState = IBSubnetControllerState;
     type MetricsEmitter = NoopMetricsEmitter;
 
-    fn db_lock_name() -> &'static str {
-        "ibsubnet_controller_lock"
-    }
+    const DB_LOCK_NAME: &'static str = "ibsubnet_controller_lock";
 
     const LOG_SPAN_CONTROLLER_NAME: &'static str = "ib_subnet_controller";
 

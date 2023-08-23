@@ -29,8 +29,9 @@ use carbide::{
     resource_pool::{self, common::CommonPools},
     state_controller::{
         bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
-        controller::{ReachabilityParams, StateControllerIO},
+        controller::ReachabilityParams,
         ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
+        io::StateControllerIO,
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
         metrics::MetricsEmitter,
         network_segment::{
