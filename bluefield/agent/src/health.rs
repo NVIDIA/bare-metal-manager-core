@@ -117,9 +117,9 @@ fn check_network_stats(hr: &mut HealthReport, container_id: &str) {
     }
 }
 
-// `ifreload -a` should exit code 0 and have no output
+// `ifreload` should exit code 0 and have no output
 fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
-    match run_in_container(container_id, &["ifreload", "-a"], true) {
+    match run_in_container(container_id, &["ifreload", "--all", "--syntax-check"], true) {
         Ok(stdout) => {
             if stdout.is_empty() {
                 hr.passed(HealthCheck::Ifreload);

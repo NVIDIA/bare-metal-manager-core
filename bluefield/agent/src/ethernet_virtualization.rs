@@ -10,8 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::{fs, net::Ipv4Addr, process::Command};
+use std::{fs, io, net::Ipv4Addr, process::Command};
 
 use ::rpc::forge as rpc;
 use eyre::WrapErr;
@@ -25,12 +27,23 @@ const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 
+/// None of the files we deal with should be bigger than this
+const MAX_EXPECTED_SIZE: u64 = 4096;
+
 struct Paths {
     dhcp: PathBuf,
     interfaces: PathBuf,
     frr: PathBuf,
     daemons: PathBuf,
     acl_rules: PathBuf,
+}
+
+/// How we tell HBN to notice the new file we wrote
+struct PostAction {
+    cmd: &'static str,
+    path: PathBuf,
+    path_bak: PathBuf,
+    path_tmp: PathBuf,
 }
 
 fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
@@ -71,27 +84,83 @@ pub fn update(
     debug!("Desired network config is {:?}", network_config);
     let paths = paths(hbn_root, network_config.is_production_mode);
 
-    let mut has_changes = false;
     let mut errs = vec![];
-    match write_dhcp_relay_config(paths.dhcp, network_config, skip_post) {
-        Ok(dhcp_changed) => has_changes |= dhcp_changed,
+    let mut post_actions = vec![];
+    match write_dhcp_relay_config(paths.dhcp, network_config) {
+        Ok(Some(post_action)) => {
+            post_actions.push(post_action);
+        }
+        Ok(None) => {}
         Err(err) => errs.push(format!("write_dhcp_relay_config: {err:#}")),
     }
-    match write_interfaces(paths.interfaces, network_config, skip_post) {
-        Ok(eni_changed) => has_changes |= eni_changed,
+    match write_interfaces(paths.interfaces, network_config) {
+        Ok(Some(post_action)) => {
+            post_actions.push(post_action);
+        }
+        Ok(None) => {}
         Err(err) => errs.push(format!("write_interfaces: {err:#}")),
     }
-    match write_frr(paths.frr, network_config, skip_post) {
-        Ok(frr_changed) => has_changes |= frr_changed,
+    match write_frr(paths.frr, network_config) {
+        Ok(Some(post_action)) => {
+            post_actions.push(post_action);
+        }
+        Ok(None) => {}
         Err(err) => errs.push(format!("write_frr: {err:#}")),
     }
-    match write_daemons(paths.daemons, skip_post) {
-        Ok(daemons_changed) => has_changes |= daemons_changed,
+    match write_daemons(paths.daemons) {
+        Ok(Some(post_action)) => {
+            post_actions.push(post_action);
+        }
+        Ok(None) => {}
         Err(err) => errs.push(format!("write_daemons: {err:#}")),
     }
-    match write_acl_rules(paths.acl_rules, network_config, skip_post) {
-        Ok(acls_changed) => has_changes |= acls_changed,
+    match write_acl_rules(paths.acl_rules, network_config) {
+        Ok(Some(post_action)) => {
+            post_actions.push(post_action);
+        }
+        Ok(None) => {}
         Err(err) => errs.push(format!("write_acl_rules: {err:#}")),
+    }
+
+    let has_changes = !post_actions.is_empty();
+    if !skip_post {
+        for post in post_actions {
+            match in_container(post.cmd) {
+                Ok(_) => {
+                    if post.path_bak.exists() {
+                        if let Err(err) = fs::remove_file(&post.path_bak) {
+                            errs.push(format!(
+                                "remove .BAK on success {}: {err:#}",
+                                post.path_bak.display()
+                            ));
+                        }
+                    }
+                }
+                Err(err) => {
+                    errs.push(format!("running reload cmd '{}': {err:#}", post.cmd));
+
+                    // If reload failed we won't be using the new config. Move it out of the way..
+                    if let Err(err) = fs::rename(&post.path, &post.path_tmp) {
+                        errs.push(format!(
+                            "rename {} to {} on error: {err:#}",
+                            post.path.display(),
+                            post.path_tmp.display()
+                        ));
+                    }
+                    // .. and copy the old one back.
+                    // This also ensures that we retry writing the config on subsequent runs.
+                    if post.path_bak.exists() {
+                        if let Err(err) = fs::rename(&post.path_bak, &post.path) {
+                            errs.push(format!(
+                                "rename {} to {}, reverting on error: {err:#}",
+                                post.path_bak.display(),
+                                post.path.display()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     let err_message = errs.join(", ");
@@ -142,45 +211,41 @@ pub fn reset(
     dhcp::blank();
 
     let mut errs = vec![];
-    if let Err(err) = write(
-        dhcp::blank(),
-        paths.dhcp,
-        "DHCP relay",
-        if skip_post {
-            None
-        } else {
-            Some(dhcp::RELOAD_CMD)
-        },
-    ) {
-        errs.push(format!("Write blank DHCP relay: {err:#}"));
+    let mut post_actions = vec![];
+    match write(dhcp::blank(), paths.dhcp, "DHCP relay", dhcp::RELOAD_CMD) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
     }
-    if let Err(err) = write(
+    match write(
         interfaces::blank(),
         paths.interfaces,
         "/etc/network/interfaces",
-        if skip_post {
-            None
-        } else {
-            Some(interfaces::RELOAD_CMD)
-        },
+        interfaces::RELOAD_CMD,
     ) {
-        errs.push(format!("write blank interfaces: {err:#}"));
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("write blank interfaces: {err:#}")),
     }
-    if let Err(err) = write(
-        frr::blank(),
-        paths.frr,
-        "frr.conf",
-        if skip_post {
-            None
-        } else {
-            Some(frr::RELOAD_CMD)
-        },
-    ) {
-        errs.push(format!("write blank frr: {err:#}"));
+    match write(frr::blank(), paths.frr, "frr.conf", frr::RELOAD_CMD) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("write blank frr: {err:#}")),
     }
-    if let Err(err) = write_daemons(paths.daemons, skip_post) {
-        errs.push(format!("write_daemons: {err:#}"));
+    match write_daemons(paths.daemons) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("write_daemons: {err:#}")),
     }
+
+    if !skip_post {
+        for post in post_actions {
+            if let Err(err) = in_container(post.cmd) {
+                errs.push(format!("reload '{}': {err}", post.cmd))
+            }
+        }
+    }
+
     let err_message = errs.join(", ");
     if !err_message.is_empty() {
         error!(err_message);
@@ -203,8 +268,7 @@ fn dhcp_servers(nc: &rpc::ManagedHostNetworkConfigResponse) -> Vec<Ipv4Addr> {
 fn write_dhcp_relay_config<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    skip_post: bool,
-) -> Result<bool, eyre::Report> {
+) -> Result<Option<PostAction>, eyre::Report> {
     let vlan_ids = if nc.use_admin_network {
         let admin_interface = nc
             .admin_interface
@@ -221,23 +285,13 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
         remote_id: nc.remote_id.clone(),
         network_virtualization_type: nc.network_virtualization_type,
     })?;
-    write(
-        next_contents,
-        path,
-        "DHCP relay",
-        if skip_post {
-            None
-        } else {
-            Some(dhcp::RELOAD_CMD)
-        },
-    )
+    write(next_contents, path, "DHCP relay", dhcp::RELOAD_CMD)
 }
 
 fn write_interfaces<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    skip_post: bool,
-) -> Result<bool, eyre::Report> {
+) -> Result<Option<PostAction>, eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
             return Err(eyre::eyre!("Missing managed_host_config in response"));
@@ -304,19 +358,14 @@ fn write_interfaces<P: AsRef<Path>>(
         next_contents,
         path,
         "/etc/network/interfaces",
-        if skip_post {
-            None
-        } else {
-            Some(interfaces::RELOAD_CMD)
-        },
+        interfaces::RELOAD_CMD,
     )
 }
 
 fn write_frr<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    skip_post: bool,
-) -> Result<bool, eyre::Report> {
+) -> Result<Option<PostAction>, eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
             return Err(eyre::eyre!("Missing managed_host_config in response"));
@@ -359,37 +408,23 @@ fn write_frr<P: AsRef<Path>>(
         vpc_vni: nc.vpc_vni,
         route_servers: nc.route_servers.clone(),
     })?;
-    write(
-        next_contents,
-        path,
-        "frr.conf",
-        if skip_post {
-            None
-        } else {
-            Some(frr::RELOAD_CMD)
-        },
-    )
+    write(next_contents, path, "frr.conf", frr::RELOAD_CMD)
 }
 
 /// The etc/frr/daemons file has no templated parts
-fn write_daemons<P: AsRef<Path>>(path: P, skip_post: bool) -> Result<bool, eyre::Report> {
+fn write_daemons<P: AsRef<Path>>(path: P) -> Result<Option<PostAction>, eyre::Report> {
     write(
         daemons::build(),
         path,
         "etc/frr/daemons",
-        if skip_post {
-            None
-        } else {
-            Some(daemons::RESTART_CMD)
-        },
+        daemons::RESTART_CMD,
     )
 }
 
 fn write_acl_rules<P: AsRef<Path>>(
     path: P,
     dpu_network_config: &rpc::ManagedHostNetworkConfigResponse,
-    skip_post: bool,
-) -> Result<bool, eyre::Report> {
+) -> Result<Option<PostAction>, eyre::Report> {
     let ingress_interfaces = dpu_network_config
         .tenant_interfaces
         .iter()
@@ -400,13 +435,7 @@ fn write_acl_rules<P: AsRef<Path>>(
         deny_prefixes: dpu_network_config.deny_prefixes.clone(),
     };
     let contents = acl_rules::build(config)?;
-    let reload_cmd = acl_rules::RELOAD_CMD;
-    write(
-        contents,
-        path,
-        "forge-acl.rules",
-        (!skip_post).then_some(reload_cmd),
-    )
+    write(contents, path, "forge-acl.rules", acl_rules::RELOAD_CMD)
 }
 
 // Update configuration file
@@ -419,8 +448,8 @@ fn write<P: AsRef<Path>>(
     // Human readable description of the file, for error messages
     file_type: &str,
     // Reload or restart command to run after updating the file
-    post_cmd: Option<&'static str>,
-) -> Result<bool, eyre::Report> {
+    post_cmd: &'static str,
+) -> Result<Option<PostAction>, eyre::Report> {
     // later we will remove the tmp file on drop, but for now it may help with debugging
     let mut path_tmp = path.as_ref().to_path_buf();
     path_tmp.set_extension("TMP");
@@ -429,50 +458,31 @@ fn write<P: AsRef<Path>>(
 
     let path = path.as_ref();
     let has_changed = if path.exists() {
-        let current = fs::read_to_string(path)
-            .wrap_err_with(|| format!("fs::read_to_string {}", path.display()))?;
+        let current =
+            read_limited(path).wrap_err_with(|| format!("read_limited {}", path.display()))?;
         current != next_contents
     } else {
         true
     };
-    if has_changed {
-        debug!("Applying new {file_type} config");
+    if !has_changed {
+        return Ok(None);
+    }
+    debug!("Applying new {file_type} config");
 
-        let mut path_bak = path.to_path_buf();
-        path_bak.set_extension("BAK");
-        if path.exists() {
-            fs::copy(path, path_bak.clone()).wrap_err("copying file to .BAK")?;
-        }
-
-        fs::rename(path_tmp.clone(), path).wrap_err("rename")?;
-
-        match post_cmd {
-            Some(post_cmd) => match in_container(post_cmd) {
-                Ok(_) => {
-                    if path_bak.exists() {
-                        std::fs::remove_file(path_bak).wrap_err("removing .BAK on success")?;
-                    }
-                }
-                Err(err) => {
-                    // If reload failed we won't be using the new config, so copy the old one back.
-                    // This also ensures that we fail on subsequent runs.
-                    fs::rename(path, path_tmp).wrap_err("rename path back to TMP")?;
-                    if path_bak.exists() {
-                        fs::rename(path_bak, path).wrap_err("rename revert from BAK")?;
-                    }
-                    return Err(err);
-                }
-            },
-            None => {
-                tracing::trace!("Skipping reload command");
-                if path_bak.exists() {
-                    std::fs::remove_file(path_bak).wrap_err("removing .BAK on skip reload")?;
-                }
-            }
-        }
+    let mut path_bak = path.to_path_buf();
+    path_bak.set_extension("BAK");
+    if path.exists() {
+        fs::copy(path, path_bak.clone()).wrap_err("copying file to .BAK")?;
     }
 
-    Ok(has_changed)
+    fs::rename(path_tmp.clone(), path).wrap_err("rename")?;
+
+    Ok(Some(PostAction {
+        cmd: post_cmd,
+        path: path.to_path_buf(),
+        path_bak,
+        path_tmp,
+    }))
 }
 
 // Run the given command inside HBN container
@@ -578,25 +588,25 @@ mod tests {
 
         // What we're testing
 
-        let Ok(true) = super::write_dhcp_relay_config(&f, &network_config, true) else {
+        let Ok(Some(_)) = super::write_dhcp_relay_config(&f, &network_config) else {
             panic!("write_dhcp_relay_config either Err-ed or didn't say it wrote");
         };
         let expected = include_str!("../templates/tests/tenant_dhcp-relay.conf");
         compare(&f, expected)?;
 
-        let Ok(true) = super::write_interfaces(&f, &network_config, true) else {
+        let Ok(Some(_)) = super::write_interfaces(&f, &network_config) else {
             panic!("write_interfaces either Err-ed or didn't say it wrote");
         };
         let expected = include_str!("../templates/tests/tenant_interfaces");
         compare(&f, expected)?;
 
-        let Ok(true) = super::write_frr(&f, &network_config, true) else {
+        let Ok(Some(_)) = super::write_frr(&f, &network_config) else {
             panic!("write_frr either Err-ed or didn't say it wrote");
         };
         let expected = include_str!("../templates/tests/tenant_frr.conf");
         compare(&f, expected)?;
 
-        let Ok(true) = super::write_acl_rules(&f, &network_config, true) else {
+        let Ok(Some(_)) = super::write_acl_rules(&f, &network_config) else {
             panic!("write_acl_rules either Err-ed or didn't say it wrote");
         };
         let expected = include_str!("../templates/tests/tenant_acl_rules");
@@ -619,14 +629,14 @@ mod tests {
 
         // check
         let frr_path = hbn_root.join("etc/frr/frr.conf");
-        let frr_contents = fs::read_to_string(frr_path)?;
+        let frr_contents = super::read_limited(frr_path)?;
         assert_eq!(frr_contents, crate::frr::TMPL_EMPTY);
 
         Ok(())
     }
 
     fn compare<P: AsRef<Path>>(p1: P, expected: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let contents = fs::read_to_string(p1.as_ref())?;
+        let contents = super::read_limited(p1.as_ref())?;
         // trim white space at end of line to match Go version
         let output = contents
             .lines()
@@ -654,7 +664,7 @@ mod tests {
         p1: P,
         expected: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let left_contents = fs::read_to_string(p1.as_ref())?;
+        let left_contents = super::read_limited(p1.as_ref())?;
         let left_contents = left_contents.as_str();
         let right_contents = expected;
         let r = crate::util::compare_lines(left_contents, right_contents, None);
@@ -662,4 +672,22 @@ mod tests {
         assert!(r.is_identical());
         Ok(())
     }
+}
+
+// std::fs::read_to_string but limited to 4k bytes for safety
+fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
+    let f = File::open(path)?;
+    let l = f.metadata()?.len();
+    if l > MAX_EXPECTED_SIZE {
+        return Err(io::Error::new(
+            // ErrorKind::FileTooLarge but it's nightly only
+            io::ErrorKind::Other,
+            format!("{l} > {MAX_EXPECTED_SIZE} bytes"),
+        ));
+    }
+    // in case it changes as we read
+    let mut f_limit = f.take(MAX_EXPECTED_SIZE);
+    let mut s = String::with_capacity(l as usize);
+    f_limit.read_to_string(&mut s)?;
+    Ok(s)
 }
