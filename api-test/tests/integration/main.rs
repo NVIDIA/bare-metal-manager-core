@@ -72,10 +72,14 @@ async fn test_integration() -> eyre::Result<()> {
 
     let vault_token = vault.token().to_string();
     let root_dir = path::PathBuf::from(repo_root);
-    tokio::spawn({
-        let root_dir = root_dir.to_str().unwrap().to_string();
-        let db_url = db_url.to_string();
-        api_server::start(carbide_api_addr, root_dir, db_url, vault_token)
+    let root_dir_clone = root_dir.to_str().unwrap().to_string();
+    let db_url = db_url.to_string();
+    tokio::spawn(async move {
+        if let Err(e) =
+            api_server::start(carbide_api_addr, root_dir_clone, db_url, vault_token).await
+        {
+            eprintln!("Failed to start API server: {}", e);
+        }
     });
 
     sleep(time::Duration::from_secs(5)).await;
