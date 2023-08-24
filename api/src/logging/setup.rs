@@ -15,9 +15,9 @@ use opentelemetry::{
     sdk::{self, metrics},
     trace::TracerProvider,
 };
-use opentelemetry_api::{metrics::Meter, trace::TraceError};
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
+use opentelemetry_api::metrics::Meter;
+use opentelemetry_otlp::{SpanExporterBuilder, WithExportConfig};
+use opentelemetry_sdk::trace;
 use opentelemetry_semantic_conventions as semcov;
 use std::sync::Arc;
 use tracing_subscriber::{
@@ -69,44 +69,55 @@ pub async fn setup_telemetry(
         semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
     ]);
 
-    // Set up an OpenTelemetry tracer with an exporter to StdOut
+    // Set up an OpenTelemetry tracer with an exporter to either StdOut only
+    // or to StdOut and a OTLP endpoint - depending on the config
+    //
     // Note: This doesn't yet make any logs get pushed to the OpenTelemetry library
     // The binding happens later once we initialize tracing_opentelemetry and configure
     // it to forward log events from the `tracing` framework.
     // The application internally only uses `tracing` events.
-    let trace_config = sdk::trace::config().with_resource(service_telemetry_attributes.clone());
-
     let tracer = {
         use opentelemetry::sdk::trace::TracerProvider;
-        let mut provider_builder = TracerProvider::builder()
-            .with_simple_exporter(OtelStdoutExporter::new(std::io::stdout()));
-        provider_builder = provider_builder.with_config(trace_config);
-        let provider = provider_builder.build();
 
+        let trace_config = sdk::trace::config().with_resource(service_telemetry_attributes.clone());
+        let mut provider_builder = TracerProvider::builder().with_config(trace_config);
+
+        // Always export to stdout
+        let stdout_exporter = OtelStdoutExporter::new(std::io::stdout());
+        provider_builder = provider_builder.with_simple_exporter(stdout_exporter);
+
+        // If OTEL is configured, also export there
+        // Note that .with_simple_exporter, .with_batch_exporter and .with_span_processor
+        // can be multiple times. And each call will add an additional log link
+        if let Some(otel_endpoint) = &carbide_config.as_ref().otlp_endpoint {
+            tracing::info!(
+                "Starting OTLP tracer. Sending tracing data to: {}",
+                otel_endpoint
+            );
+            let tonic_exporter_builder = opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(otel_endpoint);
+            let tonic_exporter =
+                SpanExporterBuilder::from(tonic_exporter_builder).build_span_exporter()?;
+            let batch_processor = trace::BatchSpanProcessor::builder(
+                tonic_exporter,
+                opentelemetry_sdk::runtime::Tokio,
+            )
+            .build();
+            provider_builder = provider_builder.with_span_processor(batch_processor);
+        }
+
+        let provider = provider_builder.build();
         let tracer = provider.tracer("carbide-api");
         let _ = opentelemetry::global::set_tracer_provider(provider);
-
         tracer
     };
 
-    fn init_otlp_tracer(endpoint: &str) -> Result<sdktrace::Tracer, TraceError> {
-        opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(
-                opentelemetry_otlp::new_exporter()
-                    .tonic()
-                    .with_endpoint(endpoint),
-            )
-            .with_trace_config(sdktrace::config().with_resource(Resource::new(vec![
-                semcov::resource::SERVICE_NAME.string("carbide-api"),
-                semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
-            ])))
-            .install_batch(runtime::Tokio)
-    }
     // tracing-opentelemetry integration
-    // This will make `tracing` create opentelemetry spans, and log
-    // tracing events as OTEL events
-    let telemetry = tracing_opentelemetry::layer()
+    // This will lead to tracing events being forwarded into the specified `tracer`.
+    // A `tracing` `span` will create an opentelemetry span, and tracing `event`s (like `info!`)
+    // will create OTEL events.
+    let opentelemetry_layer = tracing_opentelemetry::layer()
         .with_exception_fields(true)
         .with_threads(false)
         .with_tracer(tracer);
@@ -129,29 +140,12 @@ pub async fn setup_telemetry(
         // Note that the order here doesn't matter: The global filtering is always
         // applied before all "sinks" (`Layer`s), because the `.enabled()` function of
         // all layers and filters will be called before any event is forwarded.
-        let logging_subscriber = tracing_subscriber::registry()
+        tracing_subscriber::registry()
             .with(global_filter)
             .with(stdout_formatter.with_filter(block_sqlx_filter.clone()))
-            .with(telemetry.with_filter(block_sqlx_filter.clone()))
-            .with(sqlx_query_tracing::create_sqlx_query_tracing_layer());
-
-        if let Some(otel) = carbide_config.as_ref().clone().otlp_endpoint {
-            tracing::info!("Starting OTLP tracer. Sending tracing data to: {}", &otel);
-
-            let otlp_tracer = init_otlp_tracer(otel.as_ref())?;
-
-            let otlp_layer = tracing_opentelemetry::layer()
-                .with_tracer(otlp_tracer)
-                .with_exception_fields(true)
-                .with_location(true)
-                .with_threads(false);
-
-            logging_subscriber
-                .with(otlp_layer.with_filter(block_sqlx_filter))
-                .try_init()?;
-        } else {
-            logging_subscriber.try_init()?;
-        }
+            .with(opentelemetry_layer.with_filter(block_sqlx_filter.clone()))
+            .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
+            .try_init()?;
     };
 
     // This sets the global meter provider

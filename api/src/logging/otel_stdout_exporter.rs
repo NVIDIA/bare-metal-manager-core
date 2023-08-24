@@ -15,7 +15,6 @@
 
 use std::io::Write;
 
-use async_trait::async_trait;
 use futures::future::BoxFuture;
 use opentelemetry::{
     sdk::{
@@ -46,7 +45,6 @@ const IGNORED_SPANS: &[&str] = &[];
 const IGNORED_REQUEST_METHODDS: &[&str] =
     &["GetManagedHostNetworkConfig", "RecordDpuNetworkStatus"];
 
-#[async_trait]
 impl<W> SpanExporter for OtelStdoutExporter<W>
 where
     W: Write + std::fmt::Debug + Send + 'static,
