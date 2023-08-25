@@ -59,6 +59,7 @@ use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::ib;
 use crate::ib::IBFabricManager;
+use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
 use crate::model::config_version::ConfigVersion;
@@ -137,12 +138,12 @@ const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
 const ETH_VIRT_PRODUCTION_MODE: bool = true;
 
 pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
-    database_connection: sqlx::PgPool,
+    pub(crate) database_connection: sqlx::PgPool,
     credential_provider: Arc<C1>,
     certificate_provider: Arc<C2>,
     authorizer: auth::Authorizer,
     redfish_pool: Arc<dyn RedfishClientPool>,
-    eth_data: ethernet_virtualization::EthVirtData,
+    pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
     identity_pemfile_path: String,
     identity_keyfile_path: String,
@@ -3385,6 +3386,24 @@ where
             .map_err(|e| CarbideError::DatabaseError(file!(), "end maintenance handler", e))?;
 
         Ok(Response::new(()))
+    }
+
+    async fn find_ip_address(
+        &self,
+        request: tonic::Request<rpc::FindIpAddressRequest>,
+    ) -> Result<tonic::Response<rpc::FindIpAddressResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let ip = req.ip;
+        let (matches, errors) = ip_finder::find(self, &ip).await;
+        if matches.is_empty() && errors.is_empty() {
+            return Err(Status::not_found(ip));
+        }
+        Ok(Response::new(rpc::FindIpAddressResponse {
+            matches,
+            errors: errors.into_iter().map(|err| err.to_string()).collect(),
+        }))
     }
 }
 

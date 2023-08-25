@@ -9,13 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, net::IpAddr};
+use std::{collections::HashMap, net::IpAddr, str::FromStr};
 
 use itertools::Itertools;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use super::{DatabaseError, UuidKeyedObjectFilter};
+use super::{network_segment::NetworkSegmentType, DatabaseError, UuidKeyedObjectFilter};
+use crate::model::machine::machine_id::MachineId;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {
@@ -80,5 +81,43 @@ impl MachineInterfaceAddress {
         }
         .into_iter()
         .into_group_map_by(|address| address.interface_id))
+    }
+
+    pub async fn find_by_address(
+        txn: &mut Transaction<'_, Postgres>,
+        address: &str,
+    ) -> Result<Option<MachineInterfaceSearchResult>, DatabaseError> {
+        let query = "SELECT mi.id, mi.machine_id, ns.name, ns.network_segment_type
+            FROM machine_interface_addresses mia
+            INNER JOIN machine_interfaces mi ON mi.id = mia.interface_id
+            INNER JOIN network_segments ns ON ns.id = mi.segment_id
+            WHERE mia.address = $1::inet
+        ";
+        sqlx::query_as(query)
+            .bind(address)
+            .fetch_optional(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+}
+
+#[derive(Debug)]
+pub struct MachineInterfaceSearchResult {
+    pub interface_id: Uuid,
+    pub machine_id: MachineId,
+    pub segment_name: String,
+    pub segment_type: NetworkSegmentType,
+}
+
+impl<'r> FromRow<'r, PgRow> for MachineInterfaceSearchResult {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let stable_string: String = row.try_get("machine_id")?;
+        let machine_id = MachineId::from_str(&stable_string).unwrap();
+        Ok(MachineInterfaceSearchResult {
+            interface_id: row.try_get("id")?,
+            machine_id,
+            segment_name: row.try_get("name")?,
+            segment_type: row.try_get("network_segment_type")?,
+        })
     }
 }

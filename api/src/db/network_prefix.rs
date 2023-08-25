@@ -88,19 +88,18 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
 }
 
 impl NetworkPrefix {
-    /// Check if the prefix matches, is a subnet of, or contains an existing one.
-    /// The database has a constraint to prevent this.
-    pub async fn exists(
+    /// Fetch the prefix that matches, is a subnet of, or contains the given one.
+    pub async fn containing_prefix(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         prefix: &str,
-    ) -> Result<bool, DatabaseError> {
+    ) -> Result<Option<NetworkPrefix>, DatabaseError> {
         let query = "select * from network_prefixes where prefix && $1::inet";
-        let dups = sqlx::query_as::<_, NetworkPrefix>(query)
+        let container = sqlx::query_as::<_, NetworkPrefix>(query)
             .bind(prefix)
-            .fetch_all(&mut **txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(!dups.is_empty())
+        Ok(container)
     }
 
     pub fn gateway_cidr(&self) -> Option<String> {

@@ -414,6 +414,22 @@ pub async fn set_maintenance(
     .await
 }
 
+pub async fn find_ip_address(
+    req: rpc::FindIpAddressRequest,
+    api_config: Config,
+) -> CarbideCliResult<rpc::FindIpAddressResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(req);
+        let out = client
+            .find_ip_address(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(out)
+    })
+    .await
+}
+
 pub async fn migrate_vpc_vni(api_config: &Config) -> CarbideCliResult<rpc::MigrateVpcVniResponse> {
     with_forge_client(api_config.clone(), |mut client| async move {
         let request = tonic::Request::new(());

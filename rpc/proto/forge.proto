@@ -79,9 +79,10 @@ service Forge {
   // PRIVILEGED: Get a single machine
   rpc GetMachine(MachineId) returns (Machine);
 
-  // PRIVILEGED: Find a list of machines
+  // PRIVILEGED: Find things
   rpc FindMachines(MachineSearchQuery) returns (MachineList);
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
+  rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
 
   // PRIVILEGED: Define and manage new instance types
   rpc CreateInstanceType(InstanceType) returns (InstanceType);
@@ -1617,4 +1618,13 @@ message MaintenanceRequest {
   MachineId host_id = 2;
   // For Enable: The ticket tracker URL.
   optional string reference = 3;
+}
+
+message FindIpAddressRequest {
+  string ip = 1;
+}
+
+message FindIpAddressResponse {
+  repeated string matches = 1;
+  repeated string errors = 2;
 }
