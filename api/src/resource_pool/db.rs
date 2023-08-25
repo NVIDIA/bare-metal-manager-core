@@ -12,6 +12,7 @@
 
 use std::{marker::PhantomData, str::FromStr};
 
+use chrono::{DateTime, Utc};
 use sqlx::{Postgres, Row, Transaction};
 
 use super::{OwnerType, ResourcePoolError, ValueType};
@@ -239,6 +240,21 @@ pub async fn all(
     Ok(out)
 }
 
+/// All the resource pool entries for the given value
+pub async fn find_value(
+    txn: &mut Transaction<'_, Postgres>,
+    value: &str,
+) -> Result<Vec<ResourcePoolEntry>, ResourcePoolError> {
+    let query =
+        "SELECT name, value, value_type, state, allocated FROM resource_pool WHERE value = $1";
+    let entry: Vec<ResourcePoolEntry> = sqlx::query_as(query)
+        .bind(value)
+        .fetch_all(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+    Ok(entry)
+}
+
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for super::ResourcePoolStats {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let used: i64 = row.try_get("used")?;
@@ -277,5 +293,26 @@ impl From<ResourcePoolSnapshot> for rpc::forge::ResourcePool {
             total: (rp.stats.free + rp.stats.used) as u64,
             allocated: rp.stats.used as u64,
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct ResourcePoolEntry {
+    pub pool_name: String,
+    pub pool_type: ValueType,
+    pub value: String,
+    pub state: sqlx::types::Json<ResourcePoolEntryState>,
+    pub allocated: Option<DateTime<Utc>>,
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolEntry {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(ResourcePoolEntry {
+            pool_name: row.try_get("name")?,
+            pool_type: row.try_get("value_type")?,
+            value: row.try_get("value")?,
+            state: row.try_get("state")?,
+            allocated: row.try_get("allocated")?,
+        })
     }
 }

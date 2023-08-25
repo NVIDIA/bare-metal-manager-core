@@ -9,15 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use mac_address::MacAddress;
 use std::{
     backtrace::{Backtrace, BacktraceStatus},
     net::IpAddr,
 };
-use tonic::Status;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use dhcp::allocation::DhcpError;
+use mac_address::MacAddress;
 use model::{
     config_version::{ConfigVersion, ConfigVersionParseError},
     hardware_info::HardwareInfoError,
@@ -26,6 +24,8 @@ use model::{
     ConfigValidationError, RpcDataConversionError,
 };
 use state_controller::snapshot_loader::SnapshotLoaderError;
+use tonic::Status;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::logging::{
     metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
@@ -42,6 +42,7 @@ pub mod ethernet_virtualization;
 mod human_hash;
 pub mod ib;
 pub mod instance;
+mod ip_finder;
 pub mod ipmitool;
 mod ipxe;
 pub mod logging;

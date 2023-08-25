@@ -87,6 +87,19 @@ pub enum CarbideCommand {
     Redfish(RedfishAction),
     #[clap(about = "Migrate data, see sub-command", subcommand)]
     Migrate(MigrateAction),
+    #[clap(about = "IP address handling", subcommand)]
+    Ip(IpAction),
+}
+
+#[derive(Parser, Debug)]
+pub enum IpAction {
+    Find(IpFind),
+}
+
+#[derive(Parser, Debug)]
+pub struct IpFind {
+    /// The IP address we are looking to identify
+    pub ip: std::net::Ipv4Addr,
 }
 
 #[derive(Parser, Debug)]

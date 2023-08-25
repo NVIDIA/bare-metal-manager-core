@@ -174,6 +174,20 @@ impl MachineTopology {
         Ok(result)
     }
 
+    pub async fn find_by_bmc_ip(
+        txn: &mut Transaction<'_, Postgres>,
+        address: &str,
+    ) -> Result<Option<MachineId>, DatabaseError> {
+        let query =
+            "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'ip' = $1";
+        Ok(sqlx::query_as::<_, DbMachineId>(query)
+            .bind(address)
+            .fetch_optional(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+            .map(|db_id| db_id.into_inner()))
+    }
+
     pub fn topology(&self) -> &TopologyData {
         &self.topology
     }

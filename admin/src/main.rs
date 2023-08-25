@@ -19,6 +19,7 @@ use ::rpc::{
     forge::{self as forgerpc, MachineType},
     MachineId,
 };
+use cfg::carbide_options::IpAction;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     MigrateAction, NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
@@ -477,6 +478,24 @@ async fn main() -> color_eyre::Result<()> {
             }
             ResourcePool::List => {
                 resource_pool::list(api_config).await?;
+            }
+        },
+        CarbideCommand::Ip(ip_command) => match ip_command {
+            IpAction::Find(find) => {
+                let req = forgerpc::FindIpAddressRequest {
+                    ip: find.ip.to_string(),
+                };
+                // maybe handle tonic::Status's `.code()` of tonic::Code::NotFound
+                let resp = rpc::find_ip_address(req, api_config).await?;
+                for msg in resp.matches {
+                    tracing::info!("{msg}");
+                }
+                if !resp.errors.is_empty() {
+                    tracing::warn!("These matchers failed:");
+                    for err in resp.errors {
+                        tracing::warn!("\t{err}");
+                    }
+                }
             }
         },
         CarbideCommand::Migrate(migration) => match migration {

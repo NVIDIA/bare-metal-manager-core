@@ -16,7 +16,7 @@ use std::str::FromStr;
 use crate::CarbideError;
 
 mod db;
-pub use db::{all, stats, DbResourcePool};
+pub use db::{all, find_value, stats, DbResourcePool};
 pub mod common;
 mod define;
 pub use define::{
@@ -81,6 +81,15 @@ pub struct ResourcePoolStats {
 pub enum ValueType {
     Integer = 0,
     Ipv4,
+}
+
+impl fmt::Display for ValueType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Integer => write!(f, "Integer"),
+            Self::Ipv4 => write!(f, "Ipv4"),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

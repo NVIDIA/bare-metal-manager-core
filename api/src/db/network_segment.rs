@@ -11,6 +11,7 @@
  */
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
 
@@ -135,6 +136,16 @@ impl FromStr for NetworkSegmentType {
                 )))
             }
         })
+    }
+}
+
+impl fmt::Display for NetworkSegmentType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tenant => write!(f, "tenant"),
+            Self::Admin => write!(f, "admin"),
+            Self::Underlay => write!(f, "tor"),
+        }
     }
 }
 
