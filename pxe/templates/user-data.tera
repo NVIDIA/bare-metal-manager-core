@@ -31,6 +31,22 @@ users:
     passwd: $6$QnKhCwOoDCL7WBiY$KgzONMVSjgq/137.pYEwHYQwLLR1CMuqhn2jMOxqhXEni8nQsynh.s6qhdqOWoB5CLhOnM2fjtKuAwf6rm5.6.
     groups: [adm, dialout, cdrom, floppy, sudo, audio, dip, video, plugdev, netdev, lxd]
 write_files:
+  - path: /opt/forge/run-scout.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      count=0
+      until /usr/bin/nslookup {{ api_url }} &> /dev/null
+      do
+      echo "api not available yet ($count)";
+      if [ $count -ge 60 ]; then exit 1; fi
+      sleep 10
+      ((count++))
+      resolvectl flush-caches
+      systemd-resolve --flush-caches
+      done
+      echo "starting forge-scout"
+      /opt/forge/forge-scout --api={{ api_url }} auto-detect --uuid={{ interface_id }} > /var/log/forge/forge-scout.log 2>&1
   - path: /etc/rc.local
     permissions: '0755'
     content: |
@@ -216,7 +232,7 @@ runcmd:
   - [ cp, /opt/hbn_installer/configs/1.5.1/doca_telemetry.yaml, /etc/kubelet.d/ ]
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
   - [ /usr/bin/bfcfg ]
-  - [ bash, -c, 'ip vrf exec mgmt /opt/forge/forge-scout --api={{ api_url }} auto-detect --uuid={{ interface_id }} > /var/log/forge/forge-scout.log 2>&1']
+  - [ bash, -c, 'ip vrf exec mgmt /opt/forge/run-scout.sh']
 EOF
 
 }
