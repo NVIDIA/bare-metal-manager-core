@@ -45,6 +45,8 @@ variables:
   CONTAINER_BUILD_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v2023.08-rc1-40-gd6de29d5"
   CONTAINER_RUNTIME_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/runtime-container:v2023.08-rc1-40-gd6de29d5"
   CONTAINER_RUNTIME_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/runtime-container:v2023.08-rc1-40-gd6de29d5"
+  CONTAINER_BUILD_ARTIFACTS_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-artifacts-container:v2023.08-rc1-40-gd6de29d5"
+  CONTAINER_BUILD_ARTIFACTS_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-artifacts-container:v2023.08-rc1-40-gd6de29d5"
   CONTAINER_ARTIFACTS_X86_64: "alpine:latest"
   CONTAINER_ARTIFACTS_AARCH64: "alpine:latest"
 
@@ -160,6 +162,58 @@ build-build-container-aarch64:
       dotenv: build-container-aarch64.env
 
 #
+# Build the container that builds our software
+#
+build-artifacts-build-container-x86_64:
+  stage: prep
+  needs:
+    - job: prepare-ci
+      optional: false
+  extends: build-container
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.build-artifacts-container-x86_64
+    BUILD_DOCKER_IMAGE: urm.nvidia.com/swngc-ngcc-docker-local/forge/$CI_PROJECT_NAME/x86-64/build-artifacts-container
+  after_script:
+    - echo "CONTAINER_BUILD_ARTIFACTS_X86_64=$CONTAINER_REGISTRY_X86_64/build-artifacts-container:$VERSION" > build-artifacts-container-x86_64.env
+  rules:
+    - changes:
+        - dev/docker/Dockerfile.build-artifacts-container-x86_64
+  artifacts:
+    reports:
+      dotenv: build-artifacts-container-x86_64.env
+
+#
+# ARM version uses kaniko instead of extending build-container because devops-tools doesn't have an ARM version
+#
+build-artifacts-build-container-aarch64:
+  stage: prep
+  needs:
+    - job: prepare-ci
+      optional: false
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.build-artifacts-container-aarch64
+    BUILD_DOCKER_IMAGE: urm.nvidia.com/swngc-ngcc-docker-local/forge/$CI_PROJECT_NAME/arm64v8/build-artifacts-container
+  before_script: |
+    mkdir -p /kaniko/.docker
+    echo "$DOCKER_AUTH_CONFIG" > /kaniko/.docker/config.json
+  script: |
+    set -xeuo pipefail
+    /kaniko/executor --context $CI_PROJECT_DIR/dev/docker --dockerfile $DOCKER_FILE --destination $BUILD_DOCKER_IMAGE:$VERSION
+  tags:
+    - aarch64
+  rules:
+    - changes:
+        - dev/docker/Dockerfile.build-artifacts-container-aarch64
+  after_script:
+    - echo "CONTAINER_BUILD_ARTIFACTS_AARCH64=$CONTAINER_REGISTRY_AARCH64/build-artifacts-container:$VERSION" > build-artifacts-container-aarch64.env
+  artifacts:
+    reports:
+      dotenv: build-artifacts-container-aarch64.env
+
+#
 # Build the container that will host the finalized carbide code.
 #
 build-runtime-container-x86_64:
@@ -249,25 +303,23 @@ build-release-container-x86_64:
   variables:
     FORGE_CA: "prod"
   stage: build
-  after_script:
-    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
 
 build-boot-artifacts-x86_64:
   extends: .build-boot-artifacts
   needs:
     - job: prepare-ci
       optional: false
-    - job: build-build-container-x86_64
+    - job: build-artifacts-build-container-x86_64
       optional: true
-  tags:
-    - shell
   image:
-    name: $CONTAINER_BUILD_X86_64
+    name: $CONTAINER_BUILD_ARTIFACTS_X86_64
   script:
     - cargo make --cwd pxe build-boot-artifacts-x86_64-ci
   artifacts:
     paths:
-      - pxe/static/blobs/internal/x86_64/
+      - pxe/static/blobs/internal/x86_64/ipxe.efi
+      - target/debug/forge-admin-cli
+      - target/debug/forge-scout
     when: always
     expire_in: 1 day
 
@@ -276,17 +328,49 @@ build-boot-artifacts-aarch64:
   needs:
     - job: prepare-ci
       optional: false
-    - job: build-build-container-aarch64
+    - job: build-artifacts-build-container-aarch64
       optional: true
   tags:
     - aarch64 # not shell because no mkosi aarch64 image
   image:
-    name: $CONTAINER_BUILD_AARCH64
+    name: $CONTAINER_BUILD_ARTIFACTS_AARCH64
   script:
     - cargo make --cwd pxe build-boot-artifacts-aarch64-ci
   artifacts:
     paths:
-      - pxe/static/blobs/internal/aarch64/
+      - pxe/static/blobs/internal/aarch64/ipxe.efi
+      - pxe/static/blobs/internal/aarch64/carbide.efi
+      - pxe/static/blobs/internal/aarch64/carbide.root
+      - target/debug/forge-admin-cli
+      - target/debug/forge-scout
+    when: always
+    expire_in: 1 day
+
+# This just builds the mkosi container and uses artifacts from a previous build
+build-boot-artifacts-ephemeral-image-x86-64:
+  extends: .build-boot-artifacts
+  needs:
+    - job: prepare-ci
+      optional: false
+    - job: build-boot-artifacts-x86_64
+      optional: false
+  dependencies:
+    - build-boot-artifacts-x86_64
+  tags:
+    - shell # mkosi cannot run in docker :(
+  image:
+    name: $CONTAINER_BUILD_ARTIFACTS_AARCH64
+  script:
+    - cargo make --cwd pxe create-ephemeral-image-x86_64-ci
+  after_script:
+    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
+  artifacts:
+    paths:
+      - pxe/static/blobs/internal/x86_64/carbide.efi
+      - pxe/static/blobs/internal/x86_64/carbide.root
+      - pxe/static/blobs/internal/x86_64/qcow-imaging.efi
+      - pxe/static/blobs/internal/x86_64/qcow-imaging
+      - pxe/static/blobs/internal/x86_64/qcow-imaging.root
     when: always
     expire_in: 1 day
 
@@ -298,6 +382,12 @@ build-release-artifacts-x86_64:
       optional: false
     - job: build-boot-artifacts-x86_64
       optional: false
+    - job: build-boot-artifacts-ephemeral-image-x86-64
+      optional: false
+  dependencies:
+    - build-boot-artifacts-ephemeral-image-x86-64
+    - build-boot-artifacts-x86_64
+    - prepare-ci
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.release-artifacts-x86_64
   script:
@@ -337,6 +427,10 @@ build-release-artifacts-aarch64:
       optional: true
     - job: build-boot-artifacts-aarch64
       optional: false
+  dependencies:
+    - build-boot-artifacts-aarch64
+    - prepare-ci
+    - export-docker-json-config
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.release-artifacts-aarch64
   before_script: |

@@ -34,13 +34,10 @@ dependencies = [
         "ipxe-x86_64",
 ]
 
-
 [tasks.build-boot-artifacts-x86_64-ci]
 dependencies = [
         "mkdir-static-x86_64",
         { name = "build-cli-ci", path = "${REPO_ROOT}" },
-        "build",
-        "create-ephemeral-image-x86_64-ci",
         "ipxe-x86_64-ci",
 ]
 
@@ -218,7 +215,6 @@ dependencies = [
 	"ipxe-config",
 	"ipxe-install-pcbios-x86_64",
 	"ipxe-install-efi-x86_64",
-    "package-boot-artifacts-x86_64",
 ]
 
 [tasks.ipxe-config]
@@ -250,7 +246,6 @@ description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide stati
 dependencies = [
     "ipxe-config",
     "ipxe-install-efi-aarch64",
-    "package-boot-artifacts-aarch64",
 ]
 
 [tasks.ipxe-install-efi-aarch64]
@@ -448,17 +443,3 @@ category = "iPXE Kernel"
 description = "Pacakge aarch64 EFI ipxe kernel and rootdisk"
 command = "docker"
 args = ["-t", "boot-artifacts-${FORGE_CA}-aarch64:${CI_JOB_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
-
-[tasks.package-boot-artifacts-x86_64]
-category = "iPXE Kernel"
-description = "Package x86_64 EFI iPXE kernel and rootdisk"
-command = "tar"
-args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_JOB_ID}.tar.gz", "ipxe.kpxe", "ipxe.efi", "carbide.root", "carbide.efi"]
-cwd = "static/blobs/internal/x86_64"
-
-[tasks.package-boot-artifacts-aarch64]
-category = "iPXE Kernel"
-description = "Package aarch64 EFI iPXE kernel and rootdisk"
-command = "tar"
-args = [ "-czvf", "${CI_PROJECT_DIR}/forge-boot-artifacts-${CI_JOB_ID}.tar.gz", "ipxe.efi", "carbide.root", "carbide.efi",]
-cwd = "static/blobs/internal/aarch64"
