@@ -204,7 +204,6 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
 	"ipxe-config",
-	"ipxe-install-pcbios-x86_64",
 	"ipxe-install-efi-x86_64",
 ]
 
@@ -213,7 +212,6 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
 	"ipxe-config",
-	"ipxe-install-pcbios-x86_64",
 	"ipxe-install-efi-x86_64",
 ]
 
@@ -221,15 +219,6 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Copy the Carbide specific iPXE config headers to the input directory"
 script = "cp ipxe/local/*.h ipxe/upstream/src/config/local/"
-
-[tasks.ipxe-install-pcbios-x86_64]
-category = "iPXE Kernel"
-description = "Copy the x86_64 Legacy BIOS iPXE kernel to the boot controller static files directory"
-command = "mv"
-args = ["ipxe/upstream/src/bin-x86_64-pcbios/ipxe.kpxe", "static/blobs/internal/x86_64/ipxe.kpxe"]
-dependencies = [
-	"ipxe-build-pcbios-x86_64",
-]
 
 [tasks.ipxe-install-efi-x86_64]
 category = "iPXE Kernel"
@@ -256,13 +245,6 @@ args = ["ipxe/upstream/src/bin-arm64-efi/ipxe.efi", "static/blobs/internal/aarch
 dependencies = [
 	"ipxe-build-efi-aarch64",
 ]
-
-[tasks.ipxe-build-pcbios-x86_64]
-category = "iPXE Kernel"
-description = "Build the x86_64 Legacy BIOS iPXE kernel"
-command = "make"
-args = [ "bin-x86_64-pcbios/ipxe.kpxe", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
-cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-x86_64]
 category = "iPXE Kernel"
