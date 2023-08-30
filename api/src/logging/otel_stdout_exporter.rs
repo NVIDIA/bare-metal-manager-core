@@ -21,7 +21,7 @@ use opentelemetry::{
         self,
         export::trace::{ExportResult, SpanData, SpanExporter},
     },
-    ExportError,
+    ExportError, Key,
 };
 
 #[derive(Debug)]
@@ -71,46 +71,42 @@ where
                 continue;
             }
 
-            writeln!(
+            let mut kv = Vec::new();
+            for (k, v) in span.attributes.iter() {
+                if k.as_str() == "span_id" {
+                    continue;
+                }
+                kv.push((k.as_str().replace('.', "_"), v.as_str().to_string()));
+            }
+            for (k, v) in span.resource.iter() {
+                kv.push((k.as_str().replace('.', "_"), v.as_str().to_string()));
+            }
+            kv.sort();
+
+            write!(&mut self.writer, "level=SPAN ").unwrap();
+            let span_id = span.attributes.get(&Key::new("span_id"));
+            if let Some(span_id) = span_id {
+                write!(&mut self.writer, r#"span_id="{}" "#, span_id).unwrap();
+            }
+            write!(
                 &mut self.writer,
-                "Span: {} [ID: {}, Parent: {}, Status: {:?}]",
-                span.name,
-                span.span_context.span_id(),
-                span.parent_span_id,
-                span.status
+                r#"span_name={} status="{}" "#,
+                &span.name,
+                format!("{:?}", span.status).escape_debug()
             )
             .unwrap();
-            writeln!(&mut self.writer, "Attributes:").unwrap();
-            for (k, v) in span.attributes.iter() {
-                writeln!(&mut self.writer, "  {}={}", k.as_str(), v.as_str()).unwrap();
-            }
 
-            for (k, v) in span.resource.iter() {
-                writeln!(&mut self.writer, "  {}={}", k.as_str(), v.as_str()).unwrap();
-            }
-
-            if !span.events.is_empty() {
-                writeln!(&mut self.writer, "Events:\n").unwrap();
-                for ev in span.events.iter() {
-                    writeln!(
-                        &mut self.writer,
-                        "  {:?} {}",
-                        chrono::DateTime::<chrono::Utc>::from(ev.timestamp),
-                        ev.name
-                    )
-                    .unwrap();
-                    for kv in ev.attributes.iter() {
-                        writeln!(
-                            &mut self.writer,
-                            "    {}={}",
-                            kv.key.as_str(),
-                            kv.value.as_str()
-                        )
-                        .unwrap();
-                    }
+            for (k, v) in kv {
+                if v.as_bytes()
+                    .iter()
+                    .any(|c| *c <= b' ' || matches!(*c, b'=' | b'"'))
+                {
+                    write!(&mut self.writer, r#"{}="{}" "#, k, v.escape_debug()).unwrap();
+                } else {
+                    write!(&mut self.writer, "{}={} ", k, v.escape_debug()).unwrap();
                 }
             }
-            writeln!(&mut self.writer, "----").unwrap();
+            writeln!(&mut self.writer).unwrap();
         }
 
         Box::pin(std::future::ready(Ok(())))

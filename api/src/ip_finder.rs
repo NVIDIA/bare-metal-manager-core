@@ -120,9 +120,10 @@ where
                 1 => vec_out.remove(0),
                 _ => {
                     tracing::warn!(
-                "{} resource pools match IP {ip}. This seems like a mistake. Using only first.",
-                vec_out.len()
-            );
+                        ip,
+                        matched_pools = vec_out.len(),
+                        "Multiple resource pools match this IP. This seems like a mistake. Using only first.",
+                    );
                     vec_out.remove(0)
                 }
             };

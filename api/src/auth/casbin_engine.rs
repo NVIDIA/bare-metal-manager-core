@@ -12,9 +12,9 @@
 use std::error;
 use std::path::{Path, PathBuf};
 
-use crate::auth::{Authorization, AuthorizationError, PolicyEngine, Predicate, Principal};
-
 use casbin::{CoreApi, DefaultModel, Enforcer, FileAdapter};
+
+use crate::auth::{Authorization, AuthorizationError, PolicyEngine, Predicate, Principal};
 
 pub enum ModelType {
     // Basic ACL with three arguments (subject, action, object)
@@ -65,16 +65,16 @@ impl PolicyEngine for CasbinEngine {
                     Predicate::ForgeCall(method) => {
                         let forge_call = format!("forge/{method}");
                         enforcer.enforce((cas_subject, forge_call))
-                        }
+                    }
                 };
                 match enforce_result {
                     Ok(true) => true,
                     Ok(false) => {
-                        tracing::debug!("CasbinEngine: denied (principal={principal:?}, predicate={dbg_predicate:?})");
+                        tracing::debug!(?principal, ?dbg_predicate, "CasbinEngine: denied");
                         false
                     }
                     Err(e) => {
-                        tracing::error!("CasbinEngine: error from enforcer: {e}");
+                        tracing::error!(error = %e, "CasbinEngine: error from enforcer");
                         false
                     }
                 }
@@ -83,17 +83,10 @@ impl PolicyEngine for CasbinEngine {
                 principal: principal.clone(),
                 predicate,
             })
-            .ok_or_else(|| {
-                let reason = format!(
-                    "CasbinEngine: all auth principals denied by enforcer \
-                    (predicate={dbg_predicate:?}, principals={principals:?})"
-                );
-                AuthorizationError::Unauthorized(reason)
-                }
-            );
+            .ok_or(AuthorizationError::Unauthorized);
 
         if let Ok(authorization) = auth_result.as_ref() {
-            tracing::debug!("CasbinEngine: authorized with {authorization:?}");
+            tracing::debug!(?authorization, "CasbinEngine: authorized");
         }
 
         auth_result

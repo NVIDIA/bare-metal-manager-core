@@ -46,7 +46,6 @@ use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
-use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
@@ -979,8 +978,8 @@ where
 
         if instance.deleted.is_some() {
             tracing::info!(
-                "Instance {} is already marked for deletion.",
-                delete_instance.instance_id,
+                instance_id = %delete_instance.instance_id,
+                "Instance is already marked for deletion.",
             );
             return Ok(Response::new(rpc::InstanceReleaseResult {}));
         }
@@ -1194,7 +1193,7 @@ where
         log_machine_id(&dpu_machine_id);
 
         if let Some(ref network_config_error) = request.network_config_error {
-            info!("Host {dpu_machine_id} failed applying network config: {network_config_error}");
+            tracing::info!(machine_id = %dpu_machine_id, "Host  failed applying network config: {network_config_error}");
         }
 
         let hs = request
@@ -1202,10 +1201,11 @@ where
             .as_ref()
             .ok_or_else(|| CarbideError::MissingArgument("health_status"))?;
         if hs.is_healthy {
-            trace!("{dpu_machine_id}'s network is healthy");
+            tracing::trace!(machine_id = %dpu_machine_id, "Machine network is healthy");
         } else {
-            debug!(
-                "{dpu_machine_id} reports network failed checks {:?} because {}",
+            tracing::debug!(
+                machine_id = %dpu_machine_id,
+                "Network failed checks {:?} because {}",
                 hs.failed,
                 hs.message.as_deref().unwrap_or_default()
             );
@@ -1219,9 +1219,9 @@ where
             Some(ts) => {
                 // Use DPU clock
                 let system_time = std::time::SystemTime::try_from(ts).map_err(|err| {
-                    warn!(
-                        "record_dpu_network_status for {dpu_machine_id},
-                          invalid timestamp `observed_at`: {err}"
+                    tracing::warn!(
+                        machine_id = %dpu_machine_id,
+                        "record_dpu_network_status invalid timestamp `observed_at`: {err}"
                     );
                     CarbideError::InvalidArgument("observed_at".to_string())
                 })?;
@@ -1237,10 +1237,11 @@ where
             .map_err(CarbideError::from)?;
         Machine::update_network_status_observation(&mut txn, &dpu_machine_id, machine_obs).await?;
 
-        trace!(
-            "{dpu_machine_id} has applied network configs machine={:?} instance={:?}",
-            request.network_config_version,
-            request.instance_config_version
+        tracing::trace!(
+            machine_id = %dpu_machine_id,
+            machine_network_config = ?request.network_config_version,
+            instance_network_config = ?request.instance_config_version,
+            "Applied network configs",
         );
 
         // We already peristed the machine parts of applied_config in
@@ -1322,7 +1323,7 @@ where
                     .collect(),
             })
             .map_err(CarbideError::from)?;
-        tracing::info!("DnsResponse: {:?}", response);
+        tracing::info!(DnsResponse = ?response, "lookup_record dns responded");
 
         Ok(Response::new(response))
     }
@@ -1876,11 +1877,10 @@ where
                 let (proactive_machine, _) =
                     Machine::get_or_create(&mut txn, &predicted_machine_id, &machine_interface)
                         .await?;
-
                 tracing::info!(
-                    "Created host machine proactively (MI:{}, Machine:{})",
-                    mi_id,
-                    proactive_machine.id(),
+                    ?mi_id,
+                    machine_id = %proactive_machine.id(),
+                    "Created host machine proactively",
                 );
             }
         }
@@ -1930,7 +1930,7 @@ where
             .await?;
         machine.update_discovery_time(&mut txn).await?;
 
-        let dicovery_result = match req.discovery_error {
+        let discovery_result = match req.discovery_error {
             Some(discovery_error) => {
                 machine
                     .update_failure_details(
@@ -1954,9 +1954,8 @@ where
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit discovery_completed", e))?;
 
         tracing::info!(
-            "discovery_completed for machine {}: {}",
-            machine_id,
-            dicovery_result
+            %machine_id,
+            discovery_result, "discovery_completed",
         );
         Ok(Response::new(rpc::MachineDiscoveryCompletedResponse {}))
     }
@@ -1970,7 +1969,7 @@ where
         log_request_data(&request);
 
         let cleanup_info = request.into_inner();
-        tracing::info!("cleanup_machine_completed {:?}", cleanup_info);
+        tracing::info!(?cleanup_info, "cleanup_machine_completed");
 
         // Extract and check UUID
         let machine_id = match &cleanup_info.machine_id {
@@ -2498,7 +2497,11 @@ where
         // UpdateMachineCredentials only allows a single account currently so warn if it's
         // not the correct one.
         if username != DPU_ADMIN_USERNAME {
-            tracing::warn!("Expected '{DPU_ADMIN_USERNAME}' username in Vault, found '{username}'");
+            tracing::warn!(
+                expected = DPU_ADMIN_USERNAME,
+                found = username,
+                "Unexpected username in Vault"
+            );
         }
 
         Ok(Response::new(rpc::CredentialResponse {
@@ -2596,11 +2599,11 @@ where
 
             let pool = libredfish::RedfishClientPool::builder().build()?;
             let redfish = pool.create_client(endpoint)?;
-            tracing::info!("Switching boot order for {}", req.ip);
+            tracing::info!(ip = req.ip, "Switching boot order");
             redfish.boot_once(libredfish::Boot::Pxe)?;
-            tracing::info!("Force restarting {}", req.ip);
+            tracing::info!(ip = req.ip, "Force restarting");
             redfish.power(libredfish::SystemPowerControl::ForceRestart)?;
-            tracing::info!("Reboot request succeeded for {}", req.ip);
+            tracing::info!(ip = req.ip, "Reboot request succeeded");
             Ok(())
         })
         .await
@@ -2931,8 +2934,10 @@ where
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
                     tracing::info!(
-                        "forge agent control: DPU Machine '{}' in state '{state}'",
-                        machine.id()
+                        machine_id = %machine.id(),
+                        machine_type = "DPU",
+                        %state,
+                        "forge agent control",
                     );
                     Action::Noop
                 }
@@ -2949,17 +2954,19 @@ where
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
                     tracing::info!(
-                        "forge agent control: Host Machine '{}' in state '{state}'",
-                        machine.id()
+                        machine_id = %machine.id(),
+                        machine_type = "Host",
+                        %state,
+                        "forge agent control",
                     );
                     Action::Noop
                 }
             }
         };
         tracing::info!(
-            "forge agent control: machine {} action {:?}",
-            machine.id(),
-            action
+            machine_id = %machine.id(),
+            action = action.as_str_name(),
+            "forge agent control",
         );
         txn.commit()
             .await
@@ -2987,7 +2994,7 @@ where
         response.initial_lockdown_state = "".to_string();
         response.machine_unlocked = false;
 
-        info!("admin_force_delete_machine query='{query}'");
+        tracing::info!("admin_force_delete_machine query='{query}'");
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin investigate admin_force_delete_machine", e)
@@ -3097,9 +3104,9 @@ where
         if let Some(machine) = &host_machine {
             if let Some(ip) = machine.bmc_info().ip.as_deref() {
                 tracing::info!(
-                    "BMC ip {} for machine {} was found. Trying to perform Bios unlock",
                     ip,
-                    machine.id().to_string()
+                    machine_id = %machine.id(),
+                    "BMC ip for machine was found. Trying to perform Bios unlock",
                 );
 
                 match self
@@ -3117,37 +3124,22 @@ where
                         let machine_id = machine.id().clone();
                         match tokio::task::spawn_blocking(move || match client.lockdown_status() {
                             Ok(status) if status.is_fully_disabled() => {
-                                tracing::info!(
-                                    "Bios for Machine {} is not locked down",
-                                    machine_id
-                                );
+                                tracing::info!(%machine_id, "Bios is not locked down");
                                 (status.to_string(), false)
                             }
                             Ok(status) => {
-                                tracing::info!(
-                                    "Bios for Machine {} is in status {:?}. Unlocking",
-                                    machine_id,
-                                    status
-                                );
+                                tracing::info!(%machine_id, ?status, "Unlocking BIOS");
                                 if let Err(e) =
                                     client.lockdown(libredfish::EnabledDisabled::Disabled)
                                 {
-                                    tracing::warn!(
-                                        "Failed to unlock Machine {}: {}",
-                                        machine_id,
-                                        e
-                                    );
+                                    tracing::warn!(%machine_id, error = %e, "Failed to unlock");
                                     (status.to_string(), false)
                                 } else {
                                     (status.to_string(), true)
                                 }
                             }
                             Err(e) => {
-                                tracing::warn!(
-                                    "Failed to fetch lockdown status for Machine {}: {}",
-                                    machine_id,
-                                    e
-                                );
+                                tracing::warn!(%machine_id, error = %e, "Failed to fetch lockdown status");
                                 ("".to_string(), false)
                             }
                         })
@@ -3158,12 +3150,16 @@ where
                                 response.machine_unlocked = unlocked;
                             }
                             Err(e) => {
-                                tracing::error!("Failed to join tokio task: {}", e);
+                                tracing::error!(error = %e, "Failed to join tokio task");
                             }
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to create Redfish client for machine {} due to {}. Skipping bios unlock", machine.id().to_string(), e);
+                        tracing::warn!(
+                            machine_id = %machine.id(),
+                            error = %e,
+                            "Failed to create Redfish client. Skipping bios unlock",
+                        );
                     }
                 }
             }
@@ -3318,6 +3314,8 @@ where
             updated_count += 1;
         }
         tracing::info!(
+            updated_count,
+            total_vpc_count,
             "migrate_vpc_vni: Assigned a VNI to {updated_count} of {total_vpc_count} VPCs"
         );
 
@@ -3424,7 +3422,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
         match rustls_pemfile::certs(&mut buf) {
             Ok(certs) => certs.into_iter().map(Certificate).collect(),
             Err(error) => {
-                tracing::error!("Rustls error reading certs: {:?}", error);
+                tracing::error!(?error, "Rustls error reading certs");
                 return None;
             }
         }
@@ -3440,7 +3438,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
         match rustls_pemfile::ec_private_keys(&mut buf) {
             Ok(keys) => keys.into_iter().map(PrivateKey).next(),
             error => {
-                tracing::error!("Rustls error reading key: {:?}", error);
+                tracing::error!(?error, "Rustls error reading key");
                 None
             }
         }
@@ -3461,14 +3459,14 @@ fn get_tls_acceptor<S: AsRef<str>>(
             let certs_to_add = match rustls_pemfile::certs(&mut cert_cursor) {
                 Ok(certs) => certs,
                 Err(error) => {
-                    tracing::error!("error parsing root ca cert file: {:?}", error);
+                    tracing::error!(?error, "error parsing root ca cert file");
                     return None;
                 }
             };
             let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add.as_slice());
         }
         Err(error) => {
-            tracing::error!("error reading root ca cert file: {:?}", error);
+            tracing::error!(?error, "error reading root ca cert file");
             return None;
         }
     }
@@ -3478,7 +3476,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
         let certs_to_add = match rustls_pemfile::certs(&mut cert_cursor) {
             Ok(certs) => certs,
             Err(error) => {
-                tracing::error!("error parsing admin ca cert file: {:?}", error);
+                tracing::error!(?error, "error parsing admin ca cert file");
                 return None;
             }
         };
@@ -3495,7 +3493,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
             Some(TlsAcceptor::from(Arc::new(tls)))
         }
         Err(error) => {
-            tracing::error!("Rustls error building server config: {:?}", error);
+            tracing::error!(?error, "Rustls error building server config");
             None
         }
     }
@@ -3574,25 +3572,19 @@ where
         .add_service(api_reflection_service)
         .into_service();
 
-    tracing::info!(
-        "Started carbide-api HTTP listener on {}, {}",
-        listen_port,
-        forge_version::version!()
-    );
-
     let mut tls_acceptor_created = Instant::now();
     loop {
         let (conn, addr) = match listener.accept().await {
             Ok(incoming) => incoming,
             Err(e) => {
-                tracing::error!("Error accepting connection: {}", e);
+                tracing::error!(error = %e, "Error accepting connection");
                 continue;
             }
         };
 
         // hard refresh our certs every five minutes -- they may have been rewritten on disk by cert-manager and we want to honor the new cert.
         if tls_acceptor_created.elapsed() > tokio::time::Duration::from_secs(5 * 60) {
-            tracing::info!("Refreshing certs.");
+            tracing::info!("Refreshing certs");
             tls_acceptor_created = Instant::now();
 
             let identity_pemfile_path_clone = identity_pemfile_path.clone();
@@ -3635,19 +3627,15 @@ where
                             .layer(conn_attrs_extension_layer)
                             .service(svc);
                         if let Err(error) = http.serve_connection(conn, svc).await {
-                            tracing::debug!("error servicing http connection: {:?}", error);
+                            tracing::debug!(?error, "error servicing http connection");
                         }
                     }
                     Err(error) => {
-                        tracing::error!(
-                            "error accepting tls connection: {:?}, from address: {:?}",
-                            error,
-                            addr
-                        );
+                        tracing::error!(%error, address = %addr, "error accepting tls connection");
                     }
                 }
             } else if let Err(error) = http.serve_connection(conn, svc).await {
-                tracing::debug!("error servicing http connection: {:?}", error);
+                tracing::debug!(%error, "error servicing http connection");
             }
         });
     }
@@ -3736,7 +3724,7 @@ where
         if let Some(ref tls_config) = carbide_config.tls {
             let tls_disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok(); // the integration test doesn't like this
             if !tls_disabled {
-                info!("using TLS for postgres connection.");
+                tracing::info!("using TLS for postgres connection.");
                 database_connect_options = database_connect_options
                     .ssl_mode(PgSslMode::Require) //TODO: move this to VerifyFull once it actually works
                     .ssl_root_cert(&tls_config.root_cafile_path);
@@ -3920,13 +3908,13 @@ where
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin load_machine", e))?;
         let machine = match Machine::find_one(&mut txn, machine_id, search_config).await {
             Err(err) => {
-                tracing::warn!("loading machine for {machine_id}: {err}.");
+                tracing::warn!(%machine_id, error = %err, "failed loading machine");
                 return Err(CarbideError::InvalidArgument(
                     "err loading machine".to_string(),
                 ));
             }
             Ok(None) => {
-                info!("no machine for {machine_id}");
+                tracing::info!(%machine_id, "machine not found");
                 return Err(CarbideError::NotFoundError {
                     kind: "machine",
                     id: machine_id.to_string(),

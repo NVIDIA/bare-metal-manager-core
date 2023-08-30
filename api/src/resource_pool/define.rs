@@ -17,7 +17,6 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
-use tracing::info;
 
 /// A pool bigger than this is very likely a mistake
 const MAX_POOL_SIZE: usize = 250_000;
@@ -45,7 +44,7 @@ pub async fn define_all_from(
 ) -> Result<(), DefineResourcePoolError> {
     for (ref name, def) in pools {
         define(txn, name, def).await?;
-        info!("Pool {name} populated.");
+        tracing::info!(pool_name = name, "Pool populated");
     }
     Ok(())
 }
@@ -127,7 +126,11 @@ async fn define_by_prefix(
         crate::resource_pool::ValueType::Ipv4,
     );
     pool.populate(txn, values).await?;
-    tracing::debug!("Populated IP resource pool {name} with {num_values} values from prefix");
+    tracing::debug!(
+        pool_name = name,
+        num_values,
+        "Populated IP resource pool {name} with {num_values} values from prefix"
+    );
 
     Ok(())
 }

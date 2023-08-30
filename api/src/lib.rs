@@ -309,10 +309,13 @@ pub async fn run(
     let ipmi_tool = setup::create_ipmi_tool(forge_vault_client.clone(), &carbide_config);
 
     tracing::info!(
-        "Start carbide-api on {}, {}",
-        carbide_config.listen,
-        forge_version::version!()
+        address = carbide_config.listen.to_string(),
+        build_version = forge_version::v!(build_version),
+        build_date = forge_version::v!(build_date),
+        rust_version = forge_version::v!(rust_version),
+        "Start carbide-api",
     );
+
     api::Api::start(
         carbide_config,
         forge_vault_client.clone(),

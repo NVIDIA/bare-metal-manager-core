@@ -92,12 +92,13 @@ impl StateHandler for MachineStateHandler {
         if !matches!(managed_state, ManagedHostState::Failed { .. }) {
             if let Some((machine_id, details)) = get_failed_state(state) {
                 tracing::error!(
-                        "ManagedHost {}/{} (failed machine: {}) is moved to Failed state with cause: {:?}",
-                        state.host_snapshot.machine_id,
-                        state.dpu_snapshot.machine_id,
-                        machine_id,
-                        details
-                    );
+                    %machine_id,
+                    "ManagedHost {}/{} (failed machine: {}) is moved to Failed state with cause: {:?}",
+                    state.host_snapshot.machine_id,
+                    state.dpu_snapshot.machine_id,
+                    machine_id,
+                    details
+                );
                 *controller_state.modify() = ManagedHostState::Failed {
                     details,
                     machine_id,
@@ -189,18 +190,21 @@ impl StateHandler for MachineStateHandler {
                         };
                     }
                     CleanupState::DisableBIOSBMCLockdown => {
-                        tracing::error!("DisableBIOSBMCLockdown state is not implemented. Machine {} stuck in unimplemented state.", host_machine_id);
+                        tracing::error!(
+                            machine_id = %host_machine_id,
+                            "DisableBIOSBMCLockdown state is not implemented. Machine stuck in unimplemented state.",
+                        );
                     }
                 }
             }
             ManagedHostState::Created => {
-                tracing::error!("Machine just created. Er should not be here.");
+                tracing::error!("Machine just created. We should not be here.");
             }
             ManagedHostState::ForceDeletion => {
                 // Just ignore.
                 tracing::info!(
-                    "Machine {} is marked for forced deletion. Ignoring.",
-                    host_machine_id
+                    machine_id = %host_machine_id,
+                    "Machine is marked for forced deletion. Ignoring.",
                 );
             }
             ManagedHostState::Failed {
@@ -210,6 +214,7 @@ impl StateHandler for MachineStateHandler {
                 // Do nothing.
                 // Handle error cause and decide how to recover if possible.
                 tracing::error!(
+                    %machine_id,
                     "ManagedHost {} is in Failed state with machine/cause {}/{}. Failed at: {}, Ignoring.",
                     host_machine_id,
                     machine_id,
@@ -297,11 +302,7 @@ impl StateHandler for DpuMachineStateHandler {
                 };
             }
             state => {
-                tracing::warn!(
-                    "Unhandled State {:?} for DPU machine {}",
-                    state,
-                    host_machine_id
-                );
+                tracing::warn!(machine_id = %host_machine_id, ?state, "Unhandled State for DPU machine");
             }
         }
 
@@ -395,8 +396,8 @@ impl StateHandler for HostMachineStateHandler {
                 }
                 MachineState::WaitingForNetworkConfig => {
                     tracing::warn!(
-                        "Invalid State WaitingForNetworkConfig for Host Machine {}",
-                        host_machine_id
+                        machine_id = %host_machine_id,
+                        "Invalid State WaitingForNetworkConfig for Host Machine",
                     );
                 }
                 MachineState::WaitingForDiscovery => {
