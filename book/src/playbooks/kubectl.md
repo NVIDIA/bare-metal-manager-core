@@ -16,6 +16,18 @@ kubectl logs -n forge-system deploy/carbide-api --all-containers -f
 kubectl logs -n forge-system deploy/carbide-api --all-containers -f | tee -a /tmp/myuserlogs.txt
 ```
 
+### Tail OpenTelemetry collector logs
+
+```
+kubectl logs -n otel -l app.kubernetes.io/instance=opentelemetry-collector --all-containers -f
+```
+
+### Tail Loki logs
+
+```
+kubectl logs -n loki -l app.kubernetes.io/instance=loki --all-containers -f
+```
+
 ## carbide-api shell access
 
 ```
