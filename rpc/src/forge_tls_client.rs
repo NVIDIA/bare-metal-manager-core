@@ -145,12 +145,23 @@ impl ForgeTlsClient {
                         };
                         let mut buf = std::io::BufReader::new(&fd);
 
-                        match rustls_pemfile::ec_private_keys(&mut buf) {
-                            Ok(keys) => keys.into_iter().map(PrivateKey).next(),
-                            Err(_error) => {
-                                // tracing::error!("Rustls error reading key: {:?}", error);
-                                None
-                            }
+                        use rustls_pemfile::Item;
+                        match rustls_pemfile::read_one(&mut buf) {
+                            Ok(Some(item)) => match item {
+                                Item::RSAKey(rsa_key) => Some(PrivateKey(rsa_key)),
+                                Item::PKCS8Key(pkcs8_key) => Some(PrivateKey(pkcs8_key)),
+                                Item::ECKey(ec_key) => Some(PrivateKey(ec_key)),
+                                Item::X509Certificate(_) => {
+                                    // expected a private key, found a certificate.
+                                    None
+                                }
+                                Item::Crl(_) => {
+                                    // expected a private key, found a certificate revocation list.
+                                    None
+                                }
+                                _ => None,
+                            },
+                            _ => None,
                         }
                     };
 
