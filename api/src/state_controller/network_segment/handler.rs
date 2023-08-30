@@ -70,24 +70,23 @@ impl StateHandler for NetworkSegmentStateHandler {
         let read_state: &NetworkSegmentControllerState = &*controller_state;
         match read_state {
             NetworkSegmentControllerState::Provisioning => {
-                tracing::info!(
-                    "Network Segment {} is transitioning into state \"Ready\"",
-                    segment_id
-                );
-                *controller_state.modify() = NetworkSegmentControllerState::Ready;
+                let new_state = NetworkSegmentControllerState::Ready;
+                tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
+                *controller_state.modify() = new_state;
                 return Ok(());
             }
             NetworkSegmentControllerState::Ready => {
                 if state.is_marked_as_deleted() {
-                    tracing::info!("Network Segment {} is transitioning into state \"Deleting::DrainAllocatedIps\"", segment_id);
                     let delete_at = chrono::Utc::now()
                         .checked_add_signed(self.drain_period)
                         .unwrap_or_else(chrono::Utc::now);
-                    *controller_state.modify() = NetworkSegmentControllerState::Deleting {
+                    let new_state = NetworkSegmentControllerState::Deleting {
                         deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps {
                             delete_at,
                         },
                     };
+                    tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
+                    *controller_state.modify() = new_state;
                     return Ok(());
                 }
             }
@@ -105,24 +104,30 @@ impl StateHandler for NetworkSegmentStateHandler {
                             let delete_at = chrono::Utc::now()
                                 .checked_add_signed(self.drain_period)
                                 .unwrap_or_else(chrono::Utc::now);
+                            let total_allocated_ips =
+                                num_machine_interfaces + num_instance_addresses;
                             tracing::info!(
-                                "{} Allocated IPs on Segment {} detected. Waiting for deletion until {:?}",
-                                num_machine_interfaces + num_instance_addresses,
-                                state.id, delete_at
+                                ?delete_at,
+                                total_allocated_ips,
+                                segment = %state.id,
+                                "{total_allocated_ips} allocated IPs for segment. Waiting for deletion until {delete_at:?}",
                             );
-                            *controller_state.modify() = NetworkSegmentControllerState::Deleting {
+                            let new_state = NetworkSegmentControllerState::Deleting {
                                 deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps {
                                     delete_at,
                                 },
                             };
+                            tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
+                            *controller_state.modify() = new_state;
                             return Ok(());
                         }
 
                         if chrono::Utc::now() >= *delete_at {
-                            tracing::info!("Network Segment {} is transitioning into state \"Deleting::DBDelete\"", segment_id);
-                            *controller_state.modify() = NetworkSegmentControllerState::Deleting {
+                            let new_state = NetworkSegmentControllerState::Deleting {
                                 deletion_state: NetworkSegmentDeletionState::DBDelete,
                             };
+                            tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
+                            *controller_state.modify() = new_state;
                             return Ok(());
                         }
                     }
@@ -134,8 +139,8 @@ impl StateHandler for NetworkSegmentStateHandler {
                             self.pool_vlan_id.release(txn, vlan_id).await?;
                         }
                         tracing::info!(
-                            "Network Segment {} getting removed from the database",
-                            segment_id
+                            %segment_id,
+                            "Network Segment getting removed from the database",
                         );
                         NetworkSegment::final_delete(*segment_id, txn).await?;
                     }

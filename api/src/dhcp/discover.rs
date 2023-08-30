@@ -47,7 +47,11 @@ async fn validate_dhcp_request(
     let Some(remote_id) = remote_id else {
         //TODO: This has to be fixed in next release when all DPU are re-provisioned with latest
         //dpu-agent.
-        tracing::error!("Remote id missing for instance (host_machine: {host_machine_id}). DPU {} needs to be reprovisioned. In future release, this will break DHCP.", snapshot.dpu_snapshot.machine_id);
+        tracing::error!(
+            host_machine_id = %host_machine_id,
+            dpu_machine_id = %snapshot.dpu_snapshot.machine_id,
+            "Remote id missing for instance. DPU needs to be reprovisioned. In future release, this will break DHCP.",
+        );
         return Ok(());
     };
 
@@ -83,12 +87,12 @@ async fn handle_dhcp_for_instance(
             instance.clone(),
         )
         .await
-        .map_err(|x| {
+        .map_err(|error| {
             tracing::error!(
-                "DHCP request failed for {}, {:?} with {}.",
-                instance.id,
-                circuit_id,
-                x
+                %instance.id,
+                ?circuit_id,
+                %error,
+                "DHCP request failed",
             );
             CarbideError::from(DhcpError::InvalidInterface(
                 instance.id,
@@ -98,10 +102,10 @@ async fn handle_dhcp_for_instance(
         .try_into()?;
 
         tracing::info!(
-            "Returning DHCP response for instance {}, circuit_id: {}, record: {:?}",
-            instance.id,
-            circuit_id_parsed,
-            record
+            instance_id = %instance.id,
+            circuit_id = circuit_id_parsed,
+            ?record,
+            "Returning DHCP response for instance",
         );
         return Ok(Some(Response::new(record)));
     }
@@ -179,8 +183,8 @@ pub async fn discover_dhcp(
         .await;
         match res {
             Ok(()) => {} // do nothing on ok result
-            Err(e) => {
-                tracing::error!("Could not persist dhcp entry {}", e)
+            Err(error) => {
+                tracing::error!(%error, "Could not persist dhcp entry")
             } // This should not fail the discover call, dhcp happens many times
         }
     }

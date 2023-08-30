@@ -98,31 +98,43 @@ impl InstanceInfinibandStatus {
             return Self::unsynchronized_for_config(&config);
         }
 
-        let ib_interfaces = config.ib_interfaces.iter().map(|config| {
-            // TODO: This isn't super efficient. We could do it better if there would be a guarantee
-            // that interfaces in the observation are in the same order as in the config.
-            // But it isn't obvious at the moment whether we can achieve this while
-            // not mixing up order for users.
-            let observation = observations.ib_interfaces.iter().find(|iface| iface.guid == config.guid);
-            match observation {
-                Some(observation) => InstanceIbInterfaceStatus {
-                    guid: observation.guid.clone(),
-                    lid: observation.lid,
-                    addresses: observation.addresses.clone(),
-                },
-                None => {
-                    tracing::error!("Could not find matching status for interface {:?}. Configs: {:?}, Obsevations: {:?}", config.function_id, config, observation);
-                    // TODO: Might also be worthwhile to return an error?
-                    // On the other hand the error is also visible via returning no IPs - and at least we don't break
-                    // all other interfaces this way
-                    InstanceIbInterfaceStatus {
-                        guid: None,
-                        lid: 0,
-                        addresses: Vec::new(),
+        let ib_interfaces = config
+            .ib_interfaces
+            .iter()
+            .map(|config| {
+                // TODO: This isn't super efficient. We could do it better if there would be a guarantee
+                // that interfaces in the observation are in the same order as in the config.
+                // But it isn't obvious at the moment whether we can achieve this while
+                // not mixing up order for users.
+                let observation = observations
+                    .ib_interfaces
+                    .iter()
+                    .find(|iface| iface.guid == config.guid);
+                match observation {
+                    Some(observation) => InstanceIbInterfaceStatus {
+                        guid: observation.guid.clone(),
+                        lid: observation.lid,
+                        addresses: observation.addresses.clone(),
+                    },
+                    None => {
+                        tracing::error!(
+                            interface = ?config.function_id,
+                            ?config,
+                            ?observation,
+                            "Could not find matching status for interface",
+                        );
+                        // TODO: Might also be worthwhile to return an error?
+                        // On the other hand the error is also visible via returning no IPs - and at least we don't break
+                        // all other interfaces this way
+                        InstanceIbInterfaceStatus {
+                            guid: None,
+                            lid: 0,
+                            addresses: Vec::new(),
+                        }
                     }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         Self {
             ib_interfaces,

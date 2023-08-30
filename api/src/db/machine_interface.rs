@@ -229,7 +229,11 @@ impl MachineInterface {
         if let Some(addresses) = addresses_for_interfaces.remove(&machine_interface.id) {
             machine_interface.addresses = addresses;
         } else {
-            tracing::warn!("Interface {0} has no addresses", &machine_interface.id);
+            tracing::warn!(
+                machine_id = %dpu_machine_id,
+                interface_id = %machine_interface.id,
+                "Interface has no addresses",
+            );
         }
 
         Ok(Some(machine_interface))
@@ -276,9 +280,9 @@ impl MachineInterface {
         match machines {
             None => {
                 tracing::info!(
-                    "Found no existing machine with mac address {} using network with relay: {}",
-                    mac_address,
-                    relay
+                    %mac_address,
+                    %relay,
+                    "Found no existing machine with mac address {mac_address} using network with relay {relay}",
                 );
                 Ok(MachineInterface::validate_existing_mac_and_create(
                     &mut *txn,
@@ -294,10 +298,10 @@ impl MachineInterface {
                     1 => Ok(ifcs.remove(0)),
                     n => {
                         tracing::warn!(
-                            "{0} existing mac address ({1}) for network segment (relay ip: {2})",
-                            n,
-                            &mac_address,
-                            &relay
+                            %mac_address,
+                            relay_ip = %relay,
+                            num_mac_address = n,
+                            "Duplicate mac address for network segment",
                         );
                         Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
                     }
@@ -316,8 +320,8 @@ impl MachineInterface {
         match &existing_mac.len() {
             0 => {
                 tracing::debug!(
-                    "No existing machine_interface with mac address[{0}] exists yet, creating one.",
-                    mac_address
+                    %mac_address,
+                    "No existing machine_interface with mac address exists yet, creating one",
                 );
                 match NetworkSegment::for_relay(txn, relay).await? {
                     None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
@@ -338,7 +342,10 @@ impl MachineInterface {
                 }
             }
             1 => {
-                tracing::debug!("An existing mac address[{0}] exists yet, validating the relay and returning it.", mac_address);
+                tracing::debug!(
+                    %mac_address,
+                    "Mac address exists, validating the relay and returning it",
+                );
                 let mac = existing_mac.remove(0);
                 // Ensure the relay segment exists before blindly giving the mac address back out
                 match NetworkSegment::for_relay(txn, relay).await? {
@@ -348,9 +355,9 @@ impl MachineInterface {
             }
             _ => {
                 tracing::warn!(
-                    "More than existing mac address ({0}) for network segment (relay ip: {1})",
-                    &mac_address,
-                    &relay
+                    %mac_address,
+                    %relay,
+                    "More than one existing mac address for network segment",
                 );
                 Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
             }
@@ -527,7 +534,7 @@ impl MachineInterface {
             if let Some(addresses) = addresses_for_interfaces.remove(&interface.id) {
                 interface.addresses = addresses;
             } else {
-                tracing::warn!("Interface {0} has no addresses", &interface.id);
+                tracing::warn!(interface_id = %interface.id, "Interface has no addresses");
             }
         });
 

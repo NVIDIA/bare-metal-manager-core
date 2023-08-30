@@ -145,7 +145,11 @@ where
                             true
                         }
                         Err(e) => {
-                            tracing::info!("Denied a call to Forge method '{method_name}' because of authorizer result '{e}', principals list was {principals:?}");
+                            tracing::info!(
+                                method_name,
+                                ?principals,
+                                "Denied a call to Forge method because of authorizer result '{e}'"
+                            );
                             false
                         }
                     }
@@ -159,9 +163,7 @@ where
                 // RequestClass implementation.
                 Unrecognized => {
                     let request_path = request.uri().path();
-                    tracing::debug!(
-                        "No authorization policy matched this request ({request_path})."
-                    );
+                    tracing::debug!(request_path, "No authorization policy matched this request");
                     true
                 }
             };

@@ -13,11 +13,12 @@
 // HostMachine - represents a database-backed HostMachine object
 //
 
+use std::net::IpAddr;
+
 use futures::StreamExt;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
-use std::net::IpAddr;
 use uuid::Uuid;
 
 use crate::{
@@ -142,9 +143,7 @@ WHERE mi.machine_id=$1";
         })?;
 
         let version = machine.current_version().increment();
-
-        tracing::info!("Updating state of Host {} to {}", machine.id(), new_state);
-
+        tracing::info!(machine_id = %machine.id(), %new_state, "Updating host state");
         machine
             .advance(txn, new_state.clone(), Some(version))
             .await?;

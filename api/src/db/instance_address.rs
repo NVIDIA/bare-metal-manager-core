@@ -234,7 +234,10 @@ WHERE network_prefixes.segment_id = $1::uuid";
                 .collect_vec();
 
             if circuit_id.is_empty() {
-                tracing::error!("Circuit id is not yet updated for segment: {}", segment.id);
+                tracing::error!(
+                    segment_id = %segment.id,
+                    "Circuit id is not yet updated for segment",
+                );
                 return Err(CarbideError::FindOneReturnedNoResultsError(segment.id));
             } else if circuit_id.len() > 1 {
                 return Err(CarbideError::FindOneReturnedManyResultsError(segment.id));
