@@ -129,7 +129,7 @@ async fn define_by_prefix(
     tracing::debug!(
         pool_name = name,
         num_values,
-        "Populated IP resource pool {name} with {num_values} values from prefix"
+        "Populated IP resource pool from prefix"
     );
 
     Ok(())
@@ -156,7 +156,9 @@ async fn define_by_range(
             );
             pool.populate(txn, values).await?;
             tracing::debug!(
-                "Populated IP resource pool {name} with {num_values} values from range"
+                pool_name = name,
+                num_values,
+                "Populated IP resource pool from range"
             );
         }
         ResourcePoolType::Integer => {
@@ -171,7 +173,7 @@ async fn define_by_range(
                 crate::resource_pool::ValueType::Integer,
             );
             pool.populate(txn, values).await?;
-            tracing::debug!("Populated int resource pool {name} with {num_values} values");
+            tracing::debug!(pool_name = name, num_values, "Populated int resource pool");
         }
     }
     Ok(())

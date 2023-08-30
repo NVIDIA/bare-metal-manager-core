@@ -245,24 +245,28 @@ impl From<Machine> for rpc::Machine {
                 .into_iter()
                 .map(|interface| interface.into())
                 .collect(),
-            discovery_info: machine.hardware_info.and_then(|hw_info| {
-                match hw_info.try_into() {
+            discovery_info: machine
+                .hardware_info
+                .and_then(|hw_info| match hw_info.try_into() {
                     Ok(di) => Some(di),
                     Err(e) => {
                         tracing::warn!(
-                            "Hardware information for machine {} couldn't be parsed into discovery info: {}",
-                            &machine.id,
-                            e,
+                            machine_id = %machine.id,
+                            error = %e,
+                            "Hardware information couldn't be parsed into discovery info",
                         );
                         None
                     }
-                }
-            }),
+                }),
             bmc_info: Some(machine.bmc_info.into()),
             last_reboot_time: machine.last_reboot_time.map(|t| t.into()),
-            health: machine.network_status_observation.as_ref().map(|obs| obs.health_status.clone().into()),
-            last_observation_time: machine.network_status_observation.map(|obs|
-                obs.observed_at.into()),
+            health: machine
+                .network_status_observation
+                .as_ref()
+                .map(|obs| obs.health_status.clone().into()),
+            last_observation_time: machine
+                .network_status_observation
+                .map(|obs| obs.observed_at.into()),
             maintenance_reference: machine.maintenance_reference,
             maintenance_start_time: machine.maintenance_start_time.map(|t| t.into()),
         }
@@ -360,8 +364,9 @@ impl Machine {
                     Some(machine) => Ok((machine, false)),
                     None => {
                         tracing::warn!(
-                            "Interface ID {} refers to missing machine {machine_id}",
-                            interface.id()
+                            %machine_id,
+                            interface_id = %interface.id(),
+                            "Interface ID refers to missing machine",
                         );
                         Err(CarbideError::NotFoundError {
                             kind: "machine",
@@ -639,7 +644,10 @@ SELECT m.id FROM
             }
 
             if machine.hardware_info.is_none() {
-                tracing::warn!("Machine {0} has no associated discovery data", &machine.id);
+                tracing::warn!(
+                    machine_id = %machine.id,
+                    "Machine has no associated discovery data",
+                );
             }
         });
 

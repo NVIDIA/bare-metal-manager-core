@@ -79,7 +79,7 @@ impl InstanceStatus {
                 | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
             },
             _ => {
-                tracing::error!("Invalid state {} during state handling.", machine_state);
+                tracing::error!(%machine_state, "Invalid state during state handling");
                 return Err(RpcDataConversionError::InvalidMachineState(
                     machine_state.to_string(),
                 ));

@@ -102,31 +102,42 @@ impl InstanceNetworkStatus {
             return Self::unsynchronized_for_config(&config);
         }
 
-        let interfaces = config.interfaces.iter().map(|config| {
-            // TODO: This isn't super efficient. We could do it better if there would be a guarantee
-            // that interfaces in the observation are in the same order as in the config.
-            // But it isn't obvious at the moment whether we can achieve this while
-            // not mixing up order for users.
-            let observation = observations.interfaces.iter().find(|iface| iface.function_id == config.function_id);
-            match observation {
-                Some(observation) => InstanceInterfaceStatus {
-                    function_id: config.function_id.clone(),
-                    mac_address: observation.mac_address.map(Into::into),
-                    addresses: observation.addresses.clone(),
-                },
-                None => {
-                    tracing::error!("Could not find matching status for interface {:?}. Configs: {:?}, Obsevations: {:?}", config.function_id, config, observation);
-                    // TODO: Might also be worthwhile to return an error?
-                    // On the other hand the error is also visible via returning no IPs - and at least we don't break
-                    // all other interfaces this way
-                    InstanceInterfaceStatus {
+        let interfaces = config
+            .interfaces
+            .iter()
+            .map(|config| {
+                // TODO: This isn't super efficient. We could do it better if there would be a guarantee
+                // that interfaces in the observation are in the same order as in the config.
+                // But it isn't obvious at the moment whether we can achieve this while
+                // not mixing up order for users.
+                let observation = observations
+                    .interfaces
+                    .iter()
+                    .find(|iface| iface.function_id == config.function_id);
+                match observation {
+                    Some(observation) => InstanceInterfaceStatus {
                         function_id: config.function_id.clone(),
-                        mac_address: None,
-                        addresses: Vec::new(),
+                        mac_address: observation.mac_address.map(Into::into),
+                        addresses: observation.addresses.clone(),
+                    },
+                    None => {
+                        tracing::error!(
+                            function_id = ?config.function_id, ?config, ?observation,
+                            "Could not find matching status for interface",
+                        );
+
+                        // TODO: Might also be worthwhile to return an error?
+                        // On the other hand the error is also visible via returning no IPs - and at least we don't break
+                        // all other interfaces this way
+                        InstanceInterfaceStatus {
+                            function_id: config.function_id.clone(),
+                            mac_address: None,
+                            addresses: Vec::new(),
+                        }
                     }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         Self {
             interfaces,

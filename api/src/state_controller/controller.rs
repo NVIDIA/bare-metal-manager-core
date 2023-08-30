@@ -107,6 +107,7 @@ impl<IO: StateControllerIO> StateController<IO> {
     pub async fn run(mut self) {
         let max_jitter = (self.config.iteration_time.as_millis() / 3) as u64;
         let err_jitter = (self.config.iteration_time.as_millis() / 5) as u64;
+        let span_id = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
 
         loop {
             let mut metrics = IterationMetrics::default();
@@ -114,6 +115,7 @@ impl<IO: StateControllerIO> StateController<IO> {
             let controller_span = tracing::span!(
                 tracing::Level::INFO,
                 "state_controller_iteration",
+                span_id,
                 start_time = format!("{:?}", chrono::Utc::now()),
                 elapsed_us = tracing::field::Empty,
                 controller = IO::LOG_SPAN_CONTROLLER_NAME,
@@ -221,12 +223,15 @@ impl<IO: StateControllerIO> StateController<IO> {
 
         if !locked {
             tracing::info!(
-                "State controller was not able to obtain the lock {}",
-                IO::DB_LOCK_NAME
+                lock = IO::DB_LOCK_NAME,
+                "State controller was not able to obtain the lock",
             );
             return Err(IterationError::LockError);
         }
-        tracing::trace!("State controller acquired the lock {}", IO::DB_LOCK_NAME);
+        tracing::trace!(
+            lock = IO::DB_LOCK_NAME,
+            "State controller acquired the lock",
+        );
 
         handle_controller_iteration::<IO>(
             &self.io,
@@ -349,7 +354,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                 metrics.common.handler_latency = start.elapsed();
 
                 if let Err(e) = &result {
-                    tracing::warn!("State handler for {} returned error: {:?}", object_id, e);
+                    tracing::warn!(%object_id, error = ?e, "State handler error");
                 }
 
                 (metrics, result)

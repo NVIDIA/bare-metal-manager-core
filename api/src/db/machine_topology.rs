@@ -106,7 +106,10 @@ impl MachineTopology {
         hardware_info: &HardwareInfo,
     ) -> CarbideResult<Option<Self>> {
         if Self::is_discovered(&mut *txn, machine_id).await? {
-            tracing::info!("Discovery data for machine {} already exists", machine_id);
+            tracing::info!(
+                %machine_id,
+                "Discovery data already exists for this machine",
+            );
             return Ok(None);
         }
         let topology_data = TopologyData {
