@@ -3655,9 +3655,6 @@ where
 
 fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
     tracing::Span::current().record("request", format!("{:?}", request.get_ref()));
-    // TODO: pull out Arc<ConnectionAttributes> and AuthContext from request
-    // extensions and record them separately -- the Debug impl for Request skips
-    // all extensions.
 }
 
 /// Logs the Machine ID in the current tracing span

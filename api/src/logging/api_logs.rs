@@ -107,6 +107,20 @@ where
         let metrics = self.metrics.clone();
 
         Box::pin(async move {
+            // Try to extract connection information
+            let mut client_address = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+                std::net::Ipv4Addr::UNSPECIFIED,
+                0,
+            ));
+            let mut client_certs = 0;
+            if let Some(conn_attrs) = request
+                .extensions()
+                .get::<Arc<crate::api::ConnectionAttributes>>()
+            {
+                client_address = *conn_attrs.peer_address();
+                client_certs = conn_attrs.peer_certificates().len();
+            }
+
             // Start a span which tracks the API request
             // Some information about the request is only known when the request finishes
             // or the payload has been deserialized.
@@ -131,6 +145,9 @@ where
                 rpc.grpc.status_code = tracing::field::Empty,
                 rpc.grpc.status_description = tracing::field::Empty,
                 forge.machine_id = tracing::field::Empty,
+                client.address = client_address.ip().to_string(),
+                client.port = client_address.port() as u64,
+                client.num_certs = client_certs as u64,
                 sql_queries = 0,
                 sql_total_rows_affected = 0,
                 sql_total_rows_returned = 0,
