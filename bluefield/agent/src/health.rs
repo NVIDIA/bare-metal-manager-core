@@ -25,7 +25,8 @@ const EXPECTED_FILES: [&str; 4] = [
     HBN_DAEMONS_FILE,
 ];
 
-const EXPECTED_SERVICES: [&str; 4] = ["frr", "isc-dhcp-relay-default", "nl2doca", "rsyslog"];
+const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
+const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
 
 /// Check the health of HBN
 pub fn health_check() -> HealthReport {
@@ -44,6 +45,7 @@ pub fn health_check() -> HealthReport {
 
     // At this point HBN is up so we can configure it
 
+    check_dhcp_relay(&mut hr, &container_id);
     check_ifreload(&mut hr, &container_id);
     check_bgp_daemon_enabled(&mut hr);
     check_network_stats(&mut hr, &container_id);
@@ -89,6 +91,39 @@ fn check_hbn_services_running(
                     status.to_string(),
                 );
             }
+        }
+    }
+}
+
+// dhcp relay should be running
+// Very similar to check_hbn_services_running, except it happens _after_ we start configuring.
+// The other services must be up before we start configuring.
+fn check_dhcp_relay(hr: &mut HealthReport, container_id: &str) {
+    // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
+    // so final param is 'false' here.
+    // https://github.com/Supervisor/supervisor/issues/1223
+    let sctl = match run_in_container(container_id, &["supervisorctl", "status"], false) {
+        Ok(s) => s,
+        Err(err) => {
+            warn!("check_hbn_services_running supervisorctl status: {err}");
+            hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
+            return;
+        }
+    };
+    let st = match parse_status(&sctl) {
+        Ok(s) => s,
+        Err(err) => {
+            warn!("check_hbn_services_running supervisorctl status parse: {err}");
+            hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
+            return;
+        }
+    };
+
+    match st.status_of(DHCP_RELAY_SERVICE) {
+        SctlState::Running => hr.passed(HealthCheck::DhcpRelay),
+        status => {
+            warn!("check_dhcp_relay: {status}");
+            hr.failed(HealthCheck::DhcpRelay, status.to_string());
         }
     }
 }
@@ -316,6 +351,7 @@ pub enum HealthCheck {
     ContainerExists,
     SupervisorctlStatus,
     ServiceRunning(String),
+    DhcpRelay,
     BgpStats,
     Ifreload,
     FileExists(String),
@@ -353,6 +389,7 @@ impl fmt::Display for HealthCheck {
             Self::ContainerExists => write!(f, "ContainerExists"),
             Self::SupervisorctlStatus => write!(f, "SupervisorctlStatus"),
             Self::ServiceRunning(service_name) => write!(f, "ServiceRunning({})", service_name),
+            Self::DhcpRelay => write!(f, "DhcpRelay"),
             Self::BgpStats => write!(f, "BgpStats"),
             Self::Ifreload => write!(f, "Ifreload"),
             Self::FileExists(file_name) => write!(f, "FileExists({})", file_name),
