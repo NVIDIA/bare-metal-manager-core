@@ -10,6 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::sync::Arc;
+use std::{convert::Infallible, net::SocketAddr};
+
 use http::header::CONTENT_LENGTH;
 use hyper::{
     header::CONTENT_TYPE,
@@ -17,8 +20,6 @@ use hyper::{
     Body, Method, Request, Response, Server,
 };
 use prometheus::{Encoder, TextEncoder};
-use std::sync::Arc;
-use std::{convert::Infallible, net::SocketAddr};
 
 /// Request handler
 async fn handle_metrics_request(
@@ -85,7 +86,10 @@ pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), 
         }
     });
 
-    tracing::info!("Starting metrics listener on address {}", config.address);
+    tracing::info!(
+        address = config.address.to_string(),
+        "Starting metrics listener"
+    );
 
     // TODO: We need timeouts for this listener
     let server = Server::bind(&config.address).serve(connection_handler);

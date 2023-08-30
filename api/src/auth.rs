@@ -169,13 +169,13 @@ pub struct Authorization {
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum AuthorizationError {
-    #[error("Unauthorized: {0}")]
-    Unauthorized(String),
+    #[error("Unauthorized: CasbinEngine: all auth principals denied by enforcer")]
+    Unauthorized,
 }
 
 impl From<AuthorizationError> for tonic::Status {
     fn from(e: AuthorizationError) -> Self {
-        tracing::info!("Request was denied: {e}");
+        tracing::info!(error = %e, "Request denied");
         tonic::Status::permission_denied("Not authorized")
     }
 }
@@ -213,10 +213,7 @@ impl Authorizer {
         principals.push(Principal::Anonymous);
 
         let engine = self.policy_engine.clone();
-        tracing::debug!(
-            "Checking authorization with (predicate={predicate:?}, \
-            principals={principals:?})"
-        );
+        tracing::debug!(?principals, ?predicate, "Checking authorization");
         engine.authorize(&principals, predicate)
     }
 
@@ -271,11 +268,12 @@ impl PolicyEngine for PermissiveWrapper {
         let result = self.inner.authorize(principals, predicate.clone());
         result.or_else(|e| {
             tracing::warn!(
+                ?principals,
+                ?predicate,
+                error = %e,
                 "The policy engine denied this request, but \
-                --auth-permissive-mode overrides it. The policy engine error \
-                message follows:"
+                --auth-permissive-mode overrides it."
             );
-            tracing::warn!("{e}");
 
             // FIXME: Strictly speaking, it's not true that Anonymous is
             // authorized to do this. Maybe define a different principal

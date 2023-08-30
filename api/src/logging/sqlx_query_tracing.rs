@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use opentelemetry_api::metrics::{Counter, Histogram, Meter, Unit};
 use std::{cell::RefCell, marker::PhantomData};
+
+use opentelemetry_api::metrics::{Counter, Histogram, Meter, Unit};
 use tracing::{field, metadata::LevelFilter, span, Event, Id, Subscriber};
 use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
 
@@ -86,14 +87,13 @@ impl SqlxQueryDataAggregation {
         self.total_query_duration = self.total_query_duration.saturating_add(query_data.elapsed);
         if query_data.elapsed > self.max_query_duration {
             self.max_query_duration = query_data.elapsed;
-            self.max_query_duration_summary = query_data.summary.clone();
+            self.max_query_duration_summary = query_data.db_statement.clone();
         }
     }
 }
 
 #[derive(Debug, Clone, Default)]
 struct SqlxQueryDataExtractor {
-    summary: String,
     db_statement: String,
     rows_affected: usize,
     rows_returned: usize,
@@ -108,10 +108,16 @@ impl field::Visit for SqlxQueryDataExtractor {
     fn record_i64(&mut self, _field: &field::Field, _value: i64) {}
 
     fn record_str(&mut self, field: &field::Field, value: &str) {
-        match field.name() {
-            "summary" => self.summary = value.to_string(),
-            "db.statement" => self.db_statement = value.to_string(),
-            _ => {}
+        if field.name() == "db.statement" {
+            self.db_statement = truncate(
+                value
+                    .trim()
+                    .lines()
+                    .map(|l| l.trim())
+                    .collect::<Vec<&str>>()
+                    .join(" "),
+                150,
+            )
         }
     }
 
@@ -317,9 +323,11 @@ impl DatabaseMetricEmitters {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::{Arc, Mutex};
+
     use tracing_subscriber::prelude::*;
+
+    use super::*;
 
     struct MutexWriter {
         writer: Mutex<Vec<u8>>,
@@ -350,6 +358,7 @@ mod tests {
     #[test]
     fn test_sqlx_subscriber() {
         use std::time::Duration;
+
         use tracing::metadata::Level;
 
         let writer = Arc::new(MutexWriter {
@@ -407,7 +416,19 @@ mod tests {
             assert!(log_lines[0].contains("sql_total_rows_returned=19"));
             assert!(log_lines[0].contains("sql_max_query_duration_us=411000000"));
             assert!(log_lines[0].contains("sql_total_query_duration_us=411311211"));
-            assert!(log_lines[0].contains("sql_max_query_duration_summary=\"Summary4\""));
+            // We use the first 150 chars of the statement as the summary for more detail
+            assert!(log_lines[0].contains("sql_max_query_duration_summary=\"Statement4\""));
         }
     }
+}
+
+fn truncate(mut s: String, max_chars: usize) -> String {
+    if s.len() <= max_chars {
+        // shortcut for ascii that's already short enough - 99%+ of calls
+        return s;
+    }
+    let (idx, _) = s.char_indices().nth(max_chars).unwrap();
+    s.truncate(idx);
+    s += "...";
+    s
 }

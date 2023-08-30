@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::sync::Arc;
+
 use opentelemetry::{
     metrics::MeterProvider,
     sdk::{self, metrics},
@@ -19,14 +21,13 @@ use opentelemetry_api::metrics::Meter;
 use opentelemetry_otlp::{SpanExporterBuilder, WithExportConfig};
 use opentelemetry_sdk::trace;
 use opentelemetry_semantic_conventions as semcov;
-use std::sync::Arc;
 use tracing_subscriber::{
     filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, util::SubscriberInitExt,
 };
 
 use crate::{
     cfg::CarbideConfig,
-    logging::{otel_stdout_exporter::OtelStdoutExporter, sqlx_query_tracing},
+    logging::{logfmt, otel_stdout_exporter::OtelStdoutExporter, sqlx_query_tracing},
 };
 
 pub async fn setup_telemetry(
@@ -122,11 +123,10 @@ pub async fn setup_telemetry(
         .with_threads(false)
         .with_tracer(tracer);
 
+    let logfmt_er = logfmt::LogFmtFormatter {};
     let stdout_formatter = fmt::Layer::default()
-        .compact()
-        .with_file(true)
-        .with_line_number(true)
-        .with_ansi(false);
+        .with_ansi(false)
+        .event_format(logfmt_er);
 
     if let Some(logging_subscriber) = logging_subscriber {
         logging_subscriber.try_init()?;

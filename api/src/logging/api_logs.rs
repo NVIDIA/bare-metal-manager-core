@@ -105,6 +105,7 @@ where
     fn call(&mut self, request: http::Request<RequestBody>) -> Self::Future {
         let mut service = self.service.clone();
         let metrics = self.metrics.clone();
+        let span_id = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
 
         Box::pin(async move {
             // Start a span which tracks the API request
@@ -119,6 +120,7 @@ where
             let request_span = tracing::span!(
                 tracing::Level::INFO,
                 "request",
+                span_id,
                 start_time = format!("{:?}", chrono::Utc::now()),
                 elapsed_us = tracing::field::Empty,
                 http.url = %request.uri(),
