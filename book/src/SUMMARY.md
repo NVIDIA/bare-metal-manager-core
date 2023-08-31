@@ -43,7 +43,7 @@
 
 - [Forge Site Controller control plane node SSH access](playbooks/control_plane_ssh_access.md)
 - [kubectl cheat sheet for Forge deployments](playbooks/kubectl.md)
-- [forge-admin-cli access on a Forge cluster](playbooks/forge_admin_cli.md)
+- [forge-admin-cli access](playbooks/forge_admin_cli.md)
 - [DPU SSH access](playbooks/dpu_ssh_access.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)

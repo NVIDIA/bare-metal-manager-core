@@ -6,7 +6,7 @@ carbide-api service for a site.
 ## Root certificate setup
 
 First, `forge-admin-cli` will need the root certificate that site certificates
-are signed with. Currently this can be found here: [https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs#certificate-authority].
+are signed with. Currently this can be found here: <https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs#certificate-authority>.
 Copy and paste this into a file on your host (we will assume this is `~/.config/forge/forge-root-ca.pem`
 in these instructions). This is a one-time step and shouldn't need to be
 revisited unless the root certificate changes.
@@ -24,13 +24,14 @@ VAULT_ROLE=/pki-k8s-usercert/issue/swngc-forge-admins
 CERT_DIR=${HOME}/.nvinit/certs
 
 nvinit x509-user \
+    -ttl 12h \
     -vault-role ${VAULT_ROLE} \
     -output-keyfile ${CERT_DIR}/nvinit-user
 ```
 
-These certs are probably only valid for a few hours, so you may need to re-
-run this multiple times per day. Again, feel free to customize the file paths
-to your liking, but we'll be assuming they look like the above for these
+These certs are probably only valid for a few hours, so you may need to
+re-run this multiple times per day. Again, feel free to customize the file
+paths to your liking, but we'll be assuming they look like the above for these
 instructions.
 
 ## carbide_api_cli.json config file
@@ -54,12 +55,12 @@ With all of that set up, you can now target an individual site with the `-c` opt
 forge-admin-cli -c https://api-demo1.frg.nvidia.com/ version
 ```
 
-The per-environment endpoints are listed here under the "Carbide" column: [https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs#environments]
+The per-environment endpoints are listed here under the "Carbide" column: <https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs#environments>
 
 # forge-admin-cli access on a Forge cluster
 
 The following steps can be used on a control-plane node of a Forge cluster
-to gain access to `forge-admin_cli`:
+to gain access to `forge-admin-cli`:
 
 1. Enter the api-server POD, which also contains copy of `forge-admin-cli`:
 ```
