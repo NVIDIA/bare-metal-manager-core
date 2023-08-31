@@ -3859,6 +3859,7 @@ where
 
         let _ibsubnet_controller_handle = StateController::<IBSubnetStateControllerIO>::builder()
             .database(database_connection.clone())
+            .meter("forge_ib_partitions", meter.clone())
             .redfish_client_pool(shared_redfish_pool.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
             .pool_pkey(common_pools.infiniband.pool_pkey.clone())
@@ -3877,6 +3878,7 @@ where
         let _bmc_machine_controller_handle =
             StateController::<BmcMachineStateControllerIO>::builder()
                 .database(database_connection.clone())
+                .meter("forge_bmc_machines", meter.clone())
                 .redfish_client_pool(shared_redfish_pool.clone())
                 .ib_fabric_manager(ib_fabric_manager.clone())
                 .reachability_params(ReachabilityParams {
