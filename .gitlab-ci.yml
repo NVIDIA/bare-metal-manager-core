@@ -313,11 +313,11 @@ tag-build-and-runtime-containers:
     fi
 
     if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT:-}" ]; then
-      crane copy "${CONTAINER_BUILD_ARTIFACTS_X86_64}" "${CONTAINER_REGISTRY_X86_64}/artifacts-container:latest"
+      crane copy "${CONTAINER_BUILD_ARTIFACTS_X86_64}" "${CONTAINER_REGISTRY_X86_64}/build-artifacts-container:latest"
     fi
 
     if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_AARCH64_WAS_BUILT:-}" ]; then
-      crane copy "${CONTAINER_BUILD_ARTIFACTS_AARCH64}" "${CONTAINER_REGISTRY_AARCH64}/artifacts-container:latest"
+      crane copy "${CONTAINER_BUILD_ARTIFACTS_AARCH64}" "${CONTAINER_REGISTRY_AARCH64}/build-artifacts-container:latest"
     fi
 
     if [ ! -z "${CONTAINER_RUNTIME_X86_64_WAS_BUILT:-}" ]; then
@@ -542,23 +542,16 @@ promote-images-to-production:
     - job: build-release-container-x86_64
       optional: false
   when: manual
-  allow_failure: true
+  before_script: |
+    mkdir -p /root/.docker
+    cp .docker/config.json /root/.docker/config.json
   script: |
     set -euo pipefail
-    docker pull $APPLICATION_DOCKER_IMAGE:$VERSION
-    docker pull $ARTIFACTS_DOCKER_IMAGE_AARCH64:$VERSION
-    docker pull $ARTIFACTS_DOCKER_IMAGE_X86_64:$VERSION
-
-    docker tag $APPLICATION_DOCKER_IMAGE:$VERSION $APPLICATION_DOCKER_IMAGE_PRODUCTION:$VERSION
-    docker tag $ARTIFACTS_DOCKER_IMAGE_AARCH64:$VERSION $ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION:$VERSION
-    docker tag $ARTIFACTS_DOCKER_IMAGE_X86_64:$VERSION $ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION:$VERSION
-
-    docker push $APPLICATION_DOCKER_IMAGE_PRODUCTION:$VERSION
-    docker push $ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION:$VERSION
-    docker push $ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION:$VERSION
+    crane copy $APPLICATION_DOCKER_IMAGE:$VERSION $APPLICATION_DOCKER_IMAGE_PRODUCTION:$VERSION
+    crane copy $ARTIFACTS_DOCKER_IMAGE_AARCH64:$VERSION $ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION:$VERSION
+    crane copy $ARTIFACTS_DOCKER_IMAGE_X86_64:$VERSION $ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION:$VERSION
   rules:
-    - if: $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
-    - if: $CI_PIPELINE_SOURCE != 'merge_request_event'
+    - if: $CI_PIPELINE_SOURCE != 'merge_request_event' || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
 
 license-checks:
   stage: security
