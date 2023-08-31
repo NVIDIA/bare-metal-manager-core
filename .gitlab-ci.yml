@@ -41,12 +41,12 @@ variables:
   #
   # If you don't do the second step, merging to production will use the prior container.  I don't know how to solve this, but it's the way it was before
   #
-  CONTAINER_BUILD_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:v2023.08-rc1-40-gd6de29d5"
-  CONTAINER_BUILD_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:v2023.08-rc1-40-gd6de29d5"
-  CONTAINER_RUNTIME_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/runtime-container:v2023.08-rc1-40-gd6de29d5"
-  CONTAINER_RUNTIME_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/runtime-container:v2023.08-rc1-40-gd6de29d5"
-  CONTAINER_BUILD_ARTIFACTS_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-artifacts-container:v2023.08-rc1-68-g0c5c286f"
-  CONTAINER_BUILD_ARTIFACTS_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-artifacts-container:v2023.08-rc1-68-g0c5c286f"
+  CONTAINER_BUILD_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest"
+  CONTAINER_BUILD_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest"
+  CONTAINER_RUNTIME_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/runtime-container:latest"
+  CONTAINER_RUNTIME_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/runtime-container:latest"
+  CONTAINER_BUILD_ARTIFACTS_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-artifacts-container:latest"
+  CONTAINER_BUILD_ARTIFACTS_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-artifacts-container:latest"
   CONTAINER_ARTIFACTS_X86_64: "alpine:latest"
   CONTAINER_ARTIFACTS_AARCH64: "alpine:latest"
 
@@ -123,7 +123,9 @@ build-build-container-x86_64:
     BUILD_DOCKER_IMAGE: urm.nvidia.com/swngc-ngcc-docker-local/forge/$CI_PROJECT_NAME/x86-64/build-container
   after_script:
     - echo "CONTAINER_BUILD_X86_64=$CONTAINER_REGISTRY_X86_64/build-container:$VERSION" > build-container-x86_64.env
+    - echo "CONTAINER_BUILD_X86_64_WAS_BUILT=true" >> build-container-x86_64.env
   rules:
+    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
     - changes:
         - dev/docker/Dockerfile.build-container-x86_64
   artifacts:
@@ -153,10 +155,12 @@ build-build-container-aarch64:
   tags:
     - aarch64
   rules:
+    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
     - changes:
         - dev/docker/Dockerfile.build-container-aarch64
   after_script:
     - echo "CONTAINER_BUILD_AARCH64=$CONTAINER_REGISTRY_AARCH64/build-container:$VERSION" > build-container-aarch64.env
+    - echo "CONTAINER_BUILD_AARCH64_WAS_BUILT=true" >> build-container-aarch64.env
   artifacts:
     reports:
       dotenv: build-container-aarch64.env
@@ -175,7 +179,9 @@ build-artifacts-build-container-x86_64:
     BUILD_DOCKER_IMAGE: urm.nvidia.com/swngc-ngcc-docker-local/forge/$CI_PROJECT_NAME/x86-64/build-artifacts-container
   after_script:
     - echo "CONTAINER_BUILD_ARTIFACTS_X86_64=$CONTAINER_REGISTRY_X86_64/build-artifacts-container:$VERSION" > build-artifacts-container-x86_64.env
+    - echo "CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT=true" >> build-artifacts-container-x86_64.env
   rules:
+    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
     - changes:
         - dev/docker/Dockerfile.build-artifacts-container-x86_64
   artifacts:
@@ -205,10 +211,12 @@ build-artifacts-build-container-aarch64:
   tags:
     - aarch64
   rules:
+    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
     - changes:
         - dev/docker/Dockerfile.build-artifacts-container-aarch64
   after_script:
     - echo "CONTAINER_BUILD_ARTIFACTS_AARCH64=$CONTAINER_REGISTRY_AARCH64/build-artifacts-container:$VERSION" > build-artifacts-container-aarch64.env
+    - echo "CONTAINER_BUILD_ARTIFACTS_AARCH64_WAS_BUILT=true" >> build-artifacts-container-aarch64.env
   artifacts:
     reports:
       dotenv: build-artifacts-container-aarch64.env
@@ -226,10 +234,12 @@ build-runtime-container-x86_64:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.runtime-container-x86_64
     BUILD_DOCKER_IMAGE: urm.nvidia.com/swngc-ngcc-docker-local/forge/$CI_PROJECT_NAME/x86-64/runtime-container
   rules:
+    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
     - changes:
         - dev/docker/Dockerfile.runtime-container-x86_64
   after_script:
     - echo "CONTAINER_RUNTIME_X86_64=$CONTAINER_REGISTRY_X86_64/runtime-container:$VERSION" > runtime-container-x86_64.env
+    - echo "CONTAINER_RUNTIME_X86_64_WAS_BUILT==true" >> runtime-container-x86_64.env
   artifacts:
     reports:
       dotenv: runtime-container-x86_64.env
@@ -250,13 +260,76 @@ build-runtime-container-aarch64:
   script: /bin/true
   rules:
     - when: never # TODO - we don't run carbide on ARM yet
+#    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
 #    - changes:
 #        - dev/docker/Dockerfile.runtime-container-aarch64
   after_script:
     - echo "CONTAINER_RUNTIME_AARCH64=$CONTAINER_REGISTRY_AARCH64/runtime-container:$VERSION" > runtime-container-aarch64.env
+    - echo "CONTAINER_RUNTIME_AARCH64_WAS_BUILT=true" >> runtime-container-aarch64.env
   artifacts:
     reports:
-      dotenv: runtime-container-x86.env
+      dotenv: runtime-container-aarch64.env
+
+#
+# When a new build/runtime/artifacts container is built, and we're on the
+# trunk/main branch, then make sure we tag it with 'latest' so that subsequent
+# jobs will use it.
+#
+tag-build-and-runtime-containers:
+  stage: publish
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  needs:
+    - job: prepare-ci
+      optional: false
+    - job: export-docker-json-config
+      optional: false
+    - job: build-build-container-x86_64
+      optional: true
+    - job: build-build-container-aarch64
+      optional: true
+    - job: build-runtime-container-x86_64
+      optional: true
+    - job: build-runtime-container-aarch64
+      optional: true
+    - job: build-artifacts-build-container-x86_64
+      optional: true
+    - job: build-artifacts-build-container-aarch64
+      optional: true
+  allow_failure: true
+  before_script: |
+    mkdir -p /root/.docker
+    cp .docker/config.json /root/.docker/config.json
+  script: |
+    set -xeuo pipefail
+
+    if [ ! -z "${CONTAINER_BUILD_X86_64_WAS_BUILT:-}" ]; then
+      crane copy "${CONTAINER_BUILD_X86_64}" "${CONTAINER_REGISTRY_X86_64}/build-container:latest"
+    fi
+
+    if [ ! -z "${CONTAINER_BUILD_AARCH64_WAS_BUILT:-}" ]; then
+      crane copy "${CONTAINER_BUILD_AARCH64}" "${CONTAINER_REGISTRY_AARCH64}/build-container:latest"
+    fi
+
+    if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT:-}" ]; then
+      crane copy "${CONTAINER_BUILD_ARTIFACTS_X86_64}" "${CONTAINER_REGISTRY_X86_64}/artifacts-container:latest"
+    fi
+
+    if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_AARCH64_WAS_BUILT:-}" ]; then
+      crane copy "${CONTAINER_BUILD_ARTIFACTS_AARCH64}" "${CONTAINER_REGISTRY_AARCH64}/artifacts-container:latest"
+    fi
+
+    if [ ! -z "${CONTAINER_RUNTIME_X86_64_WAS_BUILT:-}" ]; then
+      crane copy "${CONTAINER_RUNTIME_X86_64}" "${CONTAINER_REGISTRY_X86_64}/runtime-container:latest"
+    fi
+
+    if [ ! -z "${CONTAINER_RUNTIME_AARCH64_WAS_BUILT:-}" ]; then
+      crane copy  "${CONTAINER_RUNTIME_AARCH64}" "${CONTAINER_REGISTRY_AARCH64}/runtime-container:latest"
+    fi
+
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
 
 #
 # Build the final container that releases our code
