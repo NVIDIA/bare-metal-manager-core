@@ -12,6 +12,7 @@
 
 use std::{fmt, net::IpAddr};
 
+use ::rpc::protos::forge as rpc;
 use forge_secrets::{certificates::CertificateProvider, credentials::CredentialProvider};
 
 use crate::{
@@ -46,7 +47,10 @@ impl fmt::Display for Finder {
     }
 }
 
-pub async fn find<C1, C2>(api: &Api<C1, C2>, ip: &str) -> (Vec<String>, Vec<CarbideError>)
+pub async fn find<C1, C2>(
+    api: &Api<C1, C2>,
+    ip: &str,
+) -> (Vec<rpc::IpAddressMatch>, Vec<CarbideError>)
 where
     C1: CredentialProvider + 'static,
     C2: CertificateProvider + 'static,
@@ -82,11 +86,18 @@ async fn search<C1, C2>(
     finder: Finder,
     api: &Api<C1, C2>,
     ip: &str,
-) -> Result<Option<String>, CarbideError>
+) -> Result<Option<rpc::IpAddressMatch>, CarbideError>
 where
     C1: CredentialProvider + 'static,
     C2: CertificateProvider + 'static,
 {
+    let addr: IpAddr = ip.parse()?;
+    if addr.is_ipv6() {
+        return Err(CarbideError::InvalidArgument(
+            "Ipv6 not yet supported".to_string(),
+        ));
+    }
+
     let mut txn = api
         .database_connection
         .begin()
@@ -102,14 +113,22 @@ where
                     .dhcp_servers
                     .iter()
                     .find(|&dhcp| ip == *dhcp)
-                    .map(|ip| format!("{} is a static DHCP server", ip))
+                    .map(|ip| rpc::IpAddressMatch {
+                        ip_type: rpc::IpType::StaticDataDhcpServer as i32,
+                        owner_id: None,
+                        message: format!("{} is a static DHCP server", ip),
+                    })
             })
             .or_else(|| {
                 api.eth_data
                     .route_servers
                     .iter()
                     .find(|&route| ip == *route)
-                    .map(|ip| format!("{} is a static route server", ip))
+                    .map(|ip| rpc::IpAddressMatch {
+                        ip_type: rpc::IpType::StaticDataRouteServer as i32,
+                        owner_id: None,
+                        message: format!("{} is a static route server", ip),
+                    })
             }),
 
         // Look for IP address in resource pools
@@ -131,66 +150,82 @@ where
                 "{ip} is an {} in resource pool {}. ",
                 entry.pool_type, entry.pool_name,
             );
+            let mut maybe_owner = None;
             match entry.state.0 {
                 ResourcePoolEntryState::Free => msg += "It is not allocated.",
                 ResourcePoolEntryState::Allocated { owner, owner_type } => {
                     msg += &format!(
                         "Allocated to {owner_type} {owner} on {}",
                         entry.allocated.unwrap_or_default()
-                    )
+                    );
+                    maybe_owner = Some(owner);
                 }
             }
-            Some(msg)
+            Some(rpc::IpAddressMatch {
+                ip_type: rpc::IpType::ResourcePool as i32,
+                owner_id: maybe_owner,
+                message: msg,
+            })
         }
 
         // Look in instance_addresses
         InstanceAddresses => {
-            let addr = match ip.parse()? {
-                IpAddr::V4(ipv4) => ipv4,
-                IpAddr::V6(_) => {
-                    return Err(CarbideError::InvalidArgument(
-                        "Ipv6 not yet supported".to_string(),
-                    ));
-                }
-            };
-            let instance_address = InstanceAddress::find_by_address(&mut txn, &addr).await?;
+            let instance_address = InstanceAddress::find_by_address(&mut txn, addr).await?;
 
             instance_address.map(|e| {
-                format!(
+                let message = format!(
                     "{ip} belongs to instance {} on circuit {}",
                     e.instance_id, e.circuit_id
-                )
+                );
+                rpc::IpAddressMatch {
+                    ip_type: rpc::IpType::InstanceAddress as i32,
+                    owner_id: Some(e.instance_id.to_string()),
+                    message,
+                }
             })
         }
 
         // Look in machine_interface_addresses
         MachineAddresses => {
-            let out = MachineInterfaceAddress::find_by_address(&mut txn, ip).await?;
+            let out = MachineInterfaceAddress::find_by_address(&mut txn, addr).await?;
             out.map(|e| {
-                format!(
+                let message = format!(
                     "{ip} belongs to machine {} (interface {}) on network segment {} of type {}",
                     e.machine_id, e.interface_id, e.segment_name, e.segment_type,
-                )
+                );
+                rpc::IpAddressMatch {
+                    ip_type: rpc::IpType::MachineAddress as i32,
+                    owner_id: Some(e.machine_id.to_string()),
+                    message,
+                }
             })
         }
 
         // BMC IP of the host
         BmcIp => {
-            let out = MachineTopology::find_by_bmc_ip(&mut txn, ip).await?;
-            out.map(|machine_id| format!("{ip} is the BMC IP of {machine_id}"))
+            let out = MachineTopology::find_machine_id_by_bmc_ip(&mut txn, ip).await?;
+            out.map(|machine_id| rpc::IpAddressMatch {
+                ip_type: rpc::IpType::BmcIp as i32,
+                owner_id: Some(machine_id.to_string()),
+                message: format!("{ip} is the BMC IP of {machine_id}"),
+            })
         }
 
         // Loopback IP of a DPU
         LoopbackIp => {
             let out = Machine::find_by_loopback_ip(&mut txn, ip).await?;
-            out.map(|machine| format!("{ip} is the loopback for {}", machine.id()))
+            out.map(|machine| rpc::IpAddressMatch {
+                ip_type: rpc::IpType::LoopbackIp as i32,
+                owner_id: Some(machine.id().to_string()),
+                message: format!("{ip} is the loopback for {}", machine.id()),
+            })
         }
 
         // Network segment that contains this IP address
         NetworkSegment => {
             let out = NetworkPrefix::containing_prefix(&mut txn, &format!("{ip}/32")).await?;
             out.map(|prefix| {
-                format!(
+                let message = format!(
                     "{ip} is in prefix {} of segment {}, gateway {}, on circuit {}",
                     prefix.prefix,
                     prefix.segment_id,
@@ -199,7 +234,12 @@ where
                         .map(|g| g.to_string())
                         .unwrap_or("(no gateway)".to_string()),
                     prefix.circuit_id.unwrap_or("(no circuit)".to_string())
-                )
+                );
+                rpc::IpAddressMatch {
+                    ip_type: rpc::IpType::NetworkSegment as i32,
+                    owner_id: Some(prefix.segment_id.to_string()),
+                    message,
+                }
             })
         }
     };

@@ -177,7 +177,7 @@ impl MachineTopology {
         Ok(result)
     }
 
-    pub async fn find_by_bmc_ip(
+    pub async fn find_machine_id_by_bmc_ip(
         txn: &mut Transaction<'_, Postgres>,
         address: &str,
     ) -> Result<Option<MachineId>, DatabaseError> {

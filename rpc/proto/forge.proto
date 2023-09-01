@@ -1625,6 +1625,29 @@ message FindIpAddressRequest {
 }
 
 message FindIpAddressResponse {
-  repeated string matches = 1;
+  repeated IpAddressMatch matches = 1;
   repeated string errors = 2;
+}
+
+message IpAddressMatch {
+  IpType ip_type = 1;
+  optional string owner_id = 2; // resource pool name, instance id, machine id, etc
+  string message = 3; // Display to end user. Usually has more details than just type/owner_id.
+}
+
+// The things `forge-admin-cli ip find` searches.
+//
+// Why the IpType prefix on everything, you ask? Because:
+// > Note that enum values use C++ scoping rules, meaning that enum values are siblings of their
+// > type, not children of it.
+// Yeah I'm surprised too.
+enum IpType {
+  IpTypeStaticDataDhcpServer = 0;
+  IpTypeStaticDataRouteServer = 1;
+  IpTypeResourcePool = 2;
+  IpTypeInstanceAddress = 3;
+  IpTypeMachineAddress = 4;
+  IpTypeBmcIp = 5;
+  IpTypeLoopbackIp = 6;
+  IpTypeNetworkSegment = 7;
 }

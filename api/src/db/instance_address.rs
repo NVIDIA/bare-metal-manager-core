@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 
 use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
@@ -48,11 +48,11 @@ impl InstanceAddress {
 
     pub async fn find_by_address(
         txn: &mut Transaction<'_, Postgres>,
-        address: &Ipv4Addr,
+        address: IpAddr,
     ) -> Result<Option<Self>, DatabaseError> {
         let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
         sqlx::query_as(query)
-            .bind(address.to_string())
+            .bind(address)
             .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

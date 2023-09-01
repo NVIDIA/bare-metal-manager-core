@@ -9,7 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, net::IpAddr, str::FromStr};
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::str::FromStr;
 
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
@@ -85,7 +87,7 @@ impl MachineInterfaceAddress {
 
     pub async fn find_by_address(
         txn: &mut Transaction<'_, Postgres>,
-        address: &str,
+        address: IpAddr,
     ) -> Result<Option<MachineInterfaceSearchResult>, DatabaseError> {
         let query = "SELECT mi.id, mi.machine_id, ns.name, ns.network_segment_type
             FROM machine_interface_addresses mia

@@ -487,8 +487,8 @@ async fn main() -> color_eyre::Result<()> {
                 };
                 // maybe handle tonic::Status's `.code()` of tonic::Code::NotFound
                 let resp = rpc::find_ip_address(req, api_config).await?;
-                for msg in resp.matches {
-                    tracing::info!("{msg}");
+                for r in resp.matches {
+                    tracing::info!("{}", r.message);
                 }
                 if !resp.errors.is_empty() {
                     tracing::warn!("These matchers failed:");
