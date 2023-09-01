@@ -25,6 +25,7 @@ use uname::uname;
 
 mod dpu;
 mod gpu;
+pub mod ib;
 mod tpm;
 
 const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
@@ -32,8 +33,10 @@ const PCI_VENDOR_ID: &str = "ID_VENDOR_ID";
 const PCI_MODEL_ID: &str = "ID_MODEL_ID";
 const PCI_DEV_PATH: &str = "DEVPATH";
 const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
+const PCI_SLOT_NAME: &str = "PCI_SLOT_NAME";
 const GPU_PCI_CLASS: &str = "0x030200";
 const MEMORY_TYPE: &str = "MEMORY_DEVICE_0_MEMORY_TECHNOLOGY";
+const PCI_VENDOR_FROM_DB: &str = "ID_VENDOR_FROM_DATABASE";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CpuArchitecture {
@@ -68,6 +71,12 @@ pub enum HardwareEnumerationError {
     UnsupportedCpuArchitecture(String),
     #[error("Command error {0}")]
     CmdError(#[from] CmdError),
+}
+
+pub struct PciDevicePropertiesExt {
+    pub vendor_name: String,
+    pub sub_class: String,
+    pub pci_properties: rpc_discovery::PciDeviceProperties,
 }
 
 pub type HardwareEnumerationResult<T> = Result<T, HardwareEnumerationError>;
@@ -168,13 +177,33 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> Result<i32, HardwareEnu
     }
 }
 
-pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
-    let context = libudev::Context::new()?;
+fn get_pci_properties_ext(
+    device: &Device,
+) -> Result<PciDevicePropertiesExt, HardwareEnumerationError> {
+    let slot = match device.parent() {
+        Some(parent) => convert_property_to_string(PCI_SLOT_NAME, "", &parent)?.to_string(),
+        None => String::new(),
+    };
 
-    // uname to detect type
-    let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
-    let arch = info.machine.parse()?;
+    Ok(PciDevicePropertiesExt {
+        vendor_name: convert_property_to_string(PCI_VENDOR_FROM_DB, "NO_VENDOR_NAME", device)?
+            .to_string(),
+        sub_class: convert_property_to_string(PCI_SUBCLASS, "", device)?.to_string(),
+        pci_properties: rpc_discovery::PciDeviceProperties {
+            vendor: convert_property_to_string(PCI_VENDOR_ID, "", device)?.to_string(),
+            device: convert_property_to_string(PCI_MODEL_ID, "", device)?.to_string(),
+            path: convert_property_to_string(PCI_DEV_PATH, "", device)?.to_string(),
+            numa_node: get_numa_node_from_syspath(device.syspath())?,
+            description: Some(
+                convert_property_to_string(PCI_MODEL, "NO_PCI_MODEL", device)?.to_string(),
+            ),
+            slot: Some(slot.to_string()),
+        },
+    })
+}
 
+// discovery all the non-DPU IB devices
+pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::InfinibandInterface>> {
     let device_debug_log = |device: &Device| {
         tracing::debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
@@ -185,45 +214,54 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         }
     };
 
-    // IBs
+    let context = libudev::Context::new()?;
+    let mut ibs: Vec<rpc_discovery::InfinibandInterface> = Vec::new();
     let mut enumerator = libudev::Enumerator::new(&context)?;
     enumerator.match_subsystem("infiniband")?;
     let devices = enumerator.scan_devices()?;
-
-    // PCI_DEV_PATH - "/devices/pci0000:b0/0000:b0:02.0/0000:b1:00.1/infiniband/mlx5_5"
-    // PCI_MODEL_ID - "0x1017"
-    // PCI_MODEL - "MT27800 Family [ConnectX-5]"
-    // PCI_SUBCLASS - "Infiniband controller"
-    // PCI_VENDOR_ID - "0x15b3"
-    // "NAME" - "mlx5_5"
-    // "node_guid" - Some("1070:fd03:0017:660d")
-    // "sys_image_guid" - Some("1070:fd03:0017:660c")
-    let mut ibs: Vec<rpc_discovery::InfinibandInterface> = Vec::new();
-
     for device in devices {
         device_debug_log(&device);
 
-        if device
-            .property_value(PCI_SUBCLASS)
-            .filter(|v| v.eq_ignore_ascii_case("Infiniband controller"))
-            .is_none()
-        {
+        let properties_ext = match get_pci_properties_ext(&device) {
+            Ok(properties_ext) => properties_ext,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to enumerate properties of device {:?}: {}",
+                    device.devpath(),
+                    e
+                );
+                continue;
+            }
+        };
+
+        // filter out DPU
+        if ib::is_dpu(&properties_ext.pci_properties.device) {
             continue;
         }
 
-        ibs.push(rpc_discovery::InfinibandInterface {
-            guid: convert_sysattr_to_string("node_guid", &device)?
-                .to_string()
-                .replace(':', ""),
-            pci_properties: Some(rpc_discovery::PciDeviceProperties {
-                vendor: convert_property_to_string(PCI_VENDOR_ID, "", &device)?.to_string(),
-                device: convert_property_to_string(PCI_MODEL_ID, "", &device)?.to_string(),
-                path: convert_property_to_string(PCI_DEV_PATH, "", &device)?.to_string(),
-                numa_node: get_numa_node_from_syspath(device.syspath())?,
-                description: Some(convert_property_to_string(PCI_MODEL, "", &device)?.to_string()),
-            }),
-        });
+        // VPI, IB-only and eth-oly ConnectX devices are here.
+        // in case there are eth-only ConnectX devices, we need filter out eth-only.
+        if ib::mlnx_ib_capable(&properties_ext) {
+            ibs.push(rpc_discovery::InfinibandInterface {
+                guid: convert_sysattr_to_string("node_guid", &device)?
+                    .to_string()
+                    .replace(':', ""),
+                pci_properties: Some(properties_ext.pci_properties),
+            });
+        }
     }
+    Ok(ibs)
+}
+
+pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
+    let context = libudev::Context::new()?;
+
+    // uname to detect type
+    let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
+    let arch = info.machine.parse()?;
+
+    // IBs
+    let ibs = discovery_ibs()?;
 
     // Nics
     let mut enumerator = libudev::Enumerator::new(&context)?;
@@ -246,26 +284,33 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         //    tracing::trace!("attribute - {:?} - {:?}", a.name(), a.value());
         //}
 
-        if device
-            .property_value(PCI_SUBCLASS)
-            .filter(|v| v.eq_ignore_ascii_case("Ethernet controller"))
-            .is_some()
-        {
-            nics.push(rpc_discovery::NetworkInterface {
-                mac_address: convert_udev_to_mac(
-                    convert_property_to_string("ID_NET_NAME_MAC", &info.machine, &device)?
-                        .to_string(),
-                )?,
-                pci_properties: Some(rpc_discovery::PciDeviceProperties {
-                    vendor: convert_property_to_string(PCI_VENDOR_ID, "", &device)?.to_string(),
-                    device: convert_property_to_string(PCI_MODEL_ID, "", &device)?.to_string(),
-                    path: convert_property_to_string(PCI_DEV_PATH, "", &device)?.to_string(),
-                    numa_node: get_numa_node_from_syspath(device.syspath())?,
-                    description: Some(
-                        convert_property_to_string(PCI_MODEL, "", &device)?.to_string(),
-                    ),
-                }),
-            });
+        if let Ok(pci_subclass) = convert_property_to_string(PCI_SUBCLASS, "", &device) {
+            if pci_subclass.eq_ignore_ascii_case("Ethernet controller") {
+                let properties_ext = match get_pci_properties_ext(&device) {
+                    Ok(properties_ext) => properties_ext,
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to enumerate properties of device {:?}: {}",
+                            device.devpath(),
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                // discovery DPU and non ib capable device
+                if ib::is_dpu(&properties_ext.pci_properties.device)
+                    || !ib::mlnx_ib_capable(&properties_ext)
+                {
+                    nics.push(rpc_discovery::NetworkInterface {
+                        mac_address: convert_udev_to_mac(
+                            convert_property_to_string("ID_NET_NAME_MAC", &info.machine, &device)?
+                                .to_string(),
+                        )?,
+                        pci_properties: Some(properties_ext.pci_properties),
+                    });
+                }
+            }
         }
     }
 

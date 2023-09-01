@@ -160,6 +160,8 @@ pub struct PciDeviceProperties {
     pub numa_node: i32,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub slot: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -489,6 +491,7 @@ impl TryFrom<rpc::machine_discovery::PciDeviceProperties> for PciDevicePropertie
             path: props.path,
             numa_node: props.numa_node,
             description: props.description,
+            slot: props.slot,
         })
     }
 }
@@ -503,6 +506,7 @@ impl TryFrom<PciDeviceProperties> for rpc::machine_discovery::PciDevicePropertie
             path: props.path,
             numa_node: props.numa_node,
             description: props.description,
+            slot: props.slot,
         })
     }
 }
@@ -776,6 +780,7 @@ mod tests {
                 path: "".to_string(),
                 numa_node: 0,
                 description: None,
+                slot: None,
             }
         );
 
@@ -785,12 +790,13 @@ mod tests {
             path: "p1".to_string(),
             numa_node: 3,
             description: Some("desc1".to_string()),
+            slot: Some("0000:4b:00.0".to_string()),
         };
 
         let serialized = serde_json::to_string(&props1).unwrap();
         assert_eq!(
             serialized,
-            "{\"vendor\":\"v1\",\"device\":\"d1\",\"path\":\"p1\",\"numa_node\":3,\"description\":\"desc1\"}"
+            "{\"vendor\":\"v1\",\"device\":\"d1\",\"path\":\"p1\",\"numa_node\":3,\"description\":\"desc1\",\"slot\":\"0000:4b:00.0\"}"
         );
         assert_eq!(
             serde_json::from_str::<PciDeviceProperties>(&serialized).unwrap(),
