@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
 use itertools::Itertools;
@@ -177,13 +177,13 @@ impl MachineInterface {
 
     pub async fn find_by_ip(
         txn: &mut Transaction<'_, Postgres>,
-        ip: &Ipv4Addr,
+        ip: IpAddr,
     ) -> Result<Option<Self>, DatabaseError> {
         let query = r#"SELECT mi.* FROM machine_interfaces mi
             INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
             WHERE mia.address = $1::inet"#;
         let interface: Option<Self> = sqlx::query_as(query)
-            .bind(ip.to_string())
+            .bind(ip)
             .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

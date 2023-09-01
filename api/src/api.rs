@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -2146,7 +2146,7 @@ where
             },
             (None, Some(ip)) => match Ipv4Addr::from_str(ip.as_ref()) {
                 Ok(ip) => {
-                    match MachineInterface::find_by_ip(&mut txn, &ip)
+                    match MachineInterface::find_by_ip(&mut txn, IpAddr::V4(ip))
                         .await
                         .map_err(CarbideError::from)?
                     {
@@ -2793,23 +2793,21 @@ where
             CarbideError::DatabaseError(file!(), "begin get_cloud_init_instructions", e)
         })?;
 
-        let ip = match Ipv4Addr::from_str(request.into_inner().ip.as_ref()) {
-            Ok(ip) => ip,
-            Err(_) => {
-                return Err(CarbideError::GenericError(
-                    "Could not marshall an IP from the request".to_string(),
-                )
-                .into())
-            }
-        };
+        let ip_str = &request.into_inner().ip;
+        let ip: IpAddr = ip_str
+            .parse()
+            .map_err(|e| Status::invalid_argument(format!("Failed parsing IP '{ip_str}': {e}")))?;
+        if ip.is_ipv6() {
+            return Err(CarbideError::GenericError("IPv6 not supported".to_string()).into());
+        }
 
-        let instructions = match InstanceAddress::find_by_address(&mut txn, &ip)
+        let instructions = match InstanceAddress::find_by_address(&mut txn, ip)
             .await
             .map_err(CarbideError::from)?
         {
             None => {
                 // assume there is no instance associated with this IP and check if there is an interface associated with it
-                let machine_interface = MachineInterface::find_by_ip(&mut txn, &ip)
+                let machine_interface = MachineInterface::find_by_ip(&mut txn, ip)
                     .await
                     .map_err(CarbideError::from)?
                     .ok_or_else(|| {

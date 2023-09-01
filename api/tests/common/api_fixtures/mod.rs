@@ -62,6 +62,9 @@ pub mod network_segment;
 pub type TestApi = Api<TestCredentialProvider, TestCertificateProvider>;
 
 /// The datacenter-level DHCP relay that is assumed for all DPU discovery
+///
+/// For integration testing this must match a prefix defined in fixtures/create_network_segment.sql
+/// In production the relay IP is a MetalLB VIP so isn't in a network segment.
 pub const FIXTURE_DHCP_RELAY_ADDRESS: &str = "192.0.2.1";
 
 pub const FIXTURE_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
@@ -332,7 +335,7 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Ipv4,
             // Must match a network_prefix in fixtures/create_network_segment.sql
-            prefix: Some("192.0.2.0/24".to_string()),
+            prefix: Some("172.20.0.0/24".to_string()),
             ranges: vec![],
         },
     );
