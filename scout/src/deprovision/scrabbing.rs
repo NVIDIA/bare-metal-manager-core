@@ -25,6 +25,7 @@ use crate::client::create_forge_client;
 use crate::deprovision::cmdrun;
 use crate::CarbideClientResult;
 use crate::IN_QEMU_VM;
+use forge_host_support::hardware_enumeration::discovery_ibs;
 
 fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
     let name = match efivar::efi::VariableName::from_str(
@@ -353,12 +354,46 @@ fn cleanup_ram() -> Result<(), CarbideClientError> {
     Ok(())
 }
 
+// reuse hardware_enumeration::discovery_ibs to get all the non-DPU devices.
+// in forge case, all the non-DPU device should be VPI device or IB-only device
+// `reset` will set the link_type to IB for all the devices.
+fn reset_ib_devices() -> Result<(), CarbideClientError> {
+    match discovery_ibs() {
+        Ok(ibs) => {
+            for ib in ibs {
+                if let Some(p) = ib.pci_properties {
+                    let slot = p.slot.unwrap();
+                    match cmdrun::run_prog(format!("mstconfig -y -d {} reset", slot)) {
+                        Ok(_) => {
+                            tracing::info!("reset IB device {} successfully.", slot);
+                        }
+                        Err(e) => {
+                            tracing::error!("{}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("{}", e);
+            return Err(CarbideClientError::GenericError(format!(
+                "Failed to get ibs: {}",
+                e
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
     let mut cleanup_result = rpc::MachineCleanupInfo {
         machine_id: Some(machine_id.to_string().into()),
         nvme: None,
         ram: None,
         mem_overwrite: None,
+        ib: None,
         result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
     };
 
@@ -418,6 +453,23 @@ async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanup
         Err(e) => {
             tracing::error!("{}", e);
             cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+                message: e.to_string(),
+            });
+            cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+        }
+    }
+
+    match reset_ib_devices() {
+        Ok(_) => {
+            cleanup_result.ib = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+                message: "OK".to_string(),
+            });
+        }
+        Err(e) => {
+            tracing::error!("{}", e);
+            cleanup_result.ib = Some(rpc::machine_cleanup_info::CleanupStepResult {
                 result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                 message: e.to_string(),
             });

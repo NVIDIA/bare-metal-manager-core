@@ -95,6 +95,7 @@ message PciDeviceProperties{
   string path = 3;
   sint32 numa_node = 4;
   optional string description = 5;
+  optional string slot = 6;
 }
 
 message TorLldpData {

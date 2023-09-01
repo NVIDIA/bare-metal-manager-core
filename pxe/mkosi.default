@@ -41,5 +41,6 @@ Packages=
      tpm2-tools
      vim-nox
      wget
+     mstflint
 
 Password=password
