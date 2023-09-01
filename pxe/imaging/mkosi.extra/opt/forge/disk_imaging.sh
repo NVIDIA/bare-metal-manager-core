@@ -1,5 +1,6 @@
 #!/bin/bash
 file=
+root_partition=
 
 function curl_url() {
 	url=$1
@@ -95,14 +96,26 @@ function get_distro_image() {
 }
 
 function add_cloud_init() {
-	echo $cloud_init_url
-	# TODO: provide this to disk OS
+	echo "fetching from cloud-init url: $cloud_init_url"
+	if [ -b "$root_partition" ]; then
+		mount $root_partition /mnt
+		if [ -d /mnt/etc/cloud/cloud.cfg.d ]; then
+			curl -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/user-data.cfg
+		fi
+		umount /mnt
+	fi
 }
 
-#function expand_root_part_fs() {
-	# find the root partition and expand it
-
-#}
+function expand_root_fs() {
+	if [ -b "$root_partition" ]; then
+		is_nvme=$(echo $root_partition | grep nvme)
+		if [ ! -z "$is_nvme" ]; then
+			part_num=$(echo $root_partition | cut -d'p' -f2)
+			growpart $image_disk $part_num
+			resize2fs -fF $root_partition
+		fi
+	fi
+}
 
 # look for a distro and version (and release for centos)
 #  image_distro_name=ubuntu
@@ -151,6 +164,10 @@ do
 	if [ ! -z "$line" ]; then
 		cloud_init_url=$(echo $line|cut -d'=' -f3)
 	fi
+	line=$(echo $i|grep 'rootfs_uuid')
+	if [ ! -z "$line" ]; then
+		rootfs_uuid=$(echo $line|cut -d'=' -f2)
+	fi
 done
 
 if [ ! -z "$distro" ]; then
@@ -169,8 +186,10 @@ if [ ! -z "$image_auth_token" ]; then
 	image_auth="-H \"Authorization: $image_auth_type $image_auth_token\""
 fi
 
+echo "Downloading image from $image_url"
 curl_url $image_url $image_auth
 if [ ! -z "$image_sha" ]; then
+	echo "Verifying image with digest $image_sha"
 	verify_sha $image_sha
 	if [ $? -ne 0 ]; then
 		echo "Image checksum validation failed"
@@ -182,7 +201,7 @@ if [ -z "$image_disk" ]; then
 fi
 
 echo "Imaging $file to $image_disk"
-qemu-img convert -O raw $file $image_disk
+qemu-img convert -p -O raw $file $image_disk
 ret=$?
 if [ $ret -ne 0 ]; then
 	exit $ret;
@@ -190,9 +209,14 @@ fi
 
 echo Fix | parted ---pretend-input-tty $image_disk print
 
-add_cloud_init
-
-#expand_root_part_fs
+if [ ! -z "$rootfs_uuid" ]; then
+	# find the root partition
+	root_partition=$(blkid -U $rootfs_uuid)
+	if [ ! -z "$cloud_init_url" ]; then
+		add_cloud_init
+	fi
+	expand_root_fs
+fi
 
 echo "Rebooting"
 reboot
