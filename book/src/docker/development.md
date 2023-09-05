@@ -1,4 +1,4 @@
- 
+
 ## Docker development workflow
 
 ### This Workflow Is Deprecateded! Use the [Kubernetes Workflow](../kubernetes/development.md)
@@ -10,56 +10,36 @@ The docker-compose configuration starts an environment that looks generally
 like this:
 
 ```mermaid
-flowchart TD
-    subgraph Docker-Compose
-        gw(("Envoy"))
-        dhcp-relay["DHCP relay (dhcp-helper)"]
-        dhcp["Carbide DHCP (kea-dhcp4)"]
-        api["Carbide gRPC"]
-        pxe["Carbide PXE"]
-        pg["PostgreSQL 14"]
-        vault["Hashicorp Vault"]
-        terraform["Hashicorp Terraform"]
-        migrations["Database migrations"]
-        dns["Carbide DNS"]
-        ipmi["IPMI Console"]
-    end
+%%{init: {'theme': 'dark'}}%%
+flowchart TB
+  carbideapi[carbide-api] --> carbidedbmigrations[carbide-db-migrations]
+  carbideapi --> postgresql[(postgresql)]
+  carbideapi --> loki
+  carbidedbmigrations --> postgresql
+  carbidedhcp[carbide-dhcp] --> loki
+  carbidedns[carbide-dns] --> postgresql
+  carbidedns --> carbideapi
+  carbidedns --> loki
+  carbidepxe[carbide-pxe] --> loki
+  dhcprelay[dhcp-relay] --> carbidedhcp
+  postgresql --> loki
+  prometheus --> loki
+  vault --> loki
+  P0((67)) -.-> carbidedhcp
+  P1((1079)) -.-> carbideapi
+  P2((1080)) -.-> carbideapi
+  P3((5432)) -.-> postgresql
+  P4((123)) -.-> ntp
+  P5((1053)) -.-> carbidedns
+  P6((9090)) -.-> prometheus
+  P7((3000)) -.-> grafana
+  P8((3100)) -.-> loki
 
-    subgraph Volumes
-        certs[("CA Certificates")]
-        pg-data[("PostgreSQL Data")]
-        vault-data[("Vault Data")]
-        terraform-data[("Terraform State")]
-    end
-
-    gw -->|port 1079| api
-    gw --> pxe
-    api -->|port 5432| pg
-    pxe --> api
-    pg ==> pg-data
-    vault ==> vault-data
-    terraform ==> terraform-data
-    dhcp-relay --> dhcp
-    dhcp -->|port 1079| api
-    dns -->|port 1079| api
-
-    subgraph External
-        client_dhcp["DHCP Client"]
-        client_dns["DNS Client"]
-        client_api["API Client"]
-        client_pxe["PXE Client"]
-        client_ipmi["IPMI Client"]
-    end
-
-    client_pxe -->|port 8080| gw
-    client_api -->|port 80| gw
-    client_dhcp -->|port 67| dhcp-relay
-    client_dns -->|port 1053| dns
-    client_ipmi -->|port 2222| ipmi
-
-    terraform -..->|provisioner| vault
-    migrations -..->|prepare| pg
+  classDef ports fill:#5a5757,stroke:#b6c2ff
+  class P0,P1,P2,P3,P4,P5,P6,P7,P8 ports
 ```
+
+(Re-generate diagram: `java -jar ~/Downloads/docker-compose-viz-mermaid-1.2.0.jar -f markdown -t DARK -p -V -N -l`)
 
 These hosts get an IP address in 172.20.0.0/24 subnet.
 
@@ -67,18 +47,6 @@ The container used to run components is specified by [the default
 Dockerfile](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/Dockerfile).
 This contains the prereqs to run the components and where the build actually happens.
 The containers run ```cargo watch``` in order to recompile on changes.
-
-(NOTE: this messes with ```rust-analyzer``` and needs someone to fix it)
-
-## Initialize terraform
-Before you can start the carbide development environment you must `init` terraform
-to create a terraform state file which we do not checked into VCS.
-
-In ```${REPO_ROOT}/dev/terraform```
-
-```
-   docker run -v ${PWD}:/junk --rm hashicorp/terraform -chdir=/junk init
-```
 
 ## Build a container for running the local dev environment
 In order to start the containers containing the forge code, you must first
@@ -106,6 +74,12 @@ rustup target add x86_64-unknown-linux-musl # make sure you're in REPO_ROOT when
 CARGO_HOME=$HOME/docker_cargo_home cargo install cargo-watch --target x86_64-unknown-linux-musl
 ```
 
+* Install the Loki logging driver
+
+```
+docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
+```
+
 ### Run this every time you bring compose up ###
 * When you shut down your docker compose environment use the `-v` flag to remove all
 volumes.  Failing to do this and then attempting to run tests will result in
@@ -113,8 +87,12 @@ errors.
 
 ```
 docker-compose down -v
-docker-compose up --build
+docker-compose up --detach
+cargo run -p bmc-mock
 ```
+
+If you see errors check you don't have Postgres already running. The unit tests expect a local Postgres instance.
+The docker-compose environment starts it's own Postgres on the same port, so they will conflict.
 
 ## Seeding DB
 
@@ -142,4 +120,20 @@ grpcurl -insecure 127.0.0.1:1079 forge.Forge/FindMachines
 ```
 
 It should return a JSON object with a `machines` array containing one machine.
+
+## View logs
+
+There are three ways to view the logs:
+
+- Directly on the command line: `docker-compose logs -f carbide-api`
+
+- Loki via Grafana: http://172.20.0.23:3000/ (forge/forge)
+  Select "Explore" on the left, then data source "Loki" top right.
+
+- Loki via [logcli](https://grafana.com/docs/loki/latest/tools/logcli/) - which you'll need to install
+```
+export LOKI_ADDR='http://172.20.0.25:3100'
+logcli query -f -o raw '{compose_service="carbide-api"}' # tail
+logcli query -f -o raw '{compose_service="carbide-api"} | logfmt | level!="SPAN" !~ "(?i)casbin"' # query
+```
 
