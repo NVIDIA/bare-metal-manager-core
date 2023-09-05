@@ -71,7 +71,7 @@ environment.
 
    Arch - `sudo pacman -S qemu edk2-omvf`
 
-   Debian - `apt-get install -y qemu qemu-kvm ovmf`
+   Debian - `sudo apt-get install -y qemu qemu-kvm ovmf`
 
    Fedora - `sudo dnf -y install bridge-utils libvirt virt-install qemu-kvm`
 
