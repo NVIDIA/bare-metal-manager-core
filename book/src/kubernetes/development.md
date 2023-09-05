@@ -1,6 +1,8 @@
-# Kubernetes Development Workflow
+# OLD Kubernetes Development Workflow
 
-## Base Forge Deployment 
+**NOTE: This refers to the unsupported Minikube setup. Use the Argo/Kustomize setup instead - and ask someone to document it**
+
+## Base Forge Deployment
 The local development environment is based on the production kubernetes deployment.  For local development start by following [The forge deployment dev guide](https://gitlab-master.nvidia.com/nvmetal/forge-deployment/-/tree/master/dev) but *STOP* before `make forgedeploy`.  This is done in the forge-deployment repo
 
 Alternatively, once the prerequisits are installed, the process can be done using the `dev/kube-init-dev.sh` script in the `forge-deployment` repo
@@ -38,7 +40,7 @@ The following need to be done once and only need to be repeated if changes are m
 
 #### Bootable Artifacts
 Make sure that the [Bootable Artifacts](bootable_artifacts.md) have been installed or built<br>
-TLDR: 
+TLDR:
 ```
 cd ${REPO_ROOT}/pxe
 cargo make build-boot-artifacts-x86_64
@@ -69,7 +71,7 @@ Skaffold and just will stay running and pickup changes to code, containers or he
 
 #### Setup watches
 Start watching the repo for changes.  when a change occurs skaffold will be notified.  This is a continuous process and needs its own shell. <br>
-This will also compile everything. 
+This will also compile everything.
 
 ```
 $ just watch
@@ -95,7 +97,7 @@ info: syncing channel updates for '1.68.0-x86_64-unknown-linux-gnu'
 Note that `just watch` starts multiple builds in parallel and you need to wait until its finished building before continuing (and when when you think its finished, wait another minute.)
 
 #### Run Skaffold
-Start Skaffold to respond to repo changes and re-deply carbide componenets. This is a continuous process and needs its own shell.  
+Start Skaffold to respond to repo changes and re-deply carbide componenets. This is a continuous process and needs its own shell.
 ```
 $ skaffold dev
 Generating tags...
@@ -124,7 +126,7 @@ Update Complete. ⎈Happy Helming!⎈
 
 [...]
 
-[carbide-api] 2023-04-12T04:16:01.540837Z  INFO run: carbide::ipmi: api/src/ipmi.rs:505: Starting IPMI handler.    
+[carbide-api] 2023-04-12T04:16:01.540837Z  INFO run: carbide::ipmi: api/src/ipmi.rs:505: Starting IPMI handler.
 [carbide-dns]  2023-04-12T04:15:46.418Z INFO  carbide_dns::dns > Connecting to carbide-api at "http://carbide-api.forge-system.svc.cluster.local:1079"
 [carbide-dns]  2023-04-12T04:15:46.418Z INFO  carbide_dns::dns > Started DNS server on [::]:1053
 Watching for changes...

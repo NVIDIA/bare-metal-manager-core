@@ -35,7 +35,6 @@ services:
 
   carbide-dhcp:
     depends_on:
-      - terraform
       - loki
     build: dhcp
     networks:
@@ -62,7 +61,6 @@ services:
 
   carbide-db-migrations:
     depends_on:
-      - terraform
       - postgresql
     build: api
     networks:
@@ -78,7 +76,6 @@ services:
 
   carbide-api:
     depends_on:
-      - terraform
       - carbide-db-migrations
       - postgresql
       - loki
@@ -126,7 +123,6 @@ services:
 
   carbide-pxe:
     depends_on:
-      - terraform
       - loki
     build: pxe
     networks:
@@ -154,7 +150,6 @@ services:
 
   postgresql:
     depends_on:
-      - terraform
       - loki
     image: postgres:14.1-alpine
     networks:
@@ -174,42 +169,6 @@ services:
       driver: loki
       options:
         loki-url: "http://172.20.0.25:3100/loki/api/v1/push"
-
-  terraform:
-    image: hashicorp/terraform:latest
-    networks:
-      carbide:
-        ipv4_address: 172.20.0.17
-    depends_on:
-      vault:
-        condition: service_healthy
-    environment:
-      - VAULT_KV_MOUNT_LOCATION=secret
-      - VAULT_TOKEN=notforprodtoken
-      - VAULT_ADDR=http://vault:8200
-      - TF_VAR_authority_output_root=/identity
-    volumes:
-      - ./dev/terraform:/infra
-      - ca-certificate:/identity
-      - terraform-state:/terraform
-    working_dir: /infra
-    domainname: metal.dev
-    command: apply -auto-approve
-
-  gateway:
-    image: envoyproxy/envoy-dev:35f8d59b1172a85f02dd119791a9ef42c728cfa8
-    networks:
-      carbide:
-        ipv4_address: 172.20.0.18
-    ports:
-      - "9901:9901"
-      - "80:80"
-      - "8080:8080"
-    volumes:
-      - ./dev/envoy.yaml:/etc/envoy/envoy.yaml
-      - ca-certificate:/identity
-    cap_add:
-      - net_bind_service
 
   ntp:
     image: cturra/ntp
@@ -251,7 +210,6 @@ services:
 
   carbide-dns:
     depends_on:
-      - terraform
       - postgresql
       - carbide-api
       - loki
@@ -333,5 +291,4 @@ volumes:
   db-data: {}
   grafana-data: {}
   prometheus-data: {}
-  terraform-state: {}
   vault-data: {}
