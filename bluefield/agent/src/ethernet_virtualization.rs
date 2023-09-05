@@ -15,7 +15,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::{fs, io, net::Ipv4Addr, process::Command};
 
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, FlatInterfaceConfig};
 use eyre::WrapErr;
 use tracing::{debug, error, trace};
 
@@ -425,17 +425,32 @@ fn write_acl_rules<P: AsRef<Path>>(
     path: P,
     dpu_network_config: &rpc::ManagedHostNetworkConfigResponse,
 ) -> Result<Option<PostAction>, eyre::Report> {
-    let ingress_interfaces = dpu_network_config
-        .tenant_interfaces
-        .iter()
-        .map(|interface| format!("vlan{}", interface.vlan_id))
-        .collect();
+    let ingress_interfaces = instance_interface_names(&dpu_network_config.tenant_interfaces);
     let config = acl_rules::AclConfig {
         ingress_interfaces,
         deny_prefixes: dpu_network_config.deny_prefixes.clone(),
     };
     let contents = acl_rules::build(config)?;
     write(contents, path, "forge-acl.rules", acl_rules::RELOAD_CMD)
+}
+
+// Return the low-level interfaces that are facing the instance.
+fn instance_interface_names(intf_configs: &[FlatInterfaceConfig]) -> Vec<String> {
+    intf_configs
+        .iter()
+        .enumerate()
+        .map(|(i, conf)| match conf.function_type() {
+            ::rpc::InterfaceFunctionType::Physical => {
+                format!("{}_sf", DPU_PHYSICAL_NETWORK_INTERFACE)
+            }
+            ::rpc::InterfaceFunctionType::Virtual => {
+                let vfid = conf
+                    .virtual_function_id
+                    .unwrap_or_else(|| (i as u32).saturating_sub(1));
+                format!("{}{}_sf", DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER, vfid)
+            }
+        })
+        .collect()
 }
 
 // Update configuration file
