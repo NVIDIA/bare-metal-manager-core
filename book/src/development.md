@@ -44,10 +44,7 @@ environment.
         - download libssl1 from [here](http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/) and install `sudo dpkg -i <downloaded-lib>`
 
    - Add the KEA package source, just [as our build container does](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/243203db10f883376c933ed57b6f43a3861c4752/dev/docker/Dockerfile.build-container#L14-15)
-     ```
-     sudo cp dev/docker/isc-kea-2-0.gpg /etc/apt/trusted.gpg.d/apt.isc-kea-2.0.gpg
-     sudo cp dev/docker/isc-kea-2-0.list /etc/apt/sources.list.d/isc-kea-2.0.list
-     ```
+
    - Install kea from source
      ```
      sudo apt-get update && sudo apt-get install -y isc-kea-dhcp4-server isc-kea-dev
