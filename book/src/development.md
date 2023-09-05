@@ -18,7 +18,7 @@ environment.
 
    Arch - `sudo pacman -S base-devel`
 
-   Debian - `sudo apt-get -y install build-essential libudev-dev`
+   Debian - `sudo apt-get -y install build-essential libudev-dev libssl-dev`
 
    Fedora - `sudo dnf -y install gcc-c++ systemd-devel` (systemd-devel needed for libudev-devel)
 
