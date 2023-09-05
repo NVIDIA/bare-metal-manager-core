@@ -2172,6 +2172,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "health"
+version = "0.0.1"
+dependencies = [
+ "clap 4.3.21",
+ "color-eyre",
+ "forge-version",
+ "http",
+ "hyper",
+ "libredfish",
+ "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry_api",
+ "opentelemetry_sdk",
+ "prometheus",
+ "rpc",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tonic 0.8.3",
+ "tracing",
+ "utils",
+]
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
