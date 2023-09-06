@@ -11,10 +11,11 @@
  */
 
 use std::future::Future;
+use std::path::Path;
 
-use ::rpc::forge::{self as rpc, MachineType, NetworkSegmentSearchConfig};
+use ::rpc::forge::{self as rpc, MachineBootOverride, MachineType, NetworkSegmentSearchConfig};
 use ::rpc::forge_tls_client::{self, ForgeClientT};
-use ::rpc::MachineId;
+use ::rpc::{MachineId, Uuid};
 
 use super::{CarbideCliError, CarbideCliResult};
 use crate::cfg::carbide_options::ForceDeleteMachineQuery;
@@ -439,6 +440,70 @@ pub async fn migrate_vpc_vni(api_config: &Config) -> CarbideCliResult<rpc::Migra
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
         Ok(out)
+    })
+    .await
+}
+
+pub async fn get_boot_override(
+    api_config: &Config,
+    machine_interface_id: Uuid,
+) -> CarbideCliResult<MachineBootOverride> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(machine_interface_id);
+
+        client
+            .get_machine_boot_override(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn set_boot_override(
+    api_config: &Config,
+    machine_interface_id: Uuid,
+    custom_pxe_path: Option<&Path>,
+    custom_user_data_path: Option<&Path>,
+) -> CarbideCliResult<()> {
+    let custom_pxe = match custom_pxe_path {
+        Some(custom_pxe_path) => Some(std::fs::read_to_string(custom_pxe_path)?),
+        None => None,
+    };
+
+    let custom_user_data = match custom_user_data_path {
+        Some(custom_user_data_path) => Some(std::fs::read_to_string(custom_user_data_path)?),
+        None => None,
+    };
+
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(MachineBootOverride {
+            machine_interface_id: Some(machine_interface_id),
+            custom_pxe,
+            custom_user_data,
+        });
+
+        client
+            .set_machine_boot_override(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn clear_boot_override(
+    api_config: &Config,
+    machine_interface_id: Uuid,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(machine_interface_id);
+
+        client
+            .clear_machine_boot_override(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
     })
     .await
 }

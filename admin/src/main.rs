@@ -13,12 +13,15 @@ use std::env;
 use std::fs;
 use std::io::BufReader;
 use std::path::Path;
+use std::path::PathBuf;
 
 use ::rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
+use ::rpc::Uuid;
 use ::rpc::{
     forge::{self as forgerpc, MachineType},
     MachineId,
 };
+use cfg::carbide_options::BootOverrideAction;
 use cfg::carbide_options::IpAction;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
@@ -505,6 +508,55 @@ async fn main() -> color_eyre::Result<()> {
             // Handled earlier
             unreachable!();
         }
+        CarbideCommand::BootOverride(boot_override_args) => match boot_override_args {
+            BootOverrideAction::Get(boot_override) => {
+                let mbo = rpc::get_boot_override(
+                    &api_config,
+                    Uuid {
+                        value: boot_override.interface_id,
+                    },
+                )
+                .await?;
+
+                tracing::info!(
+                    "{}",
+                    serde_json::to_string_pretty(&mbo)
+                        .expect("Failed to serialize MachineBootOverride")
+                );
+            }
+            BootOverrideAction::Set(boot_override_set) => {
+                if boot_override_set.custom_pxe.is_none()
+                    && boot_override_set.custom_user_data.is_none()
+                {
+                    return Err(CarbideCliError::GenericError(
+                        "Either custom pxe or custom user data is required".to_owned(),
+                    )
+                    .into());
+                }
+
+                let custom_pxe_path = boot_override_set.custom_pxe.map(PathBuf::from);
+                let custom_user_data_path = boot_override_set.custom_user_data.map(PathBuf::from);
+
+                rpc::set_boot_override(
+                    &api_config,
+                    Uuid {
+                        value: boot_override_set.interface_id,
+                    },
+                    custom_pxe_path.as_deref(),
+                    custom_user_data_path.as_deref(),
+                )
+                .await?;
+            }
+            BootOverrideAction::Clear(boot_override) => {
+                rpc::clear_boot_override(
+                    &api_config,
+                    Uuid {
+                        value: boot_override.interface_id,
+                    },
+                )
+                .await?;
+            }
+        },
     }
 
     Ok(())

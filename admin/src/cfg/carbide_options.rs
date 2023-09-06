@@ -89,6 +89,29 @@ pub enum CarbideCommand {
     Migrate(MigrateAction),
     #[clap(about = "IP address handling", subcommand)]
     Ip(IpAction),
+    #[clap(about = "Cloud init override", subcommand)]
+    BootOverride(BootOverrideAction),
+}
+
+#[derive(Parser, Debug)]
+pub enum BootOverrideAction {
+    Get(BootOverride),
+    Set(BootOverrideSet),
+    Clear(BootOverride),
+}
+
+#[derive(Parser, Debug)]
+pub struct BootOverride {
+    pub interface_id: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct BootOverrideSet {
+    pub interface_id: String,
+    #[clap(short = 'p', long)]
+    pub custom_pxe: Option<String>,
+    #[clap(short = 'u', long)]
+    pub custom_user_data: Option<String>,
 }
 
 #[derive(Parser, Debug)]

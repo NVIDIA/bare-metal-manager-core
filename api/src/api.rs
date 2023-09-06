@@ -3256,6 +3256,123 @@ where
             errors: errors.into_iter().map(|err| err.to_string()).collect(),
         }))
     }
+
+    async fn get_machine_boot_override(
+        &self,
+        request: tonic::Request<rpc::Uuid>,
+    ) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
+        log_request_data(&request);
+
+        let machine_interface_id_str = &request.into_inner().value;
+
+        let machine_interface_id = uuid::Uuid::parse_str(machine_interface_id_str)
+            .map_err(CarbideError::UuidConversionError)?;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin get_machine_boot_override ", e)
+        })?;
+
+        let machine_id = match MachineInterface::find_one(&mut txn, machine_interface_id).await {
+            Ok(interface) => interface.machine_id,
+            Err(_) => None,
+        };
+
+        if let Some(machine_id) = machine_id {
+            log_machine_id(&machine_id);
+        }
+
+        let mbo = match MachineBootOverride::find_optional(&mut txn, machine_interface_id).await? {
+            Some(mbo) => mbo,
+            None => MachineBootOverride {
+                machine_interface_id,
+                custom_pxe: None,
+                custom_user_data: None,
+            },
+        };
+
+        Ok(tonic::Response::new(mbo.into()))
+    }
+
+    async fn set_machine_boot_override(
+        &self,
+        request: tonic::Request<rpc::MachineBootOverride>,
+    ) -> Result<tonic::Response<()>, Status> {
+        log_request_data(&request);
+
+        let mbo: MachineBootOverride = request.into_inner().try_into()?;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin set_machine_boot_override ", e)
+        })?;
+
+        let machine_id = match MachineInterface::find_one(&mut txn, mbo.machine_interface_id).await
+        {
+            Ok(interface) => interface.machine_id,
+            Err(_) => None,
+        };
+        match machine_id {
+            Some(machine_id) => {
+                log_machine_id(&machine_id);
+                tracing::warn!(
+                    machine_interface_id = mbo.machine_interface_id.to_string(),
+                    machine_id = machine_id.to_string(),
+                    "Boot override for machine_interface_id is active. Bypassing regular boot"
+                );
+            }
+
+            None => tracing::warn!(
+                machine_interface_id = mbo.machine_interface_id.to_string(),
+                "Boot override for machine_interface_id is active. Bypassing regular boot"
+            ),
+        }
+
+        mbo.update_or_insert(&mut txn).await?;
+
+        txn.commit().await.unwrap();
+
+        Ok(tonic::Response::new(()))
+    }
+
+    async fn clear_machine_boot_override(
+        &self,
+        request: tonic::Request<rpc::Uuid>,
+    ) -> Result<tonic::Response<()>, Status> {
+        log_request_data(&request);
+
+        let machine_interface_id_str = &request.into_inner().value;
+
+        let machine_interface_id = uuid::Uuid::parse_str(machine_interface_id_str)
+            .map_err(CarbideError::UuidConversionError)?;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin clear_machine_boot_override ", e)
+        })?;
+
+        let machine_id = match MachineInterface::find_one(&mut txn, machine_interface_id).await {
+            Ok(interface) => interface.machine_id,
+            Err(_) => None,
+        };
+        match machine_id {
+            Some(machine_id) => {
+                log_machine_id(&machine_id);
+                tracing::info!(
+                    machine_interface_id = machine_interface_id_str,
+                    machine_id = machine_id.to_string(),
+                    "Boot override for machine_interface_id disabled."
+                );
+            }
+
+            None => tracing::info!(
+                machine_interface_id = machine_interface_id_str,
+                "Boot override for machine_interface_id disabled"
+            ),
+        }
+        MachineBootOverride::clear(&mut txn, machine_interface_id).await?;
+
+        txn.commit().await.unwrap();
+
+        Ok(tonic::Response::new(()))
+    }
 }
 
 ///
