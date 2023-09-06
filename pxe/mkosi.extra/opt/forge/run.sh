@@ -18,4 +18,5 @@ do
         fi
 done
 
-exec /opt/forge/forge-scout --api=$server_uri $cli_cmd --uuid=$machine_id
+mkdir -p /var/log/forge
+exec /opt/forge/forge-scout --api=$server_uri $cli_cmd --uuid=$machine_id 2>&1 | tee /var/log/forge/forge-scout.log
