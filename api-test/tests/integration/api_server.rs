@@ -15,9 +15,10 @@ use std::net::SocketAddr;
 use carbide::cfg::{AuthConfig, CarbideConfig, TlsConfig};
 use carbide::logging::sqlx_query_tracing;
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
-
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::{filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt};
+
+const DOMAIN_NAME: &str = "forge.integrationtest";
 
 pub async fn start(
     addr: SocketAddr,
@@ -37,6 +38,7 @@ pub async fn start(
         dhcp_servers: vec![],
         route_servers: vec![],
         deny_prefixes: vec![],
+        initial_domain_name: Some(DOMAIN_NAME.to_string()),
         tls: Some(TlsConfig {
             identity_pemfile_path: format!("{root_dir}/dev/certs/server_identity.pem"),
             identity_keyfile_path: format!("{root_dir}/dev/certs/server_identity.key"),

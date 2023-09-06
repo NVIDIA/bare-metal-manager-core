@@ -122,10 +122,12 @@ async fn host_boostrap(
     grpcurl(
         carbide_api_addr,
         "ForgeAgentControl",
-        &serde_json::json!({
-            "machine_id": {"id": host_machine_id}
-        })
-        .to_string(),
+        Some(
+            &serde_json::json!({
+                "machine_id": {"id": host_machine_id}
+            })
+            .to_string(),
+        ),
     )?;
     host::wait_for_state(carbide_api_addr, &host_machine_id, "Ready")?;
     tracing::info!("ManagedHost is up in Ready state.");

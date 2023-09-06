@@ -24,7 +24,11 @@ use crate::{CarbideError, CarbideResult};
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
 const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 
-/// Domain
+/// A DNS domain. Used by carbide-dns for resolving FQDNs.
+/// We create an initial one startup. Each segment can have a different domain,
+/// including a domain provided by a tenant. In practice we only use a single site-wide
+/// domain currently.
+///
 /// Derived trait sqlx::FromRow consist of a series of calls to
 /// [`Row::try_get`] using the name from each struct field
 #[derive(Clone, Debug, FromRow)]
@@ -87,9 +91,39 @@ impl NewDomain {
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Domain> {
         let query = "INSERT INTO domains (name) VALUES ($1) returning *";
+        match self.persist_inner(txn, query).await {
+            Ok(Some(domain)) => Ok(domain),
+            Ok(None) => {
+                // likely unreachable - needed because persist_inner uses fetch_optional
+                Err(CarbideError::NotFoundError {
+                    kind: "domain",
+                    id: self.name.clone(),
+                })
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Create the domain only if it would be the first one
+    pub async fn persist_first(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> CarbideResult<Option<Domain>> {
+        let query = "
+            INSERT INTO domains (name) SELECT $1
+            WHERE NOT EXISTS (SELECT name FROM domains)
+            RETURNING *";
+        self.persist_inner(txn, query).await
+    }
+
+    async fn persist_inner(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        query: &'static str,
+    ) -> CarbideResult<Option<Domain>> {
         sqlx::query_as(query)
             .bind(&self.name)
-            .fetch_one(&mut **txn)
+            .fetch_optional(&mut **txn)
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e)

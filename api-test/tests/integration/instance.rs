@@ -34,7 +34,7 @@ pub fn _create(addr: SocketAddr, host_machine_id: &str, segment_id: &str) -> eyr
             }
         }
     });
-    let resp = grpcurl(addr, "AllocateInstance", &data.to_string())?;
+    let resp = grpcurl(addr, "AllocateInstance", Some(data))?;
     tracing::info!("AllocateInstance:");
     tracing::info!(resp);
 
@@ -42,7 +42,7 @@ pub fn _create(addr: SocketAddr, host_machine_id: &str, segment_id: &str) -> eyr
         id: host_machine_id.to_string(),
     })?;
     loop {
-        let response = grpcurl(addr, "GetMachine", &data.to_string())?;
+        let response = grpcurl(addr, "GetMachine", Some(&data))?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = resp["state"].as_str().unwrap();
         if state == "Assigned/WaitingForNetworkConfig" {
