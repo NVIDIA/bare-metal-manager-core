@@ -1,4 +1,4 @@
--- Last updated Aug 03 2023
+-- Last updated Sep 06 2023
 
 --
 -- Carbide database schema with all migrations applied.
@@ -6,16 +6,12 @@
 -- Created like this and then maintained manually
 -- PGPASSWORD=notforprod pg_dump -h 172.20.0.16 --schema-only -U carbide_development > ~/carbide_schema.sql
 
-DROP DATABASE IF EXISTS carbide_development;
-CREATE DATABASE carbide_development WITH OWNER = carbide_development;
-\c carbide_development
-
 --
 -- PostgreSQL database dump
 --
 
 -- Dumped from database version 14.1
--- Dumped by pg_dump version 15.1
+-- Dumped by pg_dump version 15.4
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -64,6 +60,18 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 
 COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UUIDs)';
 
+
+--
+-- Name: bmc_machine_type_t; Type: TYPE; Schema: public; Owner: carbide_development
+--
+
+CREATE TYPE public.bmc_machine_type_t AS ENUM (
+    'dpu',
+    'host'
+);
+
+
+ALTER TYPE public.bmc_machine_type_t OWNER TO carbide_development;
 
 --
 -- Name: console_type; Type: TYPE; Schema: public; Owner: carbide_development
@@ -129,27 +137,6 @@ CREATE TYPE public.machine_state AS ENUM (
 
 
 ALTER TYPE public.machine_state OWNER TO carbide_development;
-
---
--- Name: mq_new_t; Type: TYPE; Schema: public; Owner: carbide_development
---
-
-CREATE TYPE public.mq_new_t AS (
-	id uuid,
-	delay interval,
-	retries integer,
-	retry_backoff interval,
-	channel_name text,
-	channel_args text,
-	commit_interval interval,
-	ordered boolean,
-	name text,
-	payload_json text,
-	payload_bytes bytea
-);
-
-
-ALTER TYPE public.mq_new_t OWNER TO carbide_development;
 
 --
 -- Name: network_segment_type_t; Type: TYPE; Schema: public; Owner: carbide_development
@@ -289,313 +276,6 @@ $$;
 ALTER FUNCTION public.machine_state_history_keep_limit() OWNER TO carbide_development;
 
 --
--- Name: mq_active_channels(text[], integer); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_active_channels(channel_names text[], batch_size integer) RETURNS TABLE(name text, args text)
-    LANGUAGE sql STABLE
-    AS $$
-    SELECT channel_name, channel_args
-    FROM mq_msgs
-    WHERE id != uuid_nil()
-    AND attempt_at <= NOW()
-    AND (channel_names IS NULL OR channel_name = ANY(channel_names))
-    AND NOT mq_uuid_exists(after_message_id)
-    GROUP BY channel_name, channel_args
-    ORDER BY RANDOM()
-    LIMIT batch_size
-$$;
-
-
-ALTER FUNCTION public.mq_active_channels(channel_names text[], batch_size integer) OWNER TO carbide_development;
-
---
--- Name: mq_checkpoint(uuid, interval, text, bytea, integer); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_checkpoint(msg_id uuid, duration interval, new_payload_json text, new_payload_bytes bytea, extra_retries integer) RETURNS void
-    LANGUAGE sql
-    AS $$
-    UPDATE mq_msgs
-    SET
-        attempt_at = GREATEST(attempt_at, NOW() + duration),
-        attempts = attempts + COALESCE(extra_retries, 0)
-    WHERE id = msg_id;
-
-    UPDATE mq_payloads
-    SET
-        payload_json = COALESCE(new_payload_json::JSONB, payload_json),
-        payload_bytes = COALESCE(new_payload_bytes, payload_bytes)
-    WHERE
-        id = msg_id;
-$$;
-
-
-ALTER FUNCTION public.mq_checkpoint(msg_id uuid, duration interval, new_payload_json text, new_payload_bytes bytea, extra_retries integer) OWNER TO carbide_development;
-
---
--- Name: mq_clear(text[]); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_clear(channel_names text[]) RETURNS void
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    WITH deleted_ids AS (
-        DELETE FROM mq_msgs WHERE channel_name = ANY(channel_names) RETURNING id
-    )
-    DELETE FROM mq_payloads WHERE id IN (SELECT id FROM deleted_ids);
-END;
-$$;
-
-
-ALTER FUNCTION public.mq_clear(channel_names text[]) OWNER TO carbide_development;
-
---
--- Name: mq_clear_all(); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_clear_all() RETURNS void
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    WITH deleted_ids AS (
-        DELETE FROM mq_msgs RETURNING id
-    )
-    DELETE FROM mq_payloads WHERE id IN (SELECT id FROM deleted_ids);
-END;
-$$;
-
-
-ALTER FUNCTION public.mq_clear_all() OWNER TO carbide_development;
-
---
--- Name: mq_commit(uuid[]); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_commit(msg_ids uuid[]) RETURNS void
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    UPDATE mq_msgs
-    SET
-        attempt_at = attempt_at - commit_interval,
-        commit_interval = NULL
-    WHERE id = ANY(msg_ids)
-    AND commit_interval IS NOT NULL;
-END;
-$$;
-
-
-ALTER FUNCTION public.mq_commit(msg_ids uuid[]) OWNER TO carbide_development;
-
---
--- Name: mq_delete(uuid[]); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_delete(msg_ids uuid[]) RETURNS void
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    PERFORM pg_notify(CONCAT('mq_', channel_name), '')
-    FROM mq_msgs
-    WHERE id = ANY(msg_ids)
-    AND after_message_id = uuid_nil()
-    GROUP BY channel_name;
-
-    IF FOUND THEN
-        PERFORM pg_notify('mq', '');
-    END IF;
-
-    DELETE FROM mq_msgs WHERE id = ANY(msg_ids);
-    DELETE FROM mq_payloads WHERE id = ANY(msg_ids);
-END;
-$$;
-
-
-ALTER FUNCTION public.mq_delete(msg_ids uuid[]) OWNER TO carbide_development;
-
---
--- Name: mq_insert(public.mq_new_t[]); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_insert(new_messages public.mq_new_t[]) RETURNS void
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    PERFORM pg_notify(CONCAT('mq_', channel_name), '')
-    FROM unnest(new_messages) AS new_msgs
-    GROUP BY channel_name;
-
-    IF FOUND THEN
-        PERFORM pg_notify('mq', '');
-    END IF;
-
-    INSERT INTO mq_payloads (
-        id,
-        name,
-        payload_json,
-        payload_bytes
-    ) SELECT
-        id,
-        name,
-        payload_json::JSONB,
-        payload_bytes
-    FROM UNNEST(new_messages);
-
-    INSERT INTO mq_msgs (
-        id,
-        attempt_at,
-        attempts,
-        retry_backoff,
-        channel_name,
-        channel_args,
-        commit_interval,
-        after_message_id
-    )
-    SELECT
-        id,
-        NOW() + delay + COALESCE(commit_interval, INTERVAL '0'),
-        retries + 1,
-        retry_backoff,
-        channel_name,
-        channel_args,
-        commit_interval,
-        CASE WHEN ordered
-            THEN
-                LAG(id, 1, mq_latest_message(channel_name, channel_args))
-                OVER (PARTITION BY channel_name, channel_args, ordered ORDER BY id)
-            ELSE
-                NULL
-            END
-    FROM UNNEST(new_messages);
-END;
-$$;
-
-
-ALTER FUNCTION public.mq_insert(new_messages public.mq_new_t[]) OWNER TO carbide_development;
-
---
--- Name: mq_keep_alive(uuid[], interval); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_keep_alive(msg_ids uuid[], duration interval) RETURNS void
-    LANGUAGE sql
-    AS $$
-    UPDATE mq_msgs
-    SET
-        attempt_at = NOW() + duration,
-        commit_interval = commit_interval + ((NOW() + duration) - attempt_at)
-    WHERE id = ANY(msg_ids)
-    AND attempt_at < NOW() + duration;
-$$;
-
-
-ALTER FUNCTION public.mq_keep_alive(msg_ids uuid[], duration interval) OWNER TO carbide_development;
-
---
--- Name: mq_latest_message(text, text); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_latest_message(from_channel_name text, from_channel_args text) RETURNS uuid
-    LANGUAGE sql STABLE
-    AS $$
-    SELECT COALESCE(
-        (
-            SELECT id FROM mq_msgs
-            WHERE channel_name = from_channel_name
-            AND channel_args = from_channel_args
-            AND after_message_id IS NOT NULL
-            AND id != uuid_nil()
-            AND NOT EXISTS(
-                SELECT * FROM mq_msgs AS mq_msgs2
-                WHERE mq_msgs2.after_message_id = mq_msgs.id
-            )
-            ORDER BY created_at DESC
-            LIMIT 1
-        ),
-        uuid_nil()
-    )
-$$;
-
-
-ALTER FUNCTION public.mq_latest_message(from_channel_name text, from_channel_args text) OWNER TO carbide_development;
-
---
--- Name: mq_poll(text[], integer); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_poll(channel_names text[], batch_size integer DEFAULT 1) RETURNS TABLE(id uuid, is_committed boolean, name text, payload_json text, payload_bytes bytea, retry_backoff interval, wait_time interval)
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    RETURN QUERY UPDATE mq_msgs
-    SET
-        attempt_at = CASE WHEN mq_msgs.attempts = 1 THEN NULL ELSE NOW() + mq_msgs.retry_backoff END,
-        attempts = mq_msgs.attempts - 1,
-        retry_backoff = mq_msgs.retry_backoff * 2
-    FROM (
-        SELECT
-            msgs.id
-        FROM mq_active_channels(channel_names, batch_size) AS active_channels
-        INNER JOIN LATERAL (
-            SELECT mq_msgs.id FROM mq_msgs
-            WHERE mq_msgs.id != uuid_nil()
-            AND mq_msgs.attempt_at <= NOW()
-            AND mq_msgs.channel_name = active_channels.name
-            AND mq_msgs.channel_args = active_channels.args
-            AND NOT mq_uuid_exists(mq_msgs.after_message_id)
-            ORDER BY mq_msgs.attempt_at ASC
-            LIMIT batch_size
-        ) AS msgs ON TRUE
-        LIMIT batch_size
-    ) AS messages_to_update
-    LEFT JOIN mq_payloads ON mq_payloads.id = messages_to_update.id
-    WHERE mq_msgs.id = messages_to_update.id
-    AND mq_msgs.attempt_at <= NOW()
-    RETURNING
-        mq_msgs.id,
-        mq_msgs.commit_interval IS NULL,
-        mq_payloads.name,
-        mq_payloads.payload_json::TEXT,
-        mq_payloads.payload_bytes,
-        mq_msgs.retry_backoff / 2,
-        interval '0' AS wait_time;
-
-    IF NOT FOUND THEN
-        RETURN QUERY SELECT
-            NULL::UUID,
-            NULL::BOOLEAN,
-            NULL::TEXT,
-            NULL::TEXT,
-            NULL::BYTEA,
-            NULL::INTERVAL,
-            MIN(mq_msgs.attempt_at) - NOW()
-        FROM mq_msgs
-        WHERE mq_msgs.id != uuid_nil()
-        AND NOT mq_uuid_exists(mq_msgs.after_message_id)
-        AND (channel_names IS NULL OR mq_msgs.channel_name = ANY(channel_names));
-    END IF;
-END;
-$$;
-
-
-ALTER FUNCTION public.mq_poll(channel_names text[], batch_size integer) OWNER TO carbide_development;
-
---
--- Name: mq_uuid_exists(uuid); Type: FUNCTION; Schema: public; Owner: carbide_development
---
-
-CREATE FUNCTION public.mq_uuid_exists(id uuid) RETURNS boolean
-    LANGUAGE sql IMMUTABLE
-    AS $$
-	SELECT id IS NOT NULL AND id != uuid_nil()
-$$;
-
-
-ALTER FUNCTION public.mq_uuid_exists(id uuid) OWNER TO carbide_development;
-
---
 -- Name: network_segment_state_history_keep_limit(); Type: FUNCTION; Schema: public; Owner: carbide_development
 --
 
@@ -664,17 +344,30 @@ CREATE TABLE public._sqlx_migrations (
 ALTER TABLE public._sqlx_migrations OWNER TO carbide_development;
 
 --
--- Name: bg_status; Type: TABLE; Schema: public; Owner: carbide_development
+-- Name: bmc_machine; Type: TABLE; Schema: public; Owner: carbide_development
 --
 
-CREATE TABLE public.bg_status (
-    id uuid NOT NULL,
-    status jsonb,
-    last_updated timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE public.bmc_machine (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    machine_interface_id uuid NOT NULL,
+    bmc_type public.bmc_machine_type_t NOT NULL,
+    controller_state_version character varying(64) DEFAULT 'V1-T1666644937952268'::character varying NOT NULL,
+    controller_state jsonb DEFAULT '{"state": "init"}'::jsonb NOT NULL
 );
 
 
-ALTER TABLE public.bg_status OWNER TO carbide_development;
+ALTER TABLE public.bmc_machine OWNER TO carbide_development;
+
+--
+-- Name: bmc_machine_controller_lock; Type: TABLE; Schema: public; Owner: carbide_development
+--
+
+CREATE TABLE public.bmc_machine_controller_lock (
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+ALTER TABLE public.bmc_machine_controller_lock OWNER TO carbide_development;
 
 --
 -- Name: dhcp_entries; Type: TABLE; Schema: public; Owner: carbide_development
@@ -767,7 +460,10 @@ CREATE TABLE public.machines (
     last_discovery_time timestamp with time zone,
     network_status_observation jsonb,
     network_config_version character varying(64) DEFAULT 'V1-T1666644937952267'::character varying NOT NULL,
-    network_config jsonb DEFAULT '{}'::jsonb NOT NULL
+    network_config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    failure_details jsonb DEFAULT '{"cause": "noerror", "source": "noerror", "failed_at": "2023-07-31T11:26:18.261228950+00:00"}'::jsonb NOT NULL,
+    maintenance_reference character varying(256),
+    maintenance_start_time timestamp with time zone
 );
 
 
@@ -876,7 +572,11 @@ CREATE TABLE public.instances (
     network_config jsonb DEFAULT '{}'::jsonb NOT NULL,
     network_status_observation jsonb DEFAULT 'null'::jsonb NOT NULL,
     tenant_org text DEFAULT 'UNKNOWN'::text,
-    deleted timestamp with time zone
+    deleted timestamp with time zone,
+    ib_config_version character varying(64) DEFAULT 'V1-T1666644937952267'::character varying NOT NULL,
+    ib_config jsonb DEFAULT '{"ib_interfaces": []}'::jsonb NOT NULL,
+    ib_status_observation jsonb DEFAULT '{"observed_at": "2023-01-01T00:00:00.000000000Z", "config_version": "V1-T1666644937952267"}'::jsonb NOT NULL,
+    keyset_ids text[] DEFAULT '{}'::text[] NOT NULL
 );
 
 
@@ -977,6 +677,19 @@ CREATE TABLE public.instance_types (
 ALTER TABLE public.instance_types OWNER TO carbide_development;
 
 --
+-- Name: machine_boot_override; Type: TABLE; Schema: public; Owner: carbide_development
+--
+
+CREATE TABLE public.machine_boot_override (
+    machine_interface_id uuid NOT NULL,
+    custom_pxe text,
+    custom_user_data text
+);
+
+
+ALTER TABLE public.machine_boot_override OWNER TO carbide_development;
+
+--
 -- Name: machine_console_metadata; Type: TABLE; Schema: public; Owner: carbide_development
 --
 
@@ -1072,39 +785,6 @@ CREATE TABLE public.machine_topologies (
 ALTER TABLE public.machine_topologies OWNER TO carbide_development;
 
 --
--- Name: mq_msgs; Type: TABLE; Schema: public; Owner: carbide_development
---
-
-CREATE TABLE public.mq_msgs (
-    id uuid NOT NULL,
-    created_at timestamp with time zone DEFAULT now(),
-    attempt_at timestamp with time zone DEFAULT now(),
-    attempts integer DEFAULT 5 NOT NULL,
-    retry_backoff interval DEFAULT '00:00:01'::interval NOT NULL,
-    channel_name text NOT NULL,
-    channel_args text NOT NULL,
-    commit_interval interval,
-    after_message_id uuid DEFAULT public.uuid_nil()
-);
-
-
-ALTER TABLE public.mq_msgs OWNER TO carbide_development;
-
---
--- Name: mq_payloads; Type: TABLE; Schema: public; Owner: carbide_development
---
-
-CREATE TABLE public.mq_payloads (
-    id uuid NOT NULL,
-    name text NOT NULL,
-    payload_json jsonb,
-    payload_bytes bytea
-);
-
-
-ALTER TABLE public.mq_payloads OWNER TO carbide_development;
-
---
 -- Name: network_segment_state_history; Type: TABLE; Schema: public; Owner: carbide_development
 --
 
@@ -1190,43 +870,6 @@ CREATE TABLE public.ssh_public_keys (
 ALTER TABLE public.ssh_public_keys OWNER TO carbide_development;
 
 --
--- Name: tags; Type: TABLE; Schema: public; Owner: carbide_development
---
-
-CREATE TABLE public.tags (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    slug character varying(50) NOT NULL,
-    name character varying(50) NOT NULL
-);
-
-
-ALTER TABLE public.tags OWNER TO carbide_development;
-
---
--- Name: tags_machine; Type: TABLE; Schema: public; Owner: carbide_development
---
-
-CREATE TABLE public.tags_machine (
-    tag_id uuid,
-    target_id character varying(64)
-);
-
-
-ALTER TABLE public.tags_machine OWNER TO carbide_development;
-
---
--- Name: tags_networksegment; Type: TABLE; Schema: public; Owner: carbide_development
---
-
-CREATE TABLE public.tags_networksegment (
-    tag_id uuid,
-    target_id uuid
-);
-
-
-ALTER TABLE public.tags_networksegment OWNER TO carbide_development;
-
---
 -- Name: tenant_keysets; Type: TABLE; Schema: public; Owner: carbide_development
 --
 
@@ -1280,11 +923,19 @@ ALTER TABLE ONLY public._sqlx_migrations
 
 
 --
--- Name: bg_status bg_status_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
+-- Name: bmc_machine bmc_machine_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
-ALTER TABLE ONLY public.bg_status
-    ADD CONSTRAINT bg_status_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.bmc_machine
+    ADD CONSTRAINT bmc_machine_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: machine_boot_override custom_pxe_unique_machine_interface_id; Type: CONSTRAINT; Schema: public; Owner: carbide_development
+--
+
+ALTER TABLE ONLY public.machine_boot_override
+    ADD CONSTRAINT custom_pxe_unique_machine_interface_id PRIMARY KEY (machine_interface_id);
 
 
 --
@@ -1309,6 +960,7 @@ ALTER TABLE ONLY public.domains
 
 ALTER TABLE ONLY public.machine_interfaces
     ADD CONSTRAINT fqdn_must_be_unique UNIQUE (domain_id, hostname);
+
 
 --
 -- Name: ib_subnets ib_subnets_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
@@ -1415,22 +1067,6 @@ ALTER TABLE ONLY public.machines
 
 
 --
--- Name: mq_msgs mq_msgs_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.mq_msgs
-    ADD CONSTRAINT mq_msgs_pkey PRIMARY KEY (id);
-
-
---
--- Name: mq_payloads mq_payloads_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.mq_payloads
-    ADD CONSTRAINT mq_payloads_pkey PRIMARY KEY (id);
-
-
---
 -- Name: network_prefixes network_prefixes_circuit_id_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
@@ -1511,38 +1147,6 @@ ALTER TABLE ONLY public.ssh_public_keys
 
 
 --
--- Name: tags_machine tags_machine_tag_id_target_id_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.tags_machine
-    ADD CONSTRAINT tags_machine_tag_id_target_id_key UNIQUE (tag_id, target_id);
-
-
---
--- Name: tags_networksegment tags_networksegment_tag_id_target_id_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.tags_networksegment
-    ADD CONSTRAINT tags_networksegment_tag_id_target_id_key UNIQUE (tag_id, target_id);
-
-
---
--- Name: tags tags_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.tags
-    ADD CONSTRAINT tags_pkey PRIMARY KEY (id);
-
-
---
--- Name: tags tags_slug_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.tags
-    ADD CONSTRAINT tags_slug_key UNIQUE (slug);
-
-
---
 -- Name: tenant_keysets tenant_keysets_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
@@ -1571,27 +1175,6 @@ ALTER TABLE ONLY public.vpcs
 --
 
 CREATE INDEX idx_resource_pools_name ON public.resource_pool USING btree (name);
-
-
---
--- Name: mq_msgs_channel_name_channel_args_after_message_id_idx; Type: INDEX; Schema: public; Owner: carbide_development
---
-
-CREATE UNIQUE INDEX mq_msgs_channel_name_channel_args_after_message_id_idx ON public.mq_msgs USING btree (channel_name, channel_args, after_message_id);
-
-
---
--- Name: mq_msgs_channel_name_channel_args_attempt_at_idx; Type: INDEX; Schema: public; Owner: carbide_development
---
-
-CREATE INDEX mq_msgs_channel_name_channel_args_attempt_at_idx ON public.mq_msgs USING btree (channel_name, channel_args, attempt_at) WHERE ((id <> public.uuid_nil()) AND (NOT public.mq_uuid_exists(after_message_id)));
-
-
---
--- Name: mq_msgs_channel_name_channel_args_created_at_id_idx; Type: INDEX; Schema: public; Owner: carbide_development
---
-
-CREATE INDEX mq_msgs_channel_name_channel_args_created_at_id_idx ON public.mq_msgs USING btree (channel_name, channel_args, created_at, id) WHERE ((id <> public.uuid_nil()) AND (after_message_id IS NOT NULL));
 
 
 --
@@ -1651,17 +1234,11 @@ CREATE TRIGGER t_network_segment_state_history_keep_limit AFTER INSERT ON public
 
 
 --
--- Name: bg_status trigger_delete_old_rows_bg_status; Type: TRIGGER; Schema: public; Owner: carbide_development
+-- Name: bmc_machine bmc_machine_machine_interface_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
-CREATE TRIGGER trigger_delete_old_rows_bg_status AFTER INSERT ON public.bg_status FOR EACH STATEMENT EXECUTE FUNCTION public.delete_old_rows();
-
-
---
--- Name: bg_status trigger_update_timestamp_bg_status; Type: TRIGGER; Schema: public; Owner: carbide_development
---
-
-CREATE TRIGGER trigger_update_timestamp_bg_status BEFORE UPDATE ON public.bg_status FOR EACH STATEMENT EXECUTE FUNCTION public.update_timestamp_bg_status();
+ALTER TABLE ONLY public.bmc_machine
+    ADD CONSTRAINT bmc_machine_machine_interface_id_fkey FOREIGN KEY (machine_interface_id) REFERENCES public.machine_interfaces(id);
 
 
 --
@@ -1670,38 +1247,6 @@ CREATE TRIGGER trigger_update_timestamp_bg_status BEFORE UPDATE ON public.bg_sta
 
 ALTER TABLE ONLY public.dhcp_entries
     ADD CONSTRAINT dhcp_entries_machine_interface_id_fkey FOREIGN KEY (machine_interface_id) REFERENCES public.machine_interfaces(id);
-
-
---
--- Name: tags_machine fk_tags_machine; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.tags_machine
-    ADD CONSTRAINT fk_tags_machine FOREIGN KEY (target_id) REFERENCES public.machines(id);
-
-
---
--- Name: tags_machine fk_tags_machine_slug; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.tags_machine
-    ADD CONSTRAINT fk_tags_machine_slug FOREIGN KEY (tag_id) REFERENCES public.tags(id) ON DELETE CASCADE;
-
-
---
--- Name: tags_networksegment fk_tags_machine_slug; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.tags_networksegment
-    ADD CONSTRAINT fk_tags_machine_slug FOREIGN KEY (tag_id) REFERENCES public.tags(id) ON DELETE CASCADE;
-
-
---
--- Name: tags_networksegment fk_tags_ns; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.tags_networksegment
-    ADD CONSTRAINT fk_tags_ns FOREIGN KEY (target_id) REFERENCES public.network_segments(id) ON DELETE CASCADE;
 
 
 --
@@ -1726,6 +1271,14 @@ ALTER TABLE ONLY public.instance_addresses
 
 ALTER TABLE ONLY public.instances
     ADD CONSTRAINT instances_machine_id_fkey FOREIGN KEY (machine_id) REFERENCES public.machines(id);
+
+
+--
+-- Name: machine_boot_override machine_boot_override_machine_interface_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
+--
+
+ALTER TABLE ONLY public.machine_boot_override
+    ADD CONSTRAINT machine_boot_override_machine_interface_id_fkey FOREIGN KEY (machine_interface_id) REFERENCES public.machine_interfaces(id);
 
 
 --
@@ -1793,14 +1346,6 @@ ALTER TABLE ONLY public.machines
 
 
 --
--- Name: mq_msgs mq_msgs_after_message_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.mq_msgs
-    ADD CONSTRAINT mq_msgs_after_message_id_fkey FOREIGN KEY (after_message_id) REFERENCES public.mq_msgs(id) ON DELETE SET DEFAULT;
-
-
---
 -- Name: network_prefixes network_prefixes_segment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
@@ -1823,51 +1368,6 @@ ALTER TABLE ONLY public.network_segments
 ALTER TABLE ONLY public.network_segments
     ADD CONSTRAINT network_segments_vpc_id_fkey FOREIGN KEY (vpc_id) REFERENCES public.vpcs(id);
 
--- Manual updates
-
--- 20230711095418_bmc_machine.sql
-
-CREATE TABLE public.bmc_machine_controller_lock (
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-ALTER TABLE public.bmc_machine_controller_lock OWNER TO carbide_development;
-
-CREATE TYPE public.bmc_machine_type_t AS ENUM ('dpu', 'host');
-ALTER TYPE public.bmc_machine_type_t OWNER TO carbide_development;
-
-CREATE TABLE public.bmc_machine (
-  id uuid DEFAULT gen_random_uuid() NOT NULL,
-
-  machine_interface_id uuid NOT NULL,
-
-  -- Bmc type:
-  --   * Dpu
-  --   * Host
-  bmc_type public.bmc_machine_type_t NOT NULL,
-
-  -- The state of BMC Machine:
-  --   * Init: 0
-  controller_state_version VARCHAR(64) NOT NULL DEFAULT ('V1-T1666644937952268'),
-  controller_state         jsonb       NOT NULL DEFAULT ('{"state":"init"}'),
-
-  PRIMARY KEY(id),
-  FOREIGN KEY(machine_interface_id) REFERENCES public.machine_interfaces(id)
-);
-ALTER TABLE public.bmc_machine OWNER TO carbide_development;
-
--- 20230801424242_add_custom_pxe_table.sql
-
-CREATE TABLE public.machine_boot_override (
-  machine_interface_id uuid NOT NULL,
-  custom_pxe text,
-  custom_user_data text,
-
-  PRIMARY KEY(machine_interface_id),
-  FOREIGN KEY(machine_interface_id) REFERENCES public.machine_interfaces(id),
-  CONSTRAINT custom_pxe_unique_machine_interface_id UNIQUE(machine_interface_id)
-);
-ALTER TABLE public.machine_boot_override OWNER TO carbide_development;
-
 
 --
 -- Name: SCHEMA public; Type: ACL; Schema: -; Owner: carbide_development
@@ -1875,6 +1375,7 @@ ALTER TABLE public.machine_boot_override OWNER TO carbide_development;
 
 REVOKE USAGE ON SCHEMA public FROM PUBLIC;
 GRANT ALL ON SCHEMA public TO PUBLIC;
+
 
 --
 -- PostgreSQL database dump complete

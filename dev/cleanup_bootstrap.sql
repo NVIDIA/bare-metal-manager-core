@@ -21,5 +21,4 @@ DELETE FROM network_segment_state_history;
 DELETE FROM network_segments;
 DELETE FROM resource_pool;
 DELETE FROM domains;
-DELETE FROM mq_msgs;
 DELETE FROM vpcs;
