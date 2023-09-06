@@ -27,11 +27,13 @@ Forge follows conventional commits starting for the v2023.09 release.  Any
 commit message prior, unfortunately cannot be used to generate a changelog.
 
 We use `cocogitto` as a tool to manage and generate commits and changelogs for
-our history.
+our history.  Install it according to your platform using their instructions.
 
 Please start reading the
 (cocogitto)[https://docs.cocogitto.io/guide/#conventional-commits] document on
 conventional commit.
+
+Install the hooks and tab completion according to the user guide.
 
 You may use `coq` to automatically format git commit logs.
 

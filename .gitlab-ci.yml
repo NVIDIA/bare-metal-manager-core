@@ -50,21 +50,31 @@ variables:
   CONTAINER_ARTIFACTS_X86_64: "alpine:latest"
   CONTAINER_ARTIFACTS_AARCH64: "alpine:latest"
 
-stages:
-  - lint
-  - prep
-  - build
-  - publish
-  - doc
-  - security
-  - compliance
-  - promote
-
 include:
+  - project: "nvmetal/ci-tools/build-container-cocogitto"
+    ref: main
+    file:
+      - defaults.gitlab-ci.yml
   - project: "nvmetal/gitlab-templates"
     ref: main
     file:
       - defaults.gitlab-ci.yml
+
+prepare-ci:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      needs:
+        - job: "lint:commit-merge-request"
+#    - if: $CI_PIPELINE_SOURCE == "push"
+#      needs:
+#        - job: "lint:commit-push"
+#
+# Reenable this when we want to enforce commit ci post-mr
+# 
+lint:commit-push:
+  rules:
+    - when: never
+
 
 build:
   rules:
@@ -113,7 +123,7 @@ export-docker-json-config:
 # Build the container that builds our software
 #
 build-build-container-x86_64:
-  stage: prep
+  stage: build
   needs:
     - job: prepare-ci
       optional: false
@@ -136,7 +146,7 @@ build-build-container-x86_64:
 # ARM version uses kaniko instead of extending build-container because devops-tools doesn't have an ARM version
 #
 build-build-container-aarch64:
-  stage: prep
+  stage: build
   needs:
     - job: prepare-ci
       optional: false
@@ -169,7 +179,7 @@ build-build-container-aarch64:
 # Build the container that builds our software
 #
 build-artifacts-build-container-x86_64:
-  stage: prep
+  stage: build
   needs:
     - job: prepare-ci
       optional: false
@@ -192,7 +202,7 @@ build-artifacts-build-container-x86_64:
 # ARM version uses kaniko instead of extending build-container because devops-tools doesn't have an ARM version
 #
 build-artifacts-build-container-aarch64:
-  stage: prep
+  stage: build
   needs:
     - job: prepare-ci
       optional: false
@@ -225,7 +235,7 @@ build-artifacts-build-container-aarch64:
 # Build the container that will host the finalized carbide code.
 #
 build-runtime-container-x86_64:
-  stage: prep
+  stage: build
   needs:
     - job: prepare-ci
       optional: false
@@ -248,7 +258,7 @@ build-runtime-container-x86_64:
 # ARM version uses kaniko instead of extending build-container because devops-tools doesn't have an ARM version
 #
 build-runtime-container-aarch64:
-  stage: prep
+  stage: build
   needs:
     - job: prepare-ci
       optional: false
@@ -373,9 +383,9 @@ build-release-container-x86_64:
 # Build the final container that releases our code
 #
 .build-boot-artifacts:
+  stage: build
   variables:
     FORGE_CA: "prod"
-  stage: build
 
 build-boot-artifacts-x86_64:
   extends: .build-boot-artifacts
@@ -531,7 +541,7 @@ build-release-artifacts-aarch64:
         DEPLOY_BUILT_CONTAINER: "false"
 
 promote-images-to-production:
-  stage: promote
+  stage: publish
   image:
     name: $CONTAINER_BUILD_X86_64
   needs:
@@ -567,6 +577,13 @@ license-checks:
 
 pages:
   stage: doc
+  needs:
+    - job: export-docker-json-config
+      optional: false
+    - job: build-runtime-container-x86_64
+      optional: true
+    - job: build-boot-artifacts-aarch64
+      optional: false
   image:
     name: $CONTAINER_BUILD_X86_64
   script:
