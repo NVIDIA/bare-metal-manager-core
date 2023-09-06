@@ -12,6 +12,9 @@
 FROM registry.minikube/runtime-container:latest as carbide
 WORKDIR ./carbide
 
+RUN mkdir -p /opt/carbide/pxe/templates
+RUN mkdir -p /forge-boot-artifacts/blobs
+
 COPY .skaffold/target/carbide-pxe/debug/carbide /opt/carbide/
-COPY pxe/templates/* /opt/carbide/pxe/templates
-COPY pxe/static/* /forge-boot-artifacts/blobs
+COPY pxe/templates/* /opt/carbide/pxe/templates/
+COPY pxe/static/* /forge-boot-artifacts/blobs/

@@ -11,4 +11,4 @@
 # its affiliates is strictly prohibited.
 FROM registry.minikube/runtime-container:latest as carbide
 WORKDIR ./carbide
-COPY .skaffold/target/carbide-dns/debug/carbide-dns /opt/carbide
+COPY .skaffold/target/carbide-dns/debug/carbide-dns /opt/carbide/

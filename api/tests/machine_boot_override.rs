@@ -18,6 +18,7 @@ pub mod common;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::dpu::dpu_discover_dhcp;
 use common::api_fixtures::dpu::FIXTURE_DPU_MAC_ADDRESS;
+use rpc::protos::forge::forge_server::Forge;
 use uuid::Uuid;
 
 #[ctor::ctor]
@@ -95,5 +96,124 @@ async fn confirm_null_fields(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
 
     assert!(matches!(machine_boot_override.custom_pxe, None));
     assert!(matches!(machine_boot_override.custom_user_data, None));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn api_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let expected_pxe = Some("custom pxe".to_owned());
+    let expected_user_data = Some("custom user data".to_owned());
+
+    let env = create_test_env(pool.clone()).await;
+    let new_interface_id =
+        Uuid::try_from(dpu_discover_dhcp(&env, FIXTURE_DPU_MAC_ADDRESS).await).unwrap();
+
+    let mut txn = pool.begin().await?;
+
+    MachineBootOverride::create(
+        &mut txn,
+        new_interface_id,
+        expected_pxe.clone(),
+        expected_user_data.clone(),
+    )
+    .await?
+    .expect("Could not create custom pxe");
+
+    txn.commit().await.unwrap();
+
+    let req = tonic::Request::new(rpc::Uuid {
+        value: new_interface_id.to_string(),
+    });
+    let machine_boot_override = env
+        .api
+        .get_machine_boot_override(req)
+        .await
+        .expect("Failed to get overrides via API")
+        .into_inner();
+
+    println!(
+        "mbo: {}",
+        serde_json::to_string_pretty(&machine_boot_override)
+            .expect("failed to serialize machine_boot_override")
+    );
+
+    assert_eq!(machine_boot_override.custom_pxe, expected_pxe);
+    assert_eq!(machine_boot_override.custom_user_data, expected_user_data);
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let expected_pxe = Some("custom pxe".to_owned());
+    let expected_user_data = Some("custom user data".to_owned());
+
+    let env = create_test_env(pool.clone()).await;
+    let machine_interface_id =
+        Uuid::try_from(dpu_discover_dhcp(&env, FIXTURE_DPU_MAC_ADDRESS).await).unwrap();
+
+    let req = tonic::Request::new(rpc::forge::MachineBootOverride {
+        machine_interface_id: Some(rpc::forge::Uuid {
+            value: machine_interface_id.to_string(),
+        }),
+        custom_pxe: expected_pxe.clone(),
+        custom_user_data: expected_user_data.clone(),
+    });
+
+    env.api
+        .set_machine_boot_override(req)
+        .await
+        .expect("Failed to set overrides via API")
+        .into_inner();
+
+    let mut txn = pool.begin().await?;
+
+    let machine_boot_override = MachineBootOverride::find_optional(&mut txn, machine_interface_id)
+        .await
+        .expect("Could not load custom boot")
+        .unwrap();
+
+    assert_eq!(machine_boot_override.custom_pxe, expected_pxe);
+    assert_eq!(machine_boot_override.custom_user_data, expected_user_data);
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let expected_pxe = Some("custom pxe".to_owned());
+    let expected_user_data = Some("custom user data".to_owned());
+
+    let env = create_test_env(pool.clone()).await;
+    let new_interface_id =
+        Uuid::try_from(dpu_discover_dhcp(&env, FIXTURE_DPU_MAC_ADDRESS).await).unwrap();
+
+    let mut txn = pool.begin().await?;
+
+    MachineBootOverride::create(
+        &mut txn,
+        new_interface_id,
+        expected_pxe.clone(),
+        expected_user_data.clone(),
+    )
+    .await?
+    .expect("Could not create custom pxe");
+
+    txn.commit().await.unwrap();
+
+    let req = tonic::Request::new(rpc::Uuid {
+        value: new_interface_id.to_string(),
+    });
+    env.api
+        .clear_machine_boot_override(req)
+        .await
+        .expect("Failed to clear overrides via API");
+
+    let mut txn = pool.begin().await?;
+
+    // ensure these stay Nones as we have code that will react to them not being None
+    let machine_boot_override = MachineBootOverride::find_optional(&mut txn, new_interface_id)
+        .await
+        .expect("Could not load custom boot");
+
+    assert!(machine_boot_override.is_none());
     Ok(())
 }

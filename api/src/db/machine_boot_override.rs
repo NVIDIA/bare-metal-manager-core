@@ -17,7 +17,7 @@ use crate::{db::DatabaseError, CarbideError, CarbideResult};
 ///
 /// A custom boot response is a representation of custom data for booting machines, either with pxe or user-data
 ///
-#[derive(Debug)]
+#[derive(Debug, sqlx::Encode)]
 pub struct MachineBootOverride {
     pub machine_interface_id: uuid::Uuid,
     pub custom_pxe: Option<String>,
@@ -30,6 +30,33 @@ impl<'r> FromRow<'r, PgRow> for MachineBootOverride {
             machine_interface_id: row.try_get("machine_interface_id")?,
             custom_pxe: row.try_get("custom_pxe")?,
             custom_user_data: row.try_get("custom_user_data")?,
+        })
+    }
+}
+
+impl From<MachineBootOverride> for rpc::forge::MachineBootOverride {
+    fn from(value: MachineBootOverride) -> Self {
+        rpc::forge::MachineBootOverride {
+            machine_interface_id: Some(rpc::forge::Uuid {
+                value: value.machine_interface_id.to_string(),
+            }),
+            custom_pxe: value.custom_pxe,
+            custom_user_data: value.custom_user_data,
+        }
+    }
+}
+
+impl TryFrom<rpc::forge::MachineBootOverride> for MachineBootOverride {
+    type Error = CarbideError;
+    fn try_from(value: rpc::forge::MachineBootOverride) -> CarbideResult<Self> {
+        let machine_interface_id = match value.machine_interface_id {
+            Some(machine_interface_id) => uuid::Uuid::parse_str(&machine_interface_id.value)?,
+            None => return Err(CarbideError::MissingArgument("machine_interface_id")),
+        };
+        Ok(MachineBootOverride {
+            machine_interface_id,
+            custom_pxe: value.custom_pxe,
+            custom_user_data: value.custom_user_data,
         })
     }
 }
@@ -51,6 +78,35 @@ impl MachineBootOverride {
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         Ok(Some(res))
+    }
+
+    pub async fn update_or_insert(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<()> {
+        let query = "INSERT INTO machine_boot_override VALUES ($1, $2, $3) ON CONFLICT (machine_interface_id) DO UPDATE SET custom_pxe = $2, custom_user_data = $3";
+
+        sqlx::query(query)
+            .bind(self.machine_interface_id)
+            .bind(&self.custom_pxe)
+            .bind(&self.custom_user_data)
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn clear(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_interface_id: uuid::Uuid,
+    ) -> CarbideResult<()> {
+        let query = "DELETE FROM machine_boot_override WHERE machine_interface_id = $1";
+
+        sqlx::query(query)
+            .bind(machine_interface_id)
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 
     pub async fn find_optional(

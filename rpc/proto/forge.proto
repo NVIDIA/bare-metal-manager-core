@@ -166,6 +166,9 @@ service Forge {
   // Maintenance mode operations: enable, disable
   rpc SetMaintenance(MaintenanceRequest) returns (google.protobuf.Empty);
 
+  rpc GetMachineBootOverride(UUID) returns (MachineBootOverride);
+  rpc SetMachineBootOverride(MachineBootOverride) returns (google.protobuf.Empty);
+  rpc ClearMachineBootOverride(UUID) returns (google.protobuf.Empty);
 }
 
 message VersionResult {
@@ -1643,4 +1646,10 @@ enum IpType {
   IpTypeBmcIp = 5;
   IpTypeLoopbackIp = 6;
   IpTypeNetworkSegment = 7;
+}
+
+message MachineBootOverride {
+  UUID machine_interface_id = 1;
+  optional string custom_pxe = 2;
+  optional string custom_user_data = 3;
 }
