@@ -70,7 +70,7 @@ pub async fn bootstrap(
     let (interface_id, dpu_machine_id, ip_address) = discover(carbide_api_addr)?;
 
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
-    grpcurl(carbide_api_addr, "UpdateBMCMetaData", &data)?;
+    grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
 
     let hbn_root = configure_network(
         dpu_config_file,
@@ -94,7 +94,7 @@ pub async fn bootstrap(
 // addr is carbide-api's gRPC listener
 fn basic(addr: SocketAddr) -> eyre::Result<(String, String, String)> {
     let vpc_id = grpcurl_id(addr, "CreateVpc", r#"{"name": "test_vpc"}"#)?;
-    let domain_id = grpcurl_id(addr, "CreateDomain", r#"{"name": "forge.integrationtest"}"#)?;
+    let domain_id = find_domain_id(addr)?;
     let segment_id = create_segment(addr, &vpc_id, &domain_id)?;
     tracing::info!("Created vpc_id={vpc_id}, domain_id={domain_id}, segment_id={segment_id}");
     wait_for_segment(addr, &segment_id)?;
@@ -110,7 +110,7 @@ fn discover(addr: SocketAddr) -> eyre::Result<(String, String, Ipv4Addr)> {
     grpcurl(
         addr,
         "UpdateMachineCredentials",
-        &serde_json::to_string(&CredentialRequest {
+        Some(&serde_json::to_string(&CredentialRequest {
             machine_id: Id {
                 id: { dpu_machine_id.clone() },
             },
@@ -119,7 +119,7 @@ fn discover(addr: SocketAddr) -> eyre::Result<(String, String, Ipv4Addr)> {
                 password: "notforprod".to_string(),
                 credential_purpose: 1,
             }],
-        })?,
+        })?),
     )?;
     tracing::info!("Created 'forge' DPU SSH account");
 
@@ -182,7 +182,7 @@ fn wait_for_segment(addr: SocketAddr, segment_id: &str) -> eyre::Result<()> {
         },
     })?;
     loop {
-        let response = grpcurl(addr, "FindNetworkSegments", &data)?;
+        let response = grpcurl(addr, "FindNetworkSegments", Some(&data))?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = &resp["networkSegments"][0]["state"];
         if let Some("READY") = state.as_str() {
@@ -200,7 +200,7 @@ fn wait_for_dpu_up(addr: SocketAddr, dpu_machine_id: &str) -> eyre::Result<()> {
     });
     tracing::info!("Waiting for DPU state Host/WaitingForDiscovery");
     loop {
-        let response = grpcurl(addr, "FindMachines", &data.to_string())?;
+        let response = grpcurl(addr, "FindMachines", Some(&data))?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = resp["machines"][0]["state"].as_str().unwrap();
         if state == "Host/WaitingForDiscovery" {
@@ -241,13 +241,13 @@ fn make_dpu_filesystem(
 fn discover_dpu(addr: SocketAddr, interface_id: &str) -> eyre::Result<String> {
     let data = include_str!("../../../dev/docker-env/dpu_machine_discovery.json")
         .replace("$MACHINE_INTERFACE_ID", interface_id);
-    let response = grpcurl(addr, "DiscoverMachine", &data)?;
+    let response = grpcurl(addr, "DiscoverMachine", Some(data))?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
     let dpu_machine_id = resp["machineId"]["id"].as_str().unwrap().to_string();
     grpcurl(
         addr,
         "DiscoveryCompleted",
-        &serde_json::json!({"machine_id": {"id": dpu_machine_id}}).to_string(),
+        Some(&serde_json::json!({"machine_id": {"id": dpu_machine_id}})),
     )?;
 
     Ok(dpu_machine_id)
@@ -257,12 +257,22 @@ fn discover_dhcp(addr: SocketAddr) -> eyre::Result<(String, Ipv4Addr)> {
     let response = grpcurl(
         addr,
         "DiscoverDhcp",
-        include_str!("../../../dev/docker-env/dpu_dhcp_discovery.json"),
+        Some(include_str!(
+            "../../../dev/docker-env/dpu_dhcp_discovery.json"
+        )),
     )?;
     let v: serde_json::Value = serde_json::from_str(&response)?;
     let interface_id = v["machineInterfaceId"]["value"].as_str().unwrap();
     let ip_address = v["address"].as_str().unwrap().parse()?;
     Ok((interface_id.to_string(), ip_address))
+}
+
+/// Find the id of the Domain initial_domain_name created on startup
+fn find_domain_id(addr: SocketAddr) -> eyre::Result<String> {
+    let response = grpcurl::<&str>(addr, "FindDomain", None)?;
+    let mut resp_obj: Domains = serde_json::from_str(&response)?;
+    let d = resp_obj.domains.remove(0);
+    Ok(d.id.value)
 }
 
 fn create_segment(addr: SocketAddr, vpc_id: &str, domain_id: &str) -> eyre::Result<String> {
@@ -286,6 +296,11 @@ fn create_segment(addr: SocketAddr, vpc_id: &str, domain_id: &str) -> eyre::Resu
     })
     .unwrap();
     grpcurl_id(addr, "CreateNetworkSegment", &segment_data)
+}
+
+#[derive(Deserialize)]
+struct Domains {
+    domains: Vec<IdValue>,
 }
 
 // Note that we intentionally don't use the rpc package. This test is intended to be completely

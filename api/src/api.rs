@@ -3730,6 +3730,12 @@ where
             .connect_with(database_connect_options)
             .await?;
 
+        if let Some(domain_name) = &carbide_config.initial_domain_name {
+            if Self::create_first_domain(database_connection.clone(), domain_name).await? {
+                tracing::info!("Created initial domain {domain_name}");
+            }
+        }
+
         let mut txn = database_connection
             .begin()
             .await
@@ -3891,6 +3897,36 @@ where
 
         let listen_addr = carbide_config.listen;
         api_handler(api_service, listen_addr, meter).await
+    }
+
+    /// Create a Domain if we don't already have one.
+    /// Returns true if we created an entry in the db (we had no domains yet), false otherwise.
+    async fn create_first_domain(
+        db_pool: sqlx::pool::Pool<Postgres>,
+        domain_name: &str,
+    ) -> Result<bool, CarbideError> {
+        let mut txn = db_pool
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_first_domain", e))?;
+        let domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+        if domains.is_empty() {
+            let domain = NewDomain::new(domain_name);
+            domain.persist_first(&mut txn).await?;
+            txn.commit().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "commit create_first_domain", e)
+            })?;
+            Ok(true)
+        } else {
+            let names: Vec<String> = domains.into_iter().map(|d| d.name).collect();
+            if !names.iter().any(|n| n == domain_name) {
+                tracing::warn!(
+                    "Initial domain name '{domain_name}' in config file does not match existing database domains: {:?}",
+                    names
+                );
+            }
+            Ok(false)
+        }
     }
 
     async fn load_machine(

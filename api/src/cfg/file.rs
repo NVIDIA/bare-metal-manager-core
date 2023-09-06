@@ -86,6 +86,12 @@ pub struct CarbideConfig {
 
     // The number of retries to perform if ipmi returns an error
     pub dpu_ipmi_reboot_attempts: Option<u32>,
+
+    /// Domain to create if there are no domains.
+    ///
+    /// Most sites use a single domain for their lifetime. This is that domain.
+    /// The alternative is to create it via `CreateDomain` grpc endpoint.
+    pub initial_domain_name: Option<String>,
 }
 
 /// TLS related configuration
@@ -125,9 +131,8 @@ mod tests {
         Figment,
     };
 
-    use crate::resource_pool;
-
     use super::*;
+    use crate::resource_pool;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 

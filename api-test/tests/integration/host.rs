@@ -39,16 +39,15 @@ pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {
 
     let host_machine_id = discover_machine(addr, &machine_interface_id)?;
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &host_machine_id);
-    grpcurl(addr, "UpdateBMCMetaData", &data)?;
+    grpcurl(addr, "UpdateBMCMetaData", Some(data))?;
     tracing::info!("Created HOST Machine with ID {host_machine_id}. Starting discovery.");
 
     grpcurl(
         addr,
         "DiscoveryCompleted",
-        &serde_json::json!({
+        Some(&serde_json::json!({
             "machine_id": {"id": host_machine_id}
-        })
-        .to_string(),
+        })),
     )?;
 
     tracing::info!("Waiting for lockdown to complete.");
@@ -71,7 +70,7 @@ pub fn wait_for_state(
     tracing::info!("Waiting for Host state {target_state}");
     let mut i = 0;
     while i < MAX_RETRY {
-        let response = grpcurl(addr, "FindMachines", &data.to_string())?;
+        let response = grpcurl(addr, "FindMachines", Some(&data))?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = resp["machines"][0]["state"].as_str().unwrap();
         if state.contains(target_state) {
@@ -91,7 +90,7 @@ pub fn wait_for_state(
 fn discover_dhcp(addr: SocketAddr) -> eyre::Result<String> {
     // Find network segment's circuit id
     // There's only one network segment
-    let resp = grpcurl(addr, "FindNetworkSegments", "{}")?;
+    let resp = grpcurl::<&str>(addr, "FindNetworkSegments", None)?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
     let circuit_id = &response["networkSegments"][0]["prefixes"][0]["circuitId"]
         .as_str()
@@ -104,7 +103,7 @@ fn discover_dhcp(addr: SocketAddr) -> eyre::Result<String> {
         "relay_address": "172.20.0.2",
         "circuit_id": circuit_id,
     });
-    let resp = grpcurl(addr, "DiscoverDhcp", &data.to_string())?;
+    let resp = grpcurl(addr, "DiscoverDhcp", Some(data))?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
     let machine_interface_id = &response["machineInterfaceId"]["value"].as_str().unwrap();
     Ok(machine_interface_id.to_string())
@@ -113,16 +112,15 @@ fn discover_dhcp(addr: SocketAddr) -> eyre::Result<String> {
 fn discover_machine(addr: SocketAddr, machine_interface_id: &str) -> eyre::Result<String> {
     let data = include_str!("../../../dev/docker-env/host_machine_discovery.json")
         .replace("$MACHINE_INTERFACE_ID", machine_interface_id);
-    let resp = grpcurl(addr, "DiscoverMachine", &data)?;
+    let resp = grpcurl(addr, "DiscoverMachine", Some(data))?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
     let host_machine_id = response["machineId"]["id"].as_str().unwrap();
     grpcurl(
         addr,
         "ForgeAgentControl",
-        &serde_json::json!({
+        Some(&serde_json::json!({
             "machine_id": {"id": host_machine_id}
-        })
-        .to_string(),
+        })),
     )?;
 
     Ok(host_machine_id.to_string())
