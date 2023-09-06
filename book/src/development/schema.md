@@ -146,31 +146,6 @@ erDiagram
         uuid id
     }
 
-    mq_msgs {
-        uuid id PK
-        timestamp_with_time_zone created_at
-        timestamp_with_time_zone attempt_at
-        integer attempts
-        interval retry_backoff
-        text channel_name
-        text channel_args
-        interval commit_interval
-        uuid after_message_id FK
-    }
-
-    mq_payloads {
-        uuid id PK
-        text name
-        jsonb payload_json
-        bytea payload_bytes
-    }
-
-    bg_status {
-        uuid id PK
-        jsonb status
-        timestamp_with_time_zone last_updated
-    }
-
     instance_addresses {
         uuid id
         uuid instance_id FK
@@ -285,5 +260,4 @@ erDiagram
     dhcp_entries }o--|| machine_interfaces : "machine_interface_id"
     bmc_machine }o--|| machine_interfaces : "machine_interface_id"
     machine_boot_override |o--|| machine_interfaces : "machine_interface_id"
-    mq_msgs }o--|| mq_msgs : "after_message_id"
 ```
