@@ -20,3 +20,23 @@ git clone https://gitlab-master.nvidia.com/nvmetal/carbide.git
 ```
 The username is your NVIDIA alias (without `@nvidia.com`).
 The password is the value of the created access token.
+
+## Conventional Commits
+
+Forge follows conventional commits starting for the v2023.09 release.  Any
+commit message prior, unfortunately cannot be used to generate a changelog.
+
+We use `cocogitto` as a tool to manage and generate commits and changelogs for
+our history.
+
+Please start reading the
+(cocogitto)[https://docs.cocogitto.io/guide/#conventional-commits] document on
+conventional commit.
+
+You may use `coq` to automatically format git commit logs.
+
+```
+coq commit feat "add feature"
+```
+
+It is a WIP and we're iterating on it.

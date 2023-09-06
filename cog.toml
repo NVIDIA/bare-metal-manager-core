@@ -1,0 +1,26 @@
+ignore_merge_commits = true
+tag_prefix = "v"
+branch_whitelist = [ "trunk" ]
+
+[changelog]
+path = "CHANGELOG.md"
+template = "remote"
+remote = "gitlab-master.nvidia.com"
+owner = "nvmetal"
+repository = "carbide"
+
+authors = [
+  { signature = "Abhishek Varshney", username = "avarshney" },
+  { signature = "Andrew Forgue", username = "aforgue" },
+  { signature = "Attilla de Groot", username = "attilla" },
+  { signature = "Bill Minckler", username = "wminckler" },
+  { signature = "Drew Bloechi", username = "drew" },
+  { signature = "Graham King", username = "grahamk" },
+  { signature = "Ian Anderson", username = "ianderson" },
+  { signature = "Lance Sykes", username = "lsykes" },
+  { signature = "Matthias Einwag", username = "meinwag" },
+  { signature = "Michael Basnight", username = "mbasnight" },
+  { signature = "Nick Vetro", username = "nvetro" },
+  { signature = "Ron Thompson", username = "ront" },
+  { signature = "Vishnu Rangayyan", username = "vrangayyan" },
+]
