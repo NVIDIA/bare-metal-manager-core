@@ -57,7 +57,7 @@ docker run \
 	--workdir /code \
 	--volume $HOME/.cargo:/cargo \
 	--env CARGO_HOME=/cargo \
-	-it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container \
+	-it urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
 	cargo build -p scout -p admin
 '''
 
@@ -73,7 +73,7 @@ docker run \
 	--workdir /code \
 	--volume $HOME/.cargo:/cargo \
 	--env CARGO_HOME=/cargo \
-	-it gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container \
+	-it urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
 	cargo build --release -p rainbow && strip target/release/rainbow
 '''
 
@@ -82,7 +82,7 @@ category = "Kind"
 description = "Build the x86 build container"
 workspace = false
 command = "docker"
-args = ["build", "-t", "gitlab-master.nvidia.com:5005/nvmetal/carbide/build-container:latest", "-f", "${REPO_ROOT}/dev/docker/Dockerfile.build-container", "."]
+args = ["build", "-t", "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", "-f", "${REPO_ROOT}/dev/docker/Dockerfile.build-container", "."]
 cwd="${REPO_ROOT}/dev/docker"
 
 [tasks.build-arm-build-container]
@@ -90,7 +90,7 @@ category = "Kind"
 description = "Build the ARM build container"
 workspace = false
 command = "docker"
-args = ["build", "-t", "gitlab-master.nvidia.com:5005/nvmetal/carbide/arm64v8/build-container:latest", "-f", "${REPO_ROOT}/dev/docker/Dockerfile.build-container-arm", "."]
+args = ["build", "-t", "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest", "-f", "${REPO_ROOT}/dev/docker/Dockerfile.build-container-arm", "."]
 cwd="${REPO_ROOT}/dev/docker"
 
 [tasks.runtime-container]
