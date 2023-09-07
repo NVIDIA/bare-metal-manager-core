@@ -36,3 +36,17 @@ ranges = [{ start = "2024500", end = "2024550" }]
 [pools.pkey]
 type = "integer"
 ranges = [{ start = "1", end = "10" }]
+
+[networks.admin]
+type = "admin"
+prefix = "172.20.0.0/24"
+gateway = "172.20.0.1"
+mtu = 9000
+reserve_first = 5
+
+[networks.DEV1-C09-IPMI-01]
+type = "underlay"
+prefix = "172.99.0.0/26"
+gateway = "172.99.0.1"
+mtu = 1500
+reserve_first = 5

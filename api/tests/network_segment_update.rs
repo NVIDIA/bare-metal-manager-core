@@ -90,7 +90,12 @@ async fn test_update_network_segment_vpc(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_domain_2",
+    "create_vpc",
+    "create_network_segment"
+))]
 async fn test_update_network_segment_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -127,7 +132,12 @@ async fn test_update_network_segment_domain(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[sqlx::test(fixtures(
+    "create_domain",
+    "create_domain_2",
+    "create_vpc",
+    "create_network_segment"
+))]
 async fn test_update_network_segment_all(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

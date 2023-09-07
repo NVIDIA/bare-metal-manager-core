@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 
 use carbide::cfg::{AuthConfig, CarbideConfig, TlsConfig};
 use carbide::logging::sqlx_query_tracing;
+use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::{filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt};
@@ -103,6 +104,28 @@ pub async fn start(
                         start: "1".to_string(),
                         end: "10".to_string(),
                     }],
+                },
+            ),
+        ])),
+        networks: Some(HashMap::from([
+            (
+                "admin".to_string(),
+                NetworkDefinition {
+                    segment_type: NetworkDefinitionSegmentType::Admin,
+                    prefix: "172.20.0.0/24".to_string(),
+                    gateway: "172.20.0.1".to_string(),
+                    mtu: 9000,
+                    reserve_first: 5,
+                },
+            ),
+            (
+                "DEV1-C09-IPMI-01".to_string(),
+                NetworkDefinition {
+                    segment_type: NetworkDefinitionSegmentType::Underlay,
+                    prefix: "172.99.0.0/26".to_string(),
+                    gateway: "172.99.0.1".to_string(),
+                    mtu: 1500,
+                    reserve_first: 5,
                 },
             ),
         ])),

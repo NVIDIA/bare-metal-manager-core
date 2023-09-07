@@ -43,6 +43,29 @@ pub enum NetworkSegmentDeletionState {
     DBDelete,
 }
 
+// How we specifiy a network segment in the config file
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub struct NetworkDefinition {
+    #[serde(rename = "type")]
+    pub segment_type: NetworkDefinitionSegmentType,
+    /// CIDR notation
+    pub prefix: String,
+    /// Usually the first IP in the prefix range
+    pub gateway: String,
+    /// Typically 9000 for admin network, 1500 for underlay
+    pub mtu: i32,
+    /// How many addresses to skip before allocating
+    pub reserve_first: i32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkDefinitionSegmentType {
+    Admin,
+    Underlay,
+    // Tenant networks are created via the API, not the config file
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

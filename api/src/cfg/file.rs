@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use ipnetwork::Ipv4Network;
 use serde::{Deserialize, Serialize};
 
-use crate::resource_pool::ResourcePoolDef;
+use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
 
 /// carbide-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -77,6 +77,9 @@ pub struct CarbideConfig {
     // Required.
     // Option so that we can de-serialize partial configs (and then merge them).
     pub pools: Option<HashMap<String, ResourcePoolDef>>,
+
+    // Networks to create. Otherwise use grpcurl CreateNetworkSegment to create them later.
+    pub networks: Option<HashMap<String, NetworkDefinition>>,
 
     // The ipmi command (and args) to use to reboot a dpu
     pub dpu_ipmi_reboot_args: Option<String>,

@@ -26,6 +26,7 @@ use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
+use crate::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use crate::model::RpcDataConversionError;
 use crate::{
     db::{
@@ -42,7 +43,7 @@ use crate::{
 };
 use crate::{CarbideError, CarbideResult};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct NetworkSegmentSearchConfig {
     pub include_history: bool,
 }
@@ -291,13 +292,38 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
 }
 
 impl NewNetworkSegment {
+    pub fn build_from(
+        name: &str,
+        domain_id: uuid::Uuid,
+        value: &NetworkDefinition,
+    ) -> Result<Self, CarbideError> {
+        let prefix = NewNetworkPrefix {
+            prefix: value.prefix.parse()?,
+            gateway: Some(value.gateway.parse()?),
+            num_reserved: value.reserve_first,
+        };
+        Ok(NewNetworkSegment {
+            name: name.to_string(), // Set by the caller later
+            subdomain_id: Some(domain_id),
+            vpc_id: None,
+            mtu: value.mtu,
+            prefixes: vec![prefix],
+            vlan_id: None,
+            vni: None,
+            segment_type: match value.segment_type {
+                NetworkDefinitionSegmentType::Admin => NetworkSegmentType::Admin,
+                NetworkDefinitionSegmentType::Underlay => NetworkSegmentType::Underlay,
+            },
+        })
+    }
+
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
+        initial_state: NetworkSegmentControllerState,
     ) -> Result<NetworkSegment, DatabaseError> {
         let version = ConfigVersion::initial();
         let version_string = version.version_string();
-        let controller_state = NetworkSegmentControllerState::Provisioning;
 
         let query = "INSERT INTO network_segments (
                 name,
@@ -319,7 +345,7 @@ impl NewNetworkSegment {
             .bind(self.mtu)
             .bind(&version_string)
             .bind(&version_string)
-            .bind(sqlx::types::Json(&controller_state))
+            .bind(sqlx::types::Json(&initial_state))
             .bind(self.vlan_id)
             .bind(self.vni)
             .bind(self.segment_type)
@@ -329,7 +355,7 @@ impl NewNetworkSegment {
         segment.prefixes =
             NetworkPrefix::create_for(txn, &segment.id, self.vlan_id, &self.prefixes).await?;
 
-        NetworkSegmentStateHistory::persist(txn, segment.id, &controller_state, version).await?;
+        NetworkSegmentStateHistory::persist(txn, segment.id, &initial_state, version).await?;
 
         Ok(segment)
     }
@@ -620,6 +646,18 @@ INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id
 WHERE network_prefixes.circuit_id=$1";
         sqlx::query_as(query)
             .bind(circuit_id)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    pub async fn find_by_name(
+        txn: &mut Transaction<'_, Postgres>,
+        name: &str,
+    ) -> Result<Self, DatabaseError> {
+        let query = "SELECT * from network_segments WHERE name = $1";
+        sqlx::query_as(query)
+            .bind(name)
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
