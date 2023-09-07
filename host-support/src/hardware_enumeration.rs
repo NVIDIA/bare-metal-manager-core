@@ -548,9 +548,26 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         Ok(smbios_info) => {
             for i in smbios_info.collect::<smbioslib::SMBiosMemoryDevice>() {
                 let size_mb = match i.size() {
-                    Some(smbioslib::MemorySize::Megabytes(size)) => Some(size as u32),
-                    _ => None,
+                    Some(smbioslib::MemorySize::Kilobytes(size)) => size as u32 * 1024,
+                    Some(smbioslib::MemorySize::Megabytes(size)) => size as u32,
+                    Some(smbioslib::MemorySize::SeeExtendedSize) => {
+                        match i.extended_size() {
+                            Some(extended_size) => match extended_size {
+                                smbioslib::MemorySizeExtended::Megabytes(size) => size,
+                                smbioslib::MemorySizeExtended::SeeSize => 0u32, // size was already checked, just return 0
+                            },
+                            None => 0u32,
+                        }
+                    }
+                    Some(smbioslib::MemorySize::NotInstalled) => 0u32,
+                    Some(smbioslib::MemorySize::Unknown) => 0u32,
+                    None => 0u32,
                 };
+
+                // do not include the module if any of the above conditions ended up with a 0.
+                if size_mb == 0 {
+                    continue;
+                }
 
                 let mem_type = match i.memory_type() {
                     Some(smbioslib::MemoryDeviceTypeData { value, .. }) => {
@@ -558,7 +575,10 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
                     }
                     _ => backup_ram_type.clone(),
                 };
-                memory_devices.push(MemoryDevice { size_mb, mem_type });
+                memory_devices.push(MemoryDevice {
+                    size_mb: Some(size_mb),
+                    mem_type,
+                });
             }
         }
         Err(err) => {
