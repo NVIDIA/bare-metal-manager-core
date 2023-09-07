@@ -548,7 +548,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         Ok(smbios_info) => {
             for i in smbios_info.collect::<smbioslib::SMBiosMemoryDevice>() {
                 let size_mb = match i.size() {
-                    Some(smbioslib::MemorySize::Kilobytes(size)) => size as u32 * 1024,
+                    Some(smbioslib::MemorySize::Kilobytes(size)) => size as u32 / 1024,
                     Some(smbioslib::MemorySize::Megabytes(size)) => size as u32,
                     Some(smbioslib::MemorySize::SeeExtendedSize) => {
                         match i.extended_size() {
