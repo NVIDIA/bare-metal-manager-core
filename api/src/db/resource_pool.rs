@@ -10,15 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{marker::PhantomData, str::FromStr};
+use std::{fmt, marker::PhantomData, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use sqlx::{Postgres, Row, Transaction};
 
-use super::{OwnerType, ResourcePoolError, ValueType};
 use crate::{
     db::DatabaseError,
     model::{config_version::ConfigVersion, resource_pool::ResourcePoolEntryState},
+    CarbideError,
 };
 
 // Max values we can bind to a Postgres SQL statement;
@@ -155,10 +155,7 @@ WHERE name = $2 AND value = $3
     }
 
     /// Count how many (used, unused) values are in the pool
-    pub async fn stats<'c, E>(
-        &self,
-        executor: E,
-    ) -> Result<super::ResourcePoolStats, ResourcePoolError>
+    pub async fn stats<'c, E>(&self, executor: E) -> Result<ResourcePoolStats, ResourcePoolError>
     where
         E: sqlx::Executor<'c, Database = Postgres>,
     {
@@ -190,10 +187,7 @@ WHERE name = $2 AND value = $3
     }
 }
 
-pub async fn stats<'c, E>(
-    executor: E,
-    name: &str,
-) -> Result<super::ResourcePoolStats, ResourcePoolError>
+pub async fn stats<'c, E>(executor: E, name: &str) -> Result<ResourcePoolStats, ResourcePoolError>
 where
     E: sqlx::Executor<'c, Database = Postgres>,
 {
@@ -203,7 +197,7 @@ where
     let query = "SELECT COUNT(*) FILTER (WHERE state != $1) AS used,
                             COUNT(*) FILTER (WHERE state = $1) AS free
                     FROM resource_pool WHERE NAME = $2";
-    let s: super::ResourcePoolStats = sqlx::query_as(query)
+    let s: ResourcePoolStats = sqlx::query_as(query)
         .bind(sqlx::types::Json(free_state))
         .bind(name)
         .fetch_one(executor)
@@ -255,11 +249,11 @@ pub async fn find_value(
     Ok(entry)
 }
 
-impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for super::ResourcePoolStats {
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolStats {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let used: i64 = row.try_get("used")?;
         let free: i64 = row.try_get("free")?;
-        Ok(super::ResourcePoolStats {
+        Ok(ResourcePoolStats {
             used: used as usize,
             free: free as usize,
         })
@@ -270,7 +264,7 @@ pub struct ResourcePoolSnapshot {
     pub name: String,
     pub min: String,
     pub max: String,
-    pub stats: super::ResourcePoolStats,
+    pub stats: ResourcePoolStats,
 }
 
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolSnapshot {
@@ -279,7 +273,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolSnapshot {
             name: row.try_get("name")?,
             min: row.try_get("min")?,
             max: row.try_get("max")?,
-            stats: super::ResourcePoolStats::from_row(row)?,
+            stats: ResourcePoolStats::from_row(row)?,
         })
     }
 }
@@ -315,4 +309,93 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolEntry {
             allocated: row.try_get("allocated")?,
         })
     }
+}
+
+/// What kind of data does our resource pool store?
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+#[sqlx(type_name = "resource_pool_type")]
+pub enum ValueType {
+    Integer = 0,
+    Ipv4,
+}
+
+impl fmt::Display for ValueType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Integer => write!(f, "Integer"),
+            Self::Ipv4 => write!(f, "Ipv4"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum OwnerType {
+    /// owner_type for loopback_ip
+    Machine,
+
+    /// owner_type for vlan_id and vni
+    NetworkSegment,
+
+    /// owner_type for pkey
+    IBSubnet,
+
+    /// owner_type for vpc_cni
+    Vpc,
+}
+
+impl FromStr for OwnerType {
+    type Err = CarbideError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "machine" => Ok(Self::Machine),
+            "network_segment" => Ok(Self::NetworkSegment),
+            "ib_subnet" => Ok(Self::IBSubnet),
+            "vpc" => Ok(Self::Vpc),
+            x => Err(CarbideError::GenericError(format!(
+                "Unknown owner_type '{}'",
+                x
+            ))),
+        }
+    }
+}
+
+impl fmt::Display for OwnerType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Machine => write!(f, "machine"),
+            Self::NetworkSegment => write!(f, "network_segment"),
+            Self::IBSubnet => write!(f, "ib_subnet"),
+            Self::Vpc => write!(f, "vpc"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct ResourcePoolStats {
+    /// Number of allocated values in this pool
+    pub used: usize,
+
+    /// Number of available values in this pool
+    pub free: usize,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ResourcePoolError {
+    #[error("Resource pool is empty, cannot allocate")]
+    Empty,
+    #[error("Value is not currently allocated, cannot release")]
+    NotAllocated,
+    #[error("Value is not available for allocating, cannot mark as allocated")]
+    NotAvailable,
+    #[error("Internal database error: {0}")]
+    Db(#[from] crate::db::DatabaseError),
+    #[error("Cannot convert '{v}' to {pool_name}'s pool type for {owner_type} {owner_id}: {e}")]
+    Parse {
+        e: String,
+        v: String,
+        pool_name: String,
+        owner_type: String,
+        owner_id: String,
+    },
 }
