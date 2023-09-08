@@ -4,13 +4,15 @@ use carbide::{
 };
 use common::api_fixtures::create_test_env;
 use mac_address::MacAddress;
-use rpc::forge::{forge_server::Forge, DhcpDiscovery};
+use rpc::forge::{forge_server::Forge, CloudInitInstructionsRequest, DhcpDiscovery};
 
 pub mod common;
 
 use common::api_fixtures::{
     instance::create_instance, network_segment::FIXTURE_NETWORK_SEGMENT_ID, TestEnv,
 };
+
+use crate::common::api_fixtures::dpu::FIXTURE_DPU_MAC_ADDRESS;
 
 #[ctor::ctor]
 fn setup() {
@@ -84,49 +86,64 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
-async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
+async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let api = common::api_fixtures::create_test_env(pool.clone())
-        .await
-        .api;
 
-    let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
-    let _ = api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mac_address.clone(),
-            relay_address: "192.0.2.1".to_string(),
-            link_address: None,
-            vendor_string: None,
-            circuit_id: None,
-            remote_id: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+    let (dpu_machine_id, _) =
+        common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install(&env).await;
 
-    // Interface is created. Let's fetch interface id.
     let mut txn = pool.begin().await.unwrap();
-    let interfaces =
-        MachineInterface::find_by_mac_address(&mut txn, mac_address.parse::<MacAddress>().unwrap())
-            .await
-            .unwrap();
 
-    assert_eq!(interfaces.len(), 1);
-    let interface_id = interfaces[0].id();
+    let machine = Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        machine.current_state(),
+        ManagedHostState::DPUNotReady {
+            machine_state: MachineState::WaitingForNetworkInstall
+        }
+    );
 
     let instructions = get_pxe_instructions(
         &env,
-        interface_id.to_string(),
+        machine.interfaces().first().unwrap().id().to_string(),
         rpc::forge::MachineArchitecture::Arm,
     )
     .await;
+    assert_ne!(instructions.pxe_script, "exit".to_string());
+    assert!(instructions.pxe_script.contains("aarch64/carbide.root"));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    let dpu_interface_id = common::api_fixtures::dpu::dpu_discover_dhcp(
+        &env,
+        common::api_fixtures::dpu::FIXTURE_DPU_MAC_ADDRESS,
+    )
+    .await;
+
+    let instructions = get_pxe_instructions(
+        &env,
+        dpu_interface_id.to_string(),
+        rpc::forge::MachineArchitecture::Arm,
+    )
+    .await;
+
     assert_ne!(instructions.pxe_script, "exit".to_string());
     assert!(instructions.pxe_script.contains("aarch64/carbide.efi"));
 
     // API doesn't know about MachineArchitecture yet. Let's check instructions for X86.
     let instructions = get_pxe_instructions(
         &env,
-        interface_id.to_string(),
+        dpu_interface_id.to_string(),
         rpc::forge::MachineArchitecture::X86,
     )
     .await;
@@ -241,4 +258,85 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
     .await;
 
     assert_eq!(instructions.pxe_script, "SomeRandomiPxe".to_string());
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
+    let api = common::api_fixtures::create_test_env(pool.clone())
+        .await
+        .api;
+
+    let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
+    let _ = api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: mac_address.clone(),
+            relay_address: "192.0.2.1".to_string(),
+            link_address: None,
+            vendor_string: None,
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Interface is created. Let's fetch interface id.
+    let mut txn = pool.begin().await.unwrap();
+    let interfaces =
+        MachineInterface::find_by_mac_address(&mut txn, mac_address.parse::<MacAddress>().unwrap())
+            .await
+            .unwrap();
+
+    assert_eq!(interfaces.len(), 1);
+
+    let cloud_init_cfg = api
+        .get_cloud_init_instructions(tonic::Request::new(CloudInitInstructionsRequest {
+            ip: interfaces[0].addresses()[0].address.to_string(),
+        }))
+        .await
+        .expect("get_cloud_init_instructions returned an error")
+        .into_inner();
+
+    assert!(cloud_init_cfg
+        .discovery_instructions
+        .is_some_and(|di| di.update_firmware));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
+    move_machine_to_needed_state(
+        dpu_id.clone(),
+        ManagedHostState::DPUNotReady {
+            machine_state: MachineState::Init,
+        },
+        &pool,
+    )
+    .await;
+
+    // Interface is created. Let's fetch interface id.
+    let mut txn = pool.begin().await.unwrap();
+    let interfaces = MachineInterface::find_by_mac_address(
+        &mut txn,
+        FIXTURE_DPU_MAC_ADDRESS.parse::<MacAddress>().unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(interfaces.len(), 1);
+
+    let cloud_init_cfg = env
+        .api
+        .get_cloud_init_instructions(tonic::Request::new(CloudInitInstructionsRequest {
+            ip: interfaces[0].addresses()[0].address.to_string(),
+        }))
+        .await
+        .expect("get_cloud_init_instructions returned an error")
+        .into_inner();
+
+    assert!(cloud_init_cfg
+        .discovery_instructions
+        .is_some_and(|di| !di.update_firmware));
 }

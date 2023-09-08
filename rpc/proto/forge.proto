@@ -1346,6 +1346,7 @@ message PxeInstructions {
 message CloudInitDiscoveryInstructions {
   MachineInterface machine_interface = 1;
   Domain domain = 2;
+  bool update_firmware = 3;
 }
 
 message CloudInitInstructionsRequest {

@@ -72,6 +72,9 @@ pub async fn bootstrap(
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
     grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
 
+    wait_for_dpu_network_install(carbide_api_addr, &dpu_machine_id)?;
+    forge_agent_control(carbide_api_addr, dpu_machine_id.clone())?;
+
     let hbn_root = configure_network(
         dpu_config_file,
         carbide_api_addr,
@@ -124,6 +127,19 @@ fn discover(addr: SocketAddr) -> eyre::Result<(String, String, Ipv4Addr)> {
     tracing::info!("Created 'forge' DPU SSH account");
 
     Ok((interface_id, dpu_machine_id, ip_address))
+}
+
+fn forge_agent_control(addr: SocketAddr, dpu_machine_id: String) -> eyre::Result<()> {
+    grpcurl(
+        addr,
+        "ForgeAgentControl",
+        Some(serde_json::to_string(&FACRequest {
+            machine_id: Id {
+                id: { dpu_machine_id },
+            },
+        })?),
+    )?;
+    Ok(())
 }
 
 fn write_config(
@@ -189,6 +205,25 @@ fn wait_for_segment(addr: SocketAddr, segment_id: &str) -> eyre::Result<()> {
             break;
         }
         thread::sleep(time::Duration::from_secs(2));
+    }
+    Ok(())
+}
+
+fn wait_for_dpu_network_install(addr: SocketAddr, dpu_machine_id: &str) -> eyre::Result<()> {
+    let data = serde_json::json!({
+        "id": {"id": dpu_machine_id},
+        "search_config": {"include_dpus": true}
+    });
+    tracing::info!("Waiting for DPU state DPU/WaitingForNetworkInstall");
+    loop {
+        let response = grpcurl(addr, "FindMachines", Some(data.to_string()))?;
+        let resp: serde_json::Value = serde_json::from_str(&response)?;
+        let state = resp["machines"][0]["state"].as_str().unwrap();
+        if state == "DPU/WaitingForNetworkInstall" {
+            break;
+        }
+        tracing::debug!("\tCurrent: {state}");
+        thread::sleep(time::Duration::from_secs(1));
     }
     Ok(())
 }
@@ -333,4 +368,9 @@ struct SegmentPrefix {
     prefix: String,
     gateway: String,
     reserve_first: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FACRequest {
+    machine_id: Id,
 }

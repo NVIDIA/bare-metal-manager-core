@@ -1,10 +1,15 @@
 cat << \ZOF > /etc/bf.cfg
 
+# update_firmware: {{ update_firmware }}
 # SFC variables
+{% if update_firmware == "true" %}
+WITH_NIC_FW_UPDATE=yes
+{% else %}
 WITH_NIC_FW_UPDATE=no
 ENABLE_SFC_HBN=yes
 NUM_SFs_ECPF0=18
 NUM_SFs_ECPF1=2
+{% endif %}
 
 bfb_modify_os()
 {
@@ -45,6 +50,7 @@ write_files:
       ip vrf exec mgmt resolvectl flush-caches
       ip vrf exec mgmt systemd-resolve --flush-caches
       done
+      chmod a+x /opt/forge/forge-scout
       echo "starting forge-scout"
       ip vrf exec mgmt /opt/forge/forge-scout --api={{ api_url }} auto-detect --uuid={{ interface_id }} > /var/log/forge/forge-scout.log 2>&1
   - path: /etc/rc.local
@@ -58,6 +64,7 @@ write_files:
     content: |
       BOOT0=NET-OOB-IPV4-HTTP
       BOOT1=DISK
+{% if update_firmware == "false" %}
   - path: /var/lib/hbn/etc/supervisor/conf.d/acltool.conf
     content: |
       [program: cl-acltool]
@@ -200,6 +207,7 @@ write_files:
       Name=*_sf_r
       [Link]
       MTUBytes=9216
+{% endif %}
   - path: /etc/forge/config.toml
     encoding: b64
     permissions: '0644'
@@ -219,7 +227,10 @@ runcmd:
   - [ /usr/bin/systemctl, disable, --now, systemd-timesyncd ]
   - [ /usr/bin/systemctl, enable, --now, systemd-timesyncd@mgmt ]
   - [ /usr/bin/timedatectl, set-ntp, true ]
-  - [ chmod, +x, /opt/forge/forge-scout ]
+{% if update_firmware == "true" %}
+  - [ /usr/bin/bfcfg ]
+  - [ /opt/forge/run-scout.sh ]
+{% else %}
   - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
   - [ bash, -c, '/usr/bin/mlxconfig -y -d /dev/mst/mt*_pciconf0 s SRIOV_EN=True NUM_OF_VFS=16 HIDE_PORT2_PF=True NUM_OF_PF=1' ]
   - [ dpkg, -i, /opt/forge/forge-dpu_1.0-1.deb ]
@@ -233,6 +244,7 @@ runcmd:
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
   - [ /usr/bin/bfcfg ]
   - [ /opt/forge/run-scout.sh ]
+{% endif %}
 EOF
 
 }

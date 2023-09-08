@@ -27,6 +27,7 @@ pub struct MachineMetrics {
     pub dpu_up: bool,
     pub dpu_healthy: bool,
     pub failed_dpu_healthchecks: HashSet<String>,
+    pub dpu_firmware_version: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -35,6 +36,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub dpus_up: usize,
     pub dpus_healthy: usize,
     pub failed_dpu_healthchecks: HashMap<String, usize>,
+    pub dpu_firmware_versions: HashMap<String, usize>,
 }
 
 #[derive(Debug)]
@@ -43,6 +45,7 @@ pub struct MachineMetricsEmitter {
     dpus_healthy_gauge: ObservableGauge<u64>,
     failed_dpu_healthchecks_gauge: ObservableGauge<u64>,
     dpu_agent_version_gauge: ObservableGauge<u64>,
+    dpu_firmware_version_gauge: ObservableGauge<u64>,
 }
 
 impl MetricsEmitter for MachineMetricsEmitter {
@@ -72,11 +75,17 @@ impl MetricsEmitter for MachineMetricsEmitter {
             )
             .init();
 
+        let dpu_firmware_version_guage = meter
+            .u64_observable_gauge("forge_dpu_firmware_version_count")
+            .with_description("The amount of DPUs which have reported a certain firmware version.")
+            .init();
+
         Self {
             dpus_up_gauge,
             dpus_healthy_gauge,
             dpu_agent_version_gauge,
             failed_dpu_healthchecks_gauge,
+            dpu_firmware_version_gauge: dpu_firmware_version_guage,
         }
     }
 
@@ -86,6 +95,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             self.dpus_healthy_gauge.as_any(),
             self.dpu_agent_version_gauge.as_any(),
             self.failed_dpu_healthchecks_gauge.as_any(),
+            self.dpu_firmware_version_gauge.as_any(),
         ]
     }
 
@@ -110,6 +120,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
         if let Some(version) = object_metrics.agent_version.as_ref() {
             *iteration_metrics
                 .agent_versions
+                .entry(version.clone())
+                .or_default() += 1;
+        }
+
+        if let Some(version) = object_metrics.dpu_firmware_version.as_ref() {
+            *iteration_metrics
+                .dpu_firmware_versions
                 .entry(version.clone())
                 .or_default() += 1;
         }
@@ -158,6 +175,18 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 &agent_version_attrs,
             );
         }
+
+        agent_version_attrs.pop();
+        // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
+        agent_version_attrs.push(KeyValue::new("firmware_version", "".to_string()));
+        for (version, count) in &iteration_metrics.dpu_firmware_versions {
+            agent_version_attrs.last_mut().unwrap().value = version.clone().into();
+            observer.observe_u64(
+                &self.dpu_firmware_version_gauge,
+                *count as u64,
+                &agent_version_attrs,
+            );
+        }
     }
 }
 
@@ -173,30 +202,35 @@ mod tests {
                 dpu_up: true,
                 dpu_healthy: true,
                 failed_dpu_healthchecks: HashSet::from_iter([]),
+                dpu_firmware_version: None,
             },
             MachineMetrics {
                 agent_version: Some("v1".to_string()),
                 dpu_up: true,
                 dpu_healthy: false,
                 failed_dpu_healthchecks: HashSet::from_iter(["bgp".to_string(), "ntp".to_string()]),
+                dpu_firmware_version: None,
             },
             MachineMetrics {
                 agent_version: Some("v3".to_string()),
                 dpu_up: false,
                 dpu_healthy: true,
                 failed_dpu_healthchecks: HashSet::from_iter([]),
+                dpu_firmware_version: Some("v4".to_string()),
             },
             MachineMetrics {
                 agent_version: Some("v3".to_string()),
                 dpu_up: true,
                 dpu_healthy: true,
                 failed_dpu_healthchecks: HashSet::from_iter([]),
+                dpu_firmware_version: Some("v2".to_string()),
             },
             MachineMetrics {
                 agent_version: None,
                 dpu_up: true,
                 dpu_healthy: false,
                 failed_dpu_healthchecks: HashSet::from_iter(["bgp".to_string(), "dns".to_string()]),
+                dpu_firmware_version: Some("v4".to_string()),
             },
         ];
 
@@ -218,6 +252,10 @@ mod tests {
                 ("ntp".to_string(), 1),
                 ("dns".to_string(), 1)
             ])
+        );
+        assert_eq!(
+            iteration_metrics.dpu_firmware_versions,
+            HashMap::from_iter([("v2".to_string(), 1), ("v4".to_string(), 2)])
         );
     }
 }

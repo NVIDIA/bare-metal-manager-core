@@ -2701,11 +2701,15 @@ where
                         None => None,
                     };
 
+                // we update DPU firmware on first boot every time (determined by a missing machine id)
+                let update_firmware = machine_interface.machine_id.is_none();
+
                 rpc::CloudInitInstructions {
                     custom_cloud_init,
                     discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
                         machine_interface: Some(machine_interface.into()),
                         domain: Some(domain.into()),
+                        update_firmware,
                     }),
                 }
             }

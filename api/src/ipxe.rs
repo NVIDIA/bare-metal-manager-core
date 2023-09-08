@@ -8,8 +8,7 @@ use crate::{
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
     },
-    model::machine::{InstanceState, ManagedHostState},
-    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
+    model::machine::{InstanceState, MachineState, ManagedHostState},
     CarbideError,
 };
 
@@ -140,11 +139,6 @@ exit ||
                 "Invalid machine id. Not found in db.".to_string(),
             ))?;
 
-        // Check if dpu
-        if machine.is_dpu() {
-            return Ok("exit".to_string());
-        }
-
         if let Some(hardware_info) = machine.hardware_info() {
             if let Some(dmi_info) = hardware_info.dmi_data.as_ref() {
                 if dmi_info.sys_vendor == "Lenovo" {
@@ -153,11 +147,33 @@ exit ||
             }
         }
 
-        let machine_snapshot = DbSnapshotLoader {}
-            .load_machine_snapshot(txn, machine.id())
-            .await?;
+        // DPUs need to boot twice during initial discovery. Both reboots require
+        // that the DPU gets pxe instructions.
+        //
+        // The first boot (before it even exists in the DB) enables firmware update
+        // but will not install HBN.  This is handled above when no machine is found.
+        //
+        // The second boot enables HBN.  This is handled here when the DPU is
+        // waiting for the network install
+        if machine.is_dpu() {
+            match &machine.current_state() {
+                ManagedHostState::DPUNotReady {
+                    machine_state: MachineState::WaitingForNetworkInstall,
+                } => {
+                    return Ok(PxeInstructions::get_pxe_instruction_for_arch(
+                        arch,
+                        interface_id,
+                        mac,
+                        console,
+                    ));
+                }
+                _ => {
+                    return Ok("exit".to_string());
+                }
+            }
+        }
 
-        let pxe_script = match &machine_snapshot.managed_state {
+        let pxe_script = match &machine.current_state() {
             ManagedHostState::Ready
             | ManagedHostState::HostNotReady { .. }
             | ManagedHostState::WaitingForCleanup { .. } => {
@@ -186,7 +202,7 @@ exit ||
                     PxeInstructions::get_pxe_instruction_for_arch(arch, interface_id, mac, console)
                 }
 
-                _ => error_instructions(&machine_snapshot.managed_state),
+                _ => error_instructions(&machine.current_state()),
             },
             x => error_instructions(x),
         };
