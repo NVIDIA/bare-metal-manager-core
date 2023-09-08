@@ -65,6 +65,7 @@ prepare-ci:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       needs:
         - job: "lint:commit-merge-request"
+    - if: $CI_PIPELINE_SOURCE != "merge_request_event"
 #    - if: $CI_PIPELINE_SOURCE == "push"
 #      needs:
 #        - job: "lint:commit-push"
