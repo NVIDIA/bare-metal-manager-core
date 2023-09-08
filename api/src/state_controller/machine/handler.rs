@@ -77,6 +77,12 @@ impl StateHandler for MachineStateHandler {
     ) -> Result<(), StateHandlerError> {
         let managed_state = &state.managed_state;
 
+        metrics.dpu_firmware_version = state
+            .dpu_snapshot
+            .hardware_info
+            .as_ref()
+            .and_then(|hi| hi.dpu_info.as_ref().map(|di| di.firmware_version.clone()));
+
         metrics.dpu_healthy = state.dpu_snapshot.has_healthy_network();
         if let Some(observation) = state.dpu_snapshot.network_status_observation.as_ref() {
             metrics.agent_version = observation.agent_version.clone();
@@ -271,12 +277,33 @@ impl StateHandler for DpuMachineStateHandler {
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::Init,
             } => {
+                // The DPU will be told to perform a firmware update on first boot.  During that boot
+                // it will do discovery.  Once discovery is complete, reboot it and boot the image
+                // that includes HBN.
+
                 // We are waiting for the `DiscoveryCompleted` RPC call to update the
-                // `last_discovery_time` timestamp.
-                // This indicates that all forge-scout actions have succeeded.
+                // `last_discovery_time` timestamp.  This indicates that all forge-scout actions have succeeded.
                 if !discovered_after_state_transition(
                     state.dpu_snapshot.current.version,
                     state.dpu_snapshot.last_discovery_time,
+                )
+                .await?
+                {
+                    return Ok(());
+                }
+
+                restart_machine(&state.dpu_snapshot, ctx).await?;
+
+                *controller_state.modify() = ManagedHostState::DPUNotReady {
+                    machine_state: MachineState::WaitingForNetworkInstall,
+                };
+            }
+            ManagedHostState::DPUNotReady {
+                machine_state: MachineState::WaitingForNetworkInstall,
+            } => {
+                if !rebooted(
+                    state.dpu_snapshot.current.version,
+                    state.dpu_snapshot.last_reboot_time,
                 )
                 .await?
                 {
@@ -481,6 +508,12 @@ impl StateHandler for HostMachineStateHandler {
                             }
                         }
                     }
+                }
+                MachineState::WaitingForNetworkInstall => {
+                    tracing::warn!(
+                        "Invalid State WaitingForNetworkConfig for Host Machine {}",
+                        host_machine_id
+                    );
                 }
             }
         }

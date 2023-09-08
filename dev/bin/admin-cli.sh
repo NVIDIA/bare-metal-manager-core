@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
 
-API_SERVER_HOST=$1
-API_SERVER_PORT=$2
-shift 2
 CLI_ARGS="$@"
 
 if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
-  # TODO install admin-cli somewhere
-  # TODO mount repo in api container for data file access
-  #kubectl exec --context minikube --namespace forge-system -it deploy/carbide-api -- bash -c "/opt/carbide/forge-admin-cli -c https://${API_SERVER_HOST}:${API_SERVER_PORT} $CLI_ARGS"
-  echo ${REPO_ROOT}/target/debug/forge-admin-cli -c https://${API_SERVER_HOST}:${API_SERVER_PORT} ${CLI_ARGS}
-  ${REPO_ROOT}/target/debug/forge-admin-cli -c https://${API_SERVER_HOST}:${API_SERVER_PORT} ${CLI_ARGS}
+  kubectl exec --context minikube --namespace forge-system -it deploy/carbide-api -- bash -c \
+      "/opt/carbide/forge-admin-cli --forge-root-ca-path=/var/run/secrets/spiffe.io/ca.crt --client-cert-path=/var/run/secrets/spiffe.io/tls.crt --client-key-path=/var/run/secrets/spiffe.io/tls.key -c https://carbide-api.forge-system.svc.cluster.local:\${CARBIDE_API_SERVICE_PORT} $CLI_ARGS"
 else
   # docker-compose case
 

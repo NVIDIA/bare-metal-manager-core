@@ -152,6 +152,7 @@ pub struct FailureDetails {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum MachineState {
     Init,
+    WaitingForNetworkInstall,
     WaitingForNetworkConfig,
     WaitingForDiscovery,
     Discovered,

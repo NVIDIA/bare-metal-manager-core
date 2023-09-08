@@ -30,7 +30,8 @@ DISCOVERY_MODE=$4
 DPU_INFO=$(grpcurl -d "{\"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines)
 DPU_MACHINE_ID=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].machineId.id")
 DPU_INTERFACE_ID=$(jq -rn "${DPU_INFO}.machines[0].interfaces[0].id.value")
-echo "DPU INFO: ${DPU_MACHINE_ID} ${DPU_INTERFACE_ID}"
+echo "DPU machine id: ${DPU_MACHINE_ID}"
+echo "DPU interface id: ${DPU_INTERFACE_ID}"
 
 HBN_ROOT=$(cat /tmp/hbn_root)
 DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"
@@ -59,24 +60,26 @@ DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID"
 # Assuming ManagedHost is Host/Init state now.
 RESULT=$(echo "$DISCOVER_MACHINE_REQUEST" | grpcurl -d @ -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverMachine)
 HOST_MACHINE_ID=$(echo "$RESULT" | jq ".machineId.id" | tr -d '"')
-grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/ForgeAgentControl
+ACTION=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/ForgeAgentControl | jq -r .action)
+echo "Forge agent control: ${ACTION}"
 
 # Give it a BMC IP and credentials
 UPDATE_BMC_METADATA=$(jq --arg machine_id "$HOST_MACHINE_ID" '.machine_id.id = $machine_id' "$BMC_METADATA_FILE")
 grpcurl -d "$UPDATE_BMC_METADATA" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/UpdateBMCMetaData
 echo "Created HOST Machine with ID $HOST_MACHINE_ID. Starting discovery."
 
+MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+echo "State: ${MACHINE_STATE}"
+ACTION=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/ForgeAgentControl | jq -r .action)
+echo "Host Forge agent control: ${ACTION}"
+ACTION=$(grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/ForgeAgentControl | jq -r .action)
+echo "DPU Forge agent control: ${ACTION}"
+
 # Mark discovery complete
 RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
 
-echo "Waiting for lockdown to complete."
-# should exceed ServiceConfig.dpu_wait_time
-sleep 2
-echo "Lockdown wait is over."
-
 # Wait past the enforced delay until we look for DPU to have rebooted
 i=0
-MACHINE_STATE=""
 while [[ $i -lt $MAX_RETRY ]]; do
   sleep 4
 
@@ -91,6 +94,9 @@ if [[ $i -ge "$MAX_RETRY" ]]; then
   echo "Even after $MAX_RETRY retries, Host did not come in WaitForDPUUp state."
   exit 1
 fi
+
+MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+echo "State: ${MACHINE_STATE}"
 
 # Run forge-dpu-agent to report an observation, which shows that DPU has now rebooted
 cd ${REPO_ROOT} && cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
@@ -115,7 +121,6 @@ grpcurl -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" -insecure $API_SER
 
 # Wait until host reaches ready state.
 i=0
-MACHINE_STATE=""
 while [[ $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
   sleep 2
 

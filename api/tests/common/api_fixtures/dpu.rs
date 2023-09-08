@@ -66,12 +66,71 @@ pub const FIXTURE_DPU_HBN_PASSWORD: &str = "a9123";
 ///
 /// Returns the ID of the created machine
 pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
-    let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
-    let dpu_machine_id = dpu_discover_machine(env, machine_interface_id).await;
     let handler = MachineStateHandler::default();
 
-    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+    let (dpu_machine_id, host_machine_id) =
+        create_dpu_machine_in_waiting_for_network_install(env).await;
     let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
+    let mut txn = env.pool.begin().await.unwrap();
+
+    // Simulate the ForgeAgentControl request of the DPU
+    let agent_control_response = env
+        .api
+        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
+            machine_id: Some(dpu_rpc_machine_id.clone()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        agent_control_response.action,
+        rpc::forge_agent_control_response::Action::Noop as i32
+    );
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        &handler,
+        4,
+        &mut txn,
+        ManagedHostState::DPUNotReady {
+            machine_state: carbide::model::machine::MachineState::WaitingForNetworkConfig,
+        },
+    )
+    .await;
+
+    network_configured(env, &dpu_machine_id).await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        &handler,
+        4,
+        &mut txn,
+        ManagedHostState::HostNotReady {
+            machine_state: carbide::model::machine::MachineState::WaitingForDiscovery,
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // There should be two MI, one for DPU and one for host.
+    let mut txn = env.pool.begin().await.unwrap();
+    let query = "select * from machine_interfaces";
+    let mi = sqlx::query_as::<_, MachineInterface>(query)
+        .fetch_all(&mut *txn)
+        .await
+        .unwrap();
+    assert_eq!(mi.len(), 2);
+    txn.commit().await.unwrap();
+    dpu_rpc_machine_id
+}
+
+pub async fn create_dpu_machine_in_waiting_for_network_install(
+    env: &TestEnv,
+) -> (MachineId, MachineId) {
+    let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
+    let dpu_rpc_machine_id = dpu_discover_machine(env, machine_interface_id).await;
+    let handler = MachineStateHandler::default();
+
+    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
     // Simulate the ForgeAgentControl request of the DPU
     let agent_control_response = env
@@ -103,7 +162,7 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     .await;
 
     discovery_completed(env, dpu_rpc_machine_id.clone(), None).await;
-    network_configured(env, &dpu_machine_id).await;
+
     let mut txn = env.pool.begin().await.unwrap();
     let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
@@ -111,28 +170,21 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
         .unwrap()
         .id()
         .clone();
+
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         &handler,
         4,
         &mut txn,
-        ManagedHostState::HostNotReady {
-            machine_state: carbide::model::machine::MachineState::WaitingForDiscovery,
+        ManagedHostState::DPUNotReady {
+            machine_state: carbide::model::machine::MachineState::WaitingForNetworkInstall,
         },
     )
     .await;
+
     txn.commit().await.unwrap();
 
-    // There should be two MI, one for DPU and one for host.
-    let mut txn = env.pool.begin().await.unwrap();
-    let query = "select * from machine_interfaces";
-    let mi = sqlx::query_as::<_, MachineInterface>(query)
-        .fetch_all(&mut *txn)
-        .await
-        .unwrap();
-    assert_eq!(mi.len(), 2);
-    txn.commit().await.unwrap();
-    dpu_rpc_machine_id
+    (dpu_machine_id, host_machine_id)
 }
 
 /// Uses the `discover_dhcp` API to discover a DPU with a certain MAC address

@@ -93,6 +93,7 @@ impl StateControllerIO for MachineStateControllerIO {
         fn machine_state_name(machine_state: &MachineState) -> &'static str {
             match machine_state {
                 MachineState::Init => "init",
+                MachineState::WaitingForNetworkInstall => "waitingfornetworkinstall",
                 MachineState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",
                 MachineState::Discovered => "discovered",

@@ -2,8 +2,6 @@
 ###this script is intended to be used by developers against minikube to delete and recreate the forge database.
 ###It assumes that the API server is already down, usually accomplished by bringing down skaffold prior to running the script.
 
-kubectl exec -ti forge-pg-cluster-0  -n postgres -- /usr/bin/psql -U postgres -c "select pid, (SELECT pg_terminate_backend(pid)) as killed, query from pg_stat_activity where datname='forge_system_carbide';"
-
 MAX_RETRY=10
 i=0
 while [[ $i -lt $MAX_RETRY ]]; do

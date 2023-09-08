@@ -23,6 +23,7 @@ use crate::{Machine, RuntimeConfig};
 fn user_data_handler(
     machine_interface_id: rpc::Uuid,
     machine_interface: forge::MachineInterface,
+    update_firmware: bool,
     domain: forge::Domain,
     config: RuntimeConfig,
 ) -> (String, HashMap<String, String>) {
@@ -31,6 +32,14 @@ fn user_data_handler(
 
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine_interface.mac_address);
+
+    // IMPORTANT: if the nic fw update and the hbn are both yes, it puts the dpu into a state that requires a power down.
+    if update_firmware {
+        context.insert("update_firmware".to_owned(), "true".to_owned());
+    } else {
+        context.insert("update_firmware".to_owned(), "false".to_owned());
+    }
+
     context.insert(
         "hostname".to_string(),
         format!("{}.{}", machine_interface.hostname, domain.name),
@@ -135,9 +144,13 @@ pub async fn user_data(machine: Machine, config: RuntimeConfig) -> Template {
                 discovery_instructions.domain,
             ) {
                 (Some(interface), Some(domain)) => match interface.id.clone() {
-                    Some(machine_interface_id) => {
-                        user_data_handler(machine_interface_id, interface, domain, config)
-                    }
+                    Some(machine_interface_id) => user_data_handler(
+                        machine_interface_id,
+                        interface,
+                        discovery_instructions.update_firmware,
+                        domain,
+                        config,
+                    ),
                     None => print_and_generate_generic_error(format!(
                         "The interface ID should not be null: {:?}",
                         interface
