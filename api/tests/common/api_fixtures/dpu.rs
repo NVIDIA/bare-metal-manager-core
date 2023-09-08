@@ -111,14 +111,14 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     .await;
     txn.commit().await.unwrap();
 
-    // There should be two MI, one for DPU and one for host.
+    // There should be three MI, one for DPU, one for the DPU BMC, and one for host.
     let mut txn = env.pool.begin().await.unwrap();
     let query = "select * from machine_interfaces";
     let mi = sqlx::query_as::<_, MachineInterface>(query)
         .fetch_all(&mut *txn)
         .await
         .unwrap();
-    assert_eq!(mi.len(), 2);
+    assert_eq!(mi.len(), 3);
     txn.commit().await.unwrap();
     dpu_rpc_machine_id
 }
@@ -126,6 +126,7 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
 pub async fn create_dpu_machine_in_waiting_for_network_install(
     env: &TestEnv,
 ) -> (MachineId, MachineId) {
+    let _bmc_machine_interface_id = dpu_bmc_discover_dhcp(env, FIXTURE_DPU_BMC_MAC_ADDRESS).await;
     let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
     let dpu_rpc_machine_id = dpu_discover_machine(env, machine_interface_id).await;
     let handler = MachineStateHandler::default();
@@ -185,6 +186,28 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
     txn.commit().await.unwrap();
 
     (dpu_machine_id, host_machine_id)
+}
+
+/// Uses the `discover_dhcp` API to discover a DPU BMC with a certain MAC address
+///
+/// Returns the created `machine_interface_id`
+pub async fn dpu_bmc_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
+    let response = env
+        .api
+        .discover_dhcp(Request::new(DhcpDiscovery {
+            mac_address: mac_address.to_string(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
+            vendor_string: Some("NVIDIA/BF/BMC".to_string()),
+            link_address: None,
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    response
+        .machine_interface_id
+        .expect("machine_interface_id must be set")
 }
 
 /// Uses the `discover_dhcp` API to discover a DPU with a certain MAC address
@@ -291,7 +314,6 @@ pub fn create_dpu_hardware_info() -> HardwareInfo {
 }
 
 // Convenience method for the tests to get a machine's loopback IP
-// Eth virt only (not old VPC)
 pub async fn loopback_ip(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     dpu_machine_id: &MachineId,
@@ -310,6 +332,7 @@ pub async fn create_dpu_machine_with_discovery_error(
     env: &TestEnv,
     discovery_error: Option<String>,
 ) -> rpc::MachineId {
+    let _bmc_machine_interface_id = dpu_bmc_discover_dhcp(env, FIXTURE_DPU_BMC_MAC_ADDRESS).await;
     let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
     let dpu_machine_id = dpu_discover_machine(env, machine_interface_id).await;
     let handler = MachineStateHandler::default();
