@@ -40,7 +40,7 @@ write_files:
     permissions: '0755'
     content: |
       #!/bin/bash
-      # When updating firmware, HBN is not installed and do not have VRF.
+      # When updating firmware, HBN is not installed and have no VRF.
 {% if update_firmware == "false" %}
       CMD_PREFIX="ip vrf exec mgmt"
 {% endif %}
