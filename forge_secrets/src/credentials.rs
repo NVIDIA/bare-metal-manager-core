@@ -40,6 +40,9 @@ pub enum CredentialKey {
     DpuRedfish {
         credential_type: CredentialType,
     },
+    HostRedfish {
+        credential_type: CredentialType,
+    },
 }
 
 impl CredentialKey {
@@ -59,10 +62,18 @@ impl CredentialKey {
             }
             CredentialKey::DpuRedfish { credential_type } => match credential_type {
                 CredentialType::HardwareDefault => {
-                    "machines/all_factory_default/bmc-metadata-items/root".to_string()
+                    "machines/all_dpus/factory_default/bmc-metadata-items/root".to_string()
                 }
                 CredentialType::SiteDefault => {
-                    "machines/all_site_default/bmc-metadata-items/root".to_string()
+                    "machines/all_dpus/site_default/bmc-metadata-items/root".to_string()
+                }
+            },
+            CredentialKey::HostRedfish { credential_type } => match credential_type {
+                CredentialType::HardwareDefault => {
+                    "machines/all_hosts/factory_default/bmc-metadata-items/root".to_string()
+                }
+                CredentialType::SiteDefault => {
+                    "machines/all_hosts/site_default/bmc-metadata-items/root".to_string()
                 }
                 CredentialType::BmcMachine { bmc_machine_id } => {
                     format!("bmc_machines/{bmc_machine_id}/redfish-admin")
