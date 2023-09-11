@@ -108,6 +108,7 @@ async fn handler(request: Request<Body>) -> &'static str {
 async fn get_root() -> impl IntoResponse {
     let mut out = HashMap::new();
     out.insert("Vendor", "Dell");
+    out.insert("RedfishVersion", "1.13.1");
     (StatusCode::OK, Json(out))
 }
 

@@ -22,7 +22,7 @@ pub enum BmcMachineType {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum BmcMachineError {
-    RedfishConnectionError { message: String },
+    RedfishConnection { message: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

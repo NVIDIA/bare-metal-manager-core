@@ -23,6 +23,7 @@ pub trait CredentialProvider: Send + Sync {
 pub enum CredentialType {
     HardwareDefault,
     SiteDefault,
+    BmcMachine { bmc_machine_id: String },
 }
 
 pub enum CredentialKey {
@@ -62,6 +63,9 @@ impl CredentialKey {
                 }
                 CredentialType::SiteDefault => {
                     "machines/all_site_default/bmc-metadata-items/root".to_string()
+                }
+                CredentialType::BmcMachine { bmc_machine_id } => {
+                    format!("bmc_machines/{bmc_machine_id}/redfish-admin")
                 }
             },
         }
