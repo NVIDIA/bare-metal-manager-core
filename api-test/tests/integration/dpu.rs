@@ -13,12 +13,15 @@
 use std::{
     fs, io,
     net::{Ipv4Addr, SocketAddr},
-    path, thread, time,
+    path,
 };
 
 use serde::{Deserialize, Serialize};
 
-use crate::grpcurl::{grpcurl, Id, Value};
+use crate::{
+    grpcurl::{grpcurl, Id, Value},
+    machine::wait_for_state,
+};
 
 const DPU_CONFIG: &str = r#"
 [forge-system]
@@ -70,7 +73,11 @@ pub async fn bootstrap(
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
     grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
 
-    wait_for_dpu_network_install(carbide_api_addr, &dpu_machine_id)?;
+    wait_for_state(
+        carbide_api_addr,
+        &dpu_machine_id,
+        "DPU/WaitingForNetworkInstall",
+    )?;
     forge_agent_control(carbide_api_addr, dpu_machine_id.clone())?;
 
     let hbn_root = configure_network(
@@ -171,47 +178,9 @@ async fn configure_network(
     })
     .await?;
 
-    wait_for_dpu_up(carbide_api_addr, dpu_machine_id)?;
+    wait_for_state(carbide_api_addr, dpu_machine_id, "Host/WaitingForDiscovery")?;
     tracing::info!("DPU is up now.");
     Ok(hbn_root)
-}
-
-fn wait_for_dpu_network_install(addr: SocketAddr, dpu_machine_id: &str) -> eyre::Result<()> {
-    let data = serde_json::json!({
-        "id": {"id": dpu_machine_id},
-        "search_config": {"include_dpus": true}
-    });
-    tracing::info!("Waiting for DPU state DPU/WaitingForNetworkInstall");
-    loop {
-        let response = grpcurl(addr, "FindMachines", Some(data.to_string()))?;
-        let resp: serde_json::Value = serde_json::from_str(&response)?;
-        let state = resp["machines"][0]["state"].as_str().unwrap();
-        if state == "DPU/WaitingForNetworkInstall" {
-            break;
-        }
-        tracing::debug!("\tCurrent: {state}");
-        thread::sleep(time::Duration::from_secs(1));
-    }
-    Ok(())
-}
-
-fn wait_for_dpu_up(addr: SocketAddr, dpu_machine_id: &str) -> eyre::Result<()> {
-    let data = serde_json::json!({
-        "id": {"id": dpu_machine_id},
-        "search_config": {"include_dpus": true}
-    });
-    tracing::info!("Waiting for DPU state Host/WaitingForDiscovery");
-    loop {
-        let response = grpcurl(addr, "FindMachines", Some(&data))?;
-        let resp: serde_json::Value = serde_json::from_str(&response)?;
-        let state = resp["machines"][0]["state"].as_str().unwrap();
-        if state == "Host/WaitingForDiscovery" {
-            break;
-        }
-        tracing::debug!("\tCurrent: {state}");
-        thread::sleep(time::Duration::from_secs(1));
-    }
-    Ok(())
 }
 
 fn make_dpu_filesystem(
