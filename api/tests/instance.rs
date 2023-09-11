@@ -18,6 +18,7 @@ use carbide::{
         instance::{status::network::update_instance_network_status_observation, Instance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
+        ObjectFilter,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     model::{
@@ -749,4 +750,77 @@ async fn test_instance_add_infiniband_data_via_migration(pool: sqlx::PgPool) {
         rpc::TenantState::Ready
     );
     assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mut txn = pool.begin().await?;
+
+    let machine = &Machine::find(
+        &mut txn,
+        ObjectFilter::One(host_machine_id.clone()),
+        MachineSearchConfig::default(),
+    )
+    .await?[0];
+    let (_, version) = machine.network_config().clone().take();
+
+    // Give it an unhealthy network
+    let netstat_req = tonic::Request::new(rpc::forge::DpuNetworkStatus {
+        dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+        observed_at: None, // server sets it
+        health: Some(rpc::forge::NetworkHealth {
+            is_healthy: false,
+            passed: vec![],
+            failed: vec!["lol".to_string(), "everything".to_string()],
+            message: Some("test_cannot_create_instance_on_unhealthy_dpu".to_string()),
+        }),
+        network_config_version: Some(version.version_string()),
+        instance_config_version: None,
+        interfaces: vec![rpc::InstanceInterfaceStatusObservation {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            virtual_function_id: None,
+            mac_address: None,
+            addresses: vec![],
+        }],
+        network_config_error: None,
+        instance_id: None,
+        dpu_agent_version: Some("test_cannot_create_instance_on_unhealthy_dpu".to_string()),
+    });
+    env.api.record_dpu_network_status(netstat_req).await?;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(rpc::TenantConfig {
+                    user_data: Some("SomeRandomData".to_string()),
+                    custom_ipxe: "SomeRandomiPxe".to_string(),
+                    tenant_organization_id: "Tenant1".to_string(),
+                    tenant_keyset_ids: vec![],
+                }),
+                network,
+                infiniband: None,
+            }),
+            ssh_keys: vec!["mykey1".to_owned()],
+        }))
+        .await;
+    let Err(err) = result else {
+        panic!("Creating an instance should have been refused");
+    };
+    if err.code() != tonic::Code::Unavailable {
+        panic!("Expected grpc code UNAVAILABLE, got {}", err.code());
+    }
+    Ok(())
 }

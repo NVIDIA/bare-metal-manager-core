@@ -1172,7 +1172,7 @@ where
         log_machine_id(&dpu_machine_id);
 
         if let Some(ref network_config_error) = request.network_config_error {
-            tracing::info!(machine_id = %dpu_machine_id, "Host  failed applying network config: {network_config_error}");
+            tracing::info!(machine_id = %dpu_machine_id, "Host failed applying network config: {network_config_error}");
         }
 
         let hs = request

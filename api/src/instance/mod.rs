@@ -155,6 +155,20 @@ pub async fn allocate_instance(
         )));
     }
 
+    // HBN must be working on the DPU before we allow an instance
+    match Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id).await? {
+        Some(dpu_machine) => {
+            if !dpu_machine.has_healthy_network() {
+                return Err(CarbideError::UnhealthyNetwork);
+            }
+        }
+        None => {
+            return Err(CarbideError::GenericError(format!(
+                "Machine {machine_id} has no DPU. Cannot allocate."
+            )));
+        }
+    }
+
     if machine.is_maintenance_mode() {
         return Err(CarbideError::MaintenanceMode);
     }

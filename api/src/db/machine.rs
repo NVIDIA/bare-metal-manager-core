@@ -313,6 +313,14 @@ impl Machine {
         self.network_status_observation.as_ref()
     }
 
+    /// Is the HBN on this machine's DPU healthy and working?
+    pub fn has_healthy_network(&self) -> bool {
+        let Some(ref obs) = self.network_status_observation else {
+            return false;
+        };
+        obs.health_status.is_healthy
+    }
+
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
         self.network_config().loopback_ip
     }
