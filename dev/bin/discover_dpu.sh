@@ -37,10 +37,10 @@ simulate_boot() {
   ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='10.244.0.1';"
 
   echo "Sending pxe boot request"
-  curl "http://192.168.252.76:8080/api/v0/pxe/boot?uuid=${MACHINE_INTERFACE_ID}&buildarch=arm64"
+  curl "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/pxe/boot?uuid=${MACHINE_INTERFACE_ID}&buildarch=arm64"
 
   echo "Sending cloud-init request"
-  curl "http://192.168.252.76:8080/api/v0/cloud-init/user-data"
+  curl "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/cloud-init/user-data"
 
   echo "Sending DiscoverMachine"
   # Simulate the Machine discovery request of a DPU

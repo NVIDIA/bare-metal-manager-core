@@ -18,7 +18,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::grpcurl::{grpcurl, grpcurl_id, Id, Value};
+use crate::grpcurl::{grpcurl, Id, Value};
 
 const DPU_CONFIG: &str = r#"
 [forge-system]
@@ -65,7 +65,6 @@ pub async fn bootstrap(
     carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
 ) -> eyre::Result<Info> {
-    grpcurl_id(carbide_api_addr, "CreateVpc", r#"{"name": "test_vpc"}"#)?;
     let (interface_id, dpu_machine_id, ip_address) = discover(carbide_api_addr)?;
 
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);

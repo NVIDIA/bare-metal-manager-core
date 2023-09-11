@@ -69,17 +69,6 @@ source ${DATA_PATH}/envrc
 CONTAINER_DATA_PATH=${CONTAINER_REPO_ROOT:-${REPO_ROOT}}/dev/${FORGE_BOOTSTRAP_KIND}-env
 echo using container data path ${CONTAINER_DATA_PATH}
 
-VPC_COUNT=$(${REPO_ROOT}/dev/bin/psql.sh 'select count(*) from vpcs;' | tr -d '\n\r ')
-echo "vpc count: ${VPC_COUNT}"
-
-if [ 0 -eq ${VPC_COUNT} ]
-then
-	vpc=$(grpcurl -d '{"name":"test_vpc"}' -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/CreateVpc | jq ".id.value" | tr -d '"')
-	echo "vpc: $vpc"
-else
-	echo "${VPC_COUNT} vpcs exist. Skipping."
-fi
-echo ''
 '''
 
 [tasks.build-bootstrap-forge-dpu-discovery]
