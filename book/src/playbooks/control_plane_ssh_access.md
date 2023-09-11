@@ -73,6 +73,13 @@ Host gavlejump 20.240.41.178
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
+Host *
+  StrictHostKeyChecking no
+  ServerAliveInterval 30
+  ServerAliveCountMax 2
+  ForwardAgent yes
+  LogLevel QUIET
+
 # You can specify that the jump host is automatically applied for certain IPs
 # using sections like this.
 Host *.nsv.sjc4.nvmetal.net 10.150.* 10.181.20.* 10.181.21.*
@@ -121,6 +128,26 @@ Host qa2
 
 Host dev3
   Hostname 10.217.4.197
+  ProxyJump renojump
+
+Host pdx01
+  Hostname 10.217.6.197
+  ProxyJump pdxjump
+
+Host az01
+  Hostname 10.45.2.5
+  ProxyJump azurejump
+
+Host az20
+  Hostname 10.45.10.3
+  ProxyJump gavlejump
+
+Host demo1
+  Hostname 10.217.5.193
+  ProxyJump renojump
+
+Host demo2
+  Hostname 10.217.5.195
   ProxyJump renojump
 ```
 
