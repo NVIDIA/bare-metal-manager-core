@@ -67,6 +67,9 @@ impl CredentialKey {
                 CredentialType::SiteDefault => {
                     "machines/all_dpus/site_default/bmc-metadata-items/root".to_string()
                 }
+                CredentialType::BmcMachine { bmc_machine_id } => {
+                    format!("bmc_machines/{bmc_machine_id}/redfish-admin")
+                }
             },
             CredentialKey::HostRedfish { credential_type } => match credential_type {
                 CredentialType::HardwareDefault => {
@@ -75,8 +78,8 @@ impl CredentialKey {
                 CredentialType::SiteDefault => {
                     "machines/all_hosts/site_default/bmc-metadata-items/root".to_string()
                 }
-                CredentialType::BmcMachine { bmc_machine_id } => {
-                    format!("bmc_machines/{bmc_machine_id}/redfish-admin")
+                CredentialType::BmcMachine { .. } => {
+                    panic!("BmcMachine is only used for DPUs");
                 }
             },
         }

@@ -432,6 +432,10 @@ impl Redfish for RedfishSimClient {
     fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
         todo!()
     }
+
+    fn get_tasks(&self) -> Result<Vec<String>, RedfishError> {
+        todo!()
+    }
 }
 
 #[async_trait]
