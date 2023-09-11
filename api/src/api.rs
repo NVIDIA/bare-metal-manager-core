@@ -1217,7 +1217,9 @@ where
 
         let machine_obs = MachineNetworkStatusObservation::try_from(request.clone())
             .map_err(CarbideError::from)?;
-        Machine::update_network_status_observation(&mut txn, &dpu_machine_id, machine_obs).await?;
+        Machine::update_network_status_observation(&mut txn, &dpu_machine_id, machine_obs)
+            .await
+            .map_err(CarbideError::from)?;
 
         tracing::trace!(
             machine_id = %dpu_machine_id,
@@ -3909,7 +3911,9 @@ where
                 .ib_fabric_manager(ib_fabric_manager.clone())
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.machine_state_controller_iteration_time)
-                .state_handler(Arc::new(MachineStateHandler::default()))
+                .state_handler(Arc::new(MachineStateHandler::new(
+                    service_config.dpu_up_threshold,
+                )))
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,
                 })
@@ -4264,6 +4268,8 @@ struct ServiceConfig {
     /// How long to wait for DPU to restart after BMC lockdown. Not a timeout, it's a forced wait.
     /// This will be replaced with querying lockdown state.
     dpu_wait_time: chrono::Duration,
+    /// How long to wait for a health report from the DPU before we assume it's down
+    dpu_up_threshold: chrono::Duration,
 }
 
 impl Default for ServiceConfig {
@@ -4274,6 +4280,7 @@ impl Default for ServiceConfig {
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
             max_db_connections: 1000,
             dpu_wait_time: Duration::minutes(5),
+            dpu_up_threshold: Duration::minutes(5),
         }
     }
 }
@@ -4290,6 +4297,8 @@ impl ServiceConfig {
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
             max_db_connections: 1000,
             dpu_wait_time: Duration::seconds(1),
+            // In local dev forge-dpu-agent probably isn't running, so no heartbeat
+            dpu_up_threshold: Duration::weeks(52),
         }
     }
 }

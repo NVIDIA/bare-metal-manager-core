@@ -320,11 +320,15 @@ impl Machine {
     }
 
     /// Is the HBN on this machine's DPU healthy and working?
-    pub fn has_healthy_network(&self) -> bool {
-        let Some(ref obs) = self.network_status_observation else {
-            return false;
-        };
-        obs.health_status.is_healthy
+    /// Only for DPU machines.
+    pub fn has_healthy_network(&self) -> Result<bool, eyre::Report> {
+        if !self.is_dpu() {
+            eyre::bail!("has_healthy_network can only be called on a DPU");
+        }
+        Ok(match &self.network_status_observation {
+            None => false,
+            Some(obs) => obs.health_status.is_healthy,
+        })
     }
 
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
@@ -943,7 +947,7 @@ SELECT m.id FROM
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         observation: MachineNetworkStatusObservation,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query =
             "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 RETURNING id";
         let _id: (DbMachineId,) = sqlx::query_as(query)

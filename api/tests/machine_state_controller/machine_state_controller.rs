@@ -20,12 +20,15 @@ use std::{
 };
 
 use carbide::{
+    db::machine::Machine,
     ipmitool::IPMIToolTestImpl,
     model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
     redfish::RedfishSim,
     state_controller::{
         controller::{ReachabilityParams, StateController},
-        machine::{io::MachineStateControllerIO, metrics::MachineMetrics},
+        machine::{
+            handler::MachineStateHandler, io::MachineStateControllerIO, metrics::MachineMetrics,
+        },
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
         },
@@ -35,8 +38,9 @@ use rpc::{forge::forge_server::Forge, DiscoveryData, DiscoveryInfo, MachineDisco
 use tonic::Request;
 
 use crate::common::api_fixtures::{
-    create_test_env,
+    create_managed_host, create_test_env,
     dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
+    run_state_controller_iteration,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -175,6 +179,49 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             machine_id
         );
     }
+
+    Ok(())
+}
+
+/// If the DPU stops sending us health updates we eventually mark it unhealthy
+#[sqlx::test(fixtures(
+    "../../fixtures/create_domain",
+    "../../fixtures/create_vpc",
+    "../../fixtures/create_network_segment",
+))]
+async fn test_dpu_heatbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mut txn = pool.begin().await.unwrap();
+
+    // create_dpu_machine runs record_dpu_network_status, so machine should be healthy
+    let dpu_machine = Machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
+        .await
+        .unwrap()
+        .expect("expect DPU to be found");
+    assert!(matches!(dpu_machine.has_healthy_network(), Ok(true)));
+
+    // Tell state handler to mark DPU as unhealthy after 1 second
+    let handler = MachineStateHandler::new(chrono::Duration::seconds(1));
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+    // Run the state state handler
+    let services = Arc::new(env.state_handler_services());
+    run_state_controller_iteration(
+        &services,
+        &pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    // Now the network should be marked unhealthy
+    let dpu_machine = Machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
+        .await
+        .unwrap()
+        .expect("expect DPU to be found");
+    assert!(matches!(dpu_machine.has_healthy_network(), Ok(false)));
 
     Ok(())
 }
