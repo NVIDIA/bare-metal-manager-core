@@ -17,7 +17,7 @@ use std::{
 
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
-use libredfish::{Endpoint, Redfish, RedfishError};
+use libredfish::{standard::RedfishStandard, Endpoint, Redfish, RedfishError};
 
 use crate::db::bmc_metadata::UserRoles;
 
@@ -29,12 +29,15 @@ pub enum RedfishClientCreationError {
     RedfishError(RedfishError),
     #[error("Failed subtask to create redfish client  {0}")]
     SubtaskError(tokio::task::JoinError),
+    #[error("Not implemeted")]
+    NotImplemented,
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum RedfishCredentialType {
     HardwareDefault,
     SiteDefault,
+    BmcMachine { bmc_machine_id: String },
     Machine { machine_id: String },
 }
 
@@ -49,6 +52,17 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         port: Option<u16>,
         credential_type: RedfishCredentialType,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
+
+    async fn create_standard_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError>;
+
+    async fn change_root_password_to_site_default(
+        &self,
+        standard_client: RedfishStandard,
+    ) -> Result<(), RedfishClientCreationError>;
 }
 
 #[derive(Debug)]
@@ -74,12 +88,15 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         port: Option<u16>,
         credential_type: RedfishCredentialType,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let credentials_key: CredentialKey = match credential_type {
+        let credentials_key: CredentialKey = match credential_type.clone() {
             RedfishCredentialType::HardwareDefault => CredentialKey::DpuRedfish {
                 credential_type: CredentialType::HardwareDefault,
             },
             RedfishCredentialType::SiteDefault => CredentialKey::DpuRedfish {
                 credential_type: CredentialType::SiteDefault,
+            },
+            RedfishCredentialType::BmcMachine { bmc_machine_id } => CredentialKey::DpuRedfish {
+                credential_type: CredentialType::BmcMachine { bmc_machine_id },
             },
             RedfishCredentialType::Machine { machine_id } => CredentialKey::Bmc {
                 machine_id,
@@ -110,6 +127,60 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             .await
             .map_err(RedfishClientCreationError::SubtaskError)?
             .map_err(RedfishClientCreationError::RedfishError)
+    }
+
+    async fn create_standard_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        let credentials = self
+            .credential_provider
+            .get_credentials(CredentialKey::DpuRedfish {
+                credential_type: CredentialType::HardwareDefault,
+            })
+            .await
+            .map_err(RedfishClientCreationError::MissingCredentials)?;
+
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        let endpoint = Endpoint {
+            host: host.to_string(),
+            port,
+            user: Some(username),
+            password: Some(password),
+        };
+
+        let standard_client = self
+            .pool
+            .create_standard_client(endpoint.clone())
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
+        Ok(standard_client)
+    }
+
+    async fn change_root_password_to_site_default(
+        &self,
+        standard_client: RedfishStandard,
+    ) -> Result<(), RedfishClientCreationError> {
+        let credentials = self
+            .credential_provider
+            .get_credentials(CredentialKey::DpuRedfish {
+                credential_type: CredentialType::SiteDefault,
+            })
+            .await
+            .map_err(RedfishClientCreationError::MissingCredentials)?;
+
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        standard_client
+            .change_password(username.as_str(), password.as_str())
+            .map_err(RedfishClientCreationError::RedfishError)?;
+        Ok(())
     }
 }
 
@@ -238,18 +309,11 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    fn get_chassises(&self) -> Result<libredfish::model::chassis::ChassisCollection, RedfishError> {
-        todo!()
-    }
-
     fn get_chassis(&self, _id: &str) -> Result<libredfish::model::chassis::Chassis, RedfishError> {
         todo!()
     }
 
-    fn get_ethernet_interfaces(
-        &self,
-    ) -> Result<libredfish::model::ethernet_interface::EthernetInterfaceCollection, RedfishError>
-    {
+    fn get_ethernet_interfaces(&self) -> Result<Vec<std::string::String>, RedfishError> {
         todo!()
     }
 
@@ -260,10 +324,7 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    fn get_software_inventories(
-        &self,
-    ) -> Result<libredfish::model::software_inventory::SoftwareInventoryCollection, RedfishError>
-    {
+    fn get_software_inventories(&self) -> Result<Vec<std::string::String>, RedfishError> {
         todo!()
     }
 
@@ -282,10 +343,7 @@ impl Redfish for RedfishSimClient {
     fn get_network_device_functions(
         &self,
         _chassis_id: &str,
-    ) -> Result<
-        libredfish::model::network_device_function::NetworkDeviceFunctionCollection,
-        RedfishError,
-    > {
+    ) -> Result<Vec<std::string::String>, RedfishError> {
         todo!()
     }
 
@@ -298,10 +356,7 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    fn get_ports(
-        &self,
-        _chassis_id: &str,
-    ) -> Result<libredfish::model::port::NetworkPortCollection, RedfishError> {
+    fn get_ports(&self, _chassis_id: &str) -> Result<Vec<std::string::String>, RedfishError> {
         todo!()
     }
 
@@ -338,6 +393,45 @@ impl Redfish for RedfishSimClient {
     ) -> Result<(), RedfishError> {
         todo!()
     }
+
+    fn create_user(
+        &self,
+        _username: &str,
+        _password: &str,
+        _role_id: libredfish::RoleId,
+    ) -> Result<(), RedfishError> {
+        todo!()
+    }
+
+    fn get_service_root(
+        &self,
+    ) -> Result<libredfish::model::service_root::ServiceRoot, RedfishError> {
+        todo!()
+    }
+
+    fn get_systems(&self) -> Result<Vec<String>, RedfishError> {
+        todo!()
+    }
+
+    fn get_managers(&self) -> Result<Vec<String>, RedfishError> {
+        todo!()
+    }
+
+    fn get_manager(&self) -> Result<libredfish::model::Manager, RedfishError> {
+        todo!()
+    }
+
+    fn bmc_reset_to_defaults(&self) -> Result<(), RedfishError> {
+        todo!()
+    }
+
+    fn get_system_event_log(&self) -> Result<Vec<libredfish::model::sel::LogEntry>, RedfishError> {
+        todo!()
+    }
+
+    fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
+        todo!()
+    }
 }
 
 #[async_trait]
@@ -354,5 +448,20 @@ impl RedfishClientPool for RedfishSim {
             _host: host.to_string(),
             _port: port,
         }))
+    }
+
+    async fn create_standard_client(
+        &self,
+        _host: &str,
+        _port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        Err(RedfishClientCreationError::NotImplemented)
+    }
+
+    async fn change_root_password_to_site_default(
+        &self,
+        _standard_client: RedfishStandard,
+    ) -> Result<(), RedfishClientCreationError> {
+        Err(RedfishClientCreationError::NotImplemented)
     }
 }
