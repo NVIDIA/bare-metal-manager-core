@@ -14,8 +14,6 @@ use std::{net::SocketAddr, thread, time};
 
 use crate::grpcurl::grpcurl;
 
-const MAX_RETRY: usize = 10;
-
 const BMC_METADATA: &str = r#"{
   "machine_id": {
     "id": "$HOST_MACHINE_ID"
@@ -56,35 +54,6 @@ pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {
     tracing::info!("Lockdown wait is over.");
 
     Ok(host_machine_id)
-}
-
-pub fn wait_for_state(
-    addr: SocketAddr,
-    host_machine_id: &str,
-    target_state: &str,
-) -> eyre::Result<()> {
-    let data = serde_json::json!({
-        "id": {"id": host_machine_id},
-        "search_config": {"include_dpus": true}
-    });
-    tracing::info!("Waiting for Host state {target_state}");
-    let mut i = 0;
-    while i < MAX_RETRY {
-        let response = grpcurl(addr, "FindMachines", Some(&data))?;
-        let resp: serde_json::Value = serde_json::from_str(&response)?;
-        let state = resp["machines"][0]["state"].as_str().unwrap();
-        if state.contains(target_state) {
-            break;
-        }
-        tracing::debug!("\tCurrent: {state}");
-        thread::sleep(time::Duration::from_secs(4));
-        i += 1;
-    }
-    if i == MAX_RETRY {
-        eyre::bail!("Even after {MAX_RETRY} retries, Host did not reach state {target_state}");
-    }
-
-    Ok(())
 }
 
 fn discover_dhcp(addr: SocketAddr) -> eyre::Result<String> {

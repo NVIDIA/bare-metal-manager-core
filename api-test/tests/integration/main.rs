@@ -25,6 +25,7 @@ mod dpu;
 pub mod grpcurl;
 mod host;
 mod instance;
+mod machine;
 mod vault;
 use grpcurl::grpcurl;
 
@@ -104,7 +105,7 @@ async fn host_boostrap(
 
     // Wait until carbide-api is prepared to admit the DPU might have rebooted.
     // There are hard coded sleeps in carbide-api before this happens.
-    host::wait_for_state(carbide_api_addr, &host_machine_id, "WaitForDPUUp")?;
+    machine::wait_for_state(carbide_api_addr, &host_machine_id, "WaitForDPUUp")?;
 
     // After DPU reboot forge_dpu_agent reports health to carbide-api, triggering state transition
     // Run iteration of forge-dpu-agent
@@ -117,7 +118,7 @@ async fn host_boostrap(
     })
     .await?;
 
-    host::wait_for_state(carbide_api_addr, &host_machine_id, "Host/Discovered")?;
+    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Host/Discovered")?;
 
     grpcurl(
         carbide_api_addr,
@@ -129,7 +130,7 @@ async fn host_boostrap(
             .to_string(),
         ),
     )?;
-    host::wait_for_state(carbide_api_addr, &host_machine_id, "Ready")?;
+    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Ready")?;
     tracing::info!("ManagedHost is up in Ready state.");
     Ok(())
 }
