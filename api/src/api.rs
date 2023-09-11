@@ -66,6 +66,7 @@ use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::{FailureCause, FailureDetails, FailureSource, ManagedHostState};
+use crate::model::network_segment::{NetworkDefinition, NetworkSegmentControllerState};
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
     UpdateTenantKeyset,
@@ -695,41 +696,20 @@ where
     ) -> Result<Response<rpc::NetworkSegment>, Status> {
         log_request_data(&request);
         let request = request.into_inner();
-        let mut new_network_segment = NewNetworkSegment::try_from(request)?;
 
+        let new_network_segment = NewNetworkSegment::try_from(request)?;
         let mut txn =
             self.database_connection.begin().await.map_err(|e| {
                 CarbideError::DatabaseError(file!(), "begin create_network_segment", e)
             })?;
-        if new_network_segment.segment_type != NetworkSegmentType::Underlay {
-            new_network_segment.vlan_id = Some(
-                self.allocate_vlan_id(&mut txn, &new_network_segment.name)
-                    .await?,
-            );
-            new_network_segment.vni = Some(
-                self.allocate_vni(&mut txn, &new_network_segment.name)
-                    .await?,
-            );
-        }
-        let network_segment = match new_network_segment.persist(&mut txn).await {
-            Ok(segment) => segment,
-            Err(DatabaseError {
-                source: sqlx::Error::Database(e),
-                ..
-            }) if e.constraint() == Some("network_prefixes_prefix_excl") => {
-                return Err(Status::invalid_argument(
-                    "Prefix overlaps with an existing one",
-                ));
-            }
-            Err(err) => {
-                return Err(CarbideError::from(err).into());
-            }
-        };
+        let network_segment = self
+            .save_network_segment(&mut txn, new_network_segment, false)
+            .await?;
+
         let response = Ok(Response::new(network_segment.try_into()?));
         txn.commit().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "commit create_network_segment", e)
         })?;
-
         response
     }
 
@@ -3796,6 +3776,10 @@ where
                 .clone(),
         ));
 
+        if let Some(networks) = carbide_config.networks.as_ref() {
+            api_service.create_initial_networks(networks).await?;
+        }
+
         // handles need to be stored in a variable
         // If they are assigned to _ then the destructor will be immediately called
         let _machine_state_controller_handle =
@@ -3905,6 +3889,40 @@ where
         }
     }
 
+    // pub so we can test it from integration test
+    pub async fn create_initial_networks(
+        &self,
+        networks: &HashMap<String, NetworkDefinition>,
+    ) -> Result<(), CarbideError> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin create_initial_networks", e)
+        })?;
+        let all_domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+        if all_domains.len() != 1 {
+            // We only create initial networks if we only have a single domain - usually created
+            // as initial_domain_name in config file.
+            // Having multiple domains is fine, it means we probably created the network much
+            // earlier.
+            tracing::info!("Multiple domains, skipping initial network creation");
+            return Ok(());
+        }
+        let domain_id = all_domains[0].id;
+        for (name, def) in networks {
+            if NetworkSegment::find_by_name(&mut txn, name).await.is_ok() {
+                // Network segments are only created the first time we start carbide-api
+                tracing::debug!("Network segment {name} exists");
+                continue;
+            }
+            let ns = NewNetworkSegment::build_from(name, domain_id, def)?;
+            self.save_network_segment(&mut txn, ns, true).await?;
+            tracing::info!("Created network segment {name}");
+        }
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "commit create_initial_networks", e)
+        })?;
+        Ok(())
+    }
+
     async fn load_machine(
         &self,
         machine_id: &MachineId,
@@ -3941,7 +3959,7 @@ where
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
-    ) -> Result<Ipv4Addr, Status> {
+    ) -> Result<Ipv4Addr, CarbideError> {
         match self
             .common_pools
             .ethernet
@@ -3951,12 +3969,12 @@ where
         {
             Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
-                let msg = format!("Pool lo-ip exhausted, cannot allocate for {owner_id}");
-                Err(Status::resource_exhausted(msg))
+                tracing::error!(owner_id, pool = "lo-ip", "Pool exhausted, cannot allocate");
+                Err(CarbideError::ResourceExhausted("pool lo-ip".to_string()))
             }
             Err(err) => {
-                let msg = format!("Err allocating from lo-ip for {owner_id}: {err}");
-                Err(Status::internal(msg))
+                tracing::error!(owner_id, error = %err, pool = "lo-ip", "Error allocating from resource pool");
+                Err(err.into())
             }
         }
     }
@@ -3968,7 +3986,7 @@ where
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
-    ) -> Result<i32, Status> {
+    ) -> Result<i32, CarbideError> {
         match self
             .common_pools
             .ethernet
@@ -3978,12 +3996,12 @@ where
         {
             Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
-                let msg = format!("Pool vni exhausted, cannot allocate for {owner_id}");
-                Err(Status::resource_exhausted(msg))
+                tracing::error!(owner_id, pool = "vni", "Pool exhausted, cannot allocate");
+                Err(CarbideError::ResourceExhausted("pool vni".to_string()))
             }
             Err(err) => {
-                let msg = format!("Err allocating from vni for {owner_id}: {err}");
-                Err(Status::internal(msg))
+                tracing::error!(owner_id, error = %err, pool = "vni", "Error allocating from resource pool");
+                Err(err.into())
             }
         }
     }
@@ -3995,7 +4013,7 @@ where
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
-    ) -> Result<i16, Status> {
+    ) -> Result<i16, CarbideError> {
         match self
             .common_pools
             .ethernet
@@ -4005,12 +4023,16 @@ where
         {
             Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
-                let msg = format!("Pool vlan_id exhausted, cannot allocate for {owner_id}");
-                Err(Status::resource_exhausted(msg))
+                tracing::error!(
+                    owner_id,
+                    pool = "vlan_id",
+                    "Pool exhausted, cannot allocate"
+                );
+                Err(CarbideError::ResourceExhausted("pool vlan_id".to_string()))
             }
             Err(err) => {
-                let msg = format!("Err allocating from vlan_id for {owner_id}: {err}");
-                Err(Status::internal(msg))
+                tracing::error!(owner_id, error = %err, pool = "vlan_id", "Error allocating from resource pool");
+                Err(err.into())
             }
         }
     }
@@ -4022,7 +4044,7 @@ where
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
-    ) -> Result<i32, Status> {
+    ) -> Result<i32, CarbideError> {
         match self
             .common_pools
             .ethernet
@@ -4032,12 +4054,16 @@ where
         {
             Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
-                let msg = format!("Pool vpc_vni exhausted, cannot allocate for {owner_id}");
-                Err(Status::resource_exhausted(msg))
+                tracing::error!(
+                    owner_id,
+                    pool = "vpc_vni",
+                    "Pool exhausted, cannot allocate"
+                );
+                Err(CarbideError::ResourceExhausted("pool vpc_vni".to_string()))
             }
             Err(err) => {
-                let msg = format!("Err allocating from vpc_vni for {owner_id}: {err}");
-                Err(Status::internal(msg))
+                tracing::error!(owner_id, error = %err, pool = "vpc_vni", "Error allocating from resource pool");
+                Err(err.into())
             }
         }
     }
@@ -4050,7 +4076,7 @@ where
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
-    ) -> Result<Option<i16>, Status> {
+    ) -> Result<Option<i16>, CarbideError> {
         match self
             .common_pools
             .infiniband
@@ -4061,14 +4087,44 @@ where
         {
             Ok(val) => Ok(Some(val)),
             Err(resource_pool::ResourcePoolError::Empty) => {
-                let msg = format!("Pool pkey exhausted, cannot allocate for {owner_id}");
-                Err(Status::resource_exhausted(msg))
+                tracing::error!(owner_id, pool = "pkey", "Pool exhausted, cannot allocate");
+                Err(CarbideError::ResourceExhausted("pool pkey".to_string()))
             }
             Err(err) => {
-                let msg = format!("Err allocating from pkey for {owner_id}: {err}");
-                Err(Status::internal(msg))
+                tracing::error!(owner_id, error = %err, pool = "pkey", "Error allocating from resource pool");
+                Err(err.into())
             }
         }
+    }
+
+    async fn save_network_segment(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        mut ns: NewNetworkSegment,
+        set_to_ready: bool,
+    ) -> Result<NetworkSegment, CarbideError> {
+        if ns.segment_type != NetworkSegmentType::Underlay {
+            ns.vlan_id = Some(self.allocate_vlan_id(txn, &ns.name).await?);
+            ns.vni = Some(self.allocate_vni(txn, &ns.name).await?);
+        }
+        let initial_state = if set_to_ready {
+            NetworkSegmentControllerState::Ready
+        } else {
+            NetworkSegmentControllerState::Provisioning
+        };
+        let network_segment = match ns.persist(txn, initial_state).await {
+            Ok(segment) => segment,
+            Err(DatabaseError {
+                source: sqlx::Error::Database(e),
+                ..
+            }) if e.constraint() == Some("network_prefixes_prefix_excl") => {
+                return Err(CarbideError::NetworkSegmentPrefixOverlap)
+            }
+            Err(err) => {
+                return Err(err.into());
+            }
+        };
+        Ok(network_segment)
     }
 }
 

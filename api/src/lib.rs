@@ -120,6 +120,9 @@ pub enum CarbideError {
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
     NetworkSegmentsExhausted(String),
 
+    #[error("Prefix overlaps with an existing one")]
+    NetworkSegmentPrefixOverlap,
+
     #[error("Admin network is not configured.")]
     AdminNetworkNotConfigured,
 
@@ -200,6 +203,9 @@ pub enum CarbideError {
 
     #[error("Machine is in maintenance mode. Cannot allocate instance on it.")]
     MaintenanceMode,
+
+    #[error("Resource {0} is empty")]
+    ResourceExhausted(String),
 }
 
 impl From<CarbideError> for tonic::Status {
@@ -243,6 +249,8 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::MaintenanceMode => {
                 Status::failed_precondition("MaintenanceMode".to_string())
             }
+            CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
+            CarbideError::NetworkSegmentPrefixOverlap => Status::invalid_argument(from.to_string()),
             error @ CarbideError::ConcurrentModificationError(_, _) => {
                 Status::failed_precondition(error.to_string())
             }

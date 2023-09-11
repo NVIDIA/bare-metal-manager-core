@@ -18,7 +18,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::grpcurl::{grpcurl, grpcurl_id, Id, IdValue, Value};
+use crate::grpcurl::{grpcurl, grpcurl_id, Id, Value};
 
 const DPU_CONFIG: &str = r#"
 [forge-system]
@@ -58,7 +58,6 @@ pub struct Info {
     pub machine_id: String,
     pub interface_id: String,
     pub interface_addr: Ipv4Addr,
-    pub segment_id: String,
 }
 
 pub async fn bootstrap(
@@ -66,7 +65,7 @@ pub async fn bootstrap(
     carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
 ) -> eyre::Result<Info> {
-    let (_vpc_id, _domain_id, segment_id) = basic(carbide_api_addr)?;
+    grpcurl_id(carbide_api_addr, "CreateVpc", r#"{"name": "test_vpc"}"#)?;
     let (interface_id, dpu_machine_id, ip_address) = discover(carbide_api_addr)?;
 
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
@@ -89,20 +88,8 @@ pub async fn bootstrap(
         machine_id: dpu_machine_id,
         interface_id,
         interface_addr: ip_address,
-        segment_id,
     };
     Ok(dpu)
-}
-
-// addr is carbide-api's gRPC listener
-fn basic(addr: SocketAddr) -> eyre::Result<(String, String, String)> {
-    let vpc_id = grpcurl_id(addr, "CreateVpc", r#"{"name": "test_vpc"}"#)?;
-    let domain_id = find_domain_id(addr)?;
-    let segment_id = create_segment(addr, &vpc_id, &domain_id)?;
-    tracing::info!("Created vpc_id={vpc_id}, domain_id={domain_id}, segment_id={segment_id}");
-    wait_for_segment(addr, &segment_id)?;
-
-    Ok((vpc_id, domain_id, segment_id))
 }
 
 fn discover(addr: SocketAddr) -> eyre::Result<(String, String, Ipv4Addr)> {
@@ -188,25 +175,6 @@ async fn configure_network(
     wait_for_dpu_up(carbide_api_addr, dpu_machine_id)?;
     tracing::info!("DPU is up now.");
     Ok(hbn_root)
-}
-
-fn wait_for_segment(addr: SocketAddr, segment_id: &str) -> eyre::Result<()> {
-    tracing::info!("Waiting for network segment to become ready");
-    let data = serde_json::to_string(&IdValue {
-        id: Value {
-            value: segment_id.to_string(),
-        },
-    })?;
-    loop {
-        let response = grpcurl(addr, "FindNetworkSegments", Some(&data))?;
-        let resp: serde_json::Value = serde_json::from_str(&response)?;
-        let state = &resp["networkSegments"][0]["state"];
-        if let Some("READY") = state.as_str() {
-            break;
-        }
-        thread::sleep(time::Duration::from_secs(2));
-    }
-    Ok(())
 }
 
 fn wait_for_dpu_network_install(addr: SocketAddr, dpu_machine_id: &str) -> eyre::Result<()> {
@@ -302,42 +270,6 @@ fn discover_dhcp(addr: SocketAddr) -> eyre::Result<(String, Ipv4Addr)> {
     Ok((interface_id.to_string(), ip_address))
 }
 
-/// Find the id of the Domain initial_domain_name created on startup
-fn find_domain_id(addr: SocketAddr) -> eyre::Result<String> {
-    let response = grpcurl::<&str>(addr, "FindDomain", None)?;
-    let mut resp_obj: Domains = serde_json::from_str(&response)?;
-    let d = resp_obj.domains.remove(0);
-    Ok(d.id.value)
-}
-
-fn create_segment(addr: SocketAddr, vpc_id: &str, domain_id: &str) -> eyre::Result<String> {
-    let net_prefix = "172.20.0.0/24";
-    let net_gateway = "172.20.0.1";
-    let segment_data = serde_json::to_string(&SegmentRequest {
-        name: "test".to_string(),
-        mtu: 1490,
-        segment_type: 1,
-        prefixes: vec![SegmentPrefix {
-            prefix: net_prefix.to_string(),
-            gateway: net_gateway.to_string(),
-            reserve_first: 100,
-        }],
-        subdomain_id: Value {
-            value: domain_id.to_string(),
-        },
-        vpc_id: Value {
-            value: vpc_id.to_string(),
-        },
-    })
-    .unwrap();
-    grpcurl_id(addr, "CreateNetworkSegment", &segment_data)
-}
-
-#[derive(Deserialize)]
-struct Domains {
-    domains: Vec<IdValue>,
-}
-
 // Note that we intentionally don't use the rpc package. This test is intended to be completely
 // separate from our code. We want to catch changes that would affect other systems.
 
@@ -360,7 +292,6 @@ struct SegmentRequest {
     segment_type: usize,
     prefixes: Vec<SegmentPrefix>,
     subdomain_id: Value,
-    vpc_id: Value,
 }
 
 #[derive(Deserialize, Serialize)]

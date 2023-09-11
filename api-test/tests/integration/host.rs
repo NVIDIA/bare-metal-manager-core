@@ -88,13 +88,17 @@ pub fn wait_for_state(
 }
 
 fn discover_dhcp(addr: SocketAddr) -> eyre::Result<String> {
-    // Find network segment's circuit id
-    // There's only one network segment
+    // Find the admin network segment's circuit id
     let resp = grpcurl::<&str>(addr, "FindNetworkSegments", None)?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
-    let circuit_id = &response["networkSegments"][0]["prefixes"][0]["circuitId"]
-        .as_str()
-        .unwrap();
+    let mut circuit_id = None;
+    for segment in response["networkSegments"].as_array().unwrap() {
+        if segment["segmentType"] == "ADMIN" {
+            circuit_id = Some(segment["prefixes"][0]["circuitId"].as_str().unwrap());
+            break;
+        }
+    }
+    let circuit_id = circuit_id.unwrap();
     tracing::info!("Circuit ID is {circuit_id}");
 
     // Discover DHCP
