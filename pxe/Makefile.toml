@@ -271,6 +271,7 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-scout-to-bfb",
+	"bfb-add-nvinit-prereqs-to-bfb",
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
@@ -292,6 +293,7 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-scout-to-bfb",
+	"bfb-add-nvinit-prereqs-to-bfb",
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
@@ -358,6 +360,15 @@ command = "cp"
 args = [
 	"${FORGE_CA_PATH}",
 	"/tmp/bfb-dump/initramfs-tmp/forge_root.pem",
+]
+
+[tasks.bfb-add-nvinit-prereqs-to-bfb]
+category = "iPXE Kernel"
+description = "Add nvinit prerequisites to the bfb"
+command = "cp"
+args = [
+    "${REPO_ROOT}/pxe/nvinit_setup/*",
+    "/tmp/bfb-dump/initramfs-tmp",
 ]
 
 [tasks.bfb-add-scout-to-bfb]

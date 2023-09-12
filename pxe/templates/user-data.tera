@@ -19,6 +19,8 @@ mv /forge-scout /mnt/opt/forge
 mv /forge-dpu_1.0-1.deb /mnt/opt/forge
 mv /doca_container_configs_1.5.1v2.zip /mnt/opt/forge
 mv /forge_root.pem /mnt/opt/forge
+mv /libnss-exec_0.2.0-1_arm64.deb /mnt/opt/forge
+mv /nvssh.conf /mnt/opt/forge
 
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
@@ -219,10 +221,803 @@ write_files:
   - path: /var/log/forge/forge-scout.log
     permissions: '0644'
     content: Not Started
+  - path: /etc/pam.d/sshd
+    permissions: '0600'
+    content: |
+      # PAM configuration for the Secure Shell service
+
+      # Standard Un*x authentication.
+      #@include common-auth
+
+      auth required pam_exec.so quiet expose_authtok log=/var/log/vault-otp-auth.log /usr/bin/nvssh pam-otp-auth
+      auth optional pam_unix.so not_set_pass use_first_pass nodelay
+      auth [default=ignore] pam_exec.so /usr/bin/nvssh pam-otp-auth-failed
+
+      # Disallow non-root logins when /etc/nologin exists.
+      account    required     pam_nologin.so
+
+      # Uncomment and edit /etc/security/access.conf if you need to set complex
+      # access limits that are hard to express in sshd_config.
+      # account  required     pam_access.so
+
+      # Standard Un*x authorization.
+      @include common-account
+
+      session     required      pam_mkhomedir.so skel=/etc/skel umask=002
+
+      # SELinux needs to be the first session rule.  This ensures that any
+      # lingering context has been cleared.  Without this it is possible that a
+      # module could execute code in the wrong domain.
+      session [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so close
+
+      # Set the loginuid process attribute.
+      session    required     pam_loginuid.so
+
+      # Create a new session keyring.
+      session    optional     pam_keyinit.so force revoke
+
+      # Standard Un*x session setup and teardown.
+      @include common-session
+
+      # Print the message of the day upon successful login.
+      # This includes a dynamically generated part from /run/motd.dynamic
+      # and a static (admin-editable) part from /etc/motd.
+      session    optional     pam_motd.so  motd=/run/motd.dynamic
+      session    optional     pam_motd.so noupdate
+
+      # Print the status of the user's mailbox upon successful login.
+      session    optional     pam_mail.so standard noenv # [1]
+
+      # Set up user limits from /etc/security/limits.conf.
+      session    required     pam_limits.so
+
+      # Read environment variables from /etc/environment and
+      # /etc/security/pam_env.conf.
+      session    required     pam_env.so # [1]
+      # In Debian 4.0 (etch), locale-related environment variables were moved to
+      # /etc/default/locale, so read that as well.
+      session    required     pam_env.so user_readenv=1 envfile=/etc/default/locale
+
+      # SELinux needs to intervene at login time to ensure that the process starts
+      # in the proper default security context.  Only sessions which are intended
+      # to run in the user's context should be run after this.
+      session [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so open
+
+      # Standard Un*x password updating.
+      @include common-password
+  - path: /etc/sudoers.d/nvssh-sudo
+    permissions: '0600'
+    content: |
+      # Allow members of group sudo to execute any command
+      %nvssh-sudo ALL = (ALL) ALL
+      Defaults passprompt="[nvssh sudo] %u, run command as root (y/n)?:"
+      Defaults passwd_tries=1
+  - path: /etc/sudoers.d/nvssh-sudo-nopasswd
+    permissions: '0600'
+    content: |
+      # Allow members of group sudo-nopasswd to execute any command
+      %nvssh-sudo-nopasswd ALL = (ALL) NOPASSWD: ALL
+  - path: /etc/ssh/ngc-automation-ca-keys.pem
+    permissions: '0644'
+    content: |
+      ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC8ggs5q2zmtfyezekWOUFKr+vET2+oHFYg6ELb+vFDkKDcQ9FOBwy6m1Q1mpZr3Z9gvmBEUvVHrtVmGjzU0imlLP4QMdh0nFS7b+Uwxo8NM2eGeUKa9vGlmo9AZPJsVMyvk8iHc2BSsHWtt64x6JA7QmZcQJKdTr0O59J4vhP/KBtSQirvOQa8swwzaX0OWbpN7K4hOzpSyLZmqADeaFG7UUWHTztk6vyFxk4qKgmhytogCP3+MritLG7+Lu3T4WUBzBcaCJul8B6nWfOFLMtGD1jqACSuE8yWIHQemZR2Ci8Jz2g0b9vJ0CtrIKpdpbct/VphmAkhtDyxVJt2R5TJbBXryUVY3PYPeXTKafPWZxzt4C+3gY3nO7ojCssNswvvNDJSRWgRPeYKP21/27fFrRsZFJI2Wq+hPBzqy+Wd86f3QoGqJj6CE4k7AN6XnoWXw64x0G8fKaayF4fyoOAgxE+ttDbmECik3VSM2iwq78dO6lSukT3N852bwZGmBdCJQ04c3vk0em6KLU5/5cY6Cg5EaKRYuQgMuwoDp2TNRodKE6uF88X2FWbfnolJO1JycI7qxKz4AUb2vzbfaNj9zJmDuxTVOcy614jwmzN5kyTuw4gAzsdhq+i01DK+njEs04NJm7lNgllICRRns7BnGiLGo8wFPnGsvT8meazBUw== sshca-devopscert@ngc.prod.vault.nvidia.com
+  - path: /etc/ssh/ngc-users-ca-keys.pem
+    permissions: '0644'
+    content: |
+      ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDeCq/DGrQIngCj7FCqn7F1QcLjPtsDfST3ANzha4d+myw3tYSni0D+i8gUYngwrr6Gi7MYlMTnwaNztgfFGqIGTFSjQyi9kRFc5CahESvh/RSWykXRcDJTIp3XsBmcd+oNr9Mnc9TQsHUxZHgiZjUQNAz2oWMNPwDVjeS9FIbNW5wF84aKCOXPfFqr26ztRbT3JQDSnCwe+m8nWQz4wByFTMdi/3mYzZ+gNCQerQWV3WzNtUtKYRHtsp4tOTbt0HLIagp3B5m4oVq59NxEwRwA8rdush1b78K6zNt0sx7Awnz5SyFX44kh2d3B/I6625qq14AfkhaCzKandhdFpvZkmNpXan6hYh3v5h373Sh7/fVcxmN00Pz6i8u/+6iWNOeZSJBFFziHVANg42KNtJ13Gk1lLj7+GanBeDmoirD38MMNej7ASm6oyOL8JdyUUPO3f760fziCIgh5Uwx8gDKtYJHnjfl4GfmVb2o3om0ue4uwhQHOGBfGpBQdNrs2/Cyyovyo1viwpdrbsfGDJ9fHtgQBFzeSijx/MmUXMp1YRaBt0GPPXOcF4BjDbf6VqYnvT3bPBYw0ZbpLL6vjV53jrlhWt/AcPLZQlRv6jk2N3lQGgVYKVNHpelnkb6hNI1O5kBqs3b/ruL3Kqrrby8F+pDoFkWB35nv56CAqnEJdWw== sshca-usercert@ngc.prod.vault.nvidia.com
+  - path: /sbin/nss_exec
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      # load the config file
+      . /etc/nvssh/nvssh.conf
+      lfile="/var/log/nss_exec.log"
+
+      # Skip if the user management is handled by a different system (e.g. NIS, LDAP etc.)
+      if [ "$nvssh_nssswitch_plugin" = false ] ; then
+        exit 1
+      fi
+
+      case "$1" in
+        getpwent)
+          # Return code 1 = user not found
+          exit 1
+          ;;
+
+        getpwnam)
+          ppid1=$(cat /proc/"$PPID"/stat | awk '{printf "%s", $4}')
+          ppname=$(cat /proc/"$ppid1"/stat | awk '{printf "%s", $2}')
+          # only applied for sshd login
+          if [ "$ppname" = "(sshd)" ]; then
+            # TODO make sure to validate user name (user name is untrusted, hence need to validate before use)
+            # make sure ${2}-temp doesn't exist before we proceed further
+            output=$(grep "^${2}-temp:" /etc/passwd)
+            status=$?
+            if [ $status -eq 0 ]; then
+              echo "${output}" | sed "s/${2}-temp/${2}/g"
+              exit 0
+            fi
+
+            # create a local temp user TODO - replace suffix '-temp' with something per-host random
+            /usr/sbin/luseradd "${2}-temp" -g ngc -s "${nvssh_default_shell}" -c "nvssh nssswitch temp user account `date +%s`" --nocreatehome 2>> /dev/null
+            # check whether the user exists
+            output=$(grep "^${2}-temp:" /etc/passwd)
+            status=$?
+            if [ $status -eq 0 ]; then
+              echo "${output}" | sed "s/${2}-temp/${2}/g"
+              exit 0
+            else
+              echo "${2} local useradd failed; exiting.." >> lfile
+            fi
+          fi
+
+          # Return code 1 = user not found
+          exit 1
+          ;;
+
+        getpwuid)
+          # Return code 1 = user not found
+          exit 1
+          ;;
+
+        setpwent|endpwent)
+          # Return code 1 = pass control to next plugin
+          exit 1
+          ;;
+
+        getgrent)
+          # Return code 1 = user not found
+          exit 1
+          ;;
+
+        getgwnam)
+          # Return code 1 = group not found
+          exit 1
+          ;;
+
+        getgrgid)
+          # Return code 1 = user not found
+          exit 1
+          ;;
+
+        setgrent|endgrent)
+          # Return code 1 = pass control to next plugin
+          exit 1
+          ;;
+      esac
+
+      # Return code 4 = service unavailable
+      exit 4
+  - path: /etc/nsswitch.conf
+    permissions: '0644'
+    content: |
+      # /etc/nsswitch.conf
+      #
+      # Example configuration of GNU Name Service Switch functionality.
+      # If you have the `glibc-doc-reference' and `info' packages installed, try:
+      # `info libc "Name Service Switch"' for information about this file.
+
+      passwd:         compat systemd exec
+      group:          files systemd
+      shadow:         files
+      gshadow:        files
+
+      hosts:          files dns
+      networks:       files
+
+      protocols:      db files
+      services:       db files
+      ethers:         db files
+      rpc:            db files
+
+      netgroup:       nis
+  - path: /etc/ssh/sshd_config
+    permissions: '0644'
+    content: |
+      # ngc nvssh configuration file
+
+      # What ports, IPs and protocols we listen for
+      Port 22
+      # Use these options to restrict which interfaces/protocols sshd will bind to
+      #ListenAddress ::
+      #ListenAddress 0.0.0.0
+      Protocol 2
+      # HostKeys for protocol version 2
+      #HostKey /etc/ssh/ssh_host_rsa_key
+      #HostKey /etc/ssh/ssh_host_ecdsa_key
+      #HostKey /etc/ssh/ssh_host_ed25519_key
+
+      #HostCertificate /etc/ssh/ssh_host_rsa_key-cert.pub
+      #HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub
+      #HostCertificate /etc/ssh/ssh_host_ecdsa_key-cert.pub
+
+      # CASignatureAlgorithms ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,ssh-ed25519,rsa-sha2-512,rsa-sha2-256,ssh-rsa
+      MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com
+      Ciphers chacha20-poly1305@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,aes128-gcm@openssh.com,aes256-gcm@openssh.com
+
+      # Logging
+      SyslogFacility AUTH
+      LogLevel VERBOSE
+
+      # Authentication:
+      LoginGraceTime 30
+      PermitRootLogin no
+      StrictModes yes
+
+      PubkeyAuthentication yes
+      # override default path ~/.ssh/authorized_keys to prevent (non-root) users to bypass certificate auth
+      # note that this will disable all static key logins
+      AuthorizedKeysFile none
+
+      # Don't read the user's ~/.rhosts and ~/.shosts files
+      IgnoreRhosts yes
+      # similar for protocol version 2
+      HostbasedAuthentication no
+      # Uncomment if you don't trust ~/.ssh/known_hosts for RhostsRSAAuthentication
+      #IgnoreUserKnownHosts yes
+
+      # To enable empty passwords, change to yes (NOT RECOMMENDED)
+      PermitEmptyPasswords no
+      ClientAliveInterval 900
+      ClientAliveCountMax 0
+      Banner /etc/ssh/banner
+
+      # Change to yes to enable challenge-response passwords (beware issues with
+      # some PAM modules and threads)
+      ChallengeResponseAuthentication yes
+
+      # Change to no to disable tunnelled clear text passwords
+      PasswordAuthentication no
+
+      X11Forwarding no
+      X11DisplayOffset 10
+      PrintMotd no
+      PrintLastLog yes
+      TCPKeepAlive yes
+
+      # Allow client to pass locale environment variables
+      AcceptEnv LANG LC_*
+
+      Subsystem sftp internal-sftp
+
+      # Set this to 'yes' to enable PAM authentication, account processing,
+      # and session processing. If this is enabled, PAM authentication will
+      # be allowed through the ChallengeResponseAuthentication and
+      # PasswordAuthentication.  Depending on your PAM configuration,
+      # PAM authentication via ChallengeResponseAuthentication may bypass
+      # the setting of "PermitRootLogin without-password".
+      # If you just want the PAM account and session checks to run without
+      # PAM authentication, then enable this but set PasswordAuthentication
+      # and ChallengeResponseAuthentication to 'no'.
+      UsePAM yes
+      UseDNS no
+      UsePam yes
+      PermitTunnel no
+      GatewayPorts no
+      MaxAuthTries 8
+      AuthenticationMethods publickey
+
+      # Permitting users the ability to set environment variables through the
+      # SSH daemon could potentially allow users to bypass security controls
+      # (e.g. setting an execution path that has ssh executing trojan'd programs)
+      PermitUserEnvironment no
+
+
+      # bouncer is a special shared-user account used prior to NVSSH (SSHCA), and we are blocking it
+      # explicitly to stop users with bouncer cert logging to target host unauthorized
+      DenyUsers bouncer
+
+      Match Group ngc-automation
+        TrustedUserCAKeys /etc/ssh/ngc-automation-ca-keys.pem
+
+      Match Group ngc,nsv
+        TrustedUserCAKeys /etc/ssh/ngc-users-ca-keys.pem
+        AuthenticationMethods publickey keyboard-interactive:pam
+        AuthorizedPrincipalsCommand /usr/bin/nvssh authorized-principals-check -i %i -u %u -k %k -T %T -t %t
+        AuthorizedPrincipalsCommandUser root
+
+
+      ## IMPORTANT - Do not add anything golbal after Match block
+  - path: /usr/bin/nvssh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      umask 0077
+      script_version=1.0.0
+      # load the config file
+      source /etc/nvssh/nvssh.conf
+
+      nvssh_authorized_principals_check_help() {
+        cat << EOF
+        Usage: ${0} authorized-principals-check -i key-id -u username -k cert [ -t cert-type -T cakey-type -h ]
+        Options:
+          -i   The key ID in the certificate
+          -u   SSH user name
+          -k   The base64-encoded key or certificate for authentication
+          -t   The key or certificate type
+          -T   The type of the CA key
+          -h   Help
+          -v   Version
+        Example (sshd_config file):
+          AuthorizedPrincipalsCommand /usr/local/sbin/${0} -i %i -u %u -k %k [ -T %T -t %t ]
+
+      EOF
+      }
+
+      # compare submitted_list with permitted_list
+      # return 0 if a (regex) match found,
+      # return 1 if no match found
+      # return 2 for input/parse errors
+      # Example usage:
+      #   out=$(nvssh_permission_check ${permitted_roles} ${user_roles})
+      #   status=$?
+      #     if [ $status -ne 0 ]; then
+      #       logger -p auth.info --id "PPID=$$ info: ${0}: ${out}"
+      #       return
+      #     fi
+      function nvssh_permission_check() {
+        local permitted_list="$1"
+        local submitted_list="$2"
+
+        # remove whitespaces
+        submitted_list_no_ws="$(echo -e "${submitted_list}" | tr -d '[:space:]')"
+        IFS=',' read -r -a submitted_array <<< "$submitted_list_no_ws"
+        for s in "${submitted_array[@]}"; do
+
+          submitted_regex="^[-_a-zA-Z0-9*\.]{1,255}$"
+          if ! [[ "$s" =~ $submitted_regex ]]; then
+            echo "input validation failed. INPUT:${s}, REGEX:${submitted_regex}"
+            return 2
+          fi
+
+          permitted_list_no_ws="$(echo -e "${permitted_list}" | tr -d '[:space:]')"
+          IFS=',' read -r -a permitted_array <<< "$permitted_list_no_ws"
+          for p in "${permitted_array[@]}"; do
+
+            # check if permitted contains '*' (permit all)
+            if [[ "$p" == "*" ]]; then
+              echo "match_found"
+              return 0
+            fi
+
+            # if permitted matches with
+            local s_formatted="^${s/\*/.*}$"
+            if [[ "$p" =~ $s_formatted ]]; then
+              echo "match_found"
+              return 0
+            fi
+
+          done
+        done
+
+        echo "no_match_found"
+        return 1
+      }
+
+      function is_user_authorized() {
+        local user_name="$1"
+        local user_roles="$2"
+        local optional_error_msg="$3"
+        local authorized=false
+        local sudo_user=false
+        local sudo_nopasswd_user=false
+
+        declare -a permitted_list
+        declare -a submitted_list
+        declare -a sudo_list
+        declare -a sudo_nopasswd_list
+        if [ -f "$nvssh_tmp_access_conf_file" ]; then
+          logger -p auth.info --id "PPID=$$ info: ${0}: ${nvssh_tmp_access_conf_file} exists, loading it.."
+          source "$nvssh_tmp_access_conf_file"
+          permitted_list=("$nvssh_allowed_sudo_nopasswd_roles" "$nvssh_allowed_sudo_roles" "$nvssh_tmp_allowed_sudo_users" "$nvssh_allowed_roles" "$nvssh_tmp_allowed_users")
+          submitted_list=("$user_roles" "$user_roles" "$user_name" "$user_roles" "$user_name")
+          sudo_list=(true true true false false)
+          sudo_nopasswd_list=(true false false false false)
+        else
+          permitted_list=("$nvssh_allowed_sudo_nopasswd_roles" "$nvssh_allowed_sudo_roles" "$nvssh_allowed_roles")
+          submitted_list=("$user_roles" "$user_roles" "$user_roles")
+          sudo_list=(true true false)
+          sudo_nopasswd_list=(true false false)
+        fi
+
+        for i in "${!permitted_list[@]}"; do
+          msg=$(nvssh_permission_check "${permitted_list[$i]}" "${submitted_list[$i]}")
+          local status=$?
+          logger -p auth.info --id "PPID=$$ info: ${0}: ${msg}"
+          if [ $status -eq 2 ]; then
+            logger -p auth.info --id "PPID=$$ error: ${0}: ${optional_error_msg} ${msg}"
+            exit 1
+          fi
+
+          if [ $status -eq 0 ]; then
+            authorized=true
+            if [ "${sudo_list[$i]}" = true ]; then
+              sudo_user=true
+            fi
+            if [ "${sudo_nopasswd_list[$i]}" = true ]; then
+              sudo_nopasswd_user=true
+              break # no need to check further if user is authorized with sudo nopasswd
+            fi
+          fi
+        done
+
+        if [ "$authorized" = false ] ; then
+          logger -p auth.info --id "PPID=$$ info: ${0}: USER:${user_name} Unauthorized: no matching roles found for: ${user_roles} nvssh_allowed_sudo_roles: ${nvssh_allowed_sudo_roles}, nvssh_allowed_sudo_nopasswd_roles: ${nvssh_allowed_sudo_nopasswd_roles}, nvssh_allowed_roles: ${nvssh_allowed_roles}"
+          exit 1
+        fi
+
+        # user already exists elsewhere - e.g. in LDAP, NIS etc.
+        if [ "$nvssh_nssswitch_plugin" = false ] ; then
+          id "${user_name}" 1>/dev/null 2>&1
+          status=$?
+          if [ $status -ne 0 ]; then
+            logger -p auth.err --id "PPID=$$ error: ${0}: USER:${user_name} doesn't exist; authentication failed, exiting.."
+            exit 1
+          fi
+        else
+          # create user in /etc/passwd if it doesn't exist
+          # check whether the user exists
+          grep "^${user_name}:" /etc/passwd
+          status=$?
+          if [ $status -eq 0 ]; then
+            logger -p auth.info --id "PPID=$$ info: ${0}: USER:${user_name} already exists; user creation skipped.."
+          else
+            # check to make sure temp account exists, and rename to actual username
+            grep "^${user_name}-temp:" /etc/passwd
+            status=$?
+            if [ $status -ne 0 ]; then
+              logger -p auth.err --id "PPID=$$ error: ${0}: USER:${user_name}-temp doesn't exist; exiting.."
+              exit 1
+            fi
+
+            # user is authenticated, now convert temp user to actual logged in user
+            /usr/sbin/lusermod -d "/home/${user_name}" -l "${user_name}"  -s "${nvssh_default_shell}" -c "nvssh nssswitch user account" "${user_name}-temp"
+            status=$?
+            if [ $status -ne 0 ]; then
+              logger -p auth.err --id "PPID=$$ error: ${0}: USER:${user_name} lusermod failed; exiting.."
+              exit 1
+            fi
+
+            # this is NOT a password, but merely a way to get user
+            # confirmation before they execute commands as root user
+            echo "${user_name}:y" | /usr/sbin/chpasswd
+            status=$?
+            if [ $status -ne 0 ]; then
+              logger -p auth.err --id "PPID=$$ error: ${0}: USER:${user_name} failed to add sudo password"
+              exit 1
+            fi
+          fi
+        fi
+
+        ## User is authorized, is sudo-nopasswd -> add to nvssh-sudo-nopasswd group:
+        if [[ "$sudo_nopasswd_user" = true ]] ; then
+          logger -p auth.info --id "PPID=$$ info: ${0}: match found in nvssh_[tmp_]allowed_sudo_nopasswd_roles for ${user_name}; access granted"
+          /usr/bin/gpasswd -a "${user_name}" "nvssh-sudo-nopasswd"
+          status=$?
+          if [ $status -ne 0 ]; then
+            logger -p auth.err --id "PPID=$$ error: ${0}: USER:${user_name} gpasswd add to nvssh-sudo-nopasswd group failed; exiting.."
+            exit 1
+          fi
+        ## User is authorized, is sudo, and is NOT sudo-nopasswd -> add to nvssh-sudo group:
+        elif [[ "$sudo_user" = true ]] ; then
+          logger -p auth.info --id "PPID=$$ info: ${0}: match found in nvssh_[tmp_]allowed_sudo_roles for ${user_name}; access granted"
+          /usr/bin/gpasswd -a "${user_name}" "nvssh-sudo"
+          status=$?
+          if [ $status -ne 0 ]; then
+            logger -p auth.err --id "PPID=$$ error: ${0}: USER:${user_name} gpasswd add to nvssh-sudo group failed; exiting.."
+            exit 1
+          fi
+        ## User is authorized, is NOT sudo, and is NOT sudo-nopasswd -> remove from custom sudo groups:
+        else
+          logger -p auth.info --id "PPID=$$ info: ${0}: match found in nvssh_[tmp_]allowed_roles for ${user_name}; access granted"
+          /usr/bin/gpasswd -d "${user_name}" "nvssh-sudo"
+          /usr/bin/gpasswd -d "${user_name}" "nvssh-sudo-nopasswd"
+          status=$?
+          if [ $status -ne 0 ]; then
+            logger -p auth.info --id "PPID=$$ info: ${0}: gpasswd USER:${user_name} is not a member of 'nvssh-sudo'; continue.."
+          fi
+        fi
+
+        return 0
+      }
+
+      function cmd_authorized_principals_check() {
+        local key_id="$1"
+        local user_name="$2"
+        local cert="$3"
+        local cert_type="$4"
+        local ca_type="$5"
+
+        if [ -z "${user_name}" ]; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: missing cmd-line parameter: -u (SSH user name)"
+          cmd_sshcert_auth_failed "${user_name}"
+        fi
+
+        if [ -z "${key_id}" ]; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: missing cmd-line parameter: -i (Key ID)"
+          cmd_sshcert_auth_failed "${user_name}"
+        fi
+
+        if [ -z "${cert}" ]; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: missing cmd-line parameter: -k (SSH user cert)"
+          cmd_sshcert_auth_failed "${user_name}"
+        fi
+
+        local key_id_len
+        key_id_len=${#key_id}
+        if [[ $key_id_len -lt 8 ]] || [[ $key_id_len -gt 4096 ]]; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: KEYID:${key_id} input validation failed. Length of ${key_id_len} not between 8-4096"
+          cmd_sshcert_auth_failed "${user_name}"
+        fi
+
+        local -r key_id_regex="^[-a-zA-Z0-9_@= \.\*,]+$"
+        if ! [[ "${key_id}" =~ $key_id_regex ]]; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: KEYID:${key_id} input validation failed. REGEX:${key_id_regex}"
+          cmd_sshcert_auth_failed "${user_name}"
+        fi
+
+        local kuser=""
+        local kroles=""
+
+        for kid in ${key_id}; do
+          IFS='=' read -r -a array <<< "${kid}"
+          if [ ${#array[@]} -eq 2 ]; then
+            case "${array[0]}" in
+
+            user)
+              kuser=${array[1]}
+              ;;
+            roles)
+              kroles=${array[1]}
+              ;;
+            esac
+          fi
+        done
+
+        if [ -z "${kuser}" ]; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: missing field(s) in Key-ID (user): KEYID:${key_id}"
+          cmd_sshcert_auth_failed "${user_name}"
+        fi
+
+        if [ -z "${kroles}" ]; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: missing field(s) in Key-ID (roles): KEYID:${key_id}"
+          cmd_sshcert_auth_failed "${user_name}"
+        fi
+
+        local user_matches=false
+        local user_cert
+        local principals
+        local user_name_matched="$user_name"
+        user_cert=$(echo "${cert_type} ${cert}" | ssh-keygen -L -f - | tr -d '\n' | tr -s ' ')
+        principals=$(echo "$user_cert" | grep -o -P '(?<=Principals: ).*(?= Critical Options:)')
+        IFS=' ' read -r -a principals_array <<< "${principals}"
+        for p in "${principals_array[@]}"; do
+          # hack: in some cases (e.g. vault jwt-auth), the principal may contain email (@email.com)
+          # suffix and we need to remove the email suffix from the user name
+          principal=$(echo -n "${p}" | cut -d "@" -f1)
+          if [ "$principal" = "$user_name" ]; then
+            user_matches=true
+            user_name_matched="$p"
+            break
+          fi
+        done
+
+        if [ "$user_matches" = false ] ; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: username mismatch cert principals:${principals} username:${user_name}"
+          cmd_sshcert_auth_failed "${user_name}"
+        fi
+
+        # authentication is complete, now check the authorization
+        is_user_authorized "$user_name" "$kroles" "KEYID:${key_id}"
+        status=$?
+        if [ $status -ne 0 ]; then
+          logger -p auth.info --id "PPID=$$ error: ${0}: KEYID:${key_id} Unexpected error"
+          cmd_sshcert_auth_failed "${user_name}"
+        fi
+
+        echo "$user_name_matched"
+      }
+
+      function cmd_sshcert_auth_failed() {
+        local user_name="$1"
+        if [ "$nvssh_pam_auth_plugin" = false ] ; then
+          cmd_auth_failed "${user_name}"
+        fi
+        exit 1
+      }
+
+      function cmd_pam_otp_auth() {
+        # Vault OTP token validator. If the OTP is valid, Vault
+        # returns userid and the role associated with the OTP.
+        # This script compares userid with PAM_USER and role with
+        # nvssh_[tmp_]allowed_[sudo_][roles|user], defined in /etc/nvssh/nvssh.conf
+
+        local otp
+        local vault_url
+        local otp_out
+        local user_name
+        local role_name
+        # read OTP from user
+        read -r name
+        otp=$(echo -n "${name}")
+        vault_url="${nvssh_vault_addr}/v1/${nvssh_vault_namespace}/${nvssh_vault_ssh_mount_point}/verify"
+
+        otp_out=$(curl -s --request POST -H 'Content-Type: application/json' -d "{ \"otp\": \"${otp}\" }" "$vault_url")
+        user_name=$(echo "${otp_out}" | jq -r .data.username)
+        role_name=$(echo "${otp_out}" | jq -r .data.role_name)
+
+        if [[ "$user_name" == "null" ]]; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: Vault OTP user_name validation failed (role/user unauthorized?) PAM_USER:${PAM_USER}"
+          exit 1
+        fi
+
+        if [[ "$role_name" == "null" ]]; then
+          logger -p auth.err --id "PPID=$$ error: ${0}: Vault OTP role_name validation failed PAM_USER:${PAM_USER}"
+          exit 1
+        fi
+
+        if [[ "$PAM_USER" != "$user_name" ]]; then
+          logger -p auth.err --id "PPID=$$ error:  ${0}: Username mismatch PAM_USER:${PAM_USER} user_name:${user_name}"
+          exit 1
+        fi
+
+        # function call
+        is_user_authorized "$user_name" "$role_name" "PAM_USER:${PAM_USER}"
+        status=$?
+        if [ $status -ne 0 ]; then
+          logger -p auth.info --id "PPID=$$ error: ${0}: KEYID:${key_id} Unexpected error"
+          exit 1
+        fi
+
+        # success
+        exit 0
+      }
+
+      function cmd_pam_otp_auth_failed() {
+        # If public-key/CA and PAM auth (Vault OTP) fails,
+        # delete temp user created by nss_nvssh
+        #
+        cmd_auth_failed "${PAM_USER}"
+        exit 0
+      }
+
+      function cmd_auth_failed() {
+        local user_name="$1"
+
+        # Assume the user management is handled by a different system (e.g. NIS, LDAP etc.)
+        if [ "$nvssh_nssswitch_plugin" = false ] ; then
+          return
+        fi
+
+        # check if the temp account exists, and remove it
+        grep "^${user_name}-temp:" /etc/passwd
+        status=$?
+        if [ $status -ne 0 ]; then
+          logger -p auth.info --id "PPID=$$ info: ${0}: USER:${user_name}-temp doesn't exist; exiting.."
+          return
+        fi
+
+        /usr/sbin/luserdel "${user_name}-temp"
+        status=$?
+        if [ $status -ne 0 ]; then
+          logger -p auth.info --id "PPID=$$ error: ${0}: USER:${user_name}-temp luserdel failed; exiting.."
+          return
+        fi
+
+      }
+
+      function main() {
+        local key_id=""
+        local user_name=""
+        local cert=""
+        local cert_type=""
+        local ca_type=""
+
+        # delete temp access file if the file is older than nvssh_tmp_access_max_time_in_days
+        if [ -f "$nvssh_tmp_access_conf_file" ]; then
+
+          if [ $nvssh_tmp_access_max_time_in_days -gt 30 ]; then
+            find "$nvssh_tmp_access_conf_file" --mtime +30 -delete
+          elif [ $nvssh_tmp_access_max_time_in_days -lt 1 ]; then
+            find "$nvssh_tmp_access_conf_file" --mtime +1 -delete
+          else
+            find "$nvssh_tmp_access_conf_file" --mtime +${nvssh_tmp_access_max_time_in_days} -delete
+          fi
+
+          if [ ! -f "$nvssh_tmp_access_conf_file" ]; then
+            logger -p auth.info --id "PPID=$$ info: ${0}: The temp user access file: ${nvssh_tmp_access_conf_file} expired, removing it.."
+          fi
+        fi
+
+        # Parse options
+        while getopts ":h" opt; do
+          case ${opt} in
+            h )
+	            cat << EOF
+        Usage: ${0} sub-command [options]
+
+          ${0} nvssh authorized-principals-check -i key-id -u username -k cert [ -t cert-type -T cakey-type -h ]
+          Options:
+            -i   The key ID in the certificate
+            -u   SSH user name (e.g. bouncer user)
+            -k   The base64-encoded key or certificate for authentication
+            -t   The key or certificate type
+            -T   The type of the CA key
+            -h   Help
+            -v   Version
+        Example (sshd_config file):
+          AuthorizedPrincipalsCommand ${0} authorized-principals-check -i %i -u %u -k %k [ -T %T -t %t ]
+
+          ${0} pam-otp-auth
+        Example (pam.d/sshd PAM file)
+          auth sufficient pam_exec.so quiet expose_authtok log=/var/log/vault-otp-auth.log ${0} pam-otp-auth
+
+          ${0} pam-otp-auth-failed
+        Example (pam.d/sshd PAM file)
+          auth [default=ignore] pam_exec.so ${0} pam-otp-auth-failed
+
+      EOF
+              exit 0
+              ;;
+            \? )
+              echo "Invalid Option: -$OPTARG" 1>&2
+              exit 1
+              ;;
+          esac
+        done
+        shift $((OPTIND -1))
+
+        subcommand=$1; shift
+        case "$subcommand" in
+          authorized-principals-check)
+            while getopts "hvi:u:k:t:T:" opt; do
+            case "$opt" in
+              h)
+                nvssh_authorized_principals_check_help
+                exit 0
+                ;;
+              v)
+                echo "nvssh_authorized_principals_check v${script_version}"
+                exit 0
+                ;;
+              i) key_id=$OPTARG
+                ;;
+              u) user_name=$OPTARG
+                ;;
+              k) cert=$OPTARG
+                ;;
+              t) cert_type=$OPTARG
+                ;;
+              T) ca_type=$OPTARG
+                ;;
+              '?')
+                nvssh_authorized_principals_check_help >&2
+                exit 1
+                ;;
+              esac
+            done
+
+            shift $((OPTIND -1))
+            cmd_authorized_principals_check "$key_id" "$user_name" "$cert" "$cert_type" "$ca_type"
+            ;;
+          pam-otp-auth)
+	          cmd_pam_otp_auth
+	          ;;
+          pam-otp-auth-failed)
+            cmd_pam_otp_auth_failed
+            ;;
+        esac
+      }
+
+      # main
+      main "$@"
+
 # install specific packages from distro apt repos, without upgrading any installed ones.
 package_update: true
 packages:
   - lldpd
+  - libuser
+  - jq
 # run these commands (last)
 runcmd:
   - [ date, -s , '@{{ seconds_since_epoch }}' ]
@@ -245,6 +1040,17 @@ runcmd:
   - [ ip, vrf, exec, mgmt, /bin/bash, hbn-dpu-setup.sh ]
   - [ cp, /opt/hbn_installer/configs/1.5.1/doca_hbn.yaml, /etc/kubelet.d/ ]
   - [ cp, /opt/hbn_installer/configs/1.5.1/doca_telemetry.yaml, /etc/kubelet.d/ ]
+  - [ groupadd, --gid, 959, nvssh-sudo-nopasswd ]
+  - [ groupadd, --gid, 949, nvssh-sudo ]
+  - [ groupadd, ngc-automation ]
+  - [ groupadd, ngc ]
+  - [ groupadd, nsv ]
+  - [ dpkg, -i, /opt/forge/libnss-exec_0.2.0-1_arm64.deb ]
+  - [ ldconfig ]
+  - [ mkdir, -p, /etc/nvssh ]
+  - [ chmod, 0755, /etc/nvssh ]
+  - [ mv, /opt/forge/nvssh.conf, /etc/nvssh ]
+  - [ chmod, 0644, /etv/nvssh/nvssh.conf ]
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
   - [ /usr/bin/bfcfg ]
   - [ /opt/forge/run-scout.sh ]
