@@ -159,7 +159,9 @@ pub async fn allocate_instance(
     match Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id).await? {
         Some(dpu_machine) => {
             if !dpu_machine.has_healthy_network() {
-                return Err(CarbideError::UnhealthyNetwork);
+                // TODO(gk) Should return an error once this is done: https://jirasw.nvidia.com/browse/FORGE-2243
+                tracing::error!(%machine_id, "DPU with unhealthy network. Instance will fail.");
+                //return Err(CarbideError::UnhealthyNetwork);
             }
         }
         None => {
