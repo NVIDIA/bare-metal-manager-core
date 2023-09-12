@@ -120,3 +120,25 @@ impl CredentialKey {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generated_password() {
+        // According to Bmc password policy:
+        // Minimum length: 13
+        // Maximum length: 20
+        // Minimum number of upper-case characters: 1
+        // Minimum number of lower-case characters: 1
+        // Minimum number of digits: 1
+        // Minimum number of special characters: 1
+        let password = Credentials::generate_password();
+        assert!(password.len() >= 13 && password.len() <= 20);
+        assert!(password.chars().any(|c| c.is_uppercase()));
+        assert!(password.chars().any(|c| c.is_lowercase()));
+        assert!(password.chars().any(|c| c.is_ascii_digit()));
+        assert!(password.chars().any(|c| c.is_ascii_punctuation()));
+    }
+}
