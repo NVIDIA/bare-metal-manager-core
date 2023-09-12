@@ -31,7 +31,7 @@ impl StateHandler for BmcMachineStateHandler {
 
     async fn handle_object_state(
         &self,
-        _machine_id: &uuid::Uuid,
+        machine_id: &uuid::Uuid,
         state: &mut BmcMachine,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
@@ -67,7 +67,7 @@ impl StateHandler for BmcMachineStateHandler {
                     Err(e) => tracing::warn!(error = %e, "Failed to instantiate redfish client"),
                 }
 
-                let _client = ctx
+                let mut _client = ctx
                     .services
                     .redfish_client_pool
                     .create_client(
@@ -83,9 +83,40 @@ impl StateHandler for BmcMachineStateHandler {
                             });
                         StateHandlerError::from(e)
                     })?;
+
+                ctx.services
+                    .redfish_client_pool
+                    .create_forge_admin_user(_client, *machine_id)
+                    .await
+                    .map_err(|e| {
+                        *controller_state.modify() =
+                            BmcMachineState::Error(BmcMachineError::RedfishError {
+                                message: e.to_string(),
+                            });
+                        StateHandlerError::from(e)
+                    })?;
+
+                _client = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client(
+                        bmc_network_interface.hostname(),
+                        None,
+                        RedfishCredentialType::BmcMachine {
+                            bmc_machine_id: machine_id.to_string(),
+                        },
+                    )
+                    .await
+                    .map_err(|e| {
+                        *controller_state.modify() =
+                            BmcMachineState::Error(BmcMachineError::RedfishConnection {
+                                message: e.to_string(),
+                            });
+                        StateHandlerError::from(e)
+                    })?;
             }
             BmcMachineState::Error(error_type) => {
-                tracing::error!("Bmc state machine error: {:#?}", error_type)
+                tracing::error!(error_type = format!("{error_type:#?}"), %machine_id, "BMC state machine error");
             }
         }
         Ok(())

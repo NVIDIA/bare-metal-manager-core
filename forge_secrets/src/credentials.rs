@@ -1,10 +1,45 @@
 use async_trait::async_trait;
+use rand::{seq::SliceRandom, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+
+const PASSWORD_LEN: usize = 16;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Credentials {
     UsernamePassword { username: String, password: String },
     //TODO: maybe add cert here?
+}
+
+impl Credentials {
+    pub fn generate_password() -> String {
+        const UPPERCHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const LOWERCHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
+        const NUMCHARS: &[u8] = b"0123456789";
+        const EXTRACHARS: &[u8] = b"^%$@!~_";
+        const CHARSET: [&[u8]; 4] = [UPPERCHARS, LOWERCHARS, NUMCHARS, EXTRACHARS];
+
+        let mut rng = rand::thread_rng();
+
+        let mut password: Vec<char> = (0..PASSWORD_LEN)
+            .map(|_| {
+                let chid = rng.gen_range(0..CHARSET.len());
+                let idx = rng.gen_range(0..CHARSET[chid].len());
+                CHARSET[chid][idx] as char
+            })
+            .collect();
+
+        // Enforce 1 Uppercase, 1 lowercase, 1 symbol and 1 numeric value rule.
+        let mut positions_to_overlap = (0..PASSWORD_LEN).collect::<Vec<_>>();
+        positions_to_overlap.shuffle(&mut thread_rng());
+        let positions_to_overlap = positions_to_overlap.into_iter().take(CHARSET.len());
+
+        for (index, pos) in positions_to_overlap.enumerate() {
+            let char_index = rng.gen_range(0..CHARSET[index].len());
+            password[pos] = CHARSET[index][char_index] as char;
+        }
+
+        password.into_iter().collect()
+    }
 }
 
 #[async_trait]

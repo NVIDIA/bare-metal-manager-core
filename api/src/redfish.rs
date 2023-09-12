@@ -17,7 +17,8 @@ use std::{
 
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
-use libredfish::{standard::RedfishStandard, Endpoint, Redfish, RedfishError};
+use libredfish::{standard::RedfishStandard, Endpoint, Redfish, RedfishError, RoleId};
+use uuid::Uuid;
 
 use crate::db::bmc_metadata::UserRoles;
 
@@ -62,6 +63,12 @@ pub trait RedfishClientPool: Send + Sync + 'static {
     async fn change_root_password_to_site_default(
         &self,
         standard_client: RedfishStandard,
+    ) -> Result<(), RedfishClientCreationError>;
+
+    async fn create_forge_admin_user(
+        &self,
+        client: Box<dyn Redfish>,
+        bmc_machine_id: Uuid,
     ) -> Result<(), RedfishClientCreationError>;
 }
 
@@ -179,6 +186,34 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
 
         standard_client
             .change_password(username.as_str(), password.as_str())
+            .map_err(RedfishClientCreationError::RedfishError)?;
+        Ok(())
+    }
+
+    async fn create_forge_admin_user(
+        &self,
+        client: Box<dyn Redfish>,
+        bmc_machine_id: Uuid,
+    ) -> Result<(), RedfishClientCreationError> {
+        let username = "forge-redfish-admin";
+        let password = Credentials::generate_password();
+        self.credential_provider
+            .set_credentials(
+                CredentialKey::DpuRedfish {
+                    credential_type: CredentialType::BmcMachine {
+                        bmc_machine_id: bmc_machine_id.to_string(),
+                    },
+                },
+                Credentials::UsernamePassword {
+                    username: username.to_string(),
+                    password: password.clone(),
+                },
+            )
+            .await
+            .map_err(RedfishClientCreationError::MissingCredentials)?;
+
+        client
+            .create_user(username, password.as_str(), RoleId::Administrator)
             .map_err(RedfishClientCreationError::RedfishError)?;
         Ok(())
     }
@@ -467,5 +502,13 @@ impl RedfishClientPool for RedfishSim {
         _standard_client: RedfishStandard,
     ) -> Result<(), RedfishClientCreationError> {
         Err(RedfishClientCreationError::NotImplemented)
+    }
+
+    async fn create_forge_admin_user(
+        &self,
+        _client: Box<dyn Redfish>,
+        _bmc_machine_id: Uuid,
+    ) -> Result<(), RedfishClientCreationError> {
+        Ok(())
     }
 }

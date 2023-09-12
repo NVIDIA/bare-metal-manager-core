@@ -21,8 +21,10 @@ pub enum BmcMachineType {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
+#[allow(clippy::enum_variant_names)]
 pub enum BmcMachineError {
     RedfishConnection { message: String },
+    RedfishError { message: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
