@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use clap::{ArgGroup, Parser, ValueEnum};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
@@ -230,6 +231,98 @@ pub enum RedfishCommand {
     TpmReset,
     /// Reboot the BMC itself
     BmcReset,
+    /// Disable Secure Boot
+    DisableSecureBoot,
+    /// List Chassis
+    GetChassisAll,
+    /// Show BMC's Ethernet interface information
+    GetBmcEthernetInterface,
+    /// Change password for a BMC user
+    ChangeBmcPassword(BmcPassword),
+    /// Change UEFI password
+    ChangeUefiPassword(UefiPassword),
+    #[clap(about = "DPU specific operations", subcommand)]
+    Dpu(DpuOperations),
+}
+
+#[derive(clap::Parser, Debug)]
+pub enum DpuOperations {
+    /// Set host level to to restricted. Host will not be able to configure DPU
+    SetHostLevelRestricted,
+    /// Set host level to to privilged. Allow host to configure the DPU
+    SetHostLevelPrivileged,
+    /// BMC's FW Commands
+    #[clap(visible_alias = "fw", about = "BMC's FW Commands", subcommand)]
+    Firmware(FwCommand),
+    /// Show ports information
+    Ports(ShowPort),
+}
+
+#[derive(Parser, Debug)]
+pub enum FwCommand {
+    /// Print FW update status
+    Status,
+    /// Update BMC's FW to the given FW package
+    Update(FwPackage),
+    /// Show FW versions of different components
+    Show(ShowFw),
+}
+
+#[derive(Parser, Debug)]
+pub struct FwPackage {
+    #[clap(short, long, help = "FW package to install")]
+    pub package: PathBuf,
+}
+
+#[derive(Parser, Debug)]
+pub struct UefiPassword {
+    #[clap(long, require_equals(true), help = "Current UEFI password")]
+    pub current_password: String,
+    #[clap(long, require_equals(true), help = "New UEFI password")]
+    pub new_password: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct BmcPassword {
+    #[clap(long, require_equals(true), help = "New BMC password")]
+    pub new_password: String,
+    #[clap(long, require_equals(true), help = "BMC user")]
+    pub user: String,
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+        ArgGroup::new("show_fw")
+        .required(true)
+        .args(&["all", "bmc", "dpu_os", "uefi", "fw"])))]
+pub struct ShowFw {
+    #[clap(short, long, action, help = "Show information")]
+    pub all: bool,
+
+    #[clap(long, action, help = "Show BMC FW Version")]
+    pub bmc: bool,
+
+    #[clap(long, action, help = "Show DPU OS version")]
+    pub dpu_os: bool,
+
+    #[clap(long, action, help = "Show UEFI version")]
+    pub uefi: bool,
+
+    #[clap(short, long)]
+    pub fw: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+        ArgGroup::new("show_port")
+        .required(true)
+        .args(&["all", "port"])))]
+pub struct ShowPort {
+    #[clap(short, long, action, help = "Show information")]
+    pub all: bool,
+
+    #[clap(short, long)]
+    pub port: Option<String>,
 }
 
 #[derive(Parser, Debug)]
