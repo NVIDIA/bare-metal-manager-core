@@ -273,11 +273,11 @@ fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
                 if let Some(dpu_machine) = dpu_machine {
                     // Network health is in observation, on DPU, but it relates to
                     // the managed host as a whole.
-                    managed_host_output.is_network_healthy = match &dpu_machine.health {
+                    managed_host_output.is_network_healthy = match &dpu_machine.network_health {
                         Some(h) => h.is_healthy,
                         None => false,
                     };
-                    managed_host_output.network_err_message = match &dpu_machine.health {
+                    managed_host_output.network_err_message = match &dpu_machine.network_health {
                         Some(h) => h.message.clone(),
                         None => None,
                     };
