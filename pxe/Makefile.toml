@@ -271,7 +271,8 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-scout-to-bfb",
-	"bfb-add-nvinit-prereqs-to-bfb",
+	"bfb-add-libnss-to-bfb",
+	"bfb-add-nvssh-conf-to-bfb",
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
@@ -293,7 +294,8 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-scout-to-bfb",
-	"bfb-add-nvinit-prereqs-to-bfb",
+	"bfb-add-libnss-to-bfb",
+	"bfb-add-nvssh-conf-to-bfb",
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
@@ -362,12 +364,21 @@ args = [
 	"/tmp/bfb-dump/initramfs-tmp/forge_root.pem",
 ]
 
-[tasks.bfb-add-nvinit-prereqs-to-bfb]
+[tasks.bfb-add-nvssh-conf-to-bfb]
 category = "iPXE Kernel"
-description = "Add nvinit prerequisites to the bfb"
+description = "Add nvssh.conf to the bfb"
 command = "cp"
 args = [
-    "${REPO_ROOT}/pxe/nvinit_setup/*",
+    "${REPO_ROOT}/pxe/nvinit_setup/nvssh.conf",
+    "/tmp/bfb-dump/initramfs-tmp",
+]
+
+[tasks.bfb-add-libnss-to-bfb]
+category = "iPXE Kernel"
+description = "Add libnss deb to the bfb"
+command = "cp"
+args = [
+    "${REPO_ROOT}/pxe/nvinit_setup/libnss-exec_0.2.0-1_arm64.deb",
     "/tmp/bfb-dump/initramfs-tmp",
 ]
 
