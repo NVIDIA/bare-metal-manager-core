@@ -883,7 +883,7 @@ message Machine {
   BmcInfo bmc_info = 12;
 
   google.protobuf.Timestamp last_reboot_time = 14;
-  NetworkHealth health = 15;
+  NetworkHealth network_health = 15;
   google.protobuf.Timestamp last_observation_time = 16;
   optional string maintenance_reference = 17;
   optional google.protobuf.Timestamp maintenance_start_time = 18;

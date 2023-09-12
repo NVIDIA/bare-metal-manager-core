@@ -260,7 +260,7 @@ impl From<Machine> for rpc::Machine {
                 }),
             bmc_info: Some(machine.bmc_info.into()),
             last_reboot_time: machine.last_reboot_time.map(|t| t.into()),
-            health: machine
+            network_health: machine
                 .network_status_observation
                 .as_ref()
                 .map(|obs| obs.health_status.clone().into()),
