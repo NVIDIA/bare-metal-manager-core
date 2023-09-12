@@ -206,6 +206,9 @@ pub enum CarbideError {
 
     #[error("Resource {0} is empty")]
     ResourceExhausted(String),
+
+    #[error("DPU has unhealthy network")]
+    UnhealthyNetwork,
 }
 
 impl From<CarbideError> for tonic::Status {
@@ -249,6 +252,7 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::MaintenanceMode => {
                 Status::failed_precondition("MaintenanceMode".to_string())
             }
+            CarbideError::UnhealthyNetwork => Status::unavailable("Machine network not ready"),
             CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
             CarbideError::NetworkSegmentPrefixOverlap => Status::invalid_argument(from.to_string()),
             error @ CarbideError::ConcurrentModificationError(_, _) => {
