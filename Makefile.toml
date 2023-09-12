@@ -82,7 +82,7 @@ category = "Kind"
 description = "Build the x86 build container"
 workspace = false
 command = "docker"
-args = ["build", "-t", "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", "-f", "${REPO_ROOT}/dev/docker/Dockerfile.build-container", "."]
+args = ["build", "-t", "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", "-f", "${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64", "."]
 cwd="${REPO_ROOT}/dev/docker"
 
 [tasks.build-arm-build-container]
