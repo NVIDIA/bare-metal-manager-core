@@ -13,6 +13,7 @@
 use std::future::Future;
 use std::path::Path;
 
+use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{self as rpc, MachineBootOverride, MachineType, NetworkSegmentSearchConfig};
 use ::rpc::forge_tls_client::{self, ForgeClientT};
 use ::rpc::{MachineId, Uuid};
@@ -440,6 +441,48 @@ pub async fn migrate_vpc_vni(api_config: &Config) -> CarbideCliResult<rpc::Migra
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
         Ok(out)
+    })
+    .await
+}
+
+pub async fn trigger_dpu_reprovisioning(
+    id: String,
+    set: bool,
+    update_firmware: bool,
+    api_config: Config,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::DpuReprovisioningRequest {
+            dpu_id: Some(rpc::MachineId { id }),
+            mode: if set { Mode::Set } else { Mode::Clear } as i32,
+            initiator: "admin_cli".to_string(),
+            update_firmware,
+        });
+        client
+            .trigger_dpu_reprovisioning(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await?;
+
+    Ok(())
+}
+
+pub async fn list_dpu_pending_for_reprovisioning(
+    api_config: Config,
+) -> CarbideCliResult<rpc::DpuReprovisioningListResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::DpuReprovisioningListRequest {});
+        let data = client
+            .list_dpu_waiting_for_reprovisioning(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(data)
     })
     .await
 }
