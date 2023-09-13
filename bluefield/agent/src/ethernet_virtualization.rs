@@ -386,6 +386,7 @@ fn write_frr<P: AsRef<Path>>(
             .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
         vec![frr::FrrVlanConfig {
             vlan_id: admin_interface.vlan_id,
+            network: admin_interface.ip.clone(),
             ip: admin_interface.ip.clone() + "/32",
         }]
     } else {
@@ -393,7 +394,8 @@ fn write_frr<P: AsRef<Path>>(
         for net in &nc.tenant_interfaces {
             access_vlans.push(frr::FrrVlanConfig {
                 vlan_id: net.vlan_id,
-                ip: net.ip.clone() + "/32",
+                network: net.ip.clone() + "/32",
+                ip: net.ip.clone(),
             });
         }
         access_vlans
