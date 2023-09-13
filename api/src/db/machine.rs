@@ -34,7 +34,7 @@ use crate::model::hardware_info::{BMCVendor, HardwareInfo};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
-use crate::model::machine::{FailureDetails, MachineState, ManagedHostState};
+use crate::model::machine::{FailureDetails, MachineState, ManagedHostState, ReprovisionRequest};
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -114,6 +114,9 @@ pub struct Machine {
 
     /// Failure cause. If failure cause is critical, machine will move into Failed state.
     failure_details: FailureDetails,
+
+    /// Last time when machine reprovisioning_requested.
+    reprovisioning_requested: Option<ReprovisionRequest>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -142,6 +145,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let network_status_observation = network_status_observation.map(|n| n.0);
 
         let failure_details: sqlx::types::Json<FailureDetails> = row.try_get("failure_details")?;
+        let reprovision_req: Option<sqlx::types::Json<ReprovisionRequest>> =
+            row.try_get("reprovisioning_requested")?;
 
         Ok(Machine {
             id,
@@ -166,6 +171,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             last_cleanup_time: row.try_get("last_cleanup_time")?,
             last_discovery_time: row.try_get("last_discovery_time")?,
             failure_details: failure_details.0,
+            reprovisioning_requested: reprovision_req.map(|x| x.0),
         })
     }
 }
@@ -831,6 +837,10 @@ SELECT m.id FROM
         self.last_discovery_time
     }
 
+    pub fn reprovisioning_requested(&self) -> Option<ReprovisionRequest> {
+        self.reprovisioning_requested.clone()
+    }
+
     pub async fn update_reboot_time(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
@@ -1102,6 +1112,53 @@ SELECT m.id FROM
             }
         }
         Ok(())
+    }
+
+    pub async fn trigger_reprovisioning_request(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        initiator: &str,
+        update_firmware: bool,
+    ) -> Result<(), DatabaseError> {
+        let req = ReprovisionRequest {
+            requested_at: chrono::Utc::now(),
+            initiator: initiator.to_string(),
+            update_firmware,
+        };
+
+        let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(self.id().to_string())
+            .bind(sqlx::types::Json(req))
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn clear_reprovisioning_request(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machines SET reprovisioning_requested=NULL WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(machine_id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn list_machines_pending_for_reprovisioning(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let query = "SELECT * FROM machines WHERE reprovisioning_requested IS NOT NULL";
+        sqlx::query_as::<_, Self>(query)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 

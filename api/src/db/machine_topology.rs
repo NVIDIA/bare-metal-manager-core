@@ -24,13 +24,14 @@ use crate::model::bmc_info::BmcInfo;
 use crate::model::{hardware_info::HardwareInfo, machine::machine_id::MachineId};
 use crate::{CarbideError, CarbideResult};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct MachineTopology {
     machine_id: MachineId,
     /// Topology data that is stored in json format in the database column
     topology: TopologyData,
     created: DateTime<Utc>,
     _updated: DateTime<Utc>,
+    topology_update_needed: bool,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineTopology {
@@ -46,6 +47,7 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
             topology: topology.0,
             created: row.try_get("created")?,
             _updated: row.try_get("updated")?,
+            topology_update_needed: row.try_get("topology_update_needed")?,
         })
     }
 }
@@ -77,41 +79,46 @@ pub struct TopologyData {
 }
 
 impl MachineTopology {
-    pub async fn is_discovered(
-        txn: &mut Transaction<'_, Postgres>,
-        machine_id: &MachineId,
-    ) -> Result<bool, DatabaseError> {
-        let query = "SELECT * from machine_topologies WHERE machine_id=$1";
-        let res = sqlx::query(query)
-            .bind(machine_id.to_string())
-            .fetch_optional(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        match res {
-            None => {
-                tracing::info!("We have never seen this discovery and machine data before");
-                Ok(false)
-            }
-            Some(_pg_row) => {
-                tracing::info!("Discovery data for machine already exists");
-                Ok(true)
-            }
-        }
-    }
-
-    pub async fn create(
+    async fn update(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         hardware_info: &HardwareInfo,
-    ) -> CarbideResult<Option<Self>> {
-        if Self::is_discovered(&mut *txn, machine_id).await? {
-            tracing::info!(
-                %machine_id,
-                "Discovery data already exists for this machine",
-            );
-            return Ok(None);
+    ) -> CarbideResult<Self> {
+        let discovery_data = DiscoveryData {
+            info: hardware_info.clone(),
+        };
+
+        tracing::info!(
+            %machine_id,
+            "Discovery data for machine already exists. Updating now.",
+        );
+        let query =
+                "UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data}', $2::jsonb), topology_update_needed=false WHERE machine_id=$1 RETURNING *";
+        let res = sqlx::query_as(query)
+            .bind(machine_id.to_string())
+            .bind(sqlx::types::Json(&discovery_data))
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+
+        Ok(res)
+    }
+
+    pub async fn create_or_update(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        hardware_info: &HardwareInfo,
+    ) -> CarbideResult<Self> {
+        let topology_data = Self::find_latest_by_machine_ids(txn, &[machine_id.clone()]).await?;
+        let topology_data = topology_data.get(machine_id);
+
+        if let Some(topology) = topology_data {
+            if topology.topology_update_needed {
+                return Self::update(txn, machine_id, hardware_info).await;
+            }
+            return Ok(topology.clone());
         }
+
         let topology_data = TopologyData {
             discovery_data: DiscoveryData {
                 info: hardware_info.clone(),
@@ -132,8 +139,9 @@ impl MachineTopology {
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
-        Ok(Some(res))
+        Ok(res)
     }
+
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
         machine_ids: &[MachineId],
@@ -191,11 +199,32 @@ impl MachineTopology {
             .map(|db_id| db_id.into_inner()))
     }
 
+    pub async fn set_topology_update_needed(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        value: bool,
+    ) -> Result<(), DatabaseError> {
+        let query =
+                "UPDATE machine_topologies SET topology_update_needed=$2 WHERE machine_id=$1 RETURNING machine_id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(machine_id.to_string())
+            .bind(value)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
     pub fn topology(&self) -> &TopologyData {
         &self.topology
     }
 
     pub fn created(&self) -> DateTime<Utc> {
         self.created
+    }
+
+    pub fn topology_update_needed(&self) -> bool {
+        self.topology_update_needed
     }
 }

@@ -89,8 +89,39 @@ pub enum CarbideCommand {
     Migrate(MigrateAction),
     #[clap(about = "IP address handling", subcommand)]
     Ip(IpAction),
+    #[clap(about = "DPU specific handling", subcommand)]
+    Dpu(DpuAction),
     #[clap(about = "Cloud init override", subcommand)]
     BootOverride(BootOverrideAction),
+}
+
+#[derive(Parser, Debug)]
+pub enum DpuAction {
+    #[clap(subcommand, about = "DPU Reprovisioning handling")]
+    Reprovision(DpuReprovision),
+}
+
+#[derive(Parser, Debug)]
+pub enum DpuReprovision {
+    #[clap(about = "Set the DPU in reprovisioing mode.")]
+    Set(DpuReprovisionData),
+    #[clap(about = "Clear the reprovisioing mode.")]
+    Clear(DpuReprovisionData),
+    #[clap(about = "List all DPUs pending reprovisioning.")]
+    List,
+}
+
+#[derive(Parser, Debug)]
+pub struct DpuReprovisionData {
+    #[clap(
+        short,
+        long,
+        help = "DPU Machine ID for which reprovisioning is needed."
+    )]
+    pub id: String,
+
+    #[clap(short, long, action)]
+    pub update_firmware: bool,
 }
 
 #[derive(Parser, Debug)]

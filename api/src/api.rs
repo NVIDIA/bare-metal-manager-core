@@ -30,6 +30,7 @@ use chrono::Duration;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use hyper::server::conn::Http;
+use itertools::Itertools;
 use opentelemetry::metrics::Meter;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Postgres, Transaction};
@@ -65,7 +66,9 @@ use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
-use crate::model::machine::{FailureCause, FailureDetails, FailureSource, ManagedHostState};
+use crate::model::machine::{
+    FailureCause, FailureDetails, FailureSource, ManagedHostState, ReprovisionState,
+};
 use crate::model::network_segment::{NetworkDefinition, NetworkSegmentControllerState};
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
@@ -1833,7 +1836,7 @@ where
             .await?
         };
 
-        MachineTopology::create(&mut txn, &stable_machine_id, &hardware_info).await?;
+        MachineTopology::create_or_update(&mut txn, &stable_machine_id, &hardware_info).await?;
 
         // Create Host proactively.
         if hardware_info.is_dpu() {
@@ -2681,8 +2684,27 @@ where
                         None => None,
                     };
 
-                // we update DPU firmware on first boot every time (determined by a missing machine id)
-                let update_firmware = machine_interface.machine_id.is_none();
+                // we update DPU firmware on first boot every time (determined by a missing machine id) or during reprovisioning.
+                let update_firmware = match &machine_interface.machine_id {
+                    None => true,
+                    Some(machine_id) => {
+                        let machine =
+                            Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
+                                .await
+                                .map_err(CarbideError::from)?;
+
+                        if let Some(machine) = machine {
+                            matches!(
+                                machine.current_state(),
+                                ManagedHostState::DPUReprovision {
+                                    reprovision_state: ReprovisionState::FirmwareUpgrade,
+                                }
+                            )
+                        } else {
+                            false
+                        }
+                    }
+                };
 
                 rpc::CloudInitInstructions {
                     custom_cloud_init,
@@ -3239,6 +3261,103 @@ where
             matches,
             errors: errors.into_iter().map(|err| err.to_string()).collect(),
         }))
+    }
+
+    /// Trigger DPU reprovisioning
+    async fn trigger_dpu_reprovisioning(
+        &self,
+        request: tonic::Request<rpc::DpuReprovisioningRequest>,
+    ) -> Result<tonic::Response<()>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let dpu_id = try_parse_machine_id(
+            req.dpu_id
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("DPU ID is missing"))?,
+        )
+        .map_err(CarbideError::from)?;
+
+        log_machine_id(&dpu_id);
+        if !dpu_id.machine_type().is_dpu() {
+            return Err(Status::invalid_argument(
+                "Only DPU reprovisioning is supported.",
+            ));
+        }
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin trigger_dpu_reprovisioning ", e)
+        })?;
+
+        let machine = Machine::find_one(&mut txn, &dpu_id, MachineSearchConfig::default())
+            .await
+            .map_err(CarbideError::from)?;
+
+        let machine = machine.ok_or(CarbideError::NotFoundError {
+            kind: "dpu",
+            id: dpu_id.to_string(),
+        })?;
+
+        // Start reprovisioning only machine is in maintenance mode.
+        if !machine.is_maintenance_mode() {
+            return Err(Status::invalid_argument(
+                "Machine is not in maintenance mode. Set it first.",
+            ));
+        }
+
+        if let rpc::dpu_reprovisioning_request::Mode::Set = req.mode() {
+            machine
+                .trigger_reprovisioning_request(&mut txn, &req.initiator, req.update_firmware)
+                .await
+                .map_err(CarbideError::from)?;
+        } else {
+            Machine::clear_reprovisioning_request(&mut txn, &dpu_id)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "end trigger_dpu_reprovisioning", e)
+        })?;
+
+        Ok(Response::new(()))
+    }
+
+    /// List DPUs waiting for reprovisioning
+    async fn list_dpu_waiting_for_reprovisioning(
+        &self,
+        request: tonic::Request<rpc::DpuReprovisioningListRequest>,
+    ) -> Result<tonic::Response<rpc::DpuReprovisioningListResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin trigger_dpu_reprovisioning ", e)
+        })?;
+
+        let dpus = Machine::list_machines_pending_for_reprovisioning(&mut txn)
+            .await
+            .map_err(CarbideError::from)?
+            .into_iter()
+            .map(
+                |x| rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
+                    id: Some(rpc::MachineId {
+                        id: x.id().to_string(),
+                    }),
+                    state: x.current_state().to_string(),
+                    requested_at: x.reprovisioning_requested().map(|a| a.requested_at.into()),
+                    initiator: x
+                        .reprovisioning_requested()
+                        .map(|a| a.initiator)
+                        .unwrap_or_default(),
+                    update_firmware: x
+                        .reprovisioning_requested()
+                        .map(|a| a.update_firmware)
+                        .unwrap_or_default(),
+                },
+            )
+            .collect_vec();
+
+        Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
     }
 
     async fn get_machine_boot_override(

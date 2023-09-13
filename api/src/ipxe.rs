@@ -2,6 +2,7 @@ pub use ::rpc::forge as rpc;
 use sqlx::{Postgres, Transaction};
 
 use crate::db::machine_boot_override::MachineBootOverride;
+use crate::model::machine::ReprovisionState;
 use crate::{
     db::{
         instance::Instance,
@@ -139,14 +140,6 @@ exit ||
                 "Invalid machine id. Not found in db.".to_string(),
             ))?;
 
-        if let Some(hardware_info) = machine.hardware_info() {
-            if let Some(dmi_info) = hardware_info.dmi_data.as_ref() {
-                if dmi_info.sys_vendor == "Lenovo" {
-                    console = "ttyS1";
-                }
-            }
-        }
-
         // DPUs need to boot twice during initial discovery. Both reboots require
         // that the DPU gets pxe instructions.
         //
@@ -159,6 +152,10 @@ exit ||
             match &machine.current_state() {
                 ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkInstall,
+                }
+                | ManagedHostState::DPUReprovision {
+                    reprovision_state:
+                        ReprovisionState::FirmwareUpgrade | ReprovisionState::WaitingForNetworkInstall,
                 } => {
                     return Ok(PxeInstructions::get_pxe_instruction_for_arch(
                         arch,
@@ -169,6 +166,14 @@ exit ||
                 }
                 _ => {
                     return Ok("exit".to_string());
+                }
+            }
+        }
+
+        if let Some(hardware_info) = machine.hardware_info() {
+            if let Some(dmi_info) = hardware_info.dmi_data.as_ref() {
+                if dmi_info.sys_vendor == "Lenovo" {
+                    console = "ttyS1";
                 }
             }
         }

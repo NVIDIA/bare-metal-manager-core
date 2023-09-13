@@ -22,6 +22,8 @@ use ::rpc::{
     MachineId,
 };
 use cfg::carbide_options::BootOverrideAction;
+use cfg::carbide_options::DpuAction::Reprovision;
+use cfg::carbide_options::DpuReprovision;
 use cfg::carbide_options::IpAction;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
@@ -34,6 +36,7 @@ use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*
 
 mod cfg;
 mod domain;
+mod dpu;
 mod instance;
 mod machine;
 mod managed_host;
@@ -503,6 +506,19 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::Migrate(migration) => match migration {
             MigrateAction::VpcVni => migrate_vpc_vni(&api_config).await?,
+        },
+        CarbideCommand::Dpu(dpu_action) => match dpu_action {
+            Reprovision(reprov) => match reprov {
+                DpuReprovision::Set(data) => {
+                    dpu::trigger_reprovisioning(data.id, true, data.update_firmware, api_config)
+                        .await?
+                }
+                DpuReprovision::Clear(data) => {
+                    dpu::trigger_reprovisioning(data.id, false, data.update_firmware, api_config)
+                        .await?
+                }
+                DpuReprovision::List => dpu::list_dpus_pending(api_config).await?,
+            },
         },
         CarbideCommand::Redfish(_) => {
             // Handled earlier

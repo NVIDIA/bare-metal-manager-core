@@ -12,9 +12,9 @@
 
 //! State Handler implementation for Machines
 
-use std::collections::HashMap;
+use std::{collections::HashMap, task::Poll};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use eyre::eyre;
 
 use crate::{
@@ -24,6 +24,7 @@ use crate::{
             status::infiniband::update_instance_infiniband_status_observation, DeleteInstance,
         },
         machine::Machine,
+        machine_topology::MachineTopology,
     },
     ib,
     ib::types::IBNetwork,
@@ -39,7 +40,7 @@ use crate::{
             CleanupState, FailureCause, FailureDetails, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineSnapshot, MachineState, ManagedHostState,
-            ManagedHostStateSnapshot,
+            ManagedHostStateSnapshot, ReprovisionState,
         },
     },
     redfish::RedfishCredentialType,
@@ -57,6 +58,59 @@ pub struct MachineStateHandler {
     host_handler: HostMachineStateHandler,
     dpu_handler: DpuMachineStateHandler,
     instance_handler: InstanceStateHandler,
+}
+
+/// This function checks if reprovisoning is requested of a given DPU or not.
+/// It also returns if firmware upgrade is needed.
+fn dpu_reprovisioning_needed(
+    dpu_snapshot: &MachineSnapshot,
+    current_state: &ManagedHostState,
+) -> (bool, bool) {
+    if matches!(current_state, ManagedHostState::DPUReprovision { .. }) {
+        return (false, false);
+    }
+
+    if let Some(request) = dpu_snapshot.reprovision_requested.as_ref() {
+        return (true, request.update_firmware);
+    }
+
+    (false, false)
+}
+
+// Function to wait for some time in state machine.
+fn wait(state: &ManagedHostStateSnapshot, wait_time: Duration) -> bool {
+    // Lets wait for some time before checking if DPU is up or not.
+    // Waiting is needed because DPU takes some time to go down. If we check DPU
+    // reachability before it goes down, it will give us wrong result.
+    let expected_time = state.host_snapshot.current.version.timestamp() + wait_time;
+    let current_time = Utc::now();
+
+    current_time < expected_time
+}
+
+/// if dpu_agent has responded health after dpu is rebooted, return true.
+fn is_dpu_up(state: &ManagedHostStateSnapshot) -> bool {
+    let observation_time = state
+        .dpu_snapshot
+        .network_status_observation
+        .as_ref()
+        .map(|o| o.observed_at)
+        .unwrap_or(DateTime::<Utc>::MIN_UTC);
+    let state_change_time = state.host_snapshot.current.version.timestamp();
+
+    observation_time >= state_change_time
+}
+
+fn is_dpu_up_and_network_ready(state: &ManagedHostStateSnapshot) -> bool {
+    if !is_dpu_up(state) {
+        return false;
+    }
+
+    if !is_network_ready(&state.dpu_snapshot) {
+        return false;
+    }
+
+    true
 }
 
 #[async_trait::async_trait]
@@ -141,6 +195,27 @@ impl StateHandler for MachineStateHandler {
             }
 
             ManagedHostState::Ready => {
+                // Check if DPU reprovisioing is requested
+                let (reprovisioning_requested, update_firmware) =
+                    dpu_reprovisioning_needed(&state.dpu_snapshot, &state.managed_state);
+
+                if reprovisioning_requested {
+                    // Clear reprovisioning state.
+                    Machine::clear_reprovisioning_request(txn, &state.dpu_snapshot.machine_id)
+                        .await
+                        .map_err(StateHandlerError::from)?;
+                    restart_machine(&state.dpu_snapshot, ctx).await?;
+                    *controller_state.modify() = ManagedHostState::DPUReprovision {
+                        reprovision_state: if update_firmware {
+                            ReprovisionState::FirmwareUpgrade
+                        } else {
+                            ReprovisionState::WaitingForNetworkInstall
+                        },
+                    };
+
+                    return Ok(());
+                }
+
                 // Check if instance to be created.
                 if state.instance.is_some() {
                     // Instance is requested by user. Let's configure it.
@@ -228,10 +303,105 @@ impl StateHandler for MachineStateHandler {
                     details.failed_at,
                 );
             }
+
+            ManagedHostState::DPUReprovision { reprovision_state } => {
+                match reprovision_state {
+                    ReprovisionState::FirmwareUpgrade => {
+                        // Firmware upgrade is going on.
+                        if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
+                            return Ok(());
+                        }
+                        *controller_state.modify() = ManagedHostState::DPUReprovision {
+                            reprovision_state: ReprovisionState::WaitingForNetworkInstall,
+                        };
+                    }
+                    ReprovisionState::WaitingForNetworkInstall => {
+                        if !rebooted(
+                            state.dpu_snapshot.current.version,
+                            state.dpu_snapshot.last_reboot_time,
+                        )
+                        .await?
+                        {
+                            return Ok(());
+                        }
+
+                        restart_machine(&state.dpu_snapshot, ctx).await?;
+                        set_managed_host_topology_update_needed(txn, state).await?;
+                        *controller_state.modify() = ManagedHostState::DPUReprovision {
+                            reprovision_state: ReprovisionState::BufferTime,
+                        };
+                    }
+                    ReprovisionState::BufferTime => {
+                        // Lets wait DPU to go down. Added some buffer time for same.
+                        // This is to avoid race condition when dpu_agent sends health message
+                        // just before going down and after state is changed. In this case,
+                        // is_dpu_up function will return true and continue although DPU is
+                        // still not up.
+                        if wait(state, ctx.services.reachability_params.dpu_wait_time) {
+                            return Ok(());
+                        }
+                        *controller_state.modify() = ManagedHostState::DPUReprovision {
+                            reprovision_state: ReprovisionState::WaitingForDiscovery,
+                        };
+                    }
+                    ReprovisionState::WaitingForDiscovery => {
+                        if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
+                            return Ok(());
+                        }
+
+                        *controller_state.modify() = ManagedHostState::DPUReprovision {
+                            reprovision_state: ReprovisionState::WaitingForNetworkConfig,
+                        };
+                    }
+                    ReprovisionState::WaitingForNetworkConfig => {
+                        if !is_dpu_up_and_network_ready(state) {
+                            return Ok(());
+                        }
+
+                        restart_host(&state.host_snapshot, ctx).await?;
+                        // We need to wait for the host to reboot and submit it's new Hardware information
+                        *controller_state.modify() = ManagedHostState::HostNotReady {
+                            machine_state: MachineState::Discovered,
+                        };
+                    }
+                }
+            }
         }
 
         Ok(())
     }
+}
+
+/// This function waits for DPU to finish discovery and reboots it.
+async fn try_wait_for_dpu_discovery_and_reboot(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_>,
+) -> Result<Poll<()>, StateHandlerError> {
+    // We are waiting for the `DiscoveryCompleted` RPC call to update the
+    // `last_discovery_time` timestamp.
+    // This indicates that all forge-scout actions have succeeded.
+    if !discovered_after_state_transition(
+        state.dpu_snapshot.current.version,
+        state.dpu_snapshot.last_discovery_time,
+    )
+    .await?
+    {
+        return Ok(Poll::Pending);
+    }
+
+    restart_machine(&state.dpu_snapshot, ctx).await?;
+
+    Ok(Poll::Ready(()))
+}
+
+async fn set_managed_host_topology_update_needed(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    state: &ManagedHostStateSnapshot,
+) -> Result<(), StateHandlerError> {
+    //Update it for host and DPU both.
+    MachineTopology::set_topology_update_needed(txn, &state.dpu_snapshot.machine_id, true).await?;
+    MachineTopology::set_topology_update_needed(txn, &state.host_snapshot.machine_id, true).await?;
+    Ok(())
 }
 
 /// This function returns failure cause for both host and dpu.
@@ -277,22 +447,9 @@ impl StateHandler for DpuMachineStateHandler {
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::Init,
             } => {
-                // The DPU will be told to perform a firmware update on first boot.  During that boot
-                // it will do discovery.  Once discovery is complete, reboot it and boot the image
-                // that includes HBN.
-
-                // We are waiting for the `DiscoveryCompleted` RPC call to update the
-                // `last_discovery_time` timestamp.  This indicates that all forge-scout actions have succeeded.
-                if !discovered_after_state_transition(
-                    state.dpu_snapshot.current.version,
-                    state.dpu_snapshot.last_discovery_time,
-                )
-                .await?
-                {
+                if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
                     return Ok(());
                 }
-
-                restart_machine(&state.dpu_snapshot, ctx).await?;
 
                 *controller_state.modify() = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkInstall,
@@ -310,8 +467,6 @@ impl StateHandler for DpuMachineStateHandler {
                     return Ok(());
                 }
 
-                restart_machine(&state.dpu_snapshot, ctx).await?;
-
                 *controller_state.modify() = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkConfig,
                 };
@@ -323,7 +478,6 @@ impl StateHandler for DpuMachineStateHandler {
                     return Ok(());
                 }
 
-                // Network config has been applied and network is good, move to next state
                 *controller_state.modify() = ManagedHostState::HostNotReady {
                     machine_state: MachineState::WaitingForDiscovery,
                 };
@@ -469,11 +623,7 @@ impl StateHandler for HostMachineStateHandler {
                             // Lets wait for some time before checking if DPU is up or not.
                             // Waiting is needed because DPU takes some time to go down. If we check DPU
                             // reachability before it goes down, it will give us wrong result.
-                            let expected_time = state.dpu_snapshot.current.version.timestamp()
-                                + ctx.services.reachability_params.dpu_wait_time;
-                            let current_time = Utc::now();
-
-                            if current_time >= expected_time {
+                            if !wait(state, ctx.services.reachability_params.dpu_wait_time) {
                                 *controller_state.modify() = ManagedHostState::HostNotReady {
                                     machine_state: MachineState::WaitingForLockdown {
                                         lockdown_info: LockdownInfo {
@@ -486,14 +636,7 @@ impl StateHandler for HostMachineStateHandler {
                         }
                         LockdownState::WaitForDPUUp => {
                             // Has forge-dpu-agent reported state? That means DPU is up.
-                            let observation_time = state
-                                .dpu_snapshot
-                                .network_status_observation
-                                .as_ref()
-                                .map(|o| o.observed_at)
-                                .unwrap_or(DateTime::<Utc>::MIN_UTC);
-                            let state_change_time = state.host_snapshot.current.version.timestamp();
-                            if observation_time >= state_change_time {
+                            if is_dpu_up(state) {
                                 // reboot host
                                 // When forge changes BIOS params (for lockdown enable/disable both), host does a power cycle.
                                 // During power cycle, DPU also reboots. Now DPU and Host are coming up together. Since DPU is not ready yet,
