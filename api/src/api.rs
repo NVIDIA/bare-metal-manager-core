@@ -1217,7 +1217,9 @@ where
 
         let machine_obs = MachineNetworkStatusObservation::try_from(request.clone())
             .map_err(CarbideError::from)?;
-        Machine::update_network_status_observation(&mut txn, &dpu_machine_id, machine_obs).await?;
+        Machine::update_network_status_observation(&mut txn, &dpu_machine_id, machine_obs)
+            .await
+            .map_err(CarbideError::from)?;
 
         tracing::trace!(
             machine_id = %dpu_machine_id,
@@ -1910,7 +1912,10 @@ where
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        machine.update_discovery_time(&mut txn).await?;
+        machine
+            .update_discovery_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         let discovery_result = match req.discovery_error {
             Some(discovery_error) => {
@@ -1925,7 +1930,8 @@ where
                             source: FailureSource::Scout,
                         },
                     )
-                    .await?;
+                    .await
+                    .map_err(CarbideError::from)?;
                 discovery_error
             }
             None => "Success".to_owned(),
@@ -1966,7 +1972,10 @@ where
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        machine.update_cleanup_time(&mut txn).await?;
+        machine
+            .update_cleanup_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         if let Some(nvme_result) = cleanup_info.nvme {
             if rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result {
@@ -1982,7 +1991,8 @@ where
                             source: FailureSource::Scout,
                         },
                     )
-                    .await?;
+                    .await
+                    .map_err(CarbideError::from)?;
             }
         }
 
@@ -2362,7 +2372,9 @@ where
             CarbideError::DatabaseError(file!(), "begin get_all_managed_host_network_status", e)
         })?;
 
-        let all_status = Machine::get_all_network_status_observation(&mut txn).await?;
+        let all_status = Machine::get_all_network_status_observation(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         let mut out = Vec::with_capacity(all_status.len());
         for machine_network_status in all_status {
@@ -2769,7 +2781,10 @@ where
             .await?;
 
         // Treat this message as signal from machine that reboot is finished. Update reboot time.
-        machine.update_reboot_time(&mut txn).await?;
+        machine
+            .update_reboot_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         let is_dpu = machine.is_dpu();
         let host_machine = if !is_dpu {
@@ -2884,7 +2899,9 @@ where
             );
             dpu_machine = Some(machine);
         } else {
-            dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, machine.id()).await?;
+            dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, machine.id())
+                .await
+                .map_err(CarbideError::from)?;
             tracing::info!(
                 "Found dpu Machine {:?}",
                 dpu_machine.as_ref().map(|m| m.id().to_string())
@@ -3215,7 +3232,8 @@ where
             ));
         }
         let dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id)
-            .await?
+            .await
+            .map_err(CarbideError::from)?
             .ok_or(CarbideError::NotFoundError {
                 kind: "dpu machine for host",
                 id: machine_id.to_string(),
@@ -3909,7 +3927,9 @@ where
                 .ib_fabric_manager(ib_fabric_manager.clone())
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.machine_state_controller_iteration_time)
-                .state_handler(Arc::new(MachineStateHandler::default()))
+                .state_handler(Arc::new(MachineStateHandler::new(
+                    service_config.dpu_up_threshold,
+                )))
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,
                 })
@@ -4264,6 +4284,8 @@ struct ServiceConfig {
     /// How long to wait for DPU to restart after BMC lockdown. Not a timeout, it's a forced wait.
     /// This will be replaced with querying lockdown state.
     dpu_wait_time: chrono::Duration,
+    /// How long to wait for a health report from the DPU before we assume it's down
+    dpu_up_threshold: chrono::Duration,
 }
 
 impl Default for ServiceConfig {
@@ -4274,6 +4296,7 @@ impl Default for ServiceConfig {
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
             max_db_connections: 1000,
             dpu_wait_time: Duration::minutes(5),
+            dpu_up_threshold: Duration::minutes(5),
         }
     }
 }
@@ -4290,6 +4313,8 @@ impl ServiceConfig {
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
             max_db_connections: 1000,
             dpu_wait_time: Duration::seconds(1),
+            // In local dev forge-dpu-agent probably isn't running, so no heartbeat
+            dpu_up_threshold: Duration::weeks(52),
         }
     }
 }

@@ -37,6 +37,7 @@ use crate::{
         },
         machine::{
             machine_id::MachineId,
+            network::HealthStatus,
             CleanupState, FailureCause, FailureDetails, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineSnapshot, MachineState, ManagedHostState,
@@ -53,11 +54,30 @@ use crate::{
 };
 
 /// The actual Machine State handler
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MachineStateHandler {
     host_handler: HostMachineStateHandler,
     dpu_handler: DpuMachineStateHandler,
     instance_handler: InstanceStateHandler,
+    dpu_up_threshold: chrono::Duration,
+}
+
+impl MachineStateHandler {
+    pub fn new(dpu_up_threshold: chrono::Duration) -> Self {
+        MachineStateHandler {
+            dpu_up_threshold,
+            host_handler: Default::default(),
+            dpu_handler: Default::default(),
+            instance_handler: Default::default(),
+        }
+    }
+}
+
+/// Conveninence function for the tests
+impl Default for MachineStateHandler {
+    fn default() -> Self {
+        Self::new(chrono::Duration::minutes(5))
+    }
 }
 
 /// This function checks if reprovisoning is requested of a given DPU or not.
@@ -137,13 +157,43 @@ impl StateHandler for MachineStateHandler {
             .as_ref()
             .and_then(|hi| hi.dpu_info.as_ref().map(|di| di.firmware_version.clone()));
 
+        // Update DPU network health Prometheus metrics
         metrics.dpu_healthy = state.dpu_snapshot.has_healthy_network();
         if let Some(observation) = state.dpu_snapshot.network_status_observation.as_ref() {
             metrics.agent_version = observation.agent_version.clone();
-            metrics.dpu_up = Utc::now().signed_duration_since(observation.observed_at)
-                <= chrono::Duration::from_std(DPU_UP_THRESHOLD).unwrap();
+            metrics.dpu_up =
+                Utc::now().signed_duration_since(observation.observed_at) <= self.dpu_up_threshold;
             for failed in &observation.health_status.failed {
                 metrics.failed_dpu_healthchecks.insert(failed.clone());
+            }
+        }
+
+        // If it's been more than 5 minutes since DPU reported status, consider it unhealthy
+        if state.dpu_snapshot.has_healthy_network() {
+            if let Some(mut observation) =
+                state.dpu_snapshot.network_status_observation.clone().take()
+            {
+                let observed_at = observation.observed_at;
+                let since_last_seen = Utc::now().signed_duration_since(observed_at);
+                if since_last_seen > self.dpu_up_threshold {
+                    observation.health_status = HealthStatus {
+                        is_healthy: false,
+                        passed: vec![],
+                        failed: vec!["HeartbeatTimeout".to_string()],
+                        message: Some(format!("Last seen over {} ago", self.dpu_up_threshold)),
+                    };
+                    observation.observed_at = Utc::now();
+                    let dpu_machine_id = &state.dpu_snapshot.machine_id;
+                    Machine::update_network_status_observation(txn, dpu_machine_id, observation)
+                        .await?;
+                    tracing::warn!(
+                        host_machine_id = %host_machine_id,
+                        dpu_machine_id = %dpu_machine_id,
+                        last_seen = %observed_at,
+                        "DPU is not sending network status observations, marking unhealthy");
+                    // The next iteration will run with the now unhealthy network
+                    return Ok(());
+                }
             }
         }
 
@@ -1137,6 +1187,3 @@ async fn lockdown_host(
 
     Ok(())
 }
-
-/// We assume a DPU is up if we have received a status report from it within the last 5 minutes
-const DPU_UP_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(5 * 60);
