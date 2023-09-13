@@ -182,6 +182,7 @@ impl StateHandler for MachineStateHandler {
                         failed: vec!["HeartbeatTimeout".to_string()],
                         message: Some(format!("Last seen over {} ago", self.dpu_up_threshold)),
                     };
+                    observation.observed_at = Utc::now();
                     let dpu_machine_id = &state.dpu_snapshot.machine_id;
                     Machine::update_network_status_observation(txn, dpu_machine_id, observation)
                         .await?;
@@ -190,6 +191,8 @@ impl StateHandler for MachineStateHandler {
                         dpu_machine_id = %dpu_machine_id,
                         last_seen = %observed_at,
                         "DPU is not sending network status observations, marking unhealthy");
+                    // The next iteration will run with the now unhealthy network
+                    return Ok(());
                 }
             }
         }

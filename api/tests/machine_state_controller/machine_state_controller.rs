@@ -189,7 +189,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     "../../fixtures/create_vpc",
     "../../fixtures/create_network_segment",
 ))]
-async fn test_dpu_heatbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
+async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let mut txn = pool.begin().await.unwrap();

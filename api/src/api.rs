@@ -1912,7 +1912,10 @@ where
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        machine.update_discovery_time(&mut txn).await?;
+        machine
+            .update_discovery_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         let discovery_result = match req.discovery_error {
             Some(discovery_error) => {
@@ -1927,7 +1930,8 @@ where
                             source: FailureSource::Scout,
                         },
                     )
-                    .await?;
+                    .await
+                    .map_err(CarbideError::from)?;
                 discovery_error
             }
             None => "Success".to_owned(),
@@ -1968,7 +1972,10 @@ where
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        machine.update_cleanup_time(&mut txn).await?;
+        machine
+            .update_cleanup_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         if let Some(nvme_result) = cleanup_info.nvme {
             if rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result {
@@ -1984,7 +1991,8 @@ where
                             source: FailureSource::Scout,
                         },
                     )
-                    .await?;
+                    .await
+                    .map_err(CarbideError::from)?;
             }
         }
 
@@ -2364,7 +2372,9 @@ where
             CarbideError::DatabaseError(file!(), "begin get_all_managed_host_network_status", e)
         })?;
 
-        let all_status = Machine::get_all_network_status_observation(&mut txn).await?;
+        let all_status = Machine::get_all_network_status_observation(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         let mut out = Vec::with_capacity(all_status.len());
         for machine_network_status in all_status {
@@ -2771,7 +2781,10 @@ where
             .await?;
 
         // Treat this message as signal from machine that reboot is finished. Update reboot time.
-        machine.update_reboot_time(&mut txn).await?;
+        machine
+            .update_reboot_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         let is_dpu = machine.is_dpu();
         let host_machine = if !is_dpu {
@@ -2886,7 +2899,9 @@ where
             );
             dpu_machine = Some(machine);
         } else {
-            dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, machine.id()).await?;
+            dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, machine.id())
+                .await
+                .map_err(CarbideError::from)?;
             tracing::info!(
                 "Found dpu Machine {:?}",
                 dpu_machine.as_ref().map(|m| m.id().to_string())
@@ -3217,7 +3232,8 @@ where
             ));
         }
         let dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id)
-            .await?
+            .await
+            .map_err(CarbideError::from)?
             .ok_or(CarbideError::NotFoundError {
                 kind: "dpu machine for host",
                 id: machine_id.to_string(),

@@ -549,7 +549,7 @@ SELECT m.id FROM
         txn: &mut Transaction<'_, Postgres>,
         state: ManagedHostState,
         version: Option<ConfigVersion>,
-    ) -> CarbideResult<bool> {
+    ) -> Result<bool, DatabaseError> {
         // Get current version
         let version = version.unwrap_or_else(|| self.state.version.increment());
 
@@ -856,7 +856,7 @@ SELECT m.id FROM
     pub async fn update_reboot_time(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
@@ -869,7 +869,7 @@ SELECT m.id FROM
     pub async fn update_cleanup_time(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
@@ -883,7 +883,7 @@ SELECT m.id FROM
     pub async fn update_discovery_time(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
@@ -922,7 +922,7 @@ SELECT m.id FROM
     pub async fn find_dpu_by_host_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         host_machine_id: &MachineId,
-    ) -> CarbideResult<Option<Self>> {
+    ) -> Result<Option<Self>, DatabaseError> {
         let query = r#"SELECT m.* From machines m
                 INNER JOIN machine_interfaces mi
                   ON m.id = mi.attached_dpu_machine_id
@@ -943,16 +943,21 @@ SELECT m.id FROM
         Ok(Some(machine))
     }
 
+    /// Only does the update if the passed observation is newer than any existing one
     pub async fn update_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         observation: MachineNetworkStatusObservation,
     ) -> Result<(), DatabaseError> {
         let query =
-            "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 RETURNING id";
+            "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 AND
+             (network_status_observation IS NULL
+                OR (network_status_observation ? 'observed_at' AND network_status_observation->>'observed_at' <= $3)
+            ) RETURNING id";
         let _id: (DbMachineId,) = sqlx::query_as(query)
-            .bind(sqlx::types::Json(observation))
+            .bind(sqlx::types::Json(&observation))
             .bind(machine_id.to_string())
+            .bind(observation.observed_at.to_rfc3339())
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -962,7 +967,7 @@ SELECT m.id FROM
 
     pub async fn get_all_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<MachineNetworkStatusObservation>> {
+    ) -> Result<Vec<MachineNetworkStatusObservation>, DatabaseError> {
         let query = "SELECT network_status_observation FROM machines
             WHERE network_status_observation IS NOT NULL
             ORDER BY network_status_observation->'machine_id'
@@ -1087,7 +1092,7 @@ SELECT m.id FROM
         &self,
         txn: &mut Transaction<'_, Postgres>,
         failure: FailureDetails,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
         let _id: (DbMachineId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(failure))
