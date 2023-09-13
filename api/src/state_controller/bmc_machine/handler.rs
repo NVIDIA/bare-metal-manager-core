@@ -90,7 +90,8 @@ impl StateHandler for BmcMachineStateHandler {
                     .await
                     .map_err(|e| {
                         *controller_state.modify() =
-                            BmcMachineState::Error(BmcMachineError::RedfishError {
+                            BmcMachineState::Error(BmcMachineError::RedfishCommand {
+                                command: "create_user".to_string(),
                                 message: e.to_string(),
                             });
                         StateHandlerError::from(e)
