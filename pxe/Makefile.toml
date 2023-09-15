@@ -271,8 +271,7 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-scout-to-bfb",
-	"bfb-add-libnss-to-bfb",
-	"bfb-add-nvssh-conf-to-bfb",
+	"bfb-add-nvinit-setup-to-bfb",
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
@@ -294,8 +293,7 @@ dependencies = [
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-add-scout-to-bfb",
-	"bfb-add-libnss-to-bfb",
-	"bfb-add-nvssh-conf-to-bfb",
+	"bfb-add-nvinit-setup-to-bfb",
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
@@ -364,23 +362,29 @@ args = [
 	"/tmp/bfb-dump/initramfs-tmp/forge_root.pem",
 ]
 
-[tasks.bfb-add-nvssh-conf-to-bfb]
+[tasks.download-debs-to-nvinit-setup]
 category = "iPXE Kernel"
-description = "Add nvssh.conf to the bfb"
+description = "wget the debs to nvinit_setup"
+command = "wget"
+args = [
+    "-i",
+    "${REPO_ROOT}/pxe/nvinit_setup/debs/wget_deb_urls",
+]
+cwd = "${REPO_ROOT}/pxe/nvinit_setup/debs"
+
+[tasks.bfb-add-nvinit-setup-to-bfb]
+category = "iPXE Kernel"
+description = "Add nvinit_setup folder to the bfb"
 command = "cp"
 args = [
-    "${REPO_ROOT}/pxe/nvinit_setup/nvssh.conf",
+    "-R",
+    "${REPO_ROOT}/pxe/nvinit_setup",
     "/tmp/bfb-dump/initramfs-tmp",
+]
+dependencies = [
+    "download-debs-to-nvinit-setup",
 ]
 
-[tasks.bfb-add-libnss-to-bfb]
-category = "iPXE Kernel"
-description = "Add libnss deb to the bfb"
-command = "cp"
-args = [
-    "${REPO_ROOT}/pxe/nvinit_setup/libnss-exec_0.2.0-1_arm64.deb",
-    "/tmp/bfb-dump/initramfs-tmp",
-]
 
 [tasks.bfb-add-scout-to-bfb]
 category = "iPXE Kernel"

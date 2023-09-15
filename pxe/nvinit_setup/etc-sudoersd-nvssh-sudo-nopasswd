@@ -1,0 +1,3 @@
+# Allow members of group sudo-nopasswd to execute any command
+%nvssh-sudo-nopasswd ALL = (ALL) NOPASSWD: ALL
+

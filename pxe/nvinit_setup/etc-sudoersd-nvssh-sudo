@@ -1,0 +1,5 @@
+# Allow members of group sudo to execute any command
+%nvssh-sudo ALL = (ALL) ALL
+Defaults passprompt="[nvssh sudo] %u, run command as root (y/n)?:"
+Defaults passwd_tries=1
+

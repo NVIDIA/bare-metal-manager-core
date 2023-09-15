@@ -1,0 +1,80 @@
+#!/bin/sh
+# load the config file
+. /etc/nvssh/nvssh.conf
+lfile="/var/log/nss_exec.log"
+
+# Skip if the user management is handled by a different system (e.g. NIS, LDAP etc.)
+if [ "$nvssh_nssswitch_plugin" = false ] ; then
+  exit 1
+fi
+
+case "$1" in
+  getpwent)
+    # Return code 1 = user not found
+    exit 1
+    ;;
+
+  getpwnam)
+    ppid1=$(cat /proc/"$PPID"/stat | awk '{printf "%s", $4}')
+    ppname=$(cat /proc/"$ppid1"/stat | awk '{printf "%s", $2}')
+    # only applied for sshd login
+    if [ "$ppname" = "(sshd)" ]; then
+      # TODO make sure to validate user name (user name is untrusted, hence need to validate before use)
+      # make sure ${2}-temp doesn't exist before we proceed further
+      output=$(grep "^${2}-temp:" /etc/passwd)
+      status=$?
+      if [ $status -eq 0 ]; then
+        echo "${output}" | sed "s/${2}-temp/${2}/g"
+        exit 0
+      fi
+
+      # create a local temp user TODO - replace suffix '-temp' with something per-host random
+      /usr/sbin/luseradd "${2}-temp" -g ngc -s "${nvssh_default_shell}" -c "nvssh nssswitch temp user account `date +%s`" --nocreatehome 2>> /dev/null
+      # check whether the user exists
+      output=$(grep "^${2}-temp:" /etc/passwd)
+      status=$?
+      if [ $status -eq 0 ]; then
+        echo "${output}" | sed "s/${2}-temp/${2}/g"
+        exit 0
+      else
+        echo "${2} local useradd failed; exiting.." >> lfile
+      fi
+    fi
+
+    # Return code 1 = user not found
+    exit 1
+    ;;
+
+  getpwuid)
+    # Return code 1 = user not found
+    exit 1
+    ;;
+
+  setpwent|endpwent)
+    # Return code 1 = pass control to next plugin
+    exit 1
+    ;;
+
+  getgrent)
+    # Return code 1 = user not found
+    exit 1
+    ;;
+
+  getgwnam)
+    # Return code 1 = group not found
+    exit 1
+    ;;
+
+  getgrgid)
+    # Return code 1 = user not found
+    exit 1
+    ;;
+
+  setgrent|endgrent)
+    # Return code 1 = pass control to next plugin
+    exit 1
+    ;;
+esac
+
+# Return code 4 = service unavailable
+exit 4

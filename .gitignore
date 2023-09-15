@@ -19,3 +19,7 @@ dev/kube/kind/ci/*
 .skaffold/*/**
 cscope.*
 forged
+
+pxe/nvinit_setup/debs/*
+!pxe/nvinit_setup/debs/wget_deb_urls
+!pxe/nvinit_setup/debs/libnss-exec_0.2.0-1_arm64.deb
