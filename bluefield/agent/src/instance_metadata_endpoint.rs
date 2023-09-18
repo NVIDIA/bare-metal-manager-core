@@ -19,6 +19,7 @@ use crate::instance_metadata_fetcher::InstanceMetadataReader;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
+const USER_DATA_CATEGORY: &str = "user-data";
 
 pub fn get_instance_metadata_router(metadata_fetcher: Arc<dyn InstanceMetadataReader>) -> Router {
     // TODO add handling for non-supported URIs
@@ -35,6 +36,7 @@ async fn get_metadata_parameter(
         return match category.as_str() {
             PUBLIC_IPV4_CATEGORY => (StatusCode::OK, metadata.address.clone()),
             HOSTNAME_CATEGORY => (StatusCode::OK, metadata.hostname.clone()),
+            USER_DATA_CATEGORY => (StatusCode::OK, metadata.user_data.clone()),
             _ => (
                 StatusCode::NOT_FOUND,
                 format!("metadata category not found: {}", category),
@@ -115,6 +117,7 @@ mod tests {
         let metadata = InstanceMetadata {
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            user_data: "\"userData\": {\"data\": 0}".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -133,6 +136,7 @@ mod tests {
         let metadata = InstanceMetadata {
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            user_data: "\"userData\": {\"data\": 0}".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -140,6 +144,25 @@ mod tests {
             server_port,
             "hostname",
             &metadata.hostname,
+            StatusCode::OK,
+        )
+        .await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_get_metadata_parameter_user_data_category() {
+        let metadata = InstanceMetadata {
+            address: "127.0.0.1".to_string(),
+            hostname: "localhost".to_string(),
+            user_data: "\"userData\": {\"data\": 0}".to_string(),
+        };
+
+        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        send_request_and_check_response(
+            server_port,
+            "user-data",
+            &metadata.user_data,
             StatusCode::OK,
         )
         .await;
