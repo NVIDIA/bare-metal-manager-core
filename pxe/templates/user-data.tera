@@ -19,6 +19,7 @@ mv /forge-scout /mnt/opt/forge
 mv /forge-dpu_1.0-1.deb /mnt/opt/forge
 mv /doca_container_configs_1.5.1v2.zip /mnt/opt/forge
 mv /forge_root.pem /mnt/opt/forge
+mv /lldpd.deb /mnt/opt/forge/lldpd.deb
 
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
@@ -219,10 +220,6 @@ write_files:
   - path: /var/log/forge/forge-scout.log
     permissions: '0644'
     content: Not Started
-# install specific packages from distro apt repos, without upgrading any installed ones.
-package_update: true
-packages:
-  - lldpd
 # run these commands (last)
 runcmd:
   - [ date, -s , '@{{ seconds_since_epoch }}' ]
@@ -231,8 +228,9 @@ runcmd:
   - [ /usr/bin/systemctl, disable, --now, systemd-timesyncd ]
   - [ /usr/bin/systemctl, enable, --now, systemd-timesyncd@mgmt ]
   - [ /usr/bin/timedatectl, set-ntp, true ]
-{% if update_firmware == "true" %}
   - [ /usr/bin/bfcfg ]
+  - [ dpkg, -i, /opt/forge/lldpd.deb ]
+{% if update_firmware == "true" %}
   - [ /opt/forge/run-scout.sh ]
 {% else %}
   - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
@@ -243,10 +241,11 @@ runcmd:
   - [ chmod, +x, /opt/hbn_installer/scripts/doca_hbn/1.3.0/hbn-dpu-setup.sh]
   - [ cd, /opt/hbn_installer/scripts/doca_hbn/1.3.0 ]
   - [ ip, vrf, exec, mgmt, /bin/bash, hbn-dpu-setup.sh ]
+  - [ /usr/bin/systemctl, enable, ssh@mgmt ]
+  - [ ctr, -n=k8s.io, image, import, /opt/forge/doca_telemetry.tar ]
+  - [ ctr, -n=k8s.io, image, import, /opt/forge/doca_hbn.tar ]
   - [ cp, /opt/hbn_installer/configs/1.5.1/doca_hbn.yaml, /etc/kubelet.d/ ]
   - [ cp, /opt/hbn_installer/configs/1.5.1/doca_telemetry.yaml, /etc/kubelet.d/ ]
-  - [ /usr/bin/systemctl, enable, ssh@mgmt ]
-  - [ /usr/bin/bfcfg ]
   - [ /opt/forge/run-scout.sh ]
 {% endif %}
 EOF
