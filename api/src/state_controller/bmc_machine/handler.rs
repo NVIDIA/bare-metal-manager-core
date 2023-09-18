@@ -67,7 +67,9 @@ impl StateHandler for BmcMachineStateHandler {
                     Err(e) => tracing::warn!(error = %e, "Failed to instantiate redfish client"),
                 }
 
-                let mut _client = ctx
+                let mut _client;
+
+                let client_result = ctx
                     .services
                     .redfish_client_pool
                     .create_client(
@@ -75,29 +77,34 @@ impl StateHandler for BmcMachineStateHandler {
                         None,
                         RedfishCredentialType::SiteDefault,
                     )
-                    .await
-                    .map_err(|e| {
+                    .await;
+
+                match client_result {
+                    Ok(redfish_client) => _client = redfish_client,
+                    Err(e) => {
                         *controller_state.modify() =
                             BmcMachineState::Error(BmcMachineError::RedfishConnection {
                                 message: e.to_string(),
                             });
-                        StateHandlerError::from(e)
-                    })?;
+                        return Ok(());
+                    }
+                }
 
-                ctx.services
+                if let Err(e) = ctx
+                    .services
                     .redfish_client_pool
                     .create_forge_admin_user(_client, *machine_id)
                     .await
-                    .map_err(|e| {
-                        *controller_state.modify() =
-                            BmcMachineState::Error(BmcMachineError::RedfishCommand {
-                                command: "create_user".to_string(),
-                                message: e.to_string(),
-                            });
-                        StateHandlerError::from(e)
-                    })?;
+                {
+                    *controller_state.modify() =
+                        BmcMachineState::Error(BmcMachineError::RedfishCommand {
+                            command: "create_user".to_string(),
+                            message: e.to_string(),
+                        });
+                    return Ok(());
+                }
 
-                _client = ctx
+                let client_result = ctx
                     .services
                     .redfish_client_pool
                     .create_client(
@@ -107,14 +114,18 @@ impl StateHandler for BmcMachineStateHandler {
                             bmc_machine_id: machine_id.to_string(),
                         },
                     )
-                    .await
-                    .map_err(|e| {
+                    .await;
+
+                match client_result {
+                    Ok(redfish_client) => _client = redfish_client,
+                    Err(e) => {
                         *controller_state.modify() =
                             BmcMachineState::Error(BmcMachineError::RedfishConnection {
                                 message: e.to_string(),
                             });
-                        StateHandlerError::from(e)
-                    })?;
+                        return Ok(());
+                    }
+                }
             }
             BmcMachineState::Error(error_type) => {
                 tracing::error!(error_type = format!("{error_type:#?}"), %machine_id, "BMC state machine error");
