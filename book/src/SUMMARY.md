@@ -49,6 +49,7 @@
 - [Rebooting a machine](playbooks/machine_reboot.md)
 - [Discovering Machines](playbooks/machine_discovery.md)
 - [Cleaning up the Gitlab Runner in CI when it runs out of disk space](playbooks/gitlab_runner_disk_cleanup.md)
+- [Instance/Subnet/etc is stuck in a state](playbooks/stuck_objects.md)
 
 # Environments
 

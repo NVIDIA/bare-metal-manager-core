@@ -136,6 +136,7 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::Created => ("created", ""),
             ManagedHostState::ForceDeletion => ("forcedeletion", ""),
             ManagedHostState::Failed { .. } => ("failed", ""),
+            ManagedHostState::DPUReprovision { .. } => ("reprovisioning", ""),
         }
     }
 }

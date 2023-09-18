@@ -34,7 +34,7 @@ use crate::model::hardware_info::{BMCVendor, HardwareInfo};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
-use crate::model::machine::{FailureDetails, MachineState, ManagedHostState};
+use crate::model::machine::{FailureDetails, MachineState, ManagedHostState, ReprovisionRequest};
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -114,6 +114,9 @@ pub struct Machine {
 
     /// Failure cause. If failure cause is critical, machine will move into Failed state.
     failure_details: FailureDetails,
+
+    /// Last time when machine reprovisioning_requested.
+    reprovisioning_requested: Option<ReprovisionRequest>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -142,6 +145,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let network_status_observation = network_status_observation.map(|n| n.0);
 
         let failure_details: sqlx::types::Json<FailureDetails> = row.try_get("failure_details")?;
+        let reprovision_req: Option<sqlx::types::Json<ReprovisionRequest>> =
+            row.try_get("reprovisioning_requested")?;
 
         Ok(Machine {
             id,
@@ -166,6 +171,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             last_cleanup_time: row.try_get("last_cleanup_time")?,
             last_discovery_time: row.try_get("last_discovery_time")?,
             failure_details: failure_details.0,
+            reprovisioning_requested: reprovision_req.map(|x| x.0),
         })
     }
 }
@@ -260,7 +266,7 @@ impl From<Machine> for rpc::Machine {
                 }),
             bmc_info: Some(machine.bmc_info.into()),
             last_reboot_time: machine.last_reboot_time.map(|t| t.into()),
-            health: machine
+            network_health: machine
                 .network_status_observation
                 .as_ref()
                 .map(|obs| obs.health_status.clone().into()),
@@ -311,6 +317,18 @@ impl Machine {
     /// Actual network info from machine
     pub fn network_status_observation(&self) -> Option<&MachineNetworkStatusObservation> {
         self.network_status_observation.as_ref()
+    }
+
+    /// Is the HBN on this machine's DPU healthy and working?
+    /// Only for DPU machines.
+    pub fn has_healthy_network(&self) -> Result<bool, eyre::Report> {
+        if !self.is_dpu() {
+            eyre::bail!("has_healthy_network can only be called on a DPU");
+        }
+        Ok(match &self.network_status_observation {
+            None => false,
+            Some(obs) => obs.health_status.is_healthy,
+        })
     }
 
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
@@ -531,7 +549,7 @@ SELECT m.id FROM
         txn: &mut Transaction<'_, Postgres>,
         state: ManagedHostState,
         version: Option<ConfigVersion>,
-    ) -> CarbideResult<bool> {
+    ) -> Result<bool, DatabaseError> {
         // Get current version
         let version = version.unwrap_or_else(|| self.state.version.increment());
 
@@ -831,10 +849,14 @@ SELECT m.id FROM
         self.last_discovery_time
     }
 
+    pub fn reprovisioning_requested(&self) -> Option<ReprovisionRequest> {
+        self.reprovisioning_requested.clone()
+    }
+
     pub async fn update_reboot_time(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
@@ -847,7 +869,7 @@ SELECT m.id FROM
     pub async fn update_cleanup_time(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
@@ -861,7 +883,7 @@ SELECT m.id FROM
     pub async fn update_discovery_time(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
@@ -900,7 +922,7 @@ SELECT m.id FROM
     pub async fn find_dpu_by_host_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         host_machine_id: &MachineId,
-    ) -> CarbideResult<Option<Self>> {
+    ) -> Result<Option<Self>, DatabaseError> {
         let query = r#"SELECT m.* From machines m
                 INNER JOIN machine_interfaces mi
                   ON m.id = mi.attached_dpu_machine_id
@@ -921,16 +943,21 @@ SELECT m.id FROM
         Ok(Some(machine))
     }
 
+    /// Only does the update if the passed observation is newer than any existing one
     pub async fn update_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         observation: MachineNetworkStatusObservation,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query =
-            "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 RETURNING id";
+            "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 AND
+             (network_status_observation IS NULL
+                OR (network_status_observation ? 'observed_at' AND network_status_observation->>'observed_at' <= $3)
+            ) RETURNING id";
         let _id: (DbMachineId,) = sqlx::query_as(query)
-            .bind(sqlx::types::Json(observation))
+            .bind(sqlx::types::Json(&observation))
             .bind(machine_id.to_string())
+            .bind(observation.observed_at.to_rfc3339())
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -940,7 +967,7 @@ SELECT m.id FROM
 
     pub async fn get_all_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<MachineNetworkStatusObservation>> {
+    ) -> Result<Vec<MachineNetworkStatusObservation>, DatabaseError> {
         let query = "SELECT network_status_observation FROM machines
             WHERE network_status_observation IS NOT NULL
             ORDER BY network_status_observation->'machine_id'
@@ -1065,7 +1092,7 @@ SELECT m.id FROM
         &self,
         txn: &mut Transaction<'_, Postgres>,
         failure: FailureDetails,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
         let _id: (DbMachineId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(failure))
@@ -1102,6 +1129,53 @@ SELECT m.id FROM
             }
         }
         Ok(())
+    }
+
+    pub async fn trigger_reprovisioning_request(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        initiator: &str,
+        update_firmware: bool,
+    ) -> Result<(), DatabaseError> {
+        let req = ReprovisionRequest {
+            requested_at: chrono::Utc::now(),
+            initiator: initiator.to_string(),
+            update_firmware,
+        };
+
+        let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(self.id().to_string())
+            .bind(sqlx::types::Json(req))
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn clear_reprovisioning_request(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machines SET reprovisioning_requested=NULL WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(machine_id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn list_machines_pending_for_reprovisioning(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let query = "SELECT * FROM machines WHERE reprovisioning_requested IS NOT NULL";
+        sqlx::query_as::<_, Self>(query)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 

@@ -69,7 +69,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = pool.begin().await?;
 
-    MachineTopology::create(&mut txn, machine.id(), &hardware_info).await?;
+    MachineTopology::create_or_update(&mut txn, machine.id(), &hardware_info).await?;
 
     txn.commit().await?;
 
@@ -103,17 +103,36 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     txn.commit().await?;
 
-    // Updating a machine topology won't have any impact
+    // Updating a machine topology will update the data.
     let mut txn = pool.begin().await?;
 
     let mut new_info = hardware_info.clone();
     new_info.cpus[0].model = "SnailSpeedCpu".to_string();
 
-    assert!(
-        MachineTopology::create(&mut txn, machine.id(), &hardware_info)
-            .await?
-            .is_none()
+    let topology = MachineTopology::create_or_update(&mut txn, machine.id(), &new_info)
+        .await
+        .unwrap();
+    //
+    // Value should NOT be updated.
+    assert_ne!(
+        "SnailSpeedCpu".to_string(),
+        topology.topology().discovery_data.info.cpus[0].model
     );
+
+    MachineTopology::set_topology_update_needed(&mut txn, machine.id(), true)
+        .await
+        .unwrap();
+    let topology = MachineTopology::create_or_update(&mut txn, machine.id(), &new_info)
+        .await
+        .unwrap();
+
+    // Value should be updated.
+    assert_eq!(
+        "SnailSpeedCpu".to_string(),
+        topology.topology().discovery_data.info.cpus[0].model
+    );
+
+    assert!(!topology.topology_update_needed());
 
     let machine2 = Machine::find_one(
         &mut txn,
@@ -128,7 +147,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let discovery_info = rpc_machine.discovery_info.unwrap();
     let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
 
-    assert_eq!(retrieved_hw_info, hardware_info);
+    assert_eq!(retrieved_hw_info, new_info);
 
     txn.commit().await?;
 

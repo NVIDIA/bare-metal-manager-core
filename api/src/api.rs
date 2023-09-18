@@ -30,6 +30,7 @@ use chrono::Duration;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use hyper::server::conn::Http;
+use itertools::Itertools;
 use opentelemetry::metrics::Meter;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Postgres, Transaction};
@@ -65,7 +66,9 @@ use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
-use crate::model::machine::{FailureCause, FailureDetails, FailureSource, ManagedHostState};
+use crate::model::machine::{
+    FailureCause, FailureDetails, FailureSource, ManagedHostState, ReprovisionState,
+};
 use crate::model::network_segment::{NetworkDefinition, NetworkSegmentControllerState};
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
@@ -1172,7 +1175,7 @@ where
         log_machine_id(&dpu_machine_id);
 
         if let Some(ref network_config_error) = request.network_config_error {
-            tracing::info!(machine_id = %dpu_machine_id, "Host  failed applying network config: {network_config_error}");
+            tracing::info!(machine_id = %dpu_machine_id, "Host failed applying network config: {network_config_error}");
         }
 
         let hs = request
@@ -1214,7 +1217,9 @@ where
 
         let machine_obs = MachineNetworkStatusObservation::try_from(request.clone())
             .map_err(CarbideError::from)?;
-        Machine::update_network_status_observation(&mut txn, &dpu_machine_id, machine_obs).await?;
+        Machine::update_network_status_observation(&mut txn, &dpu_machine_id, machine_obs)
+            .await
+            .map_err(CarbideError::from)?;
 
         tracing::trace!(
             machine_id = %dpu_machine_id,
@@ -1833,7 +1838,7 @@ where
             .await?
         };
 
-        MachineTopology::create(&mut txn, &stable_machine_id, &hardware_info).await?;
+        MachineTopology::create_or_update(&mut txn, &stable_machine_id, &hardware_info).await?;
 
         // Create Host proactively.
         if hardware_info.is_dpu() {
@@ -1907,7 +1912,10 @@ where
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        machine.update_discovery_time(&mut txn).await?;
+        machine
+            .update_discovery_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         let discovery_result = match req.discovery_error {
             Some(discovery_error) => {
@@ -1922,7 +1930,8 @@ where
                             source: FailureSource::Scout,
                         },
                     )
-                    .await?;
+                    .await
+                    .map_err(CarbideError::from)?;
                 discovery_error
             }
             None => "Success".to_owned(),
@@ -1963,7 +1972,10 @@ where
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        machine.update_cleanup_time(&mut txn).await?;
+        machine
+            .update_cleanup_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         if let Some(nvme_result) = cleanup_info.nvme {
             if rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result {
@@ -1979,7 +1991,8 @@ where
                             source: FailureSource::Scout,
                         },
                     )
-                    .await?;
+                    .await
+                    .map_err(CarbideError::from)?;
             }
         }
 
@@ -2359,7 +2372,9 @@ where
             CarbideError::DatabaseError(file!(), "begin get_all_managed_host_network_status", e)
         })?;
 
-        let all_status = Machine::get_all_network_status_observation(&mut txn).await?;
+        let all_status = Machine::get_all_network_status_observation(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         let mut out = Vec::with_capacity(all_status.len());
         for machine_network_status in all_status {
@@ -2681,8 +2696,27 @@ where
                         None => None,
                     };
 
-                // we update DPU firmware on first boot every time (determined by a missing machine id)
-                let update_firmware = machine_interface.machine_id.is_none();
+                // we update DPU firmware on first boot every time (determined by a missing machine id) or during reprovisioning.
+                let update_firmware = match &machine_interface.machine_id {
+                    None => true,
+                    Some(machine_id) => {
+                        let machine =
+                            Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
+                                .await
+                                .map_err(CarbideError::from)?;
+
+                        if let Some(machine) = machine {
+                            matches!(
+                                machine.current_state(),
+                                ManagedHostState::DPUReprovision {
+                                    reprovision_state: ReprovisionState::FirmwareUpgrade,
+                                }
+                            )
+                        } else {
+                            false
+                        }
+                    }
+                };
 
                 rpc::CloudInitInstructions {
                     custom_cloud_init,
@@ -2747,7 +2781,10 @@ where
             .await?;
 
         // Treat this message as signal from machine that reboot is finished. Update reboot time.
-        machine.update_reboot_time(&mut txn).await?;
+        machine
+            .update_reboot_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
 
         let is_dpu = machine.is_dpu();
         let host_machine = if !is_dpu {
@@ -2862,7 +2899,9 @@ where
             );
             dpu_machine = Some(machine);
         } else {
-            dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, machine.id()).await?;
+            dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, machine.id())
+                .await
+                .map_err(CarbideError::from)?;
             tracing::info!(
                 "Found dpu Machine {:?}",
                 dpu_machine.as_ref().map(|m| m.id().to_string())
@@ -3193,7 +3232,8 @@ where
             ));
         }
         let dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id)
-            .await?
+            .await
+            .map_err(CarbideError::from)?
             .ok_or(CarbideError::NotFoundError {
                 kind: "dpu machine for host",
                 id: machine_id.to_string(),
@@ -3239,6 +3279,103 @@ where
             matches,
             errors: errors.into_iter().map(|err| err.to_string()).collect(),
         }))
+    }
+
+    /// Trigger DPU reprovisioning
+    async fn trigger_dpu_reprovisioning(
+        &self,
+        request: tonic::Request<rpc::DpuReprovisioningRequest>,
+    ) -> Result<tonic::Response<()>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let dpu_id = try_parse_machine_id(
+            req.dpu_id
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("DPU ID is missing"))?,
+        )
+        .map_err(CarbideError::from)?;
+
+        log_machine_id(&dpu_id);
+        if !dpu_id.machine_type().is_dpu() {
+            return Err(Status::invalid_argument(
+                "Only DPU reprovisioning is supported.",
+            ));
+        }
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin trigger_dpu_reprovisioning ", e)
+        })?;
+
+        let machine = Machine::find_one(&mut txn, &dpu_id, MachineSearchConfig::default())
+            .await
+            .map_err(CarbideError::from)?;
+
+        let machine = machine.ok_or(CarbideError::NotFoundError {
+            kind: "dpu",
+            id: dpu_id.to_string(),
+        })?;
+
+        // Start reprovisioning only machine is in maintenance mode.
+        if !machine.is_maintenance_mode() {
+            return Err(Status::invalid_argument(
+                "Machine is not in maintenance mode. Set it first.",
+            ));
+        }
+
+        if let rpc::dpu_reprovisioning_request::Mode::Set = req.mode() {
+            machine
+                .trigger_reprovisioning_request(&mut txn, &req.initiator, req.update_firmware)
+                .await
+                .map_err(CarbideError::from)?;
+        } else {
+            Machine::clear_reprovisioning_request(&mut txn, &dpu_id)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "end trigger_dpu_reprovisioning", e)
+        })?;
+
+        Ok(Response::new(()))
+    }
+
+    /// List DPUs waiting for reprovisioning
+    async fn list_dpu_waiting_for_reprovisioning(
+        &self,
+        request: tonic::Request<rpc::DpuReprovisioningListRequest>,
+    ) -> Result<tonic::Response<rpc::DpuReprovisioningListResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin trigger_dpu_reprovisioning ", e)
+        })?;
+
+        let dpus = Machine::list_machines_pending_for_reprovisioning(&mut txn)
+            .await
+            .map_err(CarbideError::from)?
+            .into_iter()
+            .map(
+                |x| rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
+                    id: Some(rpc::MachineId {
+                        id: x.id().to_string(),
+                    }),
+                    state: x.current_state().to_string(),
+                    requested_at: x.reprovisioning_requested().map(|a| a.requested_at.into()),
+                    initiator: x
+                        .reprovisioning_requested()
+                        .map(|a| a.initiator)
+                        .unwrap_or_default(),
+                    update_firmware: x
+                        .reprovisioning_requested()
+                        .map(|a| a.update_firmware)
+                        .unwrap_or_default(),
+                },
+            )
+            .collect_vec();
+
+        Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
     }
 
     async fn get_machine_boot_override(
@@ -3790,7 +3927,9 @@ where
                 .ib_fabric_manager(ib_fabric_manager.clone())
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.machine_state_controller_iteration_time)
-                .state_handler(Arc::new(MachineStateHandler::default()))
+                .state_handler(Arc::new(MachineStateHandler::new(
+                    service_config.dpu_up_threshold,
+                )))
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,
                 })
@@ -4145,6 +4284,8 @@ struct ServiceConfig {
     /// How long to wait for DPU to restart after BMC lockdown. Not a timeout, it's a forced wait.
     /// This will be replaced with querying lockdown state.
     dpu_wait_time: chrono::Duration,
+    /// How long to wait for a health report from the DPU before we assume it's down
+    dpu_up_threshold: chrono::Duration,
 }
 
 impl Default for ServiceConfig {
@@ -4155,6 +4296,7 @@ impl Default for ServiceConfig {
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
             max_db_connections: 1000,
             dpu_wait_time: Duration::minutes(5),
+            dpu_up_threshold: Duration::minutes(5),
         }
     }
 }
@@ -4171,6 +4313,8 @@ impl ServiceConfig {
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
             max_db_connections: 1000,
             dpu_wait_time: Duration::seconds(1),
+            // In local dev forge-dpu-agent probably isn't running, so no heartbeat
+            dpu_up_threshold: Duration::weeks(52),
         }
     }
 }

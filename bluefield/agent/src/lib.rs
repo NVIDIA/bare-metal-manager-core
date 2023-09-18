@@ -212,9 +212,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     .into_iter()
                     .map(|s| {
                         let mut parts = s.split(',');
+                        let vlan_id = parts.next().unwrap().parse().unwrap();
+                        let ip = parts.next().unwrap().to_string();
                         FrrVlanConfig {
-                            vlan_id: parts.next().unwrap().parse().unwrap(),
-                            ip: parts.next().unwrap().to_string(),
+                            vlan_id,
+                            network: ip.clone() + "/32",
+                            ip,
                         }
                     })
                     .collect();

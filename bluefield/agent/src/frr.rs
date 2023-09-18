@@ -45,7 +45,8 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
             .into_iter()
             .map(|c| TmplFrrConfigVLAN {
                 ID: c.vlan_id,
-                HostRoute: c.ip,
+                HostIP: c.ip,
+                HostRoute: c.network,
             })
             .collect(),
         VpcVni: conf.vpc_vni.unwrap_or_default(),
@@ -91,6 +92,7 @@ pub struct FrrConfig {
 
 pub struct FrrVlanConfig {
     pub vlan_id: u32,
+    pub network: String,
     pub ip: String,
 }
 
@@ -102,6 +104,7 @@ pub struct FrrVlanConfig {
 #[derive(Clone, Gtmpl)]
 struct TmplFrrConfigVLAN {
     ID: u32,
+    HostIP: String,
     HostRoute: String,
 }
 

@@ -70,6 +70,8 @@ pub struct MachineSnapshot {
     pub last_cleanup_time: Option<DateTime<Utc>>,
     /// Failure cause. Needed to move machine in failed state.
     pub failure_details: FailureDetails,
+    /// Reprovisioning is needed?
+    pub reprovision_requested: Option<ReprovisionRequest>,
 }
 
 impl MachineSnapshot {
@@ -123,6 +125,19 @@ pub enum ManagedHostState {
         details: FailureDetails,
         machine_id: MachineId,
     },
+
+    /// State used to indicate that DPU reprovisioning is going on.
+    DPUReprovision { reprovision_state: ReprovisionState },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReprovisionState {
+    FirmwareUpgrade,
+    BufferTime,
+    WaitingForDiscovery,
+    WaitingForNetworkInstall,
+    WaitingForNetworkConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -131,6 +146,7 @@ pub enum FailureCause {
     NoError,
     NVMECleanFailed { err: String },
     Discovery { err: String },
+    UnhandledState { err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -138,6 +154,7 @@ pub enum FailureCause {
 pub enum FailureSource {
     NoError,
     Scout,
+    StateMachine,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -206,6 +223,14 @@ pub enum InstanceState {
     WaitingForNetworkReconfig,
 }
 
+/// Struct to store information if Reprovision is requested.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReprovisionRequest {
+    pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+    pub update_firmware: bool,
+}
+
 impl Display for MachineState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
@@ -242,6 +267,7 @@ impl Display for FailureCause {
             FailureCause::NVMECleanFailed { .. } => write!(f, "NVMECleanFailed"),
             FailureCause::NoError => write!(f, "NoError"),
             FailureCause::Discovery { .. } => write!(f, "Discovery"),
+            FailureCause::UnhandledState { .. } => write!(f, "UnknownState"),
         }
     }
 }
@@ -249,6 +275,12 @@ impl Display for FailureCause {
 impl Display for FailureDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}/{}", self.source, self.cause)
+    }
+}
+
+impl Display for ReprovisionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
 
@@ -268,6 +300,9 @@ impl Display for ManagedHostState {
             ManagedHostState::Created => write!(f, "Created"),
             ManagedHostState::Failed { details, .. } => {
                 write!(f, "Failed/{}", details.cause)
+            }
+            ManagedHostState::DPUReprovision { reprovision_state } => {
+                write!(f, "Reprovisioning/{}", reprovision_state)
             }
         }
     }
@@ -314,5 +349,18 @@ mod tests {
             deserialized.cause
         );
         assert_eq!(expected_time, deserialized.failed_at);
+    }
+
+    #[test]
+    fn test_json_deserialize_reprovisioning_state() {
+        let serialized = r#"{"state":"dpureprovision","reprovision_state":"firmwareupgrade"}"#;
+        let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
+
+        assert_eq!(
+            deserialized,
+            ManagedHostState::DPUReprovision {
+                reprovision_state: ReprovisionState::FirmwareUpgrade
+            }
+        );
     }
 }

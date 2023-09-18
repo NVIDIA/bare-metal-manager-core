@@ -101,7 +101,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
 
-    MachineTopology::create(&mut txn, machine.id(), &hardware_info).await?;
+    MachineTopology::create_or_update(&mut txn, machine.id(), &hardware_info).await?;
     txn.commit()
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;
