@@ -1,0 +1,13 @@
+nvssh_default_shell="/bin/bash"
+nvssh_allowed_roles="nsv-egx-dev,egx-admins,ngc-nsv-mission-control-nvssh-access,forge-dev-ssh-access"
+nvssh_allowed_sudo_roles="nsv-egx-dev,egx-admins,ngc-nsv-mission-control-nvssh-access,forge-dev-ssh-access"
+nvssh_allowed_sudo_nopasswd_roles="fc-automation"
+nvssh_vault_addr="https://prod.vault.nvidia.com"
+nvssh_vault_ssh_mount_point="ssh-otp"
+nvssh_vault_namespace="ngc"
+nvssh_vault_allowed_cidr_list="0.0.0.0/0"
+nvssh_tmp_access_conf_file="/etc/nvssh/nvssh-tmp-access.conf"
+nvssh_tmp_access_max_time_in_days=1
+# Do NOT modify manually
+nvssh_nssswitch_plugin=true
+nvssh_pam_auth_plugin=true

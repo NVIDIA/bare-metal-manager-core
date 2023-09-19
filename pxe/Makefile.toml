@@ -276,8 +276,9 @@ dependencies = [
 	"bfb-extract-efi",
 	"bfb-hbn-export",
 	"bfb-telemetry-export",
-	"bfb-add-lldp-to-bfb",
 	"bfb-add-scout-to-bfb",
+	"bfb-add-debs-to-bfb",
+	"bfb-add-nvinit-setup-to-bfb",
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
@@ -302,8 +303,9 @@ dependencies = [
 	"bfb-extract-efi",
 	"bfb-hbn-export",
 	"bfb-telemetry-export",
-	"bfb-add-lldp-to-bfb",
 	"bfb-add-scout-to-bfb",
+	"bfb-add-debs-to-bfb",
+	"bfb-add-nvinit-setup-to-bfb",
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
@@ -407,16 +409,6 @@ args = [
 ]
 cwd = "/tmp/bfb-dump/initramfs-tmp"
 
-[tasks.bfb-add-lldp-to-bfb]
-category = "iPXE Kernel"
-description = "download lldb to the bfb on aarch64 gitlab runner"
-command = "wget"
-args = [
-	"http://ports.ubuntu.com/pool/universe/l/lldpd/lldpd_1.0.4-1build2_arm64.deb",
-	"-O",
-	"/tmp/bfb-dump/initramfs-tmp/lldpd.deb",
-]
-
 [tasks.bfb-add-forge-root-ca-to-bfb]
 category = "iPXE Kernel"
 description = "Add the forge root CA to the bfb"
@@ -424,6 +416,40 @@ command = "cp"
 args = [
 	"${FORGE_CA_PATH}",
 	"/tmp/bfb-dump/initramfs-tmp/forge_root.pem",
+]
+
+[tasks.download-debs-for-bfb]
+category = "iPXE Kernel"
+description = "wget the debs to nvinit_setup"
+command = "wget"
+args = [
+    "-i",
+    "${REPO_ROOT}/pxe/wget_deb_urls",
+    "--directory-prefix=${REPO_ROOT}/pxe/debs",
+]
+cwd = "${REPO_ROOT}/pxe"
+
+[tasks.bfb-add-debs-to-bfb]
+category = "iPXE Kernel"
+description = "Add debs folder to the bfb"
+command = "cp"
+args = [
+    "-R",
+    "${REPO_ROOT}/pxe/debs",
+    "/tmp/bfb-dump/initramfs-tmp",
+]
+dependencies = [
+    "download-debs-for-bfb",
+]
+
+[tasks.bfb-add-nvinit-setup-to-bfb]
+category = "iPXE Kernel"
+description = "Add nvinit_setup folder to the bfb"
+command = "cp"
+args = [
+    "-R",
+    "${REPO_ROOT}/pxe/nvinit_setup",
+    "/tmp/bfb-dump/initramfs-tmp",
 ]
 
 [tasks.bfb-add-scout-to-bfb]

@@ -1,0 +1,104 @@
+# ngc nvssh configuration file
+
+# What ports, IPs and protocols we listen for
+Port 22
+# Use these options to restrict which interfaces/protocols sshd will bind to
+#ListenAddress ::
+#ListenAddress 0.0.0.0
+Protocol 2
+# HostKeys for protocol version 2
+#HostKey /etc/ssh/ssh_host_rsa_key
+#HostKey /etc/ssh/ssh_host_ecdsa_key
+#HostKey /etc/ssh/ssh_host_ed25519_key
+
+#HostCertificate /etc/ssh/ssh_host_rsa_key-cert.pub
+#HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub
+#HostCertificate /etc/ssh/ssh_host_ecdsa_key-cert.pub
+
+# CASignatureAlgorithms ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,ssh-ed25519,rsa-sha2-512,rsa-sha2-256,ssh-rsa
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com
+Ciphers chacha20-poly1305@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,aes128-gcm@openssh.com,aes256-gcm@openssh.com
+
+# Logging
+SyslogFacility AUTH
+LogLevel VERBOSE
+
+# Authentication:
+LoginGraceTime 30
+PermitRootLogin no
+StrictModes yes
+
+PubkeyAuthentication yes
+# override default path ~/.ssh/authorized_keys to prevent (non-root) users to bypass certificate auth
+# note that this will disable all static key logins
+AuthorizedKeysFile none
+
+# Don't read the user's ~/.rhosts and ~/.shosts files
+IgnoreRhosts yes
+# similar for protocol version 2
+HostbasedAuthentication no
+# Uncomment if you don't trust ~/.ssh/known_hosts for RhostsRSAAuthentication
+#IgnoreUserKnownHosts yes
+
+# To enable empty passwords, change to yes (NOT RECOMMENDED)
+PermitEmptyPasswords no
+ClientAliveInterval 900
+ClientAliveCountMax 0
+Banner /etc/ssh/banner
+
+# Change to yes to enable challenge-response passwords (beware issues with
+# some PAM modules and threads)
+ChallengeResponseAuthentication yes
+
+# Change to no to disable tunnelled clear text passwords
+PasswordAuthentication no
+
+X11Forwarding no
+X11DisplayOffset 10
+PrintMotd no
+PrintLastLog yes
+TCPKeepAlive yes
+
+# Allow client to pass locale environment variables
+AcceptEnv LANG LC_*
+
+Subsystem sftp internal-sftp
+
+# Set this to 'yes' to enable PAM authentication, account processing,
+# and session processing. If this is enabled, PAM authentication will
+# be allowed through the ChallengeResponseAuthentication and
+# PasswordAuthentication.  Depending on your PAM configuration,
+# PAM authentication via ChallengeResponseAuthentication may bypass
+# the setting of "PermitRootLogin without-password".
+# If you just want the PAM account and session checks to run without
+# PAM authentication, then enable this but set PasswordAuthentication
+# and ChallengeResponseAuthentication to 'no'.
+UsePAM yes
+UseDNS no
+UsePam yes
+PermitTunnel no
+GatewayPorts no
+MaxAuthTries 8
+AuthenticationMethods publickey
+
+# Permitting users the ability to set environment variables through the
+# SSH daemon could potentially allow users to bypass security controls
+# (e.g. setting an execution path that has ssh executing trojan'd programs)
+PermitUserEnvironment no
+
+
+# bouncer is a special shared-user account used prior to NVSSH (SSHCA), and we are blocking it
+# explicitly to stop users with bouncer cert logging to target host unauthorized
+DenyUsers bouncer
+
+#Match Group ngc-automation
+#  TrustedUserCAKeys /etc/ssh/ngc-automation-ca-keys.pem
+
+Match Group ngc,nsv
+  TrustedUserCAKeys /etc/ssh/ngc-users-ca-keys.pem
+  AuthenticationMethods publickey keyboard-interactive:pam
+  AuthorizedPrincipalsCommand /usr/bin/nvssh authorized-principals-check -i %i -u %u -k %k -T %T -t %t
+  AuthorizedPrincipalsCommandUser root
+
+
+## IMPORTANT - Do not add anything golbal after Match block

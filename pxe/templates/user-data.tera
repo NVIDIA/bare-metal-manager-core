@@ -19,7 +19,52 @@ mv /forge-scout /mnt/opt/forge
 mv /forge-dpu_1.0-1.deb /mnt/opt/forge
 mv /doca_container_configs_1.5.1v2.zip /mnt/opt/forge
 mv /forge_root.pem /mnt/opt/forge
-mv /lldpd.deb /mnt/opt/forge/lldpd.deb
+
+#begin nvinit setup
+#this step is done in the BFB to ensure that we can always log in to the box, even if cloud-init fails.
+mkdir -p /mnt/opt/forge/debs
+for deb in /debs/*.deb; do  mv $deb /mnt/opt/forge/debs; done
+
+mkdir -p /mnt/etc/nvssh
+chmod 0755 /mnt/etc/nvssh
+mv /nvinit_setup/etc-nvssh-nvssh-conf /mnt/etc/nvssh/nvssh.conf
+chmod 0644 /mnt/etc/nvssh/nvssh.conf
+
+mv /nvinit_setup/etc-sudoersd-nvssh-sudo /mnt/etc/sudoers.d/nvssh-sudo
+chmod 0600 /mnt/etc/sudoers.d/nvssh-sudo
+mv /nvinit_setup/etc-sudoersd-nvssh-sudo-nopasswd /mnt/etc/sudoers.d/nvssh-sudo-nopasswd
+chmod 0600 /mnt/etc/sudoers.d/nvssh-sudo-nopasswd
+mv /nvinit_setup/etc-nsswitch-conf /mnt/etc/nsswitch.conf
+chmod 0644 /mnt/etc/nsswitch.conf
+mv /nvinit_setup/etc-pamd-sshd /mnt/etc/pam.d/sshd
+chmod 0600 /mnt/etc/pam.d/sshd
+mv /nvinit_setup/etc-ssh-ngc-users-ca-keys-pem /mnt/etc/ssh/ngc-users-ca-keys.pem
+chmod 0644 /mnt/etc/ssh/ngc-users-ca-keys.pem
+mv /nvinit_setup/sbin-nss-exec /mnt/sbin/nss_exec
+chmod 0755 /mnt/sbin/nss_exec
+mv /nvinit_setup/usr-bin-nvssh /mnt/usr/bin/nvssh
+chmod 0755 /mnt/usr/bin/nvssh
+mv /nvinit_setup/etc-ssh-sshd-config /mnt/etc/ssh/sshd_config
+chmod 0644 /mnt/etc/ssh/sshd_config
+
+chroot /mnt chown root:root /etc/sudoers.d/nvssh-sudo
+chroot /mnt chown root:root /etc/sudoers.d/nvssh-sudo-nopasswd
+chroot /mnt chown root:root /etc/nsswitch.conf
+chroot /mnt chown root:root /etc/pam.d/sshd
+chroot /mnt chown root:root /etc/ssh/ngc-users-ca-keys.pem
+chroot /mnt chown root:root /sbin/nss_exec
+chroot /mnt chown root:root /usr/bin/nvssh
+chroot /mnt chown root:root /etc/ssh/sshd_config
+chroot /mnt chown -R root:root /opt/forge/debs
+
+chroot /mnt groupadd --gid 959 nvssh-sudo-nopasswd
+chroot /mnt groupadd --gid 949 nvssh-sudo
+chroot /mnt groupadd ngc-automation
+chroot /mnt groupadd ngc
+chroot /mnt groupadd nsv
+chroot /mnt dpkg -R -i /opt/forge/debs
+
+#end nvinit setup
 
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
@@ -229,7 +274,6 @@ runcmd:
   - [ /usr/bin/systemctl, enable, --now, systemd-timesyncd@mgmt ]
   - [ /usr/bin/timedatectl, set-ntp, true ]
   - [ /usr/bin/bfcfg ]
-  - [ dpkg, -i, /opt/forge/lldpd.deb ]
 {% if update_firmware == "true" %}
   - [ /opt/forge/run-scout.sh ]
 {% else %}
