@@ -10,15 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use libredfish::model::power::{PowerSupply, Voltages};
 use libredfish::model::sel::LogEntry;
-use libredfish::model::{
-    power::Power, software_inventory::SoftwareInventory, thermal::Thermal, ResourceHealth,
-    ResourceState,
-};
+use libredfish::model::thermal::{Fan, Temperature};
+use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
 use libredfish::{Endpoint, Redfish, RedfishClientPool};
 use opentelemetry::metrics::{MeterProvider as _, Unit};
 use opentelemetry::KeyValue;
+use opentelemetry_api::metrics::Meter;
 use opentelemetry_sdk::metrics::MeterProvider;
+use sha2::{Digest, Sha256};
 
 use crate::HealthError;
 
@@ -27,6 +28,12 @@ pub struct HardwareHealth {
     power: Power,
     logs: Vec<LogEntry>,
     firmware: Vec<SoftwareInventory>,
+}
+
+#[derive(Clone, Debug, Hash)]
+pub struct HealthHashData {
+    pub firmware_digest: String,
+    pub sel_count: usize,
 }
 
 /// get all the metrics we want from the bmc
@@ -39,7 +46,7 @@ pub fn get_metrics(redfish: Box<dyn Redfish>) -> Result<HardwareHealth, HealthEr
     let logs = redfish.get_system_event_log()?;
     // get system firmware components versions, such as uefi, bmc, sbios, me, etc
     let components = redfish.get_software_inventories()?;
-    let mut firmware = Vec::new();
+    let mut firmware = Vec::with_capacity(components.len());
     for component in components.iter() {
         let version = redfish.get_firmware(component.as_str())?;
         firmware.push(version);
@@ -53,107 +60,83 @@ pub fn get_metrics(redfish: Box<dyn Redfish>) -> Result<HardwareHealth, HealthEr
     Ok(health)
 }
 
-pub fn display_state(state: Option<ResourceState>) -> String {
-    match state {
-        Some(x) => format!("{}", x),
-        None => "Unknown".to_string(),
-    }
-}
-
-pub fn display_health(health: Option<ResourceHealth>) -> String {
-    match health {
-        Some(x) => format!("{}", x),
-        None => "Unknown".to_string(),
-    }
-}
-
-// the attribute keys and values are specified in
-// https://opentelemetry.io/docs/specs/otel/metrics/semantic_conventions/hardware-metrics/
-// in the hw.temperature section.
-// hw.id, hw.type are required.
-// hw.host.id and hw.sensor_location are recommended
-// hw.state and hw.health are custom attributes based on redfish schema
-pub async fn export_metrics(
-    provider: MeterProvider,
-    health: HardwareHealth,
-    machine_id: String,
+fn export_temperatures(
+    meter: Meter,
+    temperatures: Vec<Temperature>,
+    machine_id: &str,
 ) -> Result<(), HealthError> {
-    // build or get meter for each machine
-    let meter = provider.meter(machine_id.clone());
-
     let temperature_sensors = meter
         .i64_observable_gauge("hw.temperature")
         .with_description("Temperature sensors for this hardware")
         .with_unit(Unit::new("Celsius"))
         .init();
-    for temperature in health.thermal.temperatures.iter() {
+    for temperature in temperatures.iter() {
         if temperature.reading_celsius.is_none() {
             // don't add the reading if there's no value provided
             continue;
         }
         let sensor_name = temperature.name.clone().as_str().replace(" ", "_");
-        let sensor_state = display_state(temperature.status.state);
-        let sensor_health = display_health(temperature.status.health);
         temperature_sensors.observe(
             temperature.reading_celsius.unwrap(),
             &[
                 KeyValue::new("hw.id", sensor_name),
-                KeyValue::new("hw.type", "temperature"),
-                KeyValue::new("hw.sensor_location", temperature.name.clone()),
-                KeyValue::new("hw.host.id", machine_id.clone()),
-                KeyValue::new("hw.state", sensor_state),
-                KeyValue::new("hw.health", sensor_health),
+                KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         )
     }
+    Ok(())
+}
 
+fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), HealthError> {
     let fan_sensors = meter
         .i64_observable_gauge("hw.fan.speed")
         .with_description("Fans for this hardware")
         .with_unit(Unit::new("rpm"))
         .init();
-    for fan in health.thermal.fans.iter() {
+    for fan in fans.iter() {
         let sensor_name = fan.fan_name.clone().as_str().replace(" ", "_");
-        let sensor_state = display_state(fan.status.state);
-        let sensor_health = display_health(fan.status.health);
         fan_sensors.observe(
             fan.reading.clone(),
             &[
                 KeyValue::new("hw.id", sensor_name),
-                KeyValue::new("hw.type", "fan"),
-                KeyValue::new("hw.sensor_location", fan.fan_name.clone()),
-                KeyValue::new("hw.host.id", machine_id.clone()),
-                KeyValue::new("hw.state", sensor_state),
-                KeyValue::new("hw.health", sensor_health),
+                KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         )
     }
+    Ok(())
+}
 
+fn export_voltages(
+    meter: Meter,
+    voltages: Vec<Voltages>,
+    machine_id: &str,
+) -> Result<(), HealthError> {
     let voltage_sensors = meter
         .f64_observable_gauge("hw.voltage")
         .with_description("Voltages for this hardware")
         .with_unit(Unit::new("V"))
         .init();
-    for voltage in health.power.voltages.iter() {
+    for voltage in voltages.iter() {
         if voltage.reading_volts.is_none() {
             continue;
         }
         let sensor_name = voltage.name.clone().as_str().replace(" ", "_");
-        let sensor_state = display_state(voltage.status.state);
-        let sensor_health = display_health(voltage.status.health);
         voltage_sensors.observe(
             voltage.reading_volts.unwrap(),
             &[
                 KeyValue::new("hw.id", sensor_name),
-                KeyValue::new("hw.type", "voltage"),
-                KeyValue::new("hw.sensor_location", voltage.name.clone()),
-                KeyValue::new("hw.host.id", machine_id.clone()),
-                KeyValue::new("hw.state", sensor_state),
-                KeyValue::new("hw.health", sensor_health),
+                KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         )
     }
+    Ok(())
+}
 
+fn export_power_supplies(
+    meter: Meter,
+    power_supplies: Vec<PowerSupply>,
+    machine_id: &str,
+) -> Result<(), HealthError> {
     let power_supplies_output_watts_sensors = meter
         .f64_observable_gauge("hw.power_supply.output")
         .with_description("Last output Wattage for this hardware")
@@ -169,97 +152,128 @@ pub async fn export_metrics(
         .with_description("Input line Voltage")
         .with_unit(Unit::new("V"))
         .init();
-    for power_supply in health.power.power_supplies.iter() {
+    for power_supply in power_supplies.iter() {
         let sensor_name = power_supply.name.clone().as_str().replace(" ", "_");
-        let sensor_state = display_state(power_supply.status.state);
-        let sensor_health = display_health(power_supply.status.health);
         power_supplies_output_watts_sensors.observe(
             power_supply.last_power_output_watts.clone(),
             &[
                 KeyValue::new("hw.id", sensor_name.clone()),
-                KeyValue::new("hw.type", "power_supply"),
-                KeyValue::new("hw.model", power_supply.model.clone()),
-                KeyValue::new("hw.serial", power_supply.serial_number.clone()),
-                KeyValue::new("hw.host.id", machine_id.clone()),
-                KeyValue::new("hw.state", sensor_state.clone()),
-                KeyValue::new("hw.health", sensor_health.clone()),
+                KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         );
         power_supplies_input_voltage_sensors.observe(
             power_supply.line_input_voltage.clone(),
             &[
                 KeyValue::new("hw.id", sensor_name.clone()),
-                KeyValue::new("hw.type", "power_supply"),
-                KeyValue::new("hw.model", power_supply.model.clone()),
-                KeyValue::new("hw.serial", power_supply.serial_number.clone()),
-                KeyValue::new("hw.host.id", machine_id.clone()),
-                KeyValue::new("hw.state", sensor_state.clone()),
-                KeyValue::new("hw.health", sensor_health.clone()),
+                KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         );
-        let utilization: f64 = (power_supply.last_power_output_watts.clone()
-            / power_supply.power_capacity_watts.clone() as f64)
-            * 100.0;
+        let mut utilization: f64 = 0.0;
+        if power_supply.power_capacity_watts > 0 {
+            utilization = (power_supply.last_power_output_watts.clone()
+                / power_supply.power_capacity_watts.clone() as f64)
+                * 100.0;
+        }
         power_supplies_utilization_sensors.observe(
             utilization,
             &[
                 KeyValue::new("hw.id", sensor_name.clone()),
-                KeyValue::new("hw.type", "power_supply"),
-                KeyValue::new("hw.model", power_supply.model.clone()),
-                KeyValue::new("hw.serial", power_supply.serial_number.clone()),
-                KeyValue::new("hw.host.id", machine_id.clone()),
-                KeyValue::new("hw.state", sensor_state.clone()),
-                KeyValue::new("hw.health", sensor_health.clone()),
+                KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         );
     }
+    Ok(())
+}
+
+fn export_firmware_versions(
+    meter: Meter,
+    firmwares: Vec<SoftwareInventory>,
+    machine_id: &str,
+) -> Result<(), HealthError> {
     let firmware_sensors = meter
         .u64_observable_gauge("firmware.version")
         .with_description("Firmware versions for components on this system")
         .init();
-    for firmware in health.firmware.iter() {
+    for firmware in firmwares.iter() {
         if firmware.version.is_none() {
             continue;
         }
         let sensor_name = firmware.id.clone().as_str().replace(" ", "_");
         let sensor_value = firmware.version.clone().unwrap();
         firmware_sensors.observe(
-            health.firmware.len() as u64,
+            firmwares.len() as u64,
             &[
                 KeyValue::new("firmware.id", sensor_name.clone()),
                 KeyValue::new("firmware.version", sensor_value.clone()),
                 KeyValue::new("hw.type", "firmware"),
-                KeyValue::new("hw.host.id", machine_id.clone()),
+                KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         )
     }
-    let event_log_sensors = meter
-        .u64_observable_gauge("events.log")
-        .with_description("System Event Log for this system")
-        .init();
-    for log_entry in health.logs.iter() {
-        let sensor_name = log_entry.id.clone().as_str().replace(" ", "_");
-        event_log_sensors.observe(
-            health.logs.len() as u64,
-            &[
-                KeyValue::new("sel.id", sensor_name.clone()),
-                KeyValue::new("sel.timestamp", log_entry.created.clone()),
-                KeyValue::new("sel.message", log_entry.message.clone()),
-                KeyValue::new("hw.type", "sel"),
-                KeyValue::new("hw.host.id", machine_id.clone()),
-            ],
-        )
+    Ok(())
+}
+
+fn export_system_event_log(_logs: Vec<LogEntry>, _machine_id: &str) -> Result<(), HealthError> {
+    // TODO: export logs to loki
+    Ok(())
+}
+
+// the attribute keys and values are specified in
+// https://opentelemetry.io/docs/specs/otel/metrics/semantic_conventions/hardware-metrics/
+// in the hw.temperature section.
+// hw.id, hw.type are required.
+// hw.host.id and hw.sensor_location are recommended
+// hw.state and hw.health are custom attributes based on redfish schema
+pub async fn export_metrics(
+    provider: MeterProvider,
+    health: HardwareHealth,
+    last_firmware_digest: String,
+    last_sel_count: usize,
+    machine_id: &str,
+) -> Result<(String, usize), HealthError> {
+    // build or get meter for each machine
+    let meter = provider.meter(machine_id.to_string());
+
+    export_temperatures(meter.clone(), health.thermal.temperatures, machine_id)?;
+    export_fans(meter.clone(), health.thermal.fans, machine_id)?;
+    export_voltages(meter.clone(), health.power.voltages, machine_id)?;
+    export_power_supplies(meter.clone(), health.power.power_supplies, machine_id)?;
+
+    // only send firmware data if something changed from the last update
+    let mut hasher = Sha256::new();
+    for firmware in health.firmware.iter() {
+        if firmware.version.is_none() {
+            continue;
+        }
+        hasher.update(firmware.id.clone());
+        hasher.update(firmware.version.clone().unwrap());
+    }
+    let firmware_digest_bytes = hasher.finalize();
+    let mut firmware_digest = format!("{:x?}", firmware_digest_bytes);
+    let mut sel_count = health.logs.len();
+
+    if firmware_digest != last_firmware_digest {
+        export_firmware_versions(meter.clone(), health.firmware.clone(), machine_id)?;
+    } else {
+        firmware_digest.clear();
     }
 
-    Ok(())
+    if sel_count != last_sel_count {
+        export_system_event_log(health.logs.clone(), machine_id)?;
+    } else {
+        sel_count = 0;
+    }
+    Ok((firmware_digest, sel_count))
 }
 
 /// get a single machine's health metrics and export it
 pub async fn scrape_machine_health(
     provider: MeterProvider,
     endpoint: Endpoint,
-    machine_id: String,
-) -> Result<(), HealthError> {
+    machine_id: &str,
+    last_firmware_digest: String,
+    last_sel_count: usize,
+) -> Result<(String, usize), HealthError> {
     let health = tokio::task::spawn_blocking(move || -> Result<HardwareHealth, HealthError> {
         let pool = RedfishClientPool::builder().build()?;
         let redfish = pool.create_client(endpoint.clone())?;
@@ -268,5 +282,12 @@ pub async fn scrape_machine_health(
     })
     .await??;
 
-    export_metrics(provider.clone(), health, machine_id).await
+    export_metrics(
+        provider.clone(),
+        health,
+        last_firmware_digest,
+        last_sel_count,
+        machine_id,
+    )
+    .await
 }

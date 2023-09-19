@@ -9,9 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use cfg::Options;
 use color_eyre::eyre::Result;
 use prometheus::{Encoder, TextEncoder};
+use std::collections::HashMap;
 use std::convert::Infallible;
+use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,8 +33,9 @@ use opentelemetry_sdk::metrics::MeterProvider;
 use prometheus::Registry;
 use tracing::error;
 
+mod cfg;
 mod metrics;
-use crate::metrics::scrape_machine_health;
+use crate::metrics::{scrape_machine_health, HealthHashData};
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -219,29 +223,31 @@ pub async fn metrics_listener(state: Arc<HealthMetricsState>) -> Result<(), hype
     // port seems to be either 5558, 8082,8083,8084,8085 or 9001 in forged
     let listen_address = ([0, 0, 0, 0], 9009).into();
     let server = Server::bind(&listen_address).serve(make_svc);
-    println!("Starting metrics listening server");
     server.await?;
     Ok(())
 }
 
-pub async fn scrape_machines_health(provider: MeterProvider) -> Result<(), HealthError> {
+pub async fn scrape_machines_health(
+    provider: MeterProvider,
+    config: Options,
+) -> Result<(), HealthError> {
     // we may eventually want a config for this service with these items:
-    // cert paths, api server url, metrics listener address, bmcs polling interval
-    let root_ca = get_forge_root_ca_path(None);
-    let client_certs = get_client_cert_info(None, None);
+    // metrics listener address, bmcs polling interval
+    let root_ca = get_forge_root_ca_path(Some(config.root_ca));
+    let client_certs = get_client_cert_info(Some(config.client_cert), Some(config.client_key));
     let mut grpc_client = create_forge_client(
         root_ca,
         client_certs.cert_path,
         client_certs.key_path,
-        "https://carbide-api.forge-system.svc.cluster.local".to_string(),
+        config.api,
     )
     .await?;
+
+    let mut machines_hash: HashMap<String, HealthHashData> = HashMap::new();
 
     loop {
         let machines: rpc::MachineList = get_machines(&mut grpc_client).await?;
 
-        println!("Got {} machines from api server", machines.machines.len());
-        let mut machine_count = 0;
         for machine in machines.machines.iter() {
             if machine.id.is_none() {
                 continue;
@@ -255,27 +261,72 @@ pub async fn scrape_machines_health(provider: MeterProvider) -> Result<(), Healt
                     continue;
                 }
             };
-            match scrape_machine_health(provider.clone(), endpoint, id.id.clone()).await {
-                Ok(_x) => {
-                    machine_count += 1;
+            let mut last_firmware_digest = String::new();
+            let mut last_sel_count: usize = 0;
+            let machine_id: Box<String> = Box::from(String::from(id.id));
+
+            let last_updated = machines_hash.get(machine_id.clone().as_str());
+            if last_updated.is_some() {
+                last_firmware_digest =
+                    String::from(last_updated.unwrap().deref().clone().firmware_digest);
+                last_sel_count = last_updated.unwrap().deref().clone().sel_count;
+            } else {
+                let empty_hash = HealthHashData {
+                    firmware_digest: last_firmware_digest.clone(),
+                    sel_count: 0,
+                };
+                // insert into hash on first enumeration of the machine
+                let _ = machines_hash.insert(machine_id.to_string(), empty_hash);
+            }
+
+            match scrape_machine_health(
+                provider.clone(),
+                endpoint,
+                machine_id.clone().as_str(),
+                last_firmware_digest.clone(),
+                last_sel_count.clone(),
+            )
+            .await
+            {
+                Ok((x, y)) => {
+                    (last_firmware_digest, last_sel_count) = (x, y);
                 }
                 Err(e) => {
                     error!(
                         "failed to scrape metrics for {}\n{}",
-                        id.id.clone(),
+                        machine_id.to_string(),
                         e.to_string()
                     );
+                    continue;
                 }
+            };
+
+            if !last_firmware_digest.is_empty() {
+                machines_hash
+                    .get_mut(machine_id.clone().as_str())
+                    .unwrap()
+                    .firmware_digest = last_firmware_digest.to_string();
+            }
+            if last_sel_count > 0 {
+                machines_hash
+                    .get_mut(machine_id.clone().as_str())
+                    .unwrap()
+                    .sel_count = last_sel_count.clone();
             }
         }
 
-        println!("Exported {} machines metrics", machine_count);
         tokio::time::sleep(Duration::from_secs(60)).await;
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), HealthError> {
+    let config = Options::load();
+    if config.version {
+        println!("{}", forge_version::version!());
+        return Ok(());
+    }
+
     let registry = Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
@@ -285,7 +336,7 @@ async fn main() -> Result<(), HealthError> {
 
     let join_listener = tokio::spawn(async move { metrics_listener(state).await });
 
-    let join_scraper = tokio::spawn(async move { scrape_machines_health(provider).await });
+    let join_scraper = tokio::spawn(async move { scrape_machines_health(provider, config).await });
 
     let _ = join_scraper.await?;
     let _ = join_listener.await?;

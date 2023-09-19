@@ -2189,6 +2189,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
+ "sha2 0.9.9",
  "thiserror",
  "tokio",
  "tonic 0.8.3",
