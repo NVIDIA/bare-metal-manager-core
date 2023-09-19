@@ -19,17 +19,11 @@ mv /forge-scout /mnt/opt/forge
 mv /forge-dpu_1.0-1.deb /mnt/opt/forge
 mv /doca_container_configs_1.5.1v2.zip /mnt/opt/forge
 mv /forge_root.pem /mnt/opt/forge
-mv /lldpd.deb /mnt/opt/forge/lldpd.deb
 
 #begin nvinit setup
 #this step is done in the BFB to ensure that we can always log in to the box, even if cloud-init fails.
 mkdir -p /mnt/opt/forge/debs
-mv /nvinit_setup/debs/libnss-exec_0.2.0-1_arm64.deb /mnt/opt/forge/debs
-mv /nvinit_setup/debs/jq_1.6-1ubuntu0.20.04.1_arm64.deb /mnt/opt/forge/debs
-mv /nvinit_setup/debs/libjq1_1.6-1ubuntu0.20.04.1_arm64.deb /mnt/opt/forge/debs
-mv /nvinit_setup/debs/libuser_0.62~dfsg-0.3_arm64.deb /mnt/opt/forge/debs
-mv /nvinit_setup/debs/libuser1_0.62~dfsg-0.3_arm64.deb /mnt/opt/forge/debs
-mv /nvinit_setup/debs/libonig5_6.9.4-1_arm64.deb /mnt/opt/forge/debs
+for deb in /debs/*.deb; do  mv $deb /mnt/opt/forge/debs; done
 
 mkdir -p /mnt/etc/nvssh
 chmod 0755 /mnt/etc/nvssh
@@ -61,18 +55,14 @@ chroot /mnt chown root:root /etc/ssh/ngc-users-ca-keys.pem
 chroot /mnt chown root:root /sbin/nss_exec
 chroot /mnt chown root:root /usr/bin/nvssh
 chroot /mnt chown root:root /etc/ssh/sshd_config
+chroot /mnt chown -R root:root /opt/forge/debs
 
 chroot /mnt groupadd --gid 959 nvssh-sudo-nopasswd
 chroot /mnt groupadd --gid 949 nvssh-sudo
 chroot /mnt groupadd ngc-automation
 chroot /mnt groupadd ngc
 chroot /mnt groupadd nsv
-chroot /mnt dpkg -i /opt/forge/debs/libnss-exec_0.2.0-1_arm64.deb \
-                    /opt/forge/debs/jq_1.6-1ubuntu0.20.04.1_arm64.deb \
-                    /opt/forge/debs/libjq1_1.6-1ubuntu0.20.04.1_arm64.deb \
-                    /opt/forge/debs/libuser_0.62~dfsg-0.3_arm64.deb \
-                    /opt/forge/debs/libuser1_0.62~dfsg-0.3_arm64.deb \
-                    /opt/forge/debs/libonig5_6.9.4-1_arm64.deb
+chroot /mnt dpkg -R -i /opt/forge/debs
 
 #end nvinit setup
 
@@ -284,7 +274,6 @@ runcmd:
   - [ /usr/bin/systemctl, enable, --now, systemd-timesyncd@mgmt ]
   - [ /usr/bin/timedatectl, set-ntp, true ]
   - [ /usr/bin/bfcfg ]
-  - [ dpkg, -i, /opt/forge/lldpd.deb ]
 {% if update_firmware == "true" %}
   - [ /opt/forge/run-scout.sh ]
 {% else %}
