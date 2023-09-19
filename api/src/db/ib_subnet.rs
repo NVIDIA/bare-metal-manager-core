@@ -18,11 +18,15 @@ use futures::StreamExt;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::model::hardware_info::InfinibandInterface;
+use crate::model::instance::config::{
+    infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
+};
 use crate::{
     db::{DatabaseError, UuidKeyedObjectFilter},
     model::config_version::{ConfigVersion, Versioned},
@@ -429,14 +433,66 @@ pub async fn allocate_port_guid(
         .ok_or(CarbideError::MissingArgument("no hardware info"))?
         .infiniband_interfaces;
 
-    let mut ib_hw_info_iter = ib_hw_info.iter();
-    // Assign IB Ports of Machine to Instance accordingly.
-    for ib in &mut ib_config.value.ib_interfaces {
-        let ib_hw = ib_hw_info_iter.next().ok_or(CarbideError::InvalidArgument(
-            "not enough ib interfaces".to_string(),
-        ))?;
-        ib.guid = Some(ib_hw.guid.clone());
+    // the key of ib_hw_map is device name such as "MT28908 Family [ConnectX-6]".
+    // the value of ib_hw_map is a sorted vector of InfinibandInterface by slot.
+    let ib_hw_map = sort_ib_by_slot(ib_hw_info);
+    for request in &mut ib_config.value.ib_interfaces {
+        tracing::debug!(
+            "reqest IB device:{}, device_instance:{}",
+            request.device.clone(),
+            request.device_instance
+        );
+
+        // TOTO: will support VF in the future. Currently, it will return err when the function_id is not PF.
+        if let InterfaceFunctionId::Virtual { .. } = request.function_id {
+            return Err(CarbideError::InvalidArgument(format!(
+                "Not support VF {}",
+                request.device
+            )));
+        }
+
+        if let Some(sorted_ibs) = ib_hw_map.get(&request.device) {
+            if let Some(ib) = sorted_ibs.get(request.device_instance as usize) {
+                request.guid = Some(ib.guid.clone());
+                tracing::debug!("select IB device GUID {}", ib.guid.clone());
+            } else {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "not enough ib device {}",
+                    request.device
+                )));
+            }
+        } else {
+            return Err(CarbideError::InvalidArgument(format!(
+                "no ib device {}",
+                request.device
+            )));
+        }
     }
 
     Ok(ib_config)
+}
+
+/// sort ib device by slot and add devices with the same name are added to hashmap
+fn sort_ib_by_slot(
+    ib_hw_info_vec: &[InfinibandInterface],
+) -> HashMap<String, Vec<InfinibandInterface>> {
+    let mut ib_hw_map = HashMap::new();
+    let mut sorted_ib_hw_info_vec = ib_hw_info_vec.to_owned();
+    sorted_ib_hw_info_vec.sort_by_key(|x| match &x.pci_properties {
+        Some(pci_properties) => pci_properties.slot.clone().unwrap_or_default(),
+        None => "".to_owned(),
+    });
+
+    for ib in sorted_ib_hw_info_vec {
+        if let Some(ref pci_properties) = ib.pci_properties {
+            // description in pci_properties are the value of ID_MODEL_FROM_DATABASE, such as "MT28908 Family [ConnectX-6]"
+            if let Some(device) = &pci_properties.description {
+                let entry: &mut Vec<InfinibandInterface> =
+                    ib_hw_map.entry(device.clone()).or_default();
+                entry.push(ib);
+            }
+        }
+    }
+
+    ib_hw_map
 }

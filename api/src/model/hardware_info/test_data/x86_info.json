@@ -791,6 +791,74 @@
       }
     }
   ],
+  "infiniband_interfaces": [
+    {
+      "pci_properties": {
+        "vendor": "0x15b3",
+        "device": "0x1021",
+        "path": "/devices/pci0000:b0/0000:c0:02.0/0000:c1:00.1/infiniband/ibp178s0f1",
+        "numaNode": 1,
+        "description": "MT2910 Family [ConnectX-7]",
+        "slot": "0000:c1:00.1"
+      },
+      "guid": "946dae03002ac100"
+    },
+    {
+      "pci_properties": {
+        "vendor": "0x15b3",
+        "device": "0x1021",
+        "path": "/devices/pci0000:b0/0000:c0:02.0/0000:c1:00.0/infiniband/ibp178s0f0",
+        "numaNode": 1,
+        "description": "MT2910 Family [ConnectX-7]",
+        "slot": "0000:c1:00.0"
+      },
+      "guid": "946dae03002ac101"
+    },
+    {
+      "pci_properties": {
+        "vendor": "0x15b3",
+        "device": "0x1021",
+        "path": "/devices/pci0000:b0/0000:b0:02.0/0000:b1:00.1/infiniband/ibp177s0f1",
+        "numaNode": 1,
+        "description": "MT2910 Family [ConnectX-7]",
+        "slot": "0000:b1:00.1"
+      },
+      "guid": "946dae03002ac102"
+    },
+    {
+      "pci_properties": {
+        "vendor": "0x15b3",
+        "device": "0x1021",
+        "path": "/devices/pci0000:b0/0000:b0:02.0/0000:b1:00.0/infiniband/ibp177s0f0",
+        "numaNode": 1,
+        "description": "MT2910 Family [ConnectX-7]",
+        "slot": "0000:b1:00.0"
+      },
+      "guid": "946dae03002ac103"
+    },
+    {
+      "pci_properties": {
+        "vendor": "0x15b3",
+        "device": "0x1017",
+        "path": "/devices/pci0000:97/0000:97:02.0/0000:98:00.0/infiniband/ibp152s0f0",
+        "numaNode": 1,
+        "description": "MT27800 Family [ConnectX-5]",
+        "slot": "0000:98:00.0"
+      },
+      "guid": "946dae03002ac752"
+    },
+    {
+      "pci_properties": {
+        "vendor": "0x15b3",
+        "device": "0x1017",
+        "path": "/devices/pci0000:97/0000:97:02.0/0000:98:00.1/infiniband/ibp152s0f1",
+        "numaNode": 1,
+        "description": "MT27800 Family [ConnectX-5]",
+        "slot": "0000:98:00.1"
+      },
+      "guid": "946dae03002ac753"
+    }
+  ],
   "tpm_ek_certificate": "U29tZSBhcmJpdHJhcnkgYmFzZTY0",
   "gpus": [
     {
@@ -813,6 +881,5 @@
       "size_mb": 1024,
       "mem_type": "DDR4"
     }
-
   ]
 }

@@ -29,7 +29,6 @@ pub mod ib;
 mod tpm;
 
 const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
-const PCI_VENDOR_ID: &str = "ID_VENDOR_ID";
 const PCI_MODEL_ID: &str = "ID_MODEL_ID";
 const PCI_DEV_PATH: &str = "DEVPATH";
 const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
@@ -74,7 +73,6 @@ pub enum HardwareEnumerationError {
 }
 
 pub struct PciDevicePropertiesExt {
-    pub vendor_name: String,
     pub sub_class: String,
     pub pci_properties: rpc_discovery::PciDeviceProperties,
 }
@@ -186,11 +184,10 @@ fn get_pci_properties_ext(
     };
 
     Ok(PciDevicePropertiesExt {
-        vendor_name: convert_property_to_string(PCI_VENDOR_FROM_DB, "NO_VENDOR_NAME", device)?
-            .to_string(),
         sub_class: convert_property_to_string(PCI_SUBCLASS, "", device)?.to_string(),
         pci_properties: rpc_discovery::PciDeviceProperties {
-            vendor: convert_property_to_string(PCI_VENDOR_ID, "", device)?.to_string(),
+            vendor: convert_property_to_string(PCI_VENDOR_FROM_DB, "NO_VENDOR_NAME", device)?
+                .to_string(),
             device: convert_property_to_string(PCI_MODEL_ID, "", device)?.to_string(),
             path: convert_property_to_string(PCI_DEV_PATH, "", device)?.to_string(),
             numa_node: get_numa_node_from_syspath(device.syspath())?,
@@ -269,7 +266,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let devices = enumerator.scan_devices()?;
 
     // mellanox ID_MODEL_ID = "0xa2d6"
-    // mellanox ID_VENDOR_ID = "0x15b3"
+    // mellanox ID_VENDOR_FROM_DATABASE = "Mellanox Technologies"
     // mellanox ID_MODEL_FROM_DATABASE = "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
     // pci_device_path = DEVPATH = "/devices/pci0000:00/0000:00:1c.4/0000:08:00.0/net/enp8s0f0np0"
     // let fff = devices.map(|device|DiscoveryNic { mac: "".to_string(), dev: "".to_string() });

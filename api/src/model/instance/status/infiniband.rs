@@ -192,9 +192,9 @@ impl InstanceInfinibandStatusObservation {
 /// The network status that was last reported by the infiniband subystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceIbInterfaceStatus {
-    guid: Option<String>,
-    lid: u32,
-    addresses: Vec<String>,
+    pub guid: Option<String>,
+    pub lid: u32,
+    pub addresses: Vec<String>,
 }
 
 impl TryFrom<InstanceIbInterfaceStatus> for rpc::InstanceIbInterfaceStatus {
