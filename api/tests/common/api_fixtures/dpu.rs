@@ -311,7 +311,7 @@ pub fn create_dpu_hardware_info(host_config: &ManagedHostConfig) -> HardwareInfo
     info.dmi_data.as_mut().unwrap().product_serial =
         format!("DPU_{}", host_config.dpu_oob_mac_address);
     // TODO: Patch in the correct DPU mac addresses
-
+    info.dpu_info.as_mut().unwrap().firmware_version = "1.2.3".to_owned();
     assert!(info.is_dpu());
     info
 }

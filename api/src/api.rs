@@ -64,6 +64,7 @@ use crate::ib::IBFabricManager;
 use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
+use crate::machine_update_manager::MachineUpdateManager;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
@@ -4255,6 +4256,10 @@ where
                 .ipmi_tool(ipmi_tool.clone())
                 .build()
                 .expect("Unable to build BmcMachineController");
+
+        let machine_update_manager =
+            MachineUpdateManager::new(database_connection.clone(), carbide_config.clone());
+        let _machine_update_manager_handler = machine_update_manager.start();
 
         let listen_addr = carbide_config.listen;
         api_handler(api_service, listen_addr, meter).await

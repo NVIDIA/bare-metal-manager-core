@@ -18,6 +18,7 @@ pub mod dhcp_record;
 pub mod domain;
 pub mod dpu_agent_upgrade_policy;
 pub mod dpu_machine;
+pub mod dpu_machine_update;
 pub mod host_machine;
 pub mod ib_subnet;
 pub mod instance;
