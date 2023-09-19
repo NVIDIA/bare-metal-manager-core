@@ -533,8 +533,8 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-
-    let dpu_machine_id = dpu::create_dpu_machine(&env).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
 
     let request = InstanceAllocationRequest {
         machine_id: try_parse_machine_id(&dpu_machine_id).unwrap(),

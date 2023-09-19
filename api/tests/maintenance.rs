@@ -10,15 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::model::machine::machine_id::try_parse_machine_id;
 use rpc::forge as rpcf;
 use rpc::forge::forge_server::Forge;
 
 mod common;
-use common::api_fixtures::{
-    create_test_env, dpu::create_dpu_machine, host::create_host_machine,
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
-};
+use common::api_fixtures::{create_test_env, network_segment::FIXTURE_NETWORK_SEGMENT_ID};
+
+use crate::common::api_fixtures::create_managed_host;
 
 #[ctor::ctor]
 fn setup() {
@@ -30,14 +28,14 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
 
     // Create a machine
-    let dpu_rpc_id = create_dpu_machine(&env).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_id)?;
-    let host_id = create_host_machine(&env, &dpu_machine_id).await;
+    let (host_id, dpu_machine_id) = create_managed_host(&env).await;
+    let rpc_host_id: rpc::MachineId = host_id.to_string().into();
+    let rpc_dpu_machine_id = dpu_machine_id.to_string().into();
 
     // enable maintenance mode
     let req = rpcf::MaintenanceRequest {
         operation: rpcf::MaintenanceOperation::Enable.into(),
-        host_id: Some(host_id.clone()),
+        host_id: Some(rpc_host_id.clone()),
         reference: Some("https://jira.example.com/ABC-123".to_string()),
     };
     env.api
@@ -60,7 +58,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }],
     };
     let req = rpcf::InstanceAllocationRequest {
-        machine_id: Some(host_id.clone()),
+        machine_id: Some(rpc_host_id.clone()),
         config: Some(rpcf::InstanceConfig {
             tenant: Some(tenant.clone()),
             network: Some(network.clone()),
@@ -96,10 +94,10 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await?;
     let machines = machines.into_inner().machines;
     assert_eq!(machines.len(), 2); // Host and DPU
-    let has_host = *machines[0].id.as_ref().unwrap() == host_id
-        || *machines[1].id.as_ref().unwrap() == host_id;
-    let has_dpu = *machines[0].id.as_ref().unwrap() == dpu_rpc_id
-        || *machines[1].id.as_ref().unwrap() == dpu_rpc_id;
+    let has_host = *machines[0].id.as_ref().unwrap() == rpc_host_id
+        || *machines[1].id.as_ref().unwrap() == rpc_host_id;
+    let has_dpu = *machines[0].id.as_ref().unwrap() == rpc_dpu_machine_id
+        || *machines[1].id.as_ref().unwrap() == rpc_dpu_machine_id;
     if !has_host || !has_dpu {
         panic!("Listing maintenance machines return incorrectly machines. {machines:?}");
     }
@@ -107,7 +105,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // disable maintenance
     let req = tonic::Request::new(rpcf::MaintenanceRequest {
         operation: rpcf::MaintenanceOperation::Disable.into(),
-        host_id: Some(host_id.clone()),
+        host_id: Some(rpc_host_id.clone()),
         reference: None,
     });
     env.api.set_maintenance(req).await.unwrap();
@@ -131,7 +129,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // allocate: should succeed
     let req = rpcf::InstanceAllocationRequest {
-        machine_id: Some(host_id),
+        machine_id: Some(rpc_host_id.clone()),
         config: Some(rpcf::InstanceConfig {
             tenant: Some(tenant.clone()),
             network: Some(network.clone()),

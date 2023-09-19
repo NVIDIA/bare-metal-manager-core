@@ -10,13 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-//! Contains common functionality between integration tests
+use carbide::model::hardware_info::TpmEkCertificate;
+use mac_address::MacAddress;
 
-#![allow(dead_code)] // Not all tests use all tools
+/// Describes the a Managed Host
+#[derive(Debug, Clone)]
+pub struct ManagedHostConfig {
+    pub dpu_oob_mac_address: MacAddress,
+    pub dpu_bmc_mac_address: MacAddress,
+    pub host_mac_address: MacAddress,
+    pub host_bmc_mac_address: MacAddress,
+    pub host_tpm_ek_cert: TpmEkCertificate,
+}
 
-pub mod api_fixtures;
-pub mod mac_address_pool;
-pub mod network_segment;
-pub mod test_certificates;
-pub mod test_credentials;
-pub mod test_logging;
+#[derive(Debug)]
+pub struct ManagedHostSim {
+    pub config: ManagedHostConfig,
+}

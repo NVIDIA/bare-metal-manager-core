@@ -81,28 +81,17 @@ impl StateHandler for TestMachineStateHandler {
 ))]
 async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool.clone()).await;
+    let hosts: Vec<_> = [0..4]
+        .iter()
+        .map(|_| env.start_managed_host_sim())
+        .collect();
 
-    // Insert some machines
-    let dpu_macs = &[
-        "11:22:33:44:55:01",
-        "11:22:33:44:55:02",
-        "11:22:33:44:55:03",
-        "11:22:33:44:55:04",
-    ];
-
-    let host_macs = &[
-        "21:22:33:44:55:01",
-        "21:22:33:44:55:02",
-        "21:22:33:44:55:03",
-        "21:22:33:44:55:04",
-    ];
     let mut machine_ids = Vec::new();
-    for (idx, mac) in dpu_macs.iter().enumerate() {
-        let interface_id = dpu_discover_dhcp(&env, mac).await;
+    for host_sim in hosts.iter() {
+        let interface_id =
+            dpu_discover_dhcp(&env, &host_sim.config.dpu_oob_mac_address.to_string()).await;
 
-        let mut hardware_info = create_dpu_hardware_info();
-        hardware_info.dmi_data.as_mut().unwrap().product_serial = format!("DPU_{}", mac);
-        hardware_info.dpu_info.as_mut().unwrap().factory_mac_address = host_macs[idx].to_string();
+        let hardware_info = create_dpu_hardware_info(&host_sim.config);
         let _response = env
             .api
             .discover_machine(Request::new(MachineDiscoveryInfo {
@@ -123,7 +112,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     const ITERATION_TIME: Duration = Duration::from_millis(100);
     const TEST_TIME: Duration = Duration::from_secs(10);
     let expected_iterations = (TEST_TIME.as_millis() / ITERATION_TIME.as_millis()) as f64;
-    let expected_total_count = expected_iterations * dpu_macs.len() as f64;
+    let expected_total_count = expected_iterations * hosts.len() as f64;
 
     let test_api = Arc::new(env.api);
     // We build multiple state controllers. But since only one should act at a time,

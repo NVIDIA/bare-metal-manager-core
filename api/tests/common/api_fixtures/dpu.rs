@@ -38,18 +38,11 @@ use rpc::{
 };
 use tonic::Request;
 
-use super::{TestEnv, FIXTURE_DHCP_RELAY_ADDRESS};
-use crate::common::api_fixtures::{discovery_completed, network_configured, update_bmc_metadata};
+use crate::common::api_fixtures::{
+    discovery_completed, managed_host::ManagedHostConfig, network_configured, update_bmc_metadata,
+    TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
+};
 
-/// MAC address that is used by the DPU that is created by the fixture
-pub const FIXTURE_DPU_MAC_ADDRESS: &str = "01:11:21:31:41:51";
-
-/// IP Address that is used for the DPU BMC
-/// TODO: There exists no equivalent MachineInterfaceAddress entry for this one,
-/// and it supports only a single DPU Machine
-/// We might need a more extensive BMC simulation for this
-pub const FIXTURE_DPU_BMC_IP_ADDRESS: &str = "233.233.233.2";
-pub const FIXTURE_DPU_BMC_MAC_ADDRESS: &str = "11:22:33:44:55:66";
 pub const FIXTURE_DPU_BMC_VENDOR_STRING: &str = "NVIDIA/BF/BMC";
 pub const FIXTURE_DPU_BMC_VERSION: &str = "2.1";
 pub const FIXTURE_DPU_BMC_FIRMWARE_VERSION: &str = "3.2";
@@ -65,11 +58,11 @@ pub const FIXTURE_DPU_HBN_PASSWORD: &str = "a9123";
 /// Creates a Machine Interface and Machine for a DPU
 ///
 /// Returns the ID of the created machine
-pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
+pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) -> rpc::MachineId {
     let handler = MachineStateHandler::default();
 
     let (dpu_machine_id, host_machine_id) =
-        create_dpu_machine_in_waiting_for_network_install(env).await;
+        create_dpu_machine_in_waiting_for_network_install(env, host_config).await;
     let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
     let mut txn = env.pool.begin().await.unwrap();
 
@@ -111,24 +104,27 @@ pub async fn create_dpu_machine(env: &TestEnv) -> rpc::MachineId {
     .await;
     txn.commit().await.unwrap();
 
-    // There should be three MI, one for DPU, one for the DPU BMC, and one for host.
-    let mut txn = env.pool.begin().await.unwrap();
-    let query = "select * from machine_interfaces";
-    let mi = sqlx::query_as::<_, MachineInterface>(query)
-        .fetch_all(&mut *txn)
-        .await
-        .unwrap();
-    assert_eq!(mi.len(), 3);
-    txn.commit().await.unwrap();
     dpu_rpc_machine_id
 }
 
 pub async fn create_dpu_machine_in_waiting_for_network_install(
     env: &TestEnv,
+    host_config: &ManagedHostConfig,
 ) -> (MachineId, MachineId) {
-    let _bmc_machine_interface_id = dpu_bmc_discover_dhcp(env, FIXTURE_DPU_BMC_MAC_ADDRESS).await;
-    let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
-    let dpu_rpc_machine_id = dpu_discover_machine(env, machine_interface_id).await;
+    let bmc_machine_interface_id =
+        dpu_bmc_discover_dhcp(env, &host_config.dpu_bmc_mac_address.to_string()).await;
+    // Let's find the IP that we assign to the BMC
+    let mut txn = env.pool.begin().await.unwrap();
+    let bmc_interface =
+        MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
+            .await
+            .unwrap();
+    let dpu_bmc_ip = bmc_interface.addresses()[0].address;
+    txn.rollback().await.unwrap();
+
+    let machine_interface_id =
+        dpu_discover_dhcp(env, &host_config.dpu_oob_mac_address.to_string()).await;
+    let dpu_rpc_machine_id = dpu_discover_machine(env, host_config, machine_interface_id).await;
     let handler = MachineStateHandler::default();
 
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
@@ -151,12 +147,13 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
 
     // TODO: This it not really happening in the current version of forge-scout.
     // But it's in the test setup to verify reading back submitted credentials
+    // TODO: This IP is allocated by carbide. We need to use the right one
     update_bmc_metadata(
         env,
         dpu_rpc_machine_id.clone(),
-        FIXTURE_DPU_BMC_IP_ADDRESS,
+        &dpu_bmc_ip.to_string(),
         FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
-        FIXTURE_DPU_BMC_MAC_ADDRESS.to_string(),
+        host_config.dpu_bmc_mac_address.to_string(),
         FIXTURE_DPU_BMC_VERSION.to_owned(),
         FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_owned(),
     )
@@ -235,11 +232,11 @@ pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
 /// Uses the `discover_dhcp` API to discover a DPU BMC
 ///
 /// Returns the created `machine_interface_id`
-pub async fn dpu_discover_bmc_dhcp(env: &TestEnv) -> rpc::Uuid {
+pub async fn dpu_discover_bmc_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
     let response = env
         .api
         .discover_dhcp(Request::new(DhcpDiscovery {
-            mac_address: FIXTURE_DPU_BMC_MAC_ADDRESS.to_string(),
+            mac_address: mac_address.to_string(),
             relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             vendor_string: Some(FIXTURE_DPU_BMC_VENDOR_STRING.to_string()),
             link_address: None,
@@ -258,6 +255,7 @@ pub async fn dpu_discover_bmc_dhcp(env: &TestEnv) -> rpc::Uuid {
 /// DPU that uses a certain `machine_interface_id`
 pub async fn dpu_discover_machine(
     env: &TestEnv,
+    host_config: &ManagedHostConfig,
     machine_interface_id: rpc::Uuid,
 ) -> rpc::MachineId {
     let response = env
@@ -265,7 +263,7 @@ pub async fn dpu_discover_machine(
         .discover_machine(Request::new(MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(DiscoveryData::Info(
-                DiscoveryInfo::try_from(create_dpu_hardware_info()).unwrap(),
+                DiscoveryInfo::try_from(create_dpu_hardware_info(host_config)).unwrap(),
             )),
         }))
         .await
@@ -305,10 +303,15 @@ const TEST_DATA_DIR: &str = concat!(
 );
 
 /// Creates a `HardwareInfo` object which represents a DPU
-pub fn create_dpu_hardware_info() -> HardwareInfo {
+pub fn create_dpu_hardware_info(host_config: &ManagedHostConfig) -> HardwareInfo {
     let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
     let data = std::fs::read(path).unwrap();
-    let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+    let mut info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+    info.dpu_info.as_mut().unwrap().factory_mac_address = host_config.host_mac_address.to_string();
+    info.dmi_data.as_mut().unwrap().product_serial =
+        format!("DPU_{}", host_config.dpu_oob_mac_address);
+    // TODO: Patch in the correct DPU mac addresses
+
     assert!(info.is_dpu());
     info
 }
@@ -330,11 +333,23 @@ pub async fn loopback_ip(
 /// Returns the ID of the created machine
 pub async fn create_dpu_machine_with_discovery_error(
     env: &TestEnv,
+    host_config: &ManagedHostConfig,
     discovery_error: Option<String>,
 ) -> rpc::MachineId {
-    let _bmc_machine_interface_id = dpu_bmc_discover_dhcp(env, FIXTURE_DPU_BMC_MAC_ADDRESS).await;
-    let machine_interface_id = dpu_discover_dhcp(env, FIXTURE_DPU_MAC_ADDRESS).await;
-    let dpu_machine_id = dpu_discover_machine(env, machine_interface_id).await;
+    let bmc_machine_interface_id =
+        dpu_bmc_discover_dhcp(env, &host_config.dpu_bmc_mac_address.to_string()).await;
+    // Let's find the IP that we assign to the BMC
+    let mut txn = env.pool.begin().await.unwrap();
+    let bmc_interface =
+        MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
+            .await
+            .unwrap();
+    let dpu_bmc_ip = bmc_interface.addresses()[0].address;
+    txn.rollback().await.unwrap();
+
+    let machine_interface_id =
+        dpu_discover_dhcp(env, &host_config.dpu_oob_mac_address.to_string()).await;
+    let dpu_machine_id = dpu_discover_machine(env, host_config, machine_interface_id).await;
     let handler = MachineStateHandler::default();
 
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
@@ -358,12 +373,13 @@ pub async fn create_dpu_machine_with_discovery_error(
 
     // TODO: This it not really happening in the current version of forge-scout.
     // But it's in the test setup to verify reading back submitted credentials
+    // TODO: This IP is allocated by carbide. We need to use the right one
     update_bmc_metadata(
         env,
         dpu_rpc_machine_id.clone(),
-        FIXTURE_DPU_BMC_IP_ADDRESS,
+        &dpu_bmc_ip.to_string(),
         FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
-        FIXTURE_DPU_BMC_MAC_ADDRESS.to_string(),
+        host_config.dpu_bmc_mac_address.to_string(),
         FIXTURE_DPU_BMC_VERSION.to_owned(),
         FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_owned(),
     )

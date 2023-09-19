@@ -25,7 +25,7 @@ use sqlx::{Connection, Postgres};
 
 pub mod common;
 use common::api_fixtures::{
-    dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    create_test_env, dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
     FIXTURE_DHCP_RELAY_ADDRESS,
 };
 
@@ -57,6 +57,10 @@ async fn get_fixture_network_segment(
 async fn only_one_primary_interface_per_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let other_host_sim = env.start_managed_host_sim();
+
     let mut txn = pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
@@ -64,7 +68,7 @@ async fn only_one_primary_interface_per_machine(
     let new_interface = MachineInterface::create(
         &mut txn,
         &network_segment,
-        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
+        &host_sim.config.dpu_oob_mac_address,
         None,
         "peppersmacker2".to_string(),
         true,
@@ -72,7 +76,8 @@ async fn only_one_primary_interface_per_machine(
     )
     .await?;
 
-    let machine_id = MachineId::from_hardware_info(&create_dpu_hardware_info()).unwrap();
+    let machine_id =
+        MachineId::from_hardware_info(&create_dpu_hardware_info(&host_sim.config)).unwrap();
     let (new_machine, _is_new) = Machine::get_or_create(&mut txn, &machine_id, &new_interface)
         .await
         .expect("Unable to create machine");
@@ -84,7 +89,7 @@ async fn only_one_primary_interface_per_machine(
     let should_failed_machine_interface = MachineInterface::create(
         &mut txn,
         &network_segment,
-        MacAddress::from_str("ff:ff:ff:ff:ff:ef").as_ref().unwrap(),
+        &other_host_sim.config.dpu_oob_mac_address,
         None,
         "peppersmacker2".to_string(),
         true,

@@ -26,7 +26,7 @@ use sqlx::Executor;
 use std::str::FromStr;
 
 use crate::common::api_fixtures::{
-    dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    create_test_env, dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
 const FIXTURE_CREATED_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
@@ -70,8 +70,18 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
     .await
     .unwrap();
 
-    let hardware_info = create_dpu_hardware_info();
+    txn.commit().await.unwrap();
+
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+
+    let hardware_info = create_dpu_hardware_info(&host_sim.config);
     let stable_machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
+
+    let mut txn = pool
+        .begin()
+        .await
+        .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
     let (machine, _is_new) = Machine::get_or_create(&mut txn, &stable_machine_id, &iface)
         .await
         .unwrap();

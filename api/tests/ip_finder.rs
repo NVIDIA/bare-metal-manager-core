@@ -33,6 +33,12 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .remove(0);
+
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -78,7 +84,15 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         "test_machine_address",
     )
     .await;
-    test_inner("233.233.233.2", IpType::BmcIp, &env, "test_bmc_ip").await;
+
+    test_inner(
+        host_machine.bmc_info.as_ref().unwrap().ip(),
+        IpType::BmcIp,
+        &env,
+        "test_bmc_ip",
+    )
+    .await;
+
     test_inner(
         "192.0.3.1",
         IpType::NetworkSegment,

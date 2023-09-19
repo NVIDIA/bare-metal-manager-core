@@ -397,7 +397,8 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let dpu_machine_id = create_dpu_machine(&env).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id = create_dpu_machine(&env, &host_sim.config).await;
 
     assert!(env
         .api

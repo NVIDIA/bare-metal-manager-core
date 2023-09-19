@@ -13,6 +13,7 @@
 //! Contains host related fixtures
 
 use carbide::{
+    db::machine_interface::MachineInterface,
     model::{
         hardware_info::HardwareInfo,
         machine::{
@@ -28,31 +29,56 @@ use rpc::{
 };
 use tonic::Request;
 
-use super::TestEnv;
-use crate::common::api_fixtures::{discovery_completed, forge_agent_control, update_bmc_metadata};
+use crate::common::api_fixtures::{
+    discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
+    TestEnv,
+};
+
+use super::FIXTURE_DHCP_RELAY_ADDRESS;
 
 const TEST_DATA_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/src/model/hardware_info/test_data"
 );
 
-/// MAC address that is used by the Host that is created by the fixture
-pub const FIXTURE_HOST_MAC_ADDRESS: &str = "03:11:21:31:41:52";
-
-pub const FIXTURE_HOST_BMC_IP_ADDRESS: &str = "233.233.233.3";
-pub const FIXTURE_HOST_BMC_MAC_ADDRESS: &str = "11:22:33:44:55:67";
 pub const FIXTURE_HOST_BMC_VERSION: &str = "4.3";
 pub const FIXTURE_HOST_BMC_FIRMWARE_VERSION: &str = "5.4";
 
 pub const FIXTURE_HOST_BMC_ADMIN_USER_NAME: &str = "forge_admin_host";
 
 /// Creates a `HardwareInfo` object which represents a Host
-pub fn create_host_hardware_info() -> HardwareInfo {
+pub fn create_host_hardware_info(host_config: &ManagedHostConfig) -> HardwareInfo {
     let path = format!("{}/x86_info.json", TEST_DATA_DIR);
     let data = std::fs::read(path).unwrap();
-    let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+    let mut info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+    info.tpm_ek_certificate = Some(host_config.host_tpm_ek_cert.clone());
+    info.dmi_data.as_mut().unwrap().product_serial =
+        format!("Host_{}", host_config.host_mac_address);
+    // TODO: Patch hardware info with correct MAC addresses
     assert!(!info.is_dpu());
     info
+}
+
+/// Uses the `discover_dhcp` API to discover a Host BMC with a certain MAC address
+///
+/// Returns the created `machine_interface_id`
+pub async fn host_bmc_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
+    let response = env
+        .api
+        .discover_dhcp(Request::new(DhcpDiscovery {
+            mac_address: mac_address.to_string(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
+            vendor_string: None,
+            link_address: None,
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    response
+        .machine_interface_id
+        .expect("machine_interface_id must be set")
 }
 
 /// Uses the `discover_dhcp` API to discover a Host with a certain MAC address
@@ -60,7 +86,7 @@ pub fn create_host_hardware_info() -> HardwareInfo {
 /// Returns the created `machine_interface_id`
 pub async fn host_discover_dhcp(
     env: &TestEnv,
-    mac_address: &str,
+    host_config: &ManagedHostConfig,
     dpu_machine_id: &MachineId,
 ) -> rpc::Uuid {
     let mut txn = env.pool.begin().await.unwrap();
@@ -68,7 +94,7 @@ pub async fn host_discover_dhcp(
     let response = env
         .api
         .discover_dhcp(Request::new(DhcpDiscovery {
-            mac_address: mac_address.to_string(),
+            mac_address: host_config.host_mac_address.to_string(),
             relay_address: loopback_ip.to_string(),
             vendor_string: None,
             link_address: None,
@@ -87,6 +113,7 @@ pub async fn host_discover_dhcp(
 /// Host that uses a certain `machine_interface_id`
 pub async fn host_discover_machine(
     env: &TestEnv,
+    host_config: &ManagedHostConfig,
     machine_interface_id: rpc::Uuid,
 ) -> rpc::MachineId {
     let response = env
@@ -94,7 +121,7 @@ pub async fn host_discover_machine(
         .discover_machine(Request::new(MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(DiscoveryData::Info(
-                DiscoveryInfo::try_from(create_host_hardware_info()).unwrap(),
+                DiscoveryInfo::try_from(create_host_hardware_info(host_config)).unwrap(),
             )),
         }))
         .await
@@ -107,14 +134,27 @@ pub async fn host_discover_machine(
 /// Creates a Machine Interface and Machine for a Host
 ///
 /// Returns the ID of the created machine
-pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> rpc::MachineId {
+pub async fn create_host_machine(
+    env: &TestEnv,
+    host_config: &ManagedHostConfig,
+    dpu_machine_id: &MachineId,
+) -> rpc::MachineId {
     use carbide::model::machine::{LockdownInfo, LockdownMode, LockdownState, MachineState};
+    let bmc_machine_interface_id =
+        host_bmc_discover_dhcp(env, &host_config.host_bmc_mac_address.to_string()).await;
+    // Let's find the IP that we assign to the BMC
+    let mut txn = env.pool.begin().await.unwrap();
+    let bmc_interface =
+        MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
+            .await
+            .unwrap();
+    let host_bmc_ip = bmc_interface.addresses()[0].address;
+    txn.rollback().await.unwrap();
 
-    let machine_interface_id =
-        host_discover_dhcp(env, FIXTURE_HOST_MAC_ADDRESS, dpu_machine_id).await;
+    let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
 
     let handler = MachineStateHandler::default();
-    let host_machine_id = host_discover_machine(env, machine_interface_id).await;
+    let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
 
@@ -137,9 +177,9 @@ pub async fn create_host_machine(env: &TestEnv, dpu_machine_id: &MachineId) -> r
     update_bmc_metadata(
         env,
         host_rpc_machine_id.clone(),
-        FIXTURE_HOST_BMC_IP_ADDRESS,
+        &host_bmc_ip.to_string(),
         FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
-        FIXTURE_HOST_BMC_MAC_ADDRESS.to_string(),
+        host_config.host_bmc_mac_address.to_string(),
         FIXTURE_HOST_BMC_VERSION.to_owned(),
         FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
     )

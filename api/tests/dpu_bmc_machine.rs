@@ -19,10 +19,7 @@ use carbide::{
 };
 
 pub mod common;
-use common::api_fixtures::{
-    create_test_env,
-    dpu::{dpu_bmc_discover_dhcp, FIXTURE_DPU_BMC_MAC_ADDRESS},
-};
+use common::api_fixtures::{create_test_env, dpu::dpu_bmc_discover_dhcp};
 
 #[ctor::ctor]
 fn setup() {
@@ -34,7 +31,9 @@ async fn dpu_bmc_machine_discovery_creates_bmc_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let dpu_bmc_machine_interface = dpu_bmc_discover_dhcp(&env, FIXTURE_DPU_BMC_MAC_ADDRESS).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_bmc_machine_interface =
+        dpu_bmc_discover_dhcp(&env, &host_sim.config.dpu_bmc_mac_address.to_string()).await;
     let dpu_bmc_machine_interface = uuid::Uuid::try_from(dpu_bmc_machine_interface).unwrap();
 
     let mut txn = pool.begin().await?;

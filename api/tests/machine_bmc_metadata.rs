@@ -36,7 +36,8 @@ async fn machine_bmc_credential_update(pool: PgPool) {
     let env = create_test_env(pool.clone()).await;
     // TODO: This probably should test with a host machine instead of a DPU,
     // since for DPUs we don't really store BMC credentials
-    let dpu_rpc_machine_id = create_dpu_machine(&env).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
     let mut txn = pool.begin().await.unwrap();

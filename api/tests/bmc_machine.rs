@@ -17,7 +17,9 @@ use common::api_fixtures::{create_test_env, dpu::dpu_discover_bmc_dhcp};
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn create_bmc_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let machine_interface_id = dpu_discover_bmc_dhcp(&env).await;
+    let host_sim = env.start_managed_host_sim();
+    let machine_interface_id =
+        dpu_discover_bmc_dhcp(&env, &host_sim.config.dpu_bmc_mac_address.to_string()).await;
     let mut txn = pool
         .begin()
         .await

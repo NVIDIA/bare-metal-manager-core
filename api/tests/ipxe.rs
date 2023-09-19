@@ -12,7 +12,7 @@ use common::api_fixtures::{
     instance::create_instance, network_segment::FIXTURE_NETWORK_SEGMENT_ID, TestEnv,
 };
 
-use crate::common::api_fixtures::dpu::FIXTURE_DPU_MAC_ADDRESS;
+use crate::common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 
 #[ctor::ctor]
 fn setup() {
@@ -88,9 +88,13 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-
+    let host_sim = env.start_managed_host_sim();
     let (dpu_machine_id, _) =
-        common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install(&env).await;
+        common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install(
+            &env,
+            &host_sim.config,
+        )
+        .await;
 
     let mut txn = pool.begin().await.unwrap();
 
@@ -126,7 +130,7 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
 
     let dpu_interface_id = common::api_fixtures::dpu::dpu_discover_dhcp(
         &env,
-        common::api_fixtures::dpu::FIXTURE_DPU_MAC_ADDRESS,
+        &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string(),
     )
     .await;
 
@@ -317,20 +321,17 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
     .await;
 
     // Interface is created. Let's fetch interface id.
-    let mut txn = pool.begin().await.unwrap();
-    let interfaces = MachineInterface::find_by_mac_address(
-        &mut txn,
-        FIXTURE_DPU_MAC_ADDRESS.parse::<MacAddress>().unwrap(),
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(interfaces.len(), 1);
+    let machine = env
+        .find_machines(Some(dpu_id.to_string().into()), None, true)
+        .await
+        .machines
+        .remove(0);
+    assert_eq!(machine.interfaces.len(), 1);
 
     let cloud_init_cfg = env
         .api
         .get_cloud_init_instructions(tonic::Request::new(CloudInitInstructionsRequest {
-            ip: interfaces[0].addresses()[0].address.to_string(),
+            ip: machine.interfaces[0].address[0].clone(),
         }))
         .await
         .expect("get_cloud_init_instructions returned an error")
