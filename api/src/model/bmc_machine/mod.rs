@@ -21,8 +21,12 @@ pub enum BmcMachineType {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
+#[allow(clippy::enum_variant_names)]
 pub enum BmcMachineError {
+    /// An unrecoverable error has occurred during redfish client creation or max retries was exceeded.
     RedfishConnection { message: String },
+    ///  An unrecoverable error has occurred during redfish command execution or max retries was exceeded.
+    RedfishCommand { command: String, message: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -13,8 +13,6 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::time::Instant;
 
-use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
 use regex::Regex;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error};
@@ -25,12 +23,11 @@ use ::rpc::forge_tls_client::ForgeClientT;
 use forge_host_support::hardware_enumeration::{
     HardwareEnumerationError, HardwareEnumerationResult,
 };
+use forge_secrets::credentials::Credentials;
 
 use crate::CarbideClientError;
 use crate::CarbideClientResult;
 //use crate::IN_QEMU_VM;
-
-const PASSWORD_LEN: usize = 16;
 
 //TODO: Remove the leading underscores from the variants once they're actually being referenced.
 #[derive(Clone, Debug, Copy)]
@@ -272,38 +269,8 @@ fn create_ipmi_user(id: &str, user: &str, sys_vendor: &str) -> HardwareEnumerati
     Ok(())
 }
 
-fn generate_password() -> String {
-    const UPPERCHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const LOWERCHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
-    const NUMCHARS: &[u8] = b"0123456789";
-    const EXTRACHARS: &[u8] = b"^%$@!~_";
-    const CHARSET: [&[u8]; 4] = [UPPERCHARS, LOWERCHARS, NUMCHARS, EXTRACHARS];
-
-    let mut rng = rand::thread_rng();
-
-    let mut password: Vec<char> = (0..PASSWORD_LEN)
-        .map(|_| {
-            let chid = rng.gen_range(0..CHARSET.len());
-            let idx = rng.gen_range(0..CHARSET[chid].len());
-            CHARSET[chid][idx] as char
-        })
-        .collect();
-
-    // Enforce 1 Uppercase, 1 lowercase, 1 symbol and 1 numeric value rule.
-    let mut positions_to_overlap = (0..PASSWORD_LEN).collect::<Vec<_>>();
-    positions_to_overlap.shuffle(&mut thread_rng());
-    let positions_to_overlap = positions_to_overlap.into_iter().take(CHARSET.len());
-
-    for (index, pos) in positions_to_overlap.enumerate() {
-        let char_index = rng.gen_range(0..CHARSET[index].len());
-        password[pos] = CHARSET[index][char_index] as char;
-    }
-
-    password.into_iter().collect()
-}
-
 fn set_ipmi_password(id: &String, sys_vendor: &str) -> CarbideClientResult<String> {
-    let password = generate_password();
+    let password = Credentials::generate_password();
     tracing::info!("Updating password for id {}", id);
     match sys_vendor {
         "Lenovo" => {
@@ -624,7 +591,7 @@ mod tests {
         const EXTRACHARS: &[u8] = b"^%$@!~_";
         const CHARSET: [&[u8]; 4] = [UPPERCHARS, LOWERCHARS, NUMCHARS, EXTRACHARS];
         for _ in 0..500 {
-            let password = generate_password();
+            let password = Credentials::generate_password();
             for charset in CHARSET {
                 let mut found = false;
                 for ch in charset {
