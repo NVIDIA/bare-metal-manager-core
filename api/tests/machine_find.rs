@@ -22,9 +22,9 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 
 pub mod common;
-use common::api_fixtures::{
-    create_managed_host, create_test_env,
-    dpu::{create_dpu_machine, FIXTURE_DPU_MAC_ADDRESS},
+use common::{
+    api_fixtures::{create_managed_host, create_test_env, dpu::create_dpu_machine},
+    mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL,
 };
 
 #[ctor::ctor]
@@ -35,8 +35,9 @@ fn setup() {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-
-    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
 
     let machine = Machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
@@ -63,8 +64,10 @@ async fn test_find_machine_by_id(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -90,8 +93,10 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -112,10 +117,7 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
         .expect("expect DPU to be found");
     assert_eq!(*machine.id(), dpu_machine_id);
     assert_eq!(machine.interfaces()[0].mac_address, mac);
-    assert_eq!(
-        machine.interfaces()[0].mac_address.to_string(),
-        FIXTURE_DPU_MAC_ADDRESS
-    );
+    assert!(DPU_OOB_MAC_ADDRESS_POOL.contains(machine.interfaces()[0].mac_address));
 
     // We shouldn't find a machine that doesn't exist
     let mut mac2 = mac.bytes();
@@ -130,8 +132,10 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -164,8 +168,9 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-
-    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
     let mut txn = pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await

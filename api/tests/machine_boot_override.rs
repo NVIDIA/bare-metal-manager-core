@@ -17,7 +17,7 @@ use carbide::CarbideError;
 pub mod common;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::dpu::dpu_discover_dhcp;
-use common::api_fixtures::dpu::FIXTURE_DPU_MAC_ADDRESS;
+use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use rpc::protos::forge::forge_server::Forge;
 use uuid::Uuid;
 
@@ -31,8 +31,10 @@ async fn only_one_custom_pxe_per_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let new_interface_id =
-        Uuid::try_from(dpu_discover_dhcp(&env, FIXTURE_DPU_MAC_ADDRESS).await).unwrap();
+    let new_interface_id = Uuid::try_from(
+        dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
+    )
+    .unwrap();
 
     let mut txn = pool.begin().await?;
 
@@ -77,8 +79,10 @@ async fn only_one_custom_pxe_per_interface(
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn confirm_null_fields(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let new_interface_id =
-        Uuid::try_from(dpu_discover_dhcp(&env, FIXTURE_DPU_MAC_ADDRESS).await).unwrap();
+    let new_interface_id = Uuid::try_from(
+        dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
+    )
+    .unwrap();
 
     let mut txn = pool.begin().await?;
 
@@ -105,8 +109,10 @@ async fn api_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let expected_user_data = Some("custom user data".to_owned());
 
     let env = create_test_env(pool.clone()).await;
-    let new_interface_id =
-        Uuid::try_from(dpu_discover_dhcp(&env, FIXTURE_DPU_MAC_ADDRESS).await).unwrap();
+    let new_interface_id = Uuid::try_from(
+        dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
+    )
+    .unwrap();
 
     let mut txn = pool.begin().await?;
 
@@ -148,8 +154,10 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let expected_user_data = Some("custom user data".to_owned());
 
     let env = create_test_env(pool.clone()).await;
-    let machine_interface_id =
-        Uuid::try_from(dpu_discover_dhcp(&env, FIXTURE_DPU_MAC_ADDRESS).await).unwrap();
+    let machine_interface_id = Uuid::try_from(
+        dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
+    )
+    .unwrap();
 
     let req = tonic::Request::new(rpc::forge::MachineBootOverride {
         machine_interface_id: Some(rpc::forge::Uuid {
@@ -183,8 +191,10 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
     let expected_user_data = Some("custom user data".to_owned());
 
     let env = create_test_env(pool.clone()).await;
-    let new_interface_id =
-        Uuid::try_from(dpu_discover_dhcp(&env, FIXTURE_DPU_MAC_ADDRESS).await).unwrap();
+    let new_interface_id = Uuid::try_from(
+        dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
+    )
+    .unwrap();
 
     let mut txn = pool.begin().await?;
 

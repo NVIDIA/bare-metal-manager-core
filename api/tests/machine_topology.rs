@@ -16,7 +16,6 @@ use carbide::{
     },
     model::{hardware_info::HardwareInfo, machine::machine_id::MachineId},
 };
-use mac_address::MacAddress;
 
 pub mod common;
 use common::api_fixtures::{
@@ -36,6 +35,8 @@ const FIXTURE_CREATED_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9
 async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     // We can't use the fixture created Machine here, since it already has a topology attached
     // therefore we create a new one
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
 
     let mut txn = pool.begin().await?;
 
@@ -51,7 +52,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let iface = MachineInterface::create(
         &mut txn,
         &segment,
-        &MacAddress::new([0xa, 0xb, 0xc, 0xd, 0xe, 0xf]),
+        &host_sim.config.host_mac_address,
         Some(FIXTURE_CREATED_DOMAIN_ID),
         "myhost".to_string(),
         true,
@@ -59,7 +60,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await
     .unwrap();
-    let hardware_info = create_host_hardware_info();
+    let hardware_info = create_host_hardware_info(&host_sim.config);
     let machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
     let (machine, _is_new) = Machine::get_or_create(&mut txn, &machine_id, &iface)
         .await
@@ -157,7 +158,8 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_topology_missing_mac_field(pool: PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let rpc_machine_id = create_dpu_machine(&env).await;
+    let host_sim = env.start_managed_host_sim();
+    let rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
 
     let mut txn = pool.begin().await.unwrap();
 

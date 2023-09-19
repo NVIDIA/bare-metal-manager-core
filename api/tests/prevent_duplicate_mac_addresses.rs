@@ -21,6 +21,8 @@ use common::api_fixtures::{
     dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
+use crate::common::api_fixtures::create_test_env;
+
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
@@ -30,6 +32,9 @@ fn setup() {
 async fn prevent_duplicate_mac_addresses(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+
     let mut txn = pool.begin().await?;
 
     let network_segment = NetworkSegment::find(
@@ -41,12 +46,10 @@ async fn prevent_duplicate_mac_addresses(
     .pop()
     .unwrap();
 
-    let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
-
     let new_interface = MachineInterface::create(
         &mut txn,
         &network_segment,
-        &test_mac,
+        &host_sim.config.dpu_oob_mac_address,
         None,
         "foobar".to_string(),
         true,
@@ -54,13 +57,14 @@ async fn prevent_duplicate_mac_addresses(
     )
     .await?;
 
-    let machine_id = MachineId::from_hardware_info(&create_dpu_hardware_info()).unwrap();
+    let machine_id =
+        MachineId::from_hardware_info(&create_dpu_hardware_info(&host_sim.config)).unwrap();
     let (_new_machine, _) = Machine::get_or_create(&mut txn, &machine_id, &new_interface).await?;
 
     let duplicate_interface = MachineInterface::create(
         &mut txn,
         &network_segment,
-        &test_mac,
+        &host_sim.config.dpu_oob_mac_address,
         None,
         "foobar".to_string(),
         true,

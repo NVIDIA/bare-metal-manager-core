@@ -28,11 +28,12 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
-    let test = api_fixtures::create_test_env(pool.clone()).await;
-    let dpu_machine_id = dpu::create_dpu_machine(&test).await;
+    let env = api_fixtures::create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
 
     // Fetch a Machines network config
-    let response = test
+    let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
             dpu_machine_id: Some(dpu_machine_id),

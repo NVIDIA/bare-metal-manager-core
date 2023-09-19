@@ -22,9 +22,7 @@ use carbide::{
 
 pub mod common;
 use common::api_fixtures::{
-    create_managed_host, create_test_env,
-    dpu::{create_dpu_machine, FIXTURE_DPU_BMC_IP_ADDRESS},
-    host::{host_discover_dhcp, FIXTURE_HOST_BMC_IP_ADDRESS, FIXTURE_HOST_MAC_ADDRESS},
+    create_managed_host, create_test_env, dpu::create_dpu_machine, host::host_discover_dhcp,
     TestEnv,
 };
 
@@ -36,8 +34,9 @@ fn setup() {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-
-    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
     let mut txn = pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -121,9 +120,11 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let dpu_machine_id = try_parse_machine_id(&create_dpu_machine(&env).await).unwrap();
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
     let host_machine_interface_id =
-        host_discover_dhcp(&env, FIXTURE_HOST_MAC_ADDRESS, &dpu_machine_id.clone()).await;
+        host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id.clone()).await;
 
     // The MachineInterface for the host should now exist and be linked to the DPU
     let mut ifaces = env
@@ -193,10 +194,10 @@ fn validate_delete_response(
         response.managed_host_machine_id,
         host_machine_id.map(|id| id.to_string()).unwrap_or_default()
     );
-    assert_eq!(response.dpu_bmc_ip, FIXTURE_DPU_BMC_IP_ADDRESS);
+    assert!(!response.dpu_bmc_ip.is_empty());
     if let Some(host_machine_id) = host_machine_id {
         if host_machine_id.machine_type() == MachineType::Host {
-            assert_eq!(response.managed_host_bmc_ip, FIXTURE_HOST_BMC_IP_ADDRESS);
+            assert!(!response.managed_host_bmc_ip.is_empty());
         }
     } else {
         assert!(response.managed_host_bmc_ip.is_empty());

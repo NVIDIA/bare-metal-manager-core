@@ -23,9 +23,9 @@ use mac_address::MacAddress;
 
 mod common;
 use common::api_fixtures::{
-    create_test_env,
+    create_managed_host, create_test_env,
     dpu::create_dpu_machine,
-    host::{create_host_hardware_info, host_discover_dhcp, FIXTURE_HOST_MAC_ADDRESS},
+    host::{create_host_hardware_info, host_discover_dhcp},
     FIXTURE_DHCP_RELAY_ADDRESS,
 };
 use rpc::forge::forge_server::Forge;
@@ -110,13 +110,14 @@ async fn test_reject_host_machine_with_disabled_tpm(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let dpu_machine_id = create_dpu_machine(&env).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
     let host_machine_interface_id =
-        host_discover_dhcp(&env, FIXTURE_HOST_MAC_ADDRESS, &dpu_machine_id).await;
+        host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
 
-    let mut hardware_info = create_host_hardware_info();
+    let mut hardware_info = create_host_hardware_info(&host_sim.config);
     hardware_info.tpm_ek_certificate = None;
 
     let response = env
@@ -146,8 +147,13 @@ async fn test_discovery_complete_with_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env: common::api_fixtures::TestEnv = create_test_env(pool.clone()).await;
-    let dpu_rpc_machine_id =
-        create_dpu_machine_with_discovery_error(&env, Some("Test Error".to_owned())).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_rpc_machine_id = create_dpu_machine_with_discovery_error(
+        &env,
+        &host_sim.config,
+        Some("Test Error".to_owned()),
+    )
+    .await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
     let mut txn = pool.begin().await?;
@@ -181,5 +187,25 @@ async fn test_discovery_complete_with_error(
             panic!("Incorrect state: {}", s);
         }
     }
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_discover_2_managed_hosts(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env: common::api_fixtures::TestEnv = create_test_env(pool.clone()).await;
+    let (host1_id, dpu1_id) = create_managed_host(&env).await;
+    let (host2_id, dpu2_id) = create_managed_host(&env).await;
+    assert!(host1_id.machine_type().is_host());
+    assert!(host2_id.machine_type().is_host());
+    assert!(dpu1_id.machine_type().is_dpu());
+    assert!(dpu2_id.machine_type().is_dpu());
+    assert_ne!(host1_id, host2_id);
+    assert_ne!(dpu1_id, dpu2_id);
+
+    let machines = env.find_machines(None, None, true).await.machines;
+    assert_eq!(machines.len(), 4);
+
     Ok(())
 }

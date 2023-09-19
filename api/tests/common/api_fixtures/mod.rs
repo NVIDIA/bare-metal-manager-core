@@ -21,9 +21,12 @@ use carbide::{
     ethernet_virtualization::EthVirtData,
     ib,
     ipmitool::IPMIToolTestImpl,
-    model::machine::{
-        machine_id::{try_parse_machine_id, MachineId},
-        ManagedHostState,
+    model::{
+        hardware_info::TpmEkCertificate,
+        machine::{
+            machine_id::{try_parse_machine_id, MachineId},
+            ManagedHostState,
+        },
     },
     redfish::RedfishSim,
     resource_pool::{self, common::CommonPools},
@@ -48,7 +51,12 @@ use sqlx::PgPool;
 use tonic::Request;
 
 use crate::common::{
-    api_fixtures::{dpu::create_dpu_machine, host::create_host_machine},
+    api_fixtures::{
+        dpu::create_dpu_machine,
+        host::create_host_machine,
+        managed_host::{ManagedHostConfig, ManagedHostSim},
+    },
+    mac_address_pool,
     test_certificates::TestCertificateProvider,
     test_credentials::TestCredentialProvider,
 };
@@ -56,6 +64,7 @@ use crate::common::{
 pub mod dpu;
 pub mod host;
 pub mod instance;
+pub mod managed_host;
 pub mod network_segment;
 
 /// Carbide API for integration tests
@@ -119,6 +128,22 @@ impl TestEnv {
         }
     }
 
+    /// Generates a simulation for Host+DPU pair
+    pub fn start_managed_host_sim(&self) -> ManagedHostSim {
+        // TODO: Also add unique serial numbers, etc
+        let host_cert_data: [u8; 32] = rand::random();
+        let config = ManagedHostConfig {
+            dpu_bmc_mac_address: mac_address_pool::DPU_BMC_MAC_ADDRESS_POOL.allocate(),
+            dpu_oob_mac_address: mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL.allocate(),
+            host_bmc_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
+            host_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
+            host_tpm_ek_cert: TpmEkCertificate::from(host_cert_data.to_vec()),
+        };
+
+        // TODO: This will in the future also spin up redfish mocks for these components
+        ManagedHostSim { config }
+    }
+
     /// Runs one iteration of the machine state controller handler with the services
     /// in this test environment
     pub async fn run_machine_state_controller_iteration_until_state_matches(
@@ -138,8 +163,22 @@ impl TestEnv {
                 host_machine_id.clone(),
                 handler,
             )
+            .await;
+
+            let machine = Machine::find_one(
+                txn,
+                host_machine_id,
+                carbide::db::machine::MachineSearchConfig::default(),
+            )
             .await
+            .unwrap()
+            .unwrap();
+
+            if machine.current_state() == expected_state {
+                return;
+            }
         }
+
         let machine = Machine::find_one(
             txn,
             host_machine_id,
@@ -149,7 +188,10 @@ impl TestEnv {
         .unwrap()
         .unwrap();
 
-        assert_eq!(machine.current_state(), expected_state);
+        panic!(
+            "Expected Machine state to be {expected_state} after {max_iterations} iterations, but state is {}",
+            machine.current_state()
+        );
     }
 
     /// Runs one iteration of the machine state controller handler with the services
@@ -568,9 +610,11 @@ pub async fn forge_agent_control(
 }
 
 pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
-    let dpu_machine_id = create_dpu_machine(env).await;
+    // TODO: Return host_sim
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id = create_dpu_machine(env, &host_sim.config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
-    let host_machine_id = create_host_machine(env, &dpu_machine_id).await;
+    let host_machine_id = create_host_machine(env, &host_sim.config, &dpu_machine_id).await;
 
     (
         try_parse_machine_id(&host_machine_id).unwrap(),
