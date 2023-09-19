@@ -16,7 +16,8 @@ pub fn mlnx_ib_capable(properties: &PciDevicePropertiesExt) -> bool {
     if let Some(device) = &properties.pci_properties.slot {
         if !device.is_empty()
             && properties
-                .vendor_name
+                .pci_properties
+                .vendor
                 .eq_ignore_ascii_case("Mellanox Technologies")
         {
             // there are three types of devices: VPI, IB-only and Eth-only

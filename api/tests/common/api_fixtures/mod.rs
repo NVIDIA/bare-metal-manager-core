@@ -55,6 +55,7 @@ use crate::common::{
 
 pub mod dpu;
 pub mod host;
+pub mod ib_subnet;
 pub mod instance;
 pub mod network_segment;
 

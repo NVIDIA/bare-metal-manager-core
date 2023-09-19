@@ -11,6 +11,7 @@
  */
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 use rpc::forge as rpc;
@@ -34,12 +35,35 @@ impl InstanceInfinibandConfig {
                 function_id: InterfaceFunctionId::Physical {},
                 ib_subnet_id,
                 guid: None,
+                device: "MT2910 Family [ConnectX-7]".to_string(), // only for test case
+                vendor: None,
+                device_instance: 0,
             }],
         }
     }
 
     /// Validates the infiniband configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
+        #[derive(Hash, Eq, PartialEq)]
+        struct IbDeviceKey {
+            device: String,
+            device_instance: u32,
+        }
+
+        let mut used_segment_ids = HashSet::new();
+        for iface in self.ib_interfaces.iter() {
+            let ib_key = IbDeviceKey {
+                device: iface.device.clone(),
+                device_instance: iface.device_instance,
+            };
+
+            if !used_segment_ids.insert(ib_key) {
+                return Err(ConfigValidationError::InvalidValue(format!(
+                    "IB interface {} {} is reused",
+                    iface.device, iface.device_instance
+                )));
+            }
+        }
         Ok(())
     }
 }
@@ -81,6 +105,9 @@ impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
                 function_id,
                 ib_subnet_id,
                 guid: None,
+                device: iface.device,
+                vendor: iface.vendor,
+                device_instance: iface.device_instance,
             });
         }
 
@@ -100,7 +127,11 @@ impl TryFrom<InstanceInfinibandConfig> for rpc::InstanceInfinibandConfig {
 
             ib_interfaces.push(rpc::InstanceIbInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
+                virtual_function_id: None,
                 ib_subnet_id: Some(iface.ib_subnet_id.into()),
+                device: iface.device,
+                vendor: iface.vendor,
+                device_instance: iface.device_instance,
             });
         }
 
@@ -111,10 +142,16 @@ impl TryFrom<InstanceInfinibandConfig> for rpc::InstanceInfinibandConfig {
 /// The configuration that a customer desires for an instances ib interface
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceIbInterfaceConfig {
-    /// Uniquely identifies the ib interface on the instance
+    // Uniquely identifies the ib interface on the instance
     pub function_id: InterfaceFunctionId,
     /// The ib subnet this ib interface is attached to
     pub ib_subnet_id: Uuid,
     /// The guid of this ib interface
     pub guid: Option<String>,
+    /// The name of this device
+    pub device: String,
+    /// The device vendor
+    pub vendor: Option<String>,
+    /// The index of devices which is sorted by PCI slot
+    pub device_instance: u32,
 }
