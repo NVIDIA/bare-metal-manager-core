@@ -12,11 +12,16 @@
 
 use std::time::Duration;
 
-use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
+use carbide::{
+    db::network_segment::NetworkSegment,
+    state_controller::network_segment::handler::NetworkSegmentStateHandler,
+};
 
 pub mod common;
-use common::api_fixtures::create_test_env;
-use common::network_segment::{create_network_segment_with_api, get_segment_state, text_history};
+use common::{
+    api_fixtures::{create_test_env, network_segment::FIXTURE_NETWORK_SEGMENT_ID},
+    network_segment::{create_network_segment_with_api, get_segment_state, text_history},
+};
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
@@ -147,4 +152,15 @@ async fn test_network_segment_lifecycle_with_vpc_and_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_network_segment_lifecycle_impl(pool, true, true).await
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_network_exists(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let segments = NetworkSegment::admin(&mut txn).await?;
+
+    assert_eq!(segments.id, FIXTURE_NETWORK_SEGMENT_ID);
+
+    Ok(())
 }

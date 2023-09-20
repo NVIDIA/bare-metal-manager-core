@@ -26,7 +26,6 @@ service Forge {
   // Segments - i.e. Overlay Networks
   rpc FindNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
   rpc CreateNetworkSegment(NetworkSegmentCreationRequest) returns (NetworkSegment);
-  rpc UpdateNetworkSegment(NetworkSegmentUpdateRequest) returns (NetworkSegmentUpdateResult);
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
 
@@ -459,7 +458,6 @@ message NetworkSegment {
 }
 
 message NetworkSegmentCreationRequest {
-
   UUID vpc_id = 2;
 
   string name = 3;
@@ -470,33 +468,6 @@ message NetworkSegmentCreationRequest {
   repeated NetworkPrefix prefixes = 6;
 
   NetworkSegmentType segment_type = 7;
-
-}
-
-// A request to update the configuration of a network segment
-// The `NetworkSegment` will be updated and make use of all the configurations
-// specified here. If clients want to retain some particular configurations,
-// they should fetch the original state of the `NetworkSegment`, and apply the
-// changes they want to make based on that.
-// Fetching the original configuration will yield a `version` string to the client.
-// The client can pass the version back to the server to allow the server to check
-// if any concurrent modification changed the object in between the client examining
-// it and the update being executed.
-message NetworkSegmentUpdateRequest {
-  UUID id = 1;
-  // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current version on the Forge Site.
-  // If a concurrent update changed the site configuration, the API will return
-  // a `ConcurrentModificationError`.
-  optional string if_version_match = 2;
-
-  string name = 3;
-  optional int32 mtu = 5;
-}
-
-message NetworkSegmentUpdateResult {
-  // TODO: Should we also return the current state as a field here?
-  // Probably won't hurt
 }
 
 message NetworkSegmentDeletionRequest {
