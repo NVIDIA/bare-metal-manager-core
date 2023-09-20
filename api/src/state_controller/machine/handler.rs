@@ -358,9 +358,16 @@ impl StateHandler for MachineStateHandler {
                 match reprovision_state {
                     ReprovisionState::FirmwareUpgrade => {
                         // Firmware upgrade is going on.
-                        if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
+                        if !rebooted(
+                            state.dpu_snapshot.current.version,
+                            state.dpu_snapshot.last_reboot_time,
+                        )
+                        .await?
+                        {
                             return Ok(());
                         }
+
+                        restart_machine(&state.dpu_snapshot, ctx).await?;
                         *controller_state.modify() = ManagedHostState::DPUReprovision {
                             reprovision_state: ReprovisionState::WaitingForNetworkInstall,
                         };
@@ -378,19 +385,6 @@ impl StateHandler for MachineStateHandler {
                         restart_machine(&state.dpu_snapshot, ctx).await?;
                         set_managed_host_topology_update_needed(txn, state).await?;
                         *controller_state.modify() = ManagedHostState::DPUReprovision {
-                            reprovision_state: ReprovisionState::BufferTime,
-                        };
-                    }
-                    ReprovisionState::BufferTime => {
-                        // Lets wait DPU to go down. Added some buffer time for same.
-                        // This is to avoid race condition when dpu_agent sends health message
-                        // just before going down and after state is changed. In this case,
-                        // is_dpu_up function will return true and continue although DPU is
-                        // still not up.
-                        if wait(state, ctx.services.reachability_params.dpu_wait_time) {
-                            return Ok(());
-                        }
-                        *controller_state.modify() = ManagedHostState::DPUReprovision {
                             reprovision_state: ReprovisionState::WaitingForDiscovery,
                         };
                     }
@@ -399,6 +393,19 @@ impl StateHandler for MachineStateHandler {
                             return Ok(());
                         }
 
+                        *controller_state.modify() = ManagedHostState::DPUReprovision {
+                            reprovision_state: ReprovisionState::BufferTime,
+                        };
+                    }
+                    ReprovisionState::BufferTime => {
+                        // This state just waits for some time to avoid race condition where
+                        // dpu_agent sends heartbeat just before DPU goes down. A few microseconds
+                        // gap can cause host to restart before DPU comes up. This will fail Host
+                        // DHCP.
+                        // TODO: Reduce this duration to 2 mins.
+                        if wait(state, ctx.services.reachability_params.dpu_wait_time) {
+                            return Ok(());
+                        }
                         *controller_state.modify() = ManagedHostState::DPUReprovision {
                             reprovision_state: ReprovisionState::WaitingForNetworkConfig,
                         };

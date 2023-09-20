@@ -2802,8 +2802,14 @@ where
         let state = host_machine.current_state();
         let action = if is_dpu {
             match state {
+                ManagedHostState::DPUReprovision {
+                    reprovision_state: ReprovisionState::BufferTime,
+                } => Action::Retry,
                 ManagedHostState::DPUNotReady {
                     machine_state: MachineState::Init,
+                }
+                | ManagedHostState::DPUReprovision {
+                    reprovision_state: ReprovisionState::WaitingForDiscovery,
                 } => Action::Discovery,
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
