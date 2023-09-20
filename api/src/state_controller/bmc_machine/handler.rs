@@ -10,10 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::sync::{Arc, Mutex};
+
+use libredfish::{Boot, Redfish, RedfishError, SystemPowerControl};
+
 use crate::{
     db::{bmc_machine::BmcMachine, machine_interface::MachineInterface},
     model::bmc_machine::{BmcMachineError, BmcMachineState},
-    redfish::RedfishCredentialType,
+    redfish::{RedfishClientCreationError, RedfishCredentialType},
     state_controller::state_handler::{
         ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
     },
@@ -21,6 +25,18 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub struct BmcMachineStateHandler {}
+
+impl BmcMachineStateHandler {
+    async fn run_redfish_command<F>(&self, command: F) -> Result<(), RedfishClientCreationError>
+    where
+        F: FnOnce() -> Result<(), RedfishError> + Send + 'static,
+    {
+        tokio::task::spawn_blocking(command)
+            .await
+            .map_err(RedfishClientCreationError::SubtaskError)?
+            .map_err(RedfishClientCreationError::RedfishError)
+    }
+}
 
 #[async_trait::async_trait]
 impl StateHandler for BmcMachineStateHandler {
@@ -40,16 +56,33 @@ impl StateHandler for BmcMachineStateHandler {
     ) -> Result<(), StateHandlerError> {
         let read_state: &BmcMachineState = &*controller_state;
         match read_state {
-            BmcMachineState::Init => {
+            BmcMachineState::Initializing => {
                 tracing::info!("Starting machine discovery with redfish.");
                 let bmc_network_interface =
                     MachineInterface::find_one(txn, state.machine_interface_id)
                         .await
                         .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+
+                let redfish_ip = match bmc_network_interface.addresses().first() {
+                    Some(machine_address) => machine_address.address.to_string(),
+                    None => {
+                        let msg = format!(
+                            "No IP address for BMC network interface interface: {:#?}",
+                            bmc_network_interface
+                        );
+                        tracing::error!(msg);
+                        *controller_state.modify() =
+                            BmcMachineState::Error(BmcMachineError::RedfishConnection {
+                                message: msg,
+                            });
+                        return Ok(());
+                    }
+                };
+
                 let standard_client = ctx
                     .services
                     .redfish_client_pool
-                    .create_standard_client(bmc_network_interface.hostname(), None)
+                    .create_standard_client(redfish_ip.as_str(), None)
                     .await;
                 // Try to instantiate standard client with a hardware default password, but ignore error
                 // since it might be already changed to site-default
@@ -58,7 +91,7 @@ impl StateHandler for BmcMachineStateHandler {
                         let _ = ctx
                             .services
                             .redfish_client_pool
-                            .change_root_password_to_site_default(*client)
+                            .change_root_password_to_site_default(*client.clone())
                             .await
                             .map_err(|e| {
                                 tracing::warn!(error = %e, "Failed to change root redfish password")
@@ -67,21 +100,22 @@ impl StateHandler for BmcMachineStateHandler {
                     Err(e) => tracing::warn!(error = %e, "Failed to instantiate redfish client"),
                 }
 
-                let mut _client;
+                let client;
 
                 let client_result = ctx
                     .services
                     .redfish_client_pool
                     .create_client(
-                        bmc_network_interface.hostname(),
+                        redfish_ip.as_str(),
                         None,
                         RedfishCredentialType::SiteDefault,
                     )
                     .await;
 
                 match client_result {
-                    Ok(redfish_client) => _client = redfish_client,
+                    Ok(redfish_client) => client = redfish_client,
                     Err(e) => {
+                        tracing::error!(error = %e, "Failed to instantiate redfish client");
                         *controller_state.modify() =
                             BmcMachineState::Error(BmcMachineError::RedfishConnection {
                                 message: e.to_string(),
@@ -93,9 +127,10 @@ impl StateHandler for BmcMachineStateHandler {
                 if let Err(e) = ctx
                     .services
                     .redfish_client_pool
-                    .create_forge_admin_user(_client, *machine_id)
+                    .create_forge_admin_user(client, *machine_id)
                     .await
                 {
+                    tracing::error!(error = %e, "Failed to create user");
                     *controller_state.modify() =
                         BmcMachineState::Error(BmcMachineError::RedfishCommand {
                             command: "create_user".to_string(),
@@ -103,12 +138,26 @@ impl StateHandler for BmcMachineStateHandler {
                         });
                     return Ok(());
                 }
+                *controller_state.modify() = BmcMachineState::Configuring;
+            }
+            BmcMachineState::Configuring => {
+                let bmc_network_interface =
+                    MachineInterface::find_one(txn, state.machine_interface_id)
+                        .await
+                        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
+
+                let redfish_ip = bmc_network_interface
+                    .addresses()
+                    .first()
+                    .unwrap()
+                    .address
+                    .to_string();
 
                 let client_result = ctx
                     .services
                     .redfish_client_pool
                     .create_client(
-                        bmc_network_interface.hostname(),
+                        redfish_ip.as_str(),
                         None,
                         RedfishCredentialType::BmcMachine {
                             bmc_machine_id: machine_id.to_string(),
@@ -116,19 +165,75 @@ impl StateHandler for BmcMachineStateHandler {
                     )
                     .await;
 
-                match client_result {
-                    Ok(redfish_client) => _client = redfish_client,
+                let client_arc: Arc<Mutex<Box<dyn Redfish>>> = match client_result {
+                    Ok(redfish_client) => Arc::new(Mutex::new(redfish_client)),
                     Err(e) => {
+                        tracing::error!(error = %e, "Failed to instantiate redfish client (forge-admin user)");
                         *controller_state.modify() =
                             BmcMachineState::Error(BmcMachineError::RedfishConnection {
                                 message: e.to_string(),
                             });
                         return Ok(());
                     }
+                };
+
+                let client = client_arc.clone();
+                if let Err(e) = self
+                    .run_redfish_command(move || client.lock().unwrap().disable_secure_boot())
+                    .await
+                {
+                    tracing::error!(error = %e, "Failed to disable secure boot");
+                    *controller_state.modify() =
+                        BmcMachineState::Error(BmcMachineError::RedfishCommand {
+                            command: "disable_secure_boot".to_string(),
+                            message: e.to_string(),
+                        });
+                    return Ok(());
+                }
+
+                let client = client_arc.clone();
+                if let Err(e) = self
+                    .run_redfish_command(move || client.lock().unwrap().boot_once(Boot::UefiHttp))
+                    .await
+                {
+                    *controller_state.modify() =
+                        BmcMachineState::Error(BmcMachineError::RedfishCommand {
+                            command: "boot_once(UEFI http)".to_string(),
+                            message: e.to_string(),
+                        });
+                    return Ok(());
+                }
+
+                let client = client_arc.clone();
+                if let Err(e) = self
+                    .run_redfish_command(move || {
+                        client
+                            .lock()
+                            .unwrap()
+                            .power(SystemPowerControl::GracefulRestart)
+                    })
+                    .await
+                {
+                    *controller_state.modify() =
+                        BmcMachineState::Error(BmcMachineError::RedfishCommand {
+                            command: "reboot".to_string(),
+                            message: e.to_string(),
+                        });
+                    return Ok(());
+                } else {
+                    *controller_state.modify() = BmcMachineState::DpuReboot;
+                    return Ok(());
                 }
             }
+            BmcMachineState::DpuReboot => {
+                // TODO: check Machine discovery and link current BmcMachine, change state.
+                *controller_state.modify() = BmcMachineState::Initialized;
+            }
+            BmcMachineState::Initialized => {
+                // Leaf state
+            }
             BmcMachineState::Error(error_type) => {
-                tracing::error!(error_type = format!("{error_type:#?}"), %machine_id, "BMC state machine error");
+                tracing::debug!(error_type = format!("{error_type:#?}"), %machine_id, "BMC state machine error");
             }
         }
         Ok(())
