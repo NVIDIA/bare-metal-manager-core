@@ -716,15 +716,6 @@ where
         response
     }
 
-    async fn update_network_segment(
-        &self,
-        request: Request<rpc::NetworkSegmentUpdateRequest>,
-    ) -> Result<Response<rpc::NetworkSegmentUpdateResult>, Status> {
-        log_request_data(&request);
-
-        return Err(Status::unimplemented("not implemented"));
-    }
-
     async fn delete_network_segment(
         &self,
         request: Request<rpc::NetworkSegmentDeletionRequest>,

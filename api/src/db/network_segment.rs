@@ -612,30 +612,6 @@ impl NetworkSegment {
         Ok(segment.0)
     }
 
-    pub async fn update(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<NetworkSegment, DatabaseError> {
-        let query = "
-UPDATE network_segments
-SET name=$1, subdomain_id=$2, vpc_id=$3, mtu=$4, vlan_id=$5, vni_id=$6, updated=NOW()
-WHERE id=$7
-RETURNING *";
-        let segment: NetworkSegment = sqlx::query_as(query)
-            .bind(&self.name)
-            .bind(self.subdomain_id)
-            .bind(self.vpc_id)
-            .bind(self.mtu)
-            .bind(self.vlan_id)
-            .bind(self.vni)
-            .bind(self.id)
-            .fetch_one(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(segment)
-    }
-
     pub async fn find_by_circuit_id(
         txn: &mut Transaction<'_, Postgres>,
         circuit_id: &str,
