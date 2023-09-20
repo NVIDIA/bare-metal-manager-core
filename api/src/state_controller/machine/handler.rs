@@ -504,6 +504,7 @@ impl StateHandler for DpuMachineStateHandler {
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::Init,
             } => {
+                // initial restart, firmware update and scout is run, first reboot of dpu discovery
                 if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
                     return Ok(());
                 }
@@ -516,6 +517,7 @@ impl StateHandler for DpuMachineStateHandler {
                 machine_state: MachineState::WaitingForNetworkInstall,
             } => {
                 if !rebooted(
+                    // rebooted from the init state, where firmware is updated and scout is run
                     state.dpu_snapshot.current.version,
                     state.dpu_snapshot.last_reboot_time,
                 )
@@ -523,6 +525,9 @@ impl StateHandler for DpuMachineStateHandler {
                 {
                     return Ok(());
                 }
+
+                // hbn needs a restart to be able to come online, second reboot of dpu discovery
+                restart_machine(&state.dpu_snapshot, ctx).await?;
 
                 *controller_state.modify() = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkConfig,
