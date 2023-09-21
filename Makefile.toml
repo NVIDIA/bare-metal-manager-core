@@ -61,6 +61,39 @@ docker run \
 	cargo build -p scout -p admin
 '''
 
+[tasks.check-cross-installed]
+workspace = false
+script = '''
+#/usr/bin/env bash
+
+which cross >/dev/null && exit 0
+
+echo "!!!! ERROR: 'cross' binary not found. install with 'cargo install cross'. !!!!!"
+exit 1
+'''
+
+[tasks.build-cli-cross-aarch64]
+category = "Build"
+description = "Build forge-scout and forge-admin-cli for aarch64, intended only for local artifact builds."
+workspace = false
+script = '''
+cross build --target aarch64-unknown-linux-gnu -p scout -p admin
+'''
+dependencies = [
+    "check-cross-installed",
+    "build-cross-docker-image",
+]
+
+[tasks.build-cross-docker-image]
+category = "Build"
+description = "Build cross docker image for aarch64, intended only for local artifact builds."
+workspace = false
+script = '''
+#!/usr/bin/env bash
+
+docker build ${REPO_ROOT}/dev/docker -f ${REPO_ROOT}/dev/docker/Dockerfile.build-artifacts-container-cross-aarch64 -t build-artifacts-container-cross-aarch64
+'''
+
 [tasks.build-rainbow]
 category = "Build"
 description = "Build rainbow locally using debian container. Ensures correct GCC version is used."
