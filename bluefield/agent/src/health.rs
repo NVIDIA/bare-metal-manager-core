@@ -29,7 +29,7 @@ const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
 const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
 
 /// Check the health of HBN
-pub fn health_check() -> HealthReport {
+pub fn health_check(host_routes: &[&str]) -> HealthReport {
     let mut hr = HealthReport::new();
 
     let container_id = match hbn::get_hbn_container_id() {
@@ -48,7 +48,7 @@ pub fn health_check() -> HealthReport {
     check_dhcp_relay(&mut hr, &container_id);
     check_ifreload(&mut hr, &container_id);
     check_bgp_daemon_enabled(&mut hr);
-    check_network_stats(&mut hr, &container_id);
+    check_network_stats(&mut hr, &container_id, host_routes);
     check_files(&mut hr, &EXPECTED_FILES);
 
     hr
@@ -129,7 +129,7 @@ fn check_dhcp_relay(hr: &mut HealthReport, container_id: &str) {
 }
 
 // Check HBN BGP stats
-fn check_network_stats(hr: &mut HealthReport, container_id: &str) {
+fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_routes: &[&str]) {
     // `vtysh` is HBN's shell.
     let bgp_stats = match run_in_container(
         container_id,
@@ -143,7 +143,7 @@ fn check_network_stats(hr: &mut HealthReport, container_id: &str) {
             return;
         }
     };
-    match check_bgp(&bgp_stats) {
+    match check_bgp(&bgp_stats, host_routes) {
         Ok(_) => hr.passed(HealthCheck::BgpStats),
         Err(err) => {
             warn!("check_network_stats bgp: {err}");
@@ -236,23 +236,26 @@ fn check_bgp_daemon_enabled(hr: &mut HealthReport) {
     hr.passed(HealthCheck::BgpDaemonEnabled);
 }
 
-fn check_bgp(bgp_json: &str) -> eyre::Result<()> {
+fn check_bgp(bgp_json: &str, host_routes: &[&str]) -> eyre::Result<()> {
     let networks: BgpNetworks = serde_json::from_str(bgp_json)?;
-    check_bgp_stats("ipv4_unicast", &networks.ipv4_unicast)?;
-    check_bgp_stats("l2_vpn_evpn", &networks.l2_vpn_evpn)
+    check_bgp_stats("ipv4_unicast", &networks.ipv4_unicast, host_routes)?;
+    check_bgp_stats("l2_vpn_evpn", &networks.l2_vpn_evpn, &[])
 }
 
-fn check_bgp_stats(name: &str, s: &BgpStats) -> eyre::Result<()> {
-    if s.failed_peers != 0 {
+fn check_bgp_stats(name: &str, s: &BgpStats, ignored_peers: &[&str]) -> eyre::Result<()> {
+    let num_ignored = ignored_peers.len() as u32;
+    if s.failed_peers > num_ignored {
         return Err(eyre::eyre!(
-            "{name} failed peers is {} should be 0",
-            s.failed_peers
+            "{name} failed peers is {} should be at most {}",
+            s.failed_peers,
+            ignored_peers.len(),
         ));
     }
-    if s.total_peers != 1 && s.total_peers != 2 {
-        // One or two depending on uplink configuration
+    let (min_peers, max_peers): (u32, u32) = (1, 2 + num_ignored);
+    if s.total_peers < min_peers || max_peers < s.total_peers {
+        // One, two (+ ignored_peers) depending on uplink configuration
         return Err(eyre::eyre!(
-            "{name} total peers is {} should be 1 or 2",
+            "{name} total peers is {} but should be between {min_peers} and {max_peers}",
             s.total_peers
         ));
     }
@@ -263,6 +266,9 @@ fn check_bgp_stats(name: &str, s: &BgpStats) -> eyre::Result<()> {
         ));
     }
     for (peer_name, peer) in s.peers.iter() {
+        if ignored_peers.contains(&peer_name.as_str()) {
+            continue;
+        }
         if peer.state != "Established" {
             return Err(eyre::eyre!(
                 "{name} {peer_name} state is '{}' should be 'Established'",
@@ -533,6 +539,7 @@ sysctl-apply                     EXITED    Mar 06 06:24 PM
 
     const BGP_SUMMARY_JSON_SUCCESS: &str = include_str!("hbn_bgp_summary.json");
     const BGP_SUMMARY_JSON_FAIL: &str = include_str!("hbn_bgp_summary_fail.json");
+    const BGP_SUMMARY_JSON_WITH_IGNORE: &str = include_str!("hbn_bgp_summary_with_ignore.json");
 
     #[test]
     fn test_parse_supervisorctl_status() -> eyre::Result<()> {
@@ -545,18 +552,25 @@ sysctl-apply                     EXITED    Mar 06 06:24 PM
 
     #[test]
     fn test_check_bgp_success() -> eyre::Result<()> {
-        check_bgp(BGP_SUMMARY_JSON_SUCCESS)
+        check_bgp(BGP_SUMMARY_JSON_SUCCESS, &[])
     }
 
     #[test]
     fn test_check_bgp_fail() -> eyre::Result<()> {
-        let out = check_bgp(BGP_SUMMARY_JSON_FAIL);
+        let out = check_bgp(BGP_SUMMARY_JSON_FAIL, &[]);
         assert!(out.is_err());
 
-        let err = out.unwrap_err();
-        assert!(err
-            .to_string()
-            .starts_with("ipv4_unicast failed peers is 2 should be 0"));
+        let s_err = out.unwrap_err().to_string();
+        let expected = "ipv4_unicast failed peers";
+        assert!(
+            s_err.starts_with(expected),
+            "Expected '{expected}', got '{s_err}'"
+        );
         Ok(())
+    }
+
+    #[test]
+    fn test_check_bgp_with_ignore() -> eyre::Result<()> {
+        check_bgp(BGP_SUMMARY_JSON_WITH_IGNORE, &["10.217.4.78"])
     }
 }
