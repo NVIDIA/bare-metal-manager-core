@@ -91,9 +91,6 @@ service Forge {
   rpc UpdateInstanceType(InstanceType) returns (InstanceType);
   rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
 
-  // Auth Requests
-  rpc ValidateUserSSHKey(SSHKeyValidationRequest) returns (SSHKeyValidationResponse);
-
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
   rpc UpdateBMCMetaData(BMCMetaDataUpdateRequest) returns (BMCMetaDataUpdateResponse);
