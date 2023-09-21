@@ -84,7 +84,6 @@ use crate::{
     auth,
     credentials::UpdateCredentials,
     db::{
-        auth::SshKeyValidationRequest,
         bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         domain::Domain,
         domain::NewDomain,
@@ -2229,30 +2228,6 @@ where
         txn.commit()
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_instance_type", e))?;
-
-        response
-    }
-
-    async fn validate_user_ssh_key(
-        &self,
-        request: Request<rpc::SshKeyValidationRequest>,
-    ) -> Result<Response<rpc::SshKeyValidationResponse>, Status> {
-        log_request_data(&request);
-
-        let mut txn =
-            self.database_connection.begin().await.map_err(|e| {
-                CarbideError::DatabaseError(file!(), "begin validate_user_ssh_key", e)
-            })?;
-
-        let response = Ok(SshKeyValidationRequest::from(request.into_inner())
-            .verify_user(&mut txn)
-            .await
-            .map_err(CarbideError::from)
-            .map(Response::new)?);
-
-        txn.commit()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit validate_user_ssh_key", e))?;
 
         response
     }
