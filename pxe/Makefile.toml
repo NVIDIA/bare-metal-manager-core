@@ -46,7 +46,7 @@ dependencies = [
 [tasks.build-boot-artifacts-aarch64]
 dependencies = [
         "mkdir-static-aarch64",
-	{ name = "build-cli", path = "${REPO_ROOT}" },
+	{ name = "build-cli-cross-aarch64", path = "${REPO_ROOT}" },
 	"bfb-aarch64",
 	"ipxe-aarch64",
 ]
@@ -276,12 +276,12 @@ dependencies = [
 	"bfb-extract-efi",
 	"bfb-hbn-export",
 	"bfb-telemetry-export",
-	"bfb-add-scout-to-bfb",
+	"bfb-add-scout-to-bfb-ci",
 	"bfb-add-debs-to-bfb",
 	"bfb-add-nvinit-setup-to-bfb",
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
-	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
+	{ name = "build-forge-dpu-deb-ci", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",
 	"bfb-copy-efi",
 	"bfb-remove-extracted-efi",
@@ -292,7 +292,10 @@ dependencies = [
 [tasks.bfb-aarch64]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
+workspace = false
 dependencies = [
+    { name = "check-cross-installed", path = "${REPO_ROOT}" },
+    { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
 	"bfb-cleanup-tmp",
 	"bfb-create-tmp",
 	"bfb-download",
@@ -452,12 +455,21 @@ args = [
     "/tmp/bfb-dump/initramfs-tmp",
 ]
 
-[tasks.bfb-add-scout-to-bfb]
+[tasks.bfb-add-scout-to-bfb-ci]
 category = "iPXE Kernel"
 description = "Add the scout to the bfb"
 command = "cp"
 args = [
 	"${REPO_ROOT}/target/debug/forge-scout",
+	"/tmp/bfb-dump/initramfs-tmp",
+]
+
+[tasks.bfb-add-scout-to-bfb]
+category = "iPXE Kernel"
+description = "Add the scout to the bfb"
+command = "cp"
+args = [
+	"${REPO_ROOT}/target/aarch64-unknown-linux-gnu/debug/forge-scout",
 	"/tmp/bfb-dump/initramfs-tmp",
 ]
 
