@@ -199,6 +199,14 @@ pub fn interfaces(
     Ok(interfaces)
 }
 
+pub fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> Vec<&str> {
+    network_config
+        .tenant_interfaces
+        .iter()
+        .map(|iface| iface.ip.as_str())
+        .collect()
+}
+
 /// Reset networking to blank.
 /// Replace all networking files with their blank version.
 pub fn reset(

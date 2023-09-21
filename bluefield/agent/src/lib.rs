@@ -133,9 +133,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             enumerate_hardware()?;
         }
 
-        // One-off health check
+        // One-off health check.
+        // Does not take into account tenant ignored peers, so it can fail when the real check would
+        // succeed.
         Some(AgentCommand::Health) => {
-            let health_report = health::health_check();
+            let health_report = health::health_check(&[]);
             println!("{health_report}");
         }
 
@@ -359,6 +361,7 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
         };
         match *network_config_reader.read() {
             Some(ref conf) => {
+                let mut tenant_peers = vec![];
                 if is_hbn_up {
                     match ethernet_virtualization::update(
                         &agent.hbn.root_dir,
@@ -379,6 +382,7 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
                                 Ok(interfaces) => status_out.interfaces = interfaces,
                                 Err(err) => status_out.network_config_error = Some(err.to_string()),
                             }
+                            tenant_peers = ethernet_virtualization::tenant_peers(conf);
                             has_changed_configs = has_changed
                         }
                         Err(err) => {
@@ -387,7 +391,7 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
                     }
                 }
 
-                let health_report = health::health_check();
+                let health_report = health::health_check(&tenant_peers);
                 is_healthy = health_report.is_healthy();
                 is_hbn_up = health_report.is_up(); // subset of is_healthy
                 trace!("{} HBN health is: {}", machine_id, health_report);
