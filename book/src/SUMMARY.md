@@ -3,12 +3,13 @@
 - [Introduction](README.md)
 - [Architecture](architecture.md)
 - [Workflow](workflow.md)
-
 - [Usage]()
 
 # Architecture
 
 - [Key Group Synchronization](architecture/key_group_sync.md)
+- Infiniband support
+  - [NIC and Port selection](architecture/infiniband/nic_selection.md)
 
 # Components
 
