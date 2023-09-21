@@ -8,7 +8,7 @@
 # Architecture
 
 - [Key Group Synchronization](architecture/key_group_sync.md)
-- Infiniband support
+- [Infiniband support]()
   - [NIC and Port selection](architecture/infiniband/nic_selection.md)
 
 # Components
