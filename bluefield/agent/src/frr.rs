@@ -51,7 +51,7 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
             .collect(),
         VpcVni: conf.vpc_vni.unwrap_or_default(),
         RouteServers: conf.route_servers.clone(),
-        UseAdminNetwork: conf.use_admin_network.clone(),
+        UseAdminNetwork: conf.use_admin_network,
     };
     let tmpl_path = match conf.network_virtualization_type {
         None => TMPL_FULL_ETV,
