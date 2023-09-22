@@ -81,15 +81,55 @@ impl MachineBootOverride {
     }
 
     pub async fn update_or_insert(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<()> {
-        let query = "INSERT INTO machine_boot_override VALUES ($1, $2, $3) ON CONFLICT (machine_interface_id) DO UPDATE SET custom_pxe = $2, custom_user_data = $3";
+        let mut query = "INSERT INTO machine_boot_override VALUES {values} ON CONFLICT (machine_interface_id) DO UPDATE SET {conflict_values}".to_string();
+        let sqlx_query = if self.custom_user_data.is_none() {
+            let custom_pxe = self
+                .custom_pxe
+                .as_ref()
+                .ok_or(CarbideError::InvalidArgument(
+                    "Missing custom_pxe or custom_user_data".to_string(),
+                ))?;
 
-        sqlx::query(query)
-            .bind(self.machine_interface_id)
-            .bind(&self.custom_pxe)
-            .bind(&self.custom_user_data)
-            .execute(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            tracing::info!("pxe: {}", query);
+
+            query = query
+                .replace("{values}", "($1, $2)")
+                .replace("{conflict_values}", "custom_pxe = $2");
+            sqlx::query(&query)
+                .bind(self.machine_interface_id)
+                .bind(custom_pxe)
+        } else if self.custom_pxe.is_none() {
+            let custom_user_data =
+                self.custom_user_data
+                    .as_ref()
+                    .ok_or(CarbideError::InvalidArgument(
+                        "Missing custom_pxe or custom_user_data".to_string(),
+                    ))?;
+
+            tracing::info!("user: {}", query);
+
+            query = query
+                .replace("{values}", "($1, $2)")
+                .replace("{conflict_values}", "custom_user_data = $2");
+            sqlx::query(&query)
+                .bind(self.machine_interface_id)
+                .bind(custom_user_data)
+        } else {
+            query = query.replace("{values}", "($1, $2, $3)").replace(
+                "{conflict_values}",
+                "custom_pxe = $2, custom_user_data = $3",
+            );
+
+            tracing::info!("both: {}", query);
+            sqlx::query(&query)
+                .bind(self.machine_interface_id)
+                .bind(&self.custom_pxe)
+                .bind(&self.custom_user_data)
+        };
+
+        sqlx_query.execute(&mut **txn).await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "MachineBootOverride::update_or_insert", e)
+        })?;
 
         Ok(())
     }

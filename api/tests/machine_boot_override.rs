@@ -180,6 +180,7 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         .expect("Could not load custom boot")
         .unwrap();
 
+    println!("{:?}", machine_boot_override);
     assert_eq!(machine_boot_override.custom_pxe, expected_pxe);
     assert_eq!(machine_boot_override.custom_user_data, expected_user_data);
     Ok(())
@@ -225,5 +226,56 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
         .expect("Could not load custom boot");
 
     assert!(machine_boot_override.is_none());
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let expected_pxe = Some("custom pxe".to_owned());
+    let expected_user_data = Some("custom user data".to_owned());
+
+    let env = create_test_env(pool.clone()).await;
+    let machine_interface_id = Uuid::try_from(
+        dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
+    )
+    .unwrap();
+
+    let req = tonic::Request::new(rpc::forge::MachineBootOverride {
+        machine_interface_id: Some(rpc::forge::Uuid {
+            value: machine_interface_id.to_string(),
+        }),
+        custom_pxe: expected_pxe.clone(),
+        custom_user_data: None,
+    });
+
+    env.api
+        .set_machine_boot_override(req)
+        .await
+        .expect("Failed to set overrides via API")
+        .into_inner();
+
+    let req = tonic::Request::new(rpc::forge::MachineBootOverride {
+        machine_interface_id: Some(rpc::forge::Uuid {
+            value: machine_interface_id.to_string(),
+        }),
+        custom_pxe: None,
+        custom_user_data: expected_user_data.clone(),
+    });
+
+    env.api
+        .set_machine_boot_override(req)
+        .await
+        .expect("Failed to set overrides via API")
+        .into_inner();
+
+    let mut txn = pool.begin().await?;
+
+    let machine_boot_override = MachineBootOverride::find_optional(&mut txn, machine_interface_id)
+        .await
+        .expect("Could not load custom boot")
+        .unwrap();
+
+    assert_eq!(machine_boot_override.custom_pxe, expected_pxe);
+    assert_eq!(machine_boot_override.custom_user_data, expected_user_data);
     Ok(())
 }
