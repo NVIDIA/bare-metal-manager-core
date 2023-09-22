@@ -15,6 +15,10 @@ workspace = false
 script = '''
 cross build --bin forge-dpu-agent --target aarch64-unknown-linux-gnu
 '''
+dependencies = [
+    { name = "check-cross-installed", path = "${REPO_ROOT}" },
+    { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
+]
 
 [tasks.build-dpu-agent-ci]
 category = "Build"
