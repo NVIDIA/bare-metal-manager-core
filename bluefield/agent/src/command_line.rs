@@ -84,6 +84,11 @@ pub struct FrrOptions {
     pub vpc_vni: u32,
     #[clap(long, use_value_delimiter = true)]
     pub route_servers: Vec<String>,
+    #[clap(
+        long,
+        help = "Use admin interface, which removes tenant BGP config (Feature: Bring Your Own IP) from frr.conf"
+    )]
+    pub admin: bool,
 }
 
 #[derive(Parser, Debug)]
