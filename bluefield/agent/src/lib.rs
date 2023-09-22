@@ -231,6 +231,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     network_virtualization_type: Some(opts.network_virtualization_type),
                     vpc_vni: Some(opts.vpc_vni),
                     route_servers: opts.route_servers.clone(),
+                    use_admin_network: opts.admin,
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);

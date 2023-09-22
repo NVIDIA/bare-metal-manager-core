@@ -51,6 +51,7 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
             .collect(),
         VpcVni: conf.vpc_vni.unwrap_or_default(),
         RouteServers: conf.route_servers.clone(),
+        UseAdminNetwork: conf.use_admin_network.clone(),
     };
     let tmpl_path = match conf.network_virtualization_type {
         None => TMPL_FULL_ETV,
@@ -88,6 +89,7 @@ pub struct FrrConfig {
     pub network_virtualization_type: Option<i32>,
     pub vpc_vni: Option<u32>,
     pub route_servers: Vec<String>,
+    pub use_admin_network: bool,
 }
 
 pub struct FrrVlanConfig {
@@ -117,6 +119,7 @@ struct TmplFrrConfigParameters {
     AccessVLANs: Vec<TmplFrrConfigVLAN>,
     VpcVni: u32,
     RouteServers: Vec<String>,
+    UseAdminNetwork: bool,
 }
 
 #[cfg(test)]
@@ -133,6 +136,7 @@ mod tests {
             network_virtualization_type: None,
             vpc_vni: None,
             route_servers: vec![],
+            use_admin_network: true,
         };
         let output = build(params)?;
         let expected = include_str!("../templates/tests/frr.conf.expected");

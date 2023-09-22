@@ -39,6 +39,7 @@ struct Paths {
 }
 
 /// How we tell HBN to notice the new file we wrote
+#[derive(Debug)]
 struct PostAction {
     cmd: &'static str,
     path: PathBuf,
@@ -417,6 +418,7 @@ fn write_frr<P: AsRef<Path>>(
         network_virtualization_type: nc.network_virtualization_type,
         vpc_vni: nc.vpc_vni,
         route_servers: nc.route_servers.clone(),
+        use_admin_network: nc.use_admin_network,
     })?;
     write(next_contents, path, "frr.conf", frr::RELOAD_CMD)
 }
@@ -625,9 +627,14 @@ mod tests {
         let expected = include_str!("../templates/tests/tenant_interfaces");
         compare(&f, expected)?;
 
-        let Ok(Some(_)) = super::write_frr(&f, &network_config) else {
-            panic!("write_frr either Err-ed or didn't say it wrote");
+        //let Ok(Some(_)) = super::write_frr(&f, &network_config) else {
+            //panic!("write_frr either Err-ed or didn't say it wrote");
+        //};
+        match super::write_frr(&f, &network_config) {
+            Err(err) => { panic!("{err}"); }
+            Ok(x) => { tracing::info!("wrote? {x:?}") }
         };
+
         let expected = include_str!("../templates/tests/tenant_frr.conf");
         compare(&f, expected)?;
 

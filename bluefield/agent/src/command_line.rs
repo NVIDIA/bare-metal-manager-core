@@ -84,6 +84,8 @@ pub struct FrrOptions {
     pub vpc_vni: u32,
     #[clap(long, use_value_delimiter = true)]
     pub route_servers: Vec<String>,
+    #[clap(long)]
+    pub admin: bool,
 }
 
 #[derive(Parser, Debug)]
