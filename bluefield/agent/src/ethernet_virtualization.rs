@@ -615,32 +615,59 @@ mod tests {
 
         // What we're testing
 
-        let Ok(Some(_)) = super::write_dhcp_relay_config(&f, &network_config) else {
-            panic!("write_dhcp_relay_config either Err-ed or didn't say it wrote");
-        };
+        match super::write_dhcp_relay_config(&f, &network_config) {
+            Err(err) => {
+                panic!("write_dhcp_relay_config error: {err}");
+            }
+            Ok(None) => {
+                panic!("write_dhcp_relay_config says the config didn't change, that's wrong");
+            }
+            Ok(Some(_)) => {
+                // success
+            }
+        }
         let expected = include_str!("../templates/tests/tenant_dhcp-relay.conf");
         compare(&f, expected)?;
 
-        let Ok(Some(_)) = super::write_interfaces(&f, &network_config) else {
-            panic!("write_interfaces either Err-ed or didn't say it wrote");
-        };
+        match super::write_interfaces(&f, &network_config) {
+            Err(err) => {
+                panic!("write_interfaces error: {err}");
+            }
+            Ok(None) => {
+                panic!("write_interfaces says the config didn't change, that's wrong");
+            }
+            Ok(Some(_)) => {
+                // success
+            }
+        }
         let expected = include_str!("../templates/tests/tenant_interfaces");
         compare(&f, expected)?;
 
-        //let Ok(Some(_)) = super::write_frr(&f, &network_config) else {
-            //panic!("write_frr either Err-ed or didn't say it wrote");
-        //};
         match super::write_frr(&f, &network_config) {
-            Err(err) => { panic!("{err}"); }
-            Ok(x) => { tracing::info!("wrote? {x:?}") }
-        };
-
+            Err(err) => {
+                panic!("write_frr error: {err}");
+            }
+            Ok(None) => {
+                panic!("write_free says the config didn't change, that's wrong");
+            }
+            Ok(Some(_)) => {
+                // success
+            }
+        }
         let expected = include_str!("../templates/tests/tenant_frr.conf");
         compare(&f, expected)?;
 
-        let Ok(Some(_)) = super::write_acl_rules(&f, &network_config) else {
-            panic!("write_acl_rules either Err-ed or didn't say it wrote");
-        };
+        match super::write_acl_rules(&f, &network_config) {
+            Err(err) => {
+                panic!("write_acl_rules error: {err}");
+            }
+            Ok(None) => {
+                panic!("write_acl_rules says the config didn't change, that's wrong");
+            }
+            Ok(Some(_)) => {
+                // success
+            }
+        }
         let expected = include_str!("../templates/tests/tenant_acl_rules");
         compare_diffed(&f, expected)?;
 
