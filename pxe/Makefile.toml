@@ -46,7 +46,6 @@ dependencies = [
 [tasks.build-boot-artifacts-aarch64]
 dependencies = [
         "mkdir-static-aarch64",
-	{ name = "build-cli-cross-aarch64", path = "${REPO_ROOT}" },
 	"bfb-aarch64",
 	"ipxe-aarch64",
 ]
@@ -295,7 +294,6 @@ description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide stati
 workspace = false
 dependencies = [
     { name = "check-cross-installed", path = "${REPO_ROOT}" },
-    { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
 	"bfb-cleanup-tmp",
 	"bfb-create-tmp",
 	"bfb-download",
@@ -471,6 +469,9 @@ command = "cp"
 args = [
 	"${REPO_ROOT}/target/aarch64-unknown-linux-gnu/debug/forge-scout",
 	"/tmp/bfb-dump/initramfs-tmp",
+]
+dependencies = [
+	{ name = "build-cli-cross-aarch64", path = "${REPO_ROOT}" },
 ]
 
 [tasks.download-hbn-installer-to-bfb]
