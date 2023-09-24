@@ -135,7 +135,6 @@ pub enum ManagedHostState {
 pub enum ReprovisionState {
     FirmwareUpgrade,
     BufferTime,
-    WaitingForDiscovery,
     WaitingForNetworkInstall,
     WaitingForNetworkConfig,
 }

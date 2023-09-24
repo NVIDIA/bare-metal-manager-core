@@ -230,50 +230,12 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
-    let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
-
-    run_state_controller_iteration(
-        &services,
-        &env.pool,
-        &env.machine_state_controller_io,
-        host_machine_id.clone(),
-        &handler,
-    )
-    .await;
-
-    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert!(matches!(
-        dpu.current_state(),
-        ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::WaitingForDiscovery,
-            ..
-        }
-    ));
-
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
     discovery_completed(&env, dpu_rpc_id.clone(), None).await;
-
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_eq!(pxe.pxe_script, "exit".to_string());
 
     let mut txn = env.pool.begin().await.unwrap();
     run_state_controller_iteration(
@@ -538,31 +500,11 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         .into_inner();
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
-    let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
-
-    run_state_controller_iteration(
-        &services,
-        &env.pool,
-        &env.machine_state_controller_io,
-        host_machine_id.clone(),
-        &handler,
-    )
-    .await;
-
-    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert!(matches!(
-        dpu.current_state(),
-        ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::WaitingForDiscovery,
-            ..
-        }
-    ));
-
-    let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    assert_eq!(
+        response.action,
+        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+    );
     discovery_completed(&env, dpu_rpc_id.clone(), None).await;
 
     let mut txn = env.pool.begin().await.unwrap();
