@@ -10,6 +10,8 @@
 - [Key Group Synchronization](architecture/key_group_sync.md)
 - [Infiniband support]()
   - [NIC and Port selection](architecture/infiniband/nic_selection.md)
+- [State Machines]()
+  - [ManagedHost](architecture/state_machines/managedhost.md)
 
 # Components
 
