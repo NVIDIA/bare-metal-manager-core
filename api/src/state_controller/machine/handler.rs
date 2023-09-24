@@ -259,6 +259,7 @@ impl StateHandler for MachineStateHandler {
                         reprovision_state: if update_firmware {
                             ReprovisionState::FirmwareUpgrade
                         } else {
+                            set_managed_host_topology_update_needed(txn, state).await?;
                             ReprovisionState::WaitingForNetworkInstall
                         },
                     };
@@ -368,27 +369,12 @@ impl StateHandler for MachineStateHandler {
                         }
 
                         restart_machine(&state.dpu_snapshot, ctx).await?;
+                        set_managed_host_topology_update_needed(txn, state).await?;
                         *controller_state.modify() = ManagedHostState::DPUReprovision {
                             reprovision_state: ReprovisionState::WaitingForNetworkInstall,
                         };
                     }
                     ReprovisionState::WaitingForNetworkInstall => {
-                        if !rebooted(
-                            state.dpu_snapshot.current.version,
-                            state.dpu_snapshot.last_reboot_time,
-                        )
-                        .await?
-                        {
-                            return Ok(());
-                        }
-
-                        restart_machine(&state.dpu_snapshot, ctx).await?;
-                        set_managed_host_topology_update_needed(txn, state).await?;
-                        *controller_state.modify() = ManagedHostState::DPUReprovision {
-                            reprovision_state: ReprovisionState::WaitingForDiscovery,
-                        };
-                    }
-                    ReprovisionState::WaitingForDiscovery => {
                         if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
                             return Ok(());
                         }

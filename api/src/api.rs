@@ -2775,7 +2775,7 @@ where
                     machine_state: MachineState::Init,
                 }
                 | ManagedHostState::DPUReprovision {
-                    reprovision_state: ReprovisionState::WaitingForDiscovery,
+                    reprovision_state: ReprovisionState::WaitingForNetworkInstall,
                 } => Action::Discovery,
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
