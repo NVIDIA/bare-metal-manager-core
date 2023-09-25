@@ -289,7 +289,10 @@ runcmd:
   - [ ctr, -n=k8s.io, image, import, /opt/forge/doca_telemetry.tar ]
   - [ ctr, -n=k8s.io, image, import, /opt/forge/doca_hbn.tar ]
   - [ cp, /opt/forge/doca_container_configs/configs/doca_hbn.yaml, /etc/kubelet.d/ ]
+  - [ sum, /etc/kubelet.d/doca_hbn.yaml ]
   - [ cp, /opt/forge/doca_container_configs/configs/doca_telemetry.yaml, /etc/kubelet.d/ ]
+  - [ sum, /etc/kubelet.d/doca_telemetry.yaml ]
+  - [ sync ]
   - [ /opt/forge/run-scout.sh ]
 {% endif %}
 EOF
