@@ -19,15 +19,13 @@ use carbide::{
 };
 use tonic::Request;
 
-const FIXTURE_CREATED_VPC_UUID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
-
 pub async fn create_ib_subnet(env: &TestEnv, name: String) -> (uuid::Uuid, rpc::IbSubnet) {
     let ib_subnet = env
         .api
         .create_ib_subnet(Request::new(IbSubnetCreationRequest {
             config: Some(IbSubnetConfig {
                 name,
-                vpc_id: Some(FIXTURE_CREATED_VPC_UUID.into()),
+                tenant_organization_id: "tenant1".to_string(),
             }),
         }))
         .await

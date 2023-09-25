@@ -20,14 +20,14 @@ use common::api_fixtures::{create_test_env, TestApi};
 use rpc::forge::{forge_server::Forge, TenantState};
 use tonic::Request;
 
-const FIXTURE_CREATED_VPC_UUID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
 const FIXTURE_CREATED_IB_SUBNET_NAME: &str = "ib_subnet_1";
+const FIXTURE_TENANT_ORG_ID: &str = "tenant";
 
 async fn create_ib_subnet_with_api(api: &TestApi, name: String) -> rpc::forge::IbSubnet {
     let request = rpc::forge::IbSubnetCreationRequest {
         config: Some(IbSubnetConfig {
             name,
-            vpc_id: Some(FIXTURE_CREATED_VPC_UUID.into()),
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
         }),
     };
 
@@ -116,7 +116,33 @@ async fn test_ib_subnet_lifecycle_impl(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_vpc"))]
+#[sqlx::test]
 async fn test_ib_subnet_lifecycle(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     test_ib_subnet_lifecycle_impl(pool).await
+}
+
+#[sqlx::test]
+async fn test_find_ib_subnet_for_tenant(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let created_ib_subnet =
+        create_ib_subnet_with_api(&env.api, FIXTURE_CREATED_IB_SUBNET_NAME.to_string()).await;
+    let created_ib_subnet_id: uuid::Uuid =
+        created_ib_subnet.id.clone().unwrap().try_into().unwrap();
+
+    let find_ib_subnet = env
+        .api
+        .ib_subnets_for_tenant(Request::new(rpc::forge::TenantSearchQuery {
+            tenant_organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ib_subnets
+        .remove(0);
+    let find_ib_subnet_id: uuid::Uuid = find_ib_subnet.id.clone().unwrap().try_into().unwrap();
+
+    assert_eq!(created_ib_subnet_id, find_ib_subnet_id);
+    Ok(())
 }

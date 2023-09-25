@@ -34,6 +34,7 @@ use crate::{
         IBSubnetControllerState, IB_DEFAULT_MTU, IB_DEFAULT_RATE_LIMIT, IB_DEFAULT_SERVICE_LEVEL,
         IB_MTU_ENV, IB_RATE_LIMIT_ENV, IB_SERVICE_LEVEL_ENV,
     },
+    model::tenant::TenantOrganizationId,
     CarbideError, CarbideResult,
 };
 
@@ -65,7 +66,7 @@ pub struct IBSubnetSearchConfig {
 pub struct IBSubnetConfig {
     pub name: String,
     pub pkey: Option<i16>,
-    pub vpc_id: Uuid,
+    pub tenant_organization_id: TenantOrganizationId,
     pub mtu: i32,
     pub rate_limit: i32,
     pub service_level: i32,
@@ -113,13 +114,18 @@ impl<'r> FromRow<'r, PgRow> for IBSubnet {
         let status: Option<sqlx::types::Json<IBSubnetStatus>> = row.try_get("status")?;
         let status = status.map(|s| s.0);
 
+        let tenant_organization_id_str: &str = row.try_get("organization_id")?;
+        let tenant_organization_id =
+            TenantOrganizationId::try_from(tenant_organization_id_str.to_string())
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
         Ok(IBSubnet {
             id: row.try_get("id")?,
             version,
             config: IBSubnetConfig {
                 name: row.try_get("name")?,
                 pkey: Some(row.try_get("pkey")?),
-                vpc_id: row.try_get("vpc_id")?,
+                tenant_organization_id,
                 mtu: row.try_get("mtu")?,
                 rate_limit: row.try_get("rate_limit")?,
                 service_level: row.try_get("service_level")?,
@@ -153,15 +159,20 @@ impl TryFrom<rpc::IbSubnetCreationRequest> for IBSubnetConfig {
             }
         };
 
-        let vpc_id = match conf.vpc_id {
-            Some(v) => uuid::Uuid::try_from(v)?,
-            None => return Err(CarbideError::InvalidArgument("VPC ID is empty".to_string())),
-        };
+        if conf.tenant_organization_id.is_empty() {
+            return Err(CarbideError::InvalidArgument(
+                "IBSubnet organization_id is empty".to_string(),
+            ));
+        }
+
+        let tenant_organization_id =
+            TenantOrganizationId::try_from(conf.tenant_organization_id.clone())
+                .map_err(|_| CarbideError::InvalidArgument(conf.tenant_organization_id))?;
 
         Ok(IBSubnetConfig {
             name: conf.name,
             pkey: None,
-            vpc_id,
+            tenant_organization_id,
             mtu: get_env(IB_MTU_ENV, IB_DEFAULT_MTU),
             rate_limit: get_env(IB_RATE_LIMIT_ENV, IB_DEFAULT_RATE_LIMIT),
             service_level: get_env(IB_SERVICE_LEVEL_ENV, IB_DEFAULT_SERVICE_LEVEL),
@@ -184,7 +195,7 @@ impl TryFrom<IBSubnet> for rpc::IbSubnet {
     fn try_from(src: IBSubnet) -> Result<Self, Self::Error> {
         let config = Some(rpc::IbSubnetConfig {
             name: src.config.name.clone(),
-            vpc_id: Some(src.config.vpc_id).map(rpc::Uuid::from),
+            tenant_organization_id: src.config.tenant_organization_id.clone().to_string(),
         });
 
         let mut state = match &src.controller_state.value {
@@ -245,7 +256,7 @@ impl IBSubnet {
         let query = "INSERT INTO ib_subnets (
                 name,
                 pkey,
-                vpc_id,
+                organization_id,
                 mtu,
                 rate_limit,
                 service_level,
@@ -257,7 +268,7 @@ impl IBSubnet {
         let segment: IBSubnet = sqlx::query_as(query)
             .bind(&conf.name)
             .bind(conf.pkey)
-            .bind(conf.vpc_id)
+            .bind(&conf.tenant_organization_id.to_string())
             .bind(conf.mtu)
             .bind(conf.rate_limit)
             .bind(conf.service_level)
@@ -289,14 +300,14 @@ impl IBSubnet {
         Ok(results)
     }
 
-    pub async fn for_vpc(
+    pub async fn for_tenant(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        vpc_id: uuid::Uuid,
+        tenant_organization_id: String,
     ) -> Result<Vec<Self>, DatabaseError> {
         let results: Vec<IBSubnet> = {
-            let query = "SELECT * FROM ib_subnets WHERE vpc_id=$1::uuid";
+            let query = "SELECT * FROM ib_subnets WHERE organization_id=$1";
             sqlx::query_as(query)
-                .bind(vpc_id)
+                .bind(tenant_organization_id)
                 .fetch_all(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
@@ -405,11 +416,11 @@ impl IBSubnet {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<IBSubnet, DatabaseError> {
-        let query = "UPDATE ib_subnets SET name=$1, vpc_id=$2::uuid, status=$3::json, updated=NOW() WHERE id=$4::uuid RETURNING *";
+        let query = "UPDATE ib_subnets SET name=$1, organization_id=$2::uuid, status=$3::json, updated=NOW() WHERE id=$4::uuid RETURNING *";
 
         let segment: IBSubnet = sqlx::query_as(query)
             .bind(&self.config.name)
-            .bind(self.config.vpc_id)
+            .bind(&self.config.tenant_organization_id.to_string())
             .bind(sqlx::types::Json(&self.status))
             .bind(self.id)
             .fetch_one(&mut **txn)
