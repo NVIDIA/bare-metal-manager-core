@@ -32,6 +32,8 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials}
 use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
+use opentelemetry_api::KeyValue;
+// use opentelemetry_api::metrics::Unit;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Postgres, Transaction};
 use tokio::net::TcpListener;
@@ -3672,12 +3674,29 @@ where
     };
 
     let svc = Server::builder()
-        .layer(LogLayer::new(meter))
+        .layer(LogLayer::new(meter.clone()))
         .layer(authn_layer)
         .layer(authz_layer)
         .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
         .add_service(api_reflection_service)
         .into_service();
+
+    let tls_succeeded_counter = meter
+        .u64_counter("carbide-api.tls.connection_success")
+        .with_description("The amount of tls connections that were successful inside a span")
+        .init();
+    let tcp_failed_counter = meter
+        .u64_counter("carbide-api.tcp.connection_fail")
+        .with_description("The amount of tcp connections that were failures inside a span")
+        .init();
+    let tls_failed_counter = meter
+        .u64_counter("carbide-api.tls.connection_fail")
+        .with_description("The amount of tls connections that were failures inside a span")
+        .init();
+    let service_failed_counter = meter
+        .u64_counter("carbide-api.tls.service_fail")
+        .with_description("The amount of failures that occurred within the service wrapped by the tls layer inside a span")
+        .init();
 
     let mut tls_acceptor_created = Instant::now();
     loop {
@@ -3685,9 +3704,14 @@ where
             Ok(incoming) => incoming,
             Err(e) => {
                 tracing::error!(error = %e, "Error accepting connection");
+                tcp_failed_counter.add(1, &[]);
                 continue;
             }
         };
+
+        // TODO: RT: change the subroutine to return the certificate's parsed expiration from
+        // the file on disk and only refresh if it's actually necessary to do so,
+        // and emit a metric for the remaining duration on the cert
 
         // hard refresh our certs every five minutes -- they may have been rewritten on disk by cert-manager and we want to honor the new cert.
         if tls_acceptor_created.elapsed() > tokio::time::Duration::from_secs(5 * 60) {
@@ -3713,10 +3737,15 @@ where
         let http = http.clone();
         let svc = svc.clone();
 
+        let tls_succeeded_counter = tls_succeeded_counter.clone();
+        let tls_failed_counter = tls_failed_counter.clone();
+        let service_failed_counter = service_failed_counter.clone();
         tokio::spawn(async move {
             if let Some(tls_acceptor) = tls_acceptor {
                 match tls_acceptor.accept(conn).await {
                     Ok(conn) => {
+                        tls_succeeded_counter.add(1, &[]);
+
                         let (_, session) = conn.get_ref();
                         let connection_attributes = {
                             let peer_address = addr;
@@ -3735,14 +3764,35 @@ where
                             .service(svc);
                         if let Err(error) = http.serve_connection(conn, svc).await {
                             tracing::debug!(?error, "error servicing http connection");
+                            service_failed_counter.add(
+                                1,
+                                &[
+                                    KeyValue::new("addr", format!("{addr:?}")),
+                                    KeyValue::new("reason", format!("{error:?}")),
+                                ],
+                            );
                         }
                     }
                     Err(error) => {
                         tracing::error!(%error, address = %addr, "error accepting tls connection");
+                        tls_failed_counter.add(
+                            1,
+                            &[
+                                KeyValue::new("addr", format!("{addr:?}")),
+                                KeyValue::new("reason", format!("{error:?}")),
+                            ],
+                        );
                     }
                 }
             } else if let Err(error) = http.serve_connection(conn, svc).await {
                 tracing::debug!(%error, "error servicing http connection");
+                service_failed_counter.add(
+                    1,
+                    &[
+                        KeyValue::new("addr", format!("{addr:?}")),
+                        KeyValue::new("reason", format!("{error:?}")),
+                    ],
+                );
             }
         });
     }
