@@ -88,6 +88,8 @@ pub enum CarbideCommand {
     Redfish(RedfishAction),
     #[clap(about = "Migrate data, see sub-command", subcommand)]
     Migrate(MigrateAction),
+    #[clap(about = "Network Devices handling", subcommand)]
+    NetworkDevice(NetworkDeviceAction),
     #[clap(about = "IP address handling", subcommand)]
     Ip(IpAction),
     #[clap(about = "DPU specific handling", subcommand)]
@@ -144,6 +146,24 @@ pub struct BootOverrideSet {
     pub custom_pxe: Option<String>,
     #[clap(short = 'u', long)]
     pub custom_user_data: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub enum NetworkDeviceAction {
+    Show(LldpShow),
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+        ArgGroup::new("show_lldp")
+        .required(true)
+        .args(&["all", "id"])))]
+pub struct LldpShow {
+    #[clap(short, long, action, help = "Show all racks")]
+    pub all: bool,
+
+    #[clap(short, long, help = "Show data for given rack")]
+    pub id: Option<String>,
 }
 
 #[derive(Parser, Debug)]

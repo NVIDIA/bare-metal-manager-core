@@ -20,6 +20,7 @@ use model::{
     config_version::{ConfigVersion, ConfigVersionParseError},
     hardware_info::HardwareInfoError,
     machine::machine_id::MachineId,
+    network_devices::LldpError,
     tenant::TenantError,
     ConfigValidationError, RpcDataConversionError,
 };
@@ -209,6 +210,9 @@ pub enum CarbideError {
 
     #[error("DPU has unhealthy network")]
     UnhealthyNetwork,
+
+    #[error("Lldp handling error: {0}")]
+    LldpError(#[from] LldpError),
 }
 
 impl From<CarbideError> for tonic::Status {
