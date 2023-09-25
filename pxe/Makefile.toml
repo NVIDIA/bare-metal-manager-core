@@ -281,8 +281,10 @@ dependencies = [
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	"mkdir-hbn-folder-in-bfb",
-	"extract-hbn-configs-to-bfb",
-	"extract-hbn-scripts-to-bfb",
+	"unzip-hbn-folder-in-bfb",
+	"mv-hbn-configs-to-bfb",
+	"mv-hbn-scripts-to-bfb",
+	"cleanup-hbn-scripts",
 	{ name = "build-forge-dpu-deb-ci", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",
 	"bfb-copy-efi",
@@ -313,8 +315,10 @@ dependencies = [
 	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	"mkdir-hbn-folder-in-bfb",
-	"extract-hbn-configs-to-bfb",
-	"extract-hbn-scripts-to-bfb",
+	"unzip-hbn-folder-in-bfb",
+	"mv-hbn-configs-to-bfb",
+	"mv-hbn-scripts-to-bfb",
+	"cleanup-hbn-scripts",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
 	"move-forge-dpu-package-to-bfb",
 	"bfb-copy-efi",
@@ -499,30 +503,46 @@ args = [
 	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs",
 ]
 
+[tasks.unzip-hbn-folder-in-bfb]
+category = "iPXE Kernel"
+description = "Unzip the HBN scripts to a temp directory"
+command = "unzip"
+args = [
+	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs.zip",
+	"-d",
+	"temp"
+]
+cwd = "/tmp/bfb-dump/initramfs-tmp/doca_container_configs"
 
-[tasks.extract-hbn-configs-to-bfb]
+[tasks.mv-hbn-configs-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN configs to the bfb"
-command = "unzip"
+command = "mv"
 args = [
-	"-j",
-	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs.zip",
-	"scripts/doca_hbn/1.3.0/*",
-	"-d",
-	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs/scripts",
+	"temp/scripts/doca_hbn/1.3.0/",
+	"scripts",
 ]
+cwd = "/tmp/bfb-dump/initramfs-tmp/doca_container_configs"
 
-[tasks.extract-hbn-scripts-to-bfb]
+[tasks.mv-hbn-scripts-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN scripts to the bfb"
-command = "unzip"
+command = "mv"
 args = [
-	"-j",
-	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs.zip",
-	"configs/1.5.0/*",
-	"-d",
-	"/tmp/bfb-dump/initramfs-tmp/doca_container_configs/configs",
+	"temp/configs/1.5.1/",
+	"configs",
 ]
+cwd = "/tmp/bfb-dump/initramfs-tmp/doca_container_configs"
+
+[tasks.cleanup-hbn-scripts]
+category = "iPXE Kernel"
+description = "Cleanup the HBN scripts"
+command = "rm"
+args = [
+	"-rf",
+	"temp",
+]
+cwd = "/tmp/bfb-dump/initramfs-tmp/doca_container_configs"
 
 [tasks.move-forge-dpu-package-to-bfb]
 category = "iPXE Kernel"
