@@ -495,6 +495,15 @@ impl StateHandler for DpuMachineStateHandler {
                     return Ok(());
                 }
 
+                // the initial topology may be based on a different firmware version.  allow it to be
+                // updated once the reboot completes and sends new data.
+                MachineTopology::set_topology_update_needed(
+                    txn,
+                    &state.dpu_snapshot.machine_id,
+                    true,
+                )
+                .await?;
+
                 *controller_state.modify() = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkInstall,
                 };
@@ -514,15 +523,6 @@ impl StateHandler for DpuMachineStateHandler {
 
                 // hbn needs a restart to be able to come online, second reboot of dpu discovery
                 restart_machine(&state.dpu_snapshot, ctx).await?;
-
-                // the initial topology may be based on a different firmware version.  allow it to be
-                // updated once the reboot completes and sends new data.
-                MachineTopology::set_topology_update_needed(
-                    txn,
-                    &state.dpu_snapshot.machine_id,
-                    true,
-                )
-                .await?;
 
                 *controller_state.modify() = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkConfig,
