@@ -41,6 +41,7 @@ mod instance;
 mod machine;
 mod managed_host;
 mod network;
+mod network_devices;
 mod redfish;
 mod resource_pool;
 mod rpc;
@@ -502,6 +503,11 @@ async fn main() -> color_eyre::Result<()> {
                         tracing::warn!("\t{err}");
                     }
                 }
+            }
+        },
+        CarbideCommand::NetworkDevice(lldp) => match lldp {
+            cfg::carbide_options::NetworkDeviceAction::Show(args) => {
+                network_devices::show(config.format, args, api_config).await?;
             }
         },
         CarbideCommand::Migrate(migration) => match migration {

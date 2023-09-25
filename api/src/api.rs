@@ -69,6 +69,7 @@ use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, ManagedHostState, ReprovisionState,
 };
+use crate::model::network_devices::{DpuToNetworkDeviceMap, LldpTopologyData};
 use crate::model::network_segment::{NetworkDefinition, NetworkSegmentControllerState};
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
@@ -1831,8 +1832,19 @@ where
 
         MachineTopology::create_or_update(&mut txn, &stable_machine_id, &hardware_info).await?;
 
-        // Create Host proactively.
         if hardware_info.is_dpu() {
+            // Create DPU and LLDP Association.
+            if let Some(dpu_info) = hardware_info.dpu_info.as_ref() {
+                DpuToNetworkDeviceMap::create_dpu_tor_association(
+                    &mut txn,
+                    &dpu_info.tors,
+                    &stable_machine_id,
+                )
+                .await
+                .map_err(CarbideError::from)?;
+            }
+
+            // Create Host proactively.
             // In case host interface is created, this method will return existing one, instead
             // creating new everytime.
             let machine_interface = MachineInterface::create_host_machine_interface_proactively(
@@ -3069,6 +3081,9 @@ where
                     .await
                     .map_err(CarbideError::from)?
             }
+            DpuToNetworkDeviceMap::delete(&mut txn, dpu_machine.id())
+                .await
+                .map_err(CarbideError::from)?;
 
             Machine::force_cleanup(&mut txn, dpu_machine.id())
                 .await
@@ -3490,6 +3505,35 @@ where
         txn.commit().await.unwrap();
 
         Ok(tonic::Response::new(()))
+    }
+
+    async fn get_lldp_topology(
+        &self,
+        request: tonic::Request<rpc::LldpTopologyRequest>,
+    ) -> Result<tonic::Response<rpc::LldpTopologyData>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_lldp_topology ", e))?;
+
+        let query = match &req.id {
+            Some(x) => ObjectFilter::One(x.as_str()),
+            None => ObjectFilter::All,
+        };
+
+        let data = LldpTopologyData::get_topology(&mut txn, query)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "end get_lldp_topology handler", e)
+        })?;
+
+        Ok(Response::new(data.into()))
     }
 }
 

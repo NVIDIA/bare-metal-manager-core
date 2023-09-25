@@ -97,6 +97,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute("forge.MachineBootOverride", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.LldpDpu", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.LldpNetworkDevice", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.LldpTopologyData", "#[derive(serde::Serialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

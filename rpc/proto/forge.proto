@@ -176,6 +176,10 @@ service Forge {
   rpc GetMachineBootOverride(UUID) returns (MachineBootOverride);
   rpc SetMachineBootOverride(MachineBootOverride) returns (google.protobuf.Empty);
   rpc ClearMachineBootOverride(UUID) returns (google.protobuf.Empty);
+  
+  // LLDP (Link Layer DIscovery Protocol)
+  // Get LLDP topology
+  rpc GetLldpTopology(LldpTopologyRequest) returns (LldpTopologyData);
 }
 
 message VersionResult {
@@ -1676,4 +1680,28 @@ message MachineBootOverride {
   UUID machine_interface_id = 1;
   optional string custom_pxe = 2;
   optional string custom_user_data = 3;
+}
+
+message LldpDpu {
+  MachineId id = 1;
+  string local_port = 2;
+}
+
+message LldpNetworkDevice {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  repeated string mgmt_ip = 4;
+  string discovered_via = 5;
+  string device_type = 6;
+
+  repeated LldpDpu dpus = 7;
+}
+
+message LldpTopologyRequest {
+  optional string id = 1;
+}
+
+message LldpTopologyData {
+  repeated LldpNetworkDevice network_devices = 1;
 }

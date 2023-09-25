@@ -50,6 +50,23 @@ pub async fn get_machine(id: String, api_config: Config) -> CarbideCliResult<rpc
     .await
 }
 
+pub async fn get_lldp_topology(
+    id: Option<String>,
+    api_config: Config,
+) -> CarbideCliResult<rpc::LldpTopologyData> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::LldpTopologyRequest { id });
+        let topology = client
+            .get_lldp_topology(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(topology)
+    })
+    .await
+}
+
 pub async fn get_host_machine(id: String, api_config: Config) -> CarbideCliResult<rpc::Machine> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::MachineSearchQuery {
