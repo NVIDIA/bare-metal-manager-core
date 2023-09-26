@@ -152,6 +152,11 @@ pub struct InstanceIbInterfaceConfig {
     pub device: String,
     /// The device vendor
     pub vendor: Option<String>,
-    /// The index of devices which is sorted by PCI slot
+    /// If multiple devices with the same name - and connected to the same
+    /// fabric - are available, this selects the device among these.
+    /// `device_instance == 1` selects the 2nd device of a certain type.
+    ///
+    /// Forge will internally order devices of the same type by PCI slot in order
+    /// to achieve deterministic device selection via `device_instance`.
     pub device_instance: u32,
 }

@@ -749,7 +749,7 @@ message InstanceInterfaceConfig {
 
 // The configuration that a customer desires for an instances IB interface
 message InstanceIBInterfaceConfig {
-  // The device that gets configured
+  // The name of the device that gets configured
   string device = 1;
 
   // The device vendor.
@@ -757,7 +757,12 @@ message InstanceIBInterfaceConfig {
 
   reserved 3; // fabric
 
-  // The index of devices which is sorted by PCI slot.
+  // If multiple devices with the same name - and connected to the same
+  // fabric - are available, this selects the device among these.
+  // `device_instance == 1` selects the 2nd device of a certain type.
+  //
+  // Forge will internally order devices of the same type by PCI slot in order
+  // to achieve deterministic device selection via `device_instance`.
   uint32 device_instance = 4;
 
   // Whether the interface is a physical or virtual function
