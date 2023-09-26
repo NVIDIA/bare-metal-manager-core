@@ -611,34 +611,28 @@ where
         Ok(resp)
     }
 
-    async fn ib_subnets_for_vpc(
+    async fn ib_subnets_for_tenant(
         &self,
-        request: Request<rpc::VpcSearchQuery>,
+        request: Request<rpc::TenantSearchQuery>,
     ) -> Result<Response<IbSubnetList>, Status> {
         log_request_data(&request);
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "begin find_ib_subnets_for_vpc", e)
+            CarbideError::DatabaseError(file!(), "begin find_ib_subnets_for_tenant", e)
         })?;
 
-        let rpc::VpcSearchQuery { id, .. } = request.into_inner();
+        let rpc::TenantSearchQuery {
+            tenant_organization_id,
+        } = request.into_inner();
 
-        let _uuid = match id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Did not supply a valid VPC_ID UUID: {}",
-                        err
-                    )));
-                }
-            },
+        let _tenant_organization_id: String = match tenant_organization_id {
+            Some(id) => id,
             None => {
-                return Err(Status::invalid_argument("A VPC_ID UUID is required"));
+                return Err(Status::invalid_argument("A organization_id is required"));
             }
         };
 
-        let results = IBSubnet::for_vpc(&mut txn, _uuid)
+        let results = IBSubnet::for_tenant(&mut txn, _tenant_organization_id)
             .await
             .map_err(CarbideError::from)?;
 

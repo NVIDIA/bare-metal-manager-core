@@ -35,8 +35,8 @@ service Forge {
   rpc CreateIBSubnet(IBSubnetCreationRequest) returns (IBSubnet);
   // Delete a IB subnet
   rpc DeleteIBSubnet(IBSubnetDeletionRequest) returns (IBSubnetDeletionResult);
-  // Find all IB subnets under a specified pvc
-  rpc IBSubnetsForVpc(VpcSearchQuery) returns (IBSubnetList);
+  // Find all IB subnets under a specified tenant
+  rpc IBSubnetsForTenant(TenantSearchQuery) returns (IBSubnetList);
 
   // Manage instances on machines
   // Allocates a Machine as Instance for tenant, with the given configuration
@@ -274,6 +274,10 @@ message VpcSearchQuery {
   optional string name = 2;
 }
 
+message TenantSearchQuery {
+  optional string tenantOrganizationId = 1;
+}
+
 message Vpc {
   UUID id = 1;
   string name = 2;
@@ -365,8 +369,8 @@ enum TenantState {
 message IBSubnetConfig {
   // The name of IBSubnet.
   string name = 1;
-  // The ID of VPC that IBSubnet belong to
-  UUID vpc_id = 2;
+  // The ID of tenant that IBSubnet belong to
+  string tenantOrganizationId = 2;
 }
 
 // Describe the status and applied configuration of an IBSubnet
