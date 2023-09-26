@@ -13,9 +13,12 @@
 use regex::Regex;
 use rpc::machine_discovery::{DpuData, TorLldpData};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use tracing::{error, warn};
+use std::{collections::HashMap, time::Duration};
+use tokio::time::{sleep, Instant};
+use tracing::{debug, error, warn};
 use utils::cmd::{Cmd, CmdError};
+
+const LLDP_PORTS: &[&str] = &["p0", "p1", "oob_net0"];
 
 #[derive(thiserror::Error, Debug)]
 pub enum DpuEnumerationError {
@@ -74,30 +77,53 @@ pub struct LldpResponse {
     pub lldp: LldpInterface,
 }
 
-/// query lldp info for high speed ports p0..4, oob_net0 (some ports may not exist, warn on errors)
-/// translate to simpler tor struct for discovery info
-pub fn get_port_lldp_info(port: &str) -> Result<TorLldpData, DpuEnumerationError> {
-    let lldp_json: String = if cfg!(test) {
-        match std::fs::read_to_string("test/lldp_query.json") {
-            Ok(s) => s,
-            Err(e) => {
-                warn!("Could not read LLDP json: {e}");
-                return Err(DpuEnumerationError::Generic(e.to_string()));
-            }
-        }
+/// Get LLDP port info.
+pub fn get_lldp_port_info(port: &str) -> Result<String, DpuEnumerationError> {
+    if cfg!(test) {
+        std::fs::read_to_string("test/lldp_query.json").map_err(|e| {
+            warn!("Could not read LLDP json: {e}");
+            DpuEnumerationError::Generic(e.to_string())
+        })
     } else {
         let lldp_cmd = format!("lldpcli -f json show neighbors ports {}", port);
-        match Cmd::new("bash")
+        Cmd::new("bash")
             .args(vec!["-c", lldp_cmd.as_str()])
             .output()
-        {
-            Ok(s) => s,
-            Err(e) => {
+            .map_err(|e| {
                 warn!("Could not discover LLDP peer for {port}, {e}");
-                return Err(DpuEnumerationError::Generic(e.to_string()));
+                DpuEnumerationError::Generic(e.to_string())
+            })
+    }
+}
+
+pub async fn wait_until_all_ports_available() {
+    const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 5);
+    const RETRY_TIME: Duration = Duration::from_secs(5);
+    let now = Instant::now();
+    let mut ports_read = vec![];
+
+    for port in LLDP_PORTS.iter() {
+        while now.elapsed() <= MAX_TIMEOUT {
+            match get_port_lldp_info(port) {
+                Ok(_) => {
+                    ports_read.push(port);
+                    break;
+                }
+                Err(_e) => {
+                    warn!(port, "Port is not available yet.");
+                    sleep(RETRY_TIME).await;
+                }
             }
         }
-    };
+    }
+
+    debug!("lldp: Ports {:?} are read succesfully.", ports_read);
+}
+
+/// query lldp info for high speed ports p0..1, oob_net0 (some ports may not exist, warn on errors)
+/// translate to simpler tor struct for discovery info
+pub fn get_port_lldp_info(port: &str) -> Result<TorLldpData, DpuEnumerationError> {
+    let lldp_json: String = get_lldp_port_info(port)?;
 
     // deserialize
     let lldp_resp: LldpResponse = match serde_json::from_str(lldp_json.as_str()) {
@@ -143,7 +169,6 @@ fn get_flint_query() -> Result<String, DpuEnumerationError> {
 }
 
 pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
-    const LLDP_PORTS: &[&str] = &["p0", "p1", "oob_net0"];
     let fw_ver_pattern = Regex::new("FW Version:\\s*(.*?)$")?;
     let fw_date_pattern = Regex::new("FW Release Date:\\s*(.*?)$")?;
     let part_num_pattern = Regex::new("Part Number:\\s*(.*?)$")?;

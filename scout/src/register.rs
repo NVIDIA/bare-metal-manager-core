@@ -11,7 +11,8 @@
  */
 
 use forge_host_support::{
-    hardware_enumeration::enumerate_hardware, registration::register_machine,
+    hardware_enumeration::{dpu::wait_until_all_ports_available, enumerate_hardware},
+    registration::register_machine,
 };
 use tracing::info;
 
@@ -22,6 +23,9 @@ pub async fn run(
     root_ca: String,
     machine_interface_id: uuid::Uuid,
 ) -> Result<String, CarbideClientError> {
+    // wait for sometime until all ports received lldp broadcast.
+    wait_until_all_ports_available().await;
+
     let hardware_info = enumerate_hardware()?;
     info!("Successfully enumerated hardware");
 

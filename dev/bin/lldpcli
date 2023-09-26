@@ -1,4 +1,11 @@
-{
+#!/bin/bash
+#
+# forge-dpu-agent needs lldpcli commands to succeed.
+# lldpcli returns switch and port connection mapping.
+# The integration tests puts this path, hence this script, on the front of the PATH to ensure they do.
+#
+
+echo '{
   "lldp": {
     "interface": {
       "oob_net0": {
@@ -111,4 +118,4 @@
       }
     }
   }
-}
+}'

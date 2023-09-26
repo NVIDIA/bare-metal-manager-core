@@ -23,7 +23,7 @@ use rpc::machine_discovery::MemoryDevice;
 use tracing::{error, warn};
 use uname::uname;
 
-mod dpu;
+pub mod dpu;
 mod gpu;
 pub mod ib;
 mod tpm;
