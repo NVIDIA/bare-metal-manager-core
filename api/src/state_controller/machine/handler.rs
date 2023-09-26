@@ -482,7 +482,7 @@ impl StateHandler for DpuMachineStateHandler {
         host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
-        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _metrics: &mut Self::ObjectMetrics,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
@@ -494,6 +494,15 @@ impl StateHandler for DpuMachineStateHandler {
                 if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
                     return Ok(());
                 }
+
+                // the initial topology may be based on a different firmware version.  allow it to be
+                // updated once the reboot completes and sends new data.
+                MachineTopology::set_topology_update_needed(
+                    txn,
+                    &state.dpu_snapshot.machine_id,
+                    true,
+                )
+                .await?;
 
                 *controller_state.modify() = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkInstall,

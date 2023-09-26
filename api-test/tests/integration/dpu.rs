@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     grpcurl::{grpcurl, Id, Value},
-    machine::wait_for_state,
+    machine::{get_firmware_version, wait_for_state},
 };
 
 const DPU_CONFIG: &str = r#"
@@ -68,7 +68,8 @@ pub async fn bootstrap(
     carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
 ) -> eyre::Result<Info> {
-    let (interface_id, dpu_machine_id, ip_address) = discover(carbide_api_addr)?;
+    let (interface_id, dpu_machine_id, ip_address) =
+        discover(carbide_api_addr, Some("1.1.1".to_owned()))?;
 
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
     grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
@@ -78,7 +79,22 @@ pub async fn bootstrap(
         &dpu_machine_id,
         "DPU/WaitingForNetworkInstall",
     )?;
+
+    let firmware_version = get_firmware_version(carbide_api_addr, &dpu_machine_id)?;
+    assert_eq!(&firmware_version, "1.1.1");
+
+    discover(carbide_api_addr, Some("2.0.1".to_owned()))?;
+
     forge_agent_control(carbide_api_addr, dpu_machine_id.clone())?;
+
+    wait_for_state(
+        carbide_api_addr,
+        &dpu_machine_id,
+        "DPU/WaitingForNetworkConfig",
+    )?;
+
+    let firmware_version = get_firmware_version(carbide_api_addr, &dpu_machine_id)?;
+    assert_eq!(&firmware_version, "2.0.1");
 
     let hbn_root = configure_network(
         dpu_config_file,
@@ -98,10 +114,13 @@ pub async fn bootstrap(
     Ok(dpu)
 }
 
-fn discover(addr: SocketAddr) -> eyre::Result<(String, String, Ipv4Addr)> {
+fn discover(
+    addr: SocketAddr,
+    dpu_version: Option<String>,
+) -> eyre::Result<(String, String, Ipv4Addr)> {
     let (interface_id, ip_address) = discover_dhcp(addr)?;
     tracing::info!("Created Machine Interface with ID {interface_id}");
-    let dpu_machine_id = discover_dpu(addr, &interface_id)?;
+    let dpu_machine_id = discover_dpu(addr, &interface_id, dpu_version)?;
     tracing::info!("Created DPU Machine with ID {dpu_machine_id}");
     grpcurl(
         addr,
@@ -209,9 +228,18 @@ fn make_dpu_filesystem(
     Ok(hbn_root)
 }
 
-fn discover_dpu(addr: SocketAddr, interface_id: &str) -> eyre::Result<String> {
+fn discover_dpu(
+    addr: SocketAddr,
+    interface_id: &str,
+    dpu_version: Option<String>,
+) -> eyre::Result<String> {
     let data = include_str!("../../../dev/docker-env/dpu_machine_discovery.json")
         .replace("$MACHINE_INTERFACE_ID", interface_id);
+
+    let data = dpu_version
+        .as_ref()
+        .map_or(data.clone(), |dv| data.replace("24.35.2000", dv));
+    println!("data: {}", data);
     let response = grpcurl(addr, "DiscoverMachine", Some(data))?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
     let dpu_machine_id = resp["machineId"]["id"].as_str().unwrap().to_string();

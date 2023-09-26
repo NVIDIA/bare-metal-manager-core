@@ -32,7 +32,7 @@ pub fn wait_for_state(addr: SocketAddr, machine_id: &str, target_state: &str) ->
         if state.contains(target_state) {
             break;
         }
-        tracing::debug!("\tCurrent: {state}");
+        tracing::info!("\tCurrent: {state}");
         thread::sleep(time::Duration::from_secs(1));
         i += 1;
     }
@@ -43,4 +43,19 @@ pub fn wait_for_state(addr: SocketAddr, machine_id: &str, target_state: &str) ->
     }
 
     Ok(())
+}
+
+pub fn get_firmware_version(api_addr: SocketAddr, machine_id: &str) -> eyre::Result<String> {
+    let data = serde_json::json!({
+        "id": {"id": machine_id},
+        "search_config": {"include_dpus": true}
+    });
+    let response = grpcurl(api_addr, "FindMachines", Some(&data))?;
+    let resp: serde_json::Value = serde_json::from_str(&response)?;
+
+    let firmware_version = resp["machines"][0]["discoveryInfo"]["dpuInfo"]["firmwareVersion"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    Ok(firmware_version)
 }
