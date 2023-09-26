@@ -20,7 +20,7 @@ pub enum BmcMachineType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "lowercase")]
+#[serde(tag = "error_type", rename_all = "lowercase")]
 #[allow(clippy::enum_variant_names)]
 pub enum BmcMachineError {
     /// An unrecoverable error has occurred during redfish client creation or max retries was exceeded.
@@ -49,6 +49,15 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<BmcMachineState>(&serialized).unwrap(),
             state
+        );
+
+        let error_state = BmcMachineState::Error(BmcMachineError::RedfishConnection {
+            message: "failed to connect".to_string(),
+        });
+        let error_state_serialized = serde_json::to_string(&error_state).unwrap();
+        assert_eq!(
+            serde_json::from_str::<BmcMachineState>(&error_state_serialized).unwrap(),
+            error_state
         );
     }
 }
