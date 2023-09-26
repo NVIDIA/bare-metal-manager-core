@@ -59,6 +59,13 @@ include:
     ref: main
     file:
       - defaults.gitlab-ci.yml
+  - project: pstooling/gitlab-templates
+    ref: main
+    file: templates/pulse-in-pipeline/ContainerScan.gitlab-ci.yml
+  - project: 'pstooling/gitlab-templates'
+    ref: main
+    file:
+      - 'templates/pulse-in-pipeline/Scan.gitlab-ci.yml'
 
 prepare-ci:
   rules:
@@ -379,6 +386,11 @@ build-release-container-x86_64:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
       variables:
         DEPLOY_BUILT_CONTAINER: "false"
+  after_script:
+    - echo "CONTAINER_RELEASE_X86_64=$APPLICATION_DOCKER_IMAGE:$VERSION" > release-container-x86_64.env
+  artifacts:
+    reports:
+      dotenv: release-container-x86_64.env
 
 #
 # Build the final container that releases our code
@@ -541,16 +553,80 @@ build-release-artifacts-aarch64:
       variables:
         DEPLOY_BUILT_CONTAINER: "false"
 
-promote-images-to-production:
-  stage: publish
+get-crane:
+  stage: .pre
   image:
-    name: $CONTAINER_BUILD_X86_64
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  variables:
+    PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/busybox:/ko-app
+  script:
+    - cp $(which crane) .
+  artifacts:
+    paths:
+      - crane
+    when: always
+    expire_in: 1 day
+
+nspect-source-scan-x86_64:
+  stage: .pre
+  extends: .scan-with-report-no-fail
+  variables:
+    PULSE_NSPECT_ID: $NSPECT_ID
+    PULSE_REPO_URL: "${CI_PROJECT_URL}.git"
+    PULSE_SCAN_PROJECT: "carbide"
+    PULSE_SCAN_PROJECT_VERSION: "${CI_COMMIT_BRANCH}"
+    PULSE_SCAN_VULNERABILITY_REPORT: "nspect_${CI_COMMIT_BRANCH}_scan_report.json"
+  rules:
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+      variables:
+        PULSE_SCAN_OVERRIDE: "true"
+        PULSE_REPO_BRANCH: trunk
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+nspect-container-scan-x86_64:
+  stage: security
+  extends: .scan-dind-no-policy
+  services: []
+  dependencies:
+    - get-crane
+    - export-docker-json-config
+    - build-release-container-x86_64
+  needs:
+    - job: build-release-container-x86_64
+      optional: false
+    - job: get-crane
+      optional: false
+    - job: export-docker-json-config
+      optional: false
+  variables:
+    CONTAINER_IMAGE: $CONTAINER_RELEASE_X86_64
+  before_script:
+    - mkdir -p /root/.docker
+    - cp .docker/config.json /root/.docker/config.json
+  script:
+    - !reference [.scan_script, validate_requirements]
+    - !reference [.scan_script, get_ssa_token]
+    - echo "Using $CONTAINER_SCAN_HELPER_VERSION of the container scan helper."
+    - ./crane version
+    - ./crane pull ${CONTAINER_IMAGE} /tmp/archive.tar
+    - pulse-cli -n $NSPECT_ID --ssa $SSA_TOKEN scan -i /tmp/archive.tar --sbom json -o
+  rules:
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+
+promote-images-to-production:
+  stage: promote
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
   needs:
     - job: build-release-artifacts-aarch64
       optional: false
     - job: build-release-artifacts-x86_64
       optional: false
     - job: build-release-container-x86_64
+      optional: false
+    - job: nspect-container-scan-x86_64
       optional: false
   when: manual
   before_script: |
@@ -562,7 +638,7 @@ promote-images-to-production:
     crane copy $ARTIFACTS_DOCKER_IMAGE_AARCH64:$VERSION $ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION:$VERSION
     crane copy $ARTIFACTS_DOCKER_IMAGE_X86_64:$VERSION $ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION:$VERSION
   rules:
-    - if: $CI_PIPELINE_SOURCE != 'merge_request_event' || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
 
 license-checks:
   stage: security
