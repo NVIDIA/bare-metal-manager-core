@@ -28,6 +28,7 @@ use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
 pub struct InstanceMetadata {
     pub address: String,
     pub hostname: String,
+    pub user_data: String,
 }
 
 /// An interface for reading the latest received network configuration for
@@ -192,9 +193,16 @@ async fn fetch_latest_ip_addresses(
                 .and_then(|interface| interface.addresses.first().cloned())
         })
         .ok_or_else(|| eyre::eyre!("No suitable address found"))?;
+    let user_data = first_instance
+        .config
+        .as_ref()
+        .and_then(|config| config.tenant.as_ref())
+        .and_then(|tenant_config| tenant_config.user_data.clone())
+        .ok_or_else(|| eyre::eyre!("user data is not present in tenant config"))?;
 
     Ok(InstanceMetadata {
         address: pf_address,
         hostname,
+        user_data,
     })
 }
