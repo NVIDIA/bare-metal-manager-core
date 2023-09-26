@@ -182,9 +182,16 @@ impl DpuToNetworkDeviceMap {
 
         // Need to create 3 associations: oob_net0, p0 and p1
         for port in &[DpuLocalPorts::OobNet0, DpuLocalPorts::P0, DpuLocalPorts::P1] {
-            let data = get_tor_data(tor_data, port)?;
-            let tor = NetworkDevice::get_or_create_network_device(txn, data).await?;
-            Self::persist(txn, &data.local_port, dpu_id, tor.id()).await?;
+            // In case any port is missing, print error and continue to avoid discovery failure.
+            match get_tor_data(tor_data, port) {
+                Ok(data) => {
+                    let tor = NetworkDevice::get_or_create_network_device(txn, data).await?;
+                    Self::persist(txn, &data.local_port, dpu_id, tor.id()).await?;
+                }
+                Err(err) => {
+                    tracing::warn!(%port, error=format!("{err:#}"), "LLDP data missing");
+                }
+            }
         }
 
         Ok(())
