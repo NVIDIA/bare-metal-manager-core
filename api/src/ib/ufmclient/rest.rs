@@ -17,8 +17,8 @@ use std::time::Duration;
 use hyper::client::HttpConnector;
 use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
 use hyper::{Body, Client, Method, Uri};
+use hyper_rustls::HttpsConnector;
 use hyper_timeout::TimeoutConnector;
-use hyper_tls::HttpsConnector;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -115,7 +115,13 @@ impl RestClient {
         http_connector.set_read_timeout(Some(REST_TIME_OUT));
         http_connector.set_write_timeout(Some(REST_TIME_OUT));
 
-        let mut https_connector = TimeoutConnector::new(HttpsConnector::new());
+        let mut https_connector = TimeoutConnector::new(
+            hyper_rustls::HttpsConnectorBuilder::new()
+                .with_native_roots()
+                .https_only()
+                .enable_http1()
+                .build(),
+        );
         https_connector.set_connect_timeout(Some(REST_TIME_OUT));
         https_connector.set_read_timeout(Some(REST_TIME_OUT));
         https_connector.set_write_timeout(Some(REST_TIME_OUT));
