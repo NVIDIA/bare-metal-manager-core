@@ -96,6 +96,12 @@ pub enum CarbideCommand {
     Dpu(DpuAction),
     #[clap(about = "Cloud init override", subcommand)]
     BootOverride(BootOverrideAction),
+    #[clap(
+        about = "BMC Machine related handling",
+        subcommand,
+        visible_alias = "bmc"
+    )]
+    BmcMachine(BmcMachine),
 }
 
 #[derive(Parser, Debug)]
@@ -403,6 +409,8 @@ pub struct BMCConfigForReboot {
     pub machine: Option<String>,
 }
 
+pub type BMCConfigForReset = BMCConfigForReboot;
+
 #[derive(Parser, Debug)]
 pub struct MachineQuery {
     #[clap(
@@ -623,4 +631,10 @@ pub enum ResourcePool {
 pub struct ResourcePoolDefinition {
     #[clap(short, long)]
     pub filename: String,
+}
+
+#[derive(Parser, Debug)]
+pub enum BmcMachine {
+    #[clap(about = "Reset a BMC machine")]
+    Reset(BMCConfigForReset),
 }

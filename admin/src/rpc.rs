@@ -346,6 +346,8 @@ pub enum RebootAuth {
     Indirect { machine_id: String },
 }
 
+pub type ResetAuth = RebootAuth;
+
 pub async fn reboot(
     api_config: Config,
     ip: String,
@@ -564,6 +566,34 @@ pub async fn clear_boot_override(
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn bmc_reset(
+    api_config: Config,
+    ip: String,
+    port: Option<u32>,
+    auth: ResetAuth,
+) -> CarbideCliResult<rpc::AdminBmcResetResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let (user, password, machine_id) = match auth {
+            ResetAuth::Direct { user, password } => (Some(user), Some(password), None),
+            ResetAuth::Indirect { machine_id } => (None, None, Some(machine_id)),
+        };
+        let request = tonic::Request::new(rpc::AdminBmcResetRequest {
+            ip,
+            port,
+            user,
+            password,
+            machine_id,
+        });
+        let out = client
+            .admin_bmc_reset(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(out)
     })
     .await
 }

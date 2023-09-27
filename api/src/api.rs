@@ -3505,6 +3505,80 @@ where
 
         Ok(Response::new(data.into()))
     }
+
+    async fn admin_bmc_reset(
+        &self,
+        request: tonic::Request<rpc::AdminBmcResetRequest>,
+    ) -> Result<tonic::Response<rpc::AdminBmcResetResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        let req = request.into_inner();
+        let (user, password) = match (req.user, req.password, req.machine_id) {
+            // User provided username and password
+            (Some(u), Some(p), _) => (u, p),
+
+            // User provided machine_id
+            (_, _, Some(machine_id)) => {
+                let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
+                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
+                })?;
+                log_machine_id(&machine_id);
+
+                // Load credentials from Vault
+                let credentials = self
+                    .credential_provider
+                    .get_credentials(CredentialKey::Bmc {
+                        user_role: UserRoles::Administrator.to_string(),
+                        machine_id: machine_id.to_string(),
+                    })
+                    .await
+                    .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
+                        Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
+                            CarbideError::GenericError(format!(
+                                "Vault key not found: bmc-metadata-items for machine_id {machine_id}"
+                            ))
+                        }
+                        Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
+                        Err(err) => CarbideError::GenericError(format!(
+                            "Error getting credentials for BMC: {err:?}"
+                        )),
+                    })?;
+                let (username, password) = match credentials {
+                    Credentials::UsernamePassword { username, password } => (username, password),
+                };
+                (username, password)
+            }
+
+            _ => {
+                return Err(Status::invalid_argument(
+                    "Please provider either machine_id, or both user and password",
+                ));
+            }
+        };
+
+        // libredfish uses reqwest in blocking mode, making and dropping a runtime
+        tokio::task::spawn_blocking(move || -> Result<(), libredfish::RedfishError> {
+            let endpoint = libredfish::Endpoint {
+                user: Some(user),
+                password: Some(password),
+                host: req.ip.clone(),
+                // Option<u32> -> Option<u16> because no uint16 in protobuf
+                port: req.port.map(|p| p as u16),
+            };
+
+            let pool = libredfish::RedfishClientPool::builder().build()?;
+            let redfish = pool.create_client(endpoint)?;
+            tracing::info!(ip = req.ip, "BMC reseting");
+            redfish.bmc_reset()?;
+            tracing::info!(ip = req.ip, "Reset request succeeded");
+            Ok(())
+        })
+        .await
+        .map_err(CarbideError::from)?
+        .map_err(CarbideError::from)?;
+
+        Ok(Response::new(rpc::AdminBmcResetResponse {}))
+    }
 }
 
 ///
