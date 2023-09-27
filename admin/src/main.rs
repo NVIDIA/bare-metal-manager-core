@@ -505,7 +505,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         },
-        CarbideCommand::NetworkDevice(lldp) => match lldp {
+        CarbideCommand::NetworkDevice(data) => match data {
             cfg::carbide_options::NetworkDeviceAction::Show(args) => {
                 network_devices::show(config.format, args, api_config).await?;
             }

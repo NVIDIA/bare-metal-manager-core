@@ -70,7 +70,7 @@ use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, ManagedHostState, ReprovisionState,
 };
-use crate::model::network_devices::{DpuToNetworkDeviceMap, LldpTopologyData};
+use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkTopologyData};
 use crate::model::network_segment::{NetworkDefinition, NetworkSegmentControllerState};
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
@@ -1829,9 +1829,9 @@ where
         if hardware_info.is_dpu() {
             // Create DPU and LLDP Association.
             if let Some(dpu_info) = hardware_info.dpu_info.as_ref() {
-                DpuToNetworkDeviceMap::create_dpu_tor_association(
+                DpuToNetworkDeviceMap::create_dpu_network_device_association(
                     &mut txn,
-                    &dpu_info.tors,
+                    &dpu_info.switches,
                     &stable_machine_id,
                 )
                 .await
@@ -3477,10 +3477,10 @@ where
         Ok(tonic::Response::new(()))
     }
 
-    async fn get_lldp_topology(
+    async fn get_network_topology(
         &self,
-        request: tonic::Request<rpc::LldpTopologyRequest>,
-    ) -> Result<tonic::Response<rpc::LldpTopologyData>, tonic::Status> {
+        request: tonic::Request<rpc::NetworkTopologyRequest>,
+    ) -> Result<tonic::Response<rpc::NetworkTopologyData>, tonic::Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -3495,7 +3495,7 @@ where
             None => ObjectFilter::All,
         };
 
-        let data = LldpTopologyData::get_topology(&mut txn, query)
+        let data = NetworkTopologyData::get_topology(&mut txn, query)
             .await
             .map_err(CarbideError::from)?;
 

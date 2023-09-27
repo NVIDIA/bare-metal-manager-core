@@ -18,7 +18,7 @@ async fn test_lldp_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let topology = env
         .api
-        .get_lldp_topology(tonic::Request::new(rpc::forge::LldpTopologyRequest {
+        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
@@ -48,14 +48,14 @@ async fn test_lldp_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert!(!topology.network_devices[1].mgmt_ip.is_empty());
     assert!(!topology.network_devices[2].mgmt_ip.is_empty());
 
-    assert_eq!(topology.network_devices[0].dpus.len(), 1);
-    assert_eq!(topology.network_devices[1].dpus.len(), 1);
-    assert_eq!(topology.network_devices[2].dpus.len(), 1);
+    assert_eq!(topology.network_devices[0].devices.len(), 1);
+    assert_eq!(topology.network_devices[1].devices.len(), 1);
+    assert_eq!(topology.network_devices[2].devices.len(), 1);
 
     let ports: HashSet<String> = topology
         .network_devices
         .iter()
-        .map(|x| x.dpus[0].local_port.clone())
+        .map(|x| x.devices[0].local_port.clone())
         .collect();
     let expected_ports = HashSet::from(["oob_net0", "p0", "p1"].map(|x| x.to_string()));
     assert_eq!(ports, expected_ports);
@@ -72,15 +72,15 @@ async fn test_lldp_topology_force_delete(
 
     let topology = env
         .api
-        .get_lldp_topology(tonic::Request::new(rpc::forge::LldpTopologyRequest {
+        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
         .into_inner();
 
-    assert_eq!(topology.network_devices[0].dpus.len(), 1);
-    assert_eq!(topology.network_devices[1].dpus.len(), 1);
-    assert_eq!(topology.network_devices[2].dpus.len(), 1);
+    assert_eq!(topology.network_devices[0].devices.len(), 1);
+    assert_eq!(topology.network_devices[1].devices.len(), 1);
+    assert_eq!(topology.network_devices[2].devices.len(), 1);
 
     env.api
         .admin_force_delete_machine(tonic::Request::new(
@@ -94,15 +94,15 @@ async fn test_lldp_topology_force_delete(
 
     let topology = env
         .api
-        .get_lldp_topology(tonic::Request::new(rpc::forge::LldpTopologyRequest {
+        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
         .into_inner();
 
-    assert!(topology.network_devices[0].dpus.is_empty());
-    assert!(topology.network_devices[1].dpus.is_empty());
-    assert!(topology.network_devices[2].dpus.is_empty());
+    assert!(topology.network_devices[0].devices.is_empty());
+    assert!(topology.network_devices[1].devices.is_empty());
+    assert!(topology.network_devices[2].devices.is_empty());
 
     Ok(())
 }
@@ -116,7 +116,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let topology = env
         .api
-        .get_lldp_topology(tonic::Request::new(rpc::forge::LldpTopologyRequest {
+        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
@@ -128,7 +128,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .iter()
         .filter(|x| x.id == "mac=a1:b1:c1:00:00:01")
         .collect_vec()[0]
-        .dpus
+        .devices
         .is_empty());
 
     let mut txn = pool.begin().await.unwrap();
@@ -154,7 +154,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let topology = env
         .api
-        .get_lldp_topology(tonic::Request::new(rpc::forge::LldpTopologyRequest {
+        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
@@ -173,7 +173,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .iter()
         .filter(|x| x.id == "mac=a1:b1:c1:00:00:11")
         .collect_vec()[0]
-        .dpus
+        .devices
         .is_empty());
 
     let _dpu_rpc_machine_id = dpu_discover_machine(
@@ -187,7 +187,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let topology = env
         .api
-        .get_lldp_topology(tonic::Request::new(rpc::forge::LldpTopologyRequest {
+        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
@@ -199,7 +199,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .iter()
         .filter(|x| x.id == "mac=a1:b1:c1:00:00:01")
         .collect_vec()[0]
-        .dpus
+        .devices
         .is_empty());
 
     assert!(topology
@@ -207,7 +207,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .iter()
         .filter(|x| x.id == "mac=a1:b1:c1:00:00:11")
         .collect_vec()[0]
-        .dpus
+        .devices
         .is_empty());
 
     Ok(())

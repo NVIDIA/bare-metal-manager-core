@@ -207,7 +207,7 @@
     "firmware_version": "24.35.2000",
     "part_description": "BlueField-2 P-Series DPU 100GbE Dual-Port QSFP56; integrated BMC; PCIe Gen4 x16; Secure Boot Enabled; Crypto Enabled; 32GB on-board DDR; 1GbE OOB management; FHHL",
     "factory_mac_address": "03:11:21:31:41:52 REPLACED BY TEST",
-    "tors": [
+    "switches": [
       {
         "name": "RNO1-M03-B17-IPMI-01",
         "id": "mac=a1:b1:c1:00:00:01",
