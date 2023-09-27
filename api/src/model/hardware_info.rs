@@ -131,11 +131,11 @@ pub struct DpuData {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub firmware_date: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tors: Vec<TorLldpData>,
+    pub switches: Vec<LldpSwitchData>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TorLldpData {
+pub struct LldpSwitchData {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -347,10 +347,10 @@ impl TryFrom<DmiData> for rpc::machine_discovery::DmiData {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::TorLldpData> for TorLldpData {
+impl TryFrom<rpc::machine_discovery::LldpSwitchData> for LldpSwitchData {
     type Error = RpcDataConversionError;
 
-    fn try_from(data: rpc::machine_discovery::TorLldpData) -> Result<Self, Self::Error> {
+    fn try_from(data: rpc::machine_discovery::LldpSwitchData) -> Result<Self, Self::Error> {
         Ok(Self {
             name: data.name,
             id: data.id,
@@ -361,10 +361,10 @@ impl TryFrom<rpc::machine_discovery::TorLldpData> for TorLldpData {
     }
 }
 
-impl TryFrom<TorLldpData> for rpc::machine_discovery::TorLldpData {
+impl TryFrom<LldpSwitchData> for rpc::machine_discovery::LldpSwitchData {
     type Error = RpcDataConversionError;
 
-    fn try_from(data: TorLldpData) -> Result<Self, Self::Error> {
+    fn try_from(data: LldpSwitchData) -> Result<Self, Self::Error> {
         Ok(Self {
             name: data.name,
             id: data.id,
@@ -386,7 +386,7 @@ impl TryFrom<rpc::machine_discovery::DpuData> for DpuData {
             factory_mac_address: data.factory_mac_address,
             firmware_version: data.firmware_version,
             firmware_date: data.firmware_date,
-            tors: try_convert_vec(data.tors)?,
+            switches: try_convert_vec(data.switches)?,
         })
     }
 }
@@ -402,7 +402,7 @@ impl TryFrom<DpuData> for rpc::machine_discovery::DpuData {
             factory_mac_address: data.factory_mac_address,
             firmware_version: data.firmware_version,
             firmware_date: data.firmware_date,
-            tors: try_convert_vec(data.tors)?,
+            switches: try_convert_vec(data.switches)?,
         })
     }
 }

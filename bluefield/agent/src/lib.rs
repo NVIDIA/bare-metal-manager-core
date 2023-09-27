@@ -302,7 +302,7 @@ async fn register(agent: &AgentConfig) -> Result<String, eyre::Report> {
             factory_mac_address: "11:22:33:44:55:66".to_string(),
             firmware_version: "1".to_string(),
             firmware_date: "01/01/1970".to_string(),
-            tors: vec![],
+            switches: vec![],
         });
     }
 

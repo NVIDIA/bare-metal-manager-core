@@ -98,7 +98,7 @@ message PciDeviceProperties{
   optional string slot = 6;
 }
 
-message TorLldpData {
+message LldpSwitchData {
   string name = 1;
   string id = 2;
   string description = 3;
@@ -113,7 +113,7 @@ message DpuData {
   string factory_mac_address = 4;
   string firmware_version = 5;
   string firmware_date = 6;
-  repeated TorLldpData tors = 7;
+  repeated LldpSwitchData switches = 7;
 }
 
 message Gpu {

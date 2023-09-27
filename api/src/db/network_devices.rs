@@ -13,10 +13,10 @@
 use sqlx::{Postgres, Transaction};
 
 use crate::model::{
-    hardware_info::TorLldpData,
+    hardware_info::LldpSwitchData,
     machine::machine_id::MachineId,
     network_devices::{
-        DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, LldpTopologyData, NetworkDevice,
+        DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, NetworkDevice, NetworkTopologyData,
     },
 };
 
@@ -32,20 +32,20 @@ impl NetworkDeviceSearchConfig {
     }
 }
 
-fn get_tor_data<'a>(
-    data: &'a [TorLldpData],
+fn get_port_data<'a>(
+    data: &'a [LldpSwitchData],
     port: &DpuLocalPorts,
-) -> Result<&'a TorLldpData, LldpError> {
-    let tor_data = data
+) -> Result<&'a LldpSwitchData, LldpError> {
+    let port_data = data
         .iter()
         .filter(|x| x.local_port == port.to_string())
-        .collect::<Vec<&TorLldpData>>();
+        .collect::<Vec<&LldpSwitchData>>();
 
-    let tor_data = tor_data
+    let port_data = port_data
         .get(0)
         .ok_or(LldpError::MissingPort(port.to_string()))?;
 
-    Ok(*tor_data)
+    Ok(*port_data)
 }
 
 impl NetworkDevice {
@@ -92,9 +92,9 @@ impl NetworkDevice {
         Ok(devices)
     }
 
-    async fn persist(
+    async fn create(
         txn: &mut Transaction<'_, Postgres>,
-        data: &TorLldpData,
+        data: &LldpSwitchData,
     ) -> Result<Self, DatabaseError> {
         let query = "INSERT INTO network_devices(id, name, description, ip_addresses) VALUES($1, $2, $3, $4::inet[]) RETURNING *";
 
@@ -110,9 +110,9 @@ impl NetworkDevice {
 
     pub async fn get_or_create_network_device(
         txn: &mut Transaction<'_, Postgres>,
-        data: &TorLldpData,
+        data: &LldpSwitchData,
     ) -> Result<NetworkDevice, LldpError> {
-        let tor = NetworkDevice::find(
+        let network_device = NetworkDevice::find(
             txn,
             ObjectFilter::One(&data.id),
             &NetworkDeviceSearchConfig::new(false),
@@ -120,18 +120,18 @@ impl NetworkDevice {
         .await
         .map_err(LldpError::from)?;
 
-        if !tor.is_empty() {
-            return Ok(tor[0].clone());
+        if !network_device.is_empty() {
+            return Ok(network_device[0].clone());
         }
 
-        NetworkDevice::persist(txn, data)
+        NetworkDevice::create(txn, data)
             .await
             .map_err(LldpError::from)
     }
 }
 
 impl DpuToNetworkDeviceMap {
-    pub async fn persist(
+    pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
         local_port: &str,
         dpu_id: &MachineId,
@@ -167,15 +167,15 @@ impl DpuToNetworkDeviceMap {
         Ok(())
     }
 
-    pub async fn create_dpu_tor_association(
+    pub async fn create_dpu_network_device_association(
         txn: &mut Transaction<'_, Postgres>,
-        tor_data: &[TorLldpData],
+        device_data: &[LldpSwitchData],
         dpu_id: &MachineId,
     ) -> Result<(), LldpError> {
         // It is possible that due to older dpu_agent, this data is null for now. In any case,
         // discovery functionality should not be broken.
         // TODO: This check should be removed after sometime.
-        if tor_data.is_empty() {
+        if device_data.is_empty() {
             tracing::warn!(machine_id=%dpu_id, "LLDP data is empty for DPU.");
             return Ok(());
         }
@@ -183,10 +183,10 @@ impl DpuToNetworkDeviceMap {
         // Need to create 3 associations: oob_net0, p0 and p1
         for port in &[DpuLocalPorts::OobNet0, DpuLocalPorts::P0, DpuLocalPorts::P1] {
             // In case any port is missing, print error and continue to avoid discovery failure.
-            match get_tor_data(tor_data, port) {
+            match get_port_data(device_data, port) {
                 Ok(data) => {
                     let tor = NetworkDevice::get_or_create_network_device(txn, data).await?;
-                    Self::persist(txn, &data.local_port, dpu_id, tor.id()).await?;
+                    Self::create(txn, &data.local_port, dpu_id, tor.id()).await?;
                 }
                 Err(err) => {
                     tracing::warn!(%port, error=format!("{err:#}"), "LLDP data missing");
@@ -211,12 +211,12 @@ impl DpuToNetworkDeviceMap {
     }
 }
 
-impl LldpTopologyData {
+impl NetworkTopologyData {
     pub async fn get_topology(
         txn: &mut Transaction<'_, Postgres>,
         filter: ObjectFilter<'_, &str>,
     ) -> Result<Self, LldpError> {
-        Ok(LldpTopologyData {
+        Ok(NetworkTopologyData {
             network_devices: NetworkDevice::find(
                 txn,
                 filter,

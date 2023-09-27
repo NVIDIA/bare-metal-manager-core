@@ -11,7 +11,7 @@
  */
 
 use regex::Regex;
-use rpc::machine_discovery::{DpuData, TorLldpData};
+use rpc::machine_discovery::{DpuData, LldpSwitchData};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -125,7 +125,7 @@ pub fn wait_until_all_ports_available() {
 
 /// query lldp info for high speed ports p0..1, oob_net0 (some ports may not exist, warn on errors)
 /// translate to simpler tor struct for discovery info
-pub fn get_port_lldp_info(port: &str) -> Result<TorLldpData, DpuEnumerationError> {
+pub fn get_port_lldp_info(port: &str) -> Result<LldpSwitchData, DpuEnumerationError> {
     let lldp_json: String = get_lldp_port_info(port)?;
 
     // deserialize
@@ -137,7 +137,7 @@ pub fn get_port_lldp_info(port: &str) -> Result<TorLldpData, DpuEnumerationError
         }
     };
 
-    let mut lldp_info: TorLldpData = Default::default();
+    let mut lldp_info: LldpSwitchData = Default::default();
     // copy over useful fields
     if let Some(lldp_data) = lldp_resp.lldp.interface.get(port) {
         for (tor, tor_data) in lldp_data.chassis.iter() {
@@ -268,11 +268,11 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
     }
 
     wait_until_all_ports_available();
-    let mut tors: Vec<TorLldpData> = vec![];
+    let mut switches: Vec<LldpSwitchData> = vec![];
     for port in LLDP_PORTS.iter() {
         match get_port_lldp_info(port) {
             Ok(lldp_info) => {
-                tors.push(lldp_info);
+                switches.push(lldp_info);
             }
             Err(_e) => {}
         }
@@ -285,7 +285,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         factory_mac_address: factory_mac,
         firmware_version: fw_ver[0].clone(),
         firmware_date: fw_date[0].clone(),
-        tors: tors.clone(),
+        switches,
     };
     Ok(dpu_info)
 }

@@ -174,9 +174,8 @@ service Forge {
   rpc SetMachineBootOverride(MachineBootOverride) returns (google.protobuf.Empty);
   rpc ClearMachineBootOverride(UUID) returns (google.protobuf.Empty);
   
-  // LLDP (Link Layer DIscovery Protocol)
-  // Get LLDP topology
-  rpc GetLldpTopology(LldpTopologyRequest) returns (LldpTopologyData);
+  // Get Network topology
+  rpc GetNetworkTopology(NetworkTopologyRequest) returns (NetworkTopologyData);
 }
 
 message VersionResult {
@@ -1688,12 +1687,14 @@ message MachineBootOverride {
   optional string custom_user_data = 3;
 }
 
-message LldpDpu {
+// A connected device is described by DPU and local port.
+message ConnectedDevice {
   MachineId id = 1;
   string local_port = 2;
 }
 
-message LldpNetworkDevice {
+// NetworkDevice and Switch are used interchangeably.
+message NetworkDevice {
   string id = 1;
   string name = 2;
   optional string description = 3;
@@ -1701,13 +1702,13 @@ message LldpNetworkDevice {
   string discovered_via = 5;
   string device_type = 6;
 
-  repeated LldpDpu dpus = 7;
+  repeated ConnectedDevice devices = 7;
 }
 
-message LldpTopologyRequest {
+message NetworkTopologyRequest {
   optional string id = 1;
 }
 
-message LldpTopologyData {
-  repeated LldpNetworkDevice network_devices = 1;
+message NetworkTopologyData {
+  repeated NetworkDevice network_devices = 1;
 }

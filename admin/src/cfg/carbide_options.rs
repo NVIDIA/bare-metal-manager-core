@@ -150,19 +150,19 @@ pub struct BootOverrideSet {
 
 #[derive(Parser, Debug)]
 pub enum NetworkDeviceAction {
-    Show(LldpShow),
+    Show(NetworkDeviceShow),
 }
 
 #[derive(Parser, Debug)]
 #[clap(group(
-        ArgGroup::new("show_lldp")
+        ArgGroup::new("show_nd")
         .required(true)
         .args(&["all", "id"])))]
-pub struct LldpShow {
-    #[clap(short, long, action, help = "Show all racks")]
+pub struct NetworkDeviceShow {
+    #[clap(short, long, action, help = "Show all network devices")]
     pub all: bool,
 
-    #[clap(short, long, help = "Show data for given rack")]
+    #[clap(short, long, help = "Show data for given network devices")]
     pub id: Option<String>,
 }
 
