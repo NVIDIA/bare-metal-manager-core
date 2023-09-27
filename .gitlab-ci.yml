@@ -586,7 +586,7 @@ nspect-source-scan-x86_64:
 
 nspect-container-scan-x86_64:
   stage: security
-  extends: .scan-dind-no-policy
+  extends: .scan-dind-override-report
   services: []
   dependencies:
     - get-crane
@@ -610,7 +610,7 @@ nspect-container-scan-x86_64:
     - echo "Using $CONTAINER_SCAN_HELPER_VERSION of the container scan helper."
     - ./crane version
     - ./crane pull ${CONTAINER_IMAGE} /tmp/archive.tar
-    - pulse-cli -n $NSPECT_ID --ssa $SSA_TOKEN scan -i /tmp/archive.tar --sbom json -o
+    - pulse-cli -n $NSPECT_ID --ssa $SSA_TOKEN -p .gitlab/runtime-container-policy.json scan --override=true --program-version="Forge-LPR" --is-release=true -i /tmp/archive.tar --sbom json -o
   rules:
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
 
