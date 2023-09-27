@@ -76,7 +76,7 @@ pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultCli
         .with_description(
             "The amount of time, in seconds, until the vault token is required to be refreshed",
         )
-        .with_unit(Unit::new("secs"))
+        .with_unit(Unit::new("s"))
         .init();
     let vault_request_duration_histogram = meter
         .u64_histogram("carbide-api.vault.request_duration")
