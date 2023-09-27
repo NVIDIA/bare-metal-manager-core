@@ -19,7 +19,6 @@ use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
 use ::rpc::machine_discovery::DpuData;
 use axum::Router;
-use forge_host_support::hardware_enumeration::dpu::wait_until_all_ports_available;
 use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware, registration,
     registration::register_machine,
@@ -281,9 +280,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
 /// Discover hardware, register DPU with carbide-api, and return machine id
 async fn register(agent: &AgentConfig) -> Result<String, eyre::Report> {
-    // wait for sometime until all ports received lldp broadcast.
-    wait_until_all_ports_available().await;
-
     let interface_id = agent.machine.interface_id;
     let mut hardware_info = enumerate_hardware()?;
     debug!("Successfully enumerated DPU hardware");
