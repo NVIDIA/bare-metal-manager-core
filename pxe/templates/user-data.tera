@@ -7,8 +7,8 @@ WITH_NIC_FW_UPDATE=yes
 {% else %}
 WITH_NIC_FW_UPDATE=no
 ENABLE_SFC_HBN=yes
-NUM_SFs_ECPF0=18
-NUM_SFs_ECPF1=2
+NUM_VFs_PHYS_PORT0=16
+NUM_VFs_PHYS_PORT1=0
 {% endif %}
 
 bfb_modify_os()

@@ -9,7 +9,8 @@
 # its affiliates is strictly prohibited.
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
-REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_PROJECT_DIR"]}}
+#REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_PROJECT_DIR"]}}
+REPO_ROOT = "/home/mbasnight/src/carbide"
 CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = ["CARBIDE_ENVIRONMENT"] } }
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
