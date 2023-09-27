@@ -13,8 +13,11 @@
 use regex::Regex;
 use rpc::machine_discovery::{DpuData, TorLldpData};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::Duration};
-use tokio::time::{sleep, Instant};
+use std::{
+    collections::HashMap,
+    thread::sleep,
+    time::{Duration, Instant},
+};
 use tracing::{debug, error, warn};
 use utils::cmd::{Cmd, CmdError};
 
@@ -96,7 +99,7 @@ pub fn get_lldp_port_info(port: &str) -> Result<String, DpuEnumerationError> {
     }
 }
 
-pub async fn wait_until_all_ports_available() {
+pub fn wait_until_all_ports_available() {
     const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 5);
     const RETRY_TIME: Duration = Duration::from_secs(5);
     let now = Instant::now();
@@ -111,7 +114,7 @@ pub async fn wait_until_all_ports_available() {
                 }
                 Err(_e) => {
                     warn!(port, "Port is not available yet.");
-                    sleep(RETRY_TIME).await;
+                    sleep(RETRY_TIME);
                 }
             }
         }
@@ -264,6 +267,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         factory_mac.insert(14, ':');
     }
 
+    wait_until_all_ports_available();
     let mut tors: Vec<TorLldpData> = vec![];
     for port in LLDP_PORTS.iter() {
         match get_port_lldp_info(port) {
