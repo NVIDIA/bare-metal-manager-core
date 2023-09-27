@@ -1809,6 +1809,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "eyre",
+ "opentelemetry_api",
  "rand",
  "rpc",
  "serde",

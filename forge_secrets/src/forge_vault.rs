@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use eyre::WrapErr;
+use opentelemetry_api::metrics::{Counter, Histogram, ObservableGauge};
+use opentelemetry_api::KeyValue;
 use rand::Rng;
 use tokio::sync::RwLock;
 use vaultrs::api::pki::requests::GenerateCertificateRequest;
@@ -41,14 +43,27 @@ pub struct ForgeVaultClientConfig {
     pub vault_root_ca_path: String,
 }
 
+pub struct ForgeVaultMetrics {
+    pub vault_requests_total_counter: Counter<u64>,
+    pub vault_requests_succeeded_counter: Counter<u64>,
+    pub vault_requests_failed_counter: Counter<u64>,
+    pub vault_token_time_remaining_until_refresh: ObservableGauge<u64>,
+    pub vault_request_duration_histogram: Histogram<u64>,
+}
+
 pub struct ForgeVaultClient {
+    vault_metrics: ForgeVaultMetrics,
     vault_client_config: ForgeVaultClientConfig,
     vault_auth_status: RwLock<ForgeVaultAuthenticationStatus>,
 }
 
 impl ForgeVaultClient {
-    pub fn new(vault_client_config: ForgeVaultClientConfig) -> Self {
+    pub fn new(
+        vault_client_config: ForgeVaultClientConfig,
+        vault_metrics: ForgeVaultMetrics,
+    ) -> Self {
         Self {
+            vault_metrics,
             vault_client_config,
             vault_auth_status: RwLock::new(ForgeVaultAuthenticationStatus::Initialized),
         }
@@ -57,7 +72,11 @@ impl ForgeVaultClient {
 
 #[async_trait]
 pub trait VaultTask<T> {
-    async fn execute(&self, vault_client: &VaultClient) -> Result<T, eyre::Report>;
+    async fn execute(
+        &self,
+        vault_client: &VaultClient,
+        vault_metrics: &ForgeVaultMetrics,
+    ) -> Result<T, eyre::Report>;
 }
 
 pub struct VaultTaskHelper<V, T>
@@ -131,15 +150,42 @@ where
                         forge_vault_client,
                     )?;
                     let vault_client = VaultClient::new(vault_client_settings)?;
-                    let auth_info = vaultrs::auth::kubernetes::login(
+                    forge_vault_client
+                        .vault_metrics
+                        .vault_requests_total_counter
+                        .add(1, &[KeyValue::new("type", "service_account_login")]);
+                    let time_started_vault_request = Instant::now();
+                    let vault_response = vaultrs::auth::kubernetes::login(
                         &vault_client,
                         "kubernetes",
                         "carbide-api",
                         jwt.as_str(),
                     )
-                    .await
-                    .wrap_err("Failed to execute kubernetes service account login request")?;
+                    .await;
+                    let elapsed_request_duration =
+                        time_started_vault_request.elapsed().as_millis() as u64;
+                    forge_vault_client
+                        .vault_metrics
+                        .vault_request_duration_histogram
+                        .record(
+                            elapsed_request_duration,
+                            &[KeyValue::new("type", "service_account_login")],
+                        );
+                    let auth_info = vault_response
+                        .map_err(|err| {
+                            forge_vault_client
+                                .vault_metrics
+                                .vault_requests_failed_counter
+                                .add(1, &[KeyValue::new("type", "service_account_login")]);
 
+                            err
+                        })
+                        .wrap_err("Failed to execute kubernetes service account login request")?;
+
+                    forge_vault_client
+                        .vault_metrics
+                        .vault_requests_succeeded_counter
+                        .add(1, &[KeyValue::new("type", "service_account_login")]);
                     // start refreshing before it expires
                     let lease_expiry_secs = (0.9 * auth_info.lease_duration as f64) as u64;
                     (auth_info.client_token, lease_expiry_secs)
@@ -176,6 +222,14 @@ where
             match *vault_auth_status {
                 ForgeVaultAuthenticationStatus::Initialized => true,
                 ForgeVaultAuthenticationStatus::Authenticated(ref authentication, ref _client) => {
+                    let time_remaining_until_refresh = authentication
+                        .expiry
+                        .saturating_duration_since(Instant::now());
+                    vault_client
+                        .vault_metrics
+                        .vault_token_time_remaining_until_refresh
+                        .observe(time_remaining_until_refresh.as_secs(), &[]);
+
                     Instant::now() >= authentication.expiry
                 }
             }
@@ -190,11 +244,12 @@ where
 
     pub async fn execute(self, vault_client: &ForgeVaultClient) -> Result<T, eyre::Report> {
         self.vault_client_setup(vault_client).await?;
+        let vault_metrics = &vault_client.vault_metrics;
         let auth_status = vault_client.vault_auth_status.read().await;
         if let ForgeVaultAuthenticationStatus::Authenticated(_, ref vault_client) =
             auth_status.deref()
         {
-            self.task.execute(vault_client).await
+            self.task.execute(vault_client, vault_metrics).await
         } else {
             Err(eyre::eyre!("vault wasn't initialized?"))
         }
@@ -208,18 +263,39 @@ pub struct GetCredentialsHelper {
 
 #[async_trait]
 impl VaultTask<Credentials> for GetCredentialsHelper {
-    async fn execute(&self, vault_client: &VaultClient) -> Result<Credentials, eyre::Report> {
-        let credentials = kv2::read(
+    async fn execute(
+        &self,
+        vault_client: &VaultClient,
+        vault_metrics: &ForgeVaultMetrics,
+    ) -> Result<Credentials, eyre::Report> {
+        vault_metrics
+            .vault_requests_total_counter
+            .add(1, &[KeyValue::new("type", "get_credentials")]);
+
+        let time_started_vault_request = Instant::now();
+        let vault_response = kv2::read(
             vault_client,
             &self.kv_mount_location,
             self.key.to_key_str().as_str(),
         )
-        .await
-        .map_err(|err| {
+        .await;
+        let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
+        vault_metrics.vault_request_duration_histogram.record(
+            elapsed_request_duration,
+            &[KeyValue::new("type", "get_credentials")],
+        );
+
+        let credentials = vault_response.map_err(|err| {
+            vault_metrics
+                .vault_requests_failed_counter
+                .add(1, &[KeyValue::new("type", "get_credentials")]);
             tracing::error!("Error getting credentials. Error: {err:?}");
             err
         })?;
 
+        vault_metrics
+            .vault_requests_succeeded_counter
+            .add(1, &[KeyValue::new("type", "get_credentials")]);
         Ok(credentials)
     }
 }
@@ -232,19 +308,40 @@ pub struct SetCredentialsHelper {
 
 #[async_trait]
 impl VaultTask<()> for SetCredentialsHelper {
-    async fn execute(&self, vault_client: &VaultClient) -> Result<(), eyre::Report> {
-        let _secret_version_metadata = kv2::set(
+    async fn execute(
+        &self,
+        vault_client: &VaultClient,
+        vault_metrics: &ForgeVaultMetrics,
+    ) -> Result<(), eyre::Report> {
+        vault_metrics
+            .vault_requests_total_counter
+            .add(1, &[KeyValue::new("type", "set_credentials")]);
+
+        let time_started_vault_request = Instant::now();
+        let vault_response = kv2::set(
             vault_client,
             &self.kv_mount_location,
             self.key.to_key_str().as_str(),
             &self.credentials,
         )
-        .await
-        .map_err(|err| {
+        .await;
+        let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
+        vault_metrics.vault_request_duration_histogram.record(
+            elapsed_request_duration,
+            &[KeyValue::new("type", "set_credentials")],
+        );
+
+        let _secret_version_metadata = vault_response.map_err(|err| {
+            vault_metrics
+                .vault_requests_failed_counter
+                .add(1, &[KeyValue::new("type", "set_credentials")]);
             tracing::error!("Error setting credentials. Error: {err:?}");
             err
         })?;
 
+        vault_metrics
+            .vault_requests_succeeded_counter
+            .add(1, &[KeyValue::new("type", "set_credentials")]);
         Ok(())
     }
 }
@@ -288,7 +385,15 @@ impl<S> VaultTask<Certificate> for GetCertificateHelper<S>
 where
     S: AsRef<str> + Sync + Send,
 {
-    async fn execute(&self, vault_client: &VaultClient) -> Result<Certificate, eyre::Report> {
+    async fn execute(
+        &self,
+        vault_client: &VaultClient,
+        vault_metrics: &ForgeVaultMetrics,
+    ) -> Result<Certificate, eyre::Report> {
+        vault_metrics
+            .vault_requests_total_counter
+            .add(1, &[KeyValue::new("type", "get_certificate")]);
+
         let trust_domain = "forge.local";
         let namespace = "forge-system";
 
@@ -316,18 +421,35 @@ where
             .uri_sans(spiffe_id)
             .ttl(format!("{ttl}h"));
 
-        let response = pki::cert::generate(
+        let time_started_vault_request = Instant::now();
+        let vault_response = pki::cert::generate(
             vault_client,
             self.pki_mount_location.as_str(),
             self.pki_role_name.as_str(),
             Some(&mut certificate_request_builder),
         )
-        .await?;
+        .await;
+        let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
+        vault_metrics.vault_request_duration_histogram.record(
+            elapsed_request_duration,
+            &[KeyValue::new("type", "get_certificate")],
+        );
+
+        let generate_certificate_response = vault_response.map_err(|err| {
+            vault_metrics
+                .vault_requests_failed_counter
+                .add(1, &[KeyValue::new("type", "get_certificate")]);
+            err
+        })?;
+
+        vault_metrics
+            .vault_requests_succeeded_counter
+            .add(1, &[KeyValue::new("type", "get_certificate")]);
 
         Ok(Certificate {
-            issuing_ca: response.issuing_ca.into_bytes(),
-            public_key: response.certificate.into_bytes(),
-            private_key: response.private_key.into_bytes(),
+            issuing_ca: generate_certificate_response.issuing_ca.into_bytes(),
+            public_key: generate_certificate_response.certificate.into_bytes(),
+            private_key: generate_certificate_response.private_key.into_bytes(),
         })
     }
 }

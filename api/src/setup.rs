@@ -15,8 +15,12 @@ use std::{env, sync::Arc};
 use eyre::WrapErr;
 use figment::providers::{Env, Format, Toml};
 use figment::Figment;
+use opentelemetry_api::metrics::{Meter, Unit};
+
 use forge_secrets::credentials::CredentialProvider;
-use forge_secrets::forge_vault::{ForgeVaultAuthenticationType, ForgeVaultClientConfig};
+use forge_secrets::forge_vault::{
+    ForgeVaultAuthenticationType, ForgeVaultClientConfig, ForgeVaultMetrics,
+};
 use forge_secrets::ForgeVaultClient;
 
 use crate::cfg::CarbideConfig;
@@ -38,7 +42,7 @@ pub fn parse_carbide_config(
     Ok(Arc::new(config))
 }
 
-pub async fn create_vault_client() -> eyre::Result<Arc<ForgeVaultClient>> {
+pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultClient>> {
     let vault_address = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
     let kv_mount_location =
         env::var("VAULT_KV_MOUNT_LOCATION").wrap_err("VAULT_KV_MOUNT_LOCATION")?;
@@ -55,14 +59,49 @@ pub async fn create_vault_client() -> eyre::Result<Arc<ForgeVaultClient>> {
         ForgeVaultAuthenticationType::Root(env::var("VAULT_TOKEN").wrap_err("VAULT_TOKEN")?)
     };
 
-    let forge_vault_client = ForgeVaultClient::new(ForgeVaultClientConfig {
+    let vault_requests_total_counter = meter
+        .u64_counter("carbide-api.vault.requests_total")
+        .with_description("The amount of tls connections that were attempted")
+        .init();
+    let vault_requests_succeeded_counter = meter
+        .u64_counter("carbide-api.vault.requests_succeeded")
+        .with_description("The amount of tls connections that were successful")
+        .init();
+    let vault_requests_failed_counter = meter
+        .u64_counter("carbide-api.vault.requests_failed")
+        .with_description("The amount of tcp connections that were failures")
+        .init();
+    let vault_token_time_remaining_until_refresh = meter
+        .u64_observable_gauge("carbide-api.vault.token_time_until_refresh")
+        .with_description(
+            "The amount of time, in seconds, until the vault token is required to be refreshed",
+        )
+        .with_unit(Unit::new("secs"))
+        .init();
+    let vault_request_duration_histogram = meter
+        .u64_histogram("carbide-api.vault.request_duration")
+        .with_description("the duration of outbound vault requests, in milliseconds")
+        .with_unit(Unit::new("ms"))
+        .init();
+
+    let forge_vault_metrics = ForgeVaultMetrics {
+        vault_requests_total_counter,
+        vault_requests_succeeded_counter,
+        vault_requests_failed_counter,
+        vault_token_time_remaining_until_refresh,
+        vault_request_duration_histogram,
+    };
+
+    let vault_client_config = ForgeVaultClientConfig {
         auth_type,
         vault_address,
         kv_mount_location,
         pki_mount_location,
         pki_role_name,
         vault_root_ca_path,
-    });
+    };
+
+    let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics);
     Ok(Arc::new(forge_vault_client))
 }
 

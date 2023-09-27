@@ -320,7 +320,7 @@ pub async fn run(
         });
     }
 
-    let forge_vault_client = setup::create_vault_client().await?;
+    let forge_vault_client = setup::create_vault_client(meter.clone()).await?;
 
     let ipmi_tool = setup::create_ipmi_tool(forge_vault_client.clone(), &carbide_config);
 
