@@ -2176,7 +2176,7 @@ name = "health"
 version = "0.0.1"
 dependencies = [
  "clap 4.3.21",
- "color-eyre",
+ "eyre",
  "forge-version",
  "http",
  "hyper",

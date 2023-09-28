@@ -10,11 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 use cfg::Options;
-use color_eyre::eyre::Result;
+use eyre::Result;
 use prometheus::{Encoder, TextEncoder};
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -252,12 +251,12 @@ pub async fn scrape_machines_health(
             if machine.id.is_none() {
                 continue;
             }
-            let id = machine.id.clone().unwrap().clone();
+            let id = machine.id.clone().unwrap();
             let endpoint = match get_machine(&mut grpc_client, id.clone()).await {
                 Ok(x) => x,
                 Err(e) => {
                     // some hosts bmc data may error out at times due to creds missing in vault
-                    error!("grpc error getting machine bmc metadata {}", e.to_string());
+                    error!(error=%e, "grpc error getting machine bmc metadata");
                     continue;
                 }
             };
@@ -265,23 +264,26 @@ pub async fn scrape_machines_health(
             let mut last_sel_count: usize = 0;
             let machine_id: Box<String> = Box::from(id.id);
 
-            let last_updated = machines_hash.get(machine_id.clone().as_str());
-            if last_updated.is_some() {
-                last_firmware_digest = last_updated.unwrap().deref().clone().firmware_digest;
-                last_sel_count = last_updated.unwrap().deref().clone().sel_count;
-            } else {
-                let empty_hash = HealthHashData {
-                    firmware_digest: last_firmware_digest.clone(),
-                    sel_count: 0,
-                };
-                // insert into hash on first enumeration of the machine
-                let _ = machines_hash.insert(machine_id.to_string(), empty_hash);
-            }
+            let last_updated = machines_hash.get(machine_id.as_str());
+            match last_updated {
+                Some(x) => {
+                    last_firmware_digest = x.firmware_digest.to_string();
+                    last_sel_count = x.sel_count;
+                }
+                None => {
+                    let empty_hash = HealthHashData {
+                        firmware_digest: last_firmware_digest.clone(),
+                        sel_count: 0,
+                    };
+                    // insert into hash on first enumeration of the machine
+                    let _ = machines_hash.insert(machine_id.to_string(), empty_hash);
+                }
+            };
 
             match scrape_machine_health(
                 provider.clone(),
                 endpoint,
-                machine_id.clone().as_str(),
+                machine_id.as_str(),
                 last_firmware_digest.clone(),
                 last_sel_count,
             )
@@ -291,24 +293,20 @@ pub async fn scrape_machines_health(
                     (last_firmware_digest, last_sel_count) = (x, y);
                 }
                 Err(e) => {
-                    error!(
-                        "failed to scrape metrics for {}\n{}",
-                        machine_id.to_string(),
-                        e.to_string()
-                    );
+                    error!(error=%e, %machine_id, "failed to scrape metrics");
                     continue;
                 }
             };
 
             if !last_firmware_digest.is_empty() {
                 machines_hash
-                    .get_mut(machine_id.clone().as_str())
+                    .get_mut(machine_id.as_str())
                     .unwrap()
                     .firmware_digest = last_firmware_digest.to_string();
             }
             if last_sel_count > 0 {
                 machines_hash
-                    .get_mut(machine_id.clone().as_str())
+                    .get_mut(machine_id.as_str())
                     .unwrap()
                     .sel_count = last_sel_count;
             }
@@ -333,12 +331,21 @@ async fn main() -> Result<(), HealthError> {
     let provider = MeterProvider::builder().with_reader(exporter).build();
     let state = Arc::new(HealthMetricsState { registry });
 
+    tracing::info!(
+        version = forge_version::v!(build_version),
+        "Started forge-hw-health"
+    );
     let join_listener = tokio::spawn(async move { metrics_listener(state).await });
 
     let join_scraper = tokio::spawn(async move { scrape_machines_health(provider, config).await });
 
     let _ = join_scraper.await?;
     let _ = join_listener.await?;
+
+    tracing::info!(
+        version = forge_version::v!(build_version),
+        "Stopped forge-hw-health"
+    );
 
     Ok(())
 }
