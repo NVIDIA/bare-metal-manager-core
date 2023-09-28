@@ -1,0 +1,83 @@
+{
+	"blacklisted_images": [],
+	"comment": "Forge (Carbide) Container Scan Policy",
+	"id": "carbide-policy-bundle",
+	"mappings": [
+		{
+			"image": {
+				"type": "tag",
+				"value": "*"
+			},
+			"policy_id": "carbide-policy",
+			"registry": "*",
+			"repository": "*",
+			"whitelist_ids": [ ]
+		}
+	],
+	"name": "Carbide Policy Bundle",
+	"policies": [
+		{
+			"comment": "Carbide policy for a basic severity check in vulnerabilities.",
+			"id": "carbide-policy",
+			"name": "Base Policy",
+			"rules": [
+				{
+					"action": "WARN",
+					"gate": "vulnerabilities",
+					"id": "6063fdde-b1c5-46af-973a-915739451ac4",
+					"params": [
+						{
+							"name": "package_type",
+							"value": "all"
+						},
+						{
+							"name": "severity_comparison",
+							"value": "="
+						},
+						{
+							"name": "severity",
+							"value": "medium"
+						}
+					],
+					"trigger": "package"
+				},
+				{
+					"action": "STOP",
+					"gate": "vulnerabilities",
+					"id": "b30e8abc-444f-45b1-8a37-55be1b8c8bb5",
+					"params": [
+						{
+							"name": "package_type",
+							"value": "all"
+						},
+						{
+							"name": "severity_comparison",
+							"value": ">"
+						},
+						{
+							"name": "severity",
+							"value": "medium"
+						}
+					],
+					"trigger": "package"
+				},
+				{
+					"action": "WARN",
+					"gate": "licenses",
+					"id": "76948be6-31cf-4660-9f23-d6181380d511",
+					"params": [
+						{
+							"name": "licenses",
+							"value": "EPL-1.0,GPL-3.0,GPL-2.0,MPL-2.0,CDDL-1.0,AGPL,LGPL"
+						}
+					],
+					"trigger": "blacklist_exact_match"
+				}
+			],
+			"version": "1_0"
+		}
+	],
+	"version": "1_0",
+	"whitelisted_images": [],
+	"whitelists": [ ]
+}
