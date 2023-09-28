@@ -1807,6 +1807,7 @@ version = "0.1.0"
 name = "forge_secrets"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "eyre",
  "opentelemetry_api",

@@ -1,11 +1,14 @@
+use std::any::Any;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use eyre::WrapErr;
-use opentelemetry_api::metrics::{Counter, Histogram, ObservableGauge};
+use opentelemetry_api::metrics::{Counter, Histogram, ObservableGauge, Observer};
 use opentelemetry_api::KeyValue;
 use rand::Rng;
 use tokio::sync::RwLock;
@@ -43,11 +46,93 @@ pub struct ForgeVaultClientConfig {
     pub vault_root_ca_path: String,
 }
 
+pub trait GaugeMetric: Clone {
+    fn observe(
+        observer: &dyn Observer,
+        instrument: &ObservableGauge<Self>,
+        measurement: Self,
+        attributes: &[KeyValue],
+    );
+}
+impl GaugeMetric for u64 {
+    fn observe(
+        observer: &dyn Observer,
+        instrument: &ObservableGauge<Self>,
+        measurement: Self,
+        attributes: &[KeyValue],
+    ) {
+        observer.observe_u64(instrument, measurement, attributes);
+    }
+}
+impl GaugeMetric for f64 {
+    fn observe(
+        observer: &dyn Observer,
+        instrument: &ObservableGauge<Self>,
+        measurement: Self,
+        attributes: &[KeyValue],
+    ) {
+        observer.observe_f64(instrument, measurement, attributes);
+    }
+}
+impl GaugeMetric for i64 {
+    fn observe(
+        observer: &dyn Observer,
+        instrument: &ObservableGauge<Self>,
+        measurement: Self,
+        attributes: &[KeyValue],
+    ) {
+        observer.observe_i64(instrument, measurement, attributes);
+    }
+}
+
+pub trait GaugeHolder: Send + Sync {
+    type MetricType: GaugeMetric;
+
+    fn gauge(&self) -> &ObservableGauge<Self::MetricType>;
+    fn value(&self) -> &ArcSwapOption<Self::MetricType>;
+
+    fn attributes(&self) -> &[KeyValue] {
+        &[]
+    }
+    fn emit_observable(&self) -> Arc<dyn Any> {
+        self.gauge().as_any()
+    }
+    fn observe_callback(&self, observer: &dyn Observer) {
+        if let Some(value) = self.value().load_full() {
+            Self::MetricType::observe(observer, self.gauge(), (*value).clone(), self.attributes());
+        }
+    }
+}
+pub struct VaultTokenGaugeHolder {
+    gauge: ObservableGauge<u64>,
+    value: ArcSwapOption<u64>,
+}
+
+impl VaultTokenGaugeHolder {
+    pub fn new(gauge: ObservableGauge<u64>) -> Self {
+        Self {
+            gauge,
+            value: ArcSwapOption::default(),
+        }
+    }
+}
+impl GaugeHolder for VaultTokenGaugeHolder {
+    type MetricType = u64;
+
+    fn gauge(&self) -> &ObservableGauge<Self::MetricType> {
+        &self.gauge
+    }
+
+    fn value(&self) -> &ArcSwapOption<Self::MetricType> {
+        &self.value
+    }
+}
+
 pub struct ForgeVaultMetrics {
     pub vault_requests_total_counter: Counter<u64>,
     pub vault_requests_succeeded_counter: Counter<u64>,
     pub vault_requests_failed_counter: Counter<u64>,
-    pub vault_token_time_remaining_until_refresh: ObservableGauge<u64>,
+    pub vault_token_gauge_holder: Arc<VaultTokenGaugeHolder>,
     pub vault_request_duration_histogram: Histogram<u64>,
 }
 
@@ -227,8 +312,9 @@ where
                         .saturating_duration_since(Instant::now());
                     vault_client
                         .vault_metrics
-                        .vault_token_time_remaining_until_refresh
-                        .observe(time_remaining_until_refresh.as_secs(), &[]);
+                        .vault_token_gauge_holder
+                        .value
+                        .store(Some(Arc::new(time_remaining_until_refresh.as_secs())));
 
                     Instant::now() >= authentication.expiry
                 }

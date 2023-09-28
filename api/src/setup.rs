@@ -15,11 +15,12 @@ use std::{env, sync::Arc};
 use eyre::WrapErr;
 use figment::providers::{Env, Format, Toml};
 use figment::Figment;
-use opentelemetry_api::metrics::{Meter, Unit};
+use opentelemetry_api::metrics::{Meter, Observer, Unit};
 
 use forge_secrets::credentials::CredentialProvider;
 use forge_secrets::forge_vault::{
-    ForgeVaultAuthenticationType, ForgeVaultClientConfig, ForgeVaultMetrics,
+    ForgeVaultAuthenticationType, ForgeVaultClientConfig, ForgeVaultMetrics, GaugeHolder,
+    VaultTokenGaugeHolder,
 };
 use forge_secrets::ForgeVaultClient;
 
@@ -71,7 +72,7 @@ pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultCli
         .u64_counter("carbide-api.vault.requests_failed")
         .with_description("The amount of tcp connections that were failures")
         .init();
-    let vault_token_time_remaining_until_refresh = meter
+    let vault_token_time_remaining_until_refresh_gauge = meter
         .u64_observable_gauge("carbide-api.vault.token_time_until_refresh")
         .with_description(
             "The amount of time, in seconds, until the vault token is required to be refreshed",
@@ -84,13 +85,24 @@ pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultCli
         .with_unit(Unit::new("ms"))
         .init();
 
+    let vault_token_gauge_holder = Arc::new(VaultTokenGaugeHolder::new(
+        vault_token_time_remaining_until_refresh_gauge,
+    ));
+
     let forge_vault_metrics = ForgeVaultMetrics {
         vault_requests_total_counter,
         vault_requests_succeeded_counter,
         vault_requests_failed_counter,
-        vault_token_time_remaining_until_refresh,
+        vault_token_gauge_holder: vault_token_gauge_holder.clone(),
         vault_request_duration_histogram,
     };
+
+    meter
+        .register_callback(
+            &[vault_token_gauge_holder.emit_observable()],
+            move |observer: &dyn Observer| vault_token_gauge_holder.observe_callback(observer),
+        )
+        .wrap_err("unable to register callback?")?;
 
     let vault_client_config = ForgeVaultClientConfig {
         auth_type,
