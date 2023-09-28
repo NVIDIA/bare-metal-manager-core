@@ -86,10 +86,7 @@ fn get_client_cert_info(
     panic!(
         r###"Unknown client cert location. Set (will be read in same sequence.)
            1. --client-cert-path and --client-key-path flag or
-           2. environment variables CLIENT_KEY_PATH and CLIENT_CERT_PATH or
-           3. a file existing at "/var/run/secrets/spiffe.io/tls.crt" and "/var/run/secrets/spiffe.io/tls.key".
-           4. a file existing at "/opt/forge/machine_cert.pem" and "/opt/forge/machine_cert.key".
-           5. a file existing at "$REPO_ROOT/dev/certs/server_identity.pem" and "$REPO_ROOT/dev/certs/server_identity.key."###
+           2. a file existing at "/var/run/secrets/spiffe.io/tls.crt" and "/var/run/secrets/spiffe.io/tls.key"."###
     )
 }
 
@@ -106,10 +103,7 @@ fn get_forge_root_ca_path(forge_root_ca_path: Option<String>) -> String {
     panic!(
         r###"Unknown FORGE_ROOT_CA_PATH. Set (will be read in same sequence.)
            1. --forge-root-ca-path flag or
-           2. environment variable FORGE_ROOT_CA_PATH or
-           3. a file existing at "/var/run/secrets/spiffe.io/ca.crt".
-           4. a file existing at "/opt/forge/forge_root.pem".
-           5. a file existing at "$REPO_ROOT/dev/certs/forge_developer_local_only_root_cert_pem"."###
+           2. a file existing at "/var/run/secrets/spiffe.io/ca.crt"."###
     )
 }
 
