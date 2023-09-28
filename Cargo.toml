@@ -10,6 +10,7 @@ members = [
   "dhcp",
   "dns",
   "forge_secrets",
+  "health",
   "host-support",
   "pxe",
   "rpc",
