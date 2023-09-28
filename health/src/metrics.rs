@@ -75,7 +75,7 @@ fn export_temperatures(
             // don't add the reading if there's no value provided
             continue;
         }
-        let sensor_name = temperature.name.clone().as_str().replace(" ", "_");
+        let sensor_name = temperature.name.clone().as_str().replace(' ', "_");
         temperature_sensors.observe(
             temperature.reading_celsius.unwrap(),
             &[
@@ -94,9 +94,9 @@ fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), Hea
         .with_unit(Unit::new("rpm"))
         .init();
     for fan in fans.iter() {
-        let sensor_name = fan.fan_name.clone().as_str().replace(" ", "_");
+        let sensor_name = fan.fan_name.clone().as_str().replace(' ', "_");
         fan_sensors.observe(
-            fan.reading.clone(),
+            fan.reading,
             &[
                 KeyValue::new("hw.id", sensor_name),
                 KeyValue::new("hw.host.id", machine_id.to_string()),
@@ -120,7 +120,7 @@ fn export_voltages(
         if voltage.reading_volts.is_none() {
             continue;
         }
-        let sensor_name = voltage.name.clone().as_str().replace(" ", "_");
+        let sensor_name = voltage.name.clone().as_str().replace(' ', "_");
         voltage_sensors.observe(
             voltage.reading_volts.unwrap(),
             &[
@@ -153,16 +153,16 @@ fn export_power_supplies(
         .with_unit(Unit::new("V"))
         .init();
     for power_supply in power_supplies.iter() {
-        let sensor_name = power_supply.name.clone().as_str().replace(" ", "_");
+        let sensor_name = power_supply.name.clone().as_str().replace(' ', "_");
         power_supplies_output_watts_sensors.observe(
-            power_supply.last_power_output_watts.clone(),
+            power_supply.last_power_output_watts,
             &[
                 KeyValue::new("hw.id", sensor_name.clone()),
                 KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         );
         power_supplies_input_voltage_sensors.observe(
-            power_supply.line_input_voltage.clone(),
+            power_supply.line_input_voltage,
             &[
                 KeyValue::new("hw.id", sensor_name.clone()),
                 KeyValue::new("hw.host.id", machine_id.to_string()),
@@ -170,8 +170,8 @@ fn export_power_supplies(
         );
         let mut utilization: f64 = 0.0;
         if power_supply.power_capacity_watts > 0 {
-            utilization = (power_supply.last_power_output_watts.clone()
-                / power_supply.power_capacity_watts.clone() as f64)
+            utilization = (power_supply.last_power_output_watts
+                / power_supply.power_capacity_watts as f64)
                 * 100.0;
         }
         power_supplies_utilization_sensors.observe(
@@ -198,7 +198,7 @@ fn export_firmware_versions(
         if firmware.version.is_none() {
             continue;
         }
-        let sensor_name = firmware.id.clone().as_str().replace(" ", "_");
+        let sensor_name = firmware.id.clone().as_str().replace(' ', "_");
         let sensor_value = firmware.version.clone().unwrap();
         firmware_sensors.observe(
             firmwares.len() as u64,

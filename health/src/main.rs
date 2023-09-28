@@ -263,12 +263,11 @@ pub async fn scrape_machines_health(
             };
             let mut last_firmware_digest = String::new();
             let mut last_sel_count: usize = 0;
-            let machine_id: Box<String> = Box::from(String::from(id.id));
+            let machine_id: Box<String> = Box::from(id.id);
 
             let last_updated = machines_hash.get(machine_id.clone().as_str());
             if last_updated.is_some() {
-                last_firmware_digest =
-                    String::from(last_updated.unwrap().deref().clone().firmware_digest);
+                last_firmware_digest = last_updated.unwrap().deref().clone().firmware_digest;
                 last_sel_count = last_updated.unwrap().deref().clone().sel_count;
             } else {
                 let empty_hash = HealthHashData {
@@ -284,7 +283,7 @@ pub async fn scrape_machines_health(
                 endpoint,
                 machine_id.clone().as_str(),
                 last_firmware_digest.clone(),
-                last_sel_count.clone(),
+                last_sel_count,
             )
             .await
             {
@@ -311,7 +310,7 @@ pub async fn scrape_machines_health(
                 machines_hash
                     .get_mut(machine_id.clone().as_str())
                     .unwrap()
-                    .sel_count = last_sel_count.clone();
+                    .sel_count = last_sel_count;
             }
         }
 
