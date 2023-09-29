@@ -22,7 +22,7 @@ pub struct Options {
         long,
         alias("url"),
         require_equals(true),
-        default_value = "https://carbide-api.forge-system.svc.cluster.local"
+        default_value = "https://carbide-api.forge-system.svc.cluster.local:1079"
     )]
     pub api: String,
 
