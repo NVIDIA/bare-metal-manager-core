@@ -238,7 +238,7 @@ where
                     forge_vault_client
                         .vault_metrics
                         .vault_requests_total_counter
-                        .add(1, &[KeyValue::new("type", "service_account_login")]);
+                        .add(1, &[KeyValue::new("request_type", "service_account_login")]);
                     let time_started_vault_request = Instant::now();
                     let vault_response = vaultrs::auth::kubernetes::login(
                         &vault_client,
@@ -254,14 +254,14 @@ where
                         .vault_request_duration_histogram
                         .record(
                             elapsed_request_duration,
-                            &[KeyValue::new("type", "service_account_login")],
+                            &[KeyValue::new("request_type", "service_account_login")],
                         );
                     let auth_info = vault_response
                         .map_err(|err| {
                             forge_vault_client
                                 .vault_metrics
                                 .vault_requests_failed_counter
-                                .add(1, &[KeyValue::new("type", "service_account_login")]);
+                                .add(1, &[KeyValue::new("request_type", "service_account_login")]);
 
                             err
                         })
@@ -270,7 +270,7 @@ where
                     forge_vault_client
                         .vault_metrics
                         .vault_requests_succeeded_counter
-                        .add(1, &[KeyValue::new("type", "service_account_login")]);
+                        .add(1, &[KeyValue::new("request_type", "service_account_login")]);
                     // start refreshing before it expires
                     let lease_expiry_secs = (0.9 * auth_info.lease_duration as f64) as u64;
                     (auth_info.client_token, lease_expiry_secs)
@@ -356,7 +356,7 @@ impl VaultTask<Credentials> for GetCredentialsHelper {
     ) -> Result<Credentials, eyre::Report> {
         vault_metrics
             .vault_requests_total_counter
-            .add(1, &[KeyValue::new("type", "get_credentials")]);
+            .add(1, &[KeyValue::new("request_type", "get_credentials")]);
 
         let time_started_vault_request = Instant::now();
         let vault_response = kv2::read(
@@ -368,20 +368,20 @@ impl VaultTask<Credentials> for GetCredentialsHelper {
         let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
         vault_metrics.vault_request_duration_histogram.record(
             elapsed_request_duration,
-            &[KeyValue::new("type", "get_credentials")],
+            &[KeyValue::new("request_type", "get_credentials")],
         );
 
         let credentials = vault_response.map_err(|err| {
             vault_metrics
                 .vault_requests_failed_counter
-                .add(1, &[KeyValue::new("type", "get_credentials")]);
+                .add(1, &[KeyValue::new("request_type", "get_credentials")]);
             tracing::error!("Error getting credentials. Error: {err:?}");
             err
         })?;
 
         vault_metrics
             .vault_requests_succeeded_counter
-            .add(1, &[KeyValue::new("type", "get_credentials")]);
+            .add(1, &[KeyValue::new("request_type", "get_credentials")]);
         Ok(credentials)
     }
 }
@@ -401,7 +401,7 @@ impl VaultTask<()> for SetCredentialsHelper {
     ) -> Result<(), eyre::Report> {
         vault_metrics
             .vault_requests_total_counter
-            .add(1, &[KeyValue::new("type", "set_credentials")]);
+            .add(1, &[KeyValue::new("request_type", "set_credentials")]);
 
         let time_started_vault_request = Instant::now();
         let vault_response = kv2::set(
@@ -414,20 +414,20 @@ impl VaultTask<()> for SetCredentialsHelper {
         let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
         vault_metrics.vault_request_duration_histogram.record(
             elapsed_request_duration,
-            &[KeyValue::new("type", "set_credentials")],
+            &[KeyValue::new("request_type", "set_credentials")],
         );
 
         let _secret_version_metadata = vault_response.map_err(|err| {
             vault_metrics
                 .vault_requests_failed_counter
-                .add(1, &[KeyValue::new("type", "set_credentials")]);
+                .add(1, &[KeyValue::new("request_type", "set_credentials")]);
             tracing::error!("Error setting credentials. Error: {err:?}");
             err
         })?;
 
         vault_metrics
             .vault_requests_succeeded_counter
-            .add(1, &[KeyValue::new("type", "set_credentials")]);
+            .add(1, &[KeyValue::new("request_type", "set_credentials")]);
         Ok(())
     }
 }
@@ -478,7 +478,7 @@ where
     ) -> Result<Certificate, eyre::Report> {
         vault_metrics
             .vault_requests_total_counter
-            .add(1, &[KeyValue::new("type", "get_certificate")]);
+            .add(1, &[KeyValue::new("request_type", "get_certificate")]);
 
         let trust_domain = "forge.local";
         let namespace = "forge-system";
@@ -518,19 +518,19 @@ where
         let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
         vault_metrics.vault_request_duration_histogram.record(
             elapsed_request_duration,
-            &[KeyValue::new("type", "get_certificate")],
+            &[KeyValue::new("request_type", "get_certificate")],
         );
 
         let generate_certificate_response = vault_response.map_err(|err| {
             vault_metrics
                 .vault_requests_failed_counter
-                .add(1, &[KeyValue::new("type", "get_certificate")]);
+                .add(1, &[KeyValue::new("request_type", "get_certificate")]);
             err
         })?;
 
         vault_metrics
             .vault_requests_succeeded_counter
-            .add(1, &[KeyValue::new("type", "get_certificate")]);
+            .add(1, &[KeyValue::new("request_type", "get_certificate")]);
 
         Ok(Certificate {
             issuing_ca: generate_certificate_response.issuing_ca.into_bytes(),
