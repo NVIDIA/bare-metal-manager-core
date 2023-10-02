@@ -44,6 +44,7 @@
 
 # Playbooks
 
+- [Azure OIDC for a Forge Site](playbooks/azure_oidc.md)
 - [Forge Site Controller control plane node SSH access](playbooks/control_plane_ssh_access.md)
 - [kubectl cheat sheet for Forge deployments](playbooks/kubectl.md)
 - [forge-admin-cli access](playbooks/forge_admin_cli.md)
