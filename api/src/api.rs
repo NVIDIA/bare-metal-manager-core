@@ -3757,9 +3757,9 @@ where
                         let svc = tower::ServiceBuilder::new()
                             .layer(conn_attrs_extension_layer)
                             .service(svc);
-                        if let Err(error) = http.serve_connection(conn, svc).await {
-                            tracing::debug!(?error, "error servicing http connection");
-                        }
+                        // TODO: Why does this returns an error Io / UnexpectedEof on every single request?
+                        // `h2` already logs the error at DEBUG level
+                        let _ = http.serve_connection(conn, svc).await;
                     }
                     Err(error) => {
                         tracing::error!(%error, address = %addr, "error accepting tls connection");
