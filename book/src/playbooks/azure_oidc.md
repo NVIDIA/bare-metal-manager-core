@@ -4,38 +4,73 @@ You must be a member of the Forge SRE or Forge DEV groups in Active Directory.  
 
 Each Forge site needs to have a redirect URI added to the Azure OIDC and, in the case of ArgoCD, a site-specific secret.
 
-There is a single shared secret in some cases, such as Grafana.  The likelihood of someone causing harm to a forge site through grafana is low.  Argo is our deployment system; thus, the security controls are stricter
+There is a single shared secret in some cases, such as Grafana.  The likelihood of someone causing harm to a forge site through Grafana is low.  Argo is our deployment system; thus, the security controls are stricter
 
 ## Adding new client secrets
 
-1. Login to azure.com using your Nvidia SSO credentials
-2. Select "App Registrations"
-![image info](../../../book/src/static/playbooks/azure_oidc/azure_first.png)
-3. Choose which application you want to change
-![image info](../../../book/src/static/playbooks/azure_oidc/azure_choose_app.png)
-4. Click "Certificates & Secrets"
-![image info](../../../book/src/static/playbooks/azure_oidc/azure_app_overview.png)
-5. Click "New Client Secret"
-![image info](../../../book/src/static/playbooks/azure_oidc/azure_app_select_new_secret.png)
-6. Fill in the new client's secret details and click "Add" at the bottom
-![image info](../../../book/src/static/playbooks/azure_oidc/azure_app_secret_values.png)
-  a. Make note of the new secret `Value`.  It will need to be added into`forged`
+> **NOTE:** Login to azure.com using your Nvidia SSO credentials
 
-## Adding redirect URLs to Azre OIDC  config
+<figure>
+<img src=../static/playbooks/azure_oidc/azure_first.png width="1300" height=170
+alt="Select App Registrations">
+<figcaption>Select App Registrations</figcaption>
+</figure>
 
-1. Login to azure.com using your Nvidia SSO credentials
-2. Select "App Registrations"
-![image info](../../../book/src/static/playbooks/azure_oidc/azure_first.png)
-3. Choose which application you want to change
-![image info](../../../book/src/static/playbooks/azure_oidc/azure_choose_app.png)
-4. Select "Authentication"
-![image info](../../../book/src/static/playbooks/azure_oidc/azure_app_select_authentication.png)
-5. Click "Add URI" and fill in the URI value
-![image info](../../../book/src/static/playbooks/azure_oidc/azure_add_redirect_uri.png)
+<figure>
+<img src=../static/playbooks/azure_oidc/azure_choose_app.png width="1200" height=530
+alt="Choose application">
+<figcaption>Choose which application you want to change</figcaption>
+</figure>
 
-## Adding in Forged repo
+<figure>
+<img src=../static/playbooks/azure_oidc/azure_app_overview.png width="1100" height=780
+alt="Click Certificate and Secrets">
+<figcaption> Click Certificates & Secrets</figcaption>
+</figure>
 
-The ArgoCD SSO secret is required during the bootstrapping of a new environment
+<figure>
+<img src=../static/playbooks/azure_oidc/azure_app_select_new_secret.png width="900" height="425"
+alt="Select new secret">
+<figcaption>Click "New Secret"</figcaption></figure>
+<figure>
+<img src=../static/playbooks/azure_oidc/azure_app_secret_values.png width="800" height=425
+alt="Fill in secret value">
+<figcaption>Fill in secret details and click "Add" at the bottom</figcaption></figure>
+</fiigure>
+
+> **NOTE:** Make note of the "Value" that was generated. You cannot view the "Value" if you navigate away from the screen
+
+## Adding redirect URLs to Azure OIDC  config
+
+> **NOTE:** Login to azure.com using your Nvidia SSO credentials
+
+<figure>
+<img src=../static/playbooks/azure_oidc/azure_first.png width="1300" height=170
+alt="Select App Registrations">
+<figcaption>Select App Registrations</figcaption>
+</figure>
+
+<figure>
+<img src=../static/playbooks/azure_oidc/azure_choose_app.png width="1200" height=530
+alt="Choose application">
+<figcaption>Choose which application you want to change</figcaption>
+</figure>
+
+<figure>
+<img src=../static/playbooks/azure_oidc/azure_app_select_authentication.png width="1200" height=820
+alt="Click Authentication">
+<figcaption> Click Authentication</figcaption>
+</figure>
+
+<figure>
+<img src=../static/playbooks/azure_oidc/azure_add_redirect_uri.png width="1200" height=670
+alt="Add redirect URL">
+<figcaption>Add redirect url</figcaption>
+</figure>
+
+## Adding the new secret in Forged repo
+
+The ArgoCD SSO Kubernetes `secret`` is required during the bootstrapping of a new environment
 
 1. In `envs/<env>/bootstrap/secerts` create new file `secret.enc.env`.
 2. Inside `secret.enc.env` include the following:
