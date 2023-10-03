@@ -28,12 +28,15 @@ use crate::{
 
 use self::{dpu_nic_firmware::DpuNicFirmwareUpdate, machine_update_module::MachineUpdateModule};
 
-/// The machine update manager periodically checks if machines have componenets
-/// that are out of date.  If an update is needed and the required conditions are met,
-/// the machine update manager starts the update process.
+/// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
+/// On each iteration the MachineUpdateManager will:
+/// 1. collect the number of outstanding updates from all modules.
+/// 2. if there are less than the max allowed updates each module will be told to start updates until
+/// the number of updates reaches the maximum allowed.
 ///
-/// Currently only the DPUs NIC firmware is checked.  If out of date, the machine
-/// update manager will trigger reprovisioning of the DPU
+/// Config from [CarbideConfig]:
+/// * `max_concurrent_machine_updates` the maximum number of updates allowed across all modules
+/// * `machine_update_run_interval` how often the manager calls the modules to start updates
 pub struct MachineUpdateManager {
     database_connection: PgPool,
     max_concurrent_machine_updates: i32,
@@ -47,6 +50,7 @@ impl MachineUpdateManager {
         "SELECT pg_try_advisory_xact_lock((SELECT 'machine_update_lock'::regclass::oid)::integer);";
     const DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES: i32 = 10;
 
+    /// create a MachineUpdateManager with provided modules, overridding the default.
     pub fn new_with_modules(
         database_connection: sqlx::PgPool,
         config: Arc<CarbideConfig>,
@@ -62,6 +66,7 @@ impl MachineUpdateManager {
         }
     }
 
+    /// Create a MachineUpdateManager with the default modules.
     pub fn new(database_connection: sqlx::PgPool, config: Arc<CarbideConfig>) -> Self {
         let mut update_modules = vec![];
 
@@ -87,6 +92,7 @@ impl MachineUpdateManager {
         &self.update_modules
     }
 
+    /// Start the MachineUpdateManager and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the MachineUpdateManager when dropped.
     pub fn start(self) -> oneshot::Sender<i32> {
         let (stop_sender, stop_receiver) = oneshot::channel();
 
@@ -95,7 +101,7 @@ impl MachineUpdateManager {
         stop_sender
     }
 
-    pub async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
         loop {
             self.run_single_iteration().await;
 

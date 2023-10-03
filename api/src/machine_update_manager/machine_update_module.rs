@@ -5,6 +5,9 @@ use sqlx::{Postgres, Transaction};
 
 use crate::CarbideResult;
 
+/// Used by [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager) to initiate
+/// machine updates.  A module is responsible for managing its own updates and accurately reporting
+/// the number of outstanding updates.
 #[async_trait]
 pub trait MachineUpdateModule: Send + Sync + fmt::Display {
     async fn get_updates_in_progress_count(

@@ -14,6 +14,13 @@ use crate::{
 
 use super::machine_update_module::MachineUpdateModule;
 
+/// DpuNicFirmwareUpdate is a module used [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager)
+/// to ensure that DPU NIC firmware matches the expected version of the carbide release.
+///
+/// Config used from [CarbideConfig](crate::cfg::CarbideConfig)
+/// * `dpu_nic_firmware_update_version` the version of the DPU NIC firmware that is expected to be running on the DPU.
+///
+/// Note that if the version does not match in either direction, the DPU will be updated.
 pub struct DpuNicFirmwareUpdate {
     pub expected_dpu_firmware_version: String,
 }
