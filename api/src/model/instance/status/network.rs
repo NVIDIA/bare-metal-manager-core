@@ -30,7 +30,7 @@ use crate::model::{
 /// Status of the networking subsystem of an instance
 ///
 /// The status report is only valid against one particular version of
-/// [`InstanceInterfaceConfig`]. It can not be interpreted without it, since
+/// [InstanceInterfaceConfig](crate::model::instance::config::network::InstanceInterfaceConfig). It can not be interpreted without it, since
 /// e.g. the amount and configuration of network interfaces can change between
 /// configs.
 ///

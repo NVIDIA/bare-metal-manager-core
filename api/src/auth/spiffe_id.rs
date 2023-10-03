@@ -134,7 +134,7 @@ impl SpiffeId {
     /// Returns a new SPIFFE ID in the given trust domain with joined
     /// path segments. The path segments must be valid according to the SPIFFE
     /// specification and must not contain path separators.
-    /// See https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path
+    /// See <https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path>
     ///
     /// # Arguments
     ///
@@ -215,7 +215,7 @@ impl TryFrom<&str> for SpiffeId {
 }
 
 /// Validates that a path string is a conformant path for a SPIFFE ID.
-/// See https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path
+/// See <https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path>
 pub fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
     if path.is_empty() {
         return Err(SpiffeIdError::Empty);

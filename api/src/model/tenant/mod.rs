@@ -108,6 +108,7 @@ pub struct TenantKeysetIdentifier {
     pub keyset_id: String,
 }
 
+#[allow(rustdoc::invalid_html_tags)]
 /// Possible format:
 /// 1. <algo> <key> <comment>
 /// 2. <algo> <key>

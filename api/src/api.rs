@@ -2754,6 +2754,7 @@ where
         Ok(Response::new(instructions))
     }
 
+    #[allow(rustdoc::invalid_html_tags)]
     /// Called on x86 boot by 'forge-scout auto-detect --uuid=<uuid>'.
     /// Tells it whether to discover or cleanup based on current machine state.
     async fn forge_agent_control(
