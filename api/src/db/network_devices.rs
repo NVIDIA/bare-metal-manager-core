@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use itertools::Itertools;
 use sqlx::{Postgres, Transaction};
 
 use crate::model::{
@@ -128,23 +129,64 @@ impl NetworkDevice {
             .await
             .map_err(LldpError::from)
     }
+
+    pub async fn lock_network_device_table(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
+        sqlx::query(query)
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
+    /// This function should be called whenever a entry is updated/deleted in
+    /// port_to_network_device_map table. Problem with update is that it can create extra load on
+    /// db as there are very few chances of port update. So this function is called only from
+    /// delete port_to_network_device_map call.
+    pub async fn cleanup_unused_switches(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        Self::lock_network_device_table(txn).await?;
+        let query = "DELETE FROM network_devices WHERE id NOT IN (SELECT network_device_id FROM port_to_network_device_map) RETURNING *";
+
+        let result = sqlx::query_as::<_, NetworkDevice>(query)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        if !result.is_empty() {
+            let ids = result.iter().map(|x| x.id()).join(",");
+            tracing::info!(ids, "Network devices cleaned up as no attached DPU found.")
+        }
+
+        Ok(())
+    }
 }
 
 impl DpuToNetworkDeviceMap {
     pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
         local_port: &str,
+        remote_port: &str,
         dpu_id: &MachineId,
         network_device_id: &str,
     ) -> Result<Self, DatabaseError> {
         // Update the association if already exists, else just insert into table.
-        let query = r#"INSERT INTO port_to_network_device_map(dpu_id, local_port, network_device_id) VALUES($1, $2::dpu_local_ports, $3)
-                        ON CONFLICT ON CONSTRAINT network_device_dpu_associations_primary
-                        DO UPDATE SET network_device_id=EXCLUDED.network_device_id RETURNING *"#;
+        let query = r#"INSERT INTO port_to_network_device_map(dpu_id, local_port, remote_port, network_device_id) 
+                         VALUES($1, $2::dpu_local_ports, $3, $4)
+                         ON CONFLICT ON CONSTRAINT network_device_dpu_associations_primary
+                         DO UPDATE SET 
+                            network_device_id=EXCLUDED.network_device_id, 
+                            local_port=EXCLUDED.local_port,
+                            remote_port=EXCLUDED.remote_port
+                       RETURNING *"#;
 
         sqlx::query_as(query)
             .bind(dpu_id.to_string())
             .bind(local_port)
+            .bind(remote_port)
             .bind(network_device_id)
             .fetch_one(&mut **txn)
             .await
@@ -164,7 +206,7 @@ impl DpuToNetworkDeviceMap {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(())
+        NetworkDevice::cleanup_unused_switches(txn).await
     }
 
     pub async fn create_dpu_network_device_association(
@@ -180,13 +222,16 @@ impl DpuToNetworkDeviceMap {
             return Ok(());
         }
 
+        NetworkDevice::lock_network_device_table(txn).await?;
+
         // Need to create 3 associations: oob_net0, p0 and p1
         for port in &[DpuLocalPorts::OobNet0, DpuLocalPorts::P0, DpuLocalPorts::P1] {
             // In case any port is missing, print error and continue to avoid discovery failure.
             match get_port_data(device_data, port) {
                 Ok(data) => {
                     let tor = NetworkDevice::get_or_create_network_device(txn, data).await?;
-                    Self::create(txn, &data.local_port, dpu_id, tor.id()).await?;
+                    Self::create(txn, &data.local_port, &data.remote_port, dpu_id, tor.id())
+                        .await?;
                 }
                 Err(err) => {
                     tracing::warn!(%port, error=format!("{err:#}"), "LLDP data missing");

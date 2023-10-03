@@ -1691,6 +1691,7 @@ message MachineBootOverride {
 message ConnectedDevice {
   MachineId id = 1;
   string local_port = 2;
+  string remote_port = 3;
 }
 
 // NetworkDevice and Switch are used interchangeably.

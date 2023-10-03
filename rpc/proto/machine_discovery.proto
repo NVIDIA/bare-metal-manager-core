@@ -104,6 +104,7 @@ message LldpSwitchData {
   string description = 3;
   string local_port = 4;
   repeated string ip_address = 5;
+  string remote_port = 6;
 }
 
 message DpuData {
