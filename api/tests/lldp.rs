@@ -100,9 +100,7 @@ async fn test_lldp_topology_force_delete(
         .await?
         .into_inner();
 
-    assert!(topology.network_devices[0].devices.is_empty());
-    assert!(topology.network_devices[1].devices.is_empty());
-    assert!(topology.network_devices[2].devices.is_empty());
+    assert!(topology.network_devices.is_empty());
 
     Ok(())
 }

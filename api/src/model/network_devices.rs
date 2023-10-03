@@ -128,6 +128,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkDevice {
 pub struct DpuToNetworkDeviceMap {
     dpu_id: MachineId,
     local_port: DpuLocalPorts,
+    remote_port: String,
     _network_device_id: String,
 }
 
@@ -138,6 +139,7 @@ impl<'r> FromRow<'r, PgRow> for DpuToNetworkDeviceMap {
         Ok(DpuToNetworkDeviceMap {
             dpu_id: dpu_id.into_inner(),
             local_port: row.try_get("local_port")?,
+            remote_port: row.try_get("remote_port")?,
             _network_device_id: row.try_get("network_device_id")?,
         })
     }
@@ -167,6 +169,7 @@ impl From<NetworkTopologyData> for rpc::forge::NetworkTopologyData {
                         id: x.dpu_id.to_string(),
                     }),
                     local_port: x.local_port.to_string(),
+                    remote_port: x.remote_port.clone(),
                 })
                 .collect_vec();
 

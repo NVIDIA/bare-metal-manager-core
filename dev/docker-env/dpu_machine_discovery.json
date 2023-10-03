@@ -212,6 +212,7 @@
           "id": "mac=a1:b1:c1:00:00:01",
           "description": "Cumulus Linux version 4.3.0 running on DELL S3048ON",
           "local_port": "oob_net0",
+          "remote_port": "iftype=swp1",
           "ip_address": [
             "10.0.0.1",
             "::1"
@@ -222,6 +223,7 @@
           "id": "mac=a2:b2:c2:00:00:02",
           "description": "Cumulus Linux version 4.3.0 running on DELL S3048ON",
           "local_port": "p0",
+          "remote_port": "iftype=swp2",
           "ip_address": [
             "10.1.1.1",
             "::2"
@@ -232,6 +234,7 @@
           "id": "mac=a3:b3:c3:00:00:03",
           "description": "Cumulus Linux version 4.3.0 running on DELL S3048ON",
           "local_port": "p1",
+          "remote_port": "iftype=swp3",
           "ip_address": [
             "10.2.2.2",
             "::3"

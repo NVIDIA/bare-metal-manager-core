@@ -146,6 +146,8 @@ pub struct LldpSwitchData {
     pub local_port: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ip_address: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub remote_port: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -357,6 +359,7 @@ impl TryFrom<rpc::machine_discovery::LldpSwitchData> for LldpSwitchData {
             description: data.description,
             local_port: data.local_port,
             ip_address: data.ip_address,
+            remote_port: data.remote_port,
         })
     }
 }
@@ -371,6 +374,7 @@ impl TryFrom<LldpSwitchData> for rpc::machine_discovery::LldpSwitchData {
             description: data.description,
             local_port: data.local_port,
             ip_address: data.ip_address,
+            remote_port: data.remote_port,
         })
     }
 }

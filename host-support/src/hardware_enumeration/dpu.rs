@@ -149,6 +149,8 @@ pub fn get_port_lldp_info(port: &str) -> Result<LldpSwitchData, DpuEnumerationEr
                 lldp_info.ip_address.push(ip_address.to_string());
             }
         }
+        lldp_info.remote_port =
+            format!("{}={}", lldp_data.port.id.id_type, lldp_data.port.id.value);
     } else {
         warn!("Malformed LLDP JSON response, port not found");
         return Err(DpuEnumerationError::Generic(
