@@ -661,7 +661,7 @@ SELECT m.id FROM
                 machine.bmc_info = topo.topology().bmc_info.clone();
             }
 
-            if machine.hardware_info.is_none() {
+            if !machine.id().machine_type().is_predicted_host() && machine.hardware_info.is_none() {
                 tracing::warn!(
                     machine_id = %machine.id,
                     "Machine has no associated discovery data",
