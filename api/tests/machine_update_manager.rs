@@ -72,7 +72,7 @@ impl TestUpdateModule {
         }
     }
     pub fn get_start_updates_called(&self) -> i32 {
-        self.start_updates_called.lock().unwrap().clone()
+        *self.start_updates_called.lock().unwrap()
     }
 }
 
