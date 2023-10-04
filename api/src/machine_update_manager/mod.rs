@@ -96,8 +96,11 @@ impl MachineUpdateManager {
     pub fn start(self) -> oneshot::Sender<i32> {
         let (stop_sender, stop_receiver) = oneshot::channel();
 
-        tokio::spawn(async move { self.run(stop_receiver).await });
-
+        if self.update_modules.len() > 0 {
+            tokio::spawn(async move { self.run(stop_receiver).await });
+        } else {
+            tracing::info!("No modules configured.  Machine updates disabled");
+        }
         stop_sender
     }
 
