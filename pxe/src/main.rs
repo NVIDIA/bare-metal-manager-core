@@ -29,6 +29,7 @@ use ::rpc::forge;
 use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
 use rpc::forge::CloudInitInstructionsRequest;
 
+mod logging;
 mod machine_architecture;
 mod routes;
 
@@ -269,6 +270,7 @@ async fn main() -> Result<(), rocket::Error> {
         .mount("/api/v0/pxe", routes::ipxe::routes())
         .mount("/api/v0/cloud-init", routes::cloud_init::routes())
         .mount("/public", FileServer::from(opts.static_dir))
+        .attach(logging::RequestLogger)
         .attach(Template::fairing())
         .attach(AdHoc::try_on_ignite(
             "Carbide API Config",
