@@ -84,10 +84,11 @@ pub struct Visitor {
 
 impl Visit for Visitor {
     fn record_str(&mut self, field: &Field, value: &str) {
-        if value
-            .as_bytes()
-            .iter()
-            .any(|c| *c <= b' ' || matches!(*c, b'=' | b'"'))
+        if value.is_empty()
+            || value
+                .as_bytes()
+                .iter()
+                .any(|c| *c <= b' ' || matches!(*c, b'=' | b'"'))
         {
             self.out
                 .push(format!(r#"{}="{}" "#, field.name(), value.escape_debug()));
