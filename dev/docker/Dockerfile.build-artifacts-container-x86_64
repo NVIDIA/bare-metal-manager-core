@@ -21,36 +21,44 @@
 # This should match rust-toolchain.toml
 FROM rust:1.71.1-slim-bullseye
 
-RUN apt update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y \
-	automake \
-	binutils-aarch64-linux-gnu \
-	build-essential \
-	clang \
-	cmake \
-	curl \
-	fdisk dosfstools \
-	gcc-aarch64-linux-gnu \
-	iproute2 \
-	iputils-ping \
-	jq \
-	libboost-dev \
-	libgrpc-dev \
-	liblzma-dev \
-	libopenipmi-dev \
-	libprotobuf-dev \
-	libssh-dev \
-	libssl-dev \
-	libudev-dev \
-	libgrpc++-dev \
-	libaio-dev \
-	pkg-config \
-	protobuf-compiler-grpc \
-	postgresql-13 \
-	protobuf-compiler \
-	sudo \
-	unzip \
-	wget \
-	git && rm -rf /var/lib/apt/lists/*
+# Change CACHEKEY to whatever so docker doesn't re-use the cache from before if you want apt to actually run.
+#
+# https://github.com/moby/moby/issues/1996
+# https://github.com/moby/buildkit/issues/4294
+#
+RUN CACHEKEY=3283yu9283 apt update &&  \
+	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt upgrade -y && \
+	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y \
+		automake \
+		binutils-aarch64-linux-gnu \
+		build-essential \
+		clang \
+		cmake \
+		curl \
+		fdisk dosfstools \
+		gcc-aarch64-linux-gnu \
+		iproute2 \
+		iputils-ping \
+		jq \
+		libboost-dev \
+		libgrpc-dev \
+		liblzma-dev \
+		libopenipmi-dev \
+		libprotobuf-dev \
+		libssh-dev \
+		libssl-dev \
+		libudev-dev \
+		libgrpc++-dev \
+		libaio-dev \
+		pkg-config \
+		protobuf-compiler-grpc \
+		postgresql-13 \
+		protobuf-compiler \
+		sudo \
+		unzip \
+		wget \
+		git \
+	&& rm -rf /var/lib/apt/lists/*
 
 RUN rustup component add rustfmt
 RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache && cargo cache -r registry-index,registry-sources

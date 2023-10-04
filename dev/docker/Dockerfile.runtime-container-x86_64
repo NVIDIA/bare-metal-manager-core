@@ -9,7 +9,17 @@
 # its affiliates is strictly prohibited.
 FROM debian:12-slim
 
-RUN apt-get update && apt install -y --no-install-recommends ca-certificates
+# Change CACHEKEY to whatever so docker doesn't re-use the cache from before if you want apt to actually run.
+#
+# https://github.com/moby/moby/issues/1996
+# https://github.com/moby/buildkit/issues/4294
+#
+# Install CA certificates first so fluentbit works.  This is why there's two
+# separate apt install lines, and we don't delete the /var/lib/apt/lists here
+#
+RUN CACHEKEY=oidf3028r apt-get update && \
+	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt upgrade -y && \
+	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y --no-install-recommends ca-certificates
 
 # Use fluentbit for logging (used by ssh-console)
 COPY dev/docker/fluentbit.key /usr/share/keyrings/fluentbit-keyring.gpg
@@ -18,23 +28,29 @@ COPY dev/docker/fluentbit.list /etc/apt/sources.list.d/fluentbit.list
 # This is required for kea pid file
 RUN mkdir -p /var/run/kea
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-	curl \
-	fluent-bit \
-	ipmitool \
-	iproute2 \
-	iputils-ping \
-	kea-dhcp4-server \
-	libaio1 \
-	libc-ares2 \
-	libgrpc++1.51 \
-	libkrb5-3 \
-	libprotoc32 \
-	libssh-4 \
-	libudev1 \
-	openipmi \
-	openssh-client \
-	openssh-server \
-	postgresql-client-15 \
-	zlib1g \
-  	&& rm -rf /var/lib/apt/lists/*
+# Change CACHEKEY to whatever so docker doesn't re-use the cache from before if you want apt to actually run.
+#
+# https://github.com/moby/moby/issues/1996
+# https://github.com/moby/buildkit/issues/4294
+#
+RUN CACHEKEY=lksadjfdlks apt-get update && \
+	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y --no-install-recommends \
+		curl \
+		fluent-bit \
+		ipmitool \
+		iproute2 \
+		iputils-ping \
+		kea-dhcp4-server \
+		libaio1 \
+		libc-ares2 \
+		libgrpc++1.51 \
+		libkrb5-3 \
+		libprotoc32 \
+		libssh-4 \
+		libudev1 \
+		openipmi \
+		openssh-client \
+		openssh-server \
+		postgresql-client-15 \
+		zlib1g && \
+	rm -rf /var/lib/apt/lists/*
