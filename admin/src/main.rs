@@ -39,6 +39,7 @@ mod cfg;
 mod domain;
 mod dpu;
 mod instance;
+mod inventory;
 mod machine;
 mod managed_host;
 mod network;
@@ -593,6 +594,7 @@ async fn main() -> color_eyre::Result<()> {
                 rpc::bmc_reset(api_config, c.address, c.port, bmc_auth).await?;
             }
         },
+        CarbideCommand::Inventory(action) => inventory::print_inventory(api_config, action).await?,
     }
 
     Ok(())

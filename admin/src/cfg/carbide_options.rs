@@ -94,6 +94,8 @@ pub enum CarbideCommand {
     Ip(IpAction),
     #[clap(about = "DPU specific handling", subcommand)]
     Dpu(DpuAction),
+    #[clap(about = "Generate Ansible Inventory")]
+    Inventory(InventoryAction),
     #[clap(about = "Cloud init override", subcommand)]
     BootOverride(BootOverrideAction),
     #[clap(
@@ -102,6 +104,12 @@ pub enum CarbideCommand {
         visible_alias = "bmc"
     )]
     BmcMachine(BmcMachine),
+}
+
+#[derive(Parser, Debug)]
+pub struct InventoryAction {
+    #[clap(short, long, help = "Write to file")]
+    pub filename: Option<String>,
 }
 
 #[derive(Parser, Debug)]
