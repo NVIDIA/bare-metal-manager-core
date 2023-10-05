@@ -1748,7 +1748,7 @@ where
         &self,
         request: Request<rpc::MachineDiscoveryInfo>,
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
-        log_request_data(&request);
+        // We don't log_request_data(&request); here because the hardware info is huge
 
         let machine_discovery_info = request.into_inner();
 
@@ -3853,12 +3853,26 @@ where
 }
 
 fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
-    tracing::Span::current().record("request", format!("{:?}", request.get_ref()));
+    tracing::Span::current().record(
+        "request",
+        truncate(format!("{:?}", request.get_ref()), 1500),
+    );
 }
 
 /// Logs the Machine ID in the current tracing span
 fn log_machine_id(machine_id: &MachineId) {
     tracing::Span::current().record("forge.machine_id", machine_id.to_string());
+}
+
+fn truncate(mut s: String, len: usize) -> String {
+    if s.len() < len || len < 3 {
+        return s;
+    }
+    s.truncate(len);
+    if s.is_char_boundary(len - 2) {
+        s.replace_range(len - 2..len, "..");
+    }
+    s
 }
 
 impl<C1, C2> Api<C1, C2>
@@ -4436,5 +4450,16 @@ impl ServiceConfig {
             // In local dev forge-dpu-agent probably isn't running, so no heartbeat
             dpu_up_threshold: Duration::weeks(52),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+    #[test]
+    fn test_truncate() {
+        let s = "hello world".to_string();
+        let len = 10;
+        assert_eq!(truncate(s, len), "hello wo..");
     }
 }
