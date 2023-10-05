@@ -155,6 +155,23 @@ impl NetworkPrefix {
         })
     }
 
+    // Return a list of network prefixes for a VPC. More specifically,
+    // take the VPC ID, match all of the network segments under it, and then
+    // all of the network prefixes from that.
+    pub async fn find_by_vpc(
+        txn: &mut Transaction<'_, Postgres>,
+        vpc_id: uuid::Uuid,
+    ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
+        let query = "SELECT np.* FROM network_prefixes np INNER JOIN network_segments ns ON np.segment_id = ns.id WHERE ns.vpc_id = $1";
+
+        let prefixes = sqlx::query_as::<_, NetworkPrefix>(query)
+            .bind(vpc_id)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(prefixes)
+    }
+
     /*
      * Create a prefix for a given segment id.
      *
