@@ -32,7 +32,7 @@ hyper-timeout = "0.4"
 ipnetwork = { version = "^0.20.0", features = ["serde"] }
 itertools = "*"
 jsonwebtoken = { version = "8.1", default-features = false }
-libredfish = { version = "0.8.8", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { version = "0.8.9", registry = "sw-ngc-forge-cargo-local" }
 mac_address = "1.1.2"
 once_cell = "1.13.1"
 opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
