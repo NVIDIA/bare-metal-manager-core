@@ -554,6 +554,7 @@ mod tests {
             vni: 1001,
             gateway: "10.217.5.123/28".to_string(),
             ip: "10.217.5.123".to_string(),
+            allow_prefixes: vec![],
         };
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
@@ -563,6 +564,7 @@ mod tests {
                 vni: 1025196,
                 gateway: "10.217.5.169/29".to_string(),
                 ip: "10.217.5.170".to_string(),
+                allow_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -571,6 +573,7 @@ mod tests {
                 vni: 1025185,
                 gateway: "10.217.5.161/30".to_string(),
                 ip: "10.217.5.162".to_string(),
+                allow_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
             },
         ];
         let netconf = rpc::ManagedHostNetworkConfig {

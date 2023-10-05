@@ -1154,6 +1154,8 @@ message FlatInterfaceConfig {
     // then this value is set and specifies the virtual function ID that is configured
     // for this network interface.
     optional uint32 virtual_function_id = 6;
+    // IPv4 prefixes in this interface's outbound allow list.
+    repeated string allow_prefixes = 7;
 }
 
 message ManagedHostNetworkStatusRequest {}

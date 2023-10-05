@@ -71,6 +71,7 @@ pub async fn admin_network(
         vni: 0, // admin isn't an overlay network, so no vni
         gateway: prefix.gateway_cidr().unwrap_or_default(),
         ip: address.address.to_string(),
+        allow_prefixes: vec![],
     };
     Ok(cfg)
 }
