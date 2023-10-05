@@ -176,6 +176,11 @@ service Forge {
   
   // Get Network topology
   rpc GetNetworkTopology(NetworkTopologyRequest) returns (NetworkTopologyData);
+
+  // BMC Machine actions
+
+  // Reset a BMC machine
+  rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
 }
 
 message VersionResult {
@@ -1166,6 +1171,17 @@ message AdminRebootRequest {
 }
 
 message AdminRebootResponse {}
+
+// Must provide either machine_id or user/password pair
+message AdminBmcResetRequest {
+  string ip = 1;
+  optional uint32 port = 2;
+  optional string user = 3;
+  optional string password = 4;
+  optional string machine_id = 5;
+}
+
+message AdminBmcResetResponse {}
 
 enum BMCRequestType {
     IPMI = 0;

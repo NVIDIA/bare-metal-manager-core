@@ -21,6 +21,7 @@ use ::rpc::{
     forge::{self as forgerpc, MachineType},
     MachineId,
 };
+use cfg::carbide_options::BmcMachine;
 use cfg::carbide_options::BootOverrideAction;
 use cfg::carbide_options::DpuAction::Reprovision;
 use cfg::carbide_options::DpuReprovision;
@@ -577,6 +578,19 @@ async fn main() -> color_eyre::Result<()> {
                     },
                 )
                 .await?;
+            }
+        },
+        CarbideCommand::BmcMachine(bmc_machine) => match bmc_machine {
+            BmcMachine::Reset(c) => {
+                let bmc_auth = match (c.username, c.password, c.machine) {
+                    (Some(user), Some(password), _) => rpc::ResetAuth::Direct { user, password },
+                    (_, _, Some(machine_id)) => rpc::ResetAuth::Indirect { machine_id },
+                    _ => {
+                        eprintln!("Provide either --machine-id or both --username and --password");
+                        return Ok(());
+                    }
+                };
+                rpc::bmc_reset(api_config, c.address, c.port, bmc_auth).await?;
             }
         },
     }
