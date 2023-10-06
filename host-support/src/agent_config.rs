@@ -34,6 +34,8 @@ pub struct AgentConfig {
     pub telemetry: Option<TelemetryConfig>,
     #[serde(default)]
     pub hbn: HBNConfig,
+    #[serde(default)]
+    pub period: IterationTime,
 }
 
 impl AgentConfig {
@@ -87,7 +89,9 @@ pub struct MachineConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     hostname: Option<String>,
     #[serde(default)]
+    pub upgrade_cmd: String,
     /// Local dev only. Pretend to be a DPU for discovery.
+    #[serde(default)]
     pub is_fake_dpu: bool,
 }
 
@@ -120,6 +124,36 @@ impl Default for HBNConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct IterationTime {
+    /// How often to report network health and poll for new configs when in stable state.
+    /// Eventually we will need an event system. Block storage requires very fast DPU responses.
+    pub main_loop_idle_secs: u64,
+
+    /// How often to report network health and poll for new configs when things are in flux.
+    /// This should be slightly bigger than bgpTimerHoldTimeMsecs as displayed in HBN
+    /// container by 'show bgp neighbors json' - which is currently 9s.
+    pub main_loop_active_secs: u64,
+
+    /// How often we fetch the desired network configuration for a host
+    pub network_config_fetch_secs: u64,
+
+    /// How often to check if we have latest forge-dpu-agent version
+    pub version_check_secs: u64,
+}
+
+impl Default for IterationTime {
+    fn default() -> Self {
+        Self {
+            main_loop_idle_secs: 30,
+            main_loop_active_secs: 10,
+            network_config_fetch_secs: 30,
+            version_check_secs: 1800, // 30 minutes
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,6 +170,7 @@ is-fake-dpu = true
 interface-id = "91609f10-c91d-470d-a260-6293ea0c1200"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.com"
+upgrade-cmd = "apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__"
 
 [metadata-service]
 address = "0.0.0.0:7777"
@@ -146,6 +181,12 @@ metrics-address = "0.0.0.0:8888"
 [hbn]
 root-dir = "/tmp/hbn-root"
 skip-reload = true
+
+[period]
+main-loop-active-secs = 10
+main-loop-idle-secs = 30
+network-config-fetch-secs = 20
+version-check-secs = 1800
 "#;
 
         let config: AgentConfig = toml::from_str(config).unwrap();

@@ -7,6 +7,7 @@ license = "LicenseRef-NvidiaProprietary"
 authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 
 [dev-dependencies]
+chrono = "0.4"
 eyre = "*"
 ipnetwork = { version = "^0.20.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -20,9 +21,14 @@ tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 
 # local dependencies
 agent = { path = "../bluefield/agent" }
-carbide-api = { path = "../api" }
 bmc-mock = { path = "../dev/bmc-mock" }
+carbide-api = { path = "../api" }
+forge-host-support = { path = "../host-support" }
+forge-version = { path = "../version" }
 rpc = { path = "../rpc" }
 
 [dependencies]
 async-trait = "0.1.72"
+
+[build-dependencies]
+forge-version = { path = "../version" }

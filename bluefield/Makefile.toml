@@ -8,6 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+[env]
+# e.g. 2023.09-72-g1641d986
+DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always | cut -c 2-)"] }
+
 [tasks.build-dpu-agent]
 category = "Build"
 description = "cross compile forge-dpu-agent locally"
@@ -31,15 +35,15 @@ args = ["build", "--bin", "forge-dpu-agent"]
 category = "Build"
 workspace = false
 script = '''
-    vers=$(grep Version misc/DEBIAN/control | cut -d : -f 2 | sed s/\ //g) && \
-    export vers && \
-    mkdir -p "forge-dpu_${vers}/lib/systemd/system" && \
-    mkdir -p "forge-dpu_${vers}/usr/bin" && \
-    cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/" && \
-    cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/" && \
-    cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/" && \
-    cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/" && \
+    export vers=${DPU_AGENT_PKG_VERSION}
+    mkdir -p "forge-dpu_${vers}/lib/systemd/system"
+    mkdir -p "forge-dpu_${vers}/usr/bin"
+    cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
+    cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
+    cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
+	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
 dependencies = [
     "build-dpu-agent",
@@ -49,15 +53,15 @@ dependencies = [
 category = "Build"
 workspace = false
 script = '''
-    vers=$(grep Version misc/DEBIAN/control | cut -d : -f 2 | sed s/\ //g) && \
-    export vers && \
-    mkdir -p "forge-dpu_${vers}/lib/systemd/system" && \
-    mkdir -p "forge-dpu_${vers}/usr/bin" && \
-    cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/" && \
-    cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/" && \
-    cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/" && \
-    cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/" && \
+    export vers=${DPU_AGENT_PKG_VERSION}
+    mkdir -p "forge-dpu_${vers}/lib/systemd/system"
+    mkdir -p "forge-dpu_${vers}/usr/bin"
+    cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
+    cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
+    cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
+	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
 dependencies = [
     "build-dpu-agent-ci",
@@ -68,9 +72,7 @@ category = "Build"
 description = "Build the forge-dpu.deb package"
 workspace = false
 script = '''
-    vers=$(grep Version misc/DEBIAN/control | cut -d : -f 2 | sed s/\ //g) && \
-    export vers && \
-    dpkg-deb --build forge-dpu_${vers}
+    dpkg-deb --build forge-dpu_${DPU_AGENT_PKG_VERSION}
 '''
 dependencies = [
     "setup-forge-dpu-deb"
@@ -81,9 +83,7 @@ category = "Build"
 description = "Build the forge-dpu.deb package"
 workspace = false
 script = '''
-    vers=$(grep Version misc/DEBIAN/control | cut -d : -f 2 | sed s/\ //g) && \
-    export vers && \
-    dpkg-deb --build forge-dpu_${vers}
+    dpkg-deb --build forge-dpu_${DPU_AGENT_PKG_VERSION}
 '''
 dependencies = [
     "setup-forge-dpu-deb-ci"

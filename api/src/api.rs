@@ -53,6 +53,7 @@ use uuid::Uuid;
 use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
+use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
@@ -67,6 +68,7 @@ use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
+use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, ManagedHostState, ReprovisionState,
 };
@@ -148,10 +150,14 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     redfish_pool: Arc<dyn RedfishClientPool>,
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
-    identity_pemfile_path: String,
-    identity_keyfile_path: String,
-    root_cafile_path: String,
-    admin_root_cafile_path: String,
+    tls_config: ApiTlsConfig,
+}
+
+pub struct ApiTlsConfig {
+    pub identity_pemfile_path: String,
+    pub identity_keyfile_path: String,
+    pub root_cafile_path: String,
+    pub admin_root_cafile_path: String,
 }
 
 #[tonic::async_trait]
@@ -163,15 +169,8 @@ where
     async fn version(
         &self,
         _request: tonic::Request<()>,
-    ) -> Result<Response<rpc::VersionResult>, Status> {
-        Ok(Response::new(rpc::VersionResult {
-            build_version: forge_version::v!(build_version).to_string(),
-            build_date: forge_version::v!(build_date).to_string(),
-            git_sha: forge_version::v!(git_sha).to_string(),
-            rust_version: forge_version::v!(rust_version).to_string(),
-            build_user: forge_version::v!(build_user).to_string(),
-            build_hostname: forge_version::v!(build_hostname).to_string(),
-        }))
+    ) -> Result<Response<rpc::FullVersion>, Status> {
+        Ok(Response::new(forge_version::for_rpc()))
     }
 
     async fn create_domain(
@@ -1203,14 +1202,14 @@ where
 
         let machine_obs = MachineNetworkStatusObservation::try_from(request.clone())
             .map_err(CarbideError::from)?;
-        Machine::update_network_status_observation(&mut txn, &dpu_machine_id, machine_obs)
+        Machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs)
             .await
             .map_err(CarbideError::from)?;
-
         tracing::trace!(
             machine_id = %dpu_machine_id,
             machine_network_config = ?request.network_config_version,
             instance_network_config = ?request.instance_config_version,
+            agent_version = machine_obs.agent_version,
             "Applied network configs",
         );
 
@@ -1246,6 +1245,29 @@ where
                 "commit record_dpu_network_status",
                 e,
             ))
+        })?;
+
+        // Check if we need to flag this forge-dpu-agent for upgrade or mark an upgrade completed
+        // We do this here because we just learnt about which version of forge-dpu-agent is
+        // running.
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin record_dpu_network_status upgrade check", e)
+        })?;
+        if let Some(policy) = DpuAgentUpgradePolicy::get(&mut txn)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            let _needs_upgrade =
+                Machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id)
+                    .await
+                    .map_err(CarbideError::from)?;
+        }
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(
+                file!(),
+                "commit record_dpu_network_status upgrade check",
+                e,
+            )
         })?;
 
         Ok(Response::new(()))
@@ -2345,7 +2367,7 @@ where
             CarbideError::DatabaseError(file!(), "begin get_all_managed_host_network_status", e)
         })?;
 
-        let all_status = Machine::get_all_network_status_observation(&mut txn)
+        let all_status = Machine::get_all_network_status_observation(&mut txn, 2000)
             .await
             .map_err(CarbideError::from)?;
 
@@ -3579,6 +3601,104 @@ where
 
         Ok(Response::new(rpc::AdminBmcResetResponse {}))
     }
+
+    /// Should this DPU upgade it's forge-dpu-agent?
+    /// Once the upgrade is complete record_dpu_network_status will receive the updated
+    /// version and write the DB to say our upgrade is complete.
+    async fn dpu_agent_upgrade_check(
+        &self,
+        request: tonic::Request<rpc::DpuAgentUpgradeCheckRequest>,
+    ) -> Result<tonic::Response<rpc::DpuAgentUpgradeCheckResponse>, Status> {
+        log_request_data(&request);
+
+        let req = request.into_inner();
+        let machine_id = MachineId::from_str(&req.machine_id).map_err(|_| {
+            CarbideError::from(RpcDataConversionError::InvalidMachineId(
+                req.machine_id.clone(),
+            ))
+        })?;
+        log_machine_id(&machine_id);
+        if !machine_id.machine_type().is_dpu() {
+            return Err(Status::invalid_argument(
+                "Upgrade check can only be performed on DPUs",
+            ));
+        }
+
+        // We usually want these two to match
+        let agent_version = req.current_agent_version;
+        let server_version = forge_version::v!(build_version);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin dpu_agent_upgrade_check ", e)
+        })?;
+        let machine = Machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+            .await
+            .map_err(CarbideError::from)?;
+        let machine = machine.ok_or(CarbideError::NotFoundError {
+            kind: "dpu",
+            id: machine_id.to_string(),
+        })?;
+        let should_upgrade = machine.needs_agent_upgrade();
+        if should_upgrade {
+            tracing::debug!(
+                %machine_id,
+                agent_version,
+                server_version,
+                "Needs forge-dpu-agent upgrade",
+            );
+        } else {
+            tracing::trace!(%machine_id, agent_version, "forge-dpu-agent is up to date");
+        }
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "end dpu_agent_upgrade_check handler", e)
+        })?;
+
+        // The debian/ubuntu package version is our build_version minus the initial `v`
+        let package_version = &server_version[1..];
+
+        let response = rpc::DpuAgentUpgradeCheckResponse {
+            should_upgrade,
+            package_version: package_version.to_string(),
+            server_version: server_version.to_string(),
+        };
+        Ok(tonic::Response::new(response))
+    }
+
+    /// Get or set the forge-dpu-agent upgrade policy.
+    async fn dpu_agent_upgrade_policy_action(
+        &self,
+        request: tonic::Request<rpc::DpuAgentUpgradePolicyRequest>,
+    ) -> Result<tonic::Response<rpc::DpuAgentUpgradePolicyResponse>, Status> {
+        log_request_data(&request);
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin apply_agent_upgrade_policy_all", e)
+        })?;
+
+        let req = request.into_inner();
+        let mut did_change = false;
+        if let Some(new_policy) = req.new_policy {
+            let policy: AgentUpgradePolicy = new_policy.into();
+
+            DpuAgentUpgradePolicy::set(&mut txn, policy)
+                .await
+                .map_err(CarbideError::from)?;
+            did_change = true;
+        }
+
+        let Some(active_policy) = DpuAgentUpgradePolicy::get(&mut txn)
+            .await
+            .map_err(CarbideError::from)? else {
+                return Err(tonic::Status::not_found("No agent upgrade policy"));
+        };
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "commit apply_agent_upgrade_policy_all", e)
+        })?;
+        let response = rpc::DpuAgentUpgradePolicyResponse {
+            active_policy: active_policy.into(),
+            did_change,
+        };
+        Ok(tonic::Response::new(response))
+    }
 }
 
 ///
@@ -3708,10 +3828,10 @@ where
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
         .build()?;
 
-    let identity_pemfile_path = api_service.identity_pemfile_path.clone();
-    let identity_keyfile_path = api_service.identity_keyfile_path.clone();
-    let root_cafile_path = api_service.root_cafile_path.clone();
-    let admin_root_cafile_path = api_service.admin_root_cafile_path.clone();
+    let identity_pemfile_path = api_service.tls_config.identity_pemfile_path.clone();
+    let identity_keyfile_path = api_service.tls_config.identity_keyfile_path.clone();
+    let root_cafile_path = api_service.tls_config.root_cafile_path.clone();
+    let admin_root_cafile_path = api_service.tls_config.admin_root_cafile_path.clone();
 
     let identity_pemfile_path_clone = identity_pemfile_path.clone();
     let identity_keyfile_path_clone = identity_keyfile_path.clone();
@@ -3845,7 +3965,7 @@ where
                 //servicing without tls -- HTTP only
                 connection_succeeded_counter.add(1, &[]);
                 if let Err(error) = http.serve_connection(conn, svc).await {
-                    tracing::debug!(%error, "error servicing http connection");
+                    tracing::debug!(%error, "error servicing plain http connection");
                 }
             }
         });
@@ -3889,10 +4009,7 @@ where
         redfish_pool: Arc<dyn RedfishClientPool>,
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
-        identity_pemfile_path: String,
-        identity_keyfile_path: String,
-        root_cafile_path: String,
-        admin_root_cafile_path: String,
+        tls_config: ApiTlsConfig,
     ) -> Self {
         Self {
             database_connection,
@@ -3902,10 +4019,7 @@ where
             redfish_pool,
             eth_data,
             common_pools,
-            identity_pemfile_path,
-            identity_keyfile_path,
-            root_cafile_path,
-            admin_root_cafile_path,
+            tls_config,
         }
     }
 
@@ -4013,43 +4127,49 @@ where
             resource_pool_stats: Some(common_pools.pool_stats.clone()),
         });
 
-        let api_service = Arc::new(Self::new(
-            credential_provider.clone(),
-            certificate_provider.clone(),
-            database_connection.clone(),
+        let tls_ref = carbide_config.tls.as_ref().expect("Missing tls config");
+
+        let tls_config = ApiTlsConfig {
+            identity_pemfile_path: tls_ref.identity_pemfile_path.clone(),
+            identity_keyfile_path: tls_ref.identity_keyfile_path.clone(),
+            root_cafile_path: tls_ref.root_cafile_path.clone(),
+            admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
+        };
+        let api_service = Arc::new(Api {
+            credential_provider: credential_provider.clone(),
+            certificate_provider: certificate_provider.clone(),
+            database_connection: database_connection.clone(),
             authorizer,
-            shared_redfish_pool.clone(),
+            redfish_pool: shared_redfish_pool.clone(),
             eth_data,
-            common_pools.clone(),
-            carbide_config
-                .tls
-                .as_ref()
-                .expect("Missing tls config")
-                .identity_pemfile_path
-                .clone(),
-            carbide_config
-                .tls
-                .as_ref()
-                .expect("Missing tls config")
-                .identity_keyfile_path
-                .clone(),
-            carbide_config
-                .tls
-                .as_ref()
-                .expect("Missing tls config")
-                .root_cafile_path
-                .clone(),
-            carbide_config
-                .tls
-                .as_ref()
-                .expect("Missing tls config")
-                .admin_root_cafile_path
-                .clone(),
-        ));
+            common_pools: common_pools.clone(),
+            tls_config,
+        });
 
         if let Some(networks) = carbide_config.networks.as_ref() {
             api_service.create_initial_networks(networks).await?;
         }
+
+        let mut txn = database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin agent upgrade policy", e))?;
+        let initial_policy: AgentUpgradePolicy = carbide_config
+            .initial_dpu_agent_upgrade_policy
+            .unwrap_or(super::cfg::AgentUpgradePolicyChoice::Off)
+            .into();
+        let current_policy = DpuAgentUpgradePolicy::get(&mut txn).await?;
+        // Only set if the very first time, it's the initial policy
+        if current_policy.is_none() {
+            DpuAgentUpgradePolicy::set(&mut txn, initial_policy).await?;
+            tracing::debug!(
+                %initial_policy,
+                "Initialized DPU agent upgrade policy"
+            );
+        }
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit agent upgrade policy", e))?;
 
         // handles need to be stored in a variable
         // If they are assigned to _ then the destructor will be immediately called

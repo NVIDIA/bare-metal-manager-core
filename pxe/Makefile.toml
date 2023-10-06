@@ -18,6 +18,7 @@ HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_conta
 IPXE_BANNER_VERSION = { script = ["echo ${VERSION:-$(git describe --tags --first-parent --always)}"] }
 DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:1.5.0-doca2.2.0"
 DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.14.2-doca2.2.0"
+DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always | cut -c 2-)"] }
 
 [tasks.build-boot-artifacts-x86_64]
 dependencies = [
@@ -45,17 +46,18 @@ dependencies = [
 
 [tasks.build-boot-artifacts-aarch64]
 dependencies = [
-        "mkdir-static-aarch64",
+	"mkdir-static-aarch64",
 	"bfb-aarch64",
 	"ipxe-aarch64",
 ]
 
 [tasks.build-boot-artifacts-aarch64-ci]
 dependencies = [
-        "mkdir-static-aarch64",
+	"mkdir-static-aarch64",
 	{ name = "build-cli-ci", path = "${REPO_ROOT}" },
 	"bfb-aarch64-ci",
 	"ipxe-aarch64",
+	"setup-apt-repo",
 ]
 
 [tasks.create-ephemeral-image-x86_64]
@@ -88,6 +90,8 @@ dependencies = [
 category = "ipxe"
 script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/aarch64"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu"
 '''
 
 [tasks.mkdir-static-x86_64]
@@ -156,7 +160,7 @@ args = [
 category = "Ephemeral Image"
 command = "sudo"
 args = [
-        "mkosi/builddir/mkosi",
+	"mkosi/builddir/mkosi",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"clean"
@@ -166,7 +170,7 @@ args = [
 category = "Ephemeral Image"
 command = "sudo"
 args = [
-        "mkosi/builddir/mkosi",
+	"mkosi/builddir/mkosi",
 	"--split-artifacts",
 	"--output", "static/blobs/internal/x86_64/carbide",
 	"build"
@@ -286,7 +290,7 @@ dependencies = [
 	"mv-hbn-scripts-to-bfb",
 	"cleanup-hbn-scripts",
 	{ name = "build-forge-dpu-deb-ci", path="${REPO_ROOT}/bluefield" },
-	"move-forge-dpu-package-to-bfb",
+	"cp-forge-dpu-package-to-bfb",
 	"bfb-copy-efi",
 	"bfb-remove-extracted-efi",
 	"bfb-rebuild-rootfs",
@@ -320,7 +324,7 @@ dependencies = [
 	"mv-hbn-scripts-to-bfb",
 	"cleanup-hbn-scripts",
 	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
-	"move-forge-dpu-package-to-bfb",
+	"cp-forge-dpu-package-to-bfb",
 	"bfb-copy-efi",
 	"bfb-remove-extracted-efi",
 	"bfb-rebuild-rootfs",
@@ -544,14 +548,44 @@ args = [
 ]
 cwd = "/tmp/bfb-dump/initramfs-tmp/doca_container_configs"
 
-[tasks.move-forge-dpu-package-to-bfb]
+[tasks.cp-forge-dpu-package-to-bfb]
 category = "iPXE Kernel"
-description = "Move aarch64 EFI iPXE debian file"
-command = "mv"
+description = "Copy aarch64 EFI iPXE debian file"
+command = "cp"
 args = [
-	"${REPO_ROOT}/bluefield/forge-dpu_1.0-1.deb",
+	"${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}.deb",
 	"/tmp/bfb-dump/initramfs-tmp",
 ]
+
+[tasks.setup-apt-repo]
+category = "iPXE Kernel"
+description = "Setup apt repo for forge-dpu package"
+script = '''
+	mv "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}.deb" \
+	"${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu/"
+	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
+	dpkg-scanpackages -m pool > dists/focal/main/binary-arm64/Packages
+	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal"
+	echo "Origin: Ubuntu
+Label: Ubuntu
+Suite: focal
+Version: 20.04
+Codename: focal
+Architectures: arm64
+Components: main
+Description: Forge apt repo" > Release
+	echo -e "Date: `LANG=C date -Ru`" >> Release
+	echo -e 'SHA256:' >> Release
+	find main -type f | xargs -i sh -c 'printf " "$(sha256sum {} | cut -d " " -f 1)" "$(wc --bytes {} | cut -d " " -f 1)" "{}"\n"' >> Release
+	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
+	echo "Archive: focal
+Version: 20.04
+Component: main
+Origin: Ubuntu
+Label: Ubuntu
+Architecture: arm64" > Release
+'''
+
 
 [tasks.bfb-copy-efi]
 category = "iPXE Kernel"

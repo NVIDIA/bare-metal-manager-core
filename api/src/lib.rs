@@ -15,6 +15,7 @@ use std::{
 };
 
 use dhcp::allocation::DhcpError;
+use eyre::WrapErr;
 use mac_address::MacAddress;
 use model::{
     config_version::{ConfigVersion, ConfigVersionParseError},
@@ -290,7 +291,9 @@ pub async fn run(
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
     let (prometheus_registry, meter) =
-        setup_telemetry(debug, carbide_config.clone(), logging_subscriber).await?;
+        setup_telemetry(debug, carbide_config.clone(), logging_subscriber)
+            .await
+            .wrap_err("setup_telemetry")?;
 
     // Redact credentials before printing the config
     let print_config = {

@@ -9,9 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::{rpc, CarbideCliResult};
-use crate::Config;
 use prettytable::{row, Table};
+
+use super::{rpc, CarbideCliResult};
+use crate::{cfg::carbide_options::AgentUpgradePolicyChoice, Config};
 
 pub async fn trigger_reprovisioning(
     id: String,
@@ -50,4 +51,26 @@ fn print_pending_dpus(dpus: ::rpc::forge::DpuReprovisioningListResponse) {
     }
 
     table.printstd();
+}
+
+pub async fn handle_agent_upgrade_policy(
+    api_config: Config,
+    action: Option<::rpc::forge::AgentUpgradePolicy>,
+) -> CarbideCliResult<()> {
+    match action {
+        None => {
+            let resp = rpc::dpu_agent_upgrade_policy_action(&api_config, None).await?;
+            let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
+            tracing::info!("{policy}");
+        }
+        Some(choice) => {
+            let resp = rpc::dpu_agent_upgrade_policy_action(&api_config, Some(choice)).await?;
+            let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
+            tracing::info!(
+                "Policy is now: {policy}. Update succeeded? {}.",
+                resp.did_change,
+            );
+        }
+    }
+    Ok(())
 }

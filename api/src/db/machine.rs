@@ -34,7 +34,10 @@ use crate::model::hardware_info::{BMCVendor, HardwareInfo};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
-use crate::model::machine::{FailureDetails, MachineState, ManagedHostState, ReprovisionRequest};
+use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
+use crate::model::machine::{
+    FailureDetails, MachineState, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+};
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -117,6 +120,9 @@ pub struct Machine {
 
     /// Last time when machine reprovisioning_requested.
     reprovisioning_requested: Option<ReprovisionRequest>,
+
+    /// Does the forge-dpu-agent on this DPU need upgrading?
+    dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -147,6 +153,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let failure_details: sqlx::types::Json<FailureDetails> = row.try_get("failure_details")?;
         let reprovision_req: Option<sqlx::types::Json<ReprovisionRequest>> =
             row.try_get("reprovisioning_requested")?;
+        let dpu_agent_upgrade_requested: Option<sqlx::types::Json<UpgradeDecision>> =
+            row.try_get("dpu_agent_upgrade_requested")?;
 
         Ok(Machine {
             id,
@@ -172,6 +180,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             last_discovery_time: row.try_get("last_discovery_time")?,
             failure_details: failure_details.0,
             reprovisioning_requested: reprovision_req.map(|x| x.0),
+            dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
         })
     }
 }
@@ -337,6 +346,14 @@ impl Machine {
 
     pub fn use_admin_network(&self) -> bool {
         self.network_config().use_admin_network.unwrap_or(true)
+    }
+
+    /// Does the forge-dpu-agent on this DPU need upgrading?
+    pub fn needs_agent_upgrade(&self) -> bool {
+        self.dpu_agent_upgrade_requested
+            .as_ref()
+            .map(|d| d.should_upgrade)
+            .unwrap_or(false)
     }
 
     pub async fn exists(
@@ -947,7 +964,7 @@ SELECT m.id FROM
     pub async fn update_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
-        observation: MachineNetworkStatusObservation,
+        observation: &MachineNetworkStatusObservation,
     ) -> Result<(), DatabaseError> {
         let query =
             "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 AND
@@ -967,12 +984,14 @@ SELECT m.id FROM
 
     pub async fn get_all_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
+        limit: i64, // return at most this many rows
     ) -> Result<Vec<MachineNetworkStatusObservation>, DatabaseError> {
         let query = "SELECT network_status_observation FROM machines
             WHERE network_status_observation IS NOT NULL
             ORDER BY network_status_observation->'machine_id'
-            LIMIT 1000";
+            LIMIT $1::integer";
         let rows = sqlx::query(query)
+            .bind(limit)
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -1176,6 +1195,67 @@ SELECT m.id FROM
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    /// Apply dpu agent upgrade policy to a single DPU.
+    /// Returns Ok(true) if it needs upgrading, Ok(false) otherwise.
+    pub async fn apply_agent_upgrade_policy(
+        txn: &mut Transaction<'_, Postgres>,
+        policy: AgentUpgradePolicy,
+        machine_id: &MachineId,
+    ) -> Result<bool, CarbideError> {
+        if policy == AgentUpgradePolicy::Off {
+            return Ok(false);
+        }
+        let machine = Machine::find_one(txn, machine_id, MachineSearchConfig::default())
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "dpu_machine",
+                id: machine_id.to_string(),
+            })?;
+        match machine.network_status_observation() {
+            None => Ok(false),
+            Some(obs) => {
+                let carbide_api_version = forge_version::v!(build_version);
+                if obs.agent_version.is_none() {
+                    return Ok(false);
+                }
+                let agent_version = obs.agent_version.as_ref().cloned().unwrap();
+                let should_upgrade = policy.should_upgrade(&agent_version, carbide_api_version);
+                if should_upgrade != machine.needs_agent_upgrade() {
+                    Machine::set_dpu_agent_upgrade_requested(
+                        txn,
+                        machine_id,
+                        should_upgrade,
+                        carbide_api_version,
+                    )
+                    .await?;
+                }
+
+                Ok(true)
+            }
+        }
+    }
+
+    pub async fn set_dpu_agent_upgrade_requested(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        should_upgrade: bool,
+        to_version: &str,
+    ) -> Result<(), DatabaseError> {
+        let decision = UpgradeDecision {
+            should_upgrade,
+            to_version: to_version.to_string(),
+            last_updated: chrono::Utc::now(),
+        };
+        let query = "UPDATE machines SET dpu_agent_upgrade_requested = $1::json WHERE id = $2";
+        sqlx::query(query)
+            .bind(sqlx::types::Json(decision))
+            .bind(machine_id.to_string())
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
     }
 }
 

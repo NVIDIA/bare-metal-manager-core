@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use carbide::cfg::{AuthConfig, CarbideConfig, TlsConfig};
+use carbide::cfg::{AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, TlsConfig};
 use carbide::logging::sqlx_query_tracing;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
@@ -40,6 +40,7 @@ pub async fn start(
         route_servers: vec![],
         deny_prefixes: vec![],
         initial_domain_name: Some(DOMAIN_NAME.to_string()),
+        initial_dpu_agent_upgrade_policy: Some(AgentUpgradePolicyChoice::Off),
         tls: Some(TlsConfig {
             identity_pemfile_path: format!("{root_dir}/dev/certs/server_identity.pem"),
             identity_keyfile_path: format!("{root_dir}/dev/certs/server_identity.key"),

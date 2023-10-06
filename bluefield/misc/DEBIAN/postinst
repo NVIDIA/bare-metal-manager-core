@@ -2,3 +2,4 @@
 
 systemctl enable local_bmc_dev.service
 systemctl enable forge-dpu-agent.service
+systemctl restart forge-dpu-agent

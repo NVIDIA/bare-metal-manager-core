@@ -9,8 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::{ArgGroup, Parser, ValueEnum};
+use std::fmt;
 use std::path::PathBuf;
+
+use clap::{ArgGroup, Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
@@ -116,6 +118,8 @@ pub struct InventoryAction {
 pub enum DpuAction {
     #[clap(subcommand, about = "DPU Reprovisioning handling")]
     Reprovision(DpuReprovision),
+    #[clap(about = "Get or set forge-dpu-agent upgrade policy")]
+    AgentUpgradePolicy(AgentUpgrade),
 }
 
 #[derive(Parser, Debug)]
@@ -139,6 +143,42 @@ pub struct DpuReprovisionData {
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct AgentUpgrade {
+    #[clap(long)]
+    pub set: Option<AgentUpgradePolicyChoice>,
+}
+
+// Should match api/src/model/machine/upgrade_policy.rs AgentUpgradePolicy
+#[derive(ValueEnum, Debug, Clone)]
+pub enum AgentUpgradePolicyChoice {
+    Off,
+    UpOnly,
+    UpDown,
+}
+
+impl fmt::Display for AgentUpgradePolicyChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // enums are a special case where their debug impl is their name ("Off")
+        fmt::Debug::fmt(self, f)
+    }
+}
+
+// From the RPC
+impl From<i32> for AgentUpgradePolicyChoice {
+    fn from(rpc_policy: i32) -> Self {
+        use rpc::forge::AgentUpgradePolicy::*;
+        match rpc_policy {
+            n if n == Off as i32 => AgentUpgradePolicyChoice::Off,
+            n if n == UpOnly as i32 => AgentUpgradePolicyChoice::UpOnly,
+            n if n == UpDown as i32 => AgentUpgradePolicyChoice::UpDown,
+            _ => {
+                unreachable!();
+            }
+        }
+    }
 }
 
 #[derive(Parser, Debug)]

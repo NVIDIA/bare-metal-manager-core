@@ -51,12 +51,14 @@ pub fn start(vault_bin: &path::Path) -> Result<Vault, eyre::Report> {
                     let _ = sender.send(parts.next().unwrap().to_string());
                 }
             }
-            tracing::trace!("{}", line);
+            // there's no logger so can't use tracing
+            println!("{}", line);
         }
     });
     thread::spawn(move || {
         for line in stderr.lines() {
-            tracing::debug!("{}", line.unwrap());
+            // there's no logger so can't use tracing
+            eprintln!("{}", line.unwrap());
         }
     });
 
@@ -67,10 +69,14 @@ pub fn start(vault_bin: &path::Path) -> Result<Vault, eyre::Report> {
 
 impl Drop for Vault {
     fn drop(&mut self) {
-        let mut kill = process::Command::new("kill")
-            .args(["-s", "TERM", &self.process.id().to_string()])
-            .spawn()
-            .expect("'kill' vault");
-        kill.wait().expect("wait");
+        stop_vault(&self.process.id().to_string());
     }
+}
+
+fn stop_vault(pid: &str) {
+    let mut kill = process::Command::new("kill")
+        .args(["-s", "TERM", pid])
+        .spawn()
+        .expect("'kill' vault");
+    kill.wait().expect("wait");
 }

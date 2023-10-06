@@ -95,6 +95,10 @@ pub struct CarbideConfig {
     /// Most sites use a single domain for their lifetime. This is that domain.
     /// The alternative is to create it via `CreateDomain` grpc endpoint.
     pub initial_domain_name: Option<String>,
+
+    /// The policy we use to decide whether a specific forge-dpu-agent should be upgraded
+    /// Also settable via a `forge-admin-cli` command.
+    pub initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 }
 
 /// TLS related configuration
@@ -121,6 +125,15 @@ pub struct AuthConfig {
 
     /// The Casbin policy file (in CSV format).
     pub casbin_policy_file: PathBuf,
+}
+
+// Should match api/src/model/machine/upgrade_policy.rs DpuAgentUpgradePolicy
+#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentUpgradePolicyChoice {
+    Off,
+    UpOnly,
+    UpDown,
 }
 
 fn default_listen() -> SocketAddr {

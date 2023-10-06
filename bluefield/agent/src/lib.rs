@@ -27,7 +27,6 @@ use opentelemetry::sdk;
 use opentelemetry::sdk::metrics;
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
-use tracing::{debug, error, info, trace, warn};
 
 use crate::frr::FrrVlanConfig;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
@@ -47,22 +46,9 @@ mod instance_metadata_fetcher;
 mod instrumentation;
 mod interfaces;
 mod network_config_fetcher;
+mod upgrade;
+pub use upgrade::upgrade_check;
 mod util;
-
-// How often to report network health and poll for new configs when in stable state.
-// Eventually we will need an event system. Block storage requires very fast DPU responses.
-const MAIN_LOOP_PERIOD_IDLE: Duration = Duration::from_secs(30);
-
-// How often to report network health and poll for new configs when things are in flux.
-// This should be slightly bigger than bgpTimerHoldTimeMsecs as displayed in HBN
-// container by 'show bgp neighbors json' - which is currently 9s.
-pub const MAIN_LOOP_PERIOD_ACTIVE: Duration = Duration::from_secs(10);
-
-/// How often we fetch the desired network configuration for a host
-const NETWORK_CONFIG_FETCH_PERIOD: Duration = Duration::from_secs(30);
-
-/// Check if we have latest forge-dpu-agent version every four hours
-const VERSION_CHECK_PERIOD: Duration = Duration::from_secs(4 * 3600);
 
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 
@@ -74,7 +60,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
     let agent = match AgentConfig::load_from(&cmdline.config_path) {
         Ok(cfg) => {
-            info!("Successfully loaded agent configuration {:?}", cfg);
+            tracing::info!("Successfully loaded agent configuration {:?}", cfg);
             cfg
         }
         Err(e) => {
@@ -85,6 +71,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             ));
         }
     };
+    if agent.machine.is_fake_dpu {
+        tracing::warn!("Pretending local host is a DPU. Dev only.");
+    }
 
     let forge_tls_config = ForgeTlsConfig {
         root_ca_path: agent.forge_system.root_ca.clone(),
@@ -95,40 +84,25 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     };
 
     match cmdline.cmd {
-        // We want to run the "run" command by default if no mode is explicitly mentioned
+        // TODO until Oct 2023 forge-dpu-agent in prod used this
+        // Now the systemd service calls 'run'. Remove this in the future.
         None => {
             let machine_id = register(&agent).await?;
-            run(&machine_id, forge_tls_config, agent).await;
-        }
-        // "run" is the normal and default command
-        Some(AgentCommand::Run(options)) => {
-            if agent.machine.is_fake_dpu {
-                tracing::warn!("Pretending local host is a DPU. Dev only.");
-            }
-            let machine_id = register(&agent).await?;
-            if options.enable_metadata_service {
-                if let (Some(metadata_service_config), Some(telemetry_config)) =
-                    (&agent.metadata_service, &agent.telemetry)
-                {
-                    if let Err(e) = run_metadata_service(
-                        &machine_id,
-                        &agent.forge_system.api_server,
-                        forge_tls_config.clone(),
-                        metadata_service_config.address.clone(),
-                        telemetry_config.metrics_address.clone(),
-                    )
-                    .await
-                    {
-                        return Err(eyre::eyre!("Failed to run metadata service: {:?}", e));
-                    }
-                } else {
-                    error!("metadata-service and telemetry configs are not present. Can't run metadata service");
-                }
-            }
-            run(&machine_id, forge_tls_config, agent).await;
+            run(&machine_id, forge_tls_config, agent, None).await?;
         }
 
-        // already done, the cmd allows us to do only this.
+        // "run" is the normal and default command
+        Some(AgentCommand::Run(options)) => {
+            let machine_id = match &options.override_machine_id {
+                // Normal case
+                None => register(&agent).await?,
+                // Dev / test override
+                Some(id) => id.to_string(),
+            };
+            run(&machine_id, forge_tls_config, agent, Some(options)).await?;
+        }
+
+        // enumerate hardware and exit
         Some(AgentCommand::Hardware) => {
             enumerate_hardware()?;
         }
@@ -137,7 +111,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // Does not take into account tenant ignored peers, so it can fail when the real check would
         // succeed.
         Some(AgentCommand::Health) => {
-            let health_report = health::health_check(&[]);
+            let health_report = health::health_check(&agent.hbn.root_dir, &[]);
             println!("{health_report}");
         }
 
@@ -185,7 +159,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 Err(err) => status_out.network_config_error = Some(err.to_string()),
             }
             if let Some(v) = status_out.network_config_version.as_ref() {
-                info!("Applied: {v}");
+                tracing::info!("Applied: {v}");
             }
             status_out.health = Some(rpc::NetworkHealth {
                 // Simulate what main forge-dpu-agent does, which is
@@ -282,7 +256,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 async fn register(agent: &AgentConfig) -> Result<String, eyre::Report> {
     let interface_id = agent.machine.interface_id;
     let mut hardware_info = enumerate_hardware()?;
-    debug!("Successfully enumerated DPU hardware");
+    tracing::debug!("Successfully enumerated DPU hardware");
 
     if agent.machine.is_fake_dpu {
         // Pretend to be a bluefield DPU for local dev.
@@ -315,18 +289,48 @@ async fn register(agent: &AgentConfig) -> Result<String, eyre::Report> {
     .await?;
 
     let machine_id = registration_data.machine_id;
-    info!("Successfully discovered machine {machine_id} for interface {interface_id}");
+    tracing::info!(%machine_id, %interface_id, "Successfully discovered machine");
 
     Ok(machine_id)
 }
 
 // main loop when running in daemon mode
-async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentConfig) {
+async fn run(
+    machine_id: &str,
+    forge_tls_config: ForgeTlsConfig,
+    agent: AgentConfig,
+    options: Option<RunOptions>,
+) -> eyre::Result<()> {
+    let enable_metadata_service = options.map(|o| o.enable_metadata_service).unwrap_or(false);
+    if enable_metadata_service {
+        if let (Some(metadata_service_config), Some(telemetry_config)) =
+            (&agent.metadata_service, &agent.telemetry)
+        {
+            if let Err(e) = run_metadata_service(
+                machine_id,
+                forge_tls_config.clone(),
+                &agent,
+                metadata_service_config.address.clone(),
+                telemetry_config.metrics_address.clone(),
+            )
+            .await
+            {
+                return Err(eyre::eyre!("Failed to run metadata service: {:#}", e));
+            }
+        } else {
+            tracing::error!("metadata-service and telemetry configs are not present. Can't run metadata service");
+        }
+    }
+
+    let version_check_period = Duration::from_secs(agent.period.version_check_secs);
+    let main_loop_period_active = Duration::from_secs(agent.period.main_loop_active_secs);
+    let main_loop_period_idle = Duration::from_secs(agent.period.main_loop_idle_secs);
+
     let forge_api = &agent.forge_system.api_server;
     let build_version = forge_version::v!(build_version).to_string();
     let network_config_fetcher = network_config_fetcher::NetworkConfigFetcher::new(
         network_config_fetcher::NetworkConfigFetcherConfig {
-            config_fetch_interval: NETWORK_CONFIG_FETCH_PERIOD,
+            config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
             machine_id: machine_id.to_string(),
             forge_api: forge_api.to_string(),
             forge_tls_config: forge_tls_config.clone(),
@@ -392,10 +396,10 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
                     }
                 }
 
-                let health_report = health::health_check(&tenant_peers);
+                let health_report = health::health_check(&agent.hbn.root_dir, &tenant_peers);
                 is_healthy = health_report.is_healthy();
                 is_hbn_up = health_report.is_up(); // subset of is_healthy
-                trace!("{} HBN health is: {}", machine_id, health_report);
+                tracing::trace!("{} HBN health is: {}", machine_id, health_report);
                 // If we just applied a new network config report network as unhealthy.
                 // This gives HBN / BGP time to act on the config.
                 let hs = rpc::NetworkHealth {
@@ -440,40 +444,33 @@ async fn run(machine_id: &str, forge_tls_config: ForgeTlsConfig, agent: AgentCon
             cert_renewal_time = now.add(Duration::from_secs(cert_renewal_period));
             renew_certificates(forge_api, forge_tls_config.clone()).await;
         }
+
+        // We potentially restart at this point, so make it last in the loop
         if now > version_check_time {
-            version_check_time = now.add(VERSION_CHECK_PERIOD);
-            if let Err(e) = version_check(forge_api, forge_tls_config.clone()).await {
-                error!("version_check: Cannot talk to carbide-api at {forge_api}: {e}");
+            version_check_time = now.add(version_check_period);
+            if let Err(e) = upgrade::upgrade_check(
+                forge_api,
+                forge_tls_config.clone(),
+                machine_id,
+                &agent.machine.upgrade_cmd,
+            )
+            .await
+            {
+                tracing::error!(
+                    forge_api,
+                    error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
+                    "upgrade_check failed"
+                );
             }
         }
 
         let loop_period = if seen_blank || !is_healthy || has_changed_configs {
-            MAIN_LOOP_PERIOD_ACTIVE
+            main_loop_period_active
         } else {
-            MAIN_LOOP_PERIOD_IDLE
+            main_loop_period_idle
         };
         tokio::time::sleep(loop_period).await;
     }
-}
-
-pub async fn version_check(forge_api: &str, tls_config: ForgeTlsConfig) -> eyre::Result<()> {
-    let mut client = forge_tls_client::ForgeTlsClient::new(tls_config)
-        .connect(forge_api)
-        .await?;
-    let remote_version = client
-        .version(tonic::Request::new(()))
-        .await
-        .map(|response| response.into_inner())?;
-    let remote_build = remote_version.build_version;
-
-    let local_build = forge_version::v!(build_version);
-
-    if remote_build == local_build {
-        trace!("forge-dpu-agent is up to date");
-    } else {
-        warn!("forge-dpu-agent version {local_build} does not match server {remote_build}");
-    }
-    Ok(())
 }
 
 async fn renew_certificates(forge_api: &str, forge_tls_config: ForgeTlsConfig) {
@@ -483,7 +480,11 @@ async fn renew_certificates(forge_api: &str, forge_tls_config: ForgeTlsConfig) {
     {
         Ok(client) => client,
         Err(err) => {
-            error!("Could not connect to Forge API server at {forge_api}. Will retry. {err:#}");
+            tracing::error!(
+                forge_api,
+                error = format!("{err:#}"),
+                "renew_certificates: Could not connect to Forge API server. Will retry."
+            );
             return;
         }
     };
@@ -495,7 +496,10 @@ async fn renew_certificates(forge_api: &str, forge_tls_config: ForgeTlsConfig) {
             registration::write_certs(machine_certificate_result.machine_certificate).await;
         }
         Err(err) => {
-            error!("Error while executing the renew_machine_certificate gRPC call: {err:#}");
+            tracing::error!(
+                error = format!("{err:#}"),
+                "Error while executing the renew_certificates gRPC call"
+            );
         }
     }
 }
@@ -511,13 +515,20 @@ async fn record_network_status(
     {
         Ok(client) => client,
         Err(err) => {
-            error!("Could not connect to Forge API server at {forge_api}. Will retry. {err:#}");
+            tracing::error!(
+                forge_api,
+                error = format!("{err:#}"),
+                "record_network_status: Could not connect to Forge API server. Will retry."
+            );
             return;
         }
     };
     let request = tonic::Request::new(status);
     if let Err(err) = client.record_dpu_network_status(request).await {
-        error!("Error while executing the record_machine_network_status gRPC call: {err:#}");
+        tracing::error!(
+            error = format!("{err:#}"),
+            "Error while executing the record_network_status gRPC call"
+        );
     }
 }
 
@@ -534,11 +545,13 @@ pub fn pretty_cmd(c: &Command) -> String {
 
 async fn run_metadata_service(
     machine_id: &str,
-    forge_api: &str,
     forge_tls_config: ForgeTlsConfig,
+    agent: &AgentConfig,
     metadata_service_address: String,
     metrics_address: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let forge_api = &agent.forge_system.api_server;
+
     // This defines attributes that are set on the exported logs **and** metrics
     let service_telemetry_attributes = sdk::Resource::new(vec![
         semcov::resource::SERVICE_NAME.string("dpu-agent"),
@@ -569,7 +582,7 @@ async fn run_metadata_service(
     let instance_metadata_fetcher =
         Arc::new(instance_metadata_fetcher::InstanceMetadataFetcher::new(
             instance_metadata_fetcher::InstanceMetadataFetcherConfig {
-                config_fetch_interval: NETWORK_CONFIG_FETCH_PERIOD,
+                config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
                 machine_id: machine_id.to_string(),
                 forge_api: forge_api.to_string(),
                 forge_tls_config,

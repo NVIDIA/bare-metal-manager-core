@@ -30,13 +30,21 @@ pxe-server = "http://127.0.0.1:8080"
 root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
 
 [machine]
+is-fake-dpu = true
 interface-id = "$MACHINE_INTERFACE_ID"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.example.com"
+upgrade-cmd = "echo 'apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__' > $UPGRADE_INDICATOR"
 
 [hbn]
 root-dir = "$HBN_ROOT"
 skip-reload = true
+
+[period]
+main-loop-active-secs = 1
+main-loop-idle-secs = 2
+network-config-fetch-secs = 1
+version-check-secs = 1
 "#;
 
 const BMC_METADATA: &str = r#"{
@@ -64,7 +72,8 @@ pub struct Info {
 }
 
 pub async fn bootstrap(
-    dpu_config_file: &path::Path,
+    dpu_config_path: &path::Path,
+    upgrade_indicator_path: &path::Path,
     carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
 ) -> eyre::Result<Info> {
@@ -96,14 +105,32 @@ pub async fn bootstrap(
     let firmware_version = get_firmware_version(carbide_api_addr, &dpu_machine_id)?;
     assert_eq!(&firmware_version, "2.0.1");
 
-    let hbn_root = configure_network(
-        dpu_config_file,
+    let hbn_root = make_dpu_filesystem(
+        dpu_config_path,
+        upgrade_indicator_path,
         carbide_api_addr,
         root_dir,
         &interface_id,
+    )?;
+
+    // Start forge-dpu-agent
+    let dmi = dpu_machine_id.clone();
+    tokio::spawn(agent::start(agent::Options {
+        version: false,
+        config_path: dpu_config_path.to_path_buf(),
+        cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
+            enable_metadata_service: false,
+            override_machine_id: Some(dmi.to_string()),
+        })),
+    }));
+
+    // Wait for network configuration to finish
+    wait_for_state(
+        carbide_api_addr,
         &dpu_machine_id,
-    )
-    .await?;
+        "Host/WaitingForDiscovery",
+    )?;
+    tracing::info!("DPU is up now.");
 
     let dpu = Info {
         hbn_root,
@@ -155,7 +182,8 @@ fn forge_agent_control(addr: SocketAddr, dpu_machine_id: String) -> eyre::Result
 }
 
 fn write_config(
-    dpu_config_file: &path::Path,
+    dpu_config_path: &path::Path,
+    upgrade_indicator_path: &path::Path,
     carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
     machine_interface_id: &str,
@@ -165,45 +193,17 @@ fn write_config(
         .replace("$MACHINE_INTERFACE_ID", machine_interface_id)
         .replace("$HBN_ROOT", &hbn_root.display().to_string())
         .replace("$ROOT_DIR", &root_dir.display().to_string())
+        .replace(
+            "$UPGRADE_INDICATOR",
+            &upgrade_indicator_path.display().to_string(),
+        )
         .replace("$API_SERVER", &carbide_api_addr.to_string());
-    fs::write(dpu_config_file, cfg)
-}
-
-async fn configure_network(
-    dpu_config_file: &path::Path,
-    carbide_api_addr: SocketAddr,
-    root_dir: &path::Path,
-    interface_id: &str,
-    dpu_machine_id: &str,
-) -> eyre::Result<path::PathBuf> {
-    let hbn_root = make_dpu_filesystem(dpu_config_file, carbide_api_addr, root_dir, interface_id)?;
-
-    // Run iteration of forge-dpu-agent: Write the config files
-    agent::start(agent::Options {
-        version: false,
-        config_path: dpu_config_file.to_path_buf(),
-        cmd: Some(agent::AgentCommand::Netconf(agent::NetconfParams {
-            dpu_machine_id: dpu_machine_id.to_string(),
-        })),
-    })
-    .await?;
-    // Run iteration of forge-dpu-agent: Report network as healthy
-    agent::start(agent::Options {
-        version: false,
-        config_path: dpu_config_file.to_path_buf(),
-        cmd: Some(agent::AgentCommand::Netconf(agent::NetconfParams {
-            dpu_machine_id: dpu_machine_id.to_string(),
-        })),
-    })
-    .await?;
-
-    wait_for_state(carbide_api_addr, dpu_machine_id, "Host/WaitingForDiscovery")?;
-    tracing::info!("DPU is up now.");
-    Ok(hbn_root)
+    fs::write(dpu_config_path, cfg)
 }
 
 fn make_dpu_filesystem(
-    dpu_config_file: &path::Path,
+    dpu_config_path: &path::Path,
+    upgrade_indicator_path: &path::Path,
     carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
     machine_interface_id: &str,
@@ -219,7 +219,8 @@ fn make_dpu_filesystem(
     fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
     write_config(
-        dpu_config_file,
+        dpu_config_path,
+        upgrade_indicator_path,
         carbide_api_addr,
         root_dir,
         machine_interface_id,

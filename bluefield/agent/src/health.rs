@@ -10,18 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, fmt, path::PathBuf, process::Command, str::FromStr};
+use std::{collections::HashMap, fmt, path::Path, process::Command, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::hbn;
 
-const HBN_DAEMONS_FILE: &str = "/var/lib/hbn/etc/frr/daemons";
+const HBN_DAEMONS_FILE: &str = "etc/frr/daemons";
 const EXPECTED_FILES: [&str; 4] = [
-    "/var/lib/hbn/etc/frr/frr.conf",
-    "/var/lib/hbn/etc/network/interfaces",
-    "/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf",
+    "etc/frr/frr.conf",
+    "etc/network/interfaces",
+    "etc/supervisor/conf.d/default-isc-dhcp-relay.conf",
     HBN_DAEMONS_FILE,
 ];
 
@@ -29,7 +29,7 @@ const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
 const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
 
 /// Check the health of HBN
-pub fn health_check(host_routes: &[&str]) -> HealthReport {
+pub fn health_check(hbn_root: &Path, host_routes: &[&str]) -> HealthReport {
     let mut hr = HealthReport::new();
 
     let container_id = match hbn::get_hbn_container_id() {
@@ -47,9 +47,10 @@ pub fn health_check(host_routes: &[&str]) -> HealthReport {
 
     check_dhcp_relay(&mut hr, &container_id);
     check_ifreload(&mut hr, &container_id);
-    check_bgp_daemon_enabled(&mut hr);
+    let hbn_daemons_file = hbn_root.join(HBN_DAEMONS_FILE);
+    check_bgp_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
     check_network_stats(&mut hr, &container_id, host_routes);
-    check_files(&mut hr, &EXPECTED_FILES);
+    check_files(&mut hr, hbn_root, &EXPECTED_FILES);
 
     hr
 }
@@ -171,14 +172,14 @@ fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
 }
 
 // The files VPC creates should exist
-fn check_files(hr: &mut HealthReport, expected_files: &[&str]) {
+fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) {
     for filename in expected_files {
-        let path = PathBuf::from(filename);
+        let path = hbn_root.join(filename);
         if path.exists() {
-            hr.passed(HealthCheck::FileExists(filename.to_string()));
+            hr.passed(HealthCheck::FileExists(path.display().to_string()));
         } else {
             hr.failed(
-                HealthCheck::FileExists(filename.to_string()),
+                HealthCheck::FileExists(path.display().to_string()),
                 "Not found".to_string(),
             );
             continue;
@@ -205,14 +206,14 @@ fn check_files(hr: &mut HealthReport, expected_files: &[&str]) {
     }
 }
 
-fn check_bgp_daemon_enabled(hr: &mut HealthReport) {
-    let daemons = match std::fs::read_to_string(HBN_DAEMONS_FILE) {
+fn check_bgp_daemon_enabled(hr: &mut HealthReport, hbn_daemons_file: &str) {
+    let daemons = match std::fs::read_to_string(hbn_daemons_file) {
         Ok(s) => s,
         Err(err) => {
             warn!("check_bgp_daemon_enabled: {err}");
             hr.failed(
                 HealthCheck::BgpDaemonEnabled,
-                format!("Trying to open and read {HBN_DAEMONS_FILE}: {err}"),
+                format!("Trying to open and read {hbn_daemons_file}: {err}"),
             );
             return;
         }
@@ -221,14 +222,14 @@ fn check_bgp_daemon_enabled(hr: &mut HealthReport) {
     if daemons.contains("bgpd=no") {
         hr.failed(
             HealthCheck::BgpDaemonEnabled,
-            format!("BGP daemon is disabled - {HBN_DAEMONS_FILE} contains 'bgpd=no'"),
+            format!("BGP daemon is disabled - {hbn_daemons_file} contains 'bgpd=no'"),
         );
         return;
     }
     if !daemons.contains("bgpd=yes") {
         hr.failed(
             HealthCheck::BgpDaemonEnabled,
-            format!("BGP daemon is not enabled - {HBN_DAEMONS_FILE} does not contain 'bgpd=yes'"),
+            format!("BGP daemon is not enabled - {hbn_daemons_file} does not contain 'bgpd=yes'"),
         );
         return;
     }

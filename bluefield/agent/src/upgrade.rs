@@ -1,0 +1,115 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::env;
+use std::fs;
+use std::io::ErrorKind;
+use std::io::Read;
+use std::process::Command;
+
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
+use data_encoding::BASE64;
+use eyre::WrapErr;
+
+/// Check if forge-dpu-agent needs upgrading to a new version, and if yes perform the upgrade
+pub async fn upgrade_check(
+    forge_api: &str,
+    tls_config: ForgeTlsConfig,
+    machine_id: &str,
+    // The command to run to upgrade forge-dpu-agent
+    upgrade_cmd: &str,
+) -> eyre::Result<()> {
+    let binary_path = env::current_exe()?;
+    let stat = fs::metadata(&binary_path)
+        .wrap_err_with(|| format!("Failed stat of '{}'", binary_path.display()))?;
+    let Ok(binary_mtime) = stat.modified() else {
+        eyre::bail!("Failed reading mtime of forge-dpu-agent binary at '{}'", binary_path.display());
+    };
+
+    // blake3 is almost 2x faster than sha2's sha256 in release mode, and 35x faster in debug mode
+    let mut hasher = blake3::Hasher::new();
+    let mut f =
+        fs::File::open(&binary_path).wrap_err_with(|| format!("open {}", binary_path.display()))?;
+    let mut buf = [0; 32768];
+    loop {
+        match f.read(&mut buf) {
+            Ok(0) => {
+                break;
+            }
+            Ok(n) => {
+                hasher.update(&buf[..n]);
+            }
+            Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(err) => {
+                return Err(err.into());
+            }
+        }
+    }
+    let hash: [u8; 32] = hasher.finalize().into();
+
+    let local_build = forge_version::v!(build_version);
+    let req = rpc::DpuAgentUpgradeCheckRequest {
+        machine_id: machine_id.to_string(),
+        current_agent_version: local_build.to_string(),
+        binary_mtime: Some(binary_mtime.into()),
+        binary_sha: BASE64.encode(&hash),
+    };
+
+    let mut client = forge_tls_client::ForgeTlsClient::new(tls_config)
+        .connect(forge_api)
+        .await?;
+    let resp = client
+        .dpu_agent_upgrade_check(tonic::Request::new(req))
+        .await
+        .map(|response| response.into_inner())?;
+
+    if resp.should_upgrade {
+        // We do this for two reason:
+        // - Move the file back on upgrade failure
+        // - Kernel prevents overwriting inode of running binary, we'd get ETXTBSY.
+        let mut backup = binary_path.clone();
+        backup.set_extension("BAK");
+        fs::rename(&binary_path, &backup)
+            .wrap_err_with(|| format!("mv {} {}", binary_path.display(), backup.display()))?;
+
+        let upgrade_cmd = upgrade_cmd.replace("__PKG_VERSION__", &resp.package_version);
+        tracing::info!(
+            local_build,
+            remote_build = resp.server_version,
+            to_package_version = resp.package_version,
+            upgrade_cmd,
+            version = forge_version::v!(build_version),
+            "Upgrading myself, goodbye.",
+        );
+        if let Err(err) = run_upgrade_cmd(&upgrade_cmd) {
+            tracing::error!(upgrade_cmd, err = format!("{err:#}"), "Upgrade failed");
+            fs::rename(backup, binary_path)?;
+            eyre::bail!("run_upgrade_cmd failed");
+        }
+        // The debian package has a postinst command to systemctl restart us,
+        // so shouldn't reach here.
+    } else {
+        tracing::trace!("forge-dpu-agent is up to date");
+    }
+    Ok(())
+}
+
+fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
+    let out = Command::new("bash").arg("-c").arg(upgrade_cmd).output()?;
+    if !out.status.success() {
+        tracing::error!(" STDOUT: {}", String::from_utf8_lossy(&out.stdout));
+        tracing::error!(" STDERR: {}", String::from_utf8_lossy(&out.stderr));
+        eyre::bail!("Failed running upgrade command. Check logs for stdout/stderr.");
+    }
+    Ok(())
+}

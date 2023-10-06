@@ -131,6 +131,7 @@ root-ca = "./dev/certs/forge_developer_local_only_root_cert_pem"
 interface-id = "$MACHINE_INTERFACE_ID"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.com"
+upgrade-cmd = "apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__"
 
 [hbn]
 root-dir = "$HBN_ROOT"

@@ -15,7 +15,7 @@
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use carbide::{
-    api::Api,
+    api::{Api, ApiTlsConfig},
     auth::{Authorizer, NoopEngine},
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
@@ -111,10 +111,12 @@ impl TestEnv {
             self.redfish_sim.clone(),
             self.eth_virt_data.clone(),
             self.common_pools.clone(),
-            "not a real pemfile path".to_string(),
-            "not a real keyfile path".to_string(),
-            "not a real cafile path".to_string(),
-            "not a real admin cafile path".to_string(),
+            ApiTlsConfig {
+                identity_pemfile_path: "not a real pemfile path".to_string(),
+                identity_keyfile_path: "not a real keyfile path".to_string(),
+                root_cafile_path: "not a real cafile path".to_string(),
+                admin_root_cafile_path: "not a real admin cafile path".to_string(),
+            },
         ));
 
         StateHandlerServices {
@@ -336,10 +338,12 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         redfish_sim.clone(),
         eth_virt_data.clone(),
         common_pools.clone(),
-        "not a real pemfile path".to_string(),
-        "not a real keyfile path".to_string(),
-        "not a real cafile path".to_string(),
-        "not a real admin cafile path".to_string(),
+        ApiTlsConfig {
+            identity_pemfile_path: "not a real pemfile path".to_string(),
+            identity_keyfile_path: "not a real keyfile path".to_string(),
+            root_cafile_path: "not a real cafile path".to_string(),
+            admin_root_cafile_path: "not a real admin cafile path".to_string(),
+        },
     );
     TestEnv {
         api,
