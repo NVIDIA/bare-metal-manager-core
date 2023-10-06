@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
-#[clap(name = env!("CARGO_BIN_NAME"))]
+#[clap(name = "forge-admin-cli")]
 #[clap(author = "Slack channel #swngc-forge-dev")]
 pub struct CarbideOptions {
     #[clap(

@@ -32,3 +32,6 @@ forge-version = { path = "../version" }
 
 [build-dependencies]
 forge-version = { path = "../version" }
+clap = { workspace = true }
+clap_complete = "*"
+rpc = { path = "../rpc" }
