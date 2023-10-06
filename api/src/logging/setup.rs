@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use eyre::WrapErr;
 use opentelemetry::{
     metrics::MeterProvider,
     sdk::{self, metrics},
@@ -61,8 +62,11 @@ pub async fn setup_telemetry(
     global_filter = global_filter
         .add_directive("sqlxmq::runner=warn".parse()?)
         .add_directive("rustify=off".parse()?)
+        .add_directive("hyper=error".parse()?)
+        .add_directive("rustls=warn".parse()?)
+        .add_directive("tokio_util::codec=warn".parse()?)
         .add_directive("vaultrs=error".parse()?)
-        .add_directive("h2::codec=warn".parse()?);
+        .add_directive("h2=warn".parse()?);
 
     // This defines attributes that are set on the exported logs **and** metrics
     let service_telemetry_attributes = sdk::Resource::new(vec![
@@ -129,7 +133,9 @@ pub async fn setup_telemetry(
         .event_format(logfmt_er);
 
     if let Some(logging_subscriber) = logging_subscriber {
-        logging_subscriber.try_init()?;
+        logging_subscriber
+            .try_init()
+            .wrap_err("logging_subscriber.try_init()")?;
     } else {
         // Create a `Filter` that prevents logs with a level below `WARN` for sqlx
         // We use this solely for stdout and OpenTelemetry logging.
@@ -145,7 +151,8 @@ pub async fn setup_telemetry(
             .with(stdout_formatter.with_filter(block_sqlx_filter.clone()))
             .with(opentelemetry_layer.with_filter(block_sqlx_filter.clone()))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
-            .try_init()?;
+            .try_init()
+            .wrap_err("new tracing subscriber try_init()")?;
     };
 
     // This sets the global meter provider

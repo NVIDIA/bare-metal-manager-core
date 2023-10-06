@@ -7,6 +7,7 @@ root-ca = "/home/amaslennikov/pcarbide/credentials/localhost.pem"
 interface-id = "3048d658-0b13-4a5e-91cc-f47e45a031f9"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.com"
+upgrade-cmd = "apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__"
 
 [metadata-service]
 address = "0.0.0.0:7777"

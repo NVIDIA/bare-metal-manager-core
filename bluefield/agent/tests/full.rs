@@ -10,21 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
-use agent::MAIN_LOOP_PERIOD_ACTIVE;
 use axum::extract::State as AxumState;
-use axum::http::{header, StatusCode, Uri};
+use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::Router;
-use axum_server::tls_rustls::RustlsConfig;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use tokio::sync::Mutex;
+
+mod common;
 
 // TODO: Add settings to config file and switch this to true
 // Then assert that it works
@@ -45,15 +44,18 @@ hostname = "abc.forge.example.com"
 [hbn]
 root-dir = "$HBN_ROOT"
 skip-reload = true
-"#;
 
-const TLS_CERT: &[u8] = include_bytes!("../test-certs/tls.crt");
-const TLS_KEY: &[u8] = include_bytes!("../test-certs/tls.key");
+[period]
+main-loop-active-secs = 1
+network-config-fetch-secs = 1
+main-loop-idle-secs = 30
+version-check-secs = 1800
+"#;
 
 #[derive(Default)]
 struct State {
     has_discovered: bool,
-    has_checked_version: bool,
+    has_checked_for_upgrade: bool,
     has_fetched_netconf: bool,
     has_reported_health: bool,
 }
@@ -61,7 +63,6 @@ struct State {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_start() -> eyre::Result<()> {
     forge_host_support::init_logging()?;
-
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
 
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
@@ -80,11 +81,23 @@ async fn test_start() -> eyre::Result<()> {
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
 
     // Start carbide API
-    let listener = TcpListener::bind("127.0.0.1:0")?; // 0 let OS choose available port
-    let addr = listener.local_addr()?;
-    let state_carbide = state.clone();
-    tokio::spawn(async move { mock_carbide_api(listener, state_carbide).await });
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let app = Router::new()
+        .route("/forge.Forge/DiscoverMachine", post(handle_discover))
+        .route(
+            "/forge.Forge/GetManagedHostNetworkConfig",
+            post(handle_netconf),
+        )
+        .route(
+            "/forge.Forge/RecordDpuNetworkStatus",
+            post(handle_record_netstat),
+        )
+        .route(
+            "/forge.Forge/DpuAgentUpgradeCheck",
+            post(handle_dpu_agent_upgrade_check),
+        )
+        .fallback(handler)
+        .with_state(state.clone());
+    let (addr, join_handle) = common::run_grpc_server(app).await?;
 
     let cfg = AGENT_CONFIG
         .replace("$ROOT_DIR", &root_dir.display().to_string())
@@ -98,6 +111,7 @@ async fn test_start() -> eyre::Result<()> {
         config_path: agent_config_file.path().to_path_buf(),
         cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
             enable_metadata_service: TEST_METADATA_SERVICE,
+            override_machine_id: None,
         })),
     };
 
@@ -119,12 +133,15 @@ async fn test_start() -> eyre::Result<()> {
 
     // Let it run twice
     // First time it noticed HBN is up. Second time it applies config.
-    tokio::time::sleep(MAIN_LOOP_PERIOD_ACTIVE + Duration::from_secs(1)).await;
+    // In config above period.main_loop_active_secs is 1 seconds, so make this 2 seconds
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    join_handle.abort();
 
     // The gRPC calls were made
     let statel = state.lock().await;
     assert!(statel.has_discovered);
-    assert!(statel.has_checked_version);
+    assert!(statel.has_checked_for_upgrade);
     assert!(statel.has_fetched_netconf);
     assert!(statel.has_reported_health);
 
@@ -141,67 +158,15 @@ async fn test_start() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn mock_carbide_api(
-    listener: TcpListener,
-    state: Arc<Mutex<State>>,
-) -> Result<(), std::io::Error> {
-    let app = Router::new()
-        .route("/forge.Forge/DiscoverMachine", post(handle_discover))
-        .route("/forge.Forge/Version", post(handle_version))
-        .route(
-            "/forge.Forge/GetManagedHostNetworkConfig",
-            post(handle_netconf),
-        )
-        .route(
-            "/forge.Forge/RecordDpuNetworkStatus",
-            post(handle_record_netstat),
-        )
-        .fallback(handler)
-        .with_state(state);
-
-    let config = RustlsConfig::from_pem(TLS_CERT.to_vec(), TLS_KEY.to_vec())
-        .await
-        .unwrap();
-    axum_server::from_tcp_rustls(listener, config)
-        .serve(app.into_make_service())
-        .await
-}
-
-fn respond(out: impl prost::Message) -> impl IntoResponse {
-    let msg_len = out.encoded_len() as u32;
-    let mut body = Vec::with_capacity(1 + 4 + msg_len as usize);
-    // first byte is compression: 0 means none
-    body.push(0u8);
-    // next four bytes are length as bigendian u32
-    body.extend_from_slice(&msg_len.to_be_bytes());
-    // and finally the message
-    out.encode(&mut body).unwrap();
-
-    let headers = [(header::CONTENT_TYPE, "application/grpc+tonic")];
-    (headers, body)
-}
-
 async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
     state.lock().await.has_discovered = true;
-    respond(rpc::forge::MachineDiscoveryResult {
+    common::respond(rpc::forge::MachineDiscoveryResult {
         machine_id: Some(
             "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g"
                 .to_string()
                 .into(),
         ),
         machine_certificate: None,
-    })
-}
-
-async fn handle_version(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
-    state.lock().await.has_checked_version = true;
-    respond(rpc::forge::VersionResult {
-        build_version: forge_version::v!(build_version).to_string(),
-        build_date: forge_version::v!(build_date).to_string(),
-        git_sha: forge_version::v!(git_sha).to_string(),
-        rust_version: forge_version::v!(rust_version).to_string(),
-        build_user: forge_version::v!(build_user).to_string(),
-        build_hostname: forge_version::v!(build_hostname).to_string(),
     })
 }
 
@@ -238,14 +203,25 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         remote_id: "".to_string(),
         deny_prefixes: vec![],
     };
-    respond(netconf)
+    common::respond(netconf)
 }
 
 async fn handle_record_netstat(
     AxumState(state): AxumState<Arc<Mutex<State>>>,
 ) -> impl IntoResponse {
     state.lock().await.has_reported_health = true;
-    respond(())
+    common::respond(())
+}
+
+async fn handle_dpu_agent_upgrade_check(
+    AxumState(state): AxumState<Arc<Mutex<State>>>,
+) -> impl axum::response::IntoResponse {
+    state.lock().await.has_checked_for_upgrade = true;
+    common::respond(rpc::forge::DpuAgentUpgradeCheckResponse {
+        should_upgrade: false,
+        package_version: forge_version::v!(build_version)[1..].to_string(),
+        server_version: forge_version::v!(build_version).to_string(),
+    })
 }
 
 async fn handler(uri: Uri) -> impl IntoResponse {

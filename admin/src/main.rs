@@ -21,8 +21,11 @@ use ::rpc::{
     forge::{self as forgerpc, MachineType},
     MachineId,
 };
+use cfg::carbide_options::AgentUpgrade;
+use cfg::carbide_options::AgentUpgradePolicyChoice;
 use cfg::carbide_options::BmcMachine;
 use cfg::carbide_options::BootOverrideAction;
+use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
 use cfg::carbide_options::DpuAction::Reprovision;
 use cfg::carbide_options::DpuReprovision;
 use cfg::carbide_options::IpAction;
@@ -527,6 +530,14 @@ async fn main() -> color_eyre::Result<()> {
                 }
                 DpuReprovision::List => dpu::list_dpus_pending(api_config).await?,
             },
+            AgentUpgradePolicy(AgentUpgrade { set }) => {
+                let rpc_choice = set.map(|cmd_line_policy| match cmd_line_policy {
+                    AgentUpgradePolicyChoice::Off => forgerpc::AgentUpgradePolicy::Off,
+                    AgentUpgradePolicyChoice::UpOnly => forgerpc::AgentUpgradePolicy::UpOnly,
+                    AgentUpgradePolicyChoice::UpDown => forgerpc::AgentUpgradePolicy::UpDown,
+                });
+                dpu::handle_agent_upgrade_policy(api_config, rpc_choice).await?
+            }
         },
         CarbideCommand::Redfish(_) => {
             // Handled earlier

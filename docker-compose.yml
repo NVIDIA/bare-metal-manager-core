@@ -114,6 +114,7 @@ services:
       - VAULT_ADDR=http://vault:8200
       - RUST_BACKTRACE=full
       - RUST_LIB_BACKTRACE=0
+      - RUST_LOG=$RUST_LOG
     extra_hosts:
       - "host.docker.internal:host-gateway"
     logging:

@@ -134,6 +134,11 @@ pub struct DhcpOptions {
 pub struct RunOptions {
     #[clap(long, help = "Enable metadata service")]
     pub enable_metadata_service: bool,
+    #[clap(
+        long,
+        help = "Use this machine id instead of building it from hardware enumeration. Development/testing only"
+    )]
+    pub override_machine_id: Option<String>,
 }
 
 impl Options {

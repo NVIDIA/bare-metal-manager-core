@@ -28,6 +28,7 @@ use crate::model::hardware_info::{BMCVendor, HardwareInfo};
 
 pub mod machine_id;
 pub mod network;
+pub mod upgrade_policy;
 use machine_id::MachineId;
 
 /// Represents the current state of `Machine`
@@ -228,6 +229,14 @@ pub struct ReprovisionRequest {
     pub requested_at: DateTime<Utc>,
     pub initiator: String,
     pub update_firmware: bool,
+}
+
+/// Should a forge-dpu-agent upgrade itself?
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpgradeDecision {
+    pub should_upgrade: bool,
+    pub to_version: String,
+    pub last_updated: DateTime<Utc>,
 }
 
 impl Display for MachineState {

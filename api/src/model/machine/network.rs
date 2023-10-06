@@ -10,7 +10,7 @@ use crate::model::{config_version::ConfigVersion, RpcDataConversionError};
 /// Stored in a Postgres JSON field so new fields have to be Option until fully deployed
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MachineNetworkStatusObservation {
-    machine_id: String,
+    pub machine_id: String,
     pub agent_version: Option<String>,
     pub observed_at: DateTime<Utc>,
     pub health_status: HealthStatus,

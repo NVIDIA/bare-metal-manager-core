@@ -184,7 +184,7 @@ impl StateHandler for MachineStateHandler {
                     };
                     observation.observed_at = Utc::now();
                     let dpu_machine_id = &state.dpu_snapshot.machine_id;
-                    Machine::update_network_status_observation(txn, dpu_machine_id, observation)
+                    Machine::update_network_status_observation(txn, dpu_machine_id, &observation)
                         .await?;
                     tracing::warn!(
                         host_machine_id = %host_machine_id,

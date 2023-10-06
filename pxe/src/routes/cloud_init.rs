@@ -64,6 +64,11 @@ fn user_data_handler(
         seconds_since_epoch.to_string(),
     );
 
+    context.insert(
+        "dpu_agent_pkg_version".to_string(),
+        forge_version::v!(build_version)[1..].to_string(),
+    );
+
     ("user-data".to_string(), context)
 }
 
@@ -96,6 +101,7 @@ fn generate_forge_agent_config(
         interface-id = \"{machine_interface_id}\"
         mac-address = \"{mac_address}\"
         hostname = \"{hostname}\"
+        upgrade-cmd = \"apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__\"
 
         [metadata-service]
         address = \"{instance_metadata_service_address}\"

@@ -82,7 +82,7 @@ pub fn update(
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
 ) -> eyre::Result<bool> {
-    debug!("Desired network config is {:?}", network_config);
+    trace!("Desired network config is {:?}", network_config);
     let paths = paths(hbn_root, network_config.is_production_mode);
 
     let mut errs = vec![];

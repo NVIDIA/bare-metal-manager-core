@@ -10,7 +10,7 @@ package forge;
 
 service Forge {
   // What version of Forge is this service running? Matches `--version` command line.
-  rpc Version(google.protobuf.Empty) returns (VersionResult);
+  rpc Version(google.protobuf.Empty) returns (FullVersion);
 
   // Domain
   rpc CreateDomain(Domain) returns (Domain);
@@ -57,6 +57,8 @@ service Forge {
   // forge-dpu-agent -> carbide-api
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
+  rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
+  rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
 
   rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
 //  rpc LookupPTRRecord(DnsRequest) returns (DnsReply);
@@ -173,7 +175,7 @@ service Forge {
   rpc GetMachineBootOverride(UUID) returns (MachineBootOverride);
   rpc SetMachineBootOverride(MachineBootOverride) returns (google.protobuf.Empty);
   rpc ClearMachineBootOverride(UUID) returns (google.protobuf.Empty);
-  
+
   // Get Network topology
   rpc GetNetworkTopology(NetworkTopologyRequest) returns (NetworkTopologyData);
 
@@ -183,7 +185,7 @@ service Forge {
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
 }
 
-message VersionResult {
+message FullVersion {
     string build_version = 1; // v2023.06-rc2-1-gc5c05de3
     string build_date = 2; // 2023-06-05
     string git_sha = 3; // c5c05de3
@@ -1127,6 +1129,36 @@ message FlatInterfaceConfig {
 message ManagedHostNetworkStatusRequest {}
 message ManagedHostNetworkStatusResponse {
     repeated DpuNetworkStatus all = 1;
+}
+
+message DpuAgentUpgradeCheckRequest {
+    string machine_id = 1;
+    string current_agent_version = 2;
+    google.protobuf.Timestamp binary_mtime = 3;
+    string binary_sha = 4;
+}
+
+message DpuAgentUpgradeCheckResponse {
+  bool should_upgrade = 1;
+  string package_version = 2; // Update to this version of the .deb package
+  string server_version = 3;
+}
+
+message DpuAgentUpgradePolicyRequest {
+  optional AgentUpgradePolicy new_policy = 1;
+}
+
+enum AgentUpgradePolicy {
+  OFF = 0;
+  UP_ONLY = 1;
+  UP_DOWN = 2;
+}
+
+message DpuAgentUpgradePolicyResponse {
+  // The policy in effect right now
+  AgentUpgradePolicy active_policy = 1;
+  // Did we just change it because of a user request?
+  bool did_change = 2;
 }
 
 message AdminForceDeleteMachineRequest {

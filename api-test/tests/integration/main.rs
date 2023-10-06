@@ -14,7 +14,8 @@ use std::{
     collections::HashMap,
     env, fs,
     net::{SocketAddr, TcpListener},
-    path, time,
+    path::{self, PathBuf},
+    time,
 };
 
 use sqlx::migrate::MigrateDatabase;
@@ -26,6 +27,7 @@ pub mod grpcurl;
 mod host;
 mod instance;
 mod machine;
+mod upgrade;
 mod vault;
 use grpcurl::grpcurl;
 
@@ -38,13 +40,32 @@ async fn test_integration() -> eyre::Result<()> {
     // There is unfortunately no support for certificates in the vault dev server, so we have to disable this in code.
     env::set_var("UNSUPPORTED_CERTIFICATE_PROVIDER", "true");
 
+    // We should setup logging here but:
+    // - try_init sets a global logger and can only be called once.
+    // Error is: "a global default trace dispatcher has already been set".
+    // forge_host_support::init_logging() calls try_init, but so does carbide-api when it starts.
+    // - Even if we could get around that (forge_host_support::subscriber().set_default() should
+    // set a thread-specific logger), tracing will attempt to initialize the `log` crate (via tracing-log)
+    // which can also only be initialized once. What a mess.
+    // Error is: "attempted to set a logger after the logging system was already initialized"
+
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
-        tracing::warn!("Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping.");
+        eprintln!("Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping.");
         return Ok(());
     };
+    let root_dir = PathBuf::from(repo_root.clone());
     let (bins, has_all) = find_prerequisites();
     if !has_all {
         eyre::bail!("Missing pre-requisites");
+    }
+
+    // Put our fake `crictl` on front of path so that forge-dpu-agent's HBN health checks succeed
+    let dev_bin = root_dir.join("dev/bin");
+    if let Some(path) = env::var_os("PATH") {
+        let mut paths = env::split_paths(&path).collect::<Vec<_>>();
+        paths.insert(0, dev_bin);
+        let new_path = env::join_paths(paths)?;
+        env::set_var("PATH", new_path);
     }
 
     // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
@@ -72,23 +93,37 @@ async fn test_integration() -> eyre::Result<()> {
     };
 
     let vault_token = vault.token().to_string();
-    let root_dir = path::PathBuf::from(repo_root);
     let root_dir_clone = root_dir.to_str().unwrap().to_string();
     let db_url = db_url.to_string();
     tokio::spawn(async move {
         if let Err(e) =
             api_server::start(carbide_api_addr, root_dir_clone, db_url, vault_token).await
         {
-            eprintln!("Failed to start API server: {}", e);
+            eprintln!("Failed to start API server: {:#}", e);
         }
     });
 
     sleep(time::Duration::from_secs(5)).await;
 
-    let agent_config_file = tempfile::NamedTempFile::new()?;
-    let dpu_info = dpu::bootstrap(agent_config_file.path(), carbide_api_addr, &root_dir).await?;
-    host_boostrap(carbide_api_addr, agent_config_file.path(), &dpu_info).await?;
+    // And now.. Behold! The Test!
 
+    let agent_config_file = tempfile::NamedTempFile::new()?;
+    let upgrade_indicator_file = tempfile::NamedTempFile::new()?;
+    let dpu_info = dpu::bootstrap(
+        agent_config_file.path(),
+        upgrade_indicator_file.path(),
+        carbide_api_addr,
+        &root_dir,
+    )
+    .await?;
+    host_boostrap(carbide_api_addr).await?;
+    upgrade::upgrade_dpu(
+        upgrade_indicator_file.path(),
+        carbide_api_addr,
+        db_pool,
+        &dpu_info.machine_id,
+    )
+    .await?;
     //instance::create(&host_machine_id, &segment_id)?;
 
     sleep(time::Duration::from_millis(500)).await;
@@ -96,11 +131,7 @@ async fn test_integration() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn host_boostrap(
-    carbide_api_addr: SocketAddr,
-    agent_config_file: &path::Path,
-    dpu_info: &dpu::Info,
-) -> eyre::Result<()> {
+async fn host_boostrap(carbide_api_addr: SocketAddr) -> eyre::Result<()> {
     let host_machine_id = host::bootstrap(carbide_api_addr)?;
 
     // Wait until carbide-api is prepared to admit the DPU might have rebooted.
@@ -108,16 +139,6 @@ async fn host_boostrap(
     machine::wait_for_state(carbide_api_addr, &host_machine_id, "WaitForDPUUp")?;
 
     // After DPU reboot forge_dpu_agent reports health to carbide-api, triggering state transition
-    // Run iteration of forge-dpu-agent
-    agent::start(agent::Options {
-        version: false,
-        config_path: agent_config_file.to_path_buf(),
-        cmd: Some(agent::AgentCommand::Netconf(agent::NetconfParams {
-            dpu_machine_id: dpu_info.machine_id.clone(),
-        })),
-    })
-    .await?;
-
     machine::wait_for_state(carbide_api_addr, &host_machine_id, "Host/Discovered")?;
 
     grpcurl(
